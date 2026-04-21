@@ -1,0 +1,35 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #F8F8F8;
+  --surface: #FFFFFF;
+  --surface-elevated: #E4F8F9;
+  --primary: #00ADBB;
+  --primary-dark: #008a96;
+  --secondary: #2F7DE1;
+  --success: #00AA59;
+  --warning: #F0585D;
+  --purple: #A63595;
+  --yellow-green: #7DC433;
+  --text: #000000;
+  --text-secondary: #555555;
+  --border: #E0E0E0;
+
+  --font-sans: 'IBM Plex Sans', sans-serif;
+  --font-condensed: 'IBM Plex Sans Condensed', sans-serif;
+  --font-mono: 'IBM Plex Mono', monospace;
+}
+
+html, body, #root {
+  height: 100%;
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+button { cursor: pointer; font-family: inherit; }
+input, select, textarea { font-family: inherit; }
+a { text-decoration: none; color: inherit; }
