@@ -86,7 +86,13 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
   async function generate() {
     setGenerating(true)
-    const result = buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId })
+
+    const lockedActIds = new Set(activities.filter(a => a.is_locked).map(a => a.id))
+    const preplacedSlots = slots
+      .filter(s => s.activity_id && lockedActIds.has(s.activity_id) && !s.is_released && !s.is_anchor)
+      .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, activityId: s.activity_id }))
+
+    const result = buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId, preplacedSlots })
 
     // Upsert template
     let tid = templateId
@@ -185,6 +191,16 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       recalcStats(next)
       return next
     })
+  }
+
+  async function lockActivity(activityId) {
+    await supabase.from('activities').update({ is_locked: true }).eq('id', activityId)
+    setActivities(prev => prev.map(a => a.id === activityId ? { ...a, is_locked: true } : a))
+  }
+
+  async function releaseCell(slotId) {
+    await supabase.from('template_slots').update({ is_released: true }).eq('id', slotId)
+    setSlots(prev => prev.map(s => s.id === slotId ? { ...s, is_released: true } : s))
   }
 
   async function regenFromScratch() {
