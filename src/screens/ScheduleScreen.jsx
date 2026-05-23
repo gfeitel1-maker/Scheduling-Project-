@@ -845,7 +845,5 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   )
 }
 
-const td = { padding: '8px 10px', textAlign: 'left', fontSize: 12, verticalAlign: 'middle' }
-const th = { padding: '8px 10px', textAlign: 'left', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }
 const cellTd = { padding: '6px 8px', width: 100, minWidth: 80, verticalAlign: 'top', cursor: 'pointer' }
 const emptyTd = { padding: '6px 8px', width: 100, minWidth: 80, background: 'var(--bg)', opacity: 0.3 }
