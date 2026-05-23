@@ -513,7 +513,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                   </div>
 
                   <div style={{ overflowX: 'auto' }}>
-                    <table style={{ borderCollapse: 'collapse', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                    <table style={{ borderCollapse: 'collapse', width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
                       <thead>
                         <tr style={{ background: 'var(--surface-elevated)', borderBottom: '1.5px solid var(--border)' }}>
                           <th style={{ ...S.th, whiteSpace: 'nowrap', minWidth: 110, position: 'sticky', left: 0, background: 'var(--surface-elevated)', zIndex: 1 }}>Block</th>
