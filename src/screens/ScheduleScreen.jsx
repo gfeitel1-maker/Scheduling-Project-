@@ -236,8 +236,8 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   if (setupIncomplete) {
     return (
       <div style={{ maxWidth: 480 }}>
-        <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 8, padding: '20px 24px', fontSize: 13 }}>
-          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 15, marginBottom: 8 }}>Setup incomplete</div>
+        <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 12, padding: '20px 24px', fontSize: 13 }}>
+          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 16, marginBottom: 8, color: '#7A5100' }}>Setup incomplete</div>
           Setup the following before generating a schedule:
           <ul style={{ marginTop: 8, paddingLeft: 18, lineHeight: 2 }}>
             {groups.length === 0 && <li>Groups</li>}
@@ -270,9 +270,9 @@ export default function ScheduleScreen({ campId, onNavigate }) {
         {hasSchedule && (
           <>
             {/* View toggle */}
-            <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', gap: 2, background: 'var(--border)', borderRadius: 8, padding: 3 }}>
               {[['group','Group View'],['day','Daily View'],['activity','Activity View']].map(([v, label]) => (
-                <button key={v} onClick={() => { setView(v); if (v !== 'activity') setSelectedActivity(null) }} style={{ padding: '6px 14px', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, background: view === v ? 'var(--primary)' : 'var(--surface)', color: view === v ? '#fff' : 'var(--text)' }}>{label}</button>
+                <button key={v} onClick={() => { setView(v); if (v !== 'activity') setSelectedActivity(null) }} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'var(--font-sans)', background: view === v ? 'var(--surface)' : 'none', color: view === v ? 'var(--text)' : 'var(--text-secondary)', boxShadow: view === v ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}>{label}</button>
               ))}
             </div>
 
@@ -314,9 +314,8 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       {/* No schedule state */}
       {!hasSchedule && !generating && (
         <div style={{ textAlign: 'center', padding: '60px 24px', color: 'var(--text-secondary)', fontSize: 13 }}>
-          <div style={{ fontSize: 32, marginBottom: 12 }}>📅</div>
-          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, color: 'var(--text)', marginBottom: 8 }}>No schedule yet</div>
-          <div>Click "Generate Schedule" to build one from your current setup.</div>
+          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 20, color: 'var(--text)', marginBottom: 8 }}>No schedule yet</div>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Click "Generate Schedule" to build one from your current setup.</div>
         </div>
       )}
 
@@ -327,19 +326,19 @@ export default function ScheduleScreen({ campId, onNavigate }) {
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
             {groups.map(g => (
               <button key={g.id} onClick={() => setSelectedGroup(g.id)} style={{
-                padding: '5px 12px', borderRadius: 20, border: `1px solid ${selectedGroup === g.id ? 'var(--primary)' : 'var(--border)'}`,
+                padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${selectedGroup === g.id ? 'var(--primary)' : 'var(--border)'}`,
                 background: selectedGroup === g.id ? 'var(--primary)' : 'var(--surface)',
                 color: selectedGroup === g.id ? '#fff' : 'var(--text)',
-                fontSize: 12, fontWeight: 500, cursor: 'pointer',
+                fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-sans)',
               }}>{g.name}</button>
             ))}
           </div>
 
           {selectedGroup && (
             <div style={{ overflowX: 'auto' }}>
-                <table style={{ borderCollapse: 'collapse', minWidth: 500, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                <table style={{ borderCollapse: 'collapse', minWidth: 500, width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
                   <thead>
-                    <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
+                    <tr style={{ background: 'var(--surface-elevated)', borderBottom: '1.5px solid var(--border)' }}>
                       <th style={{ ...S.th, whiteSpace: 'nowrap', minWidth: 100 }}>Block</th>
                       {days.map(d => <th key={d.id} style={{ ...S.th, whiteSpace: 'nowrap' }}>{d.label}</th>)}
                     </tr>
