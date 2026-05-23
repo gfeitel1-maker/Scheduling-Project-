@@ -208,10 +208,10 @@ export default function TiersScreen({ campId, onNavigate }) {
       {loading ? (
         <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading…</div>
       ) : (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
+              <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
                 <th style={S.th}>Name</th>
                 <th style={S.th}>Sort Order</th>
                 <th style={S.th}>Groups</th>
@@ -220,11 +220,10 @@ export default function TiersScreen({ campId, onNavigate }) {
             </thead>
             <tbody>
               {tiers.length === 0 ? (
-                <tr>
-                  <td colSpan={4} style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-                    No tiers yet. Add one below or import from Excel.
-                  </td>
-                </tr>
+                <tr><td colSpan={4} style={{ padding: '40px 16px', textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No tiers yet</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first tier below or import from Excel.</div>
+                </td></tr>
               ) : tiers.map(tier => (
                 <TierRow
                   key={tier.id}
@@ -240,7 +239,7 @@ export default function TiersScreen({ campId, onNavigate }) {
       )}
 
       {/* Add row */}
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '14px 16px' }}>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           Add Tier
         </div>
@@ -271,7 +270,7 @@ export default function TiersScreen({ campId, onNavigate }) {
           position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
           display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
         }}>
-          <div style={{ background: 'var(--surface)', borderRadius: 10, padding: 28, width: 520, maxHeight: '80vh', overflow: 'auto' }}>
+          <div style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width: 520, maxHeight: '80vh', overflow: 'auto' }}>
             {importStep === 'preview' && (
               <>
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>

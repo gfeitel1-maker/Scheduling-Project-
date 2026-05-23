@@ -59,7 +59,7 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000, padding: '24px 16px', overflowY: 'auto' }}>
-      <div style={{ background: 'var(--surface)', borderRadius: 10, padding: 28, width: 600, maxWidth: '100%' }}>
+      <div style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width: 600, maxWidth: '100%' }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, marginBottom: 20 }}>
           {isNew ? 'Add Activity' : `Edit: ${activity.name}`}
         </div>
@@ -341,14 +341,15 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
       {loading ? (
         <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading…</div>
       ) : activities.length === 0 ? (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '40px 24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-          No activities yet. Add one or import from Excel.
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '40px 24px', textAlign: 'center' }}>
+          <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No activities yet</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first activity or import from Excel.</div>
         </div>
       ) : (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
+              <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
                 <th style={S.th}>Name</th>
                 <th style={S.th}>Location</th>
                 <th style={S.th}>Outdoor</th>
@@ -404,7 +405,7 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
 
       {importStep && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--surface)', borderRadius: 10, padding: 28, width: 620, maxHeight: '80vh', overflow: 'auto' }}>
+          <div style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width: 620, maxHeight: '80vh', overflow: 'auto' }}>
             {importStep === 'preview' && (
               <>
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>
