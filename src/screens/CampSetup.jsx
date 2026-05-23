@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabase'
+import { S } from '../styles/shared'
 
 const CHECKLIST = [
   { key: 'tiers',      label: 'Tiers',            screen: 'tiers',      table: 'tiers' },
@@ -59,7 +60,7 @@ export default function CampSetup({ campId, onNavigate }) {
   return (
     <div style={{ maxWidth: 600 }}>
       {error && (
-        <div style={{ background: '#fff5f5', border: '1px solid #f5c6c6', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: 'var(--warning)' }}>
+        <div style={S.errorBanner}>
           {error}
         </div>
       )}

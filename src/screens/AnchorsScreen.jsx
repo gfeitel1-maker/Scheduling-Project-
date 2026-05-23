@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../supabase'
+import { S } from '../styles/shared'
 
 function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose }) {
   const isNew = !anchor?.id
@@ -64,7 +65,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
         </div>
 
         <Field label="Name">
-          <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={inputStyle} placeholder="e.g. Mifkad, Lunch, Swim" />
+          <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} placeholder="e.g. Mifkad, Lunch, Swim" />
         </Field>
 
         <Field label={isNew ? 'Days (select all that apply)' : 'Day'}>
@@ -84,7 +85,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
         </Field>
 
         <Field label="Time Block">
-          <select value={blockId} onChange={e => setBlockId(e.target.value)} style={inputStyle}>
+          <select value={blockId} onChange={e => setBlockId(e.target.value)} style={S.input}>
             <option value="">— Select block —</option>
             {timeBlocks.map(b => <option key={b.id} value={b.id}>{b.name} ({b.start_time?.slice(0,5)}–{b.end_time?.slice(0,5)})</option>)}
           </select>
@@ -110,7 +111,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
         </Field>
 
         <Field label="Notes">
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...S.input, resize: 'vertical' }} />
         </Field>
 
         {isNew && selectedDays.length > 1 && (
@@ -125,8 +126,8 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
           </div>
         )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
-          <button onClick={onClose} style={btnSecondary}>Cancel</button>
-          <button onClick={save} disabled={saving || !canSave} style={{ ...btnPrimary, opacity: (!canSave || saving) ? 0.5 : 1 }}>
+          <button onClick={onClose} style={S.btnSecondary}>Cancel</button>
+          <button onClick={save} disabled={saving || !canSave} style={{ ...S.btnPrimary, opacity: (!canSave || saving) ? 0.5 : 1 }}>
             {saving ? 'Saving…' : isNew ? `Add Anchor${selectedDays.length > 1 ? ` (×${selectedDays.length})` : ''}` : 'Save Changes'}
           </button>
         </div>
@@ -337,7 +338,7 @@ export default function AnchorsScreen({ campId, onNavigate }) {
   return (
     <div style={{ maxWidth: 760 }}>
       {error && (
-        <div style={{ background: '#fff5f5', border: '1px solid #f5c6c6', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: 'var(--warning)' }}>
+        <div style={S.errorBanner}>
           {error}
         </div>
       )}
@@ -352,11 +353,11 @@ export default function AnchorsScreen({ campId, onNavigate }) {
           {anchors.length} anchor{anchors.length !== 1 ? 's' : ''}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={downloadTemplate} style={btnSecondary}>Download Template</button>
-          <button onClick={() => fileRef.current.click()} style={btnSecondary}>Import from Excel</button>
+          <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
+          <button onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button onClick={deleteAll} style={btnDanger}>Delete All</button>
-          <button onClick={() => setModal({ anchor: null })} style={btnPrimary}>+ Add Anchor</button>
+          <button onClick={deleteAll} style={S.btnDanger}>Delete All</button>
+          <button onClick={() => setModal({ anchor: null })} style={S.btnPrimary}>+ Add Anchor</button>
         </div>
       </div>
 
@@ -367,11 +368,11 @@ export default function AnchorsScreen({ campId, onNavigate }) {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
-                <th style={th}>Name</th>
-                <th style={th}>Day</th>
-                <th style={th}>Time Block</th>
-                <th style={th}>Tiers</th>
-                <th style={{ ...th, textAlign: 'right' }}>Actions</th>
+                <th style={S.th}>Name</th>
+                <th style={S.th}>Day</th>
+                <th style={S.th}>Time Block</th>
+                <th style={S.th}>Tiers</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -382,16 +383,16 @@ export default function AnchorsScreen({ campId, onNavigate }) {
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
                   onMouseLeave={e => e.currentTarget.style.background = ''}
                 >
-                  <td style={{ ...td, fontWeight: 500 }}>
+                  <td style={{ ...S.td, fontWeight: 500 }}>
                     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--purple)', marginRight: 8 }} />
                     {a.name}
                   </td>
-                  <td style={{ ...td, color: 'var(--text-secondary)', fontSize: 13 }}>{dayMap[a.day_id] || '—'}</td>
-                  <td style={{ ...td, fontSize: 12, fontFamily: 'var(--font-mono)' }}>{blockMap[a.time_block_id] || '—'}</td>
-                  <td style={{ ...td, fontSize: 12, color: 'var(--text-secondary)' }}>{anchorTierLabel(a)}</td>
-                  <td style={{ ...td, textAlign: 'right' }}>
-                    <button onClick={() => setModal({ anchor: a })} style={btnSecondary}>Edit</button>
-                    <button onClick={() => deleteAnchor(a.id)} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
+                  <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{dayMap[a.day_id] || '—'}</td>
+                  <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)' }}>{blockMap[a.time_block_id] || '—'}</td>
+                  <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{anchorTierLabel(a)}</td>
+                  <td style={{ ...S.td, textAlign: 'right' }}>
+                    <button onClick={() => setModal({ anchor: a })} style={S.btnSecondary}>Edit</button>
+                    <button onClick={() => deleteAnchor(a.id)} style={{ ...S.btnDanger, marginLeft: 6 }}>Delete</button>
                   </td>
                 </tr>
               ))}
@@ -420,22 +421,22 @@ export default function AnchorsScreen({ campId, onNavigate }) {
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>{readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings`}</div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 18 }}>
-                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={th}>Name</th><th style={th}>Day</th><th style={th}>Block</th><th style={th}>Tiers</th><th style={th}>Status</th></tr></thead>
+                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Name</th><th style={S.th}>Day</th><th style={S.th}>Block</th><th style={S.th}>Tiers</th><th style={S.th}>Status</th></tr></thead>
                   <tbody>
                     {importRows.map((r, i) => (
                       <tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}>
-                        <td style={td}>{r.name || '—'}</td>
-                        <td style={td}>{r._dayLabel || '—'}</td>
-                        <td style={td}>{r._blockName || '—'}</td>
-                        <td style={td}>{r._tierNames}</td>
-                        <td style={{ ...td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td>
+                        <td style={S.td}>{r.name || '—'}</td>
+                        <td style={S.td}>{r._dayLabel || '—'}</td>
+                        <td style={S.td}>{r._blockName || '—'}</td>
+                        <td style={S.td}>{r._tierNames}</td>
+                        <td style={{ ...S.td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={btnSecondary}>Cancel</button>
-                  <button onClick={confirmImport} disabled={importing || readyRows.length === 0} style={btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
+                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
+                  <button onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
                 </div>
               </>
             )}
@@ -444,7 +445,7 @@ export default function AnchorsScreen({ campId, onNavigate }) {
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 12 }}>Import Complete</div>
                 <div style={{ fontSize: 14 }}><span style={{ color: 'var(--success)', fontWeight: 600 }}>{importResult.added} added</span>{importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped</span>}</div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={btnPrimary}>Done</button>
+                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
                 </div>
               </>
             )}
@@ -453,15 +454,9 @@ export default function AnchorsScreen({ campId, onNavigate }) {
       )}
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button onClick={() => onNavigate('schedule')} style={btnPrimary}>Next: Schedule →</button>
+        <button onClick={() => onNavigate('schedule')} style={S.btnPrimary}>Next: Schedule →</button>
       </div>
     </div>
   )
 }
 
-const td = { padding: '10px 14px', textAlign: 'left', fontSize: 13 }
-const th = { padding: '9px 14px', textAlign: 'left', fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 500, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }
-const inputStyle = { padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 5, fontSize: 13, outline: 'none', background: 'var(--surface)', width: '100%' }
-const btnPrimary = { padding: '7px 14px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 13, cursor: 'pointer' }
-const btnSecondary = { padding: '7px 14px', background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 5, fontWeight: 500, fontSize: 13, cursor: 'pointer' }
-const btnDanger = { padding: '7px 14px', background: 'none', color: 'var(--warning)', border: '1px solid var(--warning)', borderRadius: 5, fontWeight: 500, fontSize: 13, cursor: 'pointer' }

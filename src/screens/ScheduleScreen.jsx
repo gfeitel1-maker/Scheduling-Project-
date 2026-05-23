@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../supabase'
 import buildSchedule from '../engine/buildSchedule'
+import { S } from '../styles/shared'
 
 const ACTIVITY_COLORS = ['#00ADBB','#2F7DE1','#00AA59','#A63595','#F0585D','#7DC433']
 const ANCHOR_COLOR = '#A63595'
@@ -111,8 +112,8 @@ function FlagDetailModal({ flag, slots, groups, days, timeBlocks, activities, on
   const color = FLAG_COLORS[flag] || '#ccc'
 
   return (
-    <div style={overlay}>
-      <div style={{ ...modalBox, width: 580 }}>
+    <div style={S.overlay}>
+      <div style={{ ...S.modalLg, width: 580 }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
           <div>
             <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -151,7 +152,7 @@ function FlagDetailModal({ flag, slots, groups, days, timeBlocks, activities, on
         )}
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-          <button onClick={onClose} style={btnPrimary}>Close</button>
+          <button onClick={onClose} style={S.btnPrimary}>Close</button>
         </div>
       </div>
     </div>
@@ -213,21 +214,21 @@ function EditModal({ slot, activities, eligibleActivities, currentActivity, curr
 
   if (slot.type === 'anchor') {
     return (
-      <div style={overlay}>
-        <div style={modalBox}>
+      <div style={S.overlay}>
+        <div style={S.modalLg}>
           <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8, color: ANCHOR_COLOR }}>
             ⚓ Anchor: {currentAnchor?.name}
           </div>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>Anchors are fixed and cannot be changed here.</div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button onClick={onClose} style={btnPrimary}>Close</button></div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button onClick={onClose} style={S.btnPrimary}>Close</button></div>
         </div>
       </div>
     )
   }
 
   return (
-    <div style={overlay}>
-      <div style={modalBox}>
+    <div style={S.overlay}>
+      <div style={S.modalLg}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Assign Activity</div>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16, fontFamily: 'var(--font-mono)' }}>
           Currently: {currentActivity?.name || 'Empty'}
@@ -236,7 +237,7 @@ function EditModal({ slot, activities, eligibleActivities, currentActivity, curr
         {weatherMode && weatherAlt && (
           <div style={{ background: '#EEF4FD', border: '1px solid #2F7DE1', borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>
             <span style={{ color: '#2F7DE1', fontWeight: 600 }}>Weather alternative: </span>{weatherAlt.name}
-            <button onClick={() => { setSelected(weatherAlt.id); setTimeout(() => onSave(weatherAlt.id), 50) }} style={{ ...btnPrimary, padding: '4px 10px', marginLeft: 10, fontSize: 12 }}>Swap</button>
+            <button onClick={() => { setSelected(weatherAlt.id); setTimeout(() => onSave(weatherAlt.id), 50) }} style={{ ...S.btnPrimary, padding: '4px 10px', marginLeft: 10, fontSize: 12 }}>Swap</button>
           </div>
         )}
 
@@ -263,8 +264,8 @@ function EditModal({ slot, activities, eligibleActivities, currentActivity, curr
         </div>
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={btnSecondary}>Cancel</button>
-          <button onClick={() => onSave(selected || null)} style={btnPrimary}>Save</button>
+          <button onClick={onClose} style={S.btnSecondary}>Cancel</button>
+          <button onClick={() => onSave(selected || null)} style={S.btnPrimary}>Save</button>
         </div>
       </div>
     </div>
@@ -479,7 +480,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
             {timeBlocks.length === 0 && <li>Time Blocks</li>}
             {activities.length === 0 && <li>Activities</li>}
           </ul>
-          <button onClick={() => onNavigate('setup')} style={{ ...btnPrimary, marginTop: 12 }}>Go to Camp Setup</button>
+          <button onClick={() => onNavigate('setup')} style={{ ...S.btnPrimary, marginTop: 12 }}>Go to Camp Setup</button>
         </div>
       </div>
     )
@@ -490,12 +491,12 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   return (
     <div style={{ maxWidth: '100%' }}>
       {loadError && (
-        <div style={{ background: '#fff5f5', border: '1px solid #f5c6c6', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: 'var(--warning)' }}>
+        <div style={S.errorBanner}>
           {loadError}
         </div>
       )}
       {templateError && (
-        <div style={{ background: '#fff5f5', border: '1px solid #f5c6c6', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: 'var(--warning)' }}>
+        <div style={S.errorBanner}>
           {templateError}
         </div>
       )}
@@ -520,13 +521,13 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
             <div style={{ flex: 1 }} />
 
-            <button onClick={exportToExcel} style={btnSecondary}>Export to Excel</button>
-            <button onClick={() => setConfirmRegen(true)} style={btnDanger}>Regenerate from Scratch</button>
+            <button onClick={exportToExcel} style={S.btnSecondary}>Export to Excel</button>
+            <button onClick={() => setConfirmRegen(true)} style={S.btnDanger}>Regenerate from Scratch</button>
           </>
         )}
 
         {!hasSchedule && (
-          <button onClick={generate} disabled={generating} style={{ ...btnPrimary, padding: '10px 24px', fontSize: 14 }}>
+          <button onClick={generate} disabled={generating} style={{ ...S.btnPrimary, padding: '10px 24px', fontSize: 14 }}>
             {generating ? 'Generating…' : 'Generate Schedule'}
           </button>
         )}
@@ -574,14 +575,14 @@ export default function ScheduleScreen({ campId, onNavigate }) {
               <table style={{ borderCollapse: 'collapse', minWidth: 500, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                 <thead>
                   <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
-                    <th style={{ ...th, minWidth: 100 }}>Block</th>
-                    {days.map(d => <th key={d.id} style={th}>{d.label}</th>)}
+                    <th style={{ ...S.th, whiteSpace: 'nowrap', minWidth: 100 }}>Block</th>
+                    {days.map(d => <th key={d.id} style={{ ...S.th, whiteSpace: 'nowrap' }}>{d.label}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {timeBlocks.map(block => (
                     <tr key={block.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ ...td, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                      <td style={{ ...S.td, padding: '8px 10px', fontSize: 12, verticalAlign: 'middle', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
                         <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text)' }}>{block.name}</div>
                         <div>{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
                       </td>
@@ -632,14 +633,14 @@ export default function ScheduleScreen({ campId, onNavigate }) {
               <table style={{ borderCollapse: 'collapse', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                 <thead>
                   <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
-                    <th style={{ ...th, minWidth: 110, position: 'sticky', left: 0, background: 'var(--bg)', zIndex: 1 }}>Block</th>
-                    {groups.map(g => <th key={g.id} style={{ ...th, minWidth: 90 }}>{g.name}</th>)}
+                    <th style={{ ...S.th, whiteSpace: 'nowrap', minWidth: 110, position: 'sticky', left: 0, background: 'var(--bg)', zIndex: 1 }}>Block</th>
+                    {groups.map(g => <th key={g.id} style={{ ...S.th, whiteSpace: 'nowrap', minWidth: 90 }}>{g.name}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {timeBlocks.map(block => (
                     <tr key={block.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ ...td, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--surface)', zIndex: 1, borderRight: '1px solid var(--border)' }}>
+                      <td style={{ ...S.td, padding: '8px 10px', fontSize: 12, verticalAlign: 'middle', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--surface)', zIndex: 1, borderRight: '1px solid var(--border)' }}>
                         <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text)' }}>{block.name}</div>
                         <div>{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
                       </td>
@@ -722,7 +723,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
                     <button
                       onClick={() => setSelectedActivity(null)}
-                      style={{ ...btnSecondary, padding: '5px 12px', fontSize: 12 }}
+                      style={{ ...S.btnSecondary, padding: '5px 12px', fontSize: 12 }}
                     >← All Activities</button>
                     <span style={{ width: 12, height: 12, borderRadius: '50%', background: color, display: 'inline-block' }} />
                     <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, color: 'var(--text)' }}>{act?.name}</span>
@@ -735,14 +736,14 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                     <table style={{ borderCollapse: 'collapse', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                       <thead>
                         <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
-                          <th style={{ ...th, minWidth: 110, position: 'sticky', left: 0, background: 'var(--bg)', zIndex: 1 }}>Block</th>
-                          {days.map(d => <th key={d.id} style={th}>{d.label}</th>)}
+                          <th style={{ ...S.th, whiteSpace: 'nowrap', minWidth: 110, position: 'sticky', left: 0, background: 'var(--bg)', zIndex: 1 }}>Block</th>
+                          {days.map(d => <th key={d.id} style={{ ...S.th, whiteSpace: 'nowrap' }}>{d.label}</th>)}
                         </tr>
                       </thead>
                       <tbody>
                         {timeBlocks.map(block => (
                           <tr key={block.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                            <td style={{ ...td, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--surface)', zIndex: 1, borderRight: '1px solid var(--border)' }}>
+                            <td style={{ ...S.td, padding: '8px 10px', fontSize: 12, verticalAlign: 'middle', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--surface)', zIndex: 1, borderRight: '1px solid var(--border)' }}>
                               <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text)' }}>{block.name}</div>
                               <div>{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
                             </td>
@@ -816,15 +817,15 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
       {/* Regen confirm */}
       {confirmRegen && (
-        <div style={overlay}>
-          <div style={{ ...modalBox, maxWidth: 400 }}>
+        <div style={S.overlay}>
+          <div style={{ ...S.modalLg, maxWidth: 400 }}>
             <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Regenerate from Scratch?</div>
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
               This will delete your current schedule including all manual edits. Continue?
             </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setConfirmRegen(false)} style={btnSecondary}>Cancel</button>
-              <button onClick={regenFromScratch} style={btnDanger}>Yes, Regenerate</button>
+              <button onClick={() => setConfirmRegen(false)} style={S.btnSecondary}>Cancel</button>
+              <button onClick={regenFromScratch} style={S.btnDanger}>Yes, Regenerate</button>
             </div>
           </div>
         </div>
@@ -848,8 +849,3 @@ const td = { padding: '8px 10px', textAlign: 'left', fontSize: 12, verticalAlign
 const th = { padding: '8px 10px', textAlign: 'left', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }
 const cellTd = { padding: '6px 8px', width: 100, minWidth: 80, verticalAlign: 'top', cursor: 'pointer' }
 const emptyTd = { padding: '6px 8px', width: 100, minWidth: 80, background: 'var(--bg)', opacity: 0.3 }
-const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }
-const modalBox = { background: 'var(--surface)', borderRadius: 10, padding: 28, width: 480, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }
-const btnPrimary = { padding: '7px 14px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 13, cursor: 'pointer' }
-const btnSecondary = { padding: '7px 14px', background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 5, fontWeight: 500, fontSize: 13, cursor: 'pointer' }
-const btnDanger = { padding: '7px 14px', background: 'none', color: 'var(--warning)', border: '1px solid var(--warning)', borderRadius: 5, fontWeight: 500, fontSize: 13, cursor: 'pointer' }
