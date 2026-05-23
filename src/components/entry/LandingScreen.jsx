@@ -9,17 +9,22 @@ export default function LandingScreen({ onEnter }) {
   const [creating, setCreating] = useState(false)
   const [confirmUrl, setConfirmUrl] = useState('')
   const [nameError, setNameError] = useState('')
+  const [createdCampId, setCreatedCampId] = useState(null)
 
   async function handleOpen() {
     if (!name.trim()) return
     setSearching(true)
     setNameError('')
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('camps')
       .select('id')
       .ilike('name', name.trim())
       .maybeSingle()
     setSearching(false)
+    if (error) {
+      setNameError('Connection failed. Please try again.')
+      return
+    }
     if (data) {
       onEnter(data.id)
     } else {
@@ -47,7 +52,7 @@ export default function LandingScreen({ onEnter }) {
     }
     const url = `${window.location.origin}${window.location.pathname}?camp=${data.id}`
     setConfirmUrl(url)
-    onEnter(data.id, url)
+    setCreatedCampId(data.id)
     setScreen('confirm')
   }
 
@@ -91,7 +96,11 @@ export default function LandingScreen({ onEnter }) {
         )}
 
         {screen === 'confirm' && (
-          <ConfirmScreen url={confirmUrl} campName={name.trim()} />
+          <ConfirmScreen
+            url={confirmUrl}
+            campName={name.trim()}
+            onProceed={() => onEnter(createdCampId)}
+          />
         )}
       </div>
     </div>
@@ -176,7 +185,7 @@ function CreateScreen({ name, setName, onCreate, creating, onBack, nameError }) 
   )
 }
 
-function ConfirmScreen({ url, campName }) {
+function ConfirmScreen({ url, campName, onProceed }) {
   const [copied, setCopied] = useState(false)
   function copy() {
     navigator.clipboard.writeText(url).then(() => {
@@ -200,6 +209,9 @@ function ConfirmScreen({ url, campName }) {
           {copied ? 'Copied!' : 'Copy link'}
         </button>
       </div>
+      <button style={{ ...btnPrimary, marginTop: 12 }} onClick={onProceed}>
+        Open {campName} →
+      </button>
     </div>
   )
 }
