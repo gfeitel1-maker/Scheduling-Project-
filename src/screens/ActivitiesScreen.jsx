@@ -171,21 +171,28 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
   const [importRows, setImportRows] = useState([])
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
+  const [error, setError] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
 
   async function load() {
     setLoading(true)
-    const [{ data: aData }, { data: tData }, { data: gData }] = await Promise.all([
-      supabase.from('activities').select('*').eq('camp_id', campId).order('priority').order('name'),
-      supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
-      supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
-    ])
-    setActivities(aData || [])
-    setTiers(tData || [])
-    setGroups(gData || [])
-    setLoading(false)
+    setError(null)
+    try {
+      const [{ data: aData }, { data: tData }, { data: gData }] = await Promise.all([
+        supabase.from('activities').select('*').eq('camp_id', campId).order('priority').order('name'),
+        supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
+        supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
+      ])
+      setActivities(aData || [])
+      setTiers(tData || [])
+      setGroups(gData || [])
+    } catch {
+      setError('Failed to load data — check your connection and refresh')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function saveActivity(id, fields) {
@@ -297,6 +304,11 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 820 }}>
+      {error && (
+        <div style={{ background: '#fff5f5', border: '1px solid #f5c6c6', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: 'var(--warning)' }}>
+          {error}
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           {activities.length} activit{activities.length !== 1 ? 'ies' : 'y'}

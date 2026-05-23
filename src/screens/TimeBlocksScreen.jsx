@@ -82,14 +82,22 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
   const [importRows, setImportRows] = useState([])
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
+  const [error, setError] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase.from('time_blocks').select('*').eq('camp_id', campId).order('sort_order').order('start_time')
-    setBlocks(data || []); setLoading(false)
+    setError(null)
+    try {
+      const { data } = await supabase.from('time_blocks').select('*').eq('camp_id', campId).order('sort_order').order('start_time')
+      setBlocks(data || [])
+    } catch {
+      setError('Failed to load data — check your connection and refresh')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function addBlock() {
@@ -169,6 +177,11 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 780 }}>
+      {error && (
+        <div style={{ background: '#fff5f5', border: '1px solid #f5c6c6', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: 'var(--warning)' }}>
+          {error}
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           {blocks.length} block{blocks.length !== 1 ? 's' : ''}
