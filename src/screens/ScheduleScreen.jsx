@@ -334,7 +334,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
   async function generate() {
     setGenerating(true)
-    const result = buildSchedule({ groups, tiers, days, timeBlocks: timeBlocks, activities, anchors })
+    const result = buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId })
 
     // Upsert template
     let tid = templateId
