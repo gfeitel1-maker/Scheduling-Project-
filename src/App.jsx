@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import Shell from './components/layout/Shell'
+import LandingScreen from './components/entry/LandingScreen'
 import CampSetup from './screens/CampSetup'
 import TiersScreen from './screens/TiersScreen'
 import GroupsScreen from './screens/GroupsScreen'
@@ -39,66 +40,39 @@ async function seedDays(campId) {
   }
 }
 
-function CampIdGate({ onEnter }) {
-  const [value, setValue] = useState('')
+function getUrlCampId() {
+  return new URLSearchParams(window.location.search).get('camp')
+}
 
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-      height: '100vh', background: 'var(--bg)',
-    }}>
-      <div style={{
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 8, padding: '40px 48px', maxWidth: 480, width: '100%',
-        textAlign: 'center',
-      }}>
-        <div style={{
-          fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 28,
-          color: 'var(--primary)', letterSpacing: '-0.5px', marginBottom: 8,
-        }}>Shoresh</div>
-        <div style={{ color: 'var(--text-secondary)', marginBottom: 28, fontSize: 14 }}>
-          Enter your camp ID to continue. You can find this in your Supabase project under
-          Table Editor → camps → id column.
-        </div>
-        <input
-          style={{
-            width: '100%', padding: '10px 12px', border: '1px solid var(--border)',
-            borderRadius: 6, fontSize: 13, fontFamily: 'var(--font-mono)',
-            marginBottom: 12, outline: 'none', background: 'var(--bg)',
-          }}
-          placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-          value={value}
-          onChange={e => setValue(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && value.trim() && onEnter(value.trim())}
-        />
-        <button
-          onClick={() => value.trim() && onEnter(value.trim())}
-          style={{
-            width: '100%', padding: '10px 0', background: 'var(--primary)',
-            color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600,
-            fontSize: 14,
-          }}
-        >
-          Continue
-        </button>
-      </div>
-    </div>
-  )
+function setUrlCampId(campId) {
+  const url = new URL(window.location.href)
+  url.searchParams.set('camp', campId)
+  window.history.replaceState({}, '', url.toString())
 }
 
 export default function App() {
-  const [campId, setCampId] = useState(() => localStorage.getItem('campId') || null)
+  // URL param wins over localStorage
+  const urlCampId = getUrlCampId()
+  const storedCampId = localStorage.getItem('campId')
+  const initialCampId = urlCampId || storedCampId || null
+
+  const [campId, setCampId] = useState(initialCampId)
   const [screen, setScreen] = useState('setup')
 
   useEffect(() => {
     if (campId) {
       localStorage.setItem('campId', campId)
+      setUrlCampId(campId)
       seedDays(campId)
     }
   }, [campId])
 
+  function handleEnter(id) {
+    setCampId(id)
+  }
+
   if (!campId) {
-    return <CampIdGate onEnter={id => setCampId(id)} />
+    return <LandingScreen onEnter={handleEnter} />
   }
 
   const Screen = SCREENS[screen] || CampSetup

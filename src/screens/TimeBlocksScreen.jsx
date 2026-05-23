@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../supabase'
+import { S } from '../styles/shared'
 
 const POD_OPTIONS = [
   { value: 'morning', label: 'Morning' },
@@ -27,18 +28,18 @@ function BlockRow({ block, onSave, onDelete }) {
   if (editing) {
     return (
       <tr style={{ background: 'var(--surface-elevated)' }}>
-        <td style={td}><input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={inputStyle} /></td>
-        <td style={td}><input type="time" value={start} onChange={e => setStart(e.target.value)} style={{ ...inputStyle, width: 110 }} /></td>
-        <td style={td}><input type="time" value={end} onChange={e => setEnd(e.target.value)} style={{ ...inputStyle, width: 110 }} /></td>
-        <td style={td}>
-          <select value={pod} onChange={e => setPod(e.target.value)} style={{ ...inputStyle, width: 120 }}>
+        <td style={S.td}><input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} /></td>
+        <td style={S.td}><input type="time" value={start} onChange={e => setStart(e.target.value)} style={{ ...S.input, width: 110 }} /></td>
+        <td style={S.td}><input type="time" value={end} onChange={e => setEnd(e.target.value)} style={{ ...S.input, width: 110 }} /></td>
+        <td style={S.td}>
+          <select value={pod} onChange={e => setPod(e.target.value)} style={{ ...S.input, width: 120 }}>
             {POD_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </td>
-        <td style={td}><input type="number" value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{ ...inputStyle, width: 60 }} /></td>
-        <td style={{ ...td, textAlign: 'right' }}>
-          <button onClick={save} disabled={saving} style={btnPrimary}>{saving ? 'Saving…' : 'Save'}</button>
-          <button onClick={() => { setName(block.name); setStart(block.start_time); setEnd(block.end_time); setPod(block.part_of_day); setSortOrder(block.sort_order); setEditing(false) }} style={{ ...btnSecondary, marginLeft: 6 }}>Cancel</button>
+        <td style={S.td}><input type="number" value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{ ...S.input, width: 60 }} /></td>
+        <td style={{ ...S.td, textAlign: 'right' }}>
+          <button onClick={save} disabled={saving} style={S.btnPrimary}>{saving ? 'Saving…' : 'Save'}</button>
+          <button onClick={() => { setName(block.name); setStart(block.start_time); setEnd(block.end_time); setPod(block.part_of_day); setSortOrder(block.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>Cancel</button>
         </td>
       </tr>
     )
@@ -56,14 +57,14 @@ function BlockRow({ block, onSave, onDelete }) {
       onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
       onMouseLeave={e => e.currentTarget.style.background = ''}
     >
-      <td style={td}>{block.name}</td>
-      <td style={{ ...td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.start_time)}</td>
-      <td style={{ ...td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.end_time)}</td>
-      <td style={{ ...td, fontSize: 12, color: 'var(--text-secondary)' }}>{block.part_of_day}</td>
-      <td style={{ ...td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{block.sort_order}</td>
-      <td style={{ ...td, textAlign: 'right' }}>
-        <button onClick={() => setEditing(true)} style={btnSecondary}>Edit</button>
-        <button onClick={() => onDelete(block.id)} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
+      <td style={S.td}>{block.name}</td>
+      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.start_time)}</td>
+      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.end_time)}</td>
+      <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{block.part_of_day}</td>
+      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{block.sort_order}</td>
+      <td style={{ ...S.td, textAlign: 'right' }}>
+        <button onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
+        <button onClick={() => onDelete(block.id)} style={{ ...S.btnDanger, marginLeft: 6 }}>Delete</button>
       </td>
     </tr>
   )
@@ -82,14 +83,22 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
   const [importRows, setImportRows] = useState([])
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
+  const [error, setError] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase.from('time_blocks').select('*').eq('camp_id', campId).order('sort_order').order('start_time')
-    setBlocks(data || []); setLoading(false)
+    setError(null)
+    try {
+      const { data } = await supabase.from('time_blocks').select('*').eq('camp_id', campId).order('sort_order').order('start_time')
+      setBlocks(data || [])
+    } catch {
+      setError('Failed to load data — check your connection and refresh')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function addBlock() {
@@ -169,36 +178,44 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 780 }}>
+      {error && (
+        <div style={S.errorBanner}>
+          {error}
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           {blocks.length} block{blocks.length !== 1 ? 's' : ''}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={downloadTemplate} style={btnSecondary}>Download Template</button>
-          <button onClick={() => fileRef.current.click()} style={btnSecondary}>Import from Excel</button>
+          <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
+          <button onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button onClick={deleteAll} style={btnDanger}>Delete All</button>
+          <button onClick={deleteAll} style={S.btnDanger}>Delete All</button>
         </div>
       </div>
 
       {loading ? (
         <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading…</div>
       ) : (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
-                <th style={th}>Name</th>
-                <th style={th}>Start</th>
-                <th style={th}>End</th>
-                <th style={th}>Part of Day</th>
-                <th style={th}>Order</th>
-                <th style={{ ...th, textAlign: 'right' }}>Actions</th>
+              <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
+                <th style={S.th}>Name</th>
+                <th style={S.th}>Start</th>
+                <th style={S.th}>End</th>
+                <th style={S.th}>Part of Day</th>
+                <th style={S.th}>Order</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {blocks.length === 0 ? (
-                <tr><td colSpan={6} style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>No time blocks yet.</td></tr>
+                <tr><td colSpan={6} style={{ padding: '40px 16px', textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No time blocks yet</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first time block below.</div>
+                </td></tr>
               ) : blocks.map(b => (
                 <BlockRow key={b.id} block={b} onSave={saveBlock} onDelete={deleteBlock} />
               ))}
@@ -207,44 +224,44 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
         </div>
       )}
 
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '14px 16px' }}>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Time Block</div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input placeholder="Name (e.g. Block 1)" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addBlock()} style={{ ...inputStyle, flex: '1 1 120px' }} />
-          <input type="time" value={newStart} onChange={e => setNewStart(e.target.value)} style={{ ...inputStyle, flex: '0 0 120px' }} />
-          <input type="time" value={newEnd} onChange={e => setNewEnd(e.target.value)} style={{ ...inputStyle, flex: '0 0 120px' }} />
-          <select value={newPod} onChange={e => setNewPod(e.target.value)} style={{ ...inputStyle, flex: '0 0 130px' }}>
+          <input placeholder="Name (e.g. Block 1)" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addBlock()} style={{ ...S.input, flex: '1 1 120px' }} />
+          <input type="time" value={newStart} onChange={e => setNewStart(e.target.value)} style={{ ...S.input, flex: '0 0 120px' }} />
+          <input type="time" value={newEnd} onChange={e => setNewEnd(e.target.value)} style={{ ...S.input, flex: '0 0 120px' }} />
+          <select value={newPod} onChange={e => setNewPod(e.target.value)} style={{ ...S.input, flex: '0 0 130px' }}>
             {POD_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <input type="number" placeholder="Order" value={newSort} onChange={e => setNewSort(e.target.value)} style={{ ...inputStyle, flex: '0 0 70px' }} />
-          <button onClick={addBlock} disabled={adding || !newName.trim() || !newStart || !newEnd} style={{ ...btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
+          <input type="number" placeholder="Order" value={newSort} onChange={e => setNewSort(e.target.value)} style={{ ...S.input, flex: '0 0 70px' }} />
+          <button onClick={addBlock} disabled={adding || !newName.trim() || !newStart || !newEnd} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
         </div>
       </div>
 
       {importStep && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--surface)', borderRadius: 10, padding: 28, width: 580, maxHeight: '80vh', overflow: 'auto' }}>
+          <div style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width: 580, maxHeight: '80vh', overflow: 'auto' }}>
             {importStep === 'preview' && (
               <>
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>{readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings`}</div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 18 }}>
-                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={th}>Name</th><th style={th}>Start</th><th style={th}>End</th><th style={th}>Part</th><th style={th}>Status</th></tr></thead>
+                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Name</th><th style={S.th}>Start</th><th style={S.th}>End</th><th style={S.th}>Part</th><th style={S.th}>Status</th></tr></thead>
                   <tbody>
                     {importRows.map((r, i) => (
                       <tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}>
-                        <td style={td}>{r.name || '—'}</td>
-                        <td style={{ ...td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.start_time || '—'}</td>
-                        <td style={{ ...td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.end_time || '—'}</td>
-                        <td style={td}>{r.part_of_day || '—'}</td>
-                        <td style={{ ...td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td>
+                        <td style={S.td}>{r.name || '—'}</td>
+                        <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.start_time || '—'}</td>
+                        <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.end_time || '—'}</td>
+                        <td style={S.td}>{r.part_of_day || '—'}</td>
+                        <td style={{ ...S.td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={btnSecondary}>Cancel</button>
-                  <button onClick={confirmImport} disabled={importing || readyRows.length === 0} style={btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
+                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
+                  <button onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
                 </div>
               </>
             )}
@@ -253,7 +270,7 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 12 }}>Import Complete</div>
                 <div style={{ fontSize: 14 }}><span style={{ color: 'var(--success)', fontWeight: 600 }}>{importResult.added} added</span>{importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped</span>}</div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={btnPrimary}>Done</button>
+                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
                 </div>
               </>
             )}
@@ -262,15 +279,9 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
       )}
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button onClick={() => onNavigate('activities')} style={btnPrimary}>Next: Activities →</button>
+        <button onClick={() => onNavigate('activities')} style={S.btnPrimary}>Next: Activities →</button>
       </div>
     </div>
   )
 }
 
-const td = { padding: '10px 14px', textAlign: 'left', fontSize: 13 }
-const th = { padding: '9px 14px', textAlign: 'left', fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 500, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }
-const inputStyle = { padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 5, fontSize: 13, outline: 'none', background: 'var(--surface)', width: '100%' }
-const btnPrimary = { padding: '7px 14px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 13, cursor: 'pointer' }
-const btnSecondary = { padding: '7px 14px', background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 5, fontWeight: 500, fontSize: 13, cursor: 'pointer' }
-const btnDanger = { padding: '7px 14px', background: 'none', color: 'var(--warning)', border: '1px solid var(--warning)', borderRadius: 5, fontWeight: 500, fontSize: 13, cursor: 'pointer' }

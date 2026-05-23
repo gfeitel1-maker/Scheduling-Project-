@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../supabase'
+import { S } from '../styles/shared'
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
@@ -23,6 +24,7 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
   const [weatherAlt, setWeatherAlt] = useState(activity?.weather_alternative_id || '')
   const [notes, setNotes] = useState(activity?.notes || '')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState(null)
 
   function toggleTier(id) { setEligTiers(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]) }
   function toggleGroup(id) { setEligGroups(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]) }
@@ -30,6 +32,7 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
   async function save() {
     if (!name.trim()) return
     setSaving(true)
+    setSaveError(null)
     const record = {
       camp_id: undefined,
       name: name.trim(), location: location.trim() || null, is_outdoor: isOutdoor,
@@ -42,7 +45,13 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
       notes: notes.trim() || null,
     }
     delete record.camp_id
-    await onSave(activity?.id || null, record)
+    try {
+      await onSave(activity?.id || null, record)
+    } catch {
+      setSaveError('Failed to save — check your connection and try again')
+      setSaving(false)
+      return
+    }
     setSaving(false)
   }
 
@@ -50,17 +59,17 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000, padding: '24px 16px', overflowY: 'auto' }}>
-      <div style={{ background: 'var(--surface)', borderRadius: 10, padding: 28, width: 600, maxWidth: '100%' }}>
+      <div style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width: 600, maxWidth: '100%' }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, marginBottom: 20 }}>
           {isNew ? 'Add Activity' : `Edit: ${activity.name}`}
         </div>
 
         <div style={grid2}>
           <Field label="Name">
-            <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={inputStyle} placeholder="Activity name" />
+            <input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} placeholder="Activity name" />
           </Field>
           <Field label="Location">
-            <input value={location} onChange={e => setLocation(e.target.value)} style={inputStyle} placeholder="e.g. Pool, Gym" />
+            <input value={location} onChange={e => setLocation(e.target.value)} style={S.input} placeholder="e.g. Pool, Gym" />
           </Field>
         </div>
 
@@ -71,13 +80,13 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
 
         <div style={grid3}>
           <Field label="Max groups per slot">
-            <input type="number" min={1} value={maxGroups} onChange={e => setMaxGroups(e.target.value)} style={inputStyle} />
+            <input type="number" min={1} value={maxGroups} onChange={e => setMaxGroups(e.target.value)} style={S.input} />
           </Field>
           <Field label="Min per week">
-            <input type="number" min={0} value={minWeek} onChange={e => setMinWeek(e.target.value)} style={inputStyle} />
+            <input type="number" min={0} value={minWeek} onChange={e => setMinWeek(e.target.value)} style={S.input} />
           </Field>
           <Field label="Max per week">
-            <input type="number" min={0} value={maxWeek} onChange={e => setMaxWeek(e.target.value)} style={inputStyle} />
+            <input type="number" min={0} value={maxWeek} onChange={e => setMaxWeek(e.target.value)} style={S.input} />
           </Field>
         </div>
 
@@ -124,28 +133,33 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
         {preferDay && (
           <div style={{ display: 'flex', gap: 12, alignItems: 'center', paddingLeft: 8, marginBottom: 16, flexWrap: 'wrap' }}>
             <span style={{ fontSize: 13 }}>At least</span>
-            <input type="number" min={1} value={preferMin} onChange={e => setPreferMin(e.target.value)} style={{ ...inputStyle, width: 60 }} />
+            <input type="number" min={1} value={preferMin} onChange={e => setPreferMin(e.target.value)} style={{ ...S.input, width: 60 }} />
             <span style={{ fontSize: 13 }}>times before</span>
-            <select value={preferDayVal} onChange={e => setPreferDayVal(e.target.value)} style={{ ...inputStyle, width: 130 }}>
+            <select value={preferDayVal} onChange={e => setPreferDayVal(e.target.value)} style={{ ...S.input, width: 130 }}>
               {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
             </select>
           </div>
         )}
 
         <Field label="Weather alternative (shown when weather mode is on)">
-          <select value={weatherAlt} onChange={e => setWeatherAlt(e.target.value)} style={inputStyle}>
+          <select value={weatherAlt} onChange={e => setWeatherAlt(e.target.value)} style={S.input}>
             <option value="">— None —</option>
             {otherActivities.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
         </Field>
 
         <Field label="Notes">
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
+          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...S.input, resize: 'vertical' }} />
         </Field>
 
+        {saveError && (
+          <div style={{ fontSize: 12, color: 'var(--warning)', marginBottom: 10, padding: '8px 10px', background: '#fff5f5', borderRadius: 5, border: '1px solid #f5c6c6' }}>
+            {saveError}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
-          <button onClick={onClose} style={btnSecondary}>Cancel</button>
-          <button onClick={save} disabled={saving || !name.trim()} style={btnPrimary}>{saving ? 'Saving…' : isNew ? 'Add Activity' : 'Save Changes'}</button>
+          <button onClick={onClose} style={S.btnSecondary}>Cancel</button>
+          <button onClick={save} disabled={saving || !name.trim()} style={S.btnPrimary}>{saving ? 'Saving…' : isNew ? 'Add Activity' : 'Save Changes'}</button>
         </div>
       </div>
     </div>
@@ -171,28 +185,37 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
   const [importRows, setImportRows] = useState([])
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
+  const [error, setError] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
 
   async function load() {
     setLoading(true)
-    const [{ data: aData }, { data: tData }, { data: gData }] = await Promise.all([
-      supabase.from('activities').select('*').eq('camp_id', campId).order('priority').order('name'),
-      supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
-      supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
-    ])
-    setActivities(aData || [])
-    setTiers(tData || [])
-    setGroups(gData || [])
-    setLoading(false)
+    setError(null)
+    try {
+      const [{ data: aData }, { data: tData }, { data: gData }] = await Promise.all([
+        supabase.from('activities').select('*').eq('camp_id', campId).order('priority').order('name'),
+        supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
+        supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
+      ])
+      setActivities(aData || [])
+      setTiers(tData || [])
+      setGroups(gData || [])
+    } catch {
+      setError('Failed to load data — check your connection and refresh')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function saveActivity(id, fields) {
     if (id) {
-      await supabase.from('activities').update(fields).eq('id', id)
+      const { error } = await supabase.from('activities').update(fields).eq('id', id)
+      if (error) throw error
     } else {
-      await supabase.from('activities').insert({ ...fields, camp_id: campId })
+      const { error } = await supabase.from('activities').insert({ ...fields, camp_id: campId })
+      if (error) throw error
     }
     setModal(null)
     load()
@@ -297,37 +320,43 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 820 }}>
+      {error && (
+        <div style={S.errorBanner}>
+          {error}
+        </div>
+      )}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           {activities.length} activit{activities.length !== 1 ? 'ies' : 'y'}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={downloadTemplate} style={btnSecondary}>Download Template</button>
-          <button onClick={() => fileRef.current.click()} style={btnSecondary}>Import from Excel</button>
+          <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
+          <button onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button onClick={deleteAll} style={btnDanger}>Delete All</button>
-          <button onClick={() => setModal({ activity: null })} style={btnPrimary}>+ Add Activity</button>
+          <button onClick={deleteAll} style={S.btnDanger}>Delete All</button>
+          <button onClick={() => setModal({ activity: null })} style={S.btnPrimary}>+ Add Activity</button>
         </div>
       </div>
 
       {loading ? (
         <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading…</div>
       ) : activities.length === 0 ? (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '40px 24px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-          No activities yet. Add one or import from Excel.
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '40px 24px', textAlign: 'center' }}>
+          <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No activities yet</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first activity or import from Excel.</div>
         </div>
       ) : (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
-                <th style={th}>Name</th>
-                <th style={th}>Location</th>
-                <th style={th}>Outdoor</th>
-                <th style={th}>Max/Slot</th>
-                <th style={th}>Min–Max/Wk</th>
-                <th style={th}>Alt</th>
-                <th style={{ ...th, textAlign: 'right' }}>Actions</th>
+              <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
+                <th style={S.th}>Name</th>
+                <th style={S.th}>Location</th>
+                <th style={S.th}>Outdoor</th>
+                <th style={S.th}>Max/Slot</th>
+                <th style={S.th}>Min–Max/Wk</th>
+                <th style={S.th}>Alt</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -343,15 +372,15 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
                         onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
                         onMouseLeave={e => e.currentTarget.style.background = ''}
                       >
-                        <td style={{ ...td, fontWeight: 500 }}>{a.name}</td>
-                        <td style={{ ...td, color: 'var(--text-secondary)', fontSize: 12 }}>{a.location || '—'}</td>
-                        <td style={{ ...td, fontSize: 12 }}>{a.is_outdoor ? '🌤' : '—'}</td>
-                        <td style={{ ...td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{a.max_groups_per_slot}</td>
-                        <td style={{ ...td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{a.min_per_week}–{a.max_per_week}</td>
-                        <td style={{ ...td, fontSize: 12, color: 'var(--text-secondary)' }}>{a.weather_alternative_id ? actMap[a.weather_alternative_id] || '?' : '—'}</td>
-                        <td style={{ ...td, textAlign: 'right' }}>
-                          <button onClick={() => setModal({ activity: a })} style={btnSecondary}>Edit</button>
-                          <button onClick={() => deleteActivity(a.id)} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
+                        <td style={{ ...S.td, fontWeight: 500 }}>{a.name}</td>
+                        <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{a.location || '—'}</td>
+                        <td style={{ ...S.td, fontSize: 12 }}>{a.is_outdoor ? '🌤' : '—'}</td>
+                        <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{a.max_groups_per_slot}</td>
+                        <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{a.min_per_week}–{a.max_per_week}</td>
+                        <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{a.weather_alternative_id ? actMap[a.weather_alternative_id] || '?' : '—'}</td>
+                        <td style={{ ...S.td, textAlign: 'right' }}>
+                          <button onClick={() => setModal({ activity: a })} style={S.btnSecondary}>Edit</button>
+                          <button onClick={() => deleteActivity(a.id)} style={{ ...S.btnDanger, marginLeft: 6 }}>Delete</button>
                         </td>
                       </tr>
                     ))}
@@ -376,27 +405,27 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
 
       {importStep && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--surface)', borderRadius: 10, padding: 28, width: 620, maxHeight: '80vh', overflow: 'auto' }}>
+          <div style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width: 620, maxHeight: '80vh', overflow: 'auto' }}>
             {importStep === 'preview' && (
               <>
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>{readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings (skipped)`}</div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 18 }}>
-                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={th}>Name</th><th style={th}>Location</th><th style={th}>Priority</th><th style={th}>Status</th></tr></thead>
+                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Name</th><th style={S.th}>Location</th><th style={S.th}>Priority</th><th style={S.th}>Status</th></tr></thead>
                   <tbody>
                     {importRows.map((r, i) => (
                       <tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}>
-                        <td style={td}>{r.name || '—'}</td>
-                        <td style={td}>{r.location || '—'}</td>
-                        <td style={td}>{r.priority}</td>
-                        <td style={{ ...td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td>
+                        <td style={S.td}>{r.name || '—'}</td>
+                        <td style={S.td}>{r.location || '—'}</td>
+                        <td style={S.td}>{r.priority}</td>
+                        <td style={{ ...S.td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={btnSecondary}>Cancel</button>
-                  <button onClick={confirmImport} disabled={importing || readyRows.length === 0} style={btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
+                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
+                  <button onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
                 </div>
               </>
             )}
@@ -405,7 +434,7 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 12 }}>Import Complete</div>
                 <div style={{ fontSize: 14 }}><span style={{ color: 'var(--success)', fontWeight: 600 }}>{importResult.added} added</span>{importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped</span>}</div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={btnPrimary}>Done</button>
+                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
                 </div>
               </>
             )}
@@ -414,18 +443,12 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
       )}
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button onClick={() => onNavigate('anchors')} style={btnPrimary}>Next: Anchors →</button>
+        <button onClick={() => onNavigate('anchors')} style={S.btnPrimary}>Next: Anchors →</button>
       </div>
     </div>
   )
 }
 
-const td = { padding: '10px 14px', textAlign: 'left', fontSize: 13 }
-const th = { padding: '9px 14px', textAlign: 'left', fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 500, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }
-const inputStyle = { padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 5, fontSize: 13, outline: 'none', background: 'var(--surface)', width: '100%' }
-const btnPrimary = { padding: '7px 14px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 13, cursor: 'pointer' }
-const btnSecondary = { padding: '7px 14px', background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 5, fontWeight: 500, fontSize: 13, cursor: 'pointer' }
-const btnDanger = { padding: '7px 14px', background: 'none', color: 'var(--warning)', border: '1px solid var(--warning)', borderRadius: 5, fontWeight: 500, fontSize: 13, cursor: 'pointer' }
 const grid2 = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }
 const grid3 = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0 16px' }
 const checkLabel = { fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }

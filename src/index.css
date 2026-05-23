@@ -1,9 +1,9 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #F8F8F8;
-  --surface: #FFFFFF;
-  --surface-elevated: #E4F8F9;
+  --bg: #FAF6F0;
+  --surface: #FFFCF8;
+  --surface-elevated: #FFF8F0;
   --primary: #00ADBB;
   --primary-dark: #008a96;
   --secondary: #2F7DE1;
@@ -11,12 +11,12 @@
   --warning: #F0585D;
   --purple: #A63595;
   --yellow-green: #7DC433;
-  --text: #000000;
-  --text-secondary: #555555;
-  --border: #E0E0E0;
+  --text: #2D1F12;
+  --text-secondary: #7A6152;
+  --border: #E8DDD0;
 
-  --font-sans: 'IBM Plex Sans', sans-serif;
-  --font-condensed: 'IBM Plex Sans Condensed', sans-serif;
+  --font-sans: 'Nunito', sans-serif;
+  --font-condensed: 'Fredoka', sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
 }
 
