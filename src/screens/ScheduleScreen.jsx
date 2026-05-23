@@ -336,21 +336,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
           </div>
 
           {selectedGroup && (
-            <DndContext
-              onDragEnd={({ active, over }) => {
-                if (!over) return
-                const slotA = active.data.current?.slot
-                const slotB = over.data.current?.slot
-                if (!slotA || !slotB) return
-                if (slotA.groupId === slotB.groupId && slotA.dayId === slotB.dayId && slotA.blockId === slotB.blockId) return
-                if (slotB.type === 'anchor' || slotB.type === 'unavailable') return
-                swapSlots(
-                  { groupId: slotA.groupId, dayId: slotA.dayId, blockId: slotA.blockId, activityId: slotA.activity_id },
-                  { groupId: slotB.groupId, dayId: slotB.dayId, blockId: slotB.blockId, activityId: slotB.activity_id }
-                )
-              }}
-            >
-              <div style={{ overflowX: 'auto' }}>
+            <div style={{ overflowX: 'auto' }}>
                 <table style={{ borderCollapse: 'collapse', minWidth: 500, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                   <thead>
                     <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
@@ -379,7 +365,6 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                               actColorIdx={act?.colorIdx || 0}
                               weatherMode={weatherMode}
                               onEdit={s => setEditSlot(s)}
-                              isDndEnabled={true}
                             />
                           )
                         })}
@@ -388,7 +373,6 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                   </tbody>
                 </table>
               </div>
-            </DndContext>
           )}
         </div>
       )}
@@ -410,6 +394,20 @@ export default function ScheduleScreen({ campId, onNavigate }) {
           </div>
 
           {selectedDay && (
+            <DndContext
+              onDragEnd={({ active, over }) => {
+                if (!over) return
+                const slotA = active.data.current?.slot
+                const slotB = over.data.current?.slot
+                if (!slotA || !slotB) return
+                if (slotA.groupId === slotB.groupId && slotA.dayId === slotB.dayId && slotA.blockId === slotB.blockId) return
+                if (slotB.type === 'anchor' || slotB.type === 'unavailable') return
+                swapSlots(
+                  { groupId: slotA.groupId, dayId: slotA.dayId, blockId: slotA.blockId, activityId: slotA.activity_id },
+                  { groupId: slotB.groupId, dayId: slotB.dayId, blockId: slotB.blockId, activityId: slotB.activity_id }
+                )
+              }}
+            >
             <div style={{ overflowX: 'auto' }}>
               <table style={{ borderCollapse: 'collapse', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                 <thead>
@@ -441,6 +439,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                             actColorIdx={act?.colorIdx || 0}
                             weatherMode={weatherMode}
                             onEdit={s => setEditSlot(s)}
+                            isDndEnabled={true}
                           />
                         )
                       })}
@@ -449,6 +448,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                 </tbody>
               </table>
             </div>
+            </DndContext>
           )}
         </div>
       )}

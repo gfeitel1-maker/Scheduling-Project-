@@ -33,8 +33,8 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
 
   const setRef = el => { setDragRef(el); setDropRef(el) }
   const dndStyle = isDragging
-    ? { opacity: 0.4 }
-    : isOver && canDrag
+    ? { opacity: 0.4, cursor: 'grabbing' }
+    : isOver && isDndEnabled
     ? { outline: '2px solid var(--primary)', outlineOffset: -2 }
     : {}
 
@@ -68,7 +68,7 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
         background: activity ? `${color}18` : '#F8F8F8',
         borderLeft: activity ? `3px solid ${color}` : '3px solid #E0E0E0',
         outline: isWeatherHighlight ? '2px solid #2F7DE1' : 'none',
-        cursor: 'pointer',
+        cursor: canDrag ? (isDragging ? 'grabbing' : 'grab') : 'pointer',
         position: 'relative',
         ...dndStyle,
       }}
