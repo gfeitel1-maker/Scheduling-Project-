@@ -1,275 +1,15 @@
 import { useState, useEffect, useCallback } from 'react'
+import { DndContext } from '@dnd-kit/core'
 import * as XLSX from 'xlsx'
 import { supabase } from '../supabase'
 import buildSchedule from '../engine/buildSchedule'
+import { S } from '../styles/shared'
+import StatBadge from '../components/schedule/StatBadge'
+import SlotCell, { FLAG_COLORS, activityColor, cellTd, emptyTd } from '../components/schedule/SlotCell'
+import FlagDetailModal from '../components/schedule/FlagDetailModal'
+import EditModal from '../components/schedule/EditModal'
+import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
 
-const ACTIVITY_COLORS = ['#00ADBB','#2F7DE1','#00AA59','#A63595','#F0585D','#7DC433']
-const ANCHOR_COLOR = '#A63595'
-
-const FLAG_COLORS = {
-  UNFILLABLE: '#F0585D',
-  UNDERSERVED: '#F5A623',
-  WEATHER_RISK: '#2F7DE1',
-  DISTRIBUTION: '#7DC433',
-}
-
-function activityColor(idx) { return ACTIVITY_COLORS[idx % ACTIVITY_COLORS.length] }
-
-function StatBadge({ label, value, color, onClick }) {
-  const clickable = onClick && value > 0
-  return (
-    <div
-      onClick={clickable ? onClick : undefined}
-      style={{
-        background: 'var(--surface)', border: `1px solid ${clickable ? color || 'var(--border)' : 'var(--border)'}`,
-        borderRadius: 6, padding: '8px 14px', textAlign: 'center', minWidth: 90,
-        cursor: clickable ? 'pointer' : 'default',
-        transition: 'border-color 0.15s',
-      }}
-      title={clickable ? `Click to see details` : undefined}
-    >
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 20, fontWeight: 700, color: color || 'var(--text)' }}>{value}</div>
-      <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>
-        {label}{clickable ? ' ↗' : ''}
-      </div>
-    </div>
-  )
-}
-
-const FLAG_DESCRIPTIONS = {
-  UNFILLABLE: 'No eligible activity could be placed — the slot was left empty.',
-  UNDERSERVED: 'Activity was scheduled fewer times than its minimum per week.',
-  WEATHER_RISK: 'Outdoor activity — will be affected by weather.',
-  DISTRIBUTION: 'Activity did not meet its early-week distribution preference.',
-}
-
-function FlagDetailModal({ flag, slots, groups, days, timeBlocks, activities, onClose }) {
-  const groupMap = Object.fromEntries(groups.map(g => [g.id, g.name]))
-  const dayMap = Object.fromEntries(days.map(d => [d.id, d.label]))
-  const blockMap = Object.fromEntries(timeBlocks.map(b => [b.id, b.name]))
-  const actMap = Object.fromEntries(activities.map(a => [a.id, a]))
-
-  const flaggedSlots = slots.filter(s => s.flags?.[flag])
-
-  let rows = []
-
-  if (flag === 'UNFILLABLE') {
-    rows = flaggedSlots.map(s => ({
-      col1: groupMap[s.group_id] || '?',
-      col2: dayMap[s.day_id] || '?',
-      col3: blockMap[s.time_block_id] || '?',
-      col4: 'No eligible activity',
-    }))
-  } else if (flag === 'UNDERSERVED') {
-    // Deduplicate to group × activity pairs
-    const seen = new Set()
-    for (const s of flaggedSlots) {
-      if (!s.activity_id) continue
-      const key = `${s.group_id}|${s.activity_id}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      const act = actMap[s.activity_id]
-      const scheduled = slots.filter(x => x.group_id === s.group_id && x.activity_id === s.activity_id).length
-      rows.push({
-        col1: groupMap[s.group_id] || '?',
-        col2: act?.name || '?',
-        col3: `${scheduled} / ${act?.min_per_week ?? '?'} needed`,
-        col4: '',
-      })
-    }
-  } else if (flag === 'WEATHER_RISK') {
-    rows = flaggedSlots.map(s => ({
-      col1: groupMap[s.group_id] || '?',
-      col2: dayMap[s.day_id] || '?',
-      col3: blockMap[s.time_block_id] || '?',
-      col4: actMap[s.activity_id]?.name || '?',
-    }))
-  } else if (flag === 'DISTRIBUTION') {
-    const seen = new Set()
-    for (const s of flaggedSlots) {
-      if (!s.activity_id) continue
-      const key = `${s.group_id}|${s.activity_id}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      const act = actMap[s.activity_id]
-      rows.push({
-        col1: groupMap[s.group_id] || '?',
-        col2: act?.name || '?',
-        col3: `Prefer ${act?.prefer_before_day_min ?? '?'}× before day ${act?.prefer_before_day ?? '?'}`,
-        col4: '',
-      })
-    }
-  }
-
-  const headers = {
-    UNFILLABLE:   ['Group', 'Day', 'Block', 'Reason'],
-    UNDERSERVED:  ['Group', 'Activity', 'Scheduled / Min', ''],
-    WEATHER_RISK: ['Group', 'Day', 'Block', 'Activity'],
-    DISTRIBUTION: ['Group', 'Activity', 'Preference', ''],
-  }[flag] || ['Col 1', 'Col 2', 'Col 3', 'Col 4']
-
-  const color = FLAG_COLORS[flag] || '#ccc'
-
-  return (
-    <div style={overlay}>
-      <div style={{ ...modalBox, width: 580 }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 6 }}>
-          <div>
-            <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ width: 10, height: 10, borderRadius: '50%', background: color, display: 'inline-block' }} />
-              {flag.replace('_', ' ')}
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>{FLAG_DESCRIPTIONS[flag]}</div>
-          </div>
-          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 22, fontWeight: 700, color }}>{rows.length}</span>
-        </div>
-
-        {rows.length === 0 ? (
-          <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>No issues found.</div>
-        ) : (
-          <div style={{ overflowY: 'auto', maxHeight: 380, border: '1px solid var(--border)', borderRadius: 6, marginTop: 12 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
-                  {headers.filter(h => h).map(h => (
-                    <th key={h} style={{ padding: '7px 12px', textAlign: 'left', fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r, i) => (
-                  <tr key={i} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? '' : 'var(--bg)' }}>
-                    <td style={{ padding: '7px 12px', fontWeight: 500 }}>{r.col1}</td>
-                    <td style={{ padding: '7px 12px', color: 'var(--text-secondary)' }}>{r.col2}</td>
-                    <td style={{ padding: '7px 12px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{r.col3}</td>
-                    {r.col4 !== '' && <td style={{ padding: '7px 12px', fontSize: 12 }}>{r.col4}</td>}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-          <button onClick={onClose} style={btnPrimary}>Close</button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function SlotCell({ slot, activity, anchor, actColorIdx, weatherMode, onEdit }) {
-  if (!slot) return <td style={emptyTd} />
-
-  if (slot.type === 'anchor') {
-    return (
-      <td style={{ ...cellTd, background: '#F3E8FA', borderLeft: `3px solid ${ANCHOR_COLOR}` }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: ANCHOR_COLOR, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {anchor?.name || 'Anchor'}
-        </div>
-      </td>
-    )
-  }
-
-  if (slot.type === 'unavailable') {
-    return <td style={{ ...cellTd, background: 'var(--bg)', opacity: 0.4 }} />
-  }
-
-  const flags = slot.flags || {}
-  const hasFlags = Object.keys(flags).length > 0
-  const isOutdoor = flags.WEATHER_RISK
-  const color = activity ? activityColor(actColorIdx) : '#E0E0E0'
-  const isWeatherHighlight = weatherMode && isOutdoor
-
-  return (
-    <td
-      style={{
-        ...cellTd,
-        background: activity ? `${color}18` : '#F8F8F8',
-        borderLeft: activity ? `3px solid ${color}` : '3px solid #E0E0E0',
-        outline: isWeatherHighlight ? '2px solid #2F7DE1' : 'none',
-        cursor: 'pointer',
-        position: 'relative',
-      }}
-      onClick={() => onEdit(slot)}
-      title={activity?.name || 'Empty — click to assign'}
-    >
-      <div style={{ fontSize: 11, fontWeight: activity ? 600 : 400, color: activity ? color : 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-        {activity?.name || <span style={{ opacity: 0.5 }}>—</span>}
-      </div>
-      {hasFlags && (
-        <div style={{ display: 'flex', gap: 2, marginTop: 2, flexWrap: 'wrap' }}>
-          {Object.keys(flags).map(f => (
-            <span key={f} style={{ width: 6, height: 6, borderRadius: '50%', background: FLAG_COLORS[f] || '#ccc', display: 'inline-block' }} title={f} />
-          ))}
-        </div>
-      )}
-    </td>
-  )
-}
-
-function EditModal({ slot, activities, eligibleActivities, currentActivity, currentAnchor, weatherAlt, weatherMode, onSave, onClose }) {
-  const [selected, setSelected] = useState(slot.activityId || '')
-
-  if (slot.type === 'anchor') {
-    return (
-      <div style={overlay}>
-        <div style={modalBox}>
-          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8, color: ANCHOR_COLOR }}>
-            ⚓ Anchor: {currentAnchor?.name}
-          </div>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>Anchors are fixed and cannot be changed here.</div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button onClick={onClose} style={btnPrimary}>Close</button></div>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div style={overlay}>
-      <div style={modalBox}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Assign Activity</div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16, fontFamily: 'var(--font-mono)' }}>
-          Currently: {currentActivity?.name || 'Empty'}
-        </div>
-
-        {weatherMode && weatherAlt && (
-          <div style={{ background: '#EEF4FD', border: '1px solid #2F7DE1', borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>
-            <span style={{ color: '#2F7DE1', fontWeight: 600 }}>Weather alternative: </span>{weatherAlt.name}
-            <button onClick={() => { setSelected(weatherAlt.id); setTimeout(() => onSave(weatherAlt.id), 50) }} style={{ ...btnPrimary, padding: '4px 10px', marginLeft: 10, fontSize: 12 }}>Swap</button>
-          </div>
-        )}
-
-        <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, marginBottom: 16 }}>
-          <div
-            style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)', background: selected === '' ? 'var(--surface-elevated)' : '', borderBottom: '1px solid var(--border)' }}
-            onClick={() => setSelected('')}
-          >
-            — Clear slot —
-          </div>
-          {eligibleActivities.map((a, i) => (
-            <div key={a.id}
-              style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 500, background: selected === a.id ? 'var(--surface-elevated)' : '', borderBottom: i < eligibleActivities.length - 1 ? '1px solid var(--border)' : '', display: 'flex', alignItems: 'center', gap: 8 }}
-              onClick={() => setSelected(a.id)}
-            >
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: activityColor(i), display: 'inline-block', flexShrink: 0 }} />
-              {a.name}
-              {a.priority === 'high' && <span style={{ fontSize: 10, background: 'var(--primary)', color: '#fff', borderRadius: 3, padding: '1px 5px', marginLeft: 'auto' }}>HIGH</span>}
-            </div>
-          ))}
-          {eligibleActivities.length === 0 && (
-            <div style={{ padding: '16px 12px', fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center' }}>No eligible activities for this group</div>
-          )}
-        </div>
-
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={btnSecondary}>Cancel</button>
-          <button onClick={() => onSave(selected || null)} style={btnPrimary}>Save</button>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 export default function ScheduleScreen({ campId, onNavigate }) {
   const [groups, setGroups] = useState([])
@@ -291,33 +31,47 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   const [confirmRegen, setConfirmRegen] = useState(false)
   const [activeFlag, setActiveFlag] = useState(null)
   const [selectedActivity, setSelectedActivity] = useState(null)
+  const [loadError, setLoadError] = useState(null)
+  const [templateError, setTemplateError] = useState(null)
 
   useEffect(() => { loadAll() }, [campId])
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: gd }, { data: td }, { data: bd }, { data: ad }, { data: ancd }, { data: tierd }] = await Promise.all([
-      supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
-      supabase.from('days_of_operation').select('*').eq('camp_id', campId).order('sort_order'),
-      supabase.from('time_blocks').select('*').eq('camp_id', campId).order('sort_order'),
-      supabase.from('activities').select('*').eq('camp_id', campId),
-      supabase.from('anchor_activities').select('*').eq('camp_id', campId),
-      supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
-    ])
-    const g = gd || []; const b = bd || []; const a = ad || []; const anc = ancd || []; const t = tierd || []
-    const d = (td || []).filter((x, i, arr) => arr.findIndex(y => y.day_of_week === x.day_of_week) === i)
-    setGroups(g); setDays(d); setTimeBlocks(b); setActivities(a); setAnchors(anc); setTiers(t)
-    if (g.length > 0) setSelectedGroup(g[0].id)
-    if (d.length > 0) setSelectedDay(d[0].id)
-
-    // Load template
-    const { data: tmpl } = await supabase.from('schedule_templates').select('id').eq('camp_id', campId).single()
-    if (tmpl) {
-      setTemplateId(tmpl.id)
-      const { data: slotData } = await supabase.from('template_slots').select('*').eq('template_id', tmpl.id)
-      const saved = slotData || []
-      setSlots(saved)
-      recalcStats(saved, a)
+    setLoadError(null)
+    setTemplateError(null)
+    let loadedActivities = []
+    try {
+      const [{ data: gd }, { data: td }, { data: bd }, { data: ad }, { data: ancd }, { data: tierd }] = await Promise.all([
+        supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
+        supabase.from('days_of_operation').select('*').eq('camp_id', campId).order('sort_order'),
+        supabase.from('time_blocks').select('*').eq('camp_id', campId).order('sort_order'),
+        supabase.from('activities').select('*').eq('camp_id', campId),
+        supabase.from('anchor_activities').select('*').eq('camp_id', campId),
+        supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
+      ])
+      const g = gd || []; const b = bd || []; const a = ad || []; const anc = ancd || []; const t = tierd || []
+      const d = (td || []).filter((x, i, arr) => arr.findIndex(y => y.day_of_week === x.day_of_week) === i)
+      setGroups(g); setDays(d); setTimeBlocks(b); setActivities(a); setAnchors(anc); setTiers(t)
+      if (g.length > 0) setSelectedGroup(g[0].id)
+      if (d.length > 0) setSelectedDay(d[0].id)
+      loadedActivities = a
+    } catch {
+      setLoadError('Failed to load schedule data — check your connection and refresh')
+      setLoading(false)
+      return
+    }
+    try {
+      const { data: tmpl } = await supabase.from('schedule_templates').select('id').eq('camp_id', campId).single()
+      if (tmpl) {
+        setTemplateId(tmpl.id)
+        const { data: slotData } = await supabase.from('template_slots').select('*').eq('template_id', tmpl.id)
+        const saved = slotData || []
+        setSlots(saved)
+        recalcStats(saved, loadedActivities)
+      }
+    } catch {
+      setTemplateError('Failed to load saved schedule — check your connection and refresh')
     }
     setLoading(false)
   }
@@ -334,7 +88,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
   async function generate() {
     setGenerating(true)
-    const result = buildSchedule({ groups, tiers, days, timeBlocks: timeBlocks, activities, anchors })
+    const result = buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId })
 
     // Upsert template
     let tid = templateId
@@ -385,6 +139,32 @@ export default function ScheduleScreen({ campId, onNavigate }) {
         : s
     ))
     setEditSlot(null)
+  }
+
+  async function swapSlots(slotA, slotB) {
+    // slotA and slotB are { groupId, dayId, blockId, activityId }
+    if (!templateId) return
+    await Promise.all([
+      supabase.from('template_slots')
+        .update({ activity_id: slotB.activityId || null, flags: {} })
+        .eq('template_id', templateId)
+        .eq('group_id', slotA.groupId)
+        .eq('day_id', slotA.dayId)
+        .eq('time_block_id', slotA.blockId),
+      supabase.from('template_slots')
+        .update({ activity_id: slotA.activityId || null, flags: {} })
+        .eq('template_id', templateId)
+        .eq('group_id', slotB.groupId)
+        .eq('day_id', slotB.dayId)
+        .eq('time_block_id', slotB.blockId),
+    ])
+    setSlots(prev => prev.map(s => {
+      if (s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
+        return { ...s, activity_id: slotB.activityId || null, flags: {} }
+      if (s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
+        return { ...s, activity_id: slotA.activityId || null, flags: {} }
+      return s
+    }))
   }
 
   async function regenFromScratch() {
@@ -465,7 +245,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
             {timeBlocks.length === 0 && <li>Time Blocks</li>}
             {activities.length === 0 && <li>Activities</li>}
           </ul>
-          <button onClick={() => onNavigate('setup')} style={{ ...btnPrimary, marginTop: 12 }}>Go to Camp Setup</button>
+          <button onClick={() => onNavigate('setup')} style={{ ...S.btnPrimary, marginTop: 12 }}>Go to Camp Setup</button>
         </div>
       </div>
     )
@@ -475,6 +255,16 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: '100%' }}>
+      {loadError && (
+        <div style={S.errorBanner}>
+          {loadError}
+        </div>
+      )}
+      {templateError && (
+        <div style={S.errorBanner}>
+          {templateError}
+        </div>
+      )}
       {/* Controls bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         {hasSchedule && (
@@ -496,13 +286,13 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
             <div style={{ flex: 1 }} />
 
-            <button onClick={exportToExcel} style={btnSecondary}>Export to Excel</button>
-            <button onClick={() => setConfirmRegen(true)} style={btnDanger}>Regenerate from Scratch</button>
+            <button onClick={exportToExcel} style={S.btnSecondary}>Export to Excel</button>
+            <button onClick={() => setConfirmRegen(true)} style={S.btnDanger}>Regenerate from Scratch</button>
           </>
         )}
 
         {!hasSchedule && (
-          <button onClick={generate} disabled={generating} style={{ ...btnPrimary, padding: '10px 24px', fontSize: 14 }}>
+          <button onClick={generate} disabled={generating} style={{ ...S.btnPrimary, padding: '10px 24px', fontSize: 14 }}>
             {generating ? 'Generating…' : 'Generate Schedule'}
           </button>
         )}
@@ -547,42 +337,42 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
           {selectedGroup && (
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ borderCollapse: 'collapse', minWidth: 500, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-                <thead>
-                  <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
-                    <th style={{ ...th, minWidth: 100 }}>Block</th>
-                    {days.map(d => <th key={d.id} style={th}>{d.label}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {timeBlocks.map(block => (
-                    <tr key={block.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ ...td, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                        <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text)' }}>{block.name}</div>
-                        <div>{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
-                      </td>
-                      {days.map(day => {
-                        const slot = getSlot(selectedGroup, day.id, block.id)
-                        if (!slot) return <td key={day.id} style={emptyTd} />
-                        const act = slot.activity_id ? actMap.get(slot.activity_id) : null
-                        const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
-                        return (
-                          <SlotCell
-                            key={day.id}
-                            slot={slot.is_anchor ? { ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id } : { ...slot, type: slot.activity_id || !slot.is_anchor ? 'activity' : 'unavailable', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
-                            activity={act}
-                            anchor={anchor}
-                            actColorIdx={act?.colorIdx || 0}
-                            weatherMode={weatherMode}
-                            onEdit={s => setEditSlot(s)}
-                          />
-                        )
-                      })}
+                <table style={{ borderCollapse: 'collapse', minWidth: 500, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
+                      <th style={{ ...S.th, whiteSpace: 'nowrap', minWidth: 100 }}>Block</th>
+                      {days.map(d => <th key={d.id} style={{ ...S.th, whiteSpace: 'nowrap' }}>{d.label}</th>)}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {timeBlocks.map(block => (
+                      <tr key={block.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ ...S.td, padding: '8px 10px', fontSize: 12, verticalAlign: 'middle', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text)' }}>{block.name}</div>
+                          <div>{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
+                        </td>
+                        {days.map(day => {
+                          const slot = getSlot(selectedGroup, day.id, block.id)
+                          if (!slot) return <td key={day.id} style={emptyTd} />
+                          const act = slot.activity_id ? actMap.get(slot.activity_id) : null
+                          const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
+                          return (
+                            <SlotCell
+                              key={day.id}
+                              slot={slot.is_anchor ? { ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id } : { ...slot, type: slot.activity_id || !slot.is_anchor ? 'activity' : 'unavailable', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
+                              activity={act}
+                              anchor={anchor}
+                              actColorIdx={act?.colorIdx || 0}
+                              weatherMode={weatherMode}
+                              onEdit={s => setEditSlot(s)}
+                            />
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
           )}
         </div>
       )}
@@ -604,18 +394,32 @@ export default function ScheduleScreen({ campId, onNavigate }) {
           </div>
 
           {selectedDay && (
+            <DndContext
+              onDragEnd={({ active, over }) => {
+                if (!over) return
+                const slotA = active.data.current?.slot
+                const slotB = over.data.current?.slot
+                if (!slotA || !slotB) return
+                if (slotA.groupId === slotB.groupId && slotA.dayId === slotB.dayId && slotA.blockId === slotB.blockId) return
+                if (slotB.type === 'anchor' || slotB.type === 'unavailable') return
+                swapSlots(
+                  { groupId: slotA.groupId, dayId: slotA.dayId, blockId: slotA.blockId, activityId: slotA.activity_id },
+                  { groupId: slotB.groupId, dayId: slotB.dayId, blockId: slotB.blockId, activityId: slotB.activity_id }
+                )
+              }}
+            >
             <div style={{ overflowX: 'auto' }}>
               <table style={{ borderCollapse: 'collapse', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                 <thead>
                   <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
-                    <th style={{ ...th, minWidth: 110, position: 'sticky', left: 0, background: 'var(--bg)', zIndex: 1 }}>Block</th>
-                    {groups.map(g => <th key={g.id} style={{ ...th, minWidth: 90 }}>{g.name}</th>)}
+                    <th style={{ ...S.th, whiteSpace: 'nowrap', minWidth: 110, position: 'sticky', left: 0, background: 'var(--bg)', zIndex: 1 }}>Block</th>
+                    {groups.map(g => <th key={g.id} style={{ ...S.th, whiteSpace: 'nowrap', minWidth: 90 }}>{g.name}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {timeBlocks.map(block => (
                     <tr key={block.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ ...td, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--surface)', zIndex: 1, borderRight: '1px solid var(--border)' }}>
+                      <td style={{ ...S.td, padding: '8px 10px', fontSize: 12, verticalAlign: 'middle', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--surface)', zIndex: 1, borderRight: '1px solid var(--border)' }}>
                         <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text)' }}>{block.name}</div>
                         <div>{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
                       </td>
@@ -635,6 +439,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                             actColorIdx={act?.colorIdx || 0}
                             weatherMode={weatherMode}
                             onEdit={s => setEditSlot(s)}
+                            isDndEnabled={true}
                           />
                         )
                       })}
@@ -643,6 +448,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                 </tbody>
               </table>
             </div>
+            </DndContext>
           )}
         </div>
       )}
@@ -698,7 +504,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
                     <button
                       onClick={() => setSelectedActivity(null)}
-                      style={{ ...btnSecondary, padding: '5px 12px', fontSize: 12 }}
+                      style={{ ...S.btnSecondary, padding: '5px 12px', fontSize: 12 }}
                     >← All Activities</button>
                     <span style={{ width: 12, height: 12, borderRadius: '50%', background: color, display: 'inline-block' }} />
                     <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, color: 'var(--text)' }}>{act?.name}</span>
@@ -711,14 +517,14 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                     <table style={{ borderCollapse: 'collapse', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
                       <thead>
                         <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
-                          <th style={{ ...th, minWidth: 110, position: 'sticky', left: 0, background: 'var(--bg)', zIndex: 1 }}>Block</th>
-                          {days.map(d => <th key={d.id} style={th}>{d.label}</th>)}
+                          <th style={{ ...S.th, whiteSpace: 'nowrap', minWidth: 110, position: 'sticky', left: 0, background: 'var(--bg)', zIndex: 1 }}>Block</th>
+                          {days.map(d => <th key={d.id} style={{ ...S.th, whiteSpace: 'nowrap' }}>{d.label}</th>)}
                         </tr>
                       </thead>
                       <tbody>
                         {timeBlocks.map(block => (
                           <tr key={block.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                            <td style={{ ...td, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--surface)', zIndex: 1, borderRight: '1px solid var(--border)' }}>
+                            <td style={{ ...S.td, padding: '8px 10px', fontSize: 12, verticalAlign: 'middle', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--surface)', zIndex: 1, borderRight: '1px solid var(--border)' }}>
                               <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text)' }}>{block.name}</div>
                               <div>{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
                             </td>
@@ -792,18 +598,10 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
       {/* Regen confirm */}
       {confirmRegen && (
-        <div style={overlay}>
-          <div style={{ ...modalBox, maxWidth: 400 }}>
-            <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Regenerate from Scratch?</div>
-            <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20 }}>
-              This will delete your current schedule including all manual edits. Continue?
-            </div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setConfirmRegen(false)} style={btnSecondary}>Cancel</button>
-              <button onClick={regenFromScratch} style={btnDanger}>Yes, Regenerate</button>
-            </div>
-          </div>
-        </div>
+        <ConfirmRegenModal
+          onConfirm={regenFromScratch}
+          onCancel={() => setConfirmRegen(false)}
+        />
       )}
 
       {/* Flag legend */}
@@ -820,12 +618,3 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   )
 }
 
-const td = { padding: '8px 10px', textAlign: 'left', fontSize: 12, verticalAlign: 'middle' }
-const th = { padding: '8px 10px', textAlign: 'left', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 600, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap' }
-const cellTd = { padding: '6px 8px', width: 100, minWidth: 80, verticalAlign: 'top', cursor: 'pointer' }
-const emptyTd = { padding: '6px 8px', width: 100, minWidth: 80, background: 'var(--bg)', opacity: 0.3 }
-const overlay = { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }
-const modalBox = { background: 'var(--surface)', borderRadius: 10, padding: 28, width: 480, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }
-const btnPrimary = { padding: '7px 14px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 13, cursor: 'pointer' }
-const btnSecondary = { padding: '7px 14px', background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 5, fontWeight: 500, fontSize: 13, cursor: 'pointer' }
-const btnDanger = { padding: '7px 14px', background: 'none', color: 'var(--warning)', border: '1px solid var(--warning)', borderRadius: 5, fontWeight: 500, fontSize: 13, cursor: 'pointer' }
