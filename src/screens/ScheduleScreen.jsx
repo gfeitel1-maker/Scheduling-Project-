@@ -82,7 +82,8 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     const filled = slotList.filter(s => s.is_anchor === false && s.activity_id)
     const unfillable = slotList.filter(s => s.flags?.UNFILLABLE)
     const underserved = slotList.filter(s => s.flags?.UNDERSERVED)
-    const allFlags = slotList.reduce((sum, s) => sum + Object.keys(s.flags || {}).length, 0)
+    const allFlags = slotList.reduce((sum, s) =>
+      sum + Object.keys(s.flags || {}).filter(k => !k.includes('_')).length, 0)
     setStats({ open: open.length, filled: filled.length, unfillable: unfillable.length, underserved: underserved.length, allFlags })
   }
 

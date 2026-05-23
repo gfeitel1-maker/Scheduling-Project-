@@ -269,7 +269,8 @@ function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, c
   const filledCount = resultSlots.filter(s => s.type === 'activity' && s.activityId).length
   const unfillableCount = resultSlots.filter(s => s.flags?.UNFILLABLE).length
   const underservedCount = new Set(underserved.map(u => `${u.groupId}|${u.activityId}`)).size
-  const totalFlags = resultSlots.reduce((sum, s) => sum + Object.keys(s.flags || {}).length, 0)
+  const totalFlags = resultSlots.reduce((sum, s) =>
+    sum + Object.keys(s.flags || {}).filter(k => !k.includes('_')).length, 0)
 
   return {
     slots: resultSlots,
