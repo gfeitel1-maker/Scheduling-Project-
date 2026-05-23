@@ -43,6 +43,11 @@ Replace `CampIdGate` with a landing screen offering two paths:
 - No auth
 - Pure UX change on top of existing `camps` table
 
+### Data preservation
+- Existing `campId` in `localStorage` is read first on every load — returning users with no `?camp=` URL param land directly in their camp, same as today
+- No Supabase data is migrated, deleted, or modified
+- Existing schedule, groups, activities, anchors, and anchors remain intact
+
 ---
 
 ## Section 2: Seeded PRNG
