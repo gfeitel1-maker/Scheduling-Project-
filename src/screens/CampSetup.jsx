@@ -15,6 +15,7 @@ export default function CampSetup({ campId, onNavigate }) {
   const [saving, setSaving] = useState(false)
   const [counts, setCounts] = useState({})
   const [loadingCounts, setLoadingCounts] = useState(true)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     loadCamp()
@@ -28,15 +29,21 @@ export default function CampSetup({ campId, onNavigate }) {
 
   async function loadCounts() {
     setLoadingCounts(true)
-    const results = await Promise.all(
-      CHECKLIST.map(item =>
-        supabase.from(item.table).select('id', { count: 'exact', head: true }).eq('camp_id', campId)
+    setError(null)
+    try {
+      const results = await Promise.all(
+        CHECKLIST.map(item =>
+          supabase.from(item.table).select('id', { count: 'exact', head: true }).eq('camp_id', campId)
+        )
       )
-    )
-    const map = {}
-    CHECKLIST.forEach((item, i) => { map[item.key] = results[i].count || 0 })
-    setCounts(map)
-    setLoadingCounts(false)
+      const map = {}
+      CHECKLIST.forEach((item, i) => { map[item.key] = results[i].count || 0 })
+      setCounts(map)
+    } catch {
+      setError('Failed to load data — check your connection and refresh')
+    } finally {
+      setLoadingCounts(false)
+    }
   }
 
   async function saveName() {
@@ -51,6 +58,11 @@ export default function CampSetup({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 600 }}>
+      {error && (
+        <div style={{ background: '#fff5f5', border: '1px solid #f5c6c6', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: 'var(--warning)' }}>
+          {error}
+        </div>
+      )}
       <section style={{ marginBottom: 32 }}>
         <div style={{
           fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16,

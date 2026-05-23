@@ -143,27 +143,34 @@ export default function AnchorsScreen({ campId, onNavigate }) {
   const [importRows, setImportRows] = useState([])
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
+  const [error, setError] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
 
   async function load() {
     setLoading(true)
-    const [{ data: aData }, { data: dData }, { data: bData }, { data: tData }, { data: gData }] = await Promise.all([
-      supabase.from('anchor_activities').select('*').eq('camp_id', campId).order('name'),
-      supabase.from('days_of_operation').select('*').eq('camp_id', campId).order('sort_order'),
-      supabase.from('time_blocks').select('*').eq('camp_id', campId).order('sort_order'),
-      supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
-      supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
-    ])
-    setAnchors(aData || [])
-    // Deduplicate days by day_of_week in case seed ran more than once
-    const uniqueDays = (dData || []).filter((d, i, arr) => arr.findIndex(x => x.day_of_week === d.day_of_week) === i)
-    setDays(uniqueDays)
-    setTimeBlocks(bData || [])
-    setTiers(tData || [])
-    setGroups(gData || [])
-    setLoading(false)
+    setError(null)
+    try {
+      const [{ data: aData }, { data: dData }, { data: bData }, { data: tData }, { data: gData }] = await Promise.all([
+        supabase.from('anchor_activities').select('*').eq('camp_id', campId).order('name'),
+        supabase.from('days_of_operation').select('*').eq('camp_id', campId).order('sort_order'),
+        supabase.from('time_blocks').select('*').eq('camp_id', campId).order('sort_order'),
+        supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
+        supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
+      ])
+      setAnchors(aData || [])
+      // Deduplicate days by day_of_week in case seed ran more than once
+      const uniqueDays = (dData || []).filter((d, i, arr) => arr.findIndex(x => x.day_of_week === d.day_of_week) === i)
+      setDays(uniqueDays)
+      setTimeBlocks(bData || [])
+      setTiers(tData || [])
+      setGroups(gData || [])
+    } catch {
+      setError('Failed to load data — check your connection and refresh')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function saveAnchor(id, fields) {
@@ -313,6 +320,11 @@ export default function AnchorsScreen({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 760 }}>
+      {error && (
+        <div style={{ background: '#fff5f5', border: '1px solid #f5c6c6', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: 'var(--warning)' }}>
+          {error}
+        </div>
+      )}
       {timeBlocks.length === 0 && !loading && (
         <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#7a5100' }}>
           No time blocks found. Set these up before adding anchors.
