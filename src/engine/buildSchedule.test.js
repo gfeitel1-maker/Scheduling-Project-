@@ -88,4 +88,32 @@ describe('preplacedSlots (locking)', () => {
     const act = { id: 'a1', name: 'Swimming', priority: 'low', max_per_week: 5, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
     expect(() => buildSchedule(minimal({ activities: [act] }))).not.toThrow()
   })
+
+  it('populates locationUsage for preplaced slots so capacity is respected', () => {
+    // Pool has max_groups_per_slot = 2. Preplaced one group. Another group should fill the same slot (capacity allows it).
+    // A third group should NOT be placed there if capacity would be exceeded.
+    const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
+    const g2 = { id: 'g2', name: 'Bet', tier_id: 't1', availability: 'all' }
+    const g3 = { id: 'g3', name: 'Gimel', tier_id: 't1', availability: 'all' }
+    const pool = {
+      id: 'a1', name: 'Pool', priority: 'high', max_per_week: 5, min_per_week: 0,
+      is_outdoor: false, location: 'pool', max_groups_per_slot: 2, same_tier_only: false,
+      eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null
+    }
+    const preplaced = [{ groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'a1' }]
+    const { slots } = buildSchedule({
+      groups: [baseGroup, g2, g3],
+      tiers: [{ id: 't1', name: 'Junior' }],
+      days: [baseDay],
+      timeBlocks: [baseBlock],
+      activities: [pool],
+      anchors: [],
+      campId: 'test',
+      preplacedSlots: preplaced,
+    })
+    // g1 is preplaced at d1/b1. g2 should also get pool there (capacity=2). g3 should NOT.
+    const poolSlotsAtB1 = slots.filter(s => s.activityId === 'a1' && s.dayId === 'd1' && s.blockId === 'b1')
+    expect(poolSlotsAtB1.length).toBe(2) // g1 (preplaced) + g2, not g3
+    expect(poolSlotsAtB1.map(s => s.groupId).sort()).toEqual(['g1', 'g2'].sort())
+  })
 })
