@@ -291,33 +291,47 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   const [confirmRegen, setConfirmRegen] = useState(false)
   const [activeFlag, setActiveFlag] = useState(null)
   const [selectedActivity, setSelectedActivity] = useState(null)
+  const [loadError, setLoadError] = useState(null)
+  const [templateError, setTemplateError] = useState(null)
 
   useEffect(() => { loadAll() }, [campId])
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: gd }, { data: td }, { data: bd }, { data: ad }, { data: ancd }, { data: tierd }] = await Promise.all([
-      supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
-      supabase.from('days_of_operation').select('*').eq('camp_id', campId).order('sort_order'),
-      supabase.from('time_blocks').select('*').eq('camp_id', campId).order('sort_order'),
-      supabase.from('activities').select('*').eq('camp_id', campId),
-      supabase.from('anchor_activities').select('*').eq('camp_id', campId),
-      supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
-    ])
-    const g = gd || []; const b = bd || []; const a = ad || []; const anc = ancd || []; const t = tierd || []
-    const d = (td || []).filter((x, i, arr) => arr.findIndex(y => y.day_of_week === x.day_of_week) === i)
-    setGroups(g); setDays(d); setTimeBlocks(b); setActivities(a); setAnchors(anc); setTiers(t)
-    if (g.length > 0) setSelectedGroup(g[0].id)
-    if (d.length > 0) setSelectedDay(d[0].id)
-
-    // Load template
-    const { data: tmpl } = await supabase.from('schedule_templates').select('id').eq('camp_id', campId).single()
-    if (tmpl) {
-      setTemplateId(tmpl.id)
-      const { data: slotData } = await supabase.from('template_slots').select('*').eq('template_id', tmpl.id)
-      const saved = slotData || []
-      setSlots(saved)
-      recalcStats(saved, a)
+    setLoadError(null)
+    setTemplateError(null)
+    let loadedActivities = []
+    try {
+      const [{ data: gd }, { data: td }, { data: bd }, { data: ad }, { data: ancd }, { data: tierd }] = await Promise.all([
+        supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
+        supabase.from('days_of_operation').select('*').eq('camp_id', campId).order('sort_order'),
+        supabase.from('time_blocks').select('*').eq('camp_id', campId).order('sort_order'),
+        supabase.from('activities').select('*').eq('camp_id', campId),
+        supabase.from('anchor_activities').select('*').eq('camp_id', campId),
+        supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
+      ])
+      const g = gd || []; const b = bd || []; const a = ad || []; const anc = ancd || []; const t = tierd || []
+      const d = (td || []).filter((x, i, arr) => arr.findIndex(y => y.day_of_week === x.day_of_week) === i)
+      setGroups(g); setDays(d); setTimeBlocks(b); setActivities(a); setAnchors(anc); setTiers(t)
+      if (g.length > 0) setSelectedGroup(g[0].id)
+      if (d.length > 0) setSelectedDay(d[0].id)
+      loadedActivities = a
+    } catch {
+      setLoadError('Failed to load schedule data — check your connection and refresh')
+      setLoading(false)
+      return
+    }
+    try {
+      const { data: tmpl } = await supabase.from('schedule_templates').select('id').eq('camp_id', campId).single()
+      if (tmpl) {
+        setTemplateId(tmpl.id)
+        const { data: slotData } = await supabase.from('template_slots').select('*').eq('template_id', tmpl.id)
+        const saved = slotData || []
+        setSlots(saved)
+        recalcStats(saved, loadedActivities)
+      }
+    } catch {
+      setTemplateError('Failed to load saved schedule — check your connection and refresh')
     }
     setLoading(false)
   }
@@ -475,6 +489,16 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: '100%' }}>
+      {loadError && (
+        <div style={{ background: '#fff5f5', border: '1px solid #f5c6c6', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: 'var(--warning)' }}>
+          {loadError}
+        </div>
+      )}
+      {templateError && (
+        <div style={{ background: '#fff5f5', border: '1px solid #f5c6c6', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: 'var(--warning)' }}>
+          {templateError}
+        </div>
+      )}
       {/* Controls bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         {hasSchedule && (
