@@ -20,19 +20,27 @@
 Users must copy a UUID from the Supabase Table Editor and paste it manually. No way to create a camp from within the app.
 
 ### Solution
-Replace `CampIdGate` with a landing screen offering two paths:
+Replace `CampIdGate` with a landing screen. **Camp name is the primary access path.**
 
-**Path A — Create a new camp:**
-- User enters a camp name
-- App inserts a row into `camps` table
-- Redirects to `/?camp=<uuid>`
-- One-time confirmation: *"Bookmark this URL — it's how you and your team will access this camp."*
+**Primary path — Open by name:**
+- Landing shows a single camp name input with an "Open camp" button
+- On submit: query `camps` where `name = entered_name` (case-insensitive)
+- **Found:** load camp, store `campId` in localStorage, redirect to `/?camp=<uuid>`
+- **Not found:** show "No camp named X exists yet — create it?" with a Create button
+- This is how staff on any device access the schedule without needing a bookmarked URL
 
-**Path B — Open existing camp:**
-- If URL already contains `?camp=<uuid>`, validate against Supabase and skip the gate entirely
+**Secondary path — Create a new camp:**
+- "New to Shoresh? Create a new camp" link below the primary input
+- User enters camp name → app inserts row into `camps` → confirmation screen
+- Confirmation shows the generated URL with a "Copy link" button and a "Bookmark this" note
+- Camp name must be unique — if name already exists on creation, show: *"A camp with this name already exists. Try opening it instead."*
+
+**Direct URL access (returning users):**
+- If URL contains `?camp=<uuid>`, validate against Supabase and skip the landing screen entirely
 - **URL wins over localStorage** — if `?camp=A` is in the URL but localStorage has `B`, use A and update localStorage
-- localStorage still persists `campId` for refresh persistence (no `?camp=` param on subsequent loads)
-- Invalid `?camp=` param shows inline error: *"Camp not found. Check your link or create a new camp."*
+- localStorage persists `campId` for refresh persistence
+
+**Supabase change:** Add a `UNIQUE` constraint on `camps.name`. Case-insensitive uniqueness enforced at the DB level.
 
 ### Sidebar
 - Replace hardcoded "Camp Achva" with the actual `name` field from the `camps` table
@@ -41,12 +49,12 @@ Replace `CampIdGate` with a landing screen offering two paths:
 ### Constraints
 - No new tables
 - No auth
-- Pure UX change on top of existing `camps` table
+- One DB constraint added (`camps.name` unique)
 
 ### Data preservation
-- Existing `campId` in `localStorage` is read first on every load — returning users with no `?camp=` URL param land directly in their camp, same as today
+- Existing `campId` in localStorage is read on every load — returning users with a valid `?camp=` URL or localStorage entry skip the landing screen entirely
 - No Supabase data is migrated, deleted, or modified
-- Existing schedule, groups, activities, anchors, and anchors remain intact
+- Existing schedule, groups, activities, anchors remain intact
 
 ---
 
