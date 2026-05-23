@@ -140,6 +140,32 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     setEditSlot(null)
   }
 
+  async function swapSlots(slotA, slotB) {
+    // slotA and slotB are { groupId, dayId, blockId, activityId }
+    if (!templateId) return
+    await Promise.all([
+      supabase.from('template_slots')
+        .update({ activity_id: slotB.activityId || null, flags: {} })
+        .eq('template_id', templateId)
+        .eq('group_id', slotA.groupId)
+        .eq('day_id', slotA.dayId)
+        .eq('time_block_id', slotA.blockId),
+      supabase.from('template_slots')
+        .update({ activity_id: slotA.activityId || null, flags: {} })
+        .eq('template_id', templateId)
+        .eq('group_id', slotB.groupId)
+        .eq('day_id', slotB.dayId)
+        .eq('time_block_id', slotB.blockId),
+    ])
+    setSlots(prev => prev.map(s => {
+      if (s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
+        return { ...s, activity_id: slotB.activityId || null, flags: {} }
+      if (s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
+        return { ...s, activity_id: slotA.activityId || null, flags: {} }
+      return s
+    }))
+  }
+
   async function regenFromScratch() {
     setConfirmRegen(false)
     await generate()
