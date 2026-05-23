@@ -76,8 +76,6 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     setLoading(false)
   }
 
-  const REAL_FLAGS = ['UNFILLABLE', 'UNDERSERVED', 'WEATHER_RISK', 'DISTRIBUTION']
-
   function recalcStats(slotList) {
     const unfillable = slotList.filter(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed).length
     const underserved = slotList.filter(s => s.flags?.UNDERSERVED && !s.flags?.UNDERSERVED_dismissed).length
@@ -179,10 +177,14 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       supabase.from('template_slots').update({ flags: newFlags }).eq('id', id)
     ))
 
-    setSlots(prev => prev.map(s => {
-      const u = updates.find(u => u.id === s.id)
-      return u ? { ...s, flags: u.newFlags } : s
-    }))
+    setSlots(prev => {
+      const next = prev.map(s => {
+        const u = updates.find(u => u.id === s.id)
+        return u ? { ...s, flags: u.newFlags } : s
+      })
+      recalcStats(next)
+      return next
+    })
   }
 
   async function regenFromScratch() {
