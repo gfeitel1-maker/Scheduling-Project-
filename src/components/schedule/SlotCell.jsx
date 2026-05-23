@@ -11,14 +11,16 @@ export const FLAG_COLORS = {
   DISTRIBUTION: '#7DC433',
 }
 
+const REAL_FLAG_NAMES = new Set(Object.keys(FLAG_COLORS))
+
 export function activityColor(idx) { return ACTIVITY_COLORS[idx % ACTIVITY_COLORS.length] }
 
 export const cellTd = { padding: '8px 6px', verticalAlign: 'top', cursor: 'pointer' }
 export const emptyTd = { padding: '8px 6px', verticalAlign: 'top' }
 
-export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherMode, onEdit, isDndEnabled }) {
+export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherMode, onEdit, onLock, onRelease, isLocked, isDndEnabled }) {
   const id = slot ? `${slot.groupId}|${slot.dayId}|${slot.blockId}` : 'empty'
-  const canDrag = isDndEnabled && slot?.type === 'activity'
+  const canDrag = isDndEnabled && slot?.type === 'activity' && !isLocked
 
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
     id,
@@ -64,12 +66,37 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
   }
 
   const flags = slot.flags || {}
-  const hasFlags = Object.keys(flags).length > 0
-  const isOutdoor = flags.WEATHER_RISK
+  // Only render dots for real flag names (not _reason, _dismissed, etc.)
+  const activeFlags = Object.keys(flags).filter(f => REAL_FLAG_NAMES.has(f) && !flags[`${f}_dismissed`])
+  const hasFlags = activeFlags.length > 0
+  const isOutdoor = flags.WEATHER_RISK && !flags.WEATHER_RISK_dismissed
   const color = activity ? activityColor(actColorIdx) : null
   const isWeatherHighlight = weatherMode && isOutdoor
 
-  const innerStyle = activity
+  function handleClick(e) {
+    e.preventDefault()
+    if (!activity) { onEdit(slot); return }
+    if (isLocked) { onRelease?.(slot); return }
+    if (onLock) { onLock(slot); return }
+    onEdit(slot)
+  }
+
+  function handleContextMenu(e) {
+    e.preventDefault()
+    onEdit(slot)
+  }
+
+  const lockedInnerStyle = {
+    background: '#FFFBF0',
+    border: '2px solid #E8A020',
+    borderRadius: 8,
+    padding: '10px 12px',
+    minHeight: 56,
+    position: 'relative',
+    overflow: 'hidden',
+  }
+
+  const normalInnerStyle = activity
     ? {
         background: `${color}1E`,
         border: isWeatherHighlight ? `2px solid #2F7DE1` : `1.5px solid ${color}55`,
@@ -79,6 +106,7 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
         opacity: isDragging ? 0.4 : 1,
         outline: isOver && isDndEnabled ? '2px solid var(--primary)' : 'none',
         outlineOffset: -2,
+        position: 'relative',
       }
     : {
         background: 'var(--bg)',
@@ -86,7 +114,17 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
         borderRadius: 8,
         padding: '10px 12px',
         minHeight: 56,
+        position: 'relative',
       }
+
+  const innerStyle = isLocked ? lockedInnerStyle : normalInnerStyle
+
+  // Build tooltip: activity name + flag reasons
+  const tooltipParts = [activity?.name || 'Unassigned']
+  for (const f of activeFlags) {
+    if (flags[`${f}_reason`]) tooltipParts.push(flags[`${f}_reason`])
+  }
+  const tooltipText = tooltipParts.join('\n')
 
   return (
     <td
@@ -95,25 +133,39 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
         ...cellTd,
         cursor: canDrag ? (isDragging ? 'grabbing' : 'grab') : 'pointer',
       }}
-      onClick={() => onEdit(slot)}
-      title={activity?.name || 'Empty — click to assign'}
+      onClick={handleClick}
+      onContextMenu={handleContextMenu}
+      title={tooltipText}
       {...(canDrag ? { ...listeners, ...attributes } : {})}
     >
       <div style={innerStyle}>
+        {/* Amber corner triangle for locked cells */}
+        {isLocked && (
+          <div style={{
+            position: 'absolute', top: 0, right: 0,
+            width: 0, height: 0,
+            borderTop: '12px solid #E8A020',
+            borderLeft: '12px solid transparent',
+          }} />
+        )}
         <div style={{
           fontSize: 12,
           fontWeight: activity ? 700 : 500,
-          color: activity ? color : '#B0A090',
+          color: isLocked ? '#7A5100' : (activity ? color : '#B0A090'),
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           whiteSpace: 'nowrap',
         }}>
           {activity?.name || <span style={{ fontSize: 11 }}>Unassigned</span>}
         </div>
-        {hasFlags && (
+        {hasFlags && !isLocked && (
           <div style={{ display: 'flex', gap: 2, marginTop: 4, flexWrap: 'wrap' }}>
-            {Object.keys(flags).map(f => (
-              <span key={f} style={{ width: 6, height: 6, borderRadius: '50%', background: FLAG_COLORS[f] || '#ccc', display: 'inline-block' }} title={f} />
+            {activeFlags.map(f => (
+              <span
+                key={f}
+                style={{ width: 6, height: 6, borderRadius: '50%', background: FLAG_COLORS[f], display: 'inline-block' }}
+                title={flags[`${f}_reason`] || f}
+              />
             ))}
           </div>
         )}
