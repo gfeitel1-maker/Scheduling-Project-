@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { DndContext } from '@dnd-kit/core'
 import * as XLSX from 'xlsx'
 import { supabase } from '../supabase'
 import buildSchedule from '../engine/buildSchedule'
@@ -335,43 +336,59 @@ export default function ScheduleScreen({ campId, onNavigate }) {
           </div>
 
           {selectedGroup && (
-            <div style={{ overflowX: 'auto' }}>
-              <table style={{ borderCollapse: 'collapse', minWidth: 500, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-                <thead>
-                  <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
-                    <th style={{ ...S.th, whiteSpace: 'nowrap', minWidth: 100 }}>Block</th>
-                    {days.map(d => <th key={d.id} style={{ ...S.th, whiteSpace: 'nowrap' }}>{d.label}</th>)}
-                  </tr>
-                </thead>
-                <tbody>
-                  {timeBlocks.map(block => (
-                    <tr key={block.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                      <td style={{ ...S.td, padding: '8px 10px', fontSize: 12, verticalAlign: 'middle', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                        <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text)' }}>{block.name}</div>
-                        <div>{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
-                      </td>
-                      {days.map(day => {
-                        const slot = getSlot(selectedGroup, day.id, block.id)
-                        if (!slot) return <td key={day.id} style={emptyTd} />
-                        const act = slot.activity_id ? actMap.get(slot.activity_id) : null
-                        const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
-                        return (
-                          <SlotCell
-                            key={day.id}
-                            slot={slot.is_anchor ? { ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id } : { ...slot, type: slot.activity_id || !slot.is_anchor ? 'activity' : 'unavailable', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
-                            activity={act}
-                            anchor={anchor}
-                            actColorIdx={act?.colorIdx || 0}
-                            weatherMode={weatherMode}
-                            onEdit={s => setEditSlot(s)}
-                          />
-                        )
-                      })}
+            <DndContext
+              onDragEnd={({ active, over }) => {
+                if (!over) return
+                const slotA = active.data.current?.slot
+                const slotB = over.data.current?.slot
+                if (!slotA || !slotB) return
+                if (slotA.groupId === slotB.groupId && slotA.dayId === slotB.dayId && slotA.blockId === slotB.blockId) return
+                if (slotB.type === 'anchor' || slotB.type === 'unavailable') return
+                swapSlots(
+                  { groupId: slotA.groupId, dayId: slotA.dayId, blockId: slotA.blockId, activityId: slotA.activity_id },
+                  { groupId: slotB.groupId, dayId: slotB.dayId, blockId: slotB.blockId, activityId: slotB.activity_id }
+                )
+              }}
+            >
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', minWidth: 500, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
+                      <th style={{ ...S.th, whiteSpace: 'nowrap', minWidth: 100 }}>Block</th>
+                      {days.map(d => <th key={d.id} style={{ ...S.th, whiteSpace: 'nowrap' }}>{d.label}</th>)}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {timeBlocks.map(block => (
+                      <tr key={block.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                        <td style={{ ...S.td, padding: '8px 10px', fontSize: 12, verticalAlign: 'middle', fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                          <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--text)' }}>{block.name}</div>
+                          <div>{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
+                        </td>
+                        {days.map(day => {
+                          const slot = getSlot(selectedGroup, day.id, block.id)
+                          if (!slot) return <td key={day.id} style={emptyTd} />
+                          const act = slot.activity_id ? actMap.get(slot.activity_id) : null
+                          const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
+                          return (
+                            <SlotCell
+                              key={day.id}
+                              slot={slot.is_anchor ? { ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id } : { ...slot, type: slot.activity_id || !slot.is_anchor ? 'activity' : 'unavailable', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
+                              activity={act}
+                              anchor={anchor}
+                              actColorIdx={act?.colorIdx || 0}
+                              weatherMode={weatherMode}
+                              onEdit={s => setEditSlot(s)}
+                              isDndEnabled={true}
+                            />
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </DndContext>
           )}
         </div>
       )}

@@ -1,4 +1,5 @@
 import React from 'react'
+import { useDraggable, useDroppable } from '@dnd-kit/core'
 
 const ACTIVITY_COLORS = ['#00ADBB','#2F7DE1','#00AA59','#A63595','#F0585D','#7DC433']
 export const ANCHOR_COLOR = '#A63595'
@@ -15,12 +16,33 @@ export function activityColor(idx) { return ACTIVITY_COLORS[idx % ACTIVITY_COLOR
 export const cellTd = { padding: '6px 8px', width: 100, minWidth: 80, verticalAlign: 'top', cursor: 'pointer' }
 export const emptyTd = { padding: '6px 8px', width: 100, minWidth: 80, background: 'var(--bg)', opacity: 0.3 }
 
-export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherMode, onEdit }) {
+export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherMode, onEdit, isDndEnabled }) {
+  const id = slot ? `${slot.groupId}|${slot.dayId}|${slot.blockId}` : 'empty'
+  const canDrag = isDndEnabled && slot?.type === 'activity'
+
+  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+    id,
+    disabled: !canDrag,
+    data: { slot },
+  })
+  const { setNodeRef: setDropRef, isOver } = useDroppable({
+    id: `drop-${id}`,
+    disabled: !isDndEnabled,
+    data: { slot },
+  })
+
+  const setRef = el => { setDragRef(el); setDropRef(el) }
+  const dndStyle = isDragging
+    ? { opacity: 0.4 }
+    : isOver && canDrag
+    ? { outline: '2px solid var(--primary)', outlineOffset: -2 }
+    : {}
+
   if (!slot) return <td style={emptyTd} />
 
   if (slot.type === 'anchor') {
     return (
-      <td style={{ ...cellTd, background: '#F3E8FA', borderLeft: `3px solid ${ANCHOR_COLOR}` }}>
+      <td ref={setRef} style={{ ...cellTd, background: '#F3E8FA', borderLeft: `3px solid ${ANCHOR_COLOR}` }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: ANCHOR_COLOR, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {anchor?.name || 'Anchor'}
         </div>
@@ -29,7 +51,7 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
   }
 
   if (slot.type === 'unavailable') {
-    return <td style={{ ...cellTd, background: 'var(--bg)', opacity: 0.4 }} />
+    return <td ref={setRef} style={{ ...cellTd, background: 'var(--bg)', opacity: 0.4 }} />
   }
 
   const flags = slot.flags || {}
@@ -40,6 +62,7 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
 
   return (
     <td
+      ref={setRef}
       style={{
         ...cellTd,
         background: activity ? `${color}18` : '#F8F8F8',
@@ -47,9 +70,11 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
         outline: isWeatherHighlight ? '2px solid #2F7DE1' : 'none',
         cursor: 'pointer',
         position: 'relative',
+        ...dndStyle,
       }}
       onClick={() => onEdit(slot)}
       title={activity?.name || 'Empty — click to assign'}
+      {...(canDrag ? { ...listeners, ...attributes } : {})}
     >
       <div style={{ fontSize: 11, fontWeight: activity ? 600 : 400, color: activity ? color : 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {activity?.name || <span style={{ opacity: 0.5 }}>—</span>}
