@@ -205,9 +205,13 @@ function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, c
 
     if (!actId) {
       flags.UNFILLABLE = true
+      flags.UNFILLABLE_reason = 'No eligible activity could be placed in this slot'
     } else {
       const act = activities.find(a => a.id === actId)
-      if (act?.is_outdoor) flags.WEATHER_RISK = true
+      if (act?.is_outdoor) {
+        flags.WEATHER_RISK = true
+        flags.WEATHER_RISK_reason = 'Outdoor activity scheduled in this slot'
+      }
     }
 
     resultSlots.push({ groupId: os.groupId, dayId: os.dayId, blockId: os.blockId, type: 'activity', activityId: actId, anchorId: null, flags })
@@ -227,9 +231,13 @@ function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, c
 
   // Mark UNDERSERVED on slots (flag the group's slots for that activity)
   for (const u of underserved) {
+    const groupName = groupMap.get(u.groupId)?.name || u.groupId
+    const act = activities.find(a => a.id === u.activityId)
+    const actName = act?.name || u.activityId
+    const reason = `Goal: ${u.needed}×/wk — scheduled ${u.got}× (group: ${groupName}, activity: ${actName})`
     for (const slot of resultSlots) {
       if (slot.type === 'activity' && slot.groupId === u.groupId && slot.activityId === u.activityId) {
-        slot.flags = { ...slot.flags, UNDERSERVED: true }
+        slot.flags = { ...slot.flags, UNDERSERVED: true, UNDERSERVED_reason: reason }
       }
     }
   }
@@ -246,9 +254,10 @@ function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, c
         (dayOrder.get(s.dayId) ?? 99) < targetIdx
       ).length
       if (beforeCount < act.prefer_before_day_min) {
+        const reason = `Goal: ${act.prefer_before_day_min}× before day ${act.prefer_before_day} — only ${beforeCount}× placed (group: ${group.name}, activity: ${act.name})`
         for (const slot of resultSlots) {
           if (slot.type === 'activity' && slot.groupId === group.id && slot.activityId === act.id) {
-            slot.flags = { ...slot.flags, DISTRIBUTION: true }
+            slot.flags = { ...slot.flags, DISTRIBUTION: true, DISTRIBUTION_reason: reason }
           }
         }
       }
