@@ -68,7 +68,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
         const { data: slotData } = await supabase.from('template_slots').select('*').eq('template_id', tmpl.id)
         const saved = slotData || []
         setSlots(saved)
-        recalcStats(saved, loadedActivities)
+        recalcStats(saved)
       }
     } catch {
       setTemplateError('Failed to load saved schedule — check your connection and refresh')
@@ -76,15 +76,14 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     setLoading(false)
   }
 
-  function recalcStats(slotList, actList) {
-    const actArr = actList || activities
-    const open = slotList.filter(s => s.is_anchor === false && !s.flags?.UNFILLABLE_skip)
-    const filled = slotList.filter(s => s.is_anchor === false && s.activity_id)
-    const unfillable = slotList.filter(s => s.flags?.UNFILLABLE)
-    const underserved = slotList.filter(s => s.flags?.UNDERSERVED)
-    const allFlags = slotList.reduce((sum, s) =>
-      sum + Object.keys(s.flags || {}).filter(k => !k.includes('_')).length, 0)
-    setStats({ open: open.length, filled: filled.length, unfillable: unfillable.length, underserved: underserved.length, allFlags })
+  const REAL_FLAGS = ['UNFILLABLE', 'UNDERSERVED', 'WEATHER_RISK', 'DISTRIBUTION']
+
+  function recalcStats(slotList) {
+    const unfillable = slotList.filter(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed).length
+    const underserved = slotList.filter(s => s.flags?.UNDERSERVED && !s.flags?.UNDERSERVED_dismissed).length
+    const open = slotList.filter(s => s.is_anchor === false).length
+    const filled = slotList.filter(s => s.is_anchor === false && s.activity_id).length
+    setStats({ open, filled, unfillable, underserved })
   }
 
   async function generate() {
@@ -121,7 +120,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
     const { data: freshSlots } = await supabase.from('template_slots').select('*').eq('template_id', tid)
     setSlots(freshSlots || [])
-    recalcStats(freshSlots || [], activities)
+    recalcStats(freshSlots || [])
     setGenerating(false)
   }
 
@@ -165,6 +164,24 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       if (s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
         return { ...s, activity_id: slotA.activityId || null, flags: {} }
       return s
+    }))
+  }
+
+  async function dismissFlag(slotIds, flagName) {
+    const updates = slotIds.map(id => {
+      const slot = slots.find(s => s.id === id)
+      if (!slot) return null
+      const newFlags = { ...(slot.flags || {}), [`${flagName}_dismissed`]: true }
+      return { id, newFlags }
+    }).filter(Boolean)
+
+    await Promise.all(updates.map(({ id, newFlags }) =>
+      supabase.from('template_slots').update({ flags: newFlags }).eq('id', id)
+    ))
+
+    setSlots(prev => prev.map(s => {
+      const u = updates.find(u => u.id === s.id)
+      return u ? { ...s, flags: u.newFlags } : s
     }))
   }
 
@@ -307,8 +324,8 @@ export default function ScheduleScreen({ campId, onNavigate }) {
           <StatBadge label="Filled" value={`${stats.filled}/${stats.open}`} color="var(--success)" />
           <StatBadge label="Unfillable" value={stats.unfillable} color={stats.unfillable > 0 ? '#F0585D' : 'var(--text-secondary)'} onClick={() => setActiveFlag('UNFILLABLE')} />
           <StatBadge label="Underserved" value={stats.underserved} color={stats.underserved > 0 ? '#F5A623' : 'var(--text-secondary)'} onClick={() => setActiveFlag('UNDERSERVED')} />
-          <StatBadge label="Weather Risk" value={slots.filter(s => s.flags?.WEATHER_RISK).length} color="#2F7DE1" onClick={() => setActiveFlag('WEATHER_RISK')} />
-          <StatBadge label="Distribution" value={slots.filter(s => s.flags?.DISTRIBUTION).length} color="#7DC433" onClick={() => setActiveFlag('DISTRIBUTION')} />
+          <StatBadge label="Weather Risk" value={slots.filter(s => s.flags?.WEATHER_RISK && !s.flags?.WEATHER_RISK_dismissed).length} color="#2F7DE1" onClick={() => setActiveFlag('WEATHER_RISK')} />
+          <StatBadge label="Distribution" value={slots.filter(s => s.flags?.DISTRIBUTION && !s.flags?.DISTRIBUTION_dismissed).length} color="#7DC433" onClick={() => setActiveFlag('DISTRIBUTION')} />
         </div>
       )}
 
@@ -592,6 +609,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
           days={days}
           timeBlocks={timeBlocks}
           activities={activities}
+          onDismiss={dismissFlag}
           onClose={() => setActiveFlag(null)}
         />
       )}
