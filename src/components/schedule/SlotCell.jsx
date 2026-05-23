@@ -29,7 +29,7 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
   })
   const { setNodeRef: setDropRef, isOver } = useDroppable({
     id: `drop-${id}`,
-    disabled: !isDndEnabled,
+    disabled: !isDndEnabled || Boolean(isLocked),
     data: { slot },
   })
 
@@ -73,8 +73,7 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
   const color = activity ? activityColor(actColorIdx) : null
   const isWeatherHighlight = weatherMode && isOutdoor
 
-  function handleClick(e) {
-    e.preventDefault()
+  function handleClick() {
     if (!activity) { onEdit(slot); return }
     if (isLocked) { onRelease?.(slot); return }
     if (onLock) { onLock(slot); return }
