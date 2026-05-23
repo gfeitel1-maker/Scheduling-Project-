@@ -79,23 +79,30 @@ export default function TiersScreen({ campId, onNavigate }) {
   const [importRows, setImportRows] = useState([])
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
+  const [error, setError] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
 
   async function load() {
     setLoading(true)
-    const [{ data: tierData }, { data: groupData }] = await Promise.all([
-      supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order').order('name'),
-      supabase.from('groups').select('id, tier_id').eq('camp_id', campId),
-    ])
-    setTiers(tierData || [])
-    const counts = {}
-    for (const g of groupData || []) {
-      counts[g.tier_id] = (counts[g.tier_id] || 0) + 1
+    setError(null)
+    try {
+      const [{ data: tierData }, { data: groupData }] = await Promise.all([
+        supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order').order('name'),
+        supabase.from('groups').select('id, tier_id').eq('camp_id', campId),
+      ])
+      setTiers(tierData || [])
+      const counts = {}
+      for (const g of groupData || []) {
+        counts[g.tier_id] = (counts[g.tier_id] || 0) + 1
+      }
+      setGroupCounts(counts)
+    } catch {
+      setError('Failed to load data — check your connection and refresh')
+    } finally {
+      setLoading(false)
     }
-    setGroupCounts(counts)
-    setLoading(false)
   }
 
   async function addTier() {
@@ -178,6 +185,11 @@ export default function TiersScreen({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 700 }}>
+      {error && (
+        <div style={{ background: '#fff5f5', border: '1px solid #f5c6c6', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: 'var(--warning)' }}>
+          {error}
+        </div>
+      )}
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>

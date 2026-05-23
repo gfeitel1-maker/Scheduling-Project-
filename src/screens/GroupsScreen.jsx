@@ -76,19 +76,26 @@ export default function GroupsScreen({ campId, onNavigate }) {
   const [importRows, setImportRows] = useState([])
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
+  const [error, setError] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
 
   async function load() {
     setLoading(true)
-    const [{ data: gData }, { data: tData }] = await Promise.all([
-      supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
-      supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
-    ])
-    setGroups(gData || [])
-    setTiers(tData || [])
-    setLoading(false)
+    setError(null)
+    try {
+      const [{ data: gData }, { data: tData }] = await Promise.all([
+        supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
+        supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
+      ])
+      setGroups(gData || [])
+      setTiers(tData || [])
+    } catch {
+      setError('Failed to load data — check your connection and refresh')
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function addGroup() {
@@ -181,6 +188,11 @@ export default function GroupsScreen({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 720 }}>
+      {error && (
+        <div style={{ background: '#fff5f5', border: '1px solid #f5c6c6', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: 'var(--warning)' }}>
+          {error}
+        </div>
+      )}
       {tiers.length === 0 && !loading && (
         <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#7a5100' }}>
           No tiers found. Set up tiers first so you can assign groups to them.
