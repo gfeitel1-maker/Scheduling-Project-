@@ -25,7 +25,7 @@ export default function FlagDetailModal({ flag, slots, groups, days, timeBlocks,
       col1: groupMap[s.group_id] || '?',
       col2: dayMap[s.day_id] || '?',
       col3: blockMap[s.time_block_id] || '?',
-      col4: 'No eligible activity',
+      col4: '',
       reason: s.flags?.[`${flag}_reason`] || '',
       slotIds: [s.id],
     }))
@@ -82,7 +82,7 @@ export default function FlagDetailModal({ flag, slots, groups, days, timeBlocks,
   }
 
   const headers = {
-    UNFILLABLE:   ['Group', 'Day', 'Block', 'Reason'],
+    UNFILLABLE:   ['Group', 'Day', 'Block', ''],
     UNDERSERVED:  ['Group', 'Activity', 'Scheduled / Min', ''],
     WEATHER_RISK: ['Group', 'Day', 'Block', 'Activity'],
     DISTRIBUTION: ['Group', 'Activity', 'Preference', ''],
