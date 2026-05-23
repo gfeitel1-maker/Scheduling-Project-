@@ -63,3 +63,29 @@ describe('DISTRIBUTION flag', () => {
     expect(distSlot.flags.DISTRIBUTION_reason).toMatch(/Aleph/)
   })
 })
+
+describe('preplacedSlots (locking)', () => {
+  it('keeps a preplaced slot even when another activity would be preferred', () => {
+    const swim = { id: 'a1', name: 'Swimming', priority: 'high', max_per_week: 5, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const arch = { id: 'a2', name: 'Archery', priority: 'high', max_per_week: 5, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const preplaced = [{ groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'a2' }]
+    const { slots } = buildSchedule(minimal({ activities: [swim, arch], preplacedSlots: preplaced }))
+    const slot = slots.find(s => s.groupId === 'g1' && s.dayId === 'd1' && s.blockId === 'b1')
+    expect(slot?.activityId).toBe('a2')
+  })
+
+  it('counts preplaced slots toward usageCount', () => {
+    const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
+    const block2 = { id: 'b2', name: 'Afternoon', start_time: '14:00', end_time: '15:30', sort_order: 1, part_of_day: 'afternoon' }
+    const swim = { id: 'a1', name: 'Swimming', priority: 'low', max_per_week: 1, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const preplaced = [{ groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'a1' }]
+    const { slots } = buildSchedule(minimal({ days: [baseDay, day2], timeBlocks: [baseBlock, block2], activities: [swim], preplacedSlots: preplaced }))
+    const swimSlots = slots.filter(s => s.activityId === 'a1')
+    expect(swimSlots.length).toBe(1) // only the preplaced one, max_per_week=1 exhausted
+  })
+
+  it('ignores preplacedSlots param when undefined', () => {
+    const act = { id: 'a1', name: 'Swimming', priority: 'low', max_per_week: 5, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    expect(() => buildSchedule(minimal({ activities: [act] }))).not.toThrow()
+  })
+})

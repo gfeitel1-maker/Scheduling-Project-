@@ -20,7 +20,7 @@ function mulberry32(seed) {
   }
 }
 
-function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId = '' }) {
+function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId = '', preplacedSlots = [] }) {
   const rand = mulberry32(djb2(campId))
   // ── Pass 0: resolve eligibility ──────────────────────────────────────────
   const eligibility = new Map() // activityId → Set<groupId>
@@ -134,6 +134,23 @@ function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, c
       const list = locationUsage.get(lk) || []
       list.push({ groupId, tierId: group.tier_id })
       locationUsage.set(lk, list)
+    }
+  }
+
+  // Pre-place locked slots before Pass 2 scoring
+  for (const pre of preplacedSlots) {
+    const key = `${pre.groupId}|${pre.dayId}|${pre.blockId}`
+    if (!assigned.has(key)) {
+      assigned.set(key, pre.activityId)
+      incCount(pre.groupId, pre.activityId)
+      const act = activities.find(a => a.id === pre.activityId)
+      if (act?.location) {
+        const lk = locationKey(act.location, pre.dayId, pre.blockId)
+        const group = groupMap.get(pre.groupId)
+        const list = locationUsage.get(lk) || []
+        list.push({ groupId: pre.groupId, tierId: group?.tier_id })
+        locationUsage.set(lk, list)
+      }
     }
   }
 
