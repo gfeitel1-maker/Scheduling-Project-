@@ -11,6 +11,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
   const [blockId, setBlockId] = useState(anchor?.time_block_id || '')
   const [notes, setNotes] = useState(anchor?.notes || '')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState(null)
 
   const [selectedTiers, setSelectedTiers] = useState(() => {
     if (!anchor?.group_ids?.length) return []
@@ -33,18 +34,25 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
   async function save() {
     if (!canSave) return
     setSaving(true)
+    setSaveError(null)
     const group_ids = isAllTiers
       ? []
       : groups.filter(g => selectedTiers.includes(g.tier_id)).map(g => g.id)
     // When editing, update only the existing record's day; when creating, one record per day
-    await onSave(anchor?.id || null, {
-      name: name.trim(),
-      is_all_groups: isAllTiers,
-      group_ids,
-      selectedDays,
-      time_block_id: blockId,
-      notes: notes.trim() || null,
-    })
+    try {
+      await onSave(anchor?.id || null, {
+        name: name.trim(),
+        is_all_groups: isAllTiers,
+        group_ids,
+        selectedDays,
+        time_block_id: blockId,
+        notes: notes.trim() || null,
+      })
+    } catch {
+      setSaveError('Failed to save — check your connection and try again')
+      setSaving(false)
+      return
+    }
     setSaving(false)
   }
 
@@ -111,6 +119,11 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
           </div>
         )}
 
+        {saveError && (
+          <div style={{ fontSize: 12, color: 'var(--warning)', marginBottom: 10, padding: '8px 10px', background: '#fff5f5', borderRadius: 5, border: '1px solid #f5c6c6' }}>
+            {saveError}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
           <button onClick={onClose} style={btnSecondary}>Cancel</button>
           <button onClick={save} disabled={saving || !canSave} style={{ ...btnPrimary, opacity: (!canSave || saving) ? 0.5 : 1 }}>
@@ -177,14 +190,17 @@ export default function AnchorsScreen({ campId, onNavigate }) {
     const { selectedDays, ...base } = fields
     if (id) {
       // Editing: update existing record, use first selected day
-      await supabase.from('anchor_activities').update({ ...base, day_id: selectedDays[0] }).eq('id', id)
+      const { error } = await supabase.from('anchor_activities').update({ ...base, day_id: selectedDays[0] }).eq('id', id)
+      if (error) throw error
     } else {
       // New: insert one record per selected day
-      await Promise.all(
+      const results = await Promise.all(
         selectedDays.map(dayId =>
           supabase.from('anchor_activities').insert({ ...base, day_id: dayId, camp_id: campId })
         )
       )
+      const firstError = results.find(r => r.error)?.error
+      if (firstError) throw firstError
     }
     setModal(null); load()
   }

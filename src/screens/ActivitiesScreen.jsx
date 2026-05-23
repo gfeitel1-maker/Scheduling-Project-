@@ -23,6 +23,7 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
   const [weatherAlt, setWeatherAlt] = useState(activity?.weather_alternative_id || '')
   const [notes, setNotes] = useState(activity?.notes || '')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState(null)
 
   function toggleTier(id) { setEligTiers(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]) }
   function toggleGroup(id) { setEligGroups(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]) }
@@ -30,6 +31,7 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
   async function save() {
     if (!name.trim()) return
     setSaving(true)
+    setSaveError(null)
     const record = {
       camp_id: undefined,
       name: name.trim(), location: location.trim() || null, is_outdoor: isOutdoor,
@@ -42,7 +44,13 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
       notes: notes.trim() || null,
     }
     delete record.camp_id
-    await onSave(activity?.id || null, record)
+    try {
+      await onSave(activity?.id || null, record)
+    } catch {
+      setSaveError('Failed to save — check your connection and try again')
+      setSaving(false)
+      return
+    }
     setSaving(false)
   }
 
@@ -143,6 +151,11 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
           <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
         </Field>
 
+        {saveError && (
+          <div style={{ fontSize: 12, color: 'var(--warning)', marginBottom: 10, padding: '8px 10px', background: '#fff5f5', borderRadius: 5, border: '1px solid #f5c6c6' }}>
+            {saveError}
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
           <button onClick={onClose} style={btnSecondary}>Cancel</button>
           <button onClick={save} disabled={saving || !name.trim()} style={btnPrimary}>{saving ? 'Saving…' : isNew ? 'Add Activity' : 'Save Changes'}</button>
@@ -197,9 +210,11 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
 
   async function saveActivity(id, fields) {
     if (id) {
-      await supabase.from('activities').update(fields).eq('id', id)
+      const { error } = await supabase.from('activities').update(fields).eq('id', id)
+      if (error) throw error
     } else {
-      await supabase.from('activities').insert({ ...fields, camp_id: campId })
+      const { error } = await supabase.from('activities').insert({ ...fields, camp_id: campId })
+      if (error) throw error
     }
     setModal(null)
     load()
