@@ -47,11 +47,23 @@ CREATE POLICY "schedule_templates_owner" ON schedule_templates FOR ALL
   USING (camp_id = get_my_camp_id()) WITH CHECK (camp_id = get_my_camp_id());
 
 -- ── template_slots ─────────────────────────────────────────────────────────
+-- No direct camp_id — join through schedule_templates
 ALTER TABLE template_slots ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "template_slots_owner" ON template_slots FOR ALL
-  USING (camp_id = get_my_camp_id()) WITH CHECK (camp_id = get_my_camp_id());
+  USING (
+    (SELECT camp_id FROM schedule_templates WHERE id = template_slots.template_id) = get_my_camp_id()
+  )
+  WITH CHECK (
+    (SELECT camp_id FROM schedule_templates WHERE id = template_slots.template_id) = get_my_camp_id()
+  );
 
 -- ── schedule_snapshots ─────────────────────────────────────────────────────
+-- No direct camp_id — join through schedule_templates
 ALTER TABLE schedule_snapshots ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "schedule_snapshots_owner" ON schedule_snapshots FOR ALL
-  USING (camp_id = get_my_camp_id()) WITH CHECK (camp_id = get_my_camp_id());
+  USING (
+    (SELECT camp_id FROM schedule_templates WHERE id = schedule_snapshots.template_id) = get_my_camp_id()
+  )
+  WITH CHECK (
+    (SELECT camp_id FROM schedule_templates WHERE id = schedule_snapshots.template_id) = get_my_camp_id()
+  );
