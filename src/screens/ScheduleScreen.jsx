@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { DndContext } from '@dnd-kit/core'
+import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import * as XLSX from 'xlsx'
 import { supabase } from '../supabase'
 import buildSchedule from '../engine/buildSchedule'
@@ -36,6 +36,8 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   const [templateError, setTemplateError] = useState(null)
   const [snapshots, setSnapshots] = useState([])
   const [showVersions, setShowVersions] = useState(false)
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
   useEffect(() => { loadAll() }, [campId])
 
@@ -507,6 +509,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
           {selectedDay && (
             <DndContext
+              sensors={sensors}
               onDragEnd={({ active, over }) => {
                 if (!over) return
                 const slotA = active.data.current?.slot
