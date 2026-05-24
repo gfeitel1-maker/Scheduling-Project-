@@ -17,7 +17,7 @@ export default function AuthScreen() {
     e.preventDefault()
     setError(''); setMessage('')
     setLoading(true)
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
     setLoading(false)
     if (error) setError(error.message)
   }
@@ -36,20 +36,22 @@ export default function AuthScreen() {
     setError(''); setMessage('')
     if (!campName.trim()) { setError('Camp name is required.'); return }
     setLoading(true)
-    const { data, error: signUpError } = await supabase.auth.signUp({ email, password })
+    const { data, error: signUpError } = await supabase.auth.signUp({ email: email.trim(), password })
     if (signUpError) { setLoading(false); setError(signUpError.message); return }
 
-    if (data.user) {
+    if (data.session) {
+      // Immediately authenticated (email confirmation disabled)
       const { error: campError } = await supabase
         .from('camps')
         .insert({ name: campName.trim(), owner_user_id: data.user.id })
-      if (campError) { setLoading(false); setError(campError.message); return }
+      setLoading(false)
+      if (campError) { setError(campError.message); return }
+      // onAuthStateChange will fire and resolve campId → app renders
     } else {
+      // Email confirmation required — camp will be created after they confirm and log in
       setLoading(false)
       setMessage('Check your email to confirm your account, then log in.')
-      return
     }
-    setLoading(false)
   }
 
   return (

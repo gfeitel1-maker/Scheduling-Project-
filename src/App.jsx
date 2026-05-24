@@ -57,8 +57,27 @@ export default function App() {
     )
   }
 
-  if (!session || !campId) {
+  if (!session) {
     return <AuthScreen />
+  }
+
+  if (!campId) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg)' }}>
+        <div style={{ maxWidth: 400, padding: 32, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8, color: 'var(--text)' }}>No camp found</div>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.6 }}>
+            Your account is set up but no camp is linked to it. This can happen if signup was interrupted. Please sign out and try creating your camp again.
+          </div>
+          <button
+            onClick={() => supabase.auth.signOut()}
+            style={{ padding: '8px 16px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    )
   }
 
   const Screen = SCREENS[screen] || CampSetup
