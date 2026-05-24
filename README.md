@@ -1,42 +1,33 @@
 # Shoresh
 
-Camp activity scheduling — built for the complexity of real camps.
+Shoresh helps camps control, adapt, and own their scheduling logic.
+
+It's the adaptive scheduling layer for camps that outgrow spreadsheets but don't want to surrender their operational judgment to a black-box platform.
 
 ---
 
-Shoresh is a scheduling tool for camp directors who manage dozens of groups, activities, locations, and constraints every week. Instead of wrestling with spreadsheets, you define the rules once and let the engine build the schedule — then adjust, lock, and iterate from there.
+## The problem
 
-## The problem it solves
+Camp scheduling is a constraint satisfaction problem dressed up as a logistics problem. A typical week involves groups with different availability windows, activities with location capacity and eligibility rules, anchors that can't move, frequency goals, and preferences like “swimming should happen before Wednesday.”
 
-Camp scheduling is a constraint satisfaction problem dressed up as a logistics problem. A typical week involves:
+Spreadsheets break down fast. Black-box tools make decisions you can't see or override. Shoresh sits in between — it handles the constraints and surfaces the conflicts, but you stay in control.
 
-- Groups with different availability windows (morning-only, full-day)
-- Activities with location capacity, tier eligibility, and frequency goals
-- Anchors that can't move (meals, rest, all-camp events)
-- Preferences like "swimming should happen before Wednesday"
-- Staff who need to know the final schedule before Sunday
+## What it does
 
-Spreadsheets break down fast. Shoresh handles the constraints, surfaces the conflicts, and keeps a full version history.
+You define the rules: groups, tiers, time blocks, activities, anchors, and constraints. The engine builds a schedule that respects all of them, then flags what it couldn't satisfy. From there you adjust, lock, drag, and iterate — the schedule is yours to own.
 
-## How it works
-
-The core is a pure scheduling engine (`src/engine/buildSchedule.js`) — a deterministic function that takes your groups, activities, anchors, and constraints, and returns a complete slot assignment with a flag report. No side effects, fully unit-tested, runs in milliseconds.
-
-From there, a React UI lets you:
-
-- View the schedule by group, by day, or by activity
-- Drag and drop to swap slots between groups
-- Lock activities so regeneration doesn't touch them
-- Dismiss or investigate flags (unfillable slots, underserved activities, weather risk)
-- Save named snapshots and restore previous versions
-
-Each camp is fully isolated — separate auth, separate data, no shared state between tenants.
+- **Schedule engine** — deterministic, constraint-aware, runs in milliseconds
+- **Drag-and-drop editing** — swap slots between groups directly on the grid
+- **Flag system** — surfaces unfillable slots, underserved activities, weather risk, and distribution gaps
+- **Locking** — protect decisions that shouldn't change across regenerations
+- **Snapshots** — named versions with auto-save before every regeneration
+- **Multi-tenant** — each camp's data is fully isolated
 
 ## Status
 
 Active development. Used internally at Shoresh camp.
 
-Self-hosting guide and contributing guidelines coming when the first stable release is ready.
+Self-hosting guide and contributing guidelines coming with the first stable release.
 
 ## Tech
 
