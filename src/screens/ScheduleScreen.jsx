@@ -9,6 +9,7 @@ import SlotCell, { FLAG_COLORS, activityColor, cellTd, emptyTd } from '../compon
 import FlagDetailModal from '../components/schedule/FlagDetailModal'
 import EditModal from '../components/schedule/EditModal'
 import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
+import VersionsDropdown from '../components/schedule/VersionsDropdown'
 
 
 export default function ScheduleScreen({ campId, onNavigate }) {
@@ -33,6 +34,8 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   const [selectedActivity, setSelectedActivity] = useState(null)
   const [loadError, setLoadError] = useState(null)
   const [templateError, setTemplateError] = useState(null)
+  const [snapshots, setSnapshots] = useState([])
+  const [showVersions, setShowVersions] = useState(false)
 
   useEffect(() => { loadAll() }, [campId])
 
@@ -69,6 +72,12 @@ export default function ScheduleScreen({ campId, onNavigate }) {
         const saved = slotData || []
         setSlots(saved)
         recalcStats(saved)
+        const { data: snapData } = await supabase
+          .from('schedule_snapshots')
+          .select('id, template_id, name, is_auto, created_at')
+          .eq('template_id', tmpl.id)
+          .order('created_at', { ascending: false })
+        setSnapshots(snapData || [])
       }
     } catch {
       setTemplateError('Failed to load saved schedule — check your connection and refresh')
@@ -100,6 +109,10 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       const { data } = await supabase.from('schedule_templates').insert({ camp_id: campId, name: 'Master Template' }).select('id').single()
       tid = data.id
       setTemplateId(tid)
+    }
+
+    if (slots.length > 0) {
+      await saveSnapshot(null, true)
     }
 
     // Delete existing slots
@@ -201,6 +214,61 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   async function releaseCell(slotId) {
     await supabase.from('template_slots').update({ is_released: true }).eq('id', slotId)
     setSlots(prev => prev.map(s => s.id === slotId ? { ...s, is_released: true } : s))
+  }
+
+  async function saveSnapshot(name, isAuto) {
+    if (!templateId) return
+    const snapSlots = slots.map(s => ({
+      group_id: s.group_id,
+      day_id: s.day_id,
+      time_block_id: s.time_block_id,
+      activity_id: s.activity_id,
+      anchor_id: s.anchor_id,
+      is_anchor: s.is_anchor,
+      flags: s.flags || {},
+    }))
+    const { data: snap } = await supabase
+      .from('schedule_snapshots')
+      .insert({ template_id: templateId, name: name || null, is_auto: isAuto, slots: snapSlots })
+      .select('id, template_id, name, is_auto, created_at')
+      .single()
+    if (snap) setSnapshots(prev => [snap, ...prev])
+  }
+
+  async function restoreSnapshot(snapshot) {
+    if (!templateId) return
+    const { data: fullSnap } = await supabase
+      .from('schedule_snapshots')
+      .select('slots')
+      .eq('id', snapshot.id)
+      .single()
+    if (!fullSnap?.slots) return
+
+    await supabase.from('template_slots').delete().eq('template_id', templateId)
+
+    const rows = fullSnap.slots.map(s => ({
+      template_id: templateId,
+      group_id: s.group_id,
+      day_id: s.day_id,
+      time_block_id: s.time_block_id,
+      activity_id: s.activity_id,
+      anchor_id: s.anchor_id,
+      is_anchor: s.is_anchor,
+      flags: s.flags || {},
+    }))
+
+    for (let i = 0; i < rows.length; i += 500) {
+      await supabase.from('template_slots').insert(rows.slice(i, i + 500))
+    }
+
+    const { data: freshSlots } = await supabase.from('template_slots').select('*').eq('template_id', templateId)
+    setSlots(freshSlots || [])
+    recalcStats(freshSlots || [])
+  }
+
+  async function renameSnapshot(snapshotId, newName) {
+    await supabase.from('schedule_snapshots').update({ name: newName, is_auto: false }).eq('id', snapshotId)
+    setSnapshots(prev => prev.map(s => s.id === snapshotId ? { ...s, name: newName, is_auto: false } : s))
   }
 
   async function regenFromScratch() {
@@ -321,6 +389,15 @@ export default function ScheduleScreen({ campId, onNavigate }) {
             </button>
 
             <div style={{ flex: 1 }} />
+
+            <VersionsDropdown
+              snapshots={snapshots}
+              isOpen={showVersions}
+              onToggle={() => setShowVersions(v => !v)}
+              onRestore={restoreSnapshot}
+              onSaveNamed={name => saveSnapshot(name, false)}
+              onRenameAutoSave={renameSnapshot}
+            />
 
             <button onClick={exportToExcel} style={S.btnSecondary}>Export to Excel</button>
             <button onClick={() => setConfirmRegen(true)} style={S.btnDanger}>Regenerate from Scratch</button>
