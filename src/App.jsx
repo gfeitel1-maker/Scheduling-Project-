@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import Shell from './components/layout/Shell'
-import LandingScreen from './components/entry/LandingScreen'
+import AuthScreen from './screens/AuthScreen'
 import CampSetup from './screens/CampSetup'
 import TiersScreen from './screens/TiersScreen'
 import GroupsScreen from './screens/GroupsScreen'
@@ -8,6 +8,7 @@ import TimeBlocksScreen from './screens/TimeBlocksScreen'
 import ActivitiesScreen from './screens/ActivitiesScreen'
 import AnchorsScreen from './screens/AnchorsScreen'
 import ScheduleScreen from './screens/ScheduleScreen'
+import { useSession } from './hooks/useSession'
 import { supabase } from './supabase'
 
 const SCREENS = {
@@ -40,45 +41,30 @@ async function seedDays(campId) {
   }
 }
 
-function getUrlCampId() {
-  return new URLSearchParams(window.location.search).get('camp')
-}
-
-function setUrlCampId(campId) {
-  const url = new URL(window.location.href)
-  url.searchParams.set('camp', campId)
-  window.history.replaceState({}, '', url.toString())
-}
-
 export default function App() {
-  // URL param wins over localStorage
-  const urlCampId = getUrlCampId()
-  const storedCampId = localStorage.getItem('campId')
-  const initialCampId = urlCampId || storedCampId || null
-
-  const [campId, setCampId] = useState(initialCampId)
+  const { session, campId, loading } = useSession()
   const [screen, setScreen] = useState('setup')
 
   useEffect(() => {
-    if (campId) {
-      localStorage.setItem('campId', campId)
-      setUrlCampId(campId)
-      seedDays(campId)
-    }
+    if (campId) seedDays(campId)
   }, [campId])
 
-  function handleEnter(id) {
-    setCampId(id)
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg)', color: 'var(--text-secondary)', fontSize: 13 }}>
+        Loading…
+      </div>
+    )
   }
 
-  if (!campId) {
-    return <LandingScreen onEnter={handleEnter} />
+  if (!session || !campId) {
+    return <AuthScreen />
   }
 
   const Screen = SCREENS[screen] || CampSetup
 
   return (
-    <Shell currentScreen={screen} onNavigate={setScreen} campId={campId}>
+    <Shell currentScreen={screen} onNavigate={setScreen} campId={campId} onLogout={() => supabase.auth.signOut()}>
       <Screen campId={campId} onNavigate={setScreen} />
     </Shell>
   )
