@@ -451,11 +451,11 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
           {selectedGroup && (
             <div style={{ overflowX: 'auto' }}>
-                <table style={{ borderCollapse: 'collapse', minWidth: 500, width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+                <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 500, width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
                   <thead>
                     <tr style={{ background: 'var(--surface-elevated)', borderBottom: '1.5px solid var(--border)' }}>
-                      <th style={{ ...S.th, whiteSpace: 'nowrap', minWidth: 100 }}>Block</th>
-                      {days.map(d => <th key={d.id} style={{ ...S.th, whiteSpace: 'nowrap' }}>{d.label}</th>)}
+                      <th style={{ ...S.th, whiteSpace: 'nowrap', width: 140 }}>Block</th>
+                      {days.map(d => <th key={d.id} style={{ ...S.th, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.label}</th>)}
                     </tr>
                   </thead>
                   <tbody>
@@ -524,11 +524,11 @@ export default function ScheduleScreen({ campId, onNavigate }) {
               }}
             >
             <div style={{ overflowX: 'auto' }}>
-              <table style={{ borderCollapse: 'collapse', width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+              <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
                 <thead>
                   <tr style={{ background: 'var(--surface-elevated)', borderBottom: '1.5px solid var(--border)' }}>
-                    <th style={{ ...S.th, whiteSpace: 'nowrap', minWidth: 110, position: 'sticky', left: 0, background: 'var(--surface-elevated)', zIndex: 1 }}>Block</th>
-                    {groups.map(g => <th key={g.id} style={{ ...S.th, whiteSpace: 'nowrap', minWidth: 90 }}>{g.name}</th>)}
+                    <th style={{ ...S.th, whiteSpace: 'nowrap', width: 140, position: 'sticky', left: 0, background: 'var(--surface-elevated)', zIndex: 1 }}>Block</th>
+                    {groups.map(g => <th key={g.id} style={{ ...S.th, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.name}</th>)}
                   </tr>
                 </thead>
                 <tbody>
@@ -634,11 +634,11 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                   </div>
 
                   <div style={{ overflowX: 'auto' }}>
-                    <table style={{ borderCollapse: 'collapse', width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+                    <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
                       <thead>
                         <tr style={{ background: 'var(--surface-elevated)', borderBottom: '1.5px solid var(--border)' }}>
-                          <th style={{ ...S.th, whiteSpace: 'nowrap', minWidth: 110, position: 'sticky', left: 0, background: 'var(--surface-elevated)', zIndex: 1 }}>Block</th>
-                          {days.map(d => <th key={d.id} style={{ ...S.th, whiteSpace: 'nowrap' }}>{d.label}</th>)}
+                          <th style={{ ...S.th, whiteSpace: 'nowrap', width: 140, position: 'sticky', left: 0, background: 'var(--surface-elevated)', zIndex: 1 }}>Block</th>
+                          {days.map(d => <th key={d.id} style={{ ...S.th, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{d.label}</th>)}
                         </tr>
                       </thead>
                       <tbody>
