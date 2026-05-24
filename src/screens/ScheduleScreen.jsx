@@ -57,8 +57,14 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       ])
       const g = gd || []; const b = bd || []; const a = ad || []; const anc = ancd || []; const t = tierd || []
       const d = (td || []).filter((x, i, arr) => arr.findIndex(y => y.day_of_week === x.day_of_week) === i)
-      setGroups(g); setDays(d); setTimeBlocks(b); setActivities(a); setAnchors(anc); setTiers(t)
-      if (g.length > 0) setSelectedGroup(g[0].id)
+      const tierOrderMap = new Map(t.map(tier => [tier.id, tier.sort_order ?? 0]))
+      const sortedG = [...g].sort((x, y) => {
+        const ox = tierOrderMap.get(x.tier_id) ?? 999
+        const oy = tierOrderMap.get(y.tier_id) ?? 999
+        return ox !== oy ? ox - oy : x.name.localeCompare(y.name)
+      })
+      setGroups(sortedG); setDays(d); setTimeBlocks(b); setActivities(a); setAnchors(anc); setTiers(t)
+      if (sortedG.length > 0) setSelectedGroup(sortedG[0].id)
       if (d.length > 0) setSelectedDay(d[0].id)
       loadedActivities = a
     } catch {
