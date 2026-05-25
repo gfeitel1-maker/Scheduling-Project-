@@ -1,35 +1,37 @@
-*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
 :root {
   --bg: #FAF6F0;
   --surface: #FFFCF8;
   --surface-elevated: #FFF8F0;
+  --border: #E8DDD0;
   --primary: #00ADBB;
-  --primary-dark: #008a96;
   --secondary: #2F7DE1;
-  --success: #00AA59;
   --warning: #F0585D;
+  --success: #00AA59;
   --purple: #A63595;
   --yellow-green: #7DC433;
   --text: #2D1F12;
   --text-secondary: #7A6152;
-  --border: #E8DDD0;
 
-  --font-sans: 'Nunito', sans-serif;
-  --font-condensed: 'Fredoka', sans-serif;
-  --font-mono: 'IBM Plex Mono', monospace;
+  --font-sans: 'Nunito', system-ui, sans-serif;
+  --font-condensed: 'Fredoka', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', 'Courier New', monospace;
 }
 
-html, body, #root {
-  height: 100%;
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
   font-family: var(--font-sans);
   background: var(--bg);
   color: var(--text);
+  -webkit-font-smoothing: antialiased;
   font-size: 14px;
   line-height: 1.5;
-  -webkit-font-smoothing: antialiased;
 }
 
-button { cursor: pointer; font-family: inherit; }
-input, select, textarea { font-family: inherit; }
-a { text-decoration: none; color: inherit; }
+button, input, select, textarea {
+  font-family: inherit;
+}

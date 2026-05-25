@@ -28,3 +28,6 @@ dist-ssr
 *.sw?
 .superpowers/
 .mcp.json
+.worktrees/
+.agents/
+skills-lock.json
