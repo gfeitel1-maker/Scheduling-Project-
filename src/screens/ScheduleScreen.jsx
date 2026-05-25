@@ -747,4 +747,3 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     </div>
   )
 }
-
