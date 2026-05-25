@@ -40,15 +40,12 @@ export default function AuthScreen() {
     if (signUpError) { setLoading(false); setError(signUpError.message); return }
 
     if (data.session) {
-      // Immediately authenticated (email confirmation disabled)
       const { error: campError } = await supabase
         .from('camps')
         .insert({ name: campName.trim(), owner_user_id: data.user.id })
       setLoading(false)
       if (campError) { setError(campError.message); return }
-      // onAuthStateChange will fire and resolve campId → app renders
     } else {
-      // Email confirmation required — camp will be created after they confirm and log in
       setLoading(false)
       setMessage('Check your email to confirm your account, then log in.')
     }
