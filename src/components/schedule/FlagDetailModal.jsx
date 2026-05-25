@@ -15,20 +15,12 @@ export default function FlagDetailModal({ flag, slots, groups, days, timeBlocks,
   const blockMap = Object.fromEntries(timeBlocks.map(b => [b.id, b.name]))
   const actMap = Object.fromEntries(activities.map(a => [a.id, a]))
 
-  // Only include slots where flag is set AND not dismissed
   const flaggedSlots = slots.filter(s => s.flags?.[flag] && !s.flags?.[`${flag}_dismissed`])
 
   let rows = []
 
   if (flag === 'UNFILLABLE') {
-    rows = flaggedSlots.map(s => ({
-      col1: groupMap[s.group_id] || '?',
-      col2: dayMap[s.day_id] || '?',
-      col3: blockMap[s.time_block_id] || '?',
-      col4: '',
-      reason: s.flags?.[`${flag}_reason`] || '',
-      slotIds: [s.id],
-    }))
+    rows = flaggedSlots.map(s => ({ col1: groupMap[s.group_id] || '?', col2: dayMap[s.day_id] || '?', col3: blockMap[s.time_block_id] || '?', col4: '', reason: s.flags?.[`${flag}_reason`] || '', slotIds: [s.id] }))
   } else if (flag === 'UNDERSERVED') {
     const seen = new Set()
     for (const s of flaggedSlots) {
@@ -38,27 +30,11 @@ export default function FlagDetailModal({ flag, slots, groups, days, timeBlocks,
       seen.add(key)
       const act = actMap[s.activity_id]
       const scheduled = slots.filter(x => x.group_id === s.group_id && x.activity_id === s.activity_id).length
-      const matchingSlotIds = flaggedSlots
-        .filter(x => x.group_id === s.group_id && x.activity_id === s.activity_id)
-        .map(x => x.id)
-      rows.push({
-        col1: groupMap[s.group_id] || '?',
-        col2: act?.name || '?',
-        col3: `${scheduled} / ${act?.min_per_week ?? '?'} needed`,
-        col4: '',
-        reason: s.flags?.[`${flag}_reason`] || '',
-        slotIds: matchingSlotIds,
-      })
+      const matchingSlotIds = flaggedSlots.filter(x => x.group_id === s.group_id && x.activity_id === s.activity_id).map(x => x.id)
+      rows.push({ col1: groupMap[s.group_id] || '?', col2: act?.name || '?', col3: `${scheduled} / ${act?.min_per_week ?? '?'} needed`, col4: '', reason: s.flags?.[`${flag}_reason`] || '', slotIds: matchingSlotIds })
     }
   } else if (flag === 'WEATHER_RISK') {
-    rows = flaggedSlots.map(s => ({
-      col1: groupMap[s.group_id] || '?',
-      col2: dayMap[s.day_id] || '?',
-      col3: blockMap[s.time_block_id] || '?',
-      col4: actMap[s.activity_id]?.name || '?',
-      reason: s.flags?.[`${flag}_reason`] || '',
-      slotIds: [s.id],
-    }))
+    rows = flaggedSlots.map(s => ({ col1: groupMap[s.group_id] || '?', col2: dayMap[s.day_id] || '?', col3: blockMap[s.time_block_id] || '?', col4: actMap[s.activity_id]?.name || '?', reason: s.flags?.[`${flag}_reason`] || '', slotIds: [s.id] }))
   } else if (flag === 'DISTRIBUTION') {
     const seen = new Set()
     for (const s of flaggedSlots) {
@@ -67,27 +43,12 @@ export default function FlagDetailModal({ flag, slots, groups, days, timeBlocks,
       if (seen.has(key)) continue
       seen.add(key)
       const act = actMap[s.activity_id]
-      const matchingSlotIds = flaggedSlots
-        .filter(x => x.group_id === s.group_id && x.activity_id === s.activity_id)
-        .map(x => x.id)
-      rows.push({
-        col1: groupMap[s.group_id] || '?',
-        col2: act?.name || '?',
-        col3: `Prefer ${act?.prefer_before_day_min ?? '?'}× before day ${act?.prefer_before_day ?? '?'}`,
-        col4: '',
-        reason: s.flags?.[`${flag}_reason`] || '',
-        slotIds: matchingSlotIds,
-      })
+      const matchingSlotIds = flaggedSlots.filter(x => x.group_id === s.group_id && x.activity_id === s.activity_id).map(x => x.id)
+      rows.push({ col1: groupMap[s.group_id] || '?', col2: act?.name || '?', col3: `Prefer ${act?.prefer_before_day_min ?? '?'}× before day ${act?.prefer_before_day ?? '?'}`, col4: '', reason: s.flags?.[`${flag}_reason`] || '', slotIds: matchingSlotIds })
     }
   }
 
-  const headers = {
-    UNFILLABLE:   ['Group', 'Day', 'Block', ''],
-    UNDERSERVED:  ['Group', 'Activity', 'Scheduled / Min', ''],
-    WEATHER_RISK: ['Group', 'Day', 'Block', 'Activity'],
-    DISTRIBUTION: ['Group', 'Activity', 'Preference', ''],
-  }[flag] || ['Col 1', 'Col 2', 'Col 3', 'Col 4']
-
+  const headers = { UNFILLABLE: ['Group', 'Day', 'Block', ''], UNDERSERVED: ['Group', 'Activity', 'Scheduled / Min', ''], WEATHER_RISK: ['Group', 'Day', 'Block', 'Activity'], DISTRIBUTION: ['Group', 'Activity', 'Preference', ''] }[flag] || ['Col 1', 'Col 2', 'Col 3', 'Col 4']
   const color = FLAG_COLORS[flag] || '#ccc'
 
   return (
@@ -111,9 +72,7 @@ export default function FlagDetailModal({ flag, slots, groups, days, timeBlocks,
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: 'var(--bg)', borderBottom: '1px solid var(--border)' }}>
-                  {headers.filter(h => h).map(h => (
-                    <th key={h} style={{ padding: '7px 12px', textAlign: 'left', fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>
-                  ))}
+                  {headers.filter(h => h).map(h => (<th key={h} style={{ padding: '7px 12px', textAlign: 'left', fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{h}</th>))}
                   <th style={{ padding: '7px 12px', textAlign: 'left', fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Reason</th>
                   {onDismiss && <th style={{ padding: '7px 12px', width: 80 }} />}
                 </tr>
@@ -126,16 +85,7 @@ export default function FlagDetailModal({ flag, slots, groups, days, timeBlocks,
                     <td style={{ padding: '7px 12px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>{r.col3}</td>
                     {r.col4 !== '' && <td style={{ padding: '7px 12px', fontSize: 12 }}>{r.col4}</td>}
                     <td style={{ padding: '7px 12px', fontSize: 11, color: 'var(--text-secondary)', maxWidth: 180, whiteSpace: 'normal', lineHeight: 1.4 }}>{r.reason}</td>
-                    {onDismiss && (
-                      <td style={{ padding: '7px 12px' }}>
-                        <button
-                          onClick={() => onDismiss(r.slotIds, flag)}
-                          style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', background: 'none', border: '1px solid var(--border)', borderRadius: 5, cursor: 'pointer', padding: '3px 8px', fontFamily: 'inherit' }}
-                        >
-                          Dismiss
-                        </button>
-                      </td>
-                    )}
+                    {onDismiss && (<td style={{ padding: '7px 12px' }}><button onClick={() => onDismiss(r.slotIds, flag)} style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', background: 'none', border: '1px solid var(--border)', borderRadius: 5, cursor: 'pointer', padding: '3px 8px', fontFamily: 'inherit' }}>Dismiss</button></td>)}
                   </tr>
                 ))}
               </tbody>
