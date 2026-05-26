@@ -462,4 +462,3 @@ export default function AnchorsScreen({ campId, onNavigate }) {
     </div>
   )
 }
-
