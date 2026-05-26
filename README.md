@@ -1,30 +1,33 @@
-# Camp Scheduling Platform
+# Shoresh
 
-A generalized camp scheduling platform built on the foundations of Shoresh.
+Shoresh helps camps control, adapt, and own their scheduling logic.
 
-Shoresh proved the model — deterministic constraint-aware scheduling, drag-and-drop editing, a flag system that surfaces conflicts without blocking you, and locking that protects decisions across regenerations.
-
-This project extends that foundation to serve camps with different scheduling structures: multi-week sessions, per-cohort time rhythms, staff-driven capacity, and activity availability driven by resources — not just fixed numbers.
+It's the adaptive scheduling layer for camps that outgrow spreadsheets but don't want to surrender their operational judgment to a black-box platform.
 
 ---
 
-## Architecture
+## The problem
 
-**Scheduling routes** — different camps use different scheduling methodologies. The platform supports configuring the route before building: time structure (cohort rhythms vs. universal blocks), capacity source (staff assignments vs. fixed numbers), temporal scope (single week vs. multi-week), and anchor model.
+Camp scheduling is a constraint satisfaction problem dressed up as a logistics problem. A typical week involves groups with different availability windows, activities with location capacity and eligibility rules, anchors that can't move, frequency goals, and preferences like “swimming should happen before Wednesday.”
 
-**Staff as resources** — activity capacity is derived from staff assignments, not stored on the activity. Staff availability gates activity availability. Absences cascade to flags.
+Spreadsheets break down fast. Black-box tools make decisions you can't see or override. Shoresh sits in between — it handles the constraints and surfaces the conflicts, but you stay in control.
 
-**Multi-week templates** — a base week with per-week override layers. Field trip weeks and other exceptions are overlays on the base.
+## What it does
 
-**Inherited from Shoresh** — schedule engine (deterministic, seeded PRNG), drag-and-drop editing, flag system, locking, snapshots, multi-tenant RLS.
+You define the rules: groups, tiers, time blocks, activities, anchors, and constraints. The engine builds a schedule that respects all of them, then flags what it couldn't satisfy. From there you adjust, lock, drag, and iterate — the schedule is yours to own.
 
----
+- **Schedule engine** — deterministic, constraint-aware, runs in milliseconds
+- **Drag-and-drop editing** — swap slots between groups directly on the grid
+- **Flag system** — surfaces unfillable slots, underserved activities, weather risk, and distribution gaps
+- **Locking** — protect decisions that shouldn't change across regenerations
+- **Snapshots** — named versions with auto-save before every regeneration
+- **Multi-tenant** — each camp's data is fully isolated
 
 ## Status
 
-Active development. Forked from Shoresh.
+Active development. Used internally at Shoresh camp.
 
----
+Self-hosting guide and contributing guidelines coming with the first stable release.
 
 ## Tech
 

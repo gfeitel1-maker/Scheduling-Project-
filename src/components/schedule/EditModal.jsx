@@ -9,7 +9,9 @@ export default function EditModal({ slot, activities, eligibleActivities, curren
     return (
       <div style={S.overlay}>
         <div style={S.modalLg}>
-          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8, color: ANCHOR_COLOR }}>⚓ Anchor: {currentAnchor?.name}</div>
+          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8, color: ANCHOR_COLOR }}>
+            ⚓ Anchor: {currentAnchor?.name}
+          </div>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>Anchors are fixed and cannot be changed here.</div>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button onClick={onClose} style={S.btnPrimary}>Close</button></div>
         </div>
@@ -21,7 +23,9 @@ export default function EditModal({ slot, activities, eligibleActivities, curren
     <div style={S.overlay}>
       <div style={S.modalLg}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Assign Activity</div>
-        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16, fontFamily: 'var(--font-mono)' }}>Currently: {currentActivity?.name || 'Empty'}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16, fontFamily: 'var(--font-mono)' }}>
+          Currently: {currentActivity?.name || 'Empty'}
+        </div>
 
         {weatherMode && weatherAlt && (
           <div style={{ background: '#EEF4FD', border: '1px solid #2F7DE1', borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>
@@ -31,9 +35,17 @@ export default function EditModal({ slot, activities, eligibleActivities, curren
         )}
 
         <div style={{ maxHeight: 260, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 6, marginBottom: 16 }}>
-          <div style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)', background: selected === '' ? 'var(--surface-elevated)' : '', borderBottom: '1px solid var(--border)' }} onClick={() => setSelected('')}>— Clear slot —</div>
+          <div
+            style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)', background: selected === '' ? 'var(--surface-elevated)' : '', borderBottom: '1px solid var(--border)' }}
+            onClick={() => setSelected('')}
+          >
+            — Clear slot —
+          </div>
           {eligibleActivities.map((a, i) => (
-            <div key={a.id} style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 500, background: selected === a.id ? 'var(--surface-elevated)' : '', borderBottom: i < eligibleActivities.length - 1 ? '1px solid var(--border)' : '', display: 'flex', alignItems: 'center', gap: 8 }} onClick={() => setSelected(a.id)}>
+            <div key={a.id}
+              style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 500, background: selected === a.id ? 'var(--surface-elevated)' : '', borderBottom: i < eligibleActivities.length - 1 ? '1px solid var(--border)' : '', display: 'flex', alignItems: 'center', gap: 8 }}
+              onClick={() => setSelected(a.id)}
+            >
               <span style={{ width: 8, height: 8, borderRadius: '50%', background: activityColor(i), display: 'inline-block', flexShrink: 0 }} />
               {a.name}
               {a.priority === 'high' && <span style={{ fontSize: 10, background: 'var(--primary)', color: '#fff', borderRadius: 3, padding: '1px 5px', marginLeft: 'auto' }}>HIGH</span>}

@@ -50,7 +50,10 @@ function GroupRow({ group, tiers, onSave, onDelete }) {
   }
 
   return (
-    <tr style={{ borderBottom: '1px solid var(--border)' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'} onMouseLeave={e => e.currentTarget.style.background = ''}>
+    <tr style={{ borderBottom: '1px solid var(--border)' }}
+      onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
+      onMouseLeave={e => e.currentTarget.style.background = ''}
+    >
       <td style={S.td}>{group.name}</td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{tierName}</td>
       <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{AVAIL_OPTIONS.find(o => o.value === group.availability)?.label || group.availability}</td>
@@ -80,41 +83,53 @@ export default function GroupsScreen({ campId, onNavigate }) {
   useEffect(() => { load() }, [campId])
 
   async function load() {
-    setLoading(true); setError(null)
+    setLoading(true)
+    setError(null)
     try {
       const [{ data: gData }, { data: tData }] = await Promise.all([
         supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
         supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
       ])
-      setGroups(gData || []); setTiers(tData || [])
+      setGroups(gData || [])
+      setTiers(tData || [])
     } catch {
       setError('Failed to load data — check your connection and refresh')
-    } finally { setLoading(false) }
+    } finally {
+      setLoading(false)
+    }
   }
 
   async function addGroup() {
     if (!newName.trim()) return
     setAdding(true)
     await supabase.from('groups').insert({ camp_id: campId, name: newName.trim(), tier_id: newTierId || null, availability: newAvail })
-    setNewName(''); setNewTierId(''); setNewAvail('all'); setAdding(false); load()
+    setNewName(''); setNewTierId(''); setNewAvail('all')
+    setAdding(false)
+    load()
   }
 
   async function saveGroup(id, fields) {
-    await supabase.from('groups').update(fields).eq('id', id); load()
+    await supabase.from('groups').update(fields).eq('id', id)
+    load()
   }
 
   async function deleteGroup(id) {
     if (!window.confirm('Delete this group?')) return
-    await supabase.from('groups').delete().eq('id', id); load()
+    await supabase.from('groups').delete().eq('id', id)
+    load()
   }
 
   async function deleteAll() {
     if (!window.confirm('Delete all groups? This cannot be undone.')) return
-    await supabase.from('groups').delete().eq('camp_id', campId); load()
+    await supabase.from('groups').delete().eq('camp_id', campId)
+    load()
   }
 
   function downloadTemplate() {
-    const ws = XLSX.utils.aoa_to_sheet([['name', 'tier_name', 'availability'], ['Yeladim 1', 'Yeladim', 'all']])
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['name', 'tier_name', 'availability'],
+      ['Yeladim 1', 'Yeladim', 'all'],
+    ])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Groups')
     XLSX.writeFile(wb, 'groups_template.xlsx')
@@ -153,14 +168,20 @@ export default function GroupsScreen({ campId, onNavigate }) {
       await supabase.from('groups').insert({ camp_id: campId, name: row.name, tier_id: row.tierId, availability: row.availability })
       added++
     }
-    setImportResult({ added, skipped }); setImportStep('done'); setImporting(false); load()
+    setImportResult({ added, skipped }); setImportStep('done')
+    setImporting(false); load()
   }
 
+  // Group by tier
   const grouped = {}
   const noTier = []
   for (const g of groups) {
-    if (g.tier_id) { if (!grouped[g.tier_id]) grouped[g.tier_id] = []; grouped[g.tier_id].push(g) }
-    else noTier.push(g)
+    if (g.tier_id) {
+      if (!grouped[g.tier_id]) grouped[g.tier_id] = []
+      grouped[g.tier_id].push(g)
+    } else {
+      noTier.push(g)
+    }
   }
 
   const readyRows = importRows.filter(r => r.name && !r.warning)
@@ -168,13 +189,21 @@ export default function GroupsScreen({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 720 }}>
-      {error && <div style={S.errorBanner}>{error}</div>}
+      {error && (
+        <div style={S.errorBanner}>
+          {error}
+        </div>
+      )}
       {tiers.length === 0 && !loading && (
-        <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#7a5100' }}>No tiers found. Set up tiers first so you can assign groups to them.</div>
+        <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#7a5100' }}>
+          No tiers found. Set up tiers first so you can assign groups to them.
+        </div>
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{groups.length} group{groups.length !== 1 ? 's' : ''}</div>
+        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          {groups.length} group{groups.length !== 1 ? 's' : ''}
+        </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
           <button onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
@@ -183,12 +212,26 @@ export default function GroupsScreen({ campId, onNavigate }) {
         </div>
       </div>
 
-      {loading ? <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading…</div> : (
+      {loading ? (
+        <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading…</div>
+      ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead><tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}><th style={S.th}>Name</th><th style={S.th}>Tier</th><th style={S.th}>Availability</th><th style={{ ...S.th, textAlign: 'right' }}>Actions</th></tr></thead>
+            <thead>
+              <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
+                <th style={S.th}>Name</th>
+                <th style={S.th}>Tier</th>
+                <th style={S.th}>Availability</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
+              </tr>
+            </thead>
             <tbody>
-              {groups.length === 0 ? (<tr><td colSpan={4} style={{ padding: '40px 16px', textAlign: 'center' }}><div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No groups yet</div></td></tr>) : (
+              {groups.length === 0 ? (
+                <tr><td colSpan={4} style={{ padding: '40px 16px', textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No groups yet</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first group below.</div>
+                </td></tr>
+              ) : (
                 <>
                   {tiers.map(tier => {
                     const tierGroups = grouped[tier.id] || []
@@ -196,16 +239,26 @@ export default function GroupsScreen({ campId, onNavigate }) {
                     return (
                       <React.Fragment key={tier.id}>
                         <tr style={{ background: 'var(--surface-elevated)', borderBottom: '1px solid var(--border)' }}>
-                          <td colSpan={4} style={{ padding: '6px 14px', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{tier.name}</td>
+                          <td colSpan={4} style={{ padding: '6px 14px', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                            {tier.name}
+                          </td>
                         </tr>
-                        {tierGroups.map(g => <GroupRow key={g.id} group={g} tiers={tiers} onSave={saveGroup} onDelete={deleteGroup} />)}
+                        {tierGroups.map(g => (
+                          <GroupRow key={g.id} group={g} tiers={tiers} onSave={saveGroup} onDelete={deleteGroup} />
+                        ))}
                       </React.Fragment>
                     )
                   })}
                   {noTier.length > 0 && (
                     <>
-                      <tr style={{ background: 'var(--surface-elevated)', borderBottom: '1px solid var(--border)' }}><td colSpan={4} style={{ padding: '6px 14px', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>No Tier</td></tr>
-                      {noTier.map(g => <GroupRow key={g.id} group={g} tiers={tiers} onSave={saveGroup} onDelete={deleteGroup} />)}
+                      <tr style={{ background: 'var(--surface-elevated)', borderBottom: '1px solid var(--border)' }}>
+                        <td colSpan={4} style={{ padding: '6px 14px', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                          No Tier
+                        </td>
+                      </tr>
+                      {noTier.map(g => (
+                        <GroupRow key={g.id} group={g} tiers={tiers} onSave={saveGroup} onDelete={deleteGroup} />
+                      ))}
                     </>
                   )}
                 </>
@@ -226,27 +279,52 @@ export default function GroupsScreen({ campId, onNavigate }) {
           <select value={newAvail} onChange={e => setNewAvail(e.target.value)} style={{ ...S.input, flex: '0 0 150px' }}>
             {AVAIL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <button onClick={addGroup} disabled={adding || !newName.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
+          <button onClick={addGroup} disabled={adding || !newName.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>
+            {adding ? 'Adding…' : '+ Add'}
+          </button>
         </div>
       </div>
 
       {importStep && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width: 560, maxHeight: '80vh', overflow: 'auto' }}>
-            {importStep === 'preview' && (<>
-              <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>
-              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>{readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings (skipped)`}</div>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 18 }}><thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Name</th><th style={S.th}>Tier</th><th style={S.th}>Availability</th><th style={S.th}>Status</th></tr></thead><tbody>{importRows.map((r, i) => (<tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}><td style={S.td}>{r.name || <span style={{ color: 'var(--warning)' }}>—</span>}</td><td style={S.td}>{r.tierName || '—'}</td><td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.availability}</td><td style={{ ...S.td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td></tr>))}</tbody></table>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
-                <button onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
-              </div>
-            </>)}
-            {importStep === 'done' && (<>
-              <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 12 }}>Import Complete</div>
-              <div style={{ fontSize: 14 }}><span style={{ color: 'var(--success)', fontWeight: 600 }}>{importResult.added} added</span>{importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped</span>}</div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}><button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button></div>
-            </>)}
+            {importStep === 'preview' && (
+              <>
+                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+                  {readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings (skipped)`}
+                </div>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 18 }}>
+                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Name</th><th style={S.th}>Tier</th><th style={S.th}>Availability</th><th style={S.th}>Status</th></tr></thead>
+                  <tbody>
+                    {importRows.map((r, i) => (
+                      <tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}>
+                        <td style={S.td}>{r.name || <span style={{ color: 'var(--warning)' }}>—</span>}</td>
+                        <td style={S.td}>{r.tierName || '—'}</td>
+                        <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.availability}</td>
+                        <td style={{ ...S.td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
+                  <button onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
+                </div>
+              </>
+            )}
+            {importStep === 'done' && (
+              <>
+                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 12 }}>Import Complete</div>
+                <div style={{ fontSize: 14, marginBottom: 6 }}>
+                  <span style={{ color: 'var(--success)', fontWeight: 600 }}>{importResult.added} added</span>
+                  {importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped</span>}
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
+                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -257,3 +335,4 @@ export default function GroupsScreen({ campId, onNavigate }) {
     </div>
   )
 }
+

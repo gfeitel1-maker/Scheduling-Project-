@@ -39,6 +39,7 @@ describe('WEATHER_RISK flag', () => {
 
 describe('UNDERSERVED flag', () => {
   it('sets UNDERSERVED_reason with counts when min_per_week cannot be met', () => {
+    // 1 block available, min_per_week = 3 → underserved
     const act = { id: 'a1', name: 'Archery', priority: 'low', max_per_week: 5, min_per_week: 3, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
     const { slots } = buildSchedule(minimal({ activities: [act] }))
     const underservedSlot = slots.find(s => s.flags?.UNDERSERVED)
@@ -51,6 +52,7 @@ describe('UNDERSERVED flag', () => {
 
 describe('DISTRIBUTION flag', () => {
   it('sets DISTRIBUTION_reason when early-week goal not met', () => {
+    // 2 days, prefer 2× before day_of_week=2 (Tuesday), but activity placed both Mon+Tue
     const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
     const act = { id: 'a1', name: 'Arts', priority: 'low', max_per_week: 5, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: 2, prefer_before_day_min: 2 }
     const { slots } = buildSchedule(minimal({ days: [baseDay, day2], activities: [act] }))
@@ -79,7 +81,7 @@ describe('preplacedSlots (locking)', () => {
     const preplaced = [{ groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'a1' }]
     const { slots } = buildSchedule(minimal({ days: [baseDay, day2], timeBlocks: [baseBlock, block2], activities: [swim], preplacedSlots: preplaced }))
     const swimSlots = slots.filter(s => s.activityId === 'a1')
-    expect(swimSlots.length).toBe(1)
+    expect(swimSlots.length).toBe(1) // only the preplaced one, max_per_week=1 exhausted
   })
 
   it('ignores preplacedSlots param when undefined', () => {
@@ -88,6 +90,8 @@ describe('preplacedSlots (locking)', () => {
   })
 
   it('populates locationUsage for preplaced slots so capacity is respected', () => {
+    // Pool has max_groups_per_slot = 2. Preplaced one group. Another group should fill the same slot (capacity allows it).
+    // A third group should NOT be placed there if capacity would be exceeded.
     const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
     const g2 = { id: 'g2', name: 'Bet', tier_id: 't1', availability: 'all' }
     const g3 = { id: 'g3', name: 'Gimel', tier_id: 't1', availability: 'all' }
@@ -107,8 +111,9 @@ describe('preplacedSlots (locking)', () => {
       campId: 'test',
       preplacedSlots: preplaced,
     })
+    // g1 is preplaced at d1/b1. g2 should also get pool there (capacity=2). g3 should NOT.
     const poolSlotsAtB1 = slots.filter(s => s.activityId === 'a1' && s.dayId === 'd1' && s.blockId === 'b1')
-    expect(poolSlotsAtB1.length).toBe(2)
+    expect(poolSlotsAtB1.length).toBe(2) // g1 (preplaced) + g2, not g3
     expect(poolSlotsAtB1.map(s => s.groupId).sort()).toEqual(['g1', 'g2'].sort())
   })
 })

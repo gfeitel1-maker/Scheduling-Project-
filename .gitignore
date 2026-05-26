@@ -29,3 +29,6 @@ dist-ssr
 .superpowers/
 .mcp.json
 .worktrees/
+.agents/
+skills-lock.json
+supabase/.temp/

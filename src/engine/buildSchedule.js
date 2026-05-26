@@ -22,7 +22,7 @@ function mulberry32(seed) {
 
 function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId = '', preplacedSlots = [] }) {
   const rand = mulberry32(djb2(campId))
-  // ── Pass 0: resolve eligibility ──────────────────────────────────────────────
+  // ── Pass 0: resolve eligibility ──────────────────────────────────────────
   const eligibility = new Map() // activityId → Set<groupId>
 
   for (const act of activities) {
@@ -46,7 +46,7 @@ function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, c
     eligibility.set(act.id, eligible)
   }
 
-  // ── Pass 1: map the grid ──────────────────────────────────────────────────────
+  // ── Pass 1: map the grid ──────────────────────────────────────────────────
   const anchorLookup = new Map() // "groupId|dayId|blockId" → anchor
   for (const anchor of anchors) {
     const groupList = anchor.is_all_groups ? groups.map(g => g.id) : (anchor.group_ids || [])
@@ -85,7 +85,7 @@ function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, c
     }
   }
 
-  // ── Pass 2: place activities ──────────────────────────────────────────────────
+  // ── Pass 2: place activities ──────────────────────────────────────────────
   const assigned = new Map() // "groupId|dayId|blockId" → activityId
   const usageCount = new Map() // "groupId|activityId" → count
   const locationUsage = new Map() // "location|dayId|blockId" → [{ groupId, tierId }]
@@ -103,13 +103,16 @@ function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, c
 
   function canPlace(act, groupId, dayId, blockId) {
     const group = groupMap.get(groupId)
+    // max_per_week
     if (getCount(groupId, act.id) >= act.max_per_week) return false
 
+    // location capacity
     if (act.location && act.max_groups_per_slot > 1) {
       const lk = locationKey(act.location, dayId, blockId)
       const occupants = locationUsage.get(lk) || []
       if (occupants.length >= act.max_groups_per_slot) return false
 
+      // same_tier_only
       if (act.same_tier_only && occupants.length > 0) {
         const allSameTier = occupants.every(o => o.tierId === group.tier_id)
         if (!allSameTier) return false
@@ -143,15 +146,17 @@ function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, c
     }
   }
 
+  // Day index lookup for prefer_before_day
   const dayOrder = new Map(days.map((d, i) => [d.id, i]))
 
   function scoreForPrefer(act, groupId, dayId) {
     if (act.prefer_before_day == null || act.prefer_before_day_min == null) return 0
     const dayIdx = dayOrder.get(dayId)
+    // find the day whose day_of_week matches prefer_before_day
     const targetIdx = days.findIndex(d => d.day_of_week === act.prefer_before_day)
     if (targetIdx < 0) return 0
     const countSoFar = getCount(groupId, act.id)
-    if (countSoFar < act.prefer_before_day_min && dayIdx >= targetIdx) return 1
+    if (countSoFar < act.prefer_before_day_min && dayIdx >= targetIdx) return 1 // deprioritize
     return 0
   }
 
@@ -161,6 +166,7 @@ function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, c
       return acts.some(a => canPlace(a, s.groupId, s.dayId, s.blockId))
     })
 
+    // sort by fewest eligible candidates first (most constrained)
     roundSlots.sort((a, b) => {
       const aCount = a.eligibleActs.filter(x => x.priority === priority && canPlace(x, a.groupId, a.dayId, a.blockId)).length
       const bCount = b.eligibleActs.filter(x => x.priority === priority && canPlace(x, b.groupId, b.dayId, b.blockId)).length
@@ -174,10 +180,12 @@ function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, c
 
       if (!candidates.length) continue
 
+      // separate deprioritized (prefer_before_day penalty)
       const normal = candidates.filter(a => scoreForPrefer(a, slot.groupId, slot.dayId) === 0)
       const deferred = candidates.filter(a => scoreForPrefer(a, slot.groupId, slot.dayId) !== 0)
       const ordered = [...normal, ...deferred]
 
+      // pick lowest usage, break ties randomly
       ordered.sort((a, b) => {
         const diff = getCount(slot.groupId, a.id) - getCount(slot.groupId, b.id)
         return diff !== 0 ? diff : rand() - 0.5
@@ -193,7 +201,7 @@ function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, c
   const stillUnfilled = openSlots.filter(s => !assigned.has(`${s.groupId}|${s.dayId}|${s.blockId}`))
   runRound(stillUnfilled, 'low')
 
-  // ── Pass 3: audit ────────────────────────────────────────────────────────────────────
+  // ── Pass 3: audit ─────────────────────────────────────────────────────────
   const resultSlots = []
 
   for (const slot of slots) {
@@ -218,6 +226,7 @@ function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, c
     resultSlots.push({ groupId: os.groupId, dayId: os.dayId, blockId: os.blockId, type: 'activity', activityId: actId, anchorId: null, flags })
   }
 
+  // UNDERSERVED: group × activity where min_per_week not met
   const underserved = []
   for (const group of groups) {
     for (const act of activities) {
@@ -229,6 +238,7 @@ function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, c
     }
   }
 
+  // Mark UNDERSERVED on slots (flag the group's slots for that activity)
   for (const u of underserved) {
     const groupName = groupMap.get(u.groupId)?.name || u.groupId
     const act = activities.find(a => a.id === u.activityId)
@@ -241,6 +251,7 @@ function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, c
     }
   }
 
+  // DISTRIBUTION: prefer_before_day not met
   for (const group of groups) {
     for (const act of activities) {
       if (act.prefer_before_day == null || act.prefer_before_day_min == null) continue
@@ -262,6 +273,7 @@ function buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, c
     }
   }
 
+  // Stats
   const openCount = resultSlots.filter(s => s.type === 'activity').length
   const filledCount = resultSlots.filter(s => s.type === 'activity' && s.activityId).length
   const unfillableCount = resultSlots.filter(s => s.flags?.UNFILLABLE).length
