@@ -152,11 +152,15 @@ function scheduleCohort({ cohortEntry, days, activities, rand }) {
     if (spanCount > 1) {
       const blockIdx = blockOrder.get(blockId)
       if (blockIdx === undefined) return false
+      const group = groupMap.get(groupId)
+      const avail = group?.availability
       for (let i = 1; i < spanCount; i++) {
         const nextBlock = timeBlocksSorted[blockIdx + i]
         if (!nextBlock) return false  // not enough blocks remaining
         const nextKey = `${groupId}|${dayId}|${nextBlock.id}`
         if (assigned.has(nextKey) || anchorLookup.has(nextKey)) return false
+        // Tail block must also be within the group's available part of day
+        if (avail !== 'all' && avail !== nextBlock.part_of_day) return false
       }
     }
 
@@ -178,6 +182,9 @@ function scheduleCohort({ cohortEntry, days, activities, rand }) {
   }
 
   function place(act, groupId, dayId, blockId) {
+    const group = groupMap.get(groupId)
+    // Guard: if group is not in this cohort, skip location tracking (can't read tier_id)
+    const safeGroup = group ?? { tier_id: null }
     const headKey = `${groupId}|${dayId}|${blockId}`
     assigned.set(headKey, act.id)
     incCount(groupId, act.id)  // count once per placement (head only)
@@ -194,9 +201,8 @@ function scheduleCohort({ cohortEntry, days, activities, rand }) {
           // Track location usage for tail blocks too
           if (act.location) {
             const lk = locationKey(act.location, dayId, nextBlock.id)
-            const group = groupMap.get(groupId)
             const list = locationUsage.get(lk) || []
-            list.push({ groupId, tierId: group.tier_id })
+            list.push({ groupId, tierId: safeGroup.tier_id })
             locationUsage.set(lk, list)
           }
         }
@@ -205,9 +211,8 @@ function scheduleCohort({ cohortEntry, days, activities, rand }) {
 
     if (act.location) {
       const lk = locationKey(act.location, dayId, blockId)
-      const group = groupMap.get(groupId)
       const list = locationUsage.get(lk) || []
-      list.push({ groupId, tierId: group.tier_id })
+      list.push({ groupId, tierId: safeGroup.tier_id })
       locationUsage.set(lk, list)
     }
   }
@@ -358,14 +363,16 @@ function scheduleCohort({ cohortEntry, days, activities, rand }) {
 
 function buildSchedule(input) {
   const { cohorts, days, activities, campId } = normalizeInput(input)
-  const rand = mulberry32(djb2(campId))
 
   // Pass 1: schedule each cohort independently
   // (multi-cohort cross-resource conflict detection is Sub-project 3)
   const allSlots = []
   const allStats = []
 
-  for (const cohortEntry of cohorts) {
+  for (let idx = 0; idx < cohorts.length; idx++) {
+    const cohortEntry = cohorts[idx]
+    const cohortSeed = campId + (cohortEntry.cohort?.id || String(idx))
+    const rand = mulberry32(djb2(cohortSeed))
     const { slots, stats } = scheduleCohort({ cohortEntry, days, activities, rand })
     allSlots.push(...slots)
     allStats.push(stats)
