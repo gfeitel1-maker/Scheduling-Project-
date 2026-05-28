@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../supabase'
 import { S } from '../styles/shared'
+import { useCohorts } from '../hooks/useCohorts'
+import CohortPicker from '../components/CohortPicker'
 
 function TierRow({ tier, groupCount, onSave, onDelete }) {
   const [editing, setEditing] = useState(false)
@@ -82,15 +84,20 @@ export default function TiersScreen({ campId, onNavigate }) {
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
   const fileRef = useRef()
+  const { cohorts, activeCohort, setActiveCohortId } = useCohorts(campId)
 
-  useEffect(() => { load() }, [campId])
+  useEffect(() => {
+    if (activeCohort) load()
+  }, [campId, activeCohort?.id])
 
   async function load() {
+    if (!activeCohort) return
     setLoading(true)
     setError(null)
     try {
       const [{ data: tierData }, { data: groupData }] = await Promise.all([
-        supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order').order('name'),
+        supabase.from('tiers').select('*').eq('camp_id', campId)
+          .eq('cohort_id', activeCohort.id).order('sort_order').order('name'),
         supabase.from('groups').select('id, tier_id').eq('camp_id', campId),
       ])
       setTiers(tierData || [])
@@ -110,7 +117,7 @@ export default function TiersScreen({ campId, onNavigate }) {
     if (!newName.trim()) return
     setAdding(true)
     const sortVal = newSort !== '' ? Number(newSort) : (tiers.length + 1)
-    await supabase.from('tiers').insert({ camp_id: campId, name: newName.trim(), sort_order: sortVal })
+    await supabase.from('tiers').insert({ camp_id: campId, cohort_id: activeCohort.id, name: newName.trim(), sort_order: sortVal })
     setNewName('')
     setNewSort('')
     setAdding(false)
@@ -172,7 +179,7 @@ export default function TiersScreen({ campId, onNavigate }) {
       if (!row.name || row.warning) { skipped++; continue }
       if (existingNames.has(row.name.toLowerCase())) { skipped++; continue }
       const sortVal = row.sort_order !== null ? row.sort_order : (tiers.length + added + 1)
-      await supabase.from('tiers').insert({ camp_id: campId, name: row.name, sort_order: sortVal })
+      await supabase.from('tiers').insert({ camp_id: campId, cohort_id: activeCohort.id, name: row.name, sort_order: sortVal })
       added++
     }
     setImportResult({ added, skipped })
@@ -186,6 +193,7 @@ export default function TiersScreen({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 700 }}>
+      <CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />
       {error && (
         <div style={S.errorBanner}>
           {error}
