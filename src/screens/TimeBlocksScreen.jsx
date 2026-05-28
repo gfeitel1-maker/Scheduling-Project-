@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../supabase'
 import { S } from '../styles/shared'
+import { useCohorts } from '../hooks/useCohorts'
+import CohortPicker from '../components/CohortPicker'
 
 const POD_OPTIONS = [
   { value: 'morning', label: 'Morning' },
@@ -85,14 +87,21 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
   const fileRef = useRef()
+  const { cohorts, activeCohort, setActiveCohortId } = useCohorts(campId)
 
-  useEffect(() => { load() }, [campId])
+  useEffect(() => {
+    if (activeCohort) load()
+  }, [campId, activeCohort?.id])
 
   async function load() {
+    if (!activeCohort) return
     setLoading(true)
     setError(null)
     try {
-      const { data } = await supabase.from('time_blocks').select('*').eq('camp_id', campId).order('sort_order').order('start_time')
+      const { data } = await supabase.from('time_blocks').select('*')
+        .eq('camp_id', campId)
+        .eq('cohort_id', activeCohort.id)
+        .order('sort_order').order('start_time')
       setBlocks(data || [])
     } catch {
       setError('Failed to load data — check your connection and refresh')
@@ -105,7 +114,7 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
     if (!newName.trim() || !newStart || !newEnd) return
     setAdding(true)
     const sortVal = newSort !== '' ? Number(newSort) : (blocks.length + 1)
-    await supabase.from('time_blocks').insert({ camp_id: campId, name: newName.trim(), start_time: newStart, end_time: newEnd, part_of_day: newPod, sort_order: sortVal })
+    await supabase.from('time_blocks').insert({ camp_id: campId, cohort_id: activeCohort.id, name: newName.trim(), start_time: newStart, end_time: newEnd, part_of_day: newPod, sort_order: sortVal })
     setNewName(''); setNewStart(''); setNewEnd(''); setNewSort('')
     setAdding(false); load()
   }
@@ -166,7 +175,7 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
       if (!row.name || row.warning) { skipped++; continue }
       if (existingNames.has(row.name.toLowerCase())) { skipped++; continue }
       const sortVal = row.sort_order !== null ? row.sort_order : (blocks.length + added + 1)
-      await supabase.from('time_blocks').insert({ camp_id: campId, name: row.name, start_time: row.start_time, end_time: row.end_time, part_of_day: row.part_of_day, sort_order: sortVal })
+      await supabase.from('time_blocks').insert({ camp_id: campId, cohort_id: activeCohort.id, name: row.name, start_time: row.start_time, end_time: row.end_time, part_of_day: row.part_of_day, sort_order: sortVal })
       added++
     }
     setImportResult({ added, skipped }); setImportStep('done')
@@ -178,6 +187,7 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 780 }}>
+      <CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />
       {error && (
         <div style={S.errorBanner}>
           {error}
