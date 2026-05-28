@@ -117,3 +117,180 @@ describe('preplacedSlots (locking)', () => {
     expect(poolSlotsAtB1.map(s => s.groupId).sort()).toEqual(['g1', 'g2'].sort())
   })
 })
+
+// ── Helpers shared by new tests ──────────────────────────────────────────────
+
+const baseAct = {
+  id: 'a1', name: 'Drama', priority: 'low',
+  max_per_week: 5, min_per_week: 0,
+  span_blocks: 1,
+  is_outdoor: false, location: null, max_groups_per_slot: 1,
+  same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [],
+  prefer_before_day: null, prefer_before_day_min: null,
+}
+
+const blockA = { id: 'bA', name: 'Block A', start_time: '09:00', end_time: '09:45', sort_order: 0, part_of_day: 'morning' }
+const blockB = { id: 'bB', name: 'Block B', start_time: '09:50', end_time: '10:35', sort_order: 1, part_of_day: 'morning' }
+const blockC = { id: 'bC', name: 'Block C', start_time: '10:40', end_time: '11:25', sort_order: 2, part_of_day: 'morning' }
+
+function cohortInput(overrides = {}) {
+  return {
+    cohorts: [{
+      cohort: { id: 'cohort1', anchor_model: 'fixed', capacity_source: 'groups_per_slot', session_week_start: 1, session_week_end: 1 },
+      timeBlocks: [blockA, blockB],
+      tiers: [{ id: 't1', name: 'Junior' }],
+      groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
+      preplacedSlots: [],
+      activityTargets: null,
+    }],
+    days: [{ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }],
+    activities: [baseAct],
+    campId: 'test',
+    ...overrides,
+  }
+}
+
+// ── Cohorts wrapper ───────────────────────────────────────────────────────────
+
+describe('cohorts array signature', () => {
+  it('produces the same output as the legacy flat signature for a single cohort', () => {
+    const legacyResult = buildSchedule({
+      groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
+      tiers: [{ id: 't1', name: 'Junior' }],
+      days: [{ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }],
+      timeBlocks: [blockA],
+      activities: [{ ...baseAct }],
+      anchors: [],
+      campId: 'test',
+      preplacedSlots: [],
+    })
+
+    const cohortResult = buildSchedule({
+      cohorts: [{
+        cohort: { id: 'cohort1', anchor_model: 'fixed', capacity_source: 'groups_per_slot', session_week_start: 1, session_week_end: 1 },
+        timeBlocks: [blockA],
+        tiers: [{ id: 't1', name: 'Junior' }],
+        groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
+        preplacedSlots: [],
+        activityTargets: null,
+      }],
+      days: [{ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }],
+      activities: [{ ...baseAct }],
+      campId: 'test',
+    })
+
+    // Same slots shape (modulo cohort_id field which is new)
+    expect(cohortResult.slots.length).toBe(legacyResult.slots.length)
+    expect(cohortResult.slots[0].activityId).toBe(legacyResult.slots[0].activityId)
+  })
+
+  it('returns a conflicts array (empty for single-cohort)', () => {
+    const result = buildSchedule(cohortInput())
+    expect(Array.isArray(result.conflicts)).toBe(true)
+    expect(result.conflicts).toHaveLength(0)
+  })
+
+  it('slots include cohort_id from the cohort entry', () => {
+    const result = buildSchedule(cohortInput())
+    const actSlot = result.slots.find(s => s.type === 'activity')
+    expect(actSlot?.cohort_id).toBe('cohort1')
+  })
+})
+
+// ── span_blocks ───────────────────────────────────────────────────────────────
+
+describe('span_blocks', () => {
+  it('places a span_blocks=2 activity into two consecutive blocks', () => {
+    const swimAct = { ...baseAct, id: 'swim', name: 'Swim', span_blocks: 2, priority: 'high' }
+    const result = buildSchedule(cohortInput({
+      cohorts: [{
+        cohort: { id: 'cohort1', anchor_model: 'fixed', capacity_source: 'groups_per_slot', session_week_start: 1, session_week_end: 1 },
+        timeBlocks: [blockA, blockB],
+        tiers: [{ id: 't1', name: 'Junior' }],
+        groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
+        preplacedSlots: [],
+        activityTargets: null,
+      }],
+      activities: [swimAct],
+    }))
+
+    const swimSlots = result.slots.filter(s => s.activityId === 'swim')
+    expect(swimSlots).toHaveLength(2)
+    expect(swimSlots.map(s => s.blockId).sort()).toEqual(['bA', 'bB'].sort())
+  })
+
+  it('marks only the first block as is_span_head=true', () => {
+    const swimAct = { ...baseAct, id: 'swim', name: 'Swim', span_blocks: 2, priority: 'high' }
+    const result = buildSchedule(cohortInput({
+      cohorts: [{
+        cohort: { id: 'cohort1', anchor_model: 'fixed', capacity_source: 'groups_per_slot', session_week_start: 1, session_week_end: 1 },
+        timeBlocks: [blockA, blockB],
+        tiers: [{ id: 't1', name: 'Junior' }],
+        groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
+        preplacedSlots: [],
+        activityTargets: null,
+      }],
+      activities: [swimAct],
+    }))
+
+    const swimSlots = result.slots
+      .filter(s => s.activityId === 'swim')
+      .sort((a, b) => {
+        const order = { bA: 0, bB: 1, bC: 2 }
+        return order[a.blockId] - order[b.blockId]
+      })
+
+    expect(swimSlots[0].is_span_head).toBe(true)
+    expect(swimSlots[1].is_span_head).toBe(false)
+  })
+
+  it('does not place a span_blocks=2 activity when the second block is occupied', () => {
+    // Two activities: Drama (span=2) and Archery (span=1).
+    // Archery is preplaced in blockB, so Drama cannot start at blockA.
+    const drama = { ...baseAct, id: 'drama', name: 'Drama', span_blocks: 2, priority: 'low' }
+    const archery = { ...baseAct, id: 'arch', name: 'Archery', span_blocks: 1, priority: 'high' }
+    const preplaced = [{ groupId: 'g1', dayId: 'd1', blockId: 'bB', activityId: 'arch' }]
+
+    const result = buildSchedule(cohortInput({
+      cohorts: [{
+        cohort: { id: 'cohort1', anchor_model: 'fixed', capacity_source: 'groups_per_slot', session_week_start: 1, session_week_end: 1 },
+        timeBlocks: [blockA, blockB],
+        tiers: [{ id: 't1', name: 'Junior' }],
+        groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
+        preplacedSlots: preplaced,
+        activityTargets: null,
+      }],
+      activities: [drama, archery],
+    }))
+
+    // drama must not appear since blockB is taken and there's no room to start a 2-block span
+    const dramaSlots = result.slots.filter(s => s.activityId === 'drama')
+    expect(dramaSlots).toHaveLength(0)
+  })
+
+  it('does not place a span_blocks=2 activity when only one block remains', () => {
+    // Only blockC available (blockA and blockB occupied). span=2 requires 2 consecutive.
+    const swim = { ...baseAct, id: 'swim', name: 'Swim', span_blocks: 2, priority: 'high' }
+
+    const result = buildSchedule(cohortInput({
+      cohorts: [{
+        cohort: { id: 'cohort1', anchor_model: 'fixed', capacity_source: 'groups_per_slot', session_week_start: 1, session_week_end: 1 },
+        timeBlocks: [blockC],   // only one block available
+        tiers: [{ id: 't1', name: 'Junior' }],
+        groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
+        preplacedSlots: [],
+        activityTargets: null,
+      }],
+      activities: [swim],
+    }))
+
+    const swimSlots = result.slots.filter(s => s.activityId === 'swim')
+    expect(swimSlots).toHaveLength(0)
+  })
+
+  it('single-block activities still have is_span_head=true', () => {
+    const result = buildSchedule(cohortInput())
+    const actSlot = result.slots.find(s => s.type === 'activity' && s.activityId)
+    expect(actSlot?.is_span_head).toBe(true)
+  })
+})
