@@ -7,19 +7,23 @@ import GroupsScreen from './screens/GroupsScreen'
 import TimeBlocksScreen from './screens/TimeBlocksScreen'
 import ActivitiesScreen from './screens/ActivitiesScreen'
 import AnchorsScreen from './screens/AnchorsScreen'
+import CohortsScreen from './screens/CohortsScreen'
+import DayOverridesScreen from './screens/DayOverridesScreen'
 import ScheduleScreen from './screens/ScheduleScreen'
 import { useSession } from './hooks/useSession'
 import { supabase } from './supabase'
 import { ensureCohort } from './utils/ensureCohort'
 
 const SCREENS = {
-  setup: CampSetup,
-  tiers: TiersScreen,
-  groups: GroupsScreen,
-  timeblocks: TimeBlocksScreen,
-  activities: ActivitiesScreen,
-  anchors: AnchorsScreen,
-  schedule: ScheduleScreen,
+  setup:        CampSetup,
+  cohorts:      CohortsScreen,
+  tiers:        TiersScreen,
+  groups:       GroupsScreen,
+  timeblocks:   TimeBlocksScreen,
+  activities:   ActivitiesScreen,
+  anchors:      AnchorsScreen,
+  dayoverrides: DayOverridesScreen,
+  schedule:     ScheduleScreen,
 }
 
 const MON_FRI = [

@@ -2,13 +2,15 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../../supabase'
 
 const NAV = [
-  { key: 'setup',      label: 'Camp Setup' },
-  { key: 'tiers',      label: 'Tiers' },
-  { key: 'groups',     label: 'Groups' },
-  { key: 'timeblocks', label: 'Time Blocks' },
-  { key: 'activities', label: 'Activities' },
-  { key: 'anchors',    label: 'Anchors' },
-  { key: 'schedule',   label: 'Schedule', divider: true },
+  { key: 'setup',        label: 'Camp Setup' },
+  { key: 'cohorts',      label: 'Cohorts' },
+  { key: 'tiers',        label: 'Tiers' },
+  { key: 'groups',       label: 'Groups' },
+  { key: 'timeblocks',   label: 'Time Blocks' },
+  { key: 'activities',   label: 'Activities' },
+  { key: 'anchors',      label: 'Anchors' },
+  { key: 'dayoverrides', label: 'Day Overrides' },
+  { key: 'schedule',     label: 'Schedule', divider: true },
 ]
 
 export default function Sidebar({ current, onNavigate, campId }) {
