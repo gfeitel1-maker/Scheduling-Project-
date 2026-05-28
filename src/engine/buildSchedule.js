@@ -62,7 +62,7 @@ function normalizeInput(input) {
 }
 
 function scheduleCohort({ cohortEntry, days, activities, rand }) {
-  const { cohort, timeBlocks, tiers, groups, preplacedSlots, activityTargets, _legacyAnchors } = cohortEntry
+  const { cohort, timeBlocks, tiers: _tiers, groups, preplacedSlots, activityTargets, _legacyAnchors } = cohortEntry
   const cohortId = cohort?.id ?? null
 
   // Sort time blocks by sort_order so span_blocks consecutive logic is stable
