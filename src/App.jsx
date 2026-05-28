@@ -10,6 +10,7 @@ import AnchorsScreen from './screens/AnchorsScreen'
 import ScheduleScreen from './screens/ScheduleScreen'
 import { useSession } from './hooks/useSession'
 import { supabase } from './supabase'
+import { ensureCohort } from './utils/ensureCohort'
 
 const SCREENS = {
   setup: CampSetup,
@@ -46,7 +47,10 @@ export default function App() {
   const [screen, setScreen] = useState('setup')
 
   useEffect(() => {
-    if (campId) seedDays(campId)
+    if (campId) {
+      seedDays(campId)
+      ensureCohort(campId)
+    }
   }, [campId])
 
   if (loading) {
