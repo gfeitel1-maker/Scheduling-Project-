@@ -60,12 +60,13 @@ function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
     try {
       let templateId = template?.id
       if (isNew) {
-        const { data } = await supabase.from('day_override_templates').insert({
+        const { data, error: insertErr } = await supabase.from('day_override_templates').insert({
           camp_id: campId,
           cohort_id: cohortId,
           name: name.trim(),
           frequency_mode: freqMode,
         }).select('id').single()
+        if (insertErr || !data) throw insertErr || new Error('Insert returned no data')
         templateId = data.id
       } else {
         await supabase.from('day_override_templates').update({
@@ -101,7 +102,7 @@ function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
         <div style={{ marginBottom: 14 }}>
           <div style={S.label}>Template Name</div>
           <input autoFocus value={name} onChange={e => setName(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && save()} style={S.input}
+            onKeyDown={e => e.key === 'Enter' && !saving && save()} style={S.input}
             placeholder="e.g. Field Trip, Color War, Shabbaton" />
         </div>
 
