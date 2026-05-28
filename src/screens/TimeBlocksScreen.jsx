@@ -111,7 +111,7 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
   }
 
   async function addBlock() {
-    if (!newName.trim() || !newStart || !newEnd) return
+    if (!newName.trim() || !newStart || !newEnd || !activeCohort) return
     setAdding(true)
     const sortVal = newSort !== '' ? Number(newSort) : (blocks.length + 1)
     await supabase.from('time_blocks').insert({ camp_id: campId, cohort_id: activeCohort.id, name: newName.trim(), start_time: newStart, end_time: newEnd, part_of_day: newPod, sort_order: sortVal })
@@ -168,6 +168,7 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
   }
 
   async function confirmImport() {
+    if (!activeCohort) return
     setImporting(true)
     const existingNames = new Set(blocks.map(b => b.name.toLowerCase()))
     let added = 0, skipped = 0

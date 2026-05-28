@@ -197,6 +197,7 @@ export default function AnchorsScreen({ campId, onNavigate }) {
   }
 
   async function saveAnchor(id, fields) {
+    if (!activeCohort) return
     const { selectedDays, ...base } = fields
     if (id) {
       // Editing: update existing record, use first selected day
@@ -318,6 +319,7 @@ export default function AnchorsScreen({ campId, onNavigate }) {
   }
 
   async function confirmImport() {
+    if (!activeCohort) return
     setImporting(true)
     let added = 0, skipped = 0
     for (const row of importRows) {

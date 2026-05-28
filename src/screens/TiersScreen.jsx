@@ -114,7 +114,7 @@ export default function TiersScreen({ campId, onNavigate }) {
   }
 
   async function addTier() {
-    if (!newName.trim()) return
+    if (!newName.trim() || !activeCohort) return
     setAdding(true)
     const sortVal = newSort !== '' ? Number(newSort) : (tiers.length + 1)
     await supabase.from('tiers').insert({ camp_id: campId, cohort_id: activeCohort.id, name: newName.trim(), sort_order: sortVal })
@@ -172,6 +172,7 @@ export default function TiersScreen({ campId, onNavigate }) {
   }
 
   async function confirmImport() {
+    if (!activeCohort) return
     setImporting(true)
     const existingNames = new Set(tiers.map(t => t.name.toLowerCase()))
     let added = 0, skipped = 0
