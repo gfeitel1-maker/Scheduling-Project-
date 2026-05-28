@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../supabase'
 import { S } from '../styles/shared'
+import { useCohorts } from '../hooks/useCohorts'
+import CohortPicker from '../components/CohortPicker'
 
 function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose }) {
   const isNew = !anchor?.id
@@ -159,18 +161,25 @@ export default function AnchorsScreen({ campId, onNavigate }) {
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
   const fileRef = useRef()
+  const { cohorts, activeCohort, setActiveCohortId } = useCohorts(campId)
 
-  useEffect(() => { load() }, [campId])
+  useEffect(() => {
+    if (activeCohort) load()
+  }, [campId, activeCohort?.id])
 
   async function load() {
+    if (!activeCohort) return
     setLoading(true)
     setError(null)
     try {
       const [{ data: aData }, { data: dData }, { data: bData }, { data: tData }, { data: gData }] = await Promise.all([
-        supabase.from('anchor_activities').select('*').eq('camp_id', campId).order('name'),
+        supabase.from('anchor_activities').select('*').eq('camp_id', campId)
+          .eq('cohort_id', activeCohort.id).order('name'),
         supabase.from('days_of_operation').select('*').eq('camp_id', campId).order('sort_order'),
-        supabase.from('time_blocks').select('*').eq('camp_id', campId).order('sort_order'),
-        supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
+        supabase.from('time_blocks').select('*').eq('camp_id', campId)
+          .eq('cohort_id', activeCohort.id).order('sort_order'),
+        supabase.from('tiers').select('*').eq('camp_id', campId)
+          .eq('cohort_id', activeCohort.id).order('sort_order'),
         supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
       ])
       setAnchors(aData || [])
@@ -197,7 +206,7 @@ export default function AnchorsScreen({ campId, onNavigate }) {
       // New: insert one record per selected day
       const results = await Promise.all(
         selectedDays.map(dayId =>
-          supabase.from('anchor_activities').insert({ ...base, day_id: dayId, camp_id: campId })
+          supabase.from('anchor_activities').insert({ ...base, day_id: dayId, camp_id: campId, cohort_id: activeCohort.id })
         )
       )
       const firstError = results.find(r => r.error)?.error
@@ -235,8 +244,10 @@ export default function AnchorsScreen({ campId, onNavigate }) {
     // Always fetch fresh lookups to avoid stale closure
     const [{ data: freshDays }, { data: freshBlocks }, { data: freshTiers }, { data: freshGroups }] = await Promise.all([
       supabase.from('days_of_operation').select('*').eq('camp_id', campId).order('sort_order'),
-      supabase.from('time_blocks').select('*').eq('camp_id', campId).order('sort_order'),
-      supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
+      supabase.from('time_blocks').select('*').eq('camp_id', campId)
+        .eq('cohort_id', activeCohort.id).order('sort_order'),
+      supabase.from('tiers').select('*').eq('camp_id', campId)
+        .eq('cohort_id', activeCohort.id).order('sort_order'),
       supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
     ])
 
@@ -312,7 +323,7 @@ export default function AnchorsScreen({ campId, onNavigate }) {
     for (const row of importRows) {
       if (!row.name || row.warning) { skipped++; continue }
       const { warning, _dayLabel, _blockName, _tierNames, ...record } = row
-      await supabase.from('anchor_activities').insert({ ...record, camp_id: campId })
+      await supabase.from('anchor_activities').insert({ ...record, camp_id: campId, cohort_id: activeCohort.id })
       added++
     }
     setImportResult({ added, skipped }); setImportStep('done')
@@ -337,6 +348,7 @@ export default function AnchorsScreen({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 760 }}>
+      <CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />
       {error && (
         <div style={S.errorBanner}>
           {error}
