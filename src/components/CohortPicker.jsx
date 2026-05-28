@@ -4,7 +4,7 @@ import { S } from '../styles/shared'
 //   cohorts       — array of cohort rows from DB
 //   activeCohort  — currently selected cohort object
 //   onChange      — fn(cohortId: string)
-export default function CohortPicker({ cohorts, activeCohort, onChange }) {
+export default function CohortPicker({ cohorts, activeCohort, onChange = () => {} }) {
   if (!cohorts || cohorts.length <= 1) return null
 
   return (
