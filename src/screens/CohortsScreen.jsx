@@ -158,6 +158,9 @@ export default function CohortsScreen({ campId }) {
     setNewName('')
     setNewWeekStart(1)
     setNewWeekEnd(1)
+    setNewSort('')
+    setNewAnchorModel('fixed')
+    setNewCapacitySource('groups_per_slot')
     setAdding(false)
     load()
   }
