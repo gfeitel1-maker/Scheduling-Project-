@@ -3,8 +3,8 @@ import { supabase } from '../../supabase'
 
 const NAV = [
   { key: 'setup',        label: 'Camp Setup' },
-  { key: 'cohorts',      label: 'Cohorts' },
-  { key: 'tiers',        label: 'Tiers' },
+  { key: 'cohorts',      label: 'Programs' },
+  { key: 'tiers',        label: 'Units' },
   { key: 'groups',       label: 'Groups' },
   { key: 'timeblocks',   label: 'Time Blocks' },
   { key: 'activities',   label: 'Activities' },

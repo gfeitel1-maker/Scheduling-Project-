@@ -1,12 +1,14 @@
 const TITLES = {
-  setup:      'Camp Setup',
-  tiers:      'Tiers',
-  groups:     'Groups',
-  days:       'Days of Operation',
-  timeblocks: 'Time Blocks',
-  activities: 'Activities',
-  anchors:    'Anchors',
-  schedule:   'Schedule',
+  setup:        'Camp Setup',
+  cohorts:      'Programs',
+  tiers:        'Units',
+  groups:       'Groups',
+  days:         'Days of Operation',
+  timeblocks:   'Time Blocks',
+  activities:   'Activities',
+  anchors:      'Anchors',
+  dayoverrides: 'Day Overrides',
+  schedule:     'Schedule',
 }
 
 export default function TopBar({ screen, onLogout }) {
