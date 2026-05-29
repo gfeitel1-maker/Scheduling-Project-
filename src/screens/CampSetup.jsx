@@ -3,7 +3,7 @@ import { supabase } from '../supabase'
 import { S } from '../styles/shared'
 
 const CHECKLIST = [
-  { key: 'tiers',      label: 'Tiers',            screen: 'tiers',      table: 'tiers' },
+  { key: 'tiers',      label: 'Units',           screen: 'tiers',      table: 'tiers' },
   { key: 'groups',     label: 'Groups',      screen: 'groups',     table: 'groups' },
   { key: 'timeblocks', label: 'Time Blocks', screen: 'timeblocks', table: 'time_blocks' },
   { key: 'activities', label: 'Activities',       screen: 'activities', table: 'activities' },
@@ -179,7 +179,7 @@ export default function CampSetup({ campId, onNavigate }) {
           onClick={() => onNavigate('tiers')}
           style={{ padding: '7px 14px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
         >
-          Next: Tiers →
+          Next: Units →
         </button>
       </div>
     </div>
