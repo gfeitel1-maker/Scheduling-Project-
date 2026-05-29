@@ -308,7 +308,7 @@ export default function TiersScreen({ campId, onNavigate }) {
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                   <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
                   <button onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>
-                    {importing ? 'Importing…' : `Import ${readyRows.length} tier${readyRows.length !== 1 ? 's' : ''}`}
+                    {importing ? 'Importing…' : `Import ${readyRows.length} unit${readyRows.length !== 1 ? 's' : ''}`}
                   </button>
                 </div>
               </>
