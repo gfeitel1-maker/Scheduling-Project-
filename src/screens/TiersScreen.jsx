@@ -64,7 +64,7 @@ function TierRow({ tier, groupCount, onSave, onDelete }) {
         <button onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
         <button onClick={() => onDelete(tier.id)} style={{ ...S.btnDanger, marginLeft: 6 }}
           disabled={groupCount > 0}
-          title={groupCount > 0 ? 'Remove groups from this tier first' : ''}
+          title={groupCount > 0 ? 'Remove groups from this unit first' : ''}
         >Delete</button>
       </td>
     </tr>
@@ -147,7 +147,7 @@ export default function TiersScreen({ campId, onNavigate }) {
       ['Yeladim', 1],
     ])
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Tiers')
+    XLSX.utils.book_append_sheet(wb, ws, 'Units')
     XLSX.writeFile(wb, 'tiers_template.xlsx')
   }
 
@@ -203,7 +203,7 @@ export default function TiersScreen({ campId, onNavigate }) {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-          {tiers.length} tier{tiers.length !== 1 ? 's' : ''}
+          {tiers.length} unit{tiers.length !== 1 ? 's' : ''}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
@@ -230,8 +230,8 @@ export default function TiersScreen({ campId, onNavigate }) {
             <tbody>
               {tiers.length === 0 ? (
                 <tr><td colSpan={4} style={{ padding: '40px 16px', textAlign: 'center' }}>
-                  <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No tiers yet</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first tier below or import from Excel.</div>
+                  <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No units yet</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first unit below or import from Excel.</div>
                 </td></tr>
               ) : tiers.map(tier => (
                 <TierRow
@@ -250,11 +250,11 @@ export default function TiersScreen({ campId, onNavigate }) {
       {/* Add row */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Add Tier
+          Add Unit
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <input
-            placeholder="Tier name (e.g. Yeladim)"
+            placeholder="Unit name (e.g. Yeladim)"
             value={newName}
             onChange={e => setNewName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && addTier()}
