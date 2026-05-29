@@ -122,7 +122,7 @@ function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
           </div>
           {timeBlocks.length === 0 ? (
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-              No time blocks in this cohort yet.
+              No time blocks in this program yet.
             </div>
           ) : timeBlocks.map(block => {
             const overridden = block.id in slots

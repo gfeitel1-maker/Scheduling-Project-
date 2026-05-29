@@ -93,15 +93,15 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
           </select>
         </Field>
 
-        <Field label="Tiers">
+        <Field label="Units">
           <label style={{ fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
             <input type="checkbox" checked={isAllTiers} onChange={e => setIsAllTiers(e.target.checked)} />
-            All tiers
+            All units
           </label>
           {!isAllTiers && (
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', paddingLeft: 4 }}>
               {tiers.length === 0
-                ? <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No tiers set up yet</span>
+                ? <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No units set up yet</span>
                 : tiers.map(t => (
                   <label key={t.id} style={{ fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5 }}>
                     <input type="checkbox" checked={selectedTiers.includes(t.id)} onChange={() => toggleTier(t.id)} />{t.name}
@@ -339,7 +339,7 @@ export default function AnchorsScreen({ campId, onNavigate }) {
   const groupTierMap = Object.fromEntries(groups.map(g => [g.id, g.tier_id]))
 
   function anchorTierLabel(a) {
-    if (a.is_all_groups) return 'All tiers'
+    if (a.is_all_groups) return 'All units'
     const tierIds = [...new Set((a.group_ids || []).map(gid => groupTierMap[gid]).filter(Boolean))]
     const names = tierIds.map(tid => tierById[tid]).filter(Boolean)
     return names.length ? names.join(', ') : '—'
@@ -385,7 +385,7 @@ export default function AnchorsScreen({ campId, onNavigate }) {
                 <th style={S.th}>Name</th>
                 <th style={S.th}>Day</th>
                 <th style={S.th}>Time Block</th>
-                <th style={S.th}>Tiers</th>
+                <th style={S.th}>Units</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
@@ -438,7 +438,7 @@ export default function AnchorsScreen({ campId, onNavigate }) {
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>{readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings`}</div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 18 }}>
-                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Name</th><th style={S.th}>Day</th><th style={S.th}>Block</th><th style={S.th}>Tiers</th><th style={S.th}>Status</th></tr></thead>
+                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Name</th><th style={S.th}>Day</th><th style={S.th}>Block</th><th style={S.th}>Units</th><th style={S.th}>Status</th></tr></thead>
                   <tbody>
                     {importRows.map((r, i) => (
                       <tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}>

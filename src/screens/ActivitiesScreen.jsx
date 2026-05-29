@@ -75,7 +75,7 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
 
         <div style={{ display: 'flex', gap: 24, marginBottom: 16, flexWrap: 'wrap' }}>
           <label style={checkLabel}><input type="checkbox" checked={isOutdoor} onChange={e => setIsOutdoor(e.target.checked)} style={{ marginRight: 6 }} />Outdoor activity</label>
-          <label style={checkLabel}><input type="checkbox" checked={sameTier} onChange={e => setSameTier(e.target.checked)} style={{ marginRight: 6 }} />Same tier only when co-scheduled</label>
+          <label style={checkLabel}><input type="checkbox" checked={sameTier} onChange={e => setSameTier(e.target.checked)} style={{ marginRight: 6 }} />Same unit only when co-scheduled</label>
         </div>
 
         <div style={grid3}>
@@ -102,9 +102,9 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
           </div>
         </Field>
 
-        <Field label="Eligible Tiers (leave all unchecked = eligible for all)">
+        <Field label="Eligible Units (leave all unchecked = eligible for all)">
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
-            {tiers.length === 0 ? <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>No tiers set up yet</span> : tiers.map(t => (
+            {tiers.length === 0 ? <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>No units set up yet</span> : tiers.map(t => (
               <label key={t.id} style={checkLabel}>
                 <input type="checkbox" checked={eligTiers.includes(t.id)} onChange={() => toggleTier(t.id)} style={{ marginRight: 5 }} />{t.name}
               </label>

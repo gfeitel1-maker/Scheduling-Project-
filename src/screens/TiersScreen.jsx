@@ -130,13 +130,13 @@ export default function TiersScreen({ campId, onNavigate }) {
   }
 
   async function deleteTier(id) {
-    if (!window.confirm('Delete this tier?')) return
+    if (!window.confirm('Delete this unit?')) return
     await supabase.from('tiers').delete().eq('id', id)
     load()
   }
 
   async function deleteAll() {
-    if (!window.confirm('Delete all tiers? This cannot be undone.')) return
+    if (!window.confirm('Delete all units? This cannot be undone.')) return
     await supabase.from('tiers').delete().eq('camp_id', campId)
     load()
   }

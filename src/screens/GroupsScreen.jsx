@@ -32,7 +32,7 @@ function GroupRow({ group, tiers, onSave, onDelete }) {
         <td style={S.td}><input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} /></td>
         <td style={S.td}>
           <select value={tierId} onChange={e => setTierId(e.target.value)} style={S.input}>
-            <option value="">— No tier —</option>
+            <option value="">— No unit —</option>
             {tiers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </td>
@@ -196,7 +196,7 @@ export default function GroupsScreen({ campId, onNavigate }) {
       )}
       {tiers.length === 0 && !loading && (
         <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#7a5100' }}>
-          No tiers found. Set up tiers first so you can assign groups to them.
+          No units found. Set up units first so you can assign groups to them.
         </div>
       )}
 
@@ -220,7 +220,7 @@ export default function GroupsScreen({ campId, onNavigate }) {
             <thead>
               <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
                 <th style={S.th}>Name</th>
-                <th style={S.th}>Tier</th>
+                <th style={S.th}>Unit</th>
                 <th style={S.th}>Availability</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
@@ -253,7 +253,7 @@ export default function GroupsScreen({ campId, onNavigate }) {
                     <>
                       <tr style={{ background: 'var(--surface-elevated)', borderBottom: '1px solid var(--border)' }}>
                         <td colSpan={4} style={{ padding: '6px 14px', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                          No Tier
+                          No Unit
                         </td>
                       </tr>
                       {noTier.map(g => (
@@ -273,7 +273,7 @@ export default function GroupsScreen({ campId, onNavigate }) {
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <input placeholder="Group name" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGroup()} style={{ ...S.input, flex: '1 1 160px', minWidth: 120 }} />
           <select value={newTierId} onChange={e => setNewTierId(e.target.value)} style={{ ...S.input, flex: '0 0 140px' }}>
-            <option value="">— No tier —</option>
+            <option value="">— No unit —</option>
             {tiers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           <select value={newAvail} onChange={e => setNewAvail(e.target.value)} style={{ ...S.input, flex: '0 0 150px' }}>
@@ -295,7 +295,7 @@ export default function GroupsScreen({ campId, onNavigate }) {
                   {readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings (skipped)`}
                 </div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 18 }}>
-                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Name</th><th style={S.th}>Tier</th><th style={S.th}>Availability</th><th style={S.th}>Status</th></tr></thead>
+                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Name</th><th style={S.th}>Unit</th><th style={S.th}>Availability</th><th style={S.th}>Status</th></tr></thead>
                   <tbody>
                     {importRows.map((r, i) => (
                       <tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}>
