@@ -17,7 +17,7 @@ export default function CohortPicker({ cohorts, activeCohort, onChange = () => {
         letterSpacing: '0.05em',
         color: 'var(--text-secondary)',
       }}>
-        Cohort
+        Program
       </span>
       <select
         value={activeCohort?.id ?? ''}
