@@ -172,10 +172,10 @@ export default function CohortsScreen({ campId }) {
 
   async function deleteCohort(id) {
     if (cohorts.length <= 1) {
-      alert('Cannot delete the last cohort — every camp must have at least one.')
+      alert('Cannot delete the last program — every camp must have at least one.')
       return
     }
-    if (!window.confirm('Delete this cohort? Tiers and time blocks assigned to it will lose their cohort reference.')) return
+    if (!window.confirm('Delete this program? Units and time blocks assigned to it will lose their program reference.')) return
     await supabase.from('cohorts').delete().eq('id', id)
     load()
   }
@@ -186,7 +186,7 @@ export default function CohortsScreen({ campId }) {
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          {cohorts.length} cohort{cohorts.length !== 1 ? 's' : ''}
+          {cohorts.length} program{cohorts.length !== 1 ? 's' : ''}
         </div>
       </div>
 
@@ -208,8 +208,8 @@ export default function CohortsScreen({ campId }) {
             <tbody>
               {cohorts.length === 0 ? (
                 <tr><td colSpan={6} style={{ padding: '40px 16px', textAlign: 'center' }}>
-                  <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No cohorts yet</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first cohort below.</div>
+                  <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No programs yet</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first program below.</div>
                 </td></tr>
               ) : cohorts.map(c => (
                 <CohortRow key={c.id} cohort={c} onSave={saveCohort} onDelete={deleteCohort} />
@@ -221,7 +221,7 @@ export default function CohortsScreen({ campId }) {
 
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Add Cohort
+          Add Program
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10 }}>
           <input placeholder="Name (e.g. Main, Specialty)" value={newName}
@@ -253,14 +253,14 @@ export default function CohortsScreen({ campId }) {
           </select>
           <button onClick={addCohort} disabled={adding || !newName.trim()}
             style={{ ...S.btnPrimary, flexShrink: 0 }}>
-            {adding ? 'Adding…' : '+ Add Cohort'}
+            {adding ? 'Adding…' : '+ Add Program'}
           </button>
         </div>
       </div>
 
       <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-        A cohort groups tiers, time blocks, and anchors that share a schedule structure.
-        Most camps have one cohort ("Main"). Add a second for specialty programs with a different time grid.
+        A program groups units, time blocks, and anchors that share a schedule structure.
+        Most camps have one program ("Main"). Add a second for specialty programs with a different time grid.
       </div>
     </div>
   )
