@@ -10,6 +10,7 @@ import FlagDetailModal from '../components/schedule/FlagDetailModal'
 import EditModal from '../components/schedule/EditModal'
 import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
 import VersionsDropdown from '../components/schedule/VersionsDropdown'
+import OverlayCell from '../components/schedule/OverlayCell'
 
 
 export default function ScheduleScreen({ campId, onNavigate }) {
@@ -37,10 +38,19 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   const [snapshots, setSnapshots] = useState([])
   const [overlays, setOverlays] = useState([])
   const [showVersions, setShowVersions] = useState(false)
+  const [stampMode, setStampMode] = useState(null) // null | string (label of active stamp)
+  const [fillState, setFillState] = useState(null)  // null | { overlayId, previewToOrder }
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
   useEffect(() => { loadAll() }, [campId])
+
+  useEffect(() => {
+    if (!fillState) return
+    function onPointerUp() { commitFill() }
+    window.addEventListener('pointerup', onPointerUp)
+    return () => window.removeEventListener('pointerup', onPointerUp)
+  }, [fillState, overlays])
 
   async function loadAll() {
     setLoading(true)
@@ -415,6 +425,81 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     return span
   }
 
+  // Returns the overlay object if an overlay covers this (group, day, block), else null
+  function overlayForCell(groupId, dayId, blockId) {
+    const group = groups.find(g => g.id === groupId)
+    const block = timeBlocks.find(b => b.id === blockId)
+    if (!group || !block) return null
+    return overlays.find(o => {
+      const effectiveTo = (fillState?.overlayId === o.id && fillState.previewToOrder !== undefined)
+        ? fillState.previewToOrder
+        : o.to_block_order
+      return (
+        o.unit_id === group.tier_id &&
+        o.day_id === dayId &&
+        block.sort_order >= o.from_block_order &&
+        block.sort_order <= effectiveTo
+      )
+    }) || null
+  }
+
+  // Returns true if this block is the FIRST block of an overlay (render the OverlayCell here)
+  function isOverlayHead(groupId, dayId, blockId) {
+    const group = groups.find(g => g.id === groupId)
+    const block = timeBlocks.find(b => b.id === blockId)
+    if (!group || !block) return false
+    const overlay = overlayForCell(groupId, dayId, blockId)
+    if (!overlay) return false
+    return block.sort_order === overlay.from_block_order
+  }
+
+  // Returns the rowSpan for an overlay starting at this block (uses live preview during fill drag)
+  function getOverlayRowSpan(overlay) {
+    const effectiveTo = (fillState?.overlayId === overlay.id && fillState.previewToOrder !== undefined)
+      ? fillState.previewToOrder
+      : overlay.to_block_order
+    return effectiveTo - overlay.from_block_order + 1
+  }
+
+  async function handleStampClick(groupId, dayId, blockId) {
+    if (!stampMode) return
+    const group = groups.find(g => g.id === groupId)
+    const block = timeBlocks.find(b => b.id === blockId)
+    if (!group || !block) return
+    await addOverlay({
+      unitId: group.tier_id,
+      dayId,
+      fromBlockOrder: block.sort_order,
+      toBlockOrder: block.sort_order,
+      label: stampMode,
+    })
+  }
+
+  function startFill(overlay) {
+    setFillState({ overlayId: overlay.id, previewToOrder: overlay.to_block_order })
+  }
+
+  function handleFillEnter(blockSortOrder) {
+    if (!fillState) return
+    const overlay = overlays.find(o => o.id === fillState.overlayId)
+    if (!overlay) return
+    if (blockSortOrder >= overlay.from_block_order) {
+      setFillState(prev => ({ ...prev, previewToOrder: blockSortOrder }))
+    }
+  }
+
+  async function commitFill() {
+    if (!fillState) { setFillState(null); return }
+    const previewTo = fillState.previewToOrder
+    if (previewTo !== undefined) {
+      const overlay = overlays.find(o => o.id === fillState.overlayId)
+      if (overlay && previewTo !== overlay.to_block_order) {
+        await updateOverlayRange(fillState.overlayId, previewTo)
+      }
+    }
+    setFillState(null)
+  }
+
   const setupIncomplete = groups.length === 0 || days.length === 0 || timeBlocks.length === 0 || activities.length === 0
 
   if (loading) return <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-secondary)' }}>Loading…</div>
@@ -540,21 +625,48 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                   </thead>
                   <tbody>
                     {timeBlocks.map(block => (
-                      <tr key={block.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <tr
+                        key={block.id}
+                        style={{ borderBottom: '1px solid var(--border)' }}
+                        onPointerEnter={() => {
+                          const b = timeBlocks.find(tb => tb.id === block.id)
+                          if (b && fillState) handleFillEnter(b.sort_order)
+                        }}
+                      >
                         <td style={{ padding: '10px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--surface)', zIndex: 1, borderRight: '1px solid var(--border)' }}>
                           <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>{block.name}</div>
                           <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
                         </td>
                         {days.map(day => {
+                          // Overlay check — takes priority over schedule slot
+                          const overlay = overlayForCell(selectedGroup, day.id, block.id)
+                          if (overlay && !isOverlayHead(selectedGroup, day.id, block.id)) return null // tail — covered by head rowSpan
+                          if (overlay && isOverlayHead(selectedGroup, day.id, block.id)) {
+                            const rowSpan = getOverlayRowSpan(overlay)
+                            return (
+                              <OverlayCell
+                                key={day.id}
+                                label={overlay.label}
+                                rowSpan={rowSpan}
+                                onRemove={() => removeOverlay(overlay.id)}
+                                showFillHandle={true}
+                                fillHandleDirection="vertical"
+                                onFillStart={() => startFill(overlay)}
+                              />
+                            )
+                          }
+
                           const slot = getSlot(selectedGroup, day.id, block.id)
                           if (!slot) return <td key={day.id} style={emptyTd} />
-                          // Skip anchor tail cells — covered by the head's rowSpan
                           if (slot.is_anchor && isAnchorTail(selectedGroup, day.id, block.id)) return null
                           const rowSpan = slot.is_anchor && !isAnchorTail(selectedGroup, day.id, block.id)
                             ? getAnchorRowSpan(selectedGroup, day.id, block.id)
                             : 1
                           const act = slot.activity_id ? actMap.get(slot.activity_id) : null
                           const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
+                          const cellClickHandler = stampMode
+                            ? () => handleStampClick(selectedGroup, day.id, block.id)
+                            : undefined
                           return (
                             <SlotCell
                               key={day.id}
@@ -564,7 +676,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                               anchor={anchor}
                               actColorIdx={act?.colorIdx || 0}
                               weatherMode={weatherMode}
-                              onEdit={s => setEditSlot(s)}
+                              onEdit={cellClickHandler || (s => setEditSlot(s))}
                             />
                           )
                         })}
@@ -619,15 +731,39 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                 </thead>
                 <tbody>
                   {timeBlocks.map(block => (
-                    <tr key={block.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                    <tr
+                      key={block.id}
+                      style={{ borderBottom: '1px solid var(--border)' }}
+                      onPointerEnter={() => {
+                        const b = timeBlocks.find(tb => tb.id === block.id)
+                        if (b && fillState) handleFillEnter(b.sort_order)
+                      }}
+                    >
                       <td style={{ padding: '10px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--surface)', zIndex: 1, borderRight: '1px solid var(--border)' }}>
                         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>{block.name}</div>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
                       </td>
                       {groups.map(group => {
+                        // Overlay check
+                        const overlay = overlayForCell(group.id, selectedDay, block.id)
+                        if (overlay && !isOverlayHead(group.id, selectedDay, block.id)) return null
+                        if (overlay && isOverlayHead(group.id, selectedDay, block.id)) {
+                          const rowSpan = getOverlayRowSpan(overlay)
+                          return (
+                            <OverlayCell
+                              key={group.id}
+                              label={overlay.label}
+                              rowSpan={rowSpan}
+                              onRemove={() => removeOverlay(overlay.id)}
+                              showFillHandle={true}
+                              fillHandleDirection="both"
+                              onFillStart={() => startFill(overlay)}
+                            />
+                          )
+                        }
+
                         const slot = getSlot(group.id, selectedDay, block.id)
                         if (!slot) return <td key={group.id} style={emptyTd} />
-                        // Skip anchor tail cells — covered by the head's rowSpan
                         if (slot.is_anchor && isAnchorTail(group.id, selectedDay, block.id)) return null
                         const rowSpan = slot.is_anchor && !isAnchorTail(group.id, selectedDay, block.id)
                           ? getAnchorRowSpan(group.id, selectedDay, block.id)
@@ -636,6 +772,9 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                         const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
                         const actIsLocked = slot.activity_id && act?.is_locked
                         const isLocked = Boolean(actIsLocked && !slot.is_released)
+                        const cellClickHandler = stampMode
+                          ? () => handleStampClick(group.id, selectedDay, block.id)
+                          : undefined
                         return (
                           <SlotCell
                             key={group.id}
@@ -647,11 +786,11 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                             anchor={anchor}
                             actColorIdx={act?.colorIdx || 0}
                             weatherMode={weatherMode}
-                            onEdit={s => setEditSlot(s)}
+                            onEdit={cellClickHandler || (s => setEditSlot(s))}
                             onLock={s => lockActivity(s.activity_id)}
                             onRelease={s => releaseCell(s.id)}
                             isLocked={isLocked}
-                            isDndEnabled={!isLocked}
+                            isDndEnabled={!isLocked && !stampMode}
                           />
                         )
                       })}
