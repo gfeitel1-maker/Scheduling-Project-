@@ -276,7 +276,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     if (!templateId) return
     const { data: fullSnap } = await supabase
       .from('schedule_snapshots')
-      .select('slots')
+      .select('slots, overlays')
       .eq('id', snapshot.id)
       .single()
     if (!fullSnap?.slots) return
