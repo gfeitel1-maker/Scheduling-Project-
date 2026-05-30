@@ -18,7 +18,7 @@ export function activityColor(idx) { return ACTIVITY_COLORS[idx % ACTIVITY_COLOR
 export const cellTd = { padding: '8px 6px', verticalAlign: 'top', cursor: 'pointer' }
 export const emptyTd = { padding: '8px 6px', verticalAlign: 'top' }
 
-export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherMode, onEdit, onLock, onRelease, isLocked, isDndEnabled }) {
+export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherMode, onEdit, onLock, onRelease, isLocked, isDndEnabled, rowSpan = 1 }) {
   const id = slot ? `${slot.groupId}|${slot.dayId}|${slot.blockId}` : 'empty'
   const canDrag = isDndEnabled && slot?.type === 'activity' && !isLocked
 
@@ -39,7 +39,7 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
 
   if (slot.type === 'anchor') {
     return (
-      <td ref={setRef} style={cellTd} onClick={() => onEdit(slot)}>
+      <td ref={setRef} style={cellTd} rowSpan={rowSpan} onClick={() => onEdit(slot)}>
         <div style={{
           background: '#F3E8FA',
           border: '1.5px solid #A6359566',
@@ -59,7 +59,7 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
 
   if (slot.type === 'unavailable') {
     return (
-      <td ref={setRef} style={emptyTd}>
+      <td ref={setRef} style={emptyTd} rowSpan={rowSpan}>
         <div style={{ background: 'var(--bg)', border: '1.5px dashed #D8C8B8', borderRadius: 8, minHeight: 56, opacity: 0.5 }} />
       </td>
     )
@@ -132,6 +132,7 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
         ...cellTd,
         cursor: canDrag ? (isDragging ? 'grabbing' : 'grab') : 'pointer',
       }}
+      rowSpan={rowSpan}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
       title={tooltipText}

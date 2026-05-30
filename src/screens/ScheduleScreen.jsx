@@ -344,6 +344,35 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     return slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId)
   }
 
+  // Returns true if this slot is a tail block of a multi-block anchor
+  // (i.e., the previous block for this group+day has the same anchor_id)
+  function isAnchorTail(groupId, dayId, blockId) {
+    const slot = getSlot(groupId, dayId, blockId)
+    if (!slot?.is_anchor || !slot?.anchor_id) return false
+    const blockIdx = timeBlocks.findIndex(b => b.id === blockId)
+    if (blockIdx <= 0) return false
+    const prevSlot = getSlot(groupId, dayId, timeBlocks[blockIdx - 1].id)
+    return Boolean(prevSlot?.is_anchor && prevSlot?.anchor_id === slot.anchor_id)
+  }
+
+  // Returns how many consecutive blocks share the same anchor_id starting at blockId
+  function getAnchorRowSpan(groupId, dayId, blockId) {
+    const slot = getSlot(groupId, dayId, blockId)
+    if (!slot?.is_anchor || !slot?.anchor_id) return 1
+    const startIdx = timeBlocks.findIndex(b => b.id === blockId)
+    if (startIdx === -1) return 1
+    let span = 1
+    for (let i = startIdx + 1; i < timeBlocks.length; i++) {
+      const nextSlot = getSlot(groupId, dayId, timeBlocks[i].id)
+      if (nextSlot?.is_anchor && nextSlot?.anchor_id === slot.anchor_id) {
+        span++
+      } else {
+        break
+      }
+    }
+    return span
+  }
+
   const setupIncomplete = groups.length === 0 || days.length === 0 || timeBlocks.length === 0 || activities.length === 0
 
   if (loading) return <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-secondary)' }}>Loading…</div>
@@ -477,11 +506,17 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                         {days.map(day => {
                           const slot = getSlot(selectedGroup, day.id, block.id)
                           if (!slot) return <td key={day.id} style={emptyTd} />
+                          // Skip anchor tail cells — covered by the head's rowSpan
+                          if (slot.is_anchor && isAnchorTail(selectedGroup, day.id, block.id)) return null
+                          const rowSpan = slot.is_anchor && !isAnchorTail(selectedGroup, day.id, block.id)
+                            ? getAnchorRowSpan(selectedGroup, day.id, block.id)
+                            : 1
                           const act = slot.activity_id ? actMap.get(slot.activity_id) : null
                           const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
                           return (
                             <SlotCell
                               key={day.id}
+                              rowSpan={rowSpan}
                               slot={slot.is_anchor ? { ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id } : { ...slot, type: slot.activity_id || !slot.is_anchor ? 'activity' : 'unavailable', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
                               activity={act}
                               anchor={anchor}
@@ -550,6 +585,11 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                       {groups.map(group => {
                         const slot = getSlot(group.id, selectedDay, block.id)
                         if (!slot) return <td key={group.id} style={emptyTd} />
+                        // Skip anchor tail cells — covered by the head's rowSpan
+                        if (slot.is_anchor && isAnchorTail(group.id, selectedDay, block.id)) return null
+                        const rowSpan = slot.is_anchor && !isAnchorTail(group.id, selectedDay, block.id)
+                          ? getAnchorRowSpan(group.id, selectedDay, block.id)
+                          : 1
                         const act = slot.activity_id ? actMap.get(slot.activity_id) : null
                         const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
                         const actIsLocked = slot.activity_id && act?.is_locked
@@ -557,6 +597,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                         return (
                           <SlotCell
                             key={group.id}
+                            rowSpan={rowSpan}
                             slot={slot.is_anchor
                               ? { ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id }
                               : { ...slot, type: 'activity', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
