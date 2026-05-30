@@ -35,6 +35,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   const [loadError, setLoadError] = useState(null)
   const [templateError, setTemplateError] = useState(null)
   const [snapshots, setSnapshots] = useState([])
+  const [overlays, setOverlays] = useState([])
   const [showVersions, setShowVersions] = useState(false)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
@@ -79,6 +80,12 @@ export default function ScheduleScreen({ campId, onNavigate }) {
         const { data: slotData } = await supabase.from('template_slots').select('*').eq('template_id', tmpl.id)
         const saved = slotData || []
         setSlots(saved)
+        // Load overlays for this template
+        const { data: overlayData } = await supabase
+          .from('template_overlays')
+          .select('*')
+          .eq('template_id', tmpl.id)
+        setOverlays(overlayData || [])
         recalcStats(saved)
         const { data: snapData } = await supabase
           .from('schedule_snapshots')
@@ -123,6 +130,10 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
     // Delete existing slots
     await supabase.from('template_slots').delete().eq('template_id', tid)
+
+    // Clear overlays when regenerating (post-generation stamps are re-applied manually)
+    await supabase.from('template_overlays').delete().eq('template_id', tid)
+    setOverlays([])
 
     // Insert new slots
     const rows = result.slots.map(s => ({
@@ -222,6 +233,26 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     setSlots(prev => prev.map(s => s.id === slotId ? { ...s, is_released: true } : s))
   }
 
+  async function addOverlay({ unitId, dayId, fromBlockOrder, toBlockOrder, label }) {
+    if (!templateId) return
+    const { data } = await supabase
+      .from('template_overlays')
+      .insert({ template_id: templateId, unit_id: unitId, day_id: dayId, from_block_order: fromBlockOrder, to_block_order: toBlockOrder, label })
+      .select()
+      .single()
+    if (data) setOverlays(prev => [...prev, data])
+  }
+
+  async function removeOverlay(overlayId) {
+    await supabase.from('template_overlays').delete().eq('id', overlayId)
+    setOverlays(prev => prev.filter(o => o.id !== overlayId))
+  }
+
+  async function updateOverlayRange(overlayId, toBlockOrder) {
+    await supabase.from('template_overlays').update({ to_block_order: toBlockOrder }).eq('id', overlayId)
+    setOverlays(prev => prev.map(o => o.id === overlayId ? { ...o, to_block_order: toBlockOrder } : o))
+  }
+
   async function saveSnapshot(name, isAuto) {
     if (!templateId) return
     const snapSlots = slots.map(s => ({
@@ -235,7 +266,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     }))
     const { data: snap } = await supabase
       .from('schedule_snapshots')
-      .insert({ template_id: templateId, name: name || null, is_auto: isAuto, slots: snapSlots })
+      .insert({ template_id: templateId, name: name || null, is_auto: isAuto, slots: snapSlots, overlays: overlays.map(o => ({ unit_id: o.unit_id, day_id: o.day_id, from_block_order: o.from_block_order, to_block_order: o.to_block_order, label: o.label })) })
       .select('id, template_id, name, is_auto, created_at')
       .single()
     if (snap) setSnapshots(prev => [snap, ...prev])
@@ -269,6 +300,17 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
     const { data: freshSlots } = await supabase.from('template_slots').select('*').eq('template_id', templateId)
     setSlots(freshSlots || [])
+    // Restore overlays from snapshot
+    if (templateId) {
+      await supabase.from('template_overlays').delete().eq('template_id', templateId)
+      const snapOverlays = fullSnap.overlays || []
+      if (snapOverlays.length > 0) {
+        const overlayRows = snapOverlays.map(o => ({ template_id: templateId, unit_id: o.unit_id, day_id: o.day_id, from_block_order: o.from_block_order, to_block_order: o.to_block_order, label: o.label }))
+        await supabase.from('template_overlays').insert(overlayRows)
+      }
+      const { data: freshOverlays } = await supabase.from('template_overlays').select('*').eq('template_id', templateId)
+      setOverlays(freshOverlays || [])
+    }
     recalcStats(freshSlots || [])
   }
 
