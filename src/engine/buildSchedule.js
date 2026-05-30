@@ -96,7 +96,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand }) {
   for (const anchor of anchors) {
     // Scope resolution order: unit_id > is_all_groups > group_ids
     let groupList
-    if (anchor.unit_id) {
+    if (anchor.unit_id != null && anchor.unit_id !== '') {
       groupList = groups.filter(g => g.tier_id === anchor.unit_id).map(g => g.id)
     } else if (anchor.is_all_groups) {
       groupList = groups.map(g => g.id)

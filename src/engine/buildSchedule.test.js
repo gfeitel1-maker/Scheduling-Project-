@@ -400,8 +400,9 @@ describe('anchor span_blocks', () => {
       campId: 'test',
     })
     const anchorSlots = result.slots.filter(s => s.type === 'anchor')
-    expect(anchorSlots.length).toBeGreaterThan(0)
-    expect(anchorSlots.length).toBeLessThanOrEqual(2)
+    expect(anchorSlots).toHaveLength(2)  // span=3, only 2 blocks available → 2 slots
+    expect(anchorSlots.find(s => s.blockId === 'bA')?.is_span_head).toBe(true)
+    expect(anchorSlots.find(s => s.blockId === 'bB')?.is_span_head).toBe(false)
   })
 
   it('anchor span tail blocks prevent activity placement', () => {
@@ -418,5 +419,47 @@ describe('anchor span_blocks', () => {
     })
     const dramaSlots = result.slots.filter(s => s.activityId === 'a1')
     expect(dramaSlots.every(s => s.blockId === 'bC')).toBe(true)
+  })
+})
+
+describe('anchor scope edge cases', () => {
+  it('unit_id matching zero groups produces no anchor slots (silent no-op)', () => {
+    const anchor = { id: 'anc1', name: 'Swim', unit_id: 'nonexistent_tier', is_all_groups: false, group_ids: [], day_id: 'd1', time_block_id: 'bA', span_blocks: 1 }
+    const result = buildSchedule({
+      groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
+      tiers: [{ id: 't1', name: 'T1' }],
+      days: [baseDay],
+      timeBlocks: [blockA],
+      activities: [],
+      anchors: [anchor],
+      campId: 'test',
+    })
+    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    expect(anchorSlots).toHaveLength(0)
+  })
+
+  it('unit_id combined with span_blocks=2 anchors all groups in unit across 2 blocks', () => {
+    const g1 = { id: 'g1', name: 'Aleph', tier_id: 'unit1', availability: 'all' }
+    const g2 = { id: 'g2', name: 'Bet', tier_id: 'unit1', availability: 'all' }
+    const g3 = { id: 'g3', name: 'Gimel', tier_id: 'unit2', availability: 'all' }
+    const anchor = { id: 'anc1', name: 'Theater', unit_id: 'unit1', is_all_groups: false, group_ids: [], day_id: 'd1', time_block_id: 'bA', span_blocks: 2 }
+    const result = buildSchedule({
+      groups: [g1, g2, g3],
+      tiers: [{ id: 'unit1', name: 'Unit 1' }, { id: 'unit2', name: 'Unit 2' }],
+      days: [baseDay],
+      timeBlocks: [blockA, blockB],
+      activities: [],
+      anchors: [anchor],
+      campId: 'test',
+    })
+    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    // g1 and g2 each get 2 anchor slots (bA + bB), g3 gets none
+    expect(anchorSlots).toHaveLength(4)
+    expect(anchorSlots.some(s => s.groupId === 'g3')).toBe(false)
+    // g1: bA is head, bB is tail
+    const g1Head = anchorSlots.find(s => s.groupId === 'g1' && s.blockId === 'bA')
+    const g1Tail = anchorSlots.find(s => s.groupId === 'g1' && s.blockId === 'bB')
+    expect(g1Head?.is_span_head).toBe(true)
+    expect(g1Tail?.is_span_head).toBe(false)
   })
 })
