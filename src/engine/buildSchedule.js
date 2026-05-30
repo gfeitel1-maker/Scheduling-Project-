@@ -94,9 +94,32 @@ function scheduleCohort({ cohortEntry, days, activities, rand }) {
   const anchorLookup = new Map() // "groupId|dayId|blockId" → anchor
   const anchors = _legacyAnchors || []
   for (const anchor of anchors) {
-    const groupList = anchor.is_all_groups ? groups.map(g => g.id) : (anchor.group_ids || [])
+    // Scope resolution order: unit_id > is_all_groups > group_ids
+    let groupList
+    if (anchor.unit_id) {
+      groupList = groups.filter(g => g.tier_id === anchor.unit_id).map(g => g.id)
+    } else if (anchor.is_all_groups) {
+      groupList = groups.map(g => g.id)
+    } else {
+      groupList = anchor.group_ids || []
+    }
+
+    const spanBlocks = anchor.span_blocks || 1
     for (const gid of groupList) {
-      anchorLookup.set(`${gid}|${anchor.day_id}|${anchor.time_block_id}`, anchor)
+      // Head block
+      anchorLookup.set(`${gid}|${anchor.day_id}|${anchor.time_block_id}`, { ...anchor, _isSpanHead: true })
+      // Tail blocks (span_blocks > 1)
+      if (spanBlocks > 1) {
+        const headIdx = blockOrder.get(anchor.time_block_id)
+        if (headIdx !== undefined) {
+          for (let i = 1; i < spanBlocks; i++) {
+            const tailBlock = timeBlocksSorted[headIdx + i]
+            if (tailBlock) {
+              anchorLookup.set(`${gid}|${anchor.day_id}|${tailBlock.id}`, { ...anchor, _isSpanHead: false })
+            }
+          }
+        }
+      }
     }
   }
 
@@ -111,7 +134,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand }) {
         const anchor = anchorLookup.get(key)
 
         if (anchor) {
-          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'anchor', activityId: null, anchorId: anchor.id, is_span_head: true, flags: {} })
+          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'anchor', activityId: null, anchorId: anchor.id, is_span_head: anchor._isSpanHead !== false, flags: {} })
           continue
         }
 

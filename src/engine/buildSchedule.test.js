@@ -294,3 +294,129 @@ describe('span_blocks', () => {
     expect(actSlot?.is_span_head).toBe(true)
   })
 })
+
+// ── Anchor unit_id scope ──────────────────────────────────────────────────────
+
+describe('anchor unit_id scope', () => {
+  const g1 = { id: 'g1', name: 'Aleph', tier_id: 'unit1', availability: 'all' }
+  const g2 = { id: 'g2', name: 'Bet', tier_id: 'unit1', availability: 'all' }
+  const g3 = { id: 'g3', name: 'Gimel', tier_id: 'unit2', availability: 'all' }
+
+  it('unit_id anchor applies to all groups in the matching unit', () => {
+    const anchor = { id: 'anc1', name: 'Swim', unit_id: 'unit1', is_all_groups: false, group_ids: [], day_id: 'd1', time_block_id: 'bA', span_blocks: 1 }
+    const result = buildSchedule({
+      groups: [g1, g2, g3],
+      tiers: [{ id: 'unit1', name: 'Unit 1' }, { id: 'unit2', name: 'Unit 2' }],
+      days: [baseDay],
+      timeBlocks: [blockA],
+      activities: [],
+      anchors: [anchor],
+      campId: 'test',
+    })
+    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    expect(anchorSlots.map(s => s.groupId).sort()).toEqual(['g1', 'g2'].sort())
+    expect(anchorSlots.some(s => s.groupId === 'g3')).toBe(false)
+  })
+
+  it('unit_id takes precedence over is_all_groups=true', () => {
+    const anchor = { id: 'anc1', name: 'Swim', unit_id: 'unit1', is_all_groups: true, group_ids: [], day_id: 'd1', time_block_id: 'bA', span_blocks: 1 }
+    const result = buildSchedule({
+      groups: [g1, g2, g3],
+      tiers: [{ id: 'unit1', name: 'Unit 1' }, { id: 'unit2', name: 'Unit 2' }],
+      days: [baseDay],
+      timeBlocks: [blockA],
+      activities: [],
+      anchors: [anchor],
+      campId: 'test',
+    })
+    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    expect(anchorSlots.map(s => s.groupId).sort()).toEqual(['g1', 'g2'].sort())
+  })
+})
+
+// ── Anchor span_blocks ────────────────────────────────────────────────────────
+
+describe('anchor span_blocks', () => {
+  const anchorBase = { id: 'anc1', name: 'Theater', is_all_groups: true, group_ids: [], unit_id: null, day_id: 'd1', time_block_id: 'bA' }
+
+  it('span_blocks=2 creates anchor slots for head and tail block', () => {
+    const anchor = { ...anchorBase, span_blocks: 2 }
+    const result = buildSchedule({
+      groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
+      tiers: [{ id: 't1', name: 'T1' }],
+      days: [baseDay],
+      timeBlocks: [blockA, blockB],
+      activities: [],
+      anchors: [anchor],
+      campId: 'test',
+    })
+    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    expect(anchorSlots).toHaveLength(2)
+    expect(anchorSlots.map(s => s.blockId).sort()).toEqual(['bA', 'bB'].sort())
+  })
+
+  it('span_blocks=2: head block has is_span_head=true, tail has is_span_head=false', () => {
+    const anchor = { ...anchorBase, span_blocks: 2 }
+    const result = buildSchedule({
+      groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
+      tiers: [{ id: 't1', name: 'T1' }],
+      days: [baseDay],
+      timeBlocks: [blockA, blockB],
+      activities: [],
+      anchors: [anchor],
+      campId: 'test',
+    })
+    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    const head = anchorSlots.find(s => s.blockId === 'bA')
+    const tail = anchorSlots.find(s => s.blockId === 'bB')
+    expect(head?.is_span_head).toBe(true)
+    expect(tail?.is_span_head).toBe(false)
+  })
+
+  it('span_blocks=3 marks three consecutive blocks', () => {
+    const anchor = { ...anchorBase, span_blocks: 3 }
+    const result = buildSchedule({
+      groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
+      tiers: [{ id: 't1', name: 'T1' }],
+      days: [baseDay],
+      timeBlocks: [blockA, blockB, blockC],
+      activities: [],
+      anchors: [anchor],
+      campId: 'test',
+    })
+    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    expect(anchorSlots).toHaveLength(3)
+  })
+
+  it('span_blocks truncates gracefully when not enough blocks remain', () => {
+    const anchor = { ...anchorBase, span_blocks: 3 }
+    const result = buildSchedule({
+      groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
+      tiers: [{ id: 't1', name: 'T1' }],
+      days: [baseDay],
+      timeBlocks: [blockA, blockB],
+      activities: [],
+      anchors: [anchor],
+      campId: 'test',
+    })
+    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    expect(anchorSlots.length).toBeGreaterThan(0)
+    expect(anchorSlots.length).toBeLessThanOrEqual(2)
+  })
+
+  it('anchor span tail blocks prevent activity placement', () => {
+    const anchor = { ...anchorBase, span_blocks: 2 }
+    const act = { id: 'a1', name: 'Drama', priority: 'low', max_per_week: 5, min_per_week: 0, span_blocks: 1, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const result = buildSchedule({
+      groups: [{ id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }],
+      tiers: [{ id: 't1', name: 'T1' }],
+      days: [baseDay],
+      timeBlocks: [blockA, blockB, blockC],
+      activities: [act],
+      anchors: [anchor],
+      campId: 'test',
+    })
+    const dramaSlots = result.slots.filter(s => s.activityId === 'a1')
+    expect(dramaSlots.every(s => s.blockId === 'bC')).toBe(true)
+  })
+})
