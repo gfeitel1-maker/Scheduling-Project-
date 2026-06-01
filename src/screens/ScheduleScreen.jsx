@@ -11,6 +11,7 @@ import EditModal from '../components/schedule/EditModal'
 import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
 import VersionsDropdown from '../components/schedule/VersionsDropdown'
 import OverlayCell from '../components/schedule/OverlayCell'
+import FieldTripDrawer from '../components/schedule/FieldTripDrawer'
 
 
 export default function ScheduleScreen({ campId, onNavigate }) {
@@ -39,6 +40,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   const [overlays, setOverlays] = useState([])
   const [showVersions, setShowVersions] = useState(false)
   const [stampMode, setStampMode] = useState(null) // null | string (label of active stamp)
+  const [showFieldTripDrawer, setShowFieldTripDrawer] = useState(false)
   const [fillState, setFillState] = useState(null)  // null | { overlayId, previewToOrder }
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
@@ -575,6 +577,23 @@ export default function ScheduleScreen({ campId, onNavigate }) {
               onRenameAutoSave={renameSnapshot}
             />
 
+            <button
+              onClick={() => setShowFieldTripDrawer(v => !v)}
+              style={{
+                padding: '6px 14px',
+                border: `1px solid ${showFieldTripDrawer || stampMode ? '#f59e0b' : 'var(--border)'}`,
+                borderRadius: 6,
+                background: showFieldTripDrawer || stampMode ? '#f59e0b18' : 'var(--surface)',
+                color: showFieldTripDrawer || stampMode ? '#92400e' : 'var(--text)',
+                fontWeight: 600,
+                fontSize: 12,
+                cursor: 'pointer',
+                fontFamily: 'inherit',
+              }}
+            >
+              Field Trips {stampMode ? `· ${stampMode}` : ''}
+            </button>
+
             <button onClick={exportToExcel} style={S.btnSecondary}>Export to Excel</button>
             <button onClick={() => setConfirmRegen(true)} style={S.btnDanger}>Regenerate from Scratch</button>
           </>
@@ -975,6 +994,16 @@ export default function ScheduleScreen({ campId, onNavigate }) {
           ))}
         </div>
       )}
+
+      <FieldTripDrawer
+        isOpen={showFieldTripDrawer}
+        onClose={() => setShowFieldTripDrawer(false)}
+        activeStamp={stampMode}
+        onSelectStamp={label => {
+          setStampMode(label)
+          if (label) setShowFieldTripDrawer(false)
+        }}
+      />
     </div>
   )
 }
