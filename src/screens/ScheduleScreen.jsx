@@ -256,11 +256,16 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
   async function addOverlay({ unitId, dayId, fromBlockOrder, toBlockOrder, label }) {
     if (!templateId) return
-    const { data } = await supabase
+    if (!unitId) {
+      console.warn('addOverlay: group has no tier_id — cannot create overlay')
+      return
+    }
+    const { data, error } = await supabase
       .from('template_overlays')
       .insert({ template_id: templateId, unit_id: unitId, day_id: dayId, from_block_order: fromBlockOrder, to_block_order: toBlockOrder, label })
       .select()
       .single()
+    if (error) { console.error('addOverlay error:', error); return }
     if (data) setOverlays(prev => [...prev, data])
   }
 
@@ -469,7 +474,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     const effectiveTo = (fillState?.overlayId === overlay.id && fillState.previewToOrder !== undefined)
       ? fillState.previewToOrder
       : overlay.to_block_order
-    return effectiveTo - overlay.from_block_order + 1
+    return timeBlocks.filter(b => b.sort_order >= overlay.from_block_order && b.sort_order <= effectiveTo).length
   }
 
   async function handleStampClick(groupId, dayId, blockId) {
@@ -497,18 +502,6 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     if (blockSortOrder >= overlay.from_block_order) {
       setFillState(prev => ({ ...prev, previewToOrder: blockSortOrder }))
     }
-  }
-
-  async function commitFill() {
-    if (!fillState) return
-    const previewTo = fillState.previewToOrder
-    if (previewTo !== undefined) {
-      const overlay = overlays.find(o => o.id === fillState.overlayId)
-      if (overlay && previewTo !== overlay.to_block_order) {
-        await updateOverlayRange(fillState.overlayId, previewTo)
-      }
-    }
-    setFillState(null)
   }
 
   const setupIncomplete = groups.length === 0 || days.length === 0 || timeBlocks.length === 0 || activities.length === 0
