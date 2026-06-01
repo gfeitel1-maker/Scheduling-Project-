@@ -47,7 +47,16 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
   useEffect(() => {
     if (!fillState) return
-    function onPointerUp() { commitFill() }
+    function onPointerUp() {
+      const previewTo = fillState.previewToOrder
+      if (previewTo !== undefined) {
+        const overlay = overlays.find(o => o.id === fillState.overlayId)
+        if (overlay && previewTo !== overlay.to_block_order) {
+          updateOverlayRange(fillState.overlayId, previewTo)
+        }
+      }
+      setFillState(null)
+    }
     window.addEventListener('pointerup', onPointerUp)
     return () => window.removeEventListener('pointerup', onPointerUp)
   }, [fillState, overlays])
@@ -489,7 +498,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   }
 
   async function commitFill() {
-    if (!fillState) { setFillState(null); return }
+    if (!fillState) return
     const previewTo = fillState.previewToOrder
     if (previewTo !== undefined) {
       const overlay = overlays.find(o => o.id === fillState.overlayId)
