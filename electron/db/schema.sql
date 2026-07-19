@@ -19,12 +19,13 @@ CREATE TABLE IF NOT EXISTS devices (
 );
 
 CREATE TABLE IF NOT EXISTS operations (
-  id TEXT PRIMARY KEY,
+  seq INTEGER PRIMARY KEY AUTOINCREMENT,
+  id TEXT NOT NULL UNIQUE,
   entity TEXT NOT NULL,
   entity_id TEXT NOT NULL,
   field TEXT NOT NULL,
   value TEXT,
-  author_user_id TEXT NOT NULL REFERENCES users(id),
+  author_user_id TEXT REFERENCES users(id),
   device_id TEXT NOT NULL REFERENCES devices(id),
   timestamp TEXT NOT NULL,
   parent_op_id TEXT REFERENCES operations(id)
@@ -67,4 +68,14 @@ CREATE TABLE IF NOT EXISTS template_slots (
   activity_id TEXT REFERENCES activities(id),
   day_id TEXT,
   time_block_id TEXT
+);
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version INTEGER PRIMARY KEY,
+  applied_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS device_identity (
+  id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL
 );
