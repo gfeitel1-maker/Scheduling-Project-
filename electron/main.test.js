@@ -109,31 +109,54 @@ describe('chooseMode: client path', () => {
     expect(createSyncClient).not.toHaveBeenCalled()
   })
 
-  it('builds a validated ws:// url from discovered host/port and creates a syncClient', async () => {
+  it('validates the host/port and stores the serverUrl WITHOUT creating a syncClient yet (Fix E)', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })
+    const result = await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })
 
-    expect(createSyncClient).toHaveBeenCalledWith(db, {
-      device_id: deviceId,
-      author_user_id: null,
-      serverUrl: 'ws://192.168.1.5:7100',
-    })
+    expect(result).toEqual({ mode: 'client' })
+    expect(createSyncClient).not.toHaveBeenCalled()
   })
 
-  it('accepts a pre-validated hostAddress string directly', async () => {
+  it('accepts a pre-validated hostAddress string directly without creating a syncClient yet', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
 
+    expect(createSyncClient).not.toHaveBeenCalled()
+  })
+
+  it('creates the syncClient with a token only after a successful login (Fix E)', async () => {
+    const { user } = seedCampAndUser({ name: 'Dana', pin: '5555' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+    expect(createSyncClient).not.toHaveBeenCalled()
+
+    const result = handlers.login({ name: 'Dana', pin: '5555' })
+
+    expect(result).toBeTruthy()
     expect(createSyncClient).toHaveBeenCalledWith(db, {
       device_id: deviceId,
       author_user_id: null,
       serverUrl: 'ws://192.168.1.5:7100',
+      token: result.token,
     })
+    expect(lastCreatedSyncClient.onOpApplied).toHaveBeenCalled()
+    void user
   })
 
   it('rejects an unrecognized mode', () => {
     const handlers = makeHandlers(db, deviceId, {})
     expect(() => handlers.chooseMode({ mode: 'bogus' })).toThrow()
+  })
+})
+
+describe('chooseMode: idempotency (Fix C)', () => {
+  it('throws if chooseMode is called a second time for the same session', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7199 })
+    expect(() => handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7199 })).toThrow(
+      'mode already chosen for this session'
+    )
+    expect(startSyncServer).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -161,23 +184,110 @@ describe('login', () => {
   })
 })
 
-describe('createUser handler', () => {
-  it('validates required fields before delegating to createUser', () => {
+describe('login: rate limiting (Fix B)', () => {
+  it('locks out a name after 5 failed attempts and rejects further attempts (even with the correct pin) until the lockout expires', () => {
+    seedCampAndUser({ name: 'Eve', pin: '1111' })
     const handlers = makeHandlers(db, deviceId, {})
-    expect(() => handlers.createUser({ name: 'Bob', pin: '1234', role: 'staff' })).toThrow()
-    expect(() => handlers.createUser({ camp_id: 'x', name: 'Bob', pin: '1234', role: 'admin-ish' })).toThrow()
+
+    for (let i = 0; i < 5; i++) {
+      expect(handlers.login({ name: 'Eve', pin: 'wrong' })).toBeNull()
+    }
+
+    // now locked out: even the CORRECT pin is rejected the same way (no distinct signal)
+    expect(handlers.login({ name: 'Eve', pin: '1111' })).toBeNull()
   })
 
-  it('creates a user when all fields are valid', () => {
+  it('resets the failure counter for a name after a successful login', () => {
+    seedCampAndUser({ name: 'Frank', pin: '2222' })
+    const handlers = makeHandlers(db, deviceId, {})
+
+    for (let i = 0; i < 3; i++) {
+      expect(handlers.login({ name: 'Frank', pin: 'wrong' })).toBeNull()
+    }
+    expect(handlers.login({ name: 'Frank', pin: '2222' })).toBeTruthy()
+
+    // counter reset: two more failures should not trigger lockout (needs 5 in a row)
+    expect(handlers.login({ name: 'Frank', pin: 'wrong' })).toBeNull()
+    expect(handlers.login({ name: 'Frank', pin: 'wrong' })).toBeNull()
+    expect(handlers.login({ name: 'Frank', pin: '2222' })).toBeTruthy()
+  })
+})
+
+describe('bootstrapCamp (Fix A)', () => {
+  it('creates the first camp and admin user when no camps exist yet', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    const result = handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '9999' })
+
+    expect(result.campId).toEqual(expect.any(String))
+    expect(result.userId).toEqual(expect.any(String))
+
+    const user = db.prepare('SELECT role FROM users WHERE id = ?').get(result.userId)
+    expect(user.role).toBe('admin')
+  })
+
+  it('refuses to run again once a camp already exists', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '9999' })
+
+    expect(() =>
+      handlers.bootstrapCamp({ campName: 'Camp Two', adminName: 'Root2', adminPin: '8888' })
+    ).toThrow('camp already exists')
+  })
+})
+
+describe('createUser handler (Fix A: admin-gated)', () => {
+  it('rejects create-user with no token at all (no unauthenticated privilege escalation)', () => {
     const campId = randomUUID()
     db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Camp Shoresh')
     const handlers = makeHandlers(db, deviceId, {})
-    const created = handlers.createUser({ camp_id: campId, name: 'Bob', pin: '1234', role: 'staff' })
+    expect(() =>
+      handlers.createUser({ camp_id: campId, name: 'Mallory', pin: '1234', role: 'admin' })
+    ).toThrow('token is required')
+  })
+
+  it('rejects create-user when the token belongs to a non-admin (staff) user', () => {
+    const { campId } = seedCampAndUser({ name: 'StaffPerson', pin: '1234', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = handlers.login({ name: 'StaffPerson', pin: '1234' })
+
+    expect(() =>
+      handlers.createUser({ token, camp_id: campId, name: 'Mallory', pin: '1234', role: 'admin' })
+    ).toThrow('admin role required')
+  })
+
+  it('validates required fields once an admin session is presented', () => {
+    const { campId } = seedCampAndUser({ name: 'AdminPerson', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = handlers.login({ name: 'AdminPerson', pin: '1234' })
+
+    expect(() => handlers.createUser({ token, name: 'Bob', pin: '1234', role: 'staff' })).toThrow()
+    expect(() =>
+      handlers.createUser({ token, camp_id: campId, name: 'Bob', pin: '1234', role: 'admin-ish' })
+    ).toThrow()
+  })
+
+  it('creates a user when an admin session and all fields are valid', () => {
+    const { campId } = seedCampAndUser({ name: 'AdminPerson2', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = handlers.login({ name: 'AdminPerson2', pin: '1234' })
+
+    const created = handlers.createUser({ token, camp_id: campId, name: 'Bob', pin: '1234', role: 'staff' })
     expect(created.name).toBe('Bob')
   })
 })
 
 describe('write handler', () => {
+  it('rejects a write with a clear error when no syncClient exists yet (Fix D)', () => {
+    const { user } = seedCampAndUser({ name: 'Gina', pin: '6666' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = handlers.login({ name: 'Gina', pin: '6666' })
+
+    expect(() => handlers.write({ token, entity: 'x', entity_id: 'y', field: 'z', value: 1 })).toThrow(
+      'sync not initialized — choose a mode first'
+    )
+    void user
+  })
+
   it('rejects a malformed/invalid token cleanly without crashing', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7101 })

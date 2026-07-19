@@ -346,6 +346,41 @@ describe('lock release on disconnect (Fix 2)', () => {
   })
 })
 
+describe('port bind failure resilience (Task 8 Fix C)', () => {
+  it('does not crash the process when a second server tries to bind the same port', async () => {
+    const tmpFile2 = path.join(os.tmpdir(), `shoresh-sync-collision-${Date.now()}-${Math.random()}.sqlite`)
+    const db2 = openLocalDb(tmpFile2)
+
+    let secondServer
+    expect(() => {
+      secondServer = startSyncServer(db2, { port: PORT })
+    }).not.toThrow()
+
+    // give the underlying bind attempt a moment to fail
+    await new Promise((r) => setTimeout(r, 200))
+
+    // the original server on this port must still be alive/responsive
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+    ws.send(
+      JSON.stringify({
+        type: 'acquire_lock',
+        entity: 'template_slots',
+        entity_id: 'port-collision-check',
+        field: 'activity_id',
+      })
+    )
+    const msg = await onceMessage(ws)
+    expect(msg).toEqual({ type: 'lock_result', granted: true })
+    ws.close()
+
+    secondServer.close()
+    db2.close()
+    fs.unlinkSync(tmpFile2)
+  })
+})
+
 describe('safe broadcast (Fix 3)', () => {
   it('does not throw when broadcasting to a client whose readyState is not OPEN', async () => {
     const ws1 = connect()

@@ -85,6 +85,11 @@ function handleSubmitOp(db, wss, ws, msg) {
 
 export function startSyncServer(db, { port }) {
   const wss = new WebSocketServer({ port })
+  wss.on('error', () => {
+    // defense-in-depth: swallow bind failures (e.g. EADDRINUSE) so an
+    // underlying port collision cannot crash the whole process via Node's
+    // default "throw on unhandled EventEmitter error" behavior.
+  })
 
   wss.on('connection', (ws) => {
     ws.on('message', (data) => {
