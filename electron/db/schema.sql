@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS camps (
 
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
-  camp_id TEXT NOT NULL REFERENCES camps(id),
+  camp_id TEXT REFERENCES camps(id),
   name TEXT NOT NULL,
   pin_hash TEXT NOT NULL,
   pin_salt TEXT NOT NULL,

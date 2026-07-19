@@ -17,20 +17,30 @@ export function initSchema(db) {
   )
 
   if (getSchemaVersion(db) < 4) {
-    db.exec(`
-      CREATE TABLE users_new (
-        id TEXT PRIMARY KEY,
-        camp_id TEXT REFERENCES camps(id),
-        name TEXT NOT NULL,
-        pin_hash TEXT NOT NULL,
-        pin_salt TEXT NOT NULL,
-        role TEXT NOT NULL CHECK (role IN ('admin', 'staff'))
-      );
-      INSERT INTO users_new SELECT * FROM users;
-      DROP TABLE users;
-      ALTER TABLE users_new RENAME TO users;
-      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_camp_name ON users(camp_id, name);
-    `)
+    const campIdColumn = db
+      .pragma('table_info(users)')
+      .find((col) => col.name === 'camp_id')
+    const campIdIsNotNull = campIdColumn ? campIdColumn.notnull === 1 : false
+
+    if (campIdIsNotNull) {
+      db.transaction(() => {
+        db.exec(`
+          CREATE TABLE users_new (
+            id TEXT PRIMARY KEY,
+            camp_id TEXT REFERENCES camps(id),
+            name TEXT NOT NULL,
+            pin_hash TEXT NOT NULL,
+            pin_salt TEXT NOT NULL,
+            role TEXT NOT NULL CHECK (role IN ('admin', 'staff'))
+          );
+          INSERT INTO users_new SELECT * FROM users;
+          DROP TABLE users;
+          ALTER TABLE users_new RENAME TO users;
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_users_camp_name ON users(camp_id, name);
+        `)
+      })()
+    }
+
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (4, ?)').run(
       new Date().toISOString()
     )
