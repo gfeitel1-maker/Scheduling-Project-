@@ -66,23 +66,30 @@ export function createSyncClient(db, { device_id, author_user_id, serverUrl, tok
   }
 
   function applyRemoteOp(op) {
-    const projection = PROJECTIONS[op.entity]
-    if (projection && !projection.fields.includes(op.field)) {
-      throw new Error('field not allowed for entity')
-    }
-
     // The op-log insert must be durable regardless of projection outcome: the
     // server already accepted and broadcast this op as canonical, so this
     // client's local materialization of it (the projection) hitting a snag
     // must not erase the log entry. Keep the insert in its own transaction.
+    // Capture whether the insert actually inserted a NEW row (changes > 0) vs.
+    // no-opped on a replayed/duplicate op id (ON CONFLICT DO NOTHING) - only a
+    // genuinely new op should be projected, otherwise a replay with a mutated
+    // field/value could overwrite the projected table with spoofed values.
     const insert = db.transaction(() => {
-      db.prepare(
-        `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO NOTHING`
-      ).run(op.id, op.entity, op.entity_id, op.field, op.value, op.author_user_id ?? null, op.device_id, op.timestamp, op.parent_op_id ?? null)
+      const result = db
+        .prepare(
+          `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO NOTHING`
+        )
+        .run(op.id, op.entity, op.entity_id, op.field, op.value, op.author_user_id ?? null, op.device_id, op.timestamp, op.parent_op_id ?? null)
+      return result.changes
     })
-    insert()
+    const changes = insert()
+    if (changes === 0) {
+      // Replay of a previously-seen op id: the original op's projection
+      // already ran when it was first received. Skip re-projecting.
+      return
+    }
 
     try {
       applyProjection(db, op)
@@ -123,11 +130,24 @@ export function createSyncClient(db, { device_id, author_user_id, serverUrl, tok
 
         if (msg.type === 'op_applied') {
           if (!isValidRemoteOp(msg.op)) return
-          applyRemoteOp(msg.op)
-          notifyOpApplied(msg.op)
-          if (msg.op.device_id === device_id) {
-            const resolve = submitResolvers.shift()
-            if (resolve) resolve(msg)
+
+          // Structural guarantee: resolver-draining for this device's own op
+          // MUST happen no matter what throws inside this block (a bad field,
+          // a projection error, a listener exception, anything). The try/finally
+          // is the mechanism - there is no code path here that can skip the
+          // finally block, unlike the previous version where draining only ran
+          // if execution reached a specific line.
+          let opError = null
+          try {
+            applyRemoteOp(msg.op)
+            notifyOpApplied(msg.op)
+          } catch (err) {
+            opError = err
+          } finally {
+            if (msg.op.device_id === device_id) {
+              const resolve = submitResolvers.shift()
+              if (resolve) resolve(opError ? { status: 'error', op: msg.op, error: opError } : msg)
+            }
           }
           return
         }

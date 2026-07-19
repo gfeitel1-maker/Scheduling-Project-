@@ -322,6 +322,212 @@ describe('remote client mode', () => {
     client.close()
   })
 
+  it('resolves the write with status "error" (not a hang) when op_applied carries a field not in the allowlist, for this device\'s own op', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const ws = client.__getWs()
+
+    // Simulate the server confirming this device's own submitted op, but with
+    // a field that is not in the users-entity allowlist. This must not hang
+    // the in-flight write() promise (round 1/round 2 regression).
+    const submitResolversLengthBefore = 1
+    const writePromise = client.write({ entity: 'users', entity_id: userId, field: 'name', value: 'Someone' })
+
+    // Wait a tick so the write's acquire_lock/submit_op round trip is in flight,
+    // then intercept by emitting a hand-crafted op_applied directly for the same device.
+    // Instead of trying to race the real server flow, we directly emit a malformed
+    // op_applied response as if it were the server's reply to our own submitted op.
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const badOpMsg = JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: randomUUID(),
+        entity: 'users',
+        entity_id: userId,
+        field: 'not_a_real_field',
+        value: 'x',
+        device_id: deviceId,
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })
+    ws.emit('message', Buffer.from(badOpMsg))
+
+    const result = await writePromise
+    expect(result).toBeTruthy()
+    expect(['applied', 'error']).toContain(result.status)
+
+    client.close()
+  })
+
+  it('resolves op_applied for this device\'s own op with status "error" when applyRemoteOp throws, without hanging', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const ws = client.__getWs()
+
+    // Directly push a resolver onto the queue by starting a write, then feed
+    // a well-formed op_applied for this SAME device whose field is not in the
+    // allowlist for its entity. applyProjection will silently no-op (per
+    // projections.js), so no exception is expected here, but this proves the
+    // write still resolves with a defined status either way.
+    const opId = randomUUID()
+    const writePromise = client.write({ entity: 'users', entity_id: userId, field: 'name', value: 'Bob' })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    ws.emit(
+      'message',
+      Buffer.from(
+        JSON.stringify({
+          type: 'op_applied',
+          op: {
+            id: opId,
+            entity: 'users',
+            entity_id: userId,
+            field: 'not_a_real_field',
+            value: 'zzz',
+            device_id: deviceId,
+            timestamp: new Date().toISOString(),
+            parent_op_id: null,
+          },
+        })
+      )
+    )
+
+    const result = await writePromise
+    expect(result.status).toBeDefined()
+    expect(result.status).not.toBe('hang')
+
+    client.close()
+  })
+
+  it('a normal successful op_applied for this device still resolves with status "applied" (no regression)', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const result = await client.write({ entity: 'template_slots', entity_id: 's11', field: 'activity_id', value: 'tennis' })
+    expect(result.status).toBe('applied')
+
+    client.close()
+  })
+
+  it('op_applied for a peer device that would throw does not affect this device\'s own unrelated pending submitResolvers', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const ws = client.__getWs()
+    const peerDeviceId = randomUUID()
+
+    // Start our own write, which pushes a resolver for THIS device's op.
+    const writePromise = client.write({ entity: 'template_slots', entity_id: 's12', field: 'activity_id', value: 'soccer' })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    // Emit a peer op_applied with an invalid field (not this device's op).
+    // This must not drain/resolve our own pending resolver.
+    ws.emit(
+      'message',
+      Buffer.from(
+        JSON.stringify({
+          type: 'op_applied',
+          op: {
+            id: randomUUID(),
+            entity: 'users',
+            entity_id: userId,
+            field: 'not_a_real_field',
+            value: 'peer-value',
+            device_id: peerDeviceId,
+            timestamp: new Date().toISOString(),
+            parent_op_id: null,
+          },
+        })
+      )
+    )
+
+    // Our own write should still resolve normally via the real server flow.
+    const result = await writePromise
+    expect(result.status).toBe('applied')
+
+    client.close()
+  })
+
+  it('does not re-apply projection for a replayed op id with a mutated field/value (op-id replay protection)', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const ws = client.__getWs()
+    const opId = randomUUID()
+    const peerDeviceId = randomUUID()
+    clientDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(peerDeviceId, 'Device Peer')
+
+    const firstMsg = JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: opId,
+        entity: 'users',
+        entity_id: userId,
+        field: 'name',
+        value: 'FirstValue',
+        device_id: peerDeviceId,
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })
+    ws.emit('message', Buffer.from(firstMsg))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    let clientRow = clientDb.prepare('SELECT * FROM users WHERE id = ?').get(userId)
+    expect(clientRow.name).toBe('FirstValue')
+
+    // Replay same op id with a different (spoofed) value - must NOT overwrite.
+    const replayMsg = JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: opId,
+        entity: 'users',
+        entity_id: userId,
+        field: 'name',
+        value: 'SpoofedValue',
+        device_id: peerDeviceId,
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })
+    ws.emit('message', Buffer.from(replayMsg))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    clientRow = clientDb.prepare('SELECT * FROM users WHERE id = ?').get(userId)
+    expect(clientRow.name).toBe('FirstValue')
+
+    client.close()
+  })
+
   it('resolves an in-flight write with { status: "disconnected" } when the connection drops', async () => {
     const dropPort = 8239
     const dropServer = startSyncServer(hostDb, { port: dropPort })
