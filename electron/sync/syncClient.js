@@ -46,6 +46,23 @@ export function createSyncClient(db, { device_id, author_user_id, serverUrl, tok
   const lockResolvers = []
   const submitResolvers = []
 
+  function isNonEmptyString(v) {
+    return typeof v === 'string' && v.length > 0
+  }
+
+  function isValidRemoteOp(op) {
+    if (op === null || typeof op !== 'object' || Array.isArray(op)) return false
+    if (!isNonEmptyString(op.id)) return false
+    if (!isNonEmptyString(op.entity)) return false
+    if (!isNonEmptyString(op.entity_id)) return false
+    if (!isNonEmptyString(op.field)) return false
+    if (!isNonEmptyString(op.device_id)) return false
+    if (!isNonEmptyString(op.timestamp)) return false
+    if (!('value' in op)) return false
+    if (!(op.parent_op_id === null || isNonEmptyString(op.parent_op_id))) return false
+    return true
+  }
+
   function applyRemoteOp(op) {
     db.prepare(
       `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id)
@@ -64,44 +81,66 @@ export function createSyncClient(db, { device_id, author_user_id, serverUrl, tok
     })
 
     ws.on('message', (data) => {
-      let msg
       try {
-        msg = JSON.parse(data.toString())
-      } catch {
-        return
-      }
+        let msg
+        try {
+          msg = JSON.parse(data.toString())
+        } catch {
+          return
+        }
 
-      if (msg.type === 'lock_result') {
-        const resolve = lockResolvers.shift()
-        if (resolve) resolve(msg)
-        return
-      }
+        if (msg === null || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.type !== 'string') {
+          return
+        }
 
-      if (msg.type === 'op_applied') {
-        applyRemoteOp(msg.op)
-        notifyOpApplied(msg.op)
-        if (msg.op.device_id === device_id) {
+        if (msg.type === 'lock_result') {
+          const resolve = lockResolvers.shift()
+          if (resolve) resolve(msg)
+          return
+        }
+
+        if (msg.type === 'op_applied') {
+          if (!isValidRemoteOp(msg.op)) return
+          applyRemoteOp(msg.op)
+          notifyOpApplied(msg.op)
+          if (msg.op.device_id === device_id) {
+            const resolve = submitResolvers.shift()
+            if (resolve) resolve(msg)
+          }
+          return
+        }
+
+        if (msg.type === 'op_conflict') {
           const resolve = submitResolvers.shift()
           if (resolve) resolve(msg)
         }
-        return
-      }
-
-      if (msg.type === 'op_conflict') {
-        const resolve = submitResolvers.shift()
-        if (resolve) resolve(msg)
+      } catch {
+        // defense-in-depth: never let a malformed/unexpected message crash the process
       }
     })
 
     ws.on('error', () => {
       // connection failures surface via 'close'; swallow here to avoid an unhandled error event
+      settlePendingOnDisconnect()
     })
+
+    function settlePendingOnDisconnect() {
+      while (lockResolvers.length) {
+        const resolve = lockResolvers.shift()
+        if (resolve) resolve({ status: 'disconnected' })
+      }
+      while (submitResolvers.length) {
+        const resolve = submitResolvers.shift()
+        if (resolve) resolve({ status: 'disconnected' })
+      }
+    }
 
     ws.on('close', () => {
       connected = false
       connectedPromise = new Promise((resolve) => {
         connectedResolve = resolve
       })
+      settlePendingOnDisconnect()
     })
   }
 
@@ -123,12 +162,18 @@ export function createSyncClient(db, { device_id, author_user_id, serverUrl, tok
 
   async function performWrite({ entity, entity_id, field, value }) {
     const lockResult = await acquireLockRemote(entity, entity_id, field)
+    if (lockResult.status === 'disconnected') {
+      return { status: 'disconnected' }
+    }
     if (!lockResult.granted) {
       return { status: 'conflict' }
     }
 
     const op = { entity, entity_id, field, value, author_user_id, parent_op_id: null }
     const submitResult = await submitOpRemote(op)
+    if (submitResult.status === 'disconnected') {
+      return { status: 'disconnected' }
+    }
     if (submitResult.type === 'op_conflict') {
       return { status: 'conflict', existingOp: submitResult.existingOp }
     }
@@ -184,6 +229,11 @@ export function createSyncClient(db, { device_id, author_user_id, serverUrl, tok
     },
     close() {
       if (ws) ws.close()
+    },
+    // test-only accessor: exposes the underlying ws connection so tests can
+    // simulate malformed/malicious server messages or abrupt disconnects.
+    __getWs() {
+      return ws
     },
   }
 }

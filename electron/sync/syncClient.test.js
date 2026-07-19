@@ -180,4 +180,70 @@ describe('remote client mode', () => {
       client.close()
     }
   })
+
+  it('does not crash on a malformed message and remains usable afterward (null message)', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const ws = client.__getWs()
+    expect(() => ws.emit('message', Buffer.from('null'))).not.toThrow()
+
+    // client should still be usable for a legitimate write afterward
+    const result = await client.write({ entity: 'template_slots', entity_id: 's6', field: 'activity_id', value: 'climbing' })
+    expect(result.status).toBe('applied')
+
+    client.close()
+  })
+
+  it('does not crash on an op_applied message with a malformed op', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const ws = client.__getWs()
+    const badMsg1 = JSON.stringify({ type: 'op_applied', op: null })
+    const badMsg2 = JSON.stringify({ type: 'op_applied', op: { id: 'x' } }) // missing required fields
+    expect(() => ws.emit('message', Buffer.from(badMsg1))).not.toThrow()
+    expect(() => ws.emit('message', Buffer.from(badMsg2))).not.toThrow()
+
+    const result = await client.write({ entity: 'template_slots', entity_id: 's7', field: 'activity_id', value: 'fishing' })
+    expect(result.status).toBe('applied')
+
+    client.close()
+  })
+
+  it('resolves an in-flight write with { status: "disconnected" } when the connection drops', async () => {
+    const dropPort = 8239
+    const dropServer = startSyncServer(hostDb, { port: dropPort })
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${dropPort}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    // Kick off a write, but keep the server from ever responding to the lock
+    // request: destroy the server before it can reply so the client's
+    // performWrite is left waiting on lockResolvers/submitResolvers.
+    const writePromise = client.write({ entity: 'template_slots', entity_id: 's8', field: 'activity_id', value: 'archery2' })
+
+    // Force-terminate the client's underlying ws to simulate an abrupt drop.
+    client.__getWs().terminate()
+
+    const result = await writePromise
+    expect(result.status).toBe('disconnected')
+
+    dropServer.close()
+    client.close()
+  })
 })
