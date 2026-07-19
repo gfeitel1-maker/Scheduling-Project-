@@ -75,4 +75,33 @@ describe('applyProjection', () => {
     const row = db.prepare('SELECT role FROM users WHERE id = ?').get('user-1')
     expect(row.role).toBe('staff')
   })
+
+  it('ensureExists does not touch the camps table (no sentinel camp row)', () => {
+    const before = db.prepare('SELECT COUNT(*) as count FROM camps').get().count
+    applyProjection(db, { entity: 'users', entity_id: 'brand-new-user-2', field: 'name', value: 'X' })
+    const after = db.prepare('SELECT COUNT(*) as count FROM camps').get().count
+    expect(after).toBe(before)
+    const row = db.prepare('SELECT camp_id FROM users WHERE id = ?').get('brand-new-user-2')
+    expect(row.camp_id).toBe(null)
+  })
+
+  it('creates placeholder rows for two different new users without either being swallowed by INSERT OR IGNORE', () => {
+    applyProjection(db, { entity: 'users', entity_id: 'new-user-a', field: 'name', value: 'A' })
+    applyProjection(db, { entity: 'users', entity_id: 'new-user-b', field: 'name', value: 'B' })
+    const rowA = db.prepare('SELECT * FROM users WHERE id = ?').get('new-user-a')
+    const rowB = db.prepare('SELECT * FROM users WHERE id = ?').get('new-user-b')
+    expect(rowA).toBeTruthy()
+    expect(rowB).toBeTruthy()
+    expect(rowA.camp_id).toBe(null)
+    expect(rowB.camp_id).toBe(null)
+  })
+
+  it('leaves main.js-style camp lookups unaffected by placeholder user creation', () => {
+    const before = db.prepare('SELECT COUNT(*) as count FROM camps').get().count
+    applyProjection(db, { entity: 'users', entity_id: 'brand-new-user-3', field: 'name', value: 'Y' })
+    const after = db.prepare('SELECT COUNT(*) as count FROM camps').get().count
+    expect(after).toBe(before)
+    const firstCamp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    expect(firstCamp).toEqual({ id: 'camp-1' })
+  })
 })

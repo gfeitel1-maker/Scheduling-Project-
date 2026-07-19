@@ -3,15 +3,12 @@ export const PROJECTIONS = {
     table: 'users',
     key: 'id',
     fields: ['camp_id', 'name', 'pin_hash', 'pin_salt', 'role'],
-    ensureExists: (db, id) => {
-      // The placeholder row below uses '' as a stand-in camp_id (satisfying the NOT NULL/
-      // FK constraint on users.camp_id) until a real camp_id op overwrites it in the same
-      // batch. Ensure that sentinel camp row exists first so the FK doesn't reject the insert.
-      db.prepare("INSERT OR IGNORE INTO camps (id, name) VALUES ('', '')").run()
-      db.prepare(
-        "INSERT OR IGNORE INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, '', '', '', '', 'staff')"
-      ).run(id)
-    },
+    ensureExists: (db, id) =>
+      db
+        .prepare(
+          "INSERT OR IGNORE INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, NULL, '', '', '', 'staff')"
+        )
+        .run(id),
   },
 }
 

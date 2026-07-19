@@ -38,16 +38,16 @@ describe('Fix 1: nullable author_user_id', () => {
 })
 
 describe('Fix 2: schema versioning', () => {
-  it('getSchemaVersion returns 2 after openLocalDb runs', () => {
+  it('getSchemaVersion reaches at least 2 after openLocalDb runs', () => {
     const db = freshDb()
-    expect(getSchemaVersion(db)).toBe(2)
+    expect(getSchemaVersion(db)).toBeGreaterThanOrEqual(2)
     db.close()
   })
 
-  it('calling initSchema again does not throw and version stays 2', () => {
+  it('calling initSchema again does not throw and version 2 stays applied exactly once', () => {
     const db = freshDb()
     expect(() => initSchema(db)).not.toThrow()
-    expect(getSchemaVersion(db)).toBe(2)
+    expect(getSchemaVersion(db)).toBeGreaterThanOrEqual(2)
     const rows = db.prepare('SELECT * FROM schema_migrations WHERE version = 1').all()
     expect(rows.length).toBe(1)
     const rows2 = db.prepare('SELECT * FROM schema_migrations WHERE version = 2').all()
@@ -82,6 +82,38 @@ describe('Fix 4: seq as real primary key, id unique', () => {
 
     expect(() => {
       insert.run('op-a', 'entity', 'e1', 'field', 'dup', null, 'device1', new Date().toISOString())
+    }).toThrow(/UNIQUE/)
+    db.close()
+  })
+})
+
+describe('Fix 6: nullable users.camp_id (schema version 4)', () => {
+  it('getSchemaVersion returns 4 after openLocalDb runs', () => {
+    const db = freshDb()
+    expect(getSchemaVersion(db)).toBe(4)
+    db.close()
+  })
+
+  it('allows inserting a users row with camp_id = NULL', () => {
+    const db = freshDb()
+    expect(() => {
+      db.prepare(
+        'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run('u-null', null, '', '', '', 'staff')
+    }).not.toThrow()
+    db.close()
+  })
+
+  it('still rejects a duplicate camp_id+name pair when both are real non-null values', () => {
+    const db = freshDb()
+    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
+    db.prepare(
+      'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run('u1', 'camp1', 'Dup', 'h', 's', 'staff')
+    expect(() => {
+      db.prepare(
+        'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run('u2', 'camp1', 'Dup', 'h', 's', 'staff')
     }).toThrow(/UNIQUE/)
     db.close()
   })
