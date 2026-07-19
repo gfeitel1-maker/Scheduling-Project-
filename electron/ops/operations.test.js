@@ -81,6 +81,47 @@ describe('appendOp projection', () => {
   })
 })
 
+describe('appendOp field allowlist + transaction', () => {
+  it('throws for a field not in the allowlist and does not insert an operations row', () => {
+    const before = db.prepare('SELECT COUNT(*) AS n FROM operations').get().n
+
+    expect(() =>
+      appendOp(db, {
+        entity: 'users',
+        entity_id: 'user-1',
+        field: 'not_a_real_field',
+        value: 'x',
+        author_user_id: 'user-1',
+        device_id: 'device-1',
+        parent_op_id: null,
+      })
+    ).toThrow()
+
+    const after = db.prepare('SELECT COUNT(*) AS n FROM operations').get().n
+    expect(after).toBe(before)
+
+    const row = db.prepare('SELECT name FROM users WHERE id = ?').get('user-1')
+    expect(row.name).toBe('Alice')
+  })
+
+  it('creates a brand-new users row via ensureExists when appending the first op for that entity_id', () => {
+    appendOp(db, {
+      entity: 'users',
+      entity_id: 'brand-new-user',
+      field: 'name',
+      value: 'Fresh',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    const row = db.prepare('SELECT * FROM users WHERE id = ?').get('brand-new-user')
+    expect(row).toBeTruthy()
+    expect(row.name).toBe('Fresh')
+    expect(row.role).toBe('staff')
+  })
+})
+
 describe('latestOp', () => {
   it('orders by seq, not timestamp, returning the most recently appended op', () => {
     const op1 = appendOp(db, {

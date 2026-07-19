@@ -24,8 +24,11 @@ afterEach(() => {
 })
 
 describe('PROJECTIONS registry', () => {
-  it('registers users', () => {
-    expect(PROJECTIONS.users).toEqual({ table: 'users', key: 'id' })
+  it('registers users with a fields allowlist and ensureExists', () => {
+    expect(PROJECTIONS.users.table).toBe('users')
+    expect(PROJECTIONS.users.key).toBe('id')
+    expect(PROJECTIONS.users.fields).toEqual(['camp_id', 'name', 'pin_hash', 'pin_salt', 'role'])
+    expect(typeof PROJECTIONS.users.ensureExists).toBe('function')
   })
 })
 
@@ -42,9 +45,34 @@ describe('applyProjection', () => {
     ).not.toThrow()
   })
 
-  it('does not throw when the target row does not exist', () => {
+  it('creates a new row (via ensureExists) when the target row does not exist, and sets the field', () => {
     expect(() =>
-      applyProjection(db, { entity: 'users', entity_id: 'nonexistent', field: 'name', value: 'Nobody' })
+      applyProjection(db, { entity: 'users', entity_id: 'brand-new-user', field: 'name', value: 'Nobody' })
     ).not.toThrow()
+    const row = db.prepare('SELECT * FROM users WHERE id = ?').get('brand-new-user')
+    expect(row).toBeTruthy()
+    expect(row.name).toBe('Nobody')
+    expect(row.role).toBe('staff')
+  })
+
+  it('does not throw and does not modify the table when the field is not in the allowlist', () => {
+    expect(() =>
+      applyProjection(db, { entity: 'users', entity_id: 'user-1', field: 'not_a_real_field', value: 'x' })
+    ).not.toThrow()
+    const row = db.prepare('SELECT name FROM users WHERE id = ?').get('user-1')
+    expect(row.name).toBe('Alice')
+  })
+
+  it('rejects a malicious field string without executing it against the users table', () => {
+    expect(() =>
+      applyProjection(db, {
+        entity: 'users',
+        entity_id: 'user-1',
+        field: "role = 'admin' -- ",
+        value: 'x',
+      })
+    ).not.toThrow()
+    const row = db.prepare('SELECT role FROM users WHERE id = ?').get('user-1')
+    expect(row.role).toBe('staff')
   })
 })
