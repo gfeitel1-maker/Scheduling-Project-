@@ -14,6 +14,7 @@
     "@dnd-kit/core": "^6.3.1",
     "@supabase/supabase-js": "^2.104.0",
     "better-sqlite3": "^12.11.1",
+    "bonjour-service": "^1.4.3",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "ws": "^8.21.1",
