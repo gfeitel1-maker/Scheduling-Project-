@@ -60,6 +60,7 @@ export function createSyncClient(db, { device_id, author_user_id, serverUrl, tok
     if (!isNonEmptyString(op.device_id)) return false
     if (!isNonEmptyString(op.timestamp)) return false
     if (!('value' in op)) return false
+    if (typeof op.value === 'object' && op.value !== null) return false
     if (!(op.parent_op_id === null || isNonEmptyString(op.parent_op_id))) return false
     return true
   }
@@ -70,17 +71,26 @@ export function createSyncClient(db, { device_id, author_user_id, serverUrl, tok
       throw new Error('field not allowed for entity')
     }
 
-    const run = db.transaction(() => {
+    // The op-log insert must be durable regardless of projection outcome: the
+    // server already accepted and broadcast this op as canonical, so this
+    // client's local materialization of it (the projection) hitting a snag
+    // must not erase the log entry. Keep the insert in its own transaction.
+    const insert = db.transaction(() => {
       db.prepare(
         `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO NOTHING`
       ).run(op.id, op.entity, op.entity_id, op.field, op.value, op.author_user_id ?? null, op.device_id, op.timestamp, op.parent_op_id ?? null)
-
-      applyProjection(db, op)
     })
+    insert()
 
-    run()
+    try {
+      applyProjection(db, op)
+    } catch {
+      // Projection failure on an already-logged, already-canonical op is
+      // swallowed here: there's no logging/observability infra yet to
+      // surface it further. The op-log entry above remains authoritative.
+    }
   }
 
   function connect() {

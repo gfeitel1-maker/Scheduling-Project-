@@ -240,6 +240,88 @@ describe('remote client mode', () => {
     client.close()
   })
 
+  it('keeps the operations-log entry even when local projection fails (FK violation only on receiving client)', async () => {
+    // A camp that exists on the host db (so the op is valid/applies fine there)
+    // but NOT on the receiving client's db, so the client-side projection's
+    // UPDATE ... camp_id = ? violates the FK constraint locally only.
+    const otherCampId = randomUUID()
+    hostDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(otherCampId, 'Other Camp')
+
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const result = await client.write({ entity: 'users', entity_id: userId, field: 'camp_id', value: otherCampId })
+
+    // The op was canonical (server accepted/broadcast it) so the write must resolve as applied,
+    // even though local projection of it fails.
+    expect(result.status).toBe('applied')
+
+    // The op-log entry must be durably recorded on the client despite the projection failure.
+    const clientOpRow = clientDb.prepare('SELECT * FROM operations WHERE entity_id = ? AND field = ?').get(userId, 'camp_id')
+    expect(clientOpRow).toBeTruthy()
+    expect(clientOpRow.value).toBe(otherCampId)
+
+    // The users table projection should NOT have been updated locally (FK violation prevented it).
+    const clientUserRow = clientDb.prepare('SELECT * FROM users WHERE id = ?').get(userId)
+    expect(clientUserRow.camp_id).not.toBe(otherCampId)
+
+    client.close()
+  })
+
+  it('rejects an op_applied value that is an object/array, accepts primitives', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const ws = client.__getWs()
+    const objMsg = JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: randomUUID(),
+        entity: 'template_slots',
+        entity_id: 's9',
+        field: 'activity_id',
+        value: { nested: 'object' },
+        device_id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })
+    const arrMsg = JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: randomUUID(),
+        entity: 'template_slots',
+        entity_id: 's9',
+        field: 'activity_id',
+        value: [1, 2, 3],
+        device_id: randomUUID(),
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })
+    expect(() => ws.emit('message', Buffer.from(objMsg))).not.toThrow()
+    expect(() => ws.emit('message', Buffer.from(arrMsg))).not.toThrow()
+
+    const row = clientDb.prepare('SELECT * FROM operations WHERE entity_id = ?').get('s9')
+    expect(row).toBeFalsy()
+
+    // client should still be usable for a legitimate write afterward
+    const result = await client.write({ entity: 'template_slots', entity_id: 's10', field: 'activity_id', value: 'canoeing' })
+    expect(result.status).toBe('applied')
+
+    client.close()
+  })
+
   it('resolves an in-flight write with { status: "disconnected" } when the connection drops', async () => {
     const dropPort = 8239
     const dropServer = startSyncServer(hostDb, { port: dropPort })
