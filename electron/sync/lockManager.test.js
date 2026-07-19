@@ -55,6 +55,23 @@ describe('releaseLock', () => {
   })
 })
 
+describe('device_id validation', () => {
+  it('acquireLock throws on empty string device_id', () => {
+    expect(() => acquireLock(db, { entity: 'template_slots', entity_id: 's1', field: 'activity_id', device_id: '' }))
+      .toThrow('device_id must be a non-empty string')
+  })
+
+  it('acquireLock throws on null device_id', () => {
+    expect(() => acquireLock(db, { entity: 'template_slots', entity_id: 's1', field: 'activity_id', device_id: null }))
+      .toThrow('device_id must be a non-empty string')
+  })
+
+  it('releaseLock throws on empty string device_id', () => {
+    expect(() => releaseLock(db, { entity: 'template_slots', entity_id: 's1', field: 'activity_id', device_id: '' }))
+      .toThrow('device_id must be a non-empty string')
+  })
+})
+
 describe('expireLocks', () => {
   it('releases locks older than the given threshold', () => {
     acquireLock(db, { entity: 'template_slots', entity_id: 's1', field: 'activity_id', device_id: 'd1' })

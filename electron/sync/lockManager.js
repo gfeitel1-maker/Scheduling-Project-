@@ -1,4 +1,11 @@
+function assertValidDeviceId(device_id) {
+  if (typeof device_id !== 'string' || device_id === '') {
+    throw new Error('device_id must be a non-empty string')
+  }
+}
+
 export function acquireLock(db, { entity, entity_id, field, device_id }) {
+  assertValidDeviceId(device_id)
   const existing = db.prepare('SELECT * FROM locks WHERE entity = ? AND entity_id = ? AND field = ?')
     .get(entity, entity_id, field)
   if (existing && existing.holder_device_id !== device_id) {
@@ -12,6 +19,7 @@ export function acquireLock(db, { entity, entity_id, field, device_id }) {
 }
 
 export function releaseLock(db, { entity, entity_id, field, device_id }) {
+  assertValidDeviceId(device_id)
   db.prepare('DELETE FROM locks WHERE entity = ? AND entity_id = ? AND field = ? AND holder_device_id = ?')
     .run(entity, entity_id, field, device_id)
 }
