@@ -221,6 +221,25 @@ describe('remote client mode', () => {
     client.close()
   })
 
+  it('projects a users-entity op onto the receiving client local users table', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+
+    await client.waitUntilConnected()
+    const result = await client.write({ entity: 'users', entity_id: userId, field: 'name', value: 'Alicia' })
+
+    expect(result.status).toBe('applied')
+
+    const clientRow = clientDb.prepare('SELECT * FROM users WHERE id = ?').get(userId)
+    expect(clientRow.name).toBe('Alicia')
+
+    client.close()
+  })
+
   it('resolves an in-flight write with { status: "disconnected" } when the connection drops', async () => {
     const dropPort = 8239
     const dropServer = startSyncServer(hostDb, { port: dropPort })

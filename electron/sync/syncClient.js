@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
 import { appendOp } from '../ops/operations.js'
+import { PROJECTIONS, applyProjection } from '../ops/projections.js'
 
 export function createSyncClient(db, { device_id, author_user_id, serverUrl, token }) {
   const opAppliedListeners = []
@@ -64,11 +65,22 @@ export function createSyncClient(db, { device_id, author_user_id, serverUrl, tok
   }
 
   function applyRemoteOp(op) {
-    db.prepare(
-      `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(id) DO NOTHING`
-    ).run(op.id, op.entity, op.entity_id, op.field, op.value, op.author_user_id ?? null, op.device_id, op.timestamp, op.parent_op_id ?? null)
+    const projection = PROJECTIONS[op.entity]
+    if (projection && !projection.fields.includes(op.field)) {
+      throw new Error('field not allowed for entity')
+    }
+
+    const run = db.transaction(() => {
+      db.prepare(
+        `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO NOTHING`
+      ).run(op.id, op.entity, op.entity_id, op.field, op.value, op.author_user_id ?? null, op.device_id, op.timestamp, op.parent_op_id ?? null)
+
+      applyProjection(db, op)
+    })
+
+    run()
   }
 
   function connect() {
