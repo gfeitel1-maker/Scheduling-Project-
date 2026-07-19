@@ -212,3 +212,195 @@ describe('submit_op', () => {
     ws1.close()
   })
 })
+
+describe('malformed message resilience (Fix 1)', () => {
+  it('does not crash the server when an unauthenticated client sends the literal text "null"', async () => {
+    const ws1 = connect()
+    await onceOpen(ws1)
+    ws1.send('null')
+
+    await new Promise((r) => setTimeout(r, 100))
+
+    // server must still be alive and responsive for a fresh connection
+    const ws2 = connect()
+    await onceOpen(ws2)
+    ws2.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+    ws2.send(
+      JSON.stringify({
+        type: 'acquire_lock',
+        entity: 'template_slots',
+        entity_id: 'resilience-1',
+        field: 'activity_id',
+      })
+    )
+    const msg = await onceMessage(ws2)
+    expect(msg).toEqual({ type: 'lock_result', granted: true })
+
+    ws1.close()
+    ws2.close()
+  })
+
+  it('responds with an error (not a crash) when submit_op is missing op', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+    await new Promise((r) => setTimeout(r, 50))
+
+    const errPromise = onceMessage(ws)
+    ws.send(JSON.stringify({ type: 'submit_op' }))
+    const err = await errPromise
+    expect(err.type).toBe('error')
+
+    // server still alive/responsive
+    const ws2 = connect()
+    await onceOpen(ws2)
+    ws2.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+    ws2.send(
+      JSON.stringify({
+        type: 'acquire_lock',
+        entity: 'template_slots',
+        entity_id: 'resilience-2',
+        field: 'activity_id',
+      })
+    )
+    const msg = await onceMessage(ws2)
+    expect(msg).toEqual({ type: 'lock_result', granted: true })
+
+    ws.close()
+    ws2.close()
+  })
+
+  it('responds with an error (not a crash) when acquire_lock is missing entity', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+    await new Promise((r) => setTimeout(r, 50))
+
+    const errPromise = onceMessage(ws)
+    ws.send(JSON.stringify({ type: 'acquire_lock' }))
+    const err = await errPromise
+    expect(err.type).toBe('error')
+
+    const ws2 = connect()
+    await onceOpen(ws2)
+    ws2.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+    ws2.send(
+      JSON.stringify({
+        type: 'acquire_lock',
+        entity: 'template_slots',
+        entity_id: 'resilience-3',
+        field: 'activity_id',
+      })
+    )
+    const msg = await onceMessage(ws2)
+    expect(msg).toEqual({ type: 'lock_result', granted: true })
+
+    ws.close()
+    ws2.close()
+  })
+})
+
+describe('lock release on disconnect (Fix 2)', () => {
+  it('releases a lock held by a device when its connection closes', async () => {
+    const wsA = connect()
+    await onceOpen(wsA)
+    wsA.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+    await new Promise((r) => setTimeout(r, 50))
+
+    const lockPromise = onceMessage(wsA)
+    wsA.send(
+      JSON.stringify({
+        type: 'acquire_lock',
+        entity: 'template_slots',
+        entity_id: 'disconnect-lock',
+        field: 'activity_id',
+      })
+    )
+    const lockMsg = await lockPromise
+    expect(lockMsg).toEqual({ type: 'lock_result', granted: true })
+
+    wsA.close()
+    await new Promise((r) => setTimeout(r, 100))
+
+    const otherDeviceId = randomUUID()
+    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(otherDeviceId, 'Device B')
+    const otherToken = issueSessionToken(userId, otherDeviceId)
+    const wsB = connect()
+    await onceOpen(wsB)
+    wsB.send(JSON.stringify({ type: 'authenticate', token: otherToken, device_id: otherDeviceId }))
+    await new Promise((r) => setTimeout(r, 50))
+
+    const lockPromiseB = onceMessage(wsB)
+    wsB.send(
+      JSON.stringify({
+        type: 'acquire_lock',
+        entity: 'template_slots',
+        entity_id: 'disconnect-lock',
+        field: 'activity_id',
+      })
+    )
+    const lockMsgB = await lockPromiseB
+    expect(lockMsgB).toEqual({ type: 'lock_result', granted: true })
+
+    wsB.close()
+  })
+})
+
+describe('safe broadcast (Fix 3)', () => {
+  it('does not throw when broadcasting to a client whose readyState is not OPEN', async () => {
+    const ws1 = connect()
+    await onceOpen(ws1)
+    ws1.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+
+    const otherDeviceId = randomUUID()
+    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(otherDeviceId, 'Device B')
+    const otherToken = issueSessionToken(userId, otherDeviceId)
+    const ws2 = connect()
+    await onceOpen(ws2)
+    ws2.send(JSON.stringify({ type: 'authenticate', token: otherToken, device_id: otherDeviceId }))
+
+    await new Promise((r) => setTimeout(r, 50))
+
+    // simulate a client that's still tracked in wss.clients but no longer OPEN
+    for (const client of server.wss.clients) {
+      if (client.deviceId === otherDeviceId) {
+        Object.defineProperty(client, 'readyState', { value: 3, configurable: true }) // CLOSED
+      }
+    }
+
+    ws1.send(
+      JSON.stringify({
+        type: 'submit_op',
+        op: {
+          entity: 'template_slots',
+          entity_id: 'broadcast-safety',
+          field: 'activity_id',
+          value: 'swim',
+          author_user_id: userId,
+          parent_op_id: null,
+        },
+      })
+    )
+
+    await new Promise((r) => setTimeout(r, 100))
+
+    // server still alive/responsive afterward
+    const ws3 = connect()
+    await onceOpen(ws3)
+    ws3.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+    ws3.send(
+      JSON.stringify({
+        type: 'acquire_lock',
+        entity: 'template_slots',
+        entity_id: 'broadcast-safety-check',
+        field: 'activity_id',
+      })
+    )
+    const msg = await onceMessage(ws3)
+    expect(msg).toEqual({ type: 'lock_result', granted: true })
+
+    ws1.close()
+    ws2.close()
+    ws3.close()
+  })
+})

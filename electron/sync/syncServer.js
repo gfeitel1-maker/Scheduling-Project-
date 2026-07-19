@@ -1,10 +1,31 @@
 import { WebSocketServer } from 'ws'
 import { verifySessionToken } from '../auth/localAuth.js'
-import { acquireLock, expireLocks } from './lockManager.js'
+import { acquireLock, expireLocks, releaseLocksForDevice } from './lockManager.js'
 import { detectConflict, appendOp } from '../ops/operations.js'
 
 function send(ws, message) {
-  ws.send(JSON.stringify(message))
+  try {
+    if (ws.readyState !== ws.OPEN) return
+    ws.send(JSON.stringify(message))
+  } catch {
+    // ignore send failures to dead/closing sockets
+  }
+}
+
+function sendError(ws) {
+  if (ws.deviceId) {
+    send(ws, { type: 'error', message: 'invalid request' })
+  } else {
+    try {
+      ws.close()
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function isNonEmptyString(v) {
+  return typeof v === 'string' && v.length > 0
 }
 
 function handleAuthenticate(ws, msg) {
@@ -15,6 +36,20 @@ function handleAuthenticate(ws, msg) {
   }
   ws.deviceId = verified.deviceId
   ws.userId = verified.userId
+}
+
+function validateAcquireLockMsg(msg) {
+  return isNonEmptyString(msg.entity) && isNonEmptyString(msg.entity_id) && isNonEmptyString(msg.field)
+}
+
+function validateSubmitOpMsg(msg) {
+  const op = msg.op
+  if (!op || typeof op !== 'object') return false
+  if (!isNonEmptyString(op.entity)) return false
+  if (!isNonEmptyString(op.entity_id)) return false
+  if (!isNonEmptyString(op.field)) return false
+  if (!(op.parent_op_id === null || isNonEmptyString(op.parent_op_id))) return false
+  return true
 }
 
 function handleAcquireLock(db, ws, msg) {
@@ -37,7 +72,13 @@ function handleSubmitOp(db, wss, ws, msg) {
   const op = appendOp(db, incomingOp)
   for (const client of wss.clients) {
     if (client.deviceId) {
-      send(client, { type: 'op_applied', op })
+      try {
+        if (client.readyState === client.OPEN) {
+          send(client, { type: 'op_applied', op })
+        }
+      } catch {
+        // never let one dead client stop the broadcast to others
+      }
     }
   }
 }
@@ -54,17 +95,43 @@ export function startSyncServer(db, { port }) {
         return
       }
 
-      if (msg.type === 'authenticate') {
-        handleAuthenticate(ws, msg)
+      if (msg === null || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.type !== 'string') {
         return
       }
 
-      if (!ws.deviceId) return
+      try {
+        if (msg.type === 'authenticate') {
+          handleAuthenticate(ws, msg)
+          return
+        }
 
-      if (msg.type === 'acquire_lock') {
-        handleAcquireLock(db, ws, msg)
-      } else if (msg.type === 'submit_op') {
-        handleSubmitOp(db, wss, ws, msg)
+        if (!ws.deviceId) return
+
+        if (msg.type === 'acquire_lock') {
+          if (!validateAcquireLockMsg(msg)) {
+            sendError(ws)
+            return
+          }
+          handleAcquireLock(db, ws, msg)
+        } else if (msg.type === 'submit_op') {
+          if (!validateSubmitOpMsg(msg)) {
+            sendError(ws)
+            return
+          }
+          handleSubmitOp(db, wss, ws, msg)
+        }
+      } catch {
+        sendError(ws)
+      }
+    })
+
+    ws.on('close', () => {
+      if (ws.deviceId) {
+        try {
+          releaseLocksForDevice(db, ws.deviceId)
+        } catch {
+          // ignore errors releasing locks on disconnect
+        }
       }
     })
   })

@@ -24,6 +24,11 @@ export function releaseLock(db, { entity, entity_id, field, device_id }) {
     .run(entity, entity_id, field, device_id)
 }
 
+export function releaseLocksForDevice(db, deviceId) {
+  const result = db.prepare('DELETE FROM locks WHERE holder_device_id = ?').run(deviceId)
+  return result.changes
+}
+
 export function expireLocks(db, olderThanMs) {
   const cutoffSeconds = Math.floor(olderThanMs / 1000)
   const result = db.prepare(`DELETE FROM locks WHERE acquired_at < datetime('now', '-' || ? || ' seconds')`)
