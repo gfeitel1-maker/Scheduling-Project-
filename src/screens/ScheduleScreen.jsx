@@ -14,6 +14,8 @@ import { exportToExcel } from '../utils/exportSchedule'
 import ScheduleGroupView from '../components/schedule/ScheduleGroupView'
 import ScheduleDayView from '../components/schedule/ScheduleDayView'
 import ScheduleActivityView from '../components/schedule/ScheduleActivityView'
+import ManualBuildView from '../components/schedule/ManualBuildView'
+import DisplacedPalette from '../components/schedule/DisplacedPalette'
 
 
 export default function ScheduleScreen({ campId, onNavigate }) {
@@ -44,6 +46,8 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   const [stampMode, setStampMode] = useState(null) // null | string (label of active stamp)
   const [showFieldTripDrawer, setShowFieldTripDrawer] = useState(false)
   const [fillState, setFillState] = useState(null)  // null | { overlayId, previewToOrder }
+  const [manualMode, setManualMode] = useState(false)
+  const [displacedItems, setDisplacedItems] = useState([])
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
@@ -69,7 +73,6 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     setLoading(true)
     setLoadError(null)
     setTemplateError(null)
-    let loadedActivities = []
     try {
       const [{ data: gd }, { data: td }, { data: bd }, { data: ad }, { data: ancd }, { data: tierd }] = await Promise.all([
         supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
@@ -90,7 +93,6 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       setGroups(sortedG); setDays(d); setTimeBlocks(b); setActivities(a); setAnchors(anc); setTiers(t)
       if (sortedG.length > 0) setSelectedGroup(sortedG[0].id)
       if (d.length > 0) setSelectedDay(d[0].id)
-      loadedActivities = a
     } catch {
       setLoadError('Failed to load schedule data — check your connection and refresh')
       setLoading(false)
@@ -167,6 +169,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       activity_id: s.activityId,
       anchor_id: s.anchorId,
       is_anchor: s.type === 'anchor',
+      is_span_head: s.is_span_head !== false,
       flags: s.flags || {},
     }))
 
@@ -349,14 +352,162 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
   async function regenFromScratch() {
     setConfirmRegen(false)
+    setManualMode(false)
     await generate()
   }
 
+  async function placeAnchors() {
+    setGenerating(true)
+    const result = buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId, anchorsOnly: true })
+
+    let tid = templateId
+    if (!tid) {
+      const { data } = await supabase.from('schedule_templates').insert({ camp_id: campId, name: 'Master Template' }).select('id').single()
+      tid = data.id
+      setTemplateId(tid)
+    }
+
+    if (slots.length > 0) await saveSnapshot(null, true)
+
+    await supabase.from('template_slots').delete().eq('template_id', tid)
+    await supabase.from('template_overlays').delete().eq('template_id', tid)
+    setOverlays([])
+
+    const rows = result.slots.map(s => ({
+      template_id: tid,
+      group_id: s.groupId,
+      day_id: s.dayId,
+      time_block_id: s.blockId,
+      activity_id: s.activityId,
+      anchor_id: s.anchorId,
+      is_anchor: s.type === 'anchor',
+      is_span_head: s.is_span_head !== false,
+      flags: s.flags || {},
+    }))
+
+    for (let i = 0; i < rows.length; i += 500) {
+      await supabase.from('template_slots').insert(rows.slice(i, i + 500))
+    }
+
+    const { data: freshSlots } = await supabase.from('template_slots').select('*').eq('template_id', tid)
+    setSlots(freshSlots || [])
+    recalcStats(freshSlots || [])
+    setManualMode(true)
+    setView('manual')
+    if (groups.length > 0) setSelectedGroup(groups[0].id)
+    setGenerating(false)
+  }
+
+  async function placeActivityManual(activityId, groupId, dayId, blockId) {
+    if (!templateId) return
+    const slot = getSlot(groupId, dayId, blockId)
+    if (!slot || slot.is_anchor) return
+
+    const activity = activities.find(a => a.id === activityId)
+    if (!activity) return
+
+    const group = groups.find(g => g.id === groupId)
+    const tierIds = activity.eligible_tier_ids || []
+    const groupIds = activity.eligible_group_ids || []
+    const eligible = (tierIds.length === 0 && groupIds.length === 0)
+      || tierIds.includes(group?.tier_id)
+      || groupIds.includes(groupId)
+
+    const weekCount = slots.filter(s => s.group_id === groupId && s.activity_id === activityId).length
+    const atMax = activity.max_per_week != null && weekCount >= activity.max_per_week
+
+    const coScheduled = slots.filter(s => s.day_id === dayId && s.time_block_id === blockId && s.activity_id === activityId).length
+    const locationFull = activity.max_groups_per_slot != null && coScheduled >= activity.max_groups_per_slot
+
+    const flags = {}
+    if (!eligible || locationFull) flags.UNFILLABLE = true
+    if (atMax) flags.UNDERSERVED = true
+
+    await supabase.from('template_slots')
+      .update({ activity_id: activityId, flags })
+      .eq('template_id', templateId)
+      .eq('group_id', groupId)
+      .eq('day_id', dayId)
+      .eq('time_block_id', blockId)
+
+    setSlots(prev => prev.map(s =>
+      s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
+        ? { ...s, activity_id: activityId, flags }
+        : s
+    ))
+  }
+
+
+  async function expandSlot(groupId, dayId, headBlockId, tailBlockId, tailActivityId, tailActivityName, tailBlockName, dayLabel) {
+    if (!templateId) return
+    const headSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+    if (!headSlot) return
+
+    const headActivityId = headSlot.activity_id
+    const existingFlags = headSlot.flags || {}
+    const newFlags = {
+      ...existingFlags,
+      expanded: {
+        displacedActivityId: tailActivityId,
+        displacedActivityName: tailActivityName,
+        from_block: tailBlockId,
+      },
+    }
+
+    // Update tail slot: now owned by head activity, marked as tail (is_span_head = false)
+    await supabase.from('template_slots')
+      .update({ activity_id: headActivityId, is_span_head: false })
+      .eq('template_id', templateId)
+      .eq('group_id', groupId)
+      .eq('day_id', dayId)
+      .eq('time_block_id', tailBlockId)
+
+    // Write flag to head slot
+    await supabase.from('template_slots')
+      .update({ flags: newFlags })
+      .eq('template_id', templateId)
+      .eq('group_id', groupId)
+      .eq('day_id', dayId)
+      .eq('time_block_id', headBlockId)
+
+    // Update local state
+    setSlots(prev => prev.map(s => {
+      if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId) {
+        return { ...s, activity_id: headActivityId, is_span_head: false }
+      }
+      if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId) {
+        return { ...s, flags: newFlags }
+      }
+      return s
+    }))
+
+    // Add displaced activity to palette
+    const colorIdx = activities.findIndex(a => a.id === tailActivityId)
+    setDisplacedItems(prev => [
+      ...prev,
+      {
+        activityId: tailActivityId,
+        activityName: tailActivityName,
+        fromBlockName: tailBlockName,
+        dayLabel,
+        colorIdx: colorIdx >= 0 ? colorIdx : 0,
+      },
+    ])
+  }
+
+  function dismissDisplaced(activityId, fromBlockName) {
+    setDisplacedItems(prev => prev.filter(
+      item => !(item.activityId === activityId && item.fromBlockName === fromBlockName)
+    ))
+  }
 
   // Slots scoped to the active context — group view filters to selected group, all other views show camp-wide
   const visibleSlots = view === 'group' && selectedGroup
     ? slots.filter(s => s.group_id === selectedGroup)
     : slots
+
+  // Always count flags camp-wide so badges don't change value when switching views
+  const flagSlots = slots
 
   // Build lookup maps for rendering
   const actMap = new Map(activities.map((a, i) => [a.id, { ...a, colorIdx: i }]))
@@ -387,6 +538,29 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     for (let i = startIdx + 1; i < timeBlocks.length; i++) {
       const nextSlot = getSlot(groupId, dayId, timeBlocks[i].id)
       if (nextSlot?.is_anchor && nextSlot?.anchor_id === slot.anchor_id) {
+        span++
+      } else {
+        break
+      }
+    }
+    return span
+  }
+
+  function isActivityTail(groupId, dayId, blockId) {
+    const slot = getSlot(groupId, dayId, blockId)
+    if (slot?.is_anchor || !slot?.activity_id) return false
+    return slot.is_span_head === false
+  }
+
+  function getActivityRowSpan(groupId, dayId, blockId) {
+    const slot = getSlot(groupId, dayId, blockId)
+    if (!slot?.activity_id || slot.is_anchor) return 1
+    const startIdx = timeBlocks.findIndex(b => b.id === blockId)
+    if (startIdx === -1) return 1
+    let span = 1
+    for (let i = startIdx + 1; i < timeBlocks.length; i++) {
+      const nextSlot = getSlot(groupId, dayId, timeBlocks[i].id)
+      if (nextSlot?.activity_id === slot.activity_id && nextSlot.is_span_head === false) {
         span++
       } else {
         break
@@ -500,7 +674,10 @@ export default function ScheduleScreen({ campId, onNavigate }) {
           <>
             {/* View toggle */}
             <div style={{ display: 'flex', gap: 2, background: 'var(--border)', borderRadius: 8, padding: 3 }}>
-              {[['group','Group View'],['day','Daily View'],['activity','Activity View']].map(([v, label]) => (
+              {[
+                ...(manualMode ? [['manual', 'Manual Build']] : []),
+                ['group','Group View'],['day','Daily View'],['activity','Activity View'],
+              ].map(([v, label]) => (
                 <button key={v} onClick={() => { setView(v); if (v !== 'activity') setSelectedActivity(null) }} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'var(--font-sans)', background: view === v ? 'var(--surface)' : 'none', color: view === v ? 'var(--text)' : 'var(--text-secondary)', boxShadow: view === v ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}>{label}</button>
               ))}
             </div>
@@ -525,7 +702,14 @@ export default function ScheduleScreen({ campId, onNavigate }) {
             />
 
             <button
-              onClick={() => setShowFieldTripDrawer(v => !v)}
+              onClick={() => {
+                if (stampMode) {
+                  // Cancel active stamp mode instead of opening drawer
+                  setStampMode(null)
+                } else {
+                  setShowFieldTripDrawer(v => !v)
+                }
+              }}
               style={{
                 padding: '6px 14px',
                 border: `1px solid ${showFieldTripDrawer || stampMode ? '#f59e0b' : 'var(--border)'}`,
@@ -537,8 +721,9 @@ export default function ScheduleScreen({ campId, onNavigate }) {
                 cursor: 'pointer',
                 fontFamily: 'inherit',
               }}
+              title={stampMode ? `Stamp mode active: "${stampMode}" — click to cancel` : showFieldTripDrawer ? 'Click to close' : 'Field Trips'}
             >
-              Field Trips {stampMode ? `· ${stampMode}` : ''}
+              {stampMode ? `✕ ${stampMode}` : showFieldTripDrawer ? '✕ Field Trip' : 'Field Trips'}
             </button>
 
             <button onClick={() => exportToExcel({ slots, activities, anchors, groups, days, timeBlocks })} style={S.btnSecondary}>Export to Excel</button>
@@ -547,9 +732,15 @@ export default function ScheduleScreen({ campId, onNavigate }) {
         )}
 
         {!hasSchedule && (
-          <button onClick={generate} disabled={generating} style={{ ...S.btnPrimary, padding: '10px 24px', fontSize: 14 }}>
-            {generating ? 'Generating…' : 'Generate Schedule'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button onClick={generate} disabled={generating} style={{ ...S.btnPrimary, padding: '10px 24px', fontSize: 14 }}>
+              {generating ? 'Generating…' : 'Generate Schedule'}
+            </button>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>or</span>
+            <button onClick={placeAnchors} disabled={generating} style={{ ...S.btnSecondary, padding: '10px 24px', fontSize: 14 }}>
+              Build Manually
+            </button>
+          </div>
         )}
 
         {hasSchedule && generating && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>Generating…</span>}
@@ -559,10 +750,10 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       {hasSchedule && stats && (
         <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
           <StatBadge label="Filled" value={`${stats.filled}/${stats.open}`} color="var(--success)" />
-          <StatBadge label="Unfillable" value={visibleSlots.filter(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed).length} color={visibleSlots.some(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed) ? '#F0585D' : 'var(--text-secondary)'} onClick={() => setActiveFlag('UNFILLABLE')} />
-          <StatBadge label="Underserved" value={visibleSlots.filter(s => s.flags?.UNDERSERVED && !s.flags?.UNDERSERVED_dismissed).length} color={visibleSlots.some(s => s.flags?.UNDERSERVED && !s.flags?.UNDERSERVED_dismissed) ? '#F5A623' : 'var(--text-secondary)'} onClick={() => setActiveFlag('UNDERSERVED')} />
-          <StatBadge label="Weather Risk" value={visibleSlots.filter(s => s.flags?.WEATHER_RISK && !s.flags?.WEATHER_RISK_dismissed).length} color="#2F7DE1" onClick={() => setActiveFlag('WEATHER_RISK')} />
-          <StatBadge label="Distribution" value={visibleSlots.filter(s => s.flags?.DISTRIBUTION && !s.flags?.DISTRIBUTION_dismissed).length} color="#7DC433" onClick={() => setActiveFlag('DISTRIBUTION')} />
+          <StatBadge label="Unfillable" value={flagSlots.filter(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed).length} color={flagSlots.some(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed) ? '#F0585D' : 'var(--text-secondary)'} onClick={() => setActiveFlag('UNFILLABLE')} />
+          <StatBadge label="Underserved" value={flagSlots.filter(s => s.flags?.UNDERSERVED && !s.flags?.UNDERSERVED_dismissed).length} color={flagSlots.some(s => s.flags?.UNDERSERVED && !s.flags?.UNDERSERVED_dismissed) ? '#F5A623' : 'var(--text-secondary)'} onClick={() => setActiveFlag('UNDERSERVED')} />
+          <StatBadge label="Weather Risk" value={flagSlots.filter(s => s.flags?.WEATHER_RISK && !s.flags?.WEATHER_RISK_dismissed).length} color="#2F7DE1" onClick={() => setActiveFlag('WEATHER_RISK')} />
+          <StatBadge label="Distribution" value={flagSlots.filter(s => s.flags?.DISTRIBUTION && !s.flags?.DISTRIBUTION_dismissed).length} color="#7DC433" onClick={() => setActiveFlag('DISTRIBUTION')} />
         </div>
       )}
 
@@ -572,6 +763,14 @@ export default function ScheduleScreen({ campId, onNavigate }) {
           <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 20, color: 'var(--text)', marginBottom: 8 }}>No schedule yet</div>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Click "Generate Schedule" to build one from your current setup.</div>
         </div>
+      )}
+
+      {/* Displaced activity palette (floating) */}
+      {hasSchedule && (
+        <DisplacedPalette
+          displacedItems={displacedItems}
+          onDismiss={dismissDisplaced}
+        />
       )}
 
       {/* Group view */}
@@ -591,6 +790,8 @@ export default function ScheduleScreen({ campId, onNavigate }) {
           getOverlayRowSpan={getOverlayRowSpan}
           isAnchorTail={isAnchorTail}
           getAnchorRowSpan={getAnchorRowSpan}
+          isActivityTail={isActivityTail}
+          getActivityRowSpan={getActivityRowSpan}
           handleFillEnter={handleFillEnter}
           startFill={startFill}
           removeOverlay={removeOverlay}
@@ -598,6 +799,8 @@ export default function ScheduleScreen({ campId, onNavigate }) {
           onEditSlot={setEditSlot}
           fillState={fillState}
           getSlot={getSlot}
+          onExpandSlot={expandSlot}
+          onPlaceActivity={placeActivityManual}
         />
       )}
 
@@ -622,6 +825,8 @@ export default function ScheduleScreen({ campId, onNavigate }) {
           getOverlayRowSpan={getOverlayRowSpan}
           isAnchorTail={isAnchorTail}
           getAnchorRowSpan={getAnchorRowSpan}
+          isActivityTail={isActivityTail}
+          getActivityRowSpan={getActivityRowSpan}
           handleFillEnter={handleFillEnter}
           startFill={startFill}
           removeOverlay={removeOverlay}
@@ -629,6 +834,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
           onEditSlot={setEditSlot}
           fillState={fillState}
           getSlot={getSlot}
+          onExpandSlot={expandSlot}
         />
       )}
 
@@ -642,6 +848,26 @@ export default function ScheduleScreen({ campId, onNavigate }) {
           slots={slots}
           selectedActivity={selectedActivity}
           onSelectActivity={setSelectedActivity}
+        />
+      )}
+
+      {/* Manual build view */}
+      {hasSchedule && view === 'manual' && (
+        <ManualBuildView
+          groups={groups}
+          days={days}
+          timeBlocks={timeBlocks}
+          activities={activities}
+          slots={slots}
+          selectedGroup={selectedGroup}
+          onSelectGroup={setSelectedGroup}
+          actMap={actMap}
+          anchorMap={anchorMap}
+          isAnchorTail={isAnchorTail}
+          getAnchorRowSpan={getAnchorRowSpan}
+          getSlot={getSlot}
+          onPlaceActivity={placeActivityManual}
+          onEditSlot={setEditSlot}
         />
       )}
 
@@ -660,9 +886,13 @@ export default function ScheduleScreen({ campId, onNavigate }) {
             if (groupIds.includes(g.id)) return true
             return false
           })}
-          currentActivity={editSlot.activityId ? actMap.get(editSlot.activityId) : null}
-          currentAnchor={editSlot.anchorId ? anchorMap.get(editSlot.anchorId) : null}
-          weatherAlt={weatherMode && editSlot.activityId ? (() => { const a = actMap.get(editSlot.activityId); return a?.weather_alternative_id ? actMap.get(a.weather_alternative_id) : null })() : null}
+          currentActivity={(editSlot.activityId || editSlot.activity_id)
+            ? actMap.get(editSlot.activityId || editSlot.activity_id)
+            : null}
+          currentAnchor={(editSlot.anchorId || editSlot.anchor_id)
+            ? anchorMap.get(editSlot.anchorId || editSlot.anchor_id)
+            : null}
+          weatherAlt={weatherMode && (editSlot.activityId || editSlot.activity_id) ? (() => { const a = actMap.get(editSlot.activityId || editSlot.activity_id); return a?.weather_alternative_id ? actMap.get(a.weather_alternative_id) : null })() : null}
           weatherMode={weatherMode}
           onSave={editSlotSave}
           onClose={() => setEditSlot(null)}

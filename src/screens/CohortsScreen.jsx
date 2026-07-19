@@ -5,12 +5,12 @@ import { S } from '../styles/shared'
 const ANCHOR_MODELS = [
   { value: 'none',     label: 'None — no anchors' },
   { value: 'fixed',    label: 'Fixed — anchors locked to day + block' },
-  { value: 'floating', label: 'Floating — anchors constrained to a day window' },
+  { value: 'floating', label: 'Floating — anchors constrained to a day window (coming soon)' },
 ]
 
 const CAPACITY_SOURCES = [
   { value: 'groups_per_slot',  label: 'Groups per slot (default)' },
-  { value: 'camper_headcount', label: 'Camper headcount' },
+  { value: 'camper_headcount', label: 'Camper headcount (coming soon)' },
 ]
 
 function CohortRow({ cohort, onSave, onDelete }) {

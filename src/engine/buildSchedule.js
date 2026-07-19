@@ -35,15 +35,14 @@ function mulberry32(seed) {
 // Normalize both call signatures into the cohorts-array format.
 function normalizeInput(input) {
   if (input.cohorts) {
-    // New multi-cohort signature — pass through as-is
     return {
       cohorts: input.cohorts,
       days: input.days,
       activities: input.activities,
       campId: input.campId || '',
+      anchorsOnly: input.anchorsOnly || false,
     }
   }
-  // Legacy flat signature — wrap in a single-cohort array
   return {
     cohorts: [{
       cohort: { id: null, anchor_model: 'fixed', capacity_source: 'groups_per_slot', session_week_start: 1, session_week_end: 1 },
@@ -52,16 +51,16 @@ function normalizeInput(input) {
       groups: input.groups || [],
       preplacedSlots: input.preplacedSlots || [],
       activityTargets: null,
-      // Legacy anchors are resolved to preplaced-style objects inside scheduleCohort
       _legacyAnchors: input.anchors || [],
     }],
     days: input.days || [],
     activities: input.activities || [],
     campId: input.campId || '',
+    anchorsOnly: input.anchorsOnly || false,
   }
 }
 
-function scheduleCohort({ cohortEntry, days, activities, rand }) {
+function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = false }) {
   const { cohort, timeBlocks, tiers: _tiers, groups, preplacedSlots, activityTargets, _legacyAnchors } = cohortEntry
   const cohortId = cohort?.id ?? null
 
@@ -104,18 +103,25 @@ function scheduleCohort({ cohortEntry, days, activities, rand }) {
       groupList = anchor.group_ids || []
     }
 
+    // day_id null/undefined means every day
+    const dayList = (anchor.day_id != null && anchor.day_id !== '')
+      ? [anchor.day_id]
+      : days.map(d => d.id)
+
     const spanBlocks = anchor.span_blocks || 1
     for (const gid of groupList) {
-      // Head block
-      anchorLookup.set(`${gid}|${anchor.day_id}|${anchor.time_block_id}`, { ...anchor, _isSpanHead: true })
-      // Tail blocks (span_blocks > 1)
-      if (spanBlocks > 1) {
-        const headIdx = blockOrder.get(anchor.time_block_id)
-        if (headIdx !== undefined) {
-          for (let i = 1; i < spanBlocks; i++) {
-            const tailBlock = timeBlocksSorted[headIdx + i]
-            if (tailBlock) {
-              anchorLookup.set(`${gid}|${anchor.day_id}|${tailBlock.id}`, { ...anchor, _isSpanHead: false })
+      for (const did of dayList) {
+        // Head block
+        anchorLookup.set(`${gid}|${did}|${anchor.time_block_id}`, { ...anchor, _isSpanHead: true })
+        // Tail blocks (span_blocks > 1)
+        if (spanBlocks > 1) {
+          const headIdx = blockOrder.get(anchor.time_block_id)
+          if (headIdx !== undefined) {
+            for (let i = 1; i < spanBlocks; i++) {
+              const tailBlock = timeBlocksSorted[headIdx + i]
+              if (tailBlock) {
+                anchorLookup.set(`${gid}|${did}|${tailBlock.id}`, { ...anchor, _isSpanHead: false })
+              }
             }
           }
         }
@@ -155,21 +161,28 @@ function scheduleCohort({ cohortEntry, days, activities, rand }) {
   const assigned = new Map() // "groupId|dayId|blockId" → activityId
   const spanTails = new Set() // keys for tail blocks of multi-block placements
   const usageCount = new Map() // "groupId|activityId" → count
+  const dailyUsage = new Set() // "groupId|dayId|activityId" — per-day dedup guard
   const locationUsage = new Map() // "location|dayId|blockId" → [{ groupId, tierId }]
 
   function getCount(groupId, actId) {
     return usageCount.get(`${groupId}|${actId}`) || 0
   }
 
-  function incCount(groupId, actId) {
+  function incCount(groupId, actId, dayId) {
     const k = `${groupId}|${actId}`
     usageCount.set(k, (usageCount.get(k) || 0) + 1)
+    dailyUsage.add(`${groupId}|${dayId}|${actId}`)
+  }
+
+  function placedTodayForGroup(groupId, dayId, actId) {
+    return dailyUsage.has(`${groupId}|${dayId}|${actId}`)
   }
 
   function locationKey(location, dayId, blockId) { return `${location}|${dayId}|${blockId}` }
 
   function canPlace(act, groupId, dayId, blockId) {
     if (getCount(groupId, act.id) >= act.max_per_week) return false
+    if (placedTodayForGroup(groupId, dayId, act.id)) return false
 
     const spanCount = act.span_blocks || 1
     if (spanCount > 1) {
@@ -210,7 +223,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand }) {
     const safeGroup = group ?? { tier_id: null }
     const headKey = `${groupId}|${dayId}|${blockId}`
     assigned.set(headKey, act.id)
-    incCount(groupId, act.id)  // count once per placement (head only)
+    incCount(groupId, act.id, dayId)  // count once per placement (head only)
 
     const spanCount = act.span_blocks || 1
     if (spanCount > 1) {
@@ -241,6 +254,8 @@ function scheduleCohort({ cohortEntry, days, activities, rand }) {
   }
 
   // Pre-place locked slots (anchors from new signature + any explicit preplacedSlots)
+  // Note: place() calls incCount() which registers daily usage, so canPlace() will
+  // correctly block duplicate same-day placements even for pre-placed activities.
   for (const pre of (preplacedSlots || [])) {
     const key = `${pre.groupId}|${pre.dayId}|${pre.blockId}`
     if (!assigned.has(key)) {
@@ -288,9 +303,11 @@ function scheduleCohort({ cohortEntry, days, activities, rand }) {
   }
 
   const unfilledSlots = openSlots.filter(s => !assigned.has(`${s.groupId}|${s.dayId}|${s.blockId}`))
-  runRound(unfilledSlots, 'high')
-  const stillUnfilled = openSlots.filter(s => !assigned.has(`${s.groupId}|${s.dayId}|${s.blockId}`))
-  runRound(stillUnfilled, 'low')
+  if (!anchorsOnly) {
+    runRound(unfilledSlots, 'high')
+    const stillUnfilled = openSlots.filter(s => !assigned.has(`${s.groupId}|${s.dayId}|${s.blockId}`))
+    runRound(stillUnfilled, 'low')
+  }
 
   // ── Pass 3: audit ─────────────────────────────────────────────────────────
   const resultSlots = []
@@ -306,8 +323,10 @@ function scheduleCohort({ cohortEntry, days, activities, rand }) {
     const flags = {}
 
     if (!actId) {
-      flags.UNFILLABLE = true
-      flags.UNFILLABLE_reason = 'No eligible activity could be placed in this slot'
+      if (!anchorsOnly) {
+        flags.UNFILLABLE = true
+        flags.UNFILLABLE_reason = 'No eligible activity could be placed in this slot'
+      }
     } else {
       const act = activities.find(a => a.id === actId)
       if (act?.is_outdoor) {
@@ -325,46 +344,46 @@ function scheduleCohort({ cohortEntry, days, activities, rand }) {
     return activities.find(a => a.id === actId)?.min_per_week ?? 0
   }
 
-  // UNDERSERVED
   const underserved = []
-  for (const group of groups) {
-    for (const act of activities) {
-      if (!(eligibility.get(act.id) || new Set()).has(group.id)) continue
-      if (getMin(act.id) <= 0) continue
-      if (getCount(group.id, act.id) < getMin(act.id)) {
-        underserved.push({ groupId: group.id, activityId: act.id, got: getCount(group.id, act.id), needed: getMin(act.id) })
+  if (!anchorsOnly) {
+    for (const group of groups) {
+      for (const act of activities) {
+        if (!(eligibility.get(act.id) || new Set()).has(group.id)) continue
+        if (getMin(act.id) <= 0) continue
+        if (getCount(group.id, act.id) < getMin(act.id)) {
+          underserved.push({ groupId: group.id, activityId: act.id, got: getCount(group.id, act.id), needed: getMin(act.id) })
+        }
       }
     }
-  }
 
-  for (const u of underserved) {
-    const groupName = groupMap.get(u.groupId)?.name || u.groupId
-    const act = activities.find(a => a.id === u.activityId)
-    const actName = act?.name || u.activityId
-    const reason = `Goal: ${u.needed}×/wk — scheduled ${u.got}× (group: ${groupName}, activity: ${actName})`
-    for (const slot of resultSlots) {
-      if (slot.type === 'activity' && slot.groupId === u.groupId && slot.activityId === u.activityId) {
-        slot.flags = { ...slot.flags, UNDERSERVED: true, UNDERSERVED_reason: reason }
+    for (const u of underserved) {
+      const groupName = groupMap.get(u.groupId)?.name || u.groupId
+      const act = activities.find(a => a.id === u.activityId)
+      const actName = act?.name || u.activityId
+      const reason = `Goal: ${u.needed}×/wk — scheduled ${u.got}× (group: ${groupName}, activity: ${actName})`
+      for (const slot of resultSlots) {
+        if (slot.type === 'activity' && slot.groupId === u.groupId && slot.activityId === u.activityId) {
+          slot.flags = { ...slot.flags, UNDERSERVED: true, UNDERSERVED_reason: reason }
+        }
       }
     }
-  }
 
-  // DISTRIBUTION
-  for (const group of groups) {
-    for (const act of activities) {
-      if (act.prefer_before_day == null || act.prefer_before_day_min == null) continue
-      if (!(eligibility.get(act.id) || new Set()).has(group.id)) continue
-      const targetIdx = days.findIndex(d => d.day_of_week === act.prefer_before_day)
-      if (targetIdx < 0) continue
-      const beforeCount = resultSlots.filter(s =>
-        s.type === 'activity' && s.groupId === group.id && s.activityId === act.id &&
-        (dayOrder.get(s.dayId) ?? 99) < targetIdx
-      ).length
-      if (beforeCount < act.prefer_before_day_min) {
-        const reason = `Goal: ${act.prefer_before_day_min}× before day ${act.prefer_before_day} — only ${beforeCount}× placed (group: ${group.name}, activity: ${act.name})`
-        for (const slot of resultSlots) {
-          if (slot.type === 'activity' && slot.groupId === group.id && slot.activityId === act.id) {
-            slot.flags = { ...slot.flags, DISTRIBUTION: true, DISTRIBUTION_reason: reason }
+    for (const group of groups) {
+      for (const act of activities) {
+        if (act.prefer_before_day == null || act.prefer_before_day_min == null) continue
+        if (!(eligibility.get(act.id) || new Set()).has(group.id)) continue
+        const targetIdx = days.findIndex(d => d.day_of_week === act.prefer_before_day)
+        if (targetIdx < 0) continue
+        const beforeCount = resultSlots.filter(s =>
+          s.type === 'activity' && s.groupId === group.id && s.activityId === act.id &&
+          (dayOrder.get(s.dayId) ?? 99) < targetIdx
+        ).length
+        if (beforeCount < act.prefer_before_day_min) {
+          const reason = `Goal: ${act.prefer_before_day_min}× before day ${act.prefer_before_day} — only ${beforeCount}× placed (group: ${group.name}, activity: ${act.name})`
+          for (const slot of resultSlots) {
+            if (slot.type === 'activity' && slot.groupId === group.id && slot.activityId === act.id) {
+              slot.flags = { ...slot.flags, DISTRIBUTION: true, DISTRIBUTION_reason: reason }
+            }
           }
         }
       }
@@ -385,7 +404,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand }) {
 }
 
 function buildSchedule(input) {
-  const { cohorts, days, activities, campId } = normalizeInput(input)
+  const { cohorts, days, activities, campId, anchorsOnly } = normalizeInput(input)
 
   // Pass 1: schedule each cohort independently
   // (multi-cohort cross-resource conflict detection is Sub-project 3)
@@ -396,7 +415,7 @@ function buildSchedule(input) {
     const cohortEntry = cohorts[idx]
     const cohortSeed = campId + (cohortEntry.cohort?.id || String(idx))
     const rand = mulberry32(djb2(cohortSeed))
-    const { slots, stats } = scheduleCohort({ cohortEntry, days, activities, rand })
+    const { slots, stats } = scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly })
     allSlots.push(...slots)
     allStats.push(stats)
   }

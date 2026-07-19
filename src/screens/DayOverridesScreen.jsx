@@ -5,8 +5,8 @@ import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 
 const FREQUENCY_MODES = [
-  { value: 'reduced',     label: 'Reduced — targets scale down proportionally' },
-  { value: 'best_effort', label: 'Best effort — targets unchanged, engine does what it can' },
+  { value: 'reduced',     label: 'Reduced — targets scale down proportionally (coming soon)' },
+  { value: 'best_effort', label: 'Best effort — targets unchanged, engine does what it can (coming soon)' },
 ]
 
 function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {

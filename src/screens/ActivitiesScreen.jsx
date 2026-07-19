@@ -23,6 +23,7 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
   const [preferMin, setPreferMin] = useState(activity?.prefer_before_day_min ?? 2)
   const [weatherAlt, setWeatherAlt] = useState(activity?.weather_alternative_id || '')
   const [notes, setNotes] = useState(activity?.notes || '')
+  const [spanBlocks, setSpanBlocks] = useState(activity?.span_blocks ?? 1)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
 
@@ -36,7 +37,7 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
     const record = {
       camp_id: undefined,
       name: name.trim(), location: location.trim() || null, is_outdoor: isOutdoor,
-      max_groups_per_slot: Number(maxGroups), min_per_week: Number(minWeek), max_per_week: Number(maxWeek),
+      max_groups_per_slot: Number(maxGroups), min_per_week: Number(minWeek), max_per_week: Number(maxWeek), span_blocks: Number(spanBlocks),
       same_tier_only: sameTier, priority,
       eligible_tier_ids: eligTiers, eligible_group_ids: groupOverride ? eligGroups : [],
       prefer_before_day: preferDay ? Number(preferDayVal) : null,
@@ -75,18 +76,40 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
 
         <div style={{ display: 'flex', gap: 24, marginBottom: 16, flexWrap: 'wrap' }}>
           <label style={checkLabel}><input type="checkbox" checked={isOutdoor} onChange={e => setIsOutdoor(e.target.checked)} style={{ marginRight: 6 }} />Outdoor activity</label>
-          <label style={checkLabel}><input type="checkbox" checked={sameTier} onChange={e => setSameTier(e.target.checked)} style={{ marginRight: 6 }} />Same unit only when co-scheduled</label>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <label style={checkLabel}>
+            <input type="checkbox" checked={maxGroups > 1} onChange={e => {
+              if (e.target.checked) { setMaxGroups(prev => Math.max(2, Number(prev))); }
+              else { setMaxGroups(1); setSameTier(false); }
+            }} style={{ marginRight: 6 }} />
+            Allow multiple groups at this activity at the same time
+          </label>
+          {maxGroups > 1 && (
+            <div style={{ paddingLeft: 22, marginTop: 10, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              <Field label="Max groups at once">
+                <input type="number" min={2} value={maxGroups} onChange={e => setMaxGroups(Math.max(2, Number(e.target.value)))} style={{ ...S.input, width: 80 }} />
+              </Field>
+              <div style={{ paddingTop: 22 }}>
+                <label style={checkLabel}>
+                  <input type="checkbox" checked={sameTier} onChange={e => setSameTier(e.target.checked)} style={{ marginRight: 6 }} />
+                  Groups must be from the same unit
+                </label>
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={grid3}>
-          <Field label="Max groups per slot">
-            <input type="number" min={1} value={maxGroups} onChange={e => setMaxGroups(e.target.value)} style={S.input} />
-          </Field>
           <Field label="Min per week">
             <input type="number" min={0} value={minWeek} onChange={e => setMinWeek(e.target.value)} style={S.input} />
           </Field>
           <Field label="Max per week">
             <input type="number" min={0} value={maxWeek} onChange={e => setMaxWeek(e.target.value)} style={S.input} />
+          </Field>
+          <Field label="Blocks per session">
+            <input type="number" min={1} value={spanBlocks} onChange={e => setSpanBlocks(Math.max(1, Number(e.target.value)))} style={S.input} />
           </Field>
         </div>
 
@@ -226,6 +249,27 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
     await supabase.from('activities').delete().eq('id', id); load()
   }
 
+  async function duplicateActivity(a) {
+    await supabase.from('activities').insert({
+      camp_id: campId,
+      name: `Copy of ${a.name}`,
+      location: a.location,
+      is_outdoor: a.is_outdoor,
+      max_groups_per_slot: a.max_groups_per_slot,
+      min_per_week: a.min_per_week,
+      max_per_week: a.max_per_week,
+      same_tier_only: a.same_tier_only,
+      priority: a.priority,
+      eligible_tier_ids: a.eligible_tier_ids,
+      eligible_group_ids: a.eligible_group_ids,
+      prefer_before_day: a.prefer_before_day,
+      prefer_before_day_min: a.prefer_before_day_min,
+      weather_alternative_id: a.weather_alternative_id,
+      notes: a.notes,
+    })
+    load()
+  }
+
   async function deleteAll() {
     if (!window.confirm('Delete all activities? This cannot be undone.')) return
     await supabase.from('activities').delete().eq('camp_id', campId)
@@ -353,7 +397,7 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
                 <th style={S.th}>Name</th>
                 <th style={S.th}>Location</th>
                 <th style={S.th}>Outdoor</th>
-                <th style={S.th}>Max/Slot</th>
+                <th style={S.th}>Co-schedule</th>
                 <th style={S.th}>Min–Max/Wk</th>
                 <th style={S.th}>Alt</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
@@ -375,11 +419,14 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
                         <td style={{ ...S.td, fontWeight: 500 }}>{a.name}</td>
                         <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{a.location || '—'}</td>
                         <td style={{ ...S.td, fontSize: 12 }}>{a.is_outdoor ? '🌤' : '—'}</td>
-                        <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{a.max_groups_per_slot}</td>
+                        <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>
+                          {a.max_groups_per_slot > 1 ? `Up to ${a.max_groups_per_slot}${a.same_tier_only ? ' (same unit)' : ''}` : '—'}
+                        </td>
                         <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{a.min_per_week}–{a.max_per_week}</td>
                         <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{a.weather_alternative_id ? actMap[a.weather_alternative_id] || '?' : '—'}</td>
                         <td style={{ ...S.td, textAlign: 'right' }}>
                           <button onClick={() => setModal({ activity: a })} style={S.btnSecondary}>Edit</button>
+                          <button onClick={() => duplicateActivity(a)} style={{ ...S.btnSecondary, marginLeft: 6 }}>Duplicate</button>
                           <button onClick={() => deleteActivity(a.id)} style={{ ...S.btnDanger, marginLeft: 6 }}>Delete</button>
                         </td>
                       </tr>

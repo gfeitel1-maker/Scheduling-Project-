@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 
 const ACTIVITY_COLORS = ['#00ADBB','#2F7DE1','#00AA59','#A63595','#F0585D','#7DC433']
@@ -18,9 +18,62 @@ export function activityColor(idx) { return ACTIVITY_COLORS[idx % ACTIVITY_COLOR
 export const cellTd = { padding: '8px 6px', verticalAlign: 'top', cursor: 'pointer' }
 export const emptyTd = { padding: '8px 6px', verticalAlign: 'top' }
 
-export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherMode, onEdit, onLock, onRelease, isLocked, isDndEnabled, rowSpan = 1 }) {
+function ExpandHandle({ groupId, dayId, blockId, activityId, cellHovered }) {
+  const [hovered, setHovered] = useState(false)
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `expand-${groupId}|${dayId}|${blockId}`,
+    data: { expandDrag: { groupId, dayId, blockId, activityId } },
+    activationConstraint: { distance: 12 },
+  })
+
+  const visible = cellHovered || isDragging
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...listeners}
+      {...attributes}
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+      onClick={e => e.stopPropagation()}
+      title={hovered || isDragging ? 'Drag to extend' : undefined}
+      style={{
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: 10,
+        borderRadius: '0 0 7px 7px',
+        background: hovered || isDragging ? 'var(--primary)' : 'var(--border)',
+        cursor: 'row-resize',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        transition: 'background 0.15s, opacity 0.15s',
+        opacity: visible ? (hovered || isDragging ? 1 : 0.6) : 0,
+        userSelect: 'none',
+        touchAction: 'none',
+        zIndex: 2,
+        pointerEvents: visible ? 'auto' : 'none',
+      }}
+    >
+      <span style={{
+        fontSize: 11,
+        color: hovered || isDragging ? '#fff' : 'var(--text-secondary)',
+        lineHeight: 1,
+        pointerEvents: 'none',
+      }}>
+        {hovered || isDragging ? '↕' : '─'}
+      </span>
+    </div>
+  )
+}
+
+export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherMode, onEdit, onRelease, isLocked, isDndEnabled, rowSpan = 1, isExpandDragActive = false }) {
+  const [cellHovered, setCellHovered] = useState(false)
   const id = slot ? `${slot.groupId}|${slot.dayId}|${slot.blockId}` : 'empty'
   const canDrag = isDndEnabled && slot?.type === 'activity' && !isLocked
+  const showExpandHandle = slot?.activity_id && !slot?.is_anchor && !isLocked
 
   const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
     id,
@@ -74,9 +127,7 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
   const isWeatherHighlight = weatherMode && isOutdoor
 
   function handleClick() {
-    if (!activity) { onEdit(slot); return }
     if (isLocked) { onRelease?.(slot); return }
-    if (onLock) { onLock(slot); return }
     onEdit(slot)
   }
 
@@ -97,13 +148,15 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
 
   const normalInnerStyle = activity
     ? {
-        background: `${color}1E`,
-        border: isWeatherHighlight ? `2px solid #2F7DE1` : `1.5px solid ${color}55`,
+        background: isOver && isExpandDragActive ? '#00AA5918' : `${color}1E`,
+        border: isOver && isExpandDragActive
+          ? '2px dashed #00AA59'
+          : isWeatherHighlight ? `2px solid #2F7DE1` : `1.5px solid ${color}55`,
         borderRadius: 8,
         padding: '10px 12px',
         minHeight: 56,
         opacity: isDragging ? 0.4 : 1,
-        outline: isOver && isDndEnabled ? '2px solid var(--primary)' : 'none',
+        outline: isOver && isDndEnabled && !isExpandDragActive ? '2px solid var(--primary)' : 'none',
         outlineOffset: -2,
         position: 'relative',
       }
@@ -135,6 +188,8 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
       rowSpan={rowSpan}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
+      onPointerEnter={() => setCellHovered(true)}
+      onPointerLeave={() => setCellHovered(false)}
       title={tooltipText}
       {...(canDrag ? { ...listeners, ...attributes } : {})}
     >
@@ -168,6 +223,15 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
               />
             ))}
           </div>
+        )}
+        {showExpandHandle && (
+          <ExpandHandle
+            groupId={slot.groupId}
+            dayId={slot.dayId}
+            blockId={slot.blockId}
+            activityId={slot.activity_id}
+            cellHovered={cellHovered}
+          />
         )}
       </div>
     </td>

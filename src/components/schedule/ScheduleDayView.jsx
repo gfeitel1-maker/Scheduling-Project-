@@ -1,5 +1,5 @@
 import { DndContext } from '@dnd-kit/core'
-import SlotCell, { FLAG_COLORS, activityColor, cellTd, emptyTd } from '../schedule/SlotCell'
+import SlotCell, { emptyTd } from '../schedule/SlotCell'
 import OverlayCell from '../schedule/OverlayCell'
 import { S } from '../../styles/shared'
 
@@ -9,9 +9,11 @@ export default function ScheduleDayView({
   sensors, swapSlots, lockActivity, releaseCell,
   overlayForCell, isOverlayHead, getOverlayRowSpan,
   isAnchorTail, getAnchorRowSpan,
+  isActivityTail, getActivityRowSpan,
   handleFillEnter, startFill, removeOverlay, handleStampClick,
   onEditSlot, fillState,
   getSlot,
+  onExpandSlot,
 }) {
   return (
     <div>
@@ -33,6 +35,43 @@ export default function ScheduleDayView({
           sensors={sensors}
           onDragEnd={({ active, over }) => {
             if (!over) return
+
+            const expandDrag = active.data.current?.expandDrag
+            if (expandDrag) {
+              const { groupId, dayId, blockId: headBlockId } = expandDrag
+              const overData = over.data.current || {}
+              const tailBlockId = overData.blockId || overData.slot?.blockId
+              const tailGroupId = overData.groupId || overData.slot?.groupId
+              const tailDayId = overData.dayId || overData.slot?.dayId
+
+              if (!tailBlockId || tailGroupId !== groupId || tailDayId !== dayId) return
+
+              const headBlock = timeBlocks.find(b => b.id === headBlockId)
+              const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
+              if (!headBlock || !tailBlock) return
+              if (tailBlock.sort_order !== headBlock.sort_order + 1) return
+
+              const tailSlot = getSlot(groupId, dayId, tailBlockId)
+              if (!tailSlot || !tailSlot.activity_id || tailSlot.is_anchor) return
+
+              const tailActivity = actMap.get(tailSlot.activity_id)
+              const tailBlockName = tailBlock.name
+              const day = days ? days.find(d => d.id === dayId) : null
+              const dayLabel = day ? day.label : dayId
+
+              onExpandSlot(
+                groupId,
+                dayId,
+                headBlockId,
+                tailBlockId,
+                tailSlot.activity_id,
+                tailActivity?.name || '',
+                tailBlockName,
+                dayLabel,
+              )
+              return
+            }
+
             const slotA = active.data.current?.slot
             const slotB = over.data.current?.slot
             if (!slotA || !slotB) return
@@ -88,9 +127,10 @@ export default function ScheduleDayView({
                     const slot = getSlot(group.id, selectedDay, block.id)
                     if (!slot) return <td key={group.id} style={emptyTd} />
                     if (slot.is_anchor && isAnchorTail(group.id, selectedDay, block.id)) return null
-                    const rowSpan = slot.is_anchor && !isAnchorTail(group.id, selectedDay, block.id)
+                    if (!slot.is_anchor && isActivityTail(group.id, selectedDay, block.id)) return null
+                    const rowSpan = slot.is_anchor
                       ? getAnchorRowSpan(group.id, selectedDay, block.id)
-                      : 1
+                      : getActivityRowSpan(group.id, selectedDay, block.id)
                     const act = slot.activity_id ? actMap.get(slot.activity_id) : null
                     const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
                     const actIsLocked = slot.activity_id && act?.is_locked

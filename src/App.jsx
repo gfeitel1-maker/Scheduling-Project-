@@ -46,53 +46,22 @@ async function seedDays(campId) {
   }
 }
 
+// DEV BYPASS — remove before production
+const DEV_CAMP_ID = '022d370c-b25a-42e5-9b4c-f521d17dae29'
+
 export default function App() {
-  const { session, campId, loading } = useSession()
   const [screen, setScreen] = useState('setup')
 
   useEffect(() => {
-    if (campId) {
-      seedDays(campId)
-      ensureCohort(campId)
-    }
-  }, [campId])
-
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg)', color: 'var(--text-secondary)', fontSize: 13 }}>
-        Loading…
-      </div>
-    )
-  }
-
-  if (!session) {
-    return <AuthScreen />
-  }
-
-  if (!campId) {
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg)' }}>
-        <div style={{ maxWidth: 400, padding: 32, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
-          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 8, color: 'var(--text)' }}>No camp found</div>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.6 }}>
-            Your account is set up but no camp is linked to it. This can happen if signup was interrupted. Please sign out and try creating your camp again.
-          </div>
-          <button
-            onClick={() => supabase.auth.signOut()}
-            style={{ padding: '8px 16px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 6, fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}
-          >
-            Sign out
-          </button>
-        </div>
-      </div>
-    )
-  }
+    seedDays(DEV_CAMP_ID)
+    ensureCohort(DEV_CAMP_ID)
+  }, [])
 
   const Screen = SCREENS[screen] || CampSetup
 
   return (
-    <Shell currentScreen={screen} onNavigate={setScreen} campId={campId} onLogout={() => supabase.auth.signOut()}>
-      <Screen campId={campId} onNavigate={setScreen} />
+    <Shell currentScreen={screen} onNavigate={setScreen} campId={DEV_CAMP_ID} onLogout={() => {}}>
+      <Screen campId={DEV_CAMP_ID} onNavigate={setScreen} />
     </Shell>
   )
 }
