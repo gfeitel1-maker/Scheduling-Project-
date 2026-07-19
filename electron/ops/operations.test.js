@@ -64,6 +64,23 @@ describe('appendOp', () => {
   })
 })
 
+describe('appendOp projection', () => {
+  it('updates the real users row when entity is users', () => {
+    appendOp(db, {
+      entity: 'users',
+      entity_id: 'user-1',
+      field: 'name',
+      value: 'Alicia',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    const row = db.prepare('SELECT name FROM users WHERE id = ?').get('user-1')
+    expect(row.name).toBe('Alicia')
+  })
+})
+
 describe('latestOp', () => {
   it('orders by seq, not timestamp, returning the most recently appended op', () => {
     const op1 = appendOp(db, {

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { applyProjection } from './projections.js'
 
 export function appendOp(db, { entity, entity_id, field, value, author_user_id, device_id, parent_op_id }) {
   const id = randomUUID()
@@ -11,7 +12,9 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
     )
     .run(id, entity, entity_id, field, value, author_user_id ?? null, device_id, timestamp, parent_op_id ?? null)
 
-  return db.prepare('SELECT * FROM operations WHERE seq = ?').get(result.lastInsertRowid)
+  const op = db.prepare('SELECT * FROM operations WHERE seq = ?').get(result.lastInsertRowid)
+  applyProjection(db, op)
+  return op
 }
 
 export function latestOp(db, entity, entity_id, field) {
