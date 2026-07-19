@@ -38,18 +38,20 @@ describe('Fix 1: nullable author_user_id', () => {
 })
 
 describe('Fix 2: schema versioning', () => {
-  it('getSchemaVersion returns 1 after openLocalDb runs', () => {
+  it('getSchemaVersion returns 2 after openLocalDb runs', () => {
     const db = freshDb()
-    expect(getSchemaVersion(db)).toBe(1)
+    expect(getSchemaVersion(db)).toBe(2)
     db.close()
   })
 
-  it('calling initSchema again does not throw and version stays 1', () => {
+  it('calling initSchema again does not throw and version stays 2', () => {
     const db = freshDb()
     expect(() => initSchema(db)).not.toThrow()
-    expect(getSchemaVersion(db)).toBe(1)
+    expect(getSchemaVersion(db)).toBe(2)
     const rows = db.prepare('SELECT * FROM schema_migrations WHERE version = 1').all()
     expect(rows.length).toBe(1)
+    const rows2 = db.prepare('SELECT * FROM schema_migrations WHERE version = 2').all()
+    expect(rows2.length).toBe(1)
     db.close()
   })
 })

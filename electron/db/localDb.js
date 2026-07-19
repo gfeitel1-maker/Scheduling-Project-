@@ -12,6 +12,9 @@ export function initSchema(db) {
   db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)').run(
     new Date().toISOString()
   )
+  db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (2, ?)').run(
+    new Date().toISOString()
+  )
 }
 
 export function openLocalDb(filePath) {
