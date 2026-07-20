@@ -172,9 +172,9 @@ describe('THIRD CORRECTION: version-4 migration is transactional', () => {
 })
 
 describe('Task 4: devices.last_synced_at (schema version 5)', () => {
-  it('getSchemaVersion returns 5 after openLocalDb runs', () => {
+  it('getSchemaVersion returns 6 after openLocalDb runs', () => {
     const db = freshDb()
-    expect(getSchemaVersion(db)).toBe(5)
+    expect(getSchemaVersion(db)).toBe(6)
     db.close()
   })
 
@@ -182,13 +182,13 @@ describe('Task 4: devices.last_synced_at (schema version 5)', () => {
     const db = freshDb()
     const col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(5)
+    expect(getSchemaVersion(db)).toBe(6)
     db.close()
   })
 
   it('an existing pre-migration db (missing last_synced_at) gets the column added via the guarded ALTER', () => {
     const db = freshDb()
-    // Simulate a pre-migration db: rebuild devices without last_synced_at, drop the v5 marker.
+    // Simulate a pre-migration db: rebuild devices without last_synced_at, drop the v5+ markers.
     db.exec('DROP TABLE devices')
     db.exec(`
       CREATE TABLE devices (
@@ -197,7 +197,7 @@ describe('Task 4: devices.last_synced_at (schema version 5)', () => {
         last_seen_at TEXT
       )
     `)
-    db.prepare('DELETE FROM schema_migrations WHERE version = 5').run()
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 5').run()
 
     let col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
     expect(col).toBeUndefined()
@@ -206,7 +206,46 @@ describe('Task 4: devices.last_synced_at (schema version 5)', () => {
 
     col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(5)
+    expect(getSchemaVersion(db)).toBe(6)
+    db.close()
+  })
+})
+
+describe('Task 9 Round 2 Fix 2: login_attempts table (schema version 6)', () => {
+  it('creates the login_attempts table on a fresh install', () => {
+    const db = freshDb()
+    const table = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='login_attempts'")
+      .get()
+    expect(table).toBeDefined()
+    expect(getSchemaVersion(db)).toBe(6)
+    db.close()
+  })
+
+  it('is idempotent: re-running initSchema on an already-migrated db does not error', () => {
+    const db = freshDb()
+    expect(() => initSchema(db)).not.toThrow()
+    expect(getSchemaVersion(db)).toBe(6)
+    db.close()
+  })
+
+  it('adds login_attempts to a pre-migration db missing it', () => {
+    const db = freshDb()
+    db.exec('DROP TABLE login_attempts')
+    db.prepare('DELETE FROM schema_migrations WHERE version = 6').run()
+
+    let table = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='login_attempts'")
+      .get()
+    expect(table).toBeUndefined()
+
+    initSchema(db)
+
+    table = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='login_attempts'")
+      .get()
+    expect(table).toBeDefined()
+    expect(getSchemaVersion(db)).toBe(6)
     db.close()
   })
 })

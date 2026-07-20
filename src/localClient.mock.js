@@ -49,6 +49,15 @@ export const mockShoresh = {
   async write() {
     return { status: 'applied' }
   },
+  async verifySession({ token } = {}) {
+    if (typeof token === 'string' && token.startsWith('mock.')) {
+      const state = loadState()
+      const userId = token.slice('mock.'.length)
+      const user = state.users.find((u) => u.id === userId)
+      if (user) return { valid: true, userId: user.id, role: user.role }
+    }
+    return { valid: false }
+  },
   onOpApplied() {},
   async getCamp() {
     return loadState().camp

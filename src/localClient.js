@@ -12,6 +12,7 @@ export const localClient = {
   createUser: (args) => shoresh.createUser(args),
   bootstrapCamp: (args) => shoresh.bootstrapCamp(args),
   write: (token, entity, entity_id, field, value) => shoresh.write({ token, entity, entity_id, field, value }),
+  verifySession: (token) => shoresh.verifySession({ token }),
   onOpApplied: (cb) => shoresh.onOpApplied(cb),
   getCamp: () => shoresh.getCamp(),
 }

@@ -184,13 +184,47 @@ describe('chooseMode: client path', () => {
 })
 
 describe('chooseMode: idempotency (Fix C)', () => {
-  it('throws if chooseMode is called a second time for the same session', async () => {
+  it('throws if chooseMode is called a second time with a genuinely different mode', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7199 })
-    expect(() => handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7199 })).toThrow(
+    expect(() => handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })).toThrow(
       'mode already chosen for this session'
     )
     expect(startSyncServer).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('chooseMode: same-mode replay is a no-op (Round 2 Fix 1)', () => {
+  it('returns successfully without re-starting the sync server when replayed with the same mode/args', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    const first = await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7199 })
+    const second = await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7199 })
+
+    expect(first).toEqual({ mode: 'host' })
+    expect(second).toEqual({ mode: 'host' })
+    expect(startSyncServer).toHaveBeenCalledTimes(1)
+  })
+
+  it('is a no-op when replayed for client mode too, without creating a second syncClient', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })
+    const result = await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })
+
+    expect(result).toEqual({ mode: 'client' })
+    expect(createSyncClient).not.toHaveBeenCalled()
+  })
+
+  it('simulates a renderer reload after mode was chosen: replaying the same mode never throws', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Reload Camp', port: 7198 })
+
+    // A renderer reload re-runs useDeviceMode's init effect, which re-calls
+    // chooseMode with the same persisted mode. This must not throw.
+    let result
+    expect(() => {
+      result = handlers.chooseMode({ mode: 'host', campName: 'Reload Camp', port: 7198 })
+    }).not.toThrow()
+    expect(result).toEqual({ mode: 'host' })
   })
 })
 
@@ -255,6 +289,52 @@ describe('login: rate limiting (Fix B)', () => {
     expect(handlers.login({ name: 'Frank', pin: 'wrong' })).toBeNull()
     expect(handlers.login({ name: 'Frank', pin: 'wrong' })).toBeNull()
     expect(handlers.login({ name: 'Frank', pin: '2222' })).toBeTruthy()
+  })
+})
+
+describe('login: lockout persists across a simulated app restart (Round 2 Fix 2)', () => {
+  it('survives a fresh openLocalDb/makeHandlers call against the same db file', async () => {
+    await seedCampAndUser({ name: 'Heidi', pin: '4444' })
+    const handlers1 = makeHandlers(db, deviceId, {})
+
+    for (let i = 0; i < 5; i++) {
+      expect(handlers1.login({ name: 'Heidi', pin: 'wrong' })).toBeNull()
+    }
+    const lockedResult = handlers1.login({ name: 'Heidi', pin: '4444' })
+    expect(lockedResult).toEqual({ locked: true, retryAfterMs: expect.any(Number) })
+
+    // Simulate an app restart: close and reopen the same db file, rebuild handlers.
+    db.close()
+    db = openLocalDb(tmpFile)
+    const deviceId2 = getOrCreateDeviceId(db)
+    const handlers2 = makeHandlers(db, deviceId2, {})
+
+    // Even the correct PIN must still be rejected as locked — an in-memory Map
+    // would have reset here, but the persisted table should not have.
+    const stillLocked = handlers2.login({ name: 'Heidi', pin: '4444' })
+    expect(stillLocked).toEqual({ locked: true, retryAfterMs: expect.any(Number) })
+  })
+})
+
+describe('shoresh:verify-session handler (Round 2 Fix 3)', () => {
+  it('returns valid:true with userId/role for a valid session token', async () => {
+    const { user } = await seedCampAndUser({ name: 'Ivan', pin: '7777', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = handlers.login({ name: 'Ivan', pin: '7777' })
+
+    const result = handlers.verifySession({ token })
+    expect(result).toEqual({ valid: true, userId: user.id, role: 'admin' })
+  })
+
+  it('returns valid:false (without throwing) for a malformed/garbage token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.verifySession({ token: 'not-a-real-token' })).not.toThrow()
+    expect(handlers.verifySession({ token: 'not-a-real-token' })).toEqual({ valid: false })
+  })
+
+  it('returns valid:false for a missing token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(handlers.verifySession({})).toEqual({ valid: false })
   })
 })
 

@@ -59,6 +59,20 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  if (getSchemaVersion(db) < 6) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS login_attempts (
+        name TEXT PRIMARY KEY,
+        count INTEGER NOT NULL DEFAULT 0,
+        locked_until TEXT
+      );
+    `)
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (6, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 export function openLocalDb(filePath) {

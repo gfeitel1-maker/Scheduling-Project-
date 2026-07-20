@@ -24,6 +24,8 @@ export function useDeviceMode() {
   const [joinHost, setJoinHost] = useState(() => readJSON(JOIN_HOST_KEY))
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY))
   const [camp, setCamp] = useState(null)
+  const [error, setError] = useState(null)
+  const [initNonce, setInitNonce] = useState(0)
 
   const refreshCamp = useCallback(async () => {
     const c = await localClient.getCamp()
@@ -34,21 +36,44 @@ export function useDeviceMode() {
   useEffect(() => {
     let active = true
     async function init() {
-      const c = await refreshCamp()
-      if (!active) return
+      try {
+        const c = await refreshCamp()
+        if (!active) return
 
-      if (mode === 'host' && c) {
-        await localClient.chooseMode({ mode: 'host', campName: c.name, port: DEFAULT_HOST_PORT })
-      } else if (mode === 'client' && joinHost) {
-        await localClient.chooseMode({ mode: 'client', host: joinHost.host, port: joinHost.port })
+        if (mode === 'host' && c) {
+          await localClient.chooseMode({ mode: 'host', campName: c.name, port: DEFAULT_HOST_PORT })
+        } else if (mode === 'client' && joinHost) {
+          await localClient.chooseMode({ mode: 'client', host: joinHost.host, port: joinHost.port })
+        }
+
+        const storedToken = localStorage.getItem(TOKEN_KEY)
+        if (storedToken) {
+          const result = await localClient.verifySession(storedToken)
+          if (!active) return
+          if (!result || !result.valid) {
+            localStorage.removeItem(TOKEN_KEY)
+            setToken(null)
+          }
+        }
+
+        if (active) setLoading(false)
+      } catch (err) {
+        if (!active) return
+        setError(err && err.message ? err.message : String(err))
+        setLoading(false)
       }
-
-      if (active) setLoading(false)
     }
     init()
     return () => { active = false }
-    // Runs once on mount only — mode/joinHost read from their initial (persisted) values.
+    // Runs once per initNonce (mount, or an explicit retry) — mode/joinHost read
+    // from their initial (persisted) values.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initNonce])
+
+  const retry = useCallback(() => {
+    setError(null)
+    setLoading(true)
+    setInitNonce((n) => n + 1)
   }, [])
 
   const chooseHost = useCallback(() => {
@@ -62,16 +87,24 @@ export function useDeviceMode() {
   }, [])
 
   const selectJoinHost = useCallback(async (host) => {
-    await localClient.chooseMode({ mode: 'client', host: host.host, port: host.port })
-    localStorage.setItem(JOIN_HOST_KEY, JSON.stringify(host))
-    setJoinHost(host)
-    await refreshCamp()
+    try {
+      await localClient.chooseMode({ mode: 'client', host: host.host, port: host.port })
+      localStorage.setItem(JOIN_HOST_KEY, JSON.stringify(host))
+      setJoinHost(host)
+      await refreshCamp()
+    } catch (err) {
+      setError(err && err.message ? err.message : String(err))
+    }
   }, [refreshCamp])
 
   const bootstrapCamp = useCallback(async ({ campName, adminName, adminPin }) => {
-    await localClient.chooseMode({ mode: 'host', campName, port: DEFAULT_HOST_PORT })
-    await localClient.bootstrapCamp({ campName, adminName, adminPin })
-    await refreshCamp()
+    try {
+      await localClient.chooseMode({ mode: 'host', campName, port: DEFAULT_HOST_PORT })
+      await localClient.bootstrapCamp({ campName, adminName, adminPin })
+      await refreshCamp()
+    } catch (err) {
+      setError(err && err.message ? err.message : String(err))
+    }
   }, [refreshCamp])
 
   const login = useCallback(async (name, pin) => {
@@ -96,7 +129,8 @@ export function useDeviceMode() {
   }, [])
 
   let phase
-  if (loading) phase = 'loading'
+  if (error) phase = 'error'
+  else if (loading) phase = 'loading'
   else if (!mode) phase = 'mode-select'
   else if (mode === 'host' && !camp) phase = 'bootstrap'
   else if (mode === 'client' && !joinHost) phase = 'join'
@@ -108,6 +142,8 @@ export function useDeviceMode() {
     mode,
     camp,
     joinHost,
+    error,
+    retry,
     chooseHost,
     chooseJoin,
     selectJoinHost,

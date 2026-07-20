@@ -11,7 +11,6 @@ import { advertiseHost, discoverHosts } from './sync/discovery.js'
 
 const LOGIN_MAX_ATTEMPTS = 5
 const LOGIN_LOCKOUT_MS = 30_000
-const loginAttempts = new Map()
 
 const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 
@@ -42,6 +41,20 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
   let mode = null
   let pendingServerUrl = null
 
+  function attemptsRow(name) {
+    return db.prepare('SELECT name, count, locked_until FROM login_attempts WHERE name = ?').get(name)
+  }
+
+  function saveAttempts(name, count, lockedUntil) {
+    db.prepare(
+      'INSERT OR REPLACE INTO login_attempts (name, count, locked_until) VALUES (?, ?, ?)'
+    ).run(name, count, lockedUntil != null ? String(lockedUntil) : null)
+  }
+
+  function clearAttempts(name) {
+    db.prepare('DELETE FROM login_attempts WHERE name = ?').run(name)
+  }
+
   function wireOpApplied() {
     syncClient.onOpApplied((op) => {
       const mainWindow = getMainWindow ? getMainWindow() : null
@@ -50,13 +63,19 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
   }
 
   function chooseMode(args) {
-    if (modeChosen) {
-      throw new Error('mode already chosen for this session')
-    }
-
     const { mode: requestedMode, campName, port } = args || {}
     if (requestedMode !== 'host' && requestedMode !== 'client') {
       throw new Error('mode must be "host" or "client"')
+    }
+
+    if (modeChosen) {
+      if (requestedMode === mode) {
+        // Same mode replayed (e.g. a renderer reload after mode was already
+        // chosen this process lifetime) — syncClient/server are already
+        // running, so this is a safe no-op rather than an error.
+        return { mode }
+      }
+      throw new Error('mode already chosen for this session')
     }
 
     if (requestedMode === 'host') {
@@ -83,26 +102,27 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
       throw new Error('name and pin are required')
     }
 
-    const attempt = loginAttempts.get(name)
-    if (attempt && attempt.lockedUntil && attempt.lockedUntil > Date.now()) {
-      return { locked: true, retryAfterMs: attempt.lockedUntil - Date.now() }
+    const attempt = attemptsRow(name)
+    const lockedUntil = attempt && attempt.locked_until ? Number(attempt.locked_until) : 0
+    if (lockedUntil && lockedUntil > Date.now()) {
+      return { locked: true, retryAfterMs: lockedUntil - Date.now() }
     }
 
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) return null
     const user = db.prepare('SELECT id, role FROM users WHERE camp_id = ? AND name = ?').get(camp.id, name)
     if (!user || !verifyPin(db, user.id, pin)) {
-      const current = loginAttempts.get(name) || { count: 0, lockedUntil: 0 }
-      current.count += 1
-      if (current.count >= LOGIN_MAX_ATTEMPTS) {
-        current.lockedUntil = Date.now() + LOGIN_LOCKOUT_MS
-        current.count = 0
+      let count = (attempt ? attempt.count : 0) + 1
+      let newLockedUntil = null
+      if (count >= LOGIN_MAX_ATTEMPTS) {
+        newLockedUntil = Date.now() + LOGIN_LOCKOUT_MS
+        count = 0
       }
-      loginAttempts.set(name, current)
+      saveAttempts(name, count, newLockedUntil)
       return null
     }
 
-    loginAttempts.delete(name)
+    clearAttempts(name)
 
     const token = issueSessionToken(user.id, deviceId)
 
@@ -161,6 +181,14 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     return { campId, userId: user.id }
   }
 
+  function verifySession({ token } = {}) {
+    const session = verifySessionToken(token)
+    if (!session) return { valid: false }
+    const user = db.prepare('SELECT id, role FROM users WHERE id = ?').get(session.userId)
+    if (!user) return { valid: false }
+    return { valid: true, userId: user.id, role: user.role }
+  }
+
   function write({ token, ...writeArgs } = {}) {
     if (!isNonEmptyString(token)) {
       throw new Error('token is required')
@@ -182,6 +210,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     createUser: createUserHandler,
     bootstrapCamp,
     write,
+    verifySession,
     getSyncClient: () => syncClient,
   }
 }
@@ -223,6 +252,7 @@ if (isElectronEntryPoint()) {
   ipcMain.handle('shoresh:create-user', (_event, args) => handlers.createUser(args))
   ipcMain.handle('shoresh:bootstrap-camp', (_event, args) => handlers.bootstrapCamp(args))
   ipcMain.handle('shoresh:write', (_event, args) => handlers.write(args))
+  ipcMain.handle('shoresh:verify-session', (_event, args) => handlers.verifySession(args))
   ipcMain.handle('shoresh:get-camp', () => db.prepare('SELECT * FROM camps LIMIT 1').get())
 
   app.whenReady().then(createWindow)

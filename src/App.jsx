@@ -16,6 +16,7 @@ import ScheduleScreen from './screens/ScheduleScreen'
 import { useDeviceMode } from './hooks/useDeviceMode'
 import { supabase } from './supabase'
 import { ensureCohort } from './utils/ensureCohort'
+import { S } from './styles/shared'
 
 const SCREENS = {
   setup:        CampSetup,
@@ -70,6 +71,31 @@ export default function App() {
   const device = useDeviceMode()
 
   if (device.phase === 'loading') return null
+
+  if (device.phase === 'error') {
+    return (
+      <div style={S.authPage}>
+        <div style={S.authCard}>
+          <div style={S.authLogoBlock}>
+            <div style={S.authLogo}>Shoresh</div>
+          </div>
+          <div style={S.authTitle}>Something went wrong</div>
+          <div style={S.authSubtitle}>
+            {device.error || 'An unexpected error occurred while starting the app.'}
+          </div>
+          <button
+            style={S.authBtnPrimary}
+            onClick={() => {
+              if (device.retry) device.retry()
+              else window.location.reload()
+            }}
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   if (device.phase === 'mode-select') {
     return <ModeSelectScreen onChooseHost={device.chooseHost} onChooseJoin={device.chooseJoin} />

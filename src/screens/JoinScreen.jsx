@@ -1,18 +1,33 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { S } from '../styles/shared'
 import { localClient } from '../localClient'
 
 export default function JoinScreen({ onBack, onSelectHost }) {
   const [state, setState] = useState('searching')
   const [hosts, setHosts] = useState([])
+  const mountedRef = useRef(true)
+  const scanningRef = useRef(false)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   const runDiscovery = useCallback(async () => {
-    const found = await localClient.discoverHosts()
-    setHosts(found || [])
-    setState(found && found.length > 0 ? 'found' : 'empty')
+    if (scanningRef.current) return
+    scanningRef.current = true
+    try {
+      const found = await localClient.discoverHosts()
+      if (!mountedRef.current) return
+      setHosts(found || [])
+      setState(found && found.length > 0 ? 'found' : 'empty')
+    } finally {
+      scanningRef.current = false
+    }
   }, [])
 
   const searchAgain = useCallback(() => {
+    if (scanningRef.current) return
     setState('searching')
     runDiscovery()
   }, [runDiscovery])
@@ -69,7 +84,13 @@ export default function JoinScreen({ onBack, onSelectHost }) {
               </button>
             ))}
 
-            <button style={{ ...S.authLinkBtn, marginTop: 14 }} onClick={searchAgain}>↻ Search again</button>
+            <button
+              style={{ ...S.authLinkBtn, marginTop: 14, opacity: scanningRef.current ? 0.5 : 1 }}
+              onClick={searchAgain}
+              disabled={scanningRef.current}
+            >
+              ↻ Search again
+            </button>
           </>
         )}
 
