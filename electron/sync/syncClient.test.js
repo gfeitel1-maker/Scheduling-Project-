@@ -6,7 +6,7 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
 import { openLocalDb } from '../db/localDb.js'
-import { createUser, issueSessionToken } from '../auth/localAuth.js'
+import { createUser, issueSessionToken, verifySessionToken } from '../auth/localAuth.js'
 import { appendOp, recordConflict, listPendingConflicts } from '../ops/operations.js'
 import { startSyncServer } from './syncServer.js'
 import { createSyncClient } from './syncClient.js'
@@ -1366,6 +1366,42 @@ describe('remote login (fresh client, no local token yet)', () => {
     // operational, not just nominally authenticated.
     const writeResult = await client.write({ entity: 'activities', entity_id: 'a2', field: 'name', value: 'Ceramics' })
     expect(writeResult.status).toBe('applied')
+
+    client.close()
+  })
+
+  it('the token a fresh client receives from loginRemote is genuinely verifiable by that client\'s OWN local verifySessionToken — the exact cross-process bug found during live testing', async () => {
+    expect(freshClientDb.prepare('SELECT COUNT(*) as n FROM camps').get().n).toBe(0)
+
+    const freshDeviceId = randomUUID()
+    const client = createSyncClient(freshClientDb, {
+      device_id: freshDeviceId,
+      author_user_id: null,
+      serverUrl: `ws://localhost:${REMOTE_LOGIN_PORT}`,
+    })
+    await client.waitUntilConnected()
+
+    const loginResult = await client.loginRemote({ name: 'Alice', pin: '1234' })
+    expect(loginResult.status).toBe('ok')
+
+    // Wait for full-sync to populate the local camps row (including the
+    // now-shared signing_secret) before attempting local verification.
+    await new Promise((resolve) => setTimeout(resolve, 200))
+
+    // Explicitly confirm full-sync actually carried the secret through and
+    // it matches the Host's, not just that verification happens to work.
+    const hostCamp = hostDb.prepare('SELECT signing_secret FROM camps LIMIT 1').get()
+    const clientCamp = freshClientDb.prepare('SELECT signing_secret FROM camps LIMIT 1').get()
+    expect(clientCamp.signing_secret).toEqual(expect.any(String))
+    expect(clientCamp.signing_secret).toBe(hostCamp.signing_secret)
+
+    // This is the exact call that was broken: verifying a Host-issued
+    // token using the CLIENT's own local db/verifySessionToken, in a
+    // SEPARATE process from the one that issued it. Before this fix, this
+    // returned null because each process had its own random, unshared
+    // HMAC secret.
+    const verified = verifySessionToken(freshClientDb, loginResult.token)
+    expect(verified).toEqual({ userId: loginResult.userId, deviceId: freshDeviceId })
 
     client.close()
   })
