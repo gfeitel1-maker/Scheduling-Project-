@@ -1152,3 +1152,88 @@ describe('reconnect catch-up (Task 10 round-4 Fix 3)', () => {
     fs.unlinkSync(bFile)
   })
 })
+
+describe('remote login (fresh client, no local token yet)', () => {
+  const REMOTE_LOGIN_PORT = 8240
+  let freshClientDb, freshClientFile, remoteLoginServer
+
+  beforeEach(() => {
+    freshClientFile = path.join(os.tmpdir(), `shoresh-sc-fresh-${Date.now()}-${Math.random()}.sqlite`)
+    freshClientDb = openLocalDb(freshClientFile)
+    remoteLoginServer = startSyncServer(hostDb, { port: REMOTE_LOGIN_PORT })
+  })
+
+  afterEach(() => {
+    remoteLoginServer.close()
+    freshClientDb.close()
+    fs.unlinkSync(freshClientFile)
+  })
+
+  it('connects with no token, then loginRemote yields a token and authenticates', async () => {
+    const freshDeviceId = randomUUID()
+    // NOTE (deviation from plan): in the real app, main.js's ensureDeviceRow
+    // registers this device's own device_id in its own local `devices` table
+    // at process startup, before login/syncClient ever run — the local
+    // `operations` table's device_id column has a FK to `devices(id)`, so an
+    // echoed-back op_applied for this device's own write can't be inserted
+    // without it. This test operates below main.js, so the row is inserted
+    // here directly to mirror that startup step.
+    freshClientDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(freshDeviceId, 'Fresh Device')
+    const client = createSyncClient(freshClientDb, {
+      device_id: freshDeviceId,
+      author_user_id: null,
+      serverUrl: `ws://localhost:${REMOTE_LOGIN_PORT}`,
+      // no token — this is the whole point
+    })
+    await client.waitUntilConnected()
+
+    const result = await client.loginRemote({ name: 'Alice', pin: '1234' })
+    expect(result.status).toBe('ok')
+    expect(result.token).toEqual(expect.any(String))
+    expect(result.userId).toBe(userId)
+    expect(result.role).toBe('admin')
+
+    // Now-authenticated: a real write should succeed (proves the automatic
+    // `authenticate` send after loginRemote actually worked server-side).
+    const writeResult = await client.write({ entity: 'activities', entity_id: 'a1', field: 'name', value: 'Archery' })
+    expect(writeResult.status).toBe('applied')
+
+    client.close()
+  })
+
+  it('returns status "failed" for a wrong pin, and the connection stays usable', async () => {
+    const client = createSyncClient(freshClientDb, {
+      device_id: randomUUID(),
+      author_user_id: null,
+      serverUrl: `ws://localhost:${REMOTE_LOGIN_PORT}`,
+    })
+    await client.waitUntilConnected()
+
+    const result = await client.loginRemote({ name: 'Alice', pin: 'wrong' })
+    expect(result).toEqual({ status: 'failed' })
+
+    // Retry with the correct pin on the SAME connection must still work.
+    // NOTE (deviation from plan): the Host throttles `login` messages to 1
+    // per 300ms per connection (Task 2 round-2 fix). Without this delay the
+    // retry below would be silently throttled rather than genuinely
+    // re-verified, so a short wait is inserted here before retrying.
+    await new Promise((resolve) => setTimeout(resolve, 350))
+
+    const retry = await client.loginRemote({ name: 'Alice', pin: '1234' })
+    expect(retry.status).toBe('ok')
+
+    client.close()
+  })
+
+  it('returns status "disconnected" if the socket is not open when loginRemote is called', async () => {
+    const client = createSyncClient(freshClientDb, {
+      device_id: randomUUID(),
+      author_user_id: null,
+      serverUrl: `ws://localhost:${REMOTE_LOGIN_PORT}`,
+    })
+    client.close() // never awaited connection, then closed immediately
+
+    const result = await client.loginRemote({ name: 'Alice', pin: '1234' })
+    expect(result.status).toBe('disconnected')
+  })
+})

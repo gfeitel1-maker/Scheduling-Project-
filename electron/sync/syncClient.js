@@ -8,11 +8,12 @@ const DEFAULT_RESOLVER_TIMEOUT_MS = 10000
 
 export function createSyncClient(
   db,
-  { device_id, author_user_id, serverUrl, token, lockTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS, submitTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS }
+  { device_id, author_user_id, serverUrl, token: initialToken, lockTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS, submitTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS }
 ) {
   const opAppliedListeners = []
   const opConflictListeners = []
   const queue = []
+  let token = initialToken
 
   function notifyOpApplied(op) {
     for (const listener of opAppliedListeners) listener(op)
@@ -60,6 +61,7 @@ export function createSyncClient(
   })
   const lockResolvers = []
   const submitResolvers = []
+  const loginResolvers = []
 
   function isNonEmptyString(v) {
     return typeof v === 'string' && v.length > 0
@@ -163,7 +165,9 @@ export function createSyncClient(
     ws = new WebSocket(serverUrl)
 
     ws.on('open', () => {
-      ws.send(JSON.stringify({ type: 'authenticate', token, device_id }))
+      if (token) {
+        ws.send(JSON.stringify({ type: 'authenticate', token, device_id }))
+      }
       connected = true
       connectedResolve()
     })
@@ -188,6 +192,12 @@ export function createSyncClient(
 
         if (msg.type === 'lock_result') {
           const resolve = lockResolvers.shift()
+          if (resolve) resolve(msg)
+          return
+        }
+
+        if (msg.type === 'login_ok' || msg.type === 'login_failed') {
+          const resolve = loginResolvers.shift()
           if (resolve) resolve(msg)
           return
         }
@@ -271,6 +281,10 @@ export function createSyncClient(
         const resolve = submitResolvers.shift()
         if (resolve) resolve({ status: 'disconnected' })
       }
+      while (loginResolvers.length) {
+        const resolve = loginResolvers.shift()
+        if (resolve) resolve({ status: 'disconnected' })
+      }
     }
 
     ws.on('close', () => {
@@ -332,6 +346,12 @@ export function createSyncClient(
   function submitOpRemote(op) {
     return withResolverTimeout(submitResolvers, submitTimeoutMs, () => {
       ws.send(JSON.stringify({ type: 'submit_op', op }))
+    })
+  }
+
+  function sendLoginRemote({ name, pin }) {
+    return withResolverTimeout(loginResolvers, lockTimeoutMs, () => {
+      ws.send(JSON.stringify({ type: 'login', device_id, name, pin }))
     })
   }
 
@@ -461,6 +481,22 @@ export function createSyncClient(
     },
     async waitUntilConnected() {
       await connectedPromise
+    },
+    async loginRemote({ name, pin }) {
+      if (!connected || !ws || ws.readyState !== WebSocket.OPEN) {
+        return { status: 'disconnected' }
+      }
+      const reply = await sendLoginRemote({ name, pin })
+      if (reply.status === 'disconnected' || reply.status === 'timeout') return reply
+      if (reply.type === 'login_ok') {
+        token = reply.token
+        ws.send(JSON.stringify({ type: 'authenticate', token, device_id }))
+        return { status: 'ok', token: reply.token, userId: reply.userId, role: reply.role }
+      }
+      // login_failed
+      return reply.locked
+        ? { status: 'failed', locked: true, retryAfterMs: reply.retryAfterMs }
+        : { status: 'failed' }
     },
     close() {
       if (ws) ws.close()
