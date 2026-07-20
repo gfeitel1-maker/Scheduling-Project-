@@ -136,7 +136,7 @@ function localTestWrite() {
 
 async function seedCampAndUser({ name = 'Alice', pin = '1234', role = 'staff' } = {}) {
   const campId = randomUUID()
-  db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Camp Shoresh')
+  db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp Shoresh', 'a'.repeat(64))
   const user = await createUser(db, { camp_id: campId, name, pin, role }, localTestWrite())
   return { campId, user }
 }
@@ -445,7 +445,7 @@ describe('bootstrapCamp (Fix A)', () => {
 describe('createUser handler (Fix A: admin-gated)', () => {
   it('rejects create-user with no token at all (no unauthenticated privilege escalation)', async () => {
     const campId = randomUUID()
-    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Camp Shoresh')
+    db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp Shoresh', 'a'.repeat(64))
     const handlers = makeHandlers(db, deviceId, {})
     await expect(
       handlers.createUser({ camp_id: campId, name: 'Mallory', pin: '1234', role: 'admin' })

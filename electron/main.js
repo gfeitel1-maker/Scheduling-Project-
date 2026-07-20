@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
 import { createUser, issueSessionToken, verifySessionToken, attemptLogin } from './auth/localAuth.js'
@@ -175,7 +175,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
 
   async function createUserHandler({ token, camp_id, name, pin, role } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
-    const session = verifySessionToken(token)
+    const session = verifySessionToken(db, token)
     if (!session) throw new Error('invalid session')
     const sessionUser = db.prepare('SELECT role FROM users WHERE id = ?').get(session.userId)
     if (!sessionUser || sessionUser.role !== 'admin') {
@@ -205,7 +205,8 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     }
 
     const campId = randomUUID()
-    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, campName)
+    const signingSecret = randomBytes(32).toString('hex')
+    db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, campName, signingSecret)
     const user = await createUser(
       db,
       { camp_id: campId, name: adminName, pin: adminPin, role: 'admin' },
@@ -216,7 +217,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
   }
 
   function verifySession({ token } = {}) {
-    const session = verifySessionToken(token)
+    const session = verifySessionToken(db, token)
     if (!session) return { valid: false }
     const user = db.prepare('SELECT id, role FROM users WHERE id = ?').get(session.userId)
     if (!user) return { valid: false }
@@ -227,7 +228,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     if (!isNonEmptyString(token)) {
       throw new Error('token is required')
     }
-    const session = verifySessionToken(token)
+    const session = verifySessionToken(db, token)
     if (!session) {
       throw new Error('invalid session')
     }
@@ -246,7 +247,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     if (!isNonEmptyString(token)) {
       throw new Error('token is required')
     }
-    const session = verifySessionToken(token)
+    const session = verifySessionToken(db, token)
     if (!session) {
       throw new Error('invalid session')
     }
