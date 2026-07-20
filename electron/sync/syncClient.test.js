@@ -967,7 +967,7 @@ describe('full_sync handling', () => {
     expect(userRow).toBeTruthy()
     expect(userRow.name).toBe('Alice')
     const campRow = freshClientDb.prepare('SELECT * FROM camps WHERE id = ?').get(campId)
-    expect(campRow).toEqual({ id: campId, name: 'Test Camp' })
+    expect(campRow).toEqual({ id: campId, name: 'Test Camp', signing_secret: null })
 
     client.close()
     freshClientDb.close()

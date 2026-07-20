@@ -1,6 +1,7 @@
 CREATE TABLE IF NOT EXISTS camps (
   id TEXT PRIMARY KEY,
-  name TEXT NOT NULL
+  name TEXT NOT NULL,
+  signing_secret TEXT
 );
 
 CREATE TABLE IF NOT EXISTS users (

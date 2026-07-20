@@ -2,7 +2,7 @@ import Database from 'better-sqlite3'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, randomBytes } from 'node:crypto'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -127,6 +127,34 @@ export function initSchema(db) {
     `)
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (8, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // Fix: a session token signed by one process's ephemeral in-memory secret
+  // could never be verified by a different process (Host vs. Client) using
+  // its own independent secret — this made a Client's freshly-obtained
+  // token from the remote-login flow unusable for any subsequent local IPC
+  // call. Move the signing secret onto the camps row so every device that
+  // has synced a camp shares the same secret.
+  if (getSchemaVersion(db) < 9) {
+    const hasSigningSecret = db
+      .pragma('table_info(camps)')
+      .some((col) => col.name === 'signing_secret')
+
+    if (!hasSigningSecret) {
+      db.exec('ALTER TABLE camps ADD COLUMN signing_secret TEXT')
+    }
+
+    const campsNeedingSecret = db.prepare('SELECT id FROM camps WHERE signing_secret IS NULL').all()
+    for (const camp of campsNeedingSecret) {
+      db.prepare('UPDATE camps SET signing_secret = ? WHERE id = ?').run(
+        randomBytes(32).toString('hex'),
+        camp.id
+      )
+    }
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (9, ?)').run(
       new Date().toISOString()
     )
   }

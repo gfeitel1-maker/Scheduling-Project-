@@ -174,7 +174,7 @@ describe('THIRD CORRECTION: version-4 migration is transactional', () => {
 describe('Task 4: devices.last_synced_at (schema version 5)', () => {
   it('getSchemaVersion returns 6 after openLocalDb runs', () => {
     const db = freshDb()
-    expect(getSchemaVersion(db)).toBe(8)
+    expect(getSchemaVersion(db)).toBe(9)
     db.close()
   })
 
@@ -182,7 +182,7 @@ describe('Task 4: devices.last_synced_at (schema version 5)', () => {
     const db = freshDb()
     const col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(8)
+    expect(getSchemaVersion(db)).toBe(9)
     db.close()
   })
 
@@ -206,7 +206,7 @@ describe('Task 4: devices.last_synced_at (schema version 5)', () => {
 
     col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(8)
+    expect(getSchemaVersion(db)).toBe(9)
     db.close()
   })
 })
@@ -218,14 +218,14 @@ describe('Task 9 Round 2 Fix 2: login_attempts table (schema version 6)', () => 
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='login_attempts'")
       .get()
     expect(table).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(8)
+    expect(getSchemaVersion(db)).toBe(9)
     db.close()
   })
 
   it('is idempotent: re-running initSchema on an already-migrated db does not error', () => {
     const db = freshDb()
     expect(() => initSchema(db)).not.toThrow()
-    expect(getSchemaVersion(db)).toBe(8)
+    expect(getSchemaVersion(db)).toBe(9)
     db.close()
   })
 
@@ -250,7 +250,7 @@ describe('Task 9 Round 2 Fix 2: login_attempts table (schema version 6)', () => 
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='login_attempts'")
       .get()
     expect(table).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(8)
+    expect(getSchemaVersion(db)).toBe(9)
     db.close()
   })
 })
@@ -260,7 +260,7 @@ describe('Task 10 round-4 Fix 3: devices.last_synced_seq (schema version 7)', ()
     const db = freshDb()
     const col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_seq')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(8)
+    expect(getSchemaVersion(db)).toBe(9)
     db.close()
   })
 
@@ -286,7 +286,7 @@ describe('Task 10 round-4 Fix 3: devices.last_synced_seq (schema version 7)', ()
 
     col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_seq')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(8)
+    expect(getSchemaVersion(db)).toBe(9)
     db.close()
   })
 })
@@ -300,7 +300,7 @@ describe('Task 10 round-5 Fix 1/3: pending_writes table + operations.client_writ
     expect(table).toBeDefined()
     const col = db.pragma('table_info(operations)').find((c) => c.name === 'client_write_id')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(8)
+    expect(getSchemaVersion(db)).toBe(9)
     db.close()
   })
 
@@ -344,7 +344,33 @@ describe('Task 10 round-5 Fix 1/3: pending_writes table + operations.client_writ
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pending_writes'")
       .get()
     expect(table).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(8)
+    expect(getSchemaVersion(db)).toBe(9)
+    db.close()
+  })
+})
+
+describe('schema v9: camps.signing_secret', () => {
+  it('a fresh install has a nullable signing_secret column on camps, at version 9', () => {
+    const db = freshDb()
+    const col = db.pragma('table_info(camps)').find((c) => c.name === 'signing_secret')
+    expect(col).toBeDefined()
+    expect(col.notnull).toBe(0)
+    expect(getSchemaVersion(db)).toBe(9)
+    db.close()
+  })
+
+  it('backfills a freshly-generated secret for a camp row with a NULL signing_secret', () => {
+    const db = freshDb()
+    db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, NULL)').run('camp2', 'Camp Two')
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 9').run()
+
+    initSchema(db)
+
+    const rows = db.prepare('SELECT id, signing_secret FROM camps').all()
+    for (const row of rows) {
+      expect(row.signing_secret).toEqual(expect.any(String))
+      expect(row.signing_secret.length).toBeGreaterThan(0)
+    }
     db.close()
   })
 })
