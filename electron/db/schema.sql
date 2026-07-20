@@ -18,7 +18,14 @@ CREATE TABLE IF NOT EXISTS devices (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   last_seen_at TEXT,
-  last_synced_at TEXT
+  last_synced_at TEXT,
+  -- Op-log watermark for reconnect catch-up (Task 10 round-4 Fix 3). NULL
+  -- means "never watermarked yet" — the first authenticate for a device
+  -- only establishes the baseline (current max operations.seq) without
+  -- sending anything, so a device's very first connection doesn't get
+  -- flooded with the entire pre-existing op history. Every authenticate
+  -- after that sends operations rows with seq > last_synced_seq.
+  last_synced_seq INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS operations (

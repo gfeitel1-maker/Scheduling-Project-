@@ -57,12 +57,32 @@ function normalizeConflict(msg) {
 // electron/main.js), so it doesn't matter whether a conflict originated from
 // this device's own direct write or an incoming peer op — one channel, one
 // dedupe, one list.
+// How long a resolved card holds its checkmark before collapsing away, in
+// ms — must match ConflictCard's local animation timing (1100ms hold + 380ms
+// collapse transition, see shared.js mergeCard).
+const RESOLVED_HOLD_MS = 1100
+const RESOLVED_COLLAPSE_MS = 380
+
 export function usePendingConflicts() {
   const [conflicts, setConflicts] = useState([])
   const [users, setUsers] = useState([])
   const [deviceId, setDeviceId] = useState(null)
   const [loading, setLoading] = useState(true)
+  // Task 10 round-4 Fix 1: conflictId -> { side, queued } for a
+  // resolved-but-not-yet-dismissed conflict. This state — and the dismiss
+  // timer that clears it — lives HERE, in the hook, not in ConflictCard.
+  // The hook is the shared instance App.jsx keeps mounted for the whole app
+  // lifetime (per the module comment above), so it survives the director
+  // navigating away and back. A ConflictCard only ever reads this map; it
+  // never owns a setTimeout whose callback can outlive the card and act on
+  // shared state after the card that scheduled it is gone. If a fresh card
+  // remounts for a conflict already in this map, it renders the resolved
+  // state immediately instead of a pristine "unresolved" one that would
+  // later vanish unexplained.
+  const [resolvedMeta, setResolvedMeta] = useState({})
   const mountedRef = useRef(true)
+  const dismissTimersRef = useRef({}) // conflictId -> timeout id
+  const resolvedMetaRef = useRef({}) // mirror of resolvedMeta for stable callbacks
 
   useEffect(() => {
     mountedRef.current = true
@@ -109,8 +129,43 @@ export function usePendingConflicts() {
       })
     })
 
+    // Task 10 round-4 Fix 3 (renderer-side reconciliation): op_applied fires
+    // for every op this device applies, including catch-up ops replayed by
+    // the Host on reconnect (see syncServer.js's sendMissedOps). If one of
+    // those catch-up ops is a resolution for a conflict this screen is
+    // currently showing as pending, re-check the durable pending-conflicts
+    // list and drop anything no longer in it. This closes the gap where the
+    // underlying data (operations table / listPendingConflicts) is already
+    // correct but a screen that's been open the whole time wouldn't
+    // otherwise know to re-render. Scope: this only reconciles conflicts
+    // already visible in THIS mounted screen; it does not by itself deliver
+    // brand-new conflicts (those already arrive via onOpConflict above).
+    if (typeof localClient.onOpApplied === 'function') {
+      localClient.onOpApplied(() => {
+        localClient
+          .listPendingConflicts()
+          .then((msgs) => {
+            if (!mountedRef.current || !Array.isArray(msgs)) return
+            const stillPending = new Set(msgs.map(normalizeConflict).filter(Boolean).map((c) => c.id))
+            setConflicts((prev) =>
+              prev.filter((c) => stillPending.has(c.id) || resolvedMetaRef.current[c.id])
+            )
+          })
+          .catch(() => {
+            // best-effort: never let a reconciliation-fetch failure disrupt
+            // the live conflict list
+          })
+      })
+    }
+
+    const timers = dismissTimersRef.current
     return () => {
       mountedRef.current = false
+      // Clear every pending dismiss timer on hook teardown (app close / test
+      // unmount). This hook is otherwise long-lived for the app's lifetime,
+      // so this mainly guards test environments and StrictMode double-invoke,
+      // but it's the correct thing to do regardless.
+      for (const id of Object.keys(timers)) clearTimeout(timers[id])
     }
   }, [])
 
@@ -135,17 +190,57 @@ export function usePendingConflicts() {
       parent_op_id: conflict.sideB.op_id,
     })
 
-    // Deliberately does NOT remove the conflict from state here. The card
-    // itself owns a checkmark-hold-then-collapse animation that must run to
-    // completion before the conflict disappears from anywhere; removing it
-    // immediately would unmount the card before that animation could ever
-    // render. Removal happens later, via dismissResolvedConflict, called by
-    // the card at the end of its own local animation sequence.
+    // Task 10 round-4 Fix 1: the resolve IPC call has already succeeded (or
+    // definitively failed) by this point — that outcome is durable now,
+    // regardless of whether the ConflictCard that triggered it is still
+    // mounted. On success, record it HERE (in the hook, which outlives any
+    // individual card) and schedule the eventual removal from `conflicts`
+    // ourselves, via a timer tracked in dismissTimersRef so it can never
+    // double-schedule and is cleared on hook teardown. A ConflictCard is a
+    // pure function of this state: it shows the checkmark whenever
+    // resolvedMeta has an entry for its conflict id, whether that's because
+    // it just called keep() itself or because it's a fresh remount for a
+    // conflict that was already resolved while it was unmounted.
+    if (result && (result.status === 'applied' || result.status === 'queued')) {
+      setResolvedMeta((prev) => {
+        const next = { ...prev, [conflictId]: { side: chosenSide, queued: result.status === 'queued' } }
+        resolvedMetaRef.current = next
+        return next
+      })
+      if (!dismissTimersRef.current[conflictId]) {
+        dismissTimersRef.current[conflictId] = setTimeout(() => {
+          delete dismissTimersRef.current[conflictId]
+          setConflicts((prev) => prev.filter((c) => c.id !== conflictId))
+          setResolvedMeta((prev) => {
+            if (!(conflictId in prev)) return prev
+            const { [conflictId]: _removed, ...rest } = prev
+            resolvedMetaRef.current = rest
+            return rest
+          })
+        }, RESOLVED_HOLD_MS + RESOLVED_COLLAPSE_MS)
+      }
+    }
+
     return result
   }, [conflicts])
 
+  // Kept for the card's local collapse-transition timing only (see
+  // ConflictCard) — it no longer performs the actual removal from shared
+  // state; the hook's own timer (scheduled in resolveConflict above) owns
+  // that. Calling this early/late/never no longer corrupts anything.
   const dismissResolvedConflict = useCallback((conflictId) => {
     setConflicts((prev) => prev.filter((c) => c.id !== conflictId))
+    setResolvedMeta((prev) => {
+      if (!(conflictId in prev)) return prev
+      const { [conflictId]: _removed, ...rest } = prev
+      resolvedMetaRef.current = rest
+      return rest
+    })
+    const timer = dismissTimersRef.current[conflictId]
+    if (timer) {
+      clearTimeout(timer)
+      delete dismissTimersRef.current[conflictId]
+    }
   }, [])
 
   function resolveAuthorLabel(side) {
@@ -165,5 +260,8 @@ export function usePendingConflicts() {
     resolveConflict,
     dismissResolvedConflict,
     resolveAuthorLabel,
+    // conflictId -> { side, queued } for a resolved-but-not-yet-dismissed
+    // conflict — see the Fix 1 comment above resolveConflict.
+    resolvedMeta,
   }
 }

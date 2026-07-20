@@ -385,11 +385,36 @@ export function createSyncClient(
       }
       if (!connected) return
 
+      // Task 10 round-4 Fix 2a: previously this discarded performWrite's
+      // result entirely and unconditionally removed every queued item, so a
+      // 'timeout'/'disconnected'/'error'/re-'conflict' outcome on flush was
+      // silently thrown away with no retry and no signal to the caller.
       const items = queue.slice()
       for (const item of items) {
-        await performWrite(item)
-        const index = queue.findIndex((q) => q.pendingId === item.pendingId)
-        if (index !== -1) queue.splice(index, 1)
+        const result = await performWrite(item)
+
+        if (result.status === 'applied' || result.status === 'conflict') {
+          // 'applied': the write genuinely succeeded — done.
+          // 'conflict': not a failure to retry — submitOpRemote (inside
+          // performWrite) already ran this through the normal op_conflict
+          // path, which calls notifyOpConflict and persists it via
+          // recordConflict on the message handler above, so it's already
+          // surfaced through the existing conflict-notification mechanism.
+          // Retrying the same stale write would be wrong; it's done being
+          // "queued" and is now a pending conflict instead.
+          const index = queue.findIndex((q) => q.pendingId === item.pendingId)
+          if (index !== -1) queue.splice(index, 1)
+          continue
+        }
+
+        // 'timeout' / 'disconnected' / 'error' (or any future unrecognized
+        // status): do NOT silently drop the item. Leave it in the queue so
+        // the next flushQueue() call retries it. A connectivity failure
+        // ('timeout'/'disconnected') means every remaining item in this
+        // batch will fail the same way, so stop this pass early rather than
+        // hammering a dead connection with one lock/submit round-trip per
+        // item; an 'error' is item-specific, so keep trying the rest.
+        if (result.status === 'timeout' || result.status === 'disconnected') break
       }
     },
     async waitUntilConnected() {

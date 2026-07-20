@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { S } from '../styles/shared'
 import { usePendingConflicts } from '../hooks/usePendingConflicts'
 
@@ -98,11 +98,25 @@ export function noticeForStatus(status) {
   }
 }
 
-function ConflictCard({ conflict, resolveAuthorLabel, onResolve, onDismiss }) {
+// Task 10 round-4 Fix 1: this card no longer owns the setTimeout chain that
+// drives the actual removal of a resolved conflict from shared state — that
+// now lives in usePendingConflicts (see its resolveConflict), which is the
+// long-lived instance that survives this card unmounting. The card only
+// owns a purely-LOCAL, purely-visual "hold then collapse" timer, driven off
+// the `resolved` prop rather than its own resolve-call result, so:
+//   - if this exact card instance unmounts mid-animation, its local timer is
+//     cleared on unmount (via the effect below) and can never call anything
+//     that touches shared state — there's nothing left for it to corrupt.
+//   - if a FRESH card mounts for a conflict that's already in resolvedMeta
+//     (resolved while this card was unmounted, e.g. the director navigated
+//     away and back within the hold window), it renders the confirmed
+//     checkmark state immediately instead of a pristine "unresolved" one
+//     that would later vanish with no explanation.
+function ConflictCard({ conflict, resolved, resolveAuthorLabel, onResolve }) {
   const [resolving, setResolving] = useState(false)
-  const [confirmedSide, setConfirmedSide] = useState(null)
   const [collapsing, setCollapsing] = useState(false)
   const [errorNotice, setErrorNotice] = useState(null)
+  const localTimersRef = useRef([])
 
   const description = describeConflict(conflict.entity, conflict.field)
   const isPin = conflict.isPin || description === null
@@ -112,34 +126,52 @@ function ConflictCard({ conflict, resolveAuthorLabel, onResolve, onDismiss }) {
     .sort()
     .pop()
 
-  async function keep(side, label) {
-    if (resolving || confirmedSide) return
+  const labelA = resolveAuthorLabel(conflict.sideA)
+  const labelB = resolveAuthorLabel(conflict.sideB)
+  const confirmedSide = resolved ? (resolved.side === 'A' ? labelA : labelB) : null
+
+  // Purely-local visual collapse timer, re-derived from `resolved` (shared
+  // state) rather than from this card's own keep() call — so a fresh mount
+  // that inherits an already-resolved conflict still gets the same
+  // hold-then-collapse visual. Cleared on unmount / whenever `resolved`
+  // changes, so it can never fire after this card instance is gone.
+  useEffect(() => {
+    if (!resolved) {
+      setCollapsing(false)
+      return
+    }
+    const holdTimer = setTimeout(() => setCollapsing(true), 1100)
+    localTimersRef.current.push(holdTimer)
+    return () => {
+      clearTimeout(holdTimer)
+      localTimersRef.current = localTimersRef.current.filter((t) => t !== holdTimer)
+    }
+  }, [resolved])
+
+  useEffect(() => {
+    return () => {
+      for (const t of localTimersRef.current) clearTimeout(t)
+      localTimersRef.current = []
+    }
+  }, [])
+
+  async function keep(side) {
+    if (resolving || resolved) return
     setResolving(true)
     setErrorNotice(null)
     const result = await onResolve(conflict.id, side)
     setResolving(false)
-    if (result && (result.status === 'applied' || result.status === 'queued')) {
-      // Local animation sequence: confirming -> (1.1s hold) -> collapsing ->
-      // (0.35s collapse transition, matches shared.js mergeCard's
-      // transition duration) -> only THEN tell the hook to actually remove
-      // this conflict from shared state. This is what makes the checkmark
-      // visible for a real moment instead of the card vanishing instantly.
-      setConfirmedSide(label)
-      setTimeout(() => {
-        setCollapsing(true)
-        setTimeout(() => onDismiss(conflict.id), 380)
-      }, 1100)
-    } else {
+    if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
       // Every other status (conflict / timeout / disconnected / error / any
       // unrecognized future status) must surface SOME explanation — don't
       // silently re-enable the buttons with no feedback. noticeForStatus
       // always returns a string, even for an unrecognized status.
       setErrorNotice(noticeForStatus(result && result.status))
     }
+    // On success, this component does nothing further itself — `resolved`
+    // arrives back down as a prop once the hook's setResolvedMeta commits,
+    // and the effect above picks up the hold/collapse animation from there.
   }
-
-  const labelA = resolveAuthorLabel(conflict.sideA)
-  const labelB = resolveAuthorLabel(conflict.sideB)
 
   return (
     <div
@@ -151,7 +183,9 @@ function ConflictCard({ conflict, resolveAuthorLabel, onResolve, onDismiss }) {
     >
       {confirmedSide ? (
         <div style={{ ...S.mergeConfirmed, opacity: collapsing ? 0 : 1 }}>
-          ✓ Kept {confirmedSide}'s version
+          {resolved && resolved.queued
+            ? `Saved — will sync when connected (${confirmedSide}'s version)`
+            : `✓ Kept ${confirmedSide}'s version`}
         </div>
       ) : (
         <>
@@ -167,8 +201,8 @@ function ConflictCard({ conflict, resolveAuthorLabel, onResolve, onDismiss }) {
             </div>
           )}
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-            <ChoiceBox side={conflict.sideA} label={labelA} isPin={isPin} disabled={resolving} onKeep={() => keep('A', labelA)} />
-            <ChoiceBox side={conflict.sideB} label={labelB} isPin={isPin} disabled={resolving} onKeep={() => keep('B', labelB)} />
+            <ChoiceBox side={conflict.sideA} label={labelA} isPin={isPin} disabled={resolving} onKeep={() => keep('A')} />
+            <ChoiceBox side={conflict.sideB} label={labelB} isPin={isPin} disabled={resolving} onKeep={() => keep('B')} />
           </div>
         </>
       )}
@@ -179,7 +213,7 @@ function ConflictCard({ conflict, resolveAuthorLabel, onResolve, onDismiss }) {
 export default function ConflictsScreen({ pendingConflicts }) {
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const fallback = pendingConflicts ? null : usePendingConflicts()
-  const { conflicts, loading, resolveConflict, dismissResolvedConflict, resolveAuthorLabel } = pendingConflicts || fallback
+  const { conflicts, loading, resolveConflict, resolveAuthorLabel, resolvedMeta } = pendingConflicts || fallback
 
   return (
     <div style={{ maxWidth: 760 }}>
@@ -211,9 +245,9 @@ export default function ConflictsScreen({ pendingConflicts }) {
             <ConflictCard
               key={c.id}
               conflict={c}
+              resolved={resolvedMeta ? resolvedMeta[c.id] : null}
               resolveAuthorLabel={resolveAuthorLabel}
               onResolve={resolveConflict}
-              onDismiss={dismissResolvedConflict}
             />
           ))}
         </>

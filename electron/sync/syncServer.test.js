@@ -28,6 +28,25 @@ function onceOpen(ws) {
   return new Promise((resolve) => ws.once('open', resolve))
 }
 
+// Task 10 round-4 Fix 3: a reconnecting device may now receive one or more
+// catch-up `op_applied` messages (missed operations) immediately after
+// authenticate, ahead of a reply to whatever it sends next — that's the
+// intended new behavior, not a bug. Tests that care about a specific
+// reply type (e.g. lock_result) should wait for that type specifically
+// rather than assuming it's the very next raw message on the socket.
+function onceMessageOfType(ws, type) {
+  return new Promise((resolve) => {
+    function handler(data) {
+      const msg = JSON.parse(data.toString())
+      if (msg.type === type) {
+        ws.off('message', handler)
+        resolve(msg)
+      }
+    }
+    ws.on('message', handler)
+  })
+}
+
 function onceClose(ws) {
   return new Promise((resolve) => ws.once('close', resolve))
 }
@@ -448,7 +467,7 @@ describe('safe broadcast (Fix 3)', () => {
         field: 'activity_id',
       })
     )
-    const msg = await onceMessage(ws3)
+    const msg = await onceMessageOfType(ws3, 'lock_result')
     expect(msg).toEqual({ type: 'lock_result', granted: true })
 
     ws1.close()

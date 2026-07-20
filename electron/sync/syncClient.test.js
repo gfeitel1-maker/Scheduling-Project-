@@ -7,12 +7,13 @@ import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
 import { openLocalDb } from '../db/localDb.js'
 import { createUser, issueSessionToken } from '../auth/localAuth.js'
-import { appendOp } from '../ops/operations.js'
+import { appendOp, recordConflict, listPendingConflicts } from '../ops/operations.js'
 import { startSyncServer } from './syncServer.js'
 import { createSyncClient } from './syncClient.js'
 
 const PORT = 8237
 const FLUSH_PORT = 8238
+const FLUSH_PORT_TIMEOUT = 8239
 
 let hostDb, hostFile, clientDb, clientFile, server, campId, userId, deviceId, token
 
@@ -252,6 +253,51 @@ describe('remote client mode', () => {
       holderWs.close()
     } finally {
       flushServer.close()
+      client.close()
+    }
+  })
+
+  it('flushQueue (Fix 2a) does NOT silently discard a failed write: a timeout/disconnected outcome leaves the item queued for retry instead of being dropped', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${FLUSH_PORT_TIMEOUT}`,
+      token,
+      // Short timeout so the test doesn't wait on the default 10s.
+      lockTimeoutMs: 150,
+      submitTimeoutMs: 150,
+    })
+
+    const queuedResult = await client.write({ entity: 'template_slots', entity_id: 's6', field: 'activity_id', value: 'kayak' })
+    expect(queuedResult.status).toBe('queued')
+    expect(client.getQueuedOps()).toHaveLength(1)
+
+    // A "black hole" host: accepts the connection and authenticates the
+    // device, but never replies to acquire_lock, so acquireLockRemote's
+    // resolver-timeout safety net fires with { status: 'timeout' } — this
+    // is exactly the kind of outcome flushQueue previously discarded.
+    const { WebSocketServer } = await import('ws')
+    const blackHoleServer = new WebSocketServer({ port: FLUSH_PORT_TIMEOUT })
+    blackHoleServer.on('connection', (ws) => {
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString())
+        if (msg.type === 'authenticate') {
+          ws.deviceId = msg.device_id
+        }
+        // acquire_lock / submit_op: deliberately never answered.
+      })
+    })
+
+    try {
+      await client.flushQueue()
+
+      // Previously: performWrite's result was discarded and the item was
+      // unconditionally spliced out of the queue regardless of outcome.
+      // Now: a 'timeout' status must leave the item queued for retry.
+      expect(client.getQueuedOps()).toHaveLength(1)
+      expect(client.getQueuedOps()[0].entity_id).toBe('s6')
+    } finally {
+      blackHoleServer.close()
       client.close()
     }
   })
@@ -898,5 +944,72 @@ describe('full_sync handling', () => {
     await new Promise((resolve) => setTimeout(resolve, 20))
 
     client.close()
+  })
+})
+
+describe('reconnect catch-up (Task 10 round-4 Fix 3)', () => {
+  it('a device that recorded a conflict while offline learns the resolution on reconnect, via replayed operations rows, so listPendingConflicts() on that device reports it resolved', async () => {
+    // Device B: a second device that will go offline mid-conflict.
+    const deviceBId = randomUUID()
+    const bFile = path.join(os.tmpdir(), `shoresh-sc-deviceB-${Date.now()}-${Math.random()}.sqlite`)
+    const dbB = openLocalDb(bFile)
+    dbB.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Test Camp')
+    dbB.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceBId, 'Device B')
+    // Device A's row must also exist on B's local db — the ops B is about to
+    // receive are authored by Device A, and operations.device_id is an FK.
+    dbB.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Device A')
+    hostDb.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(
+      deviceBId, 'Device B', new Date().toISOString()
+    )
+    const tokenB = issueSessionToken(userId, deviceBId)
+
+    // B connects once so the Host knows its watermark, then disconnects —
+    // "goes offline" — before any conflict-related op exists yet.
+    const clientB1 = createSyncClient(dbB, {
+      device_id: deviceBId, author_user_id: userId, serverUrl: `ws://localhost:${PORT}`, token: tokenB,
+    })
+    await clientB1.waitUntilConnected()
+    clientB1.close()
+    await new Promise((r) => setTimeout(r, 30))
+
+    // While B is offline: a conflict is detected on the Host (existingOp is
+    // the "losing" write B's conflicts record points at), and B is assumed
+    // to have already recorded it locally (recordConflict) from an earlier
+    // op_conflict it received before disconnecting.
+    const existingOp = appendOp(hostDb, {
+      entity: 'users', entity_id: userId, field: 'name', value: 'Alicia',
+      author_user_id: null, device_id: deviceId, parent_op_id: null,
+    })
+    const incomingOp = { ...existingOp, id: randomUUID(), value: 'Alice' }
+    recordConflict(dbB, { incomingOp, existingOp })
+    expect(listPendingConflicts(dbB)).toHaveLength(1)
+
+    // The conflict gets resolved on the Host — by definition while B is
+    // still offline, since B is disconnected — via a write parented to the
+    // losing op's id, exactly as main.js's resolveConflict handler does.
+    appendOp(hostDb, {
+      entity: 'users', entity_id: userId, field: 'name', value: 'Alice',
+      author_user_id: null, device_id: deviceId, parent_op_id: existingOp.id,
+    })
+
+    // B never saw that op — its own local operations table has no row
+    // whose parent_op_id matches, so it's still stuck showing this pending.
+    expect(listPendingConflicts(dbB)).toHaveLength(1)
+
+    // B reconnects. sendMissedOps (syncServer.js) should now replay every
+    // operations row created since B's watermark — including both the
+    // existingOp and its resolution — as op_applied messages, which flow
+    // through the client's ordinary applyRemoteOp path.
+    const clientB2 = createSyncClient(dbB, {
+      device_id: deviceBId, author_user_id: userId, serverUrl: `ws://localhost:${PORT}`, token: tokenB,
+    })
+    await clientB2.waitUntilConnected()
+    await new Promise((r) => setTimeout(r, 150))
+
+    expect(listPendingConflicts(dbB)).toHaveLength(0)
+
+    clientB2.close()
+    dbB.close()
+    fs.unlinkSync(bFile)
   })
 })

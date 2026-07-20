@@ -174,7 +174,7 @@ describe('THIRD CORRECTION: version-4 migration is transactional', () => {
 describe('Task 4: devices.last_synced_at (schema version 5)', () => {
   it('getSchemaVersion returns 6 after openLocalDb runs', () => {
     const db = freshDb()
-    expect(getSchemaVersion(db)).toBe(6)
+    expect(getSchemaVersion(db)).toBe(7)
     db.close()
   })
 
@@ -182,7 +182,7 @@ describe('Task 4: devices.last_synced_at (schema version 5)', () => {
     const db = freshDb()
     const col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(6)
+    expect(getSchemaVersion(db)).toBe(7)
     db.close()
   })
 
@@ -206,7 +206,7 @@ describe('Task 4: devices.last_synced_at (schema version 5)', () => {
 
     col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(6)
+    expect(getSchemaVersion(db)).toBe(7)
     db.close()
   })
 })
@@ -218,21 +218,26 @@ describe('Task 9 Round 2 Fix 2: login_attempts table (schema version 6)', () => 
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='login_attempts'")
       .get()
     expect(table).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(6)
+    expect(getSchemaVersion(db)).toBe(7)
     db.close()
   })
 
   it('is idempotent: re-running initSchema on an already-migrated db does not error', () => {
     const db = freshDb()
     expect(() => initSchema(db)).not.toThrow()
-    expect(getSchemaVersion(db)).toBe(6)
+    expect(getSchemaVersion(db)).toBe(7)
     db.close()
   })
 
   it('adds login_attempts to a pre-migration db missing it', () => {
     const db = freshDb()
     db.exec('DROP TABLE login_attempts')
-    db.prepare('DELETE FROM schema_migrations WHERE version = 6').run()
+    // getSchemaVersion is a MAX() over schema_migrations, so simulating "a
+    // pre-migration db that never reached version 6" requires clearing every
+    // version >= 6 (not just 6 itself) now that version 7 also exists —
+    // otherwise the leftover version-7 row alone would make MAX() report 7
+    // and the `< 6` guard would never re-trigger.
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 6').run()
 
     let table = db
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='login_attempts'")
@@ -245,7 +250,43 @@ describe('Task 9 Round 2 Fix 2: login_attempts table (schema version 6)', () => 
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='login_attempts'")
       .get()
     expect(table).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(6)
+    expect(getSchemaVersion(db)).toBe(7)
+    db.close()
+  })
+})
+
+describe('Task 10 round-4 Fix 3: devices.last_synced_seq (schema version 7)', () => {
+  it('a fresh install has last_synced_seq on devices, defaulting to NULL (unset)', () => {
+    const db = freshDb()
+    const col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_seq')
+    expect(col).toBeDefined()
+    expect(getSchemaVersion(db)).toBe(7)
+    db.close()
+  })
+
+  it('an existing pre-migration db (missing last_synced_seq) gets the column added via the guarded ALTER', () => {
+    const db = freshDb()
+    db.exec('ALTER TABLE devices RENAME TO devices_tmp')
+    db.exec(`
+      CREATE TABLE devices (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        last_seen_at TEXT,
+        last_synced_at TEXT
+      )
+    `)
+    db.exec('INSERT INTO devices SELECT id, name, last_seen_at, last_synced_at FROM devices_tmp')
+    db.exec('DROP TABLE devices_tmp')
+    db.prepare('DELETE FROM schema_migrations WHERE version = 7').run()
+
+    let col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_seq')
+    expect(col).toBeUndefined()
+
+    initSchema(db)
+
+    col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_seq')
+    expect(col).toBeDefined()
+    expect(getSchemaVersion(db)).toBe(7)
     db.close()
   })
 })

@@ -42,6 +42,70 @@ function sendFullSyncIfFirstPairing(db, ws) {
   )
 }
 
+// Task 10 round-4 Fix 3: reconnect catch-up. sendFullSyncIfFirstPairing only
+// ever ships `users`/`camps`, and only once — it says nothing about the
+// `operations` log. Without this, a device that recorded a conflict (via
+// recordConflict on receiving op_conflict) and then went offline before the
+// resolution op was broadcast can never learn the conflict was resolved:
+// listPendingConflicts() on that device only clears a conflict once a
+// matching parent_op_id op exists in ITS OWN local operations table, and
+// that op will never arrive on its own.
+//
+// Fix: on every authenticate (not just first pairing), send any `operations`
+// rows with seq greater than this device's last-seen watermark, as
+// `op_applied` messages — the exact same message shape/type the client
+// already handles for a live write, so it flows through the existing
+// applyRemoteOp path (idempotent INSERT ... ON CONFLICT DO NOTHING) with no
+// new client-side code required. That in turn means a previously-missed
+// resolution op lands in the device's local operations table, so the next
+// listPendingConflicts() call on that device correctly reports the conflict
+// as resolved.
+//
+// Scope: this covers exactly one thing — a reconnecting device catching up
+// on missed `operations` rows (which is sufficient to fix stale conflict
+// status). It does NOT re-deliver missed op_conflict notifications
+// themselves (a conflict that was recorded live already persisted itself
+// via recordConflict before this device went offline, so it doesn't need
+// resending) and it does NOT solve general catch-up of every other message
+// type (e.g. lock state). A device's very first authenticate only
+// establishes its watermark baseline (see sendMissedOps below) — it does
+// NOT replay the full pre-existing op history, so pre-existing conflicts
+// from before a device's first connection are out of scope too.
+function currentMaxOpSeq(db) {
+  const row = db.prepare('SELECT MAX(seq) as maxSeq FROM operations').get()
+  return row && Number.isInteger(row.maxSeq) ? row.maxSeq : 0
+}
+
+function sendMissedOps(db, ws) {
+  const device = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(ws.deviceId)
+
+  if (!device || device.last_synced_seq === null || device.last_synced_seq === undefined) {
+    // First time this device's watermark is being established: baseline it
+    // to "everything that exists right now" WITHOUT sending it. A device
+    // connecting for the very first time doesn't need the entire
+    // pre-existing op history replayed at it just to learn its own
+    // watermark — that's out of scope here (see the Fix 3 comment above).
+    // From this point on, only ops created AFTER this moment are missed-op
+    // candidates for this device.
+    db.prepare('UPDATE devices SET last_synced_seq = ? WHERE id = ?').run(
+      currentMaxOpSeq(db),
+      ws.deviceId
+    )
+    return
+  }
+
+  const since = device.last_synced_seq
+  const rows = db.prepare('SELECT * FROM operations WHERE seq > ? ORDER BY seq ASC').all(since)
+  if (rows.length === 0) return
+
+  let maxSeq = since
+  for (const op of rows) {
+    send(ws, { type: 'op_applied', op })
+    if (op.seq > maxSeq) maxSeq = op.seq
+  }
+  db.prepare('UPDATE devices SET last_synced_seq = ? WHERE id = ?').run(maxSeq, ws.deviceId)
+}
+
 function handleAuthenticate(db, ws, msg) {
   const verified = verifySessionToken(msg.token)
   if (!verified || verified.deviceId !== msg.device_id) {
@@ -63,6 +127,7 @@ function handleAuthenticate(db, ws, msg) {
   )
 
   sendFullSyncIfFirstPairing(db, ws)
+  sendMissedOps(db, ws)
 }
 
 function validateAcquireLockMsg(msg) {

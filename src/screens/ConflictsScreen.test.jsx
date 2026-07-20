@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useState } from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -19,18 +20,45 @@ function makeConflict(overrides = {}) {
   }
 }
 
-function renderScreen({ resolveConflict, conflict = makeConflict() } = {}) {
-  const dismissResolvedConflict = vi.fn()
-  const resolveAuthorLabel = () => 'Someone'
-  const pendingConflicts = {
-    conflicts: [conflict],
-    loading: false,
-    resolveConflict,
-    dismissResolvedConflict,
-    resolveAuthorLabel,
+// Mirrors the real usePendingConflicts contract closely enough to exercise
+// ConflictsScreen/ConflictCard against it: resolveConflict's outcome is
+// reflected into `resolvedMeta` (keyed by conflict id, not owned by the
+// card), and dismissResolvedConflict clears both `conflicts` and
+// `resolvedMeta`. The actual timer-scheduling/unmount-safety behavior of
+// the real hook is covered separately in usePendingConflicts.test.js.
+function TestHarness({ resolveConflict, conflict }) {
+  const [conflicts, setConflicts] = useState([conflict])
+  const [resolvedMeta, setResolvedMeta] = useState({})
+
+  async function wrappedResolve(conflictId, side) {
+    const result = await resolveConflict(conflictId, side)
+    if (result && (result.status === 'applied' || result.status === 'queued')) {
+      setResolvedMeta((prev) => ({ ...prev, [conflictId]: { side, queued: result.status === 'queued' } }))
+    }
+    return result
   }
-  render(<ConflictsScreen pendingConflicts={pendingConflicts} />)
-  return { dismissResolvedConflict }
+
+  function dismissResolvedConflict(conflictId) {
+    setConflicts((prev) => prev.filter((c) => c.id !== conflictId))
+    setResolvedMeta((prev) => {
+      const { [conflictId]: _removed, ...rest } = prev
+      return rest
+    })
+  }
+
+  const pendingConflicts = {
+    conflicts,
+    loading: false,
+    resolveConflict: wrappedResolve,
+    dismissResolvedConflict,
+    resolveAuthorLabel: () => 'Someone',
+    resolvedMeta,
+  }
+  return <ConflictsScreen pendingConflicts={pendingConflicts} />
+}
+
+function renderScreen({ resolveConflict, conflict = makeConflict() } = {}) {
+  render(<TestHarness resolveConflict={resolveConflict} conflict={conflict} />)
 }
 
 describe('noticeForStatus (Fix 2: covers every non-success syncClient.write status)', () => {
@@ -65,13 +93,14 @@ describe('ConflictsScreen keep(): exercises every real write-status path through
     expect(screen.queryByText(/something went wrong/i)).toBeNull()
   })
 
-  it('status "queued" also runs the confirm animation (treated as success)', async () => {
+  it('status "queued" (Fix 2b) shows distinct "will sync when connected" copy, NOT the same certainty-implying "Kept" text as "applied"', async () => {
     const user = userEvent.setup()
     const resolveConflict = vi.fn().mockResolvedValue({ status: 'queued' })
     renderScreen({ resolveConflict })
 
     await user.click(screen.getAllByRole('button', { name: /keep this version/i })[0])
-    await waitFor(() => expect(screen.queryByText(/kept someone's version/i)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText(/will sync when connected/i)).not.toBeNull())
+    expect(screen.queryByText(/^✓ Kept Someone's version$/)).toBeNull()
   })
 
   it('status "conflict" shows the re-pick notice and re-enables the buttons', async () => {
@@ -109,5 +138,23 @@ describe('ConflictsScreen keep(): exercises every real write-status path through
 
     await user.click(screen.getAllByRole('button', { name: /keep this version/i })[0])
     await waitFor(() => expect(screen.queryByText(/something went wrong/i)).not.toBeNull())
+  })
+})
+
+describe('ConflictCard (Fix 1): renders from resolved-state props, not a self-owned dismiss timer', () => {
+  it('a fresh mount for a conflict already present in resolvedMeta shows the confirmed state immediately, never the pristine unresolved buttons', () => {
+    const conflict = makeConflict()
+    const pendingConflicts = {
+      conflicts: [conflict],
+      loading: false,
+      resolveConflict: vi.fn(),
+      dismissResolvedConflict: vi.fn(),
+      resolveAuthorLabel: () => 'Someone',
+      resolvedMeta: { [conflict.id]: { side: 'A', queued: false } },
+    }
+    render(<ConflictsScreen pendingConflicts={pendingConflicts} />)
+
+    expect(screen.queryByText(/kept someone's version/i)).not.toBeNull()
+    expect(screen.queryByRole('button', { name: /keep this version/i })).toBeNull()
   })
 })

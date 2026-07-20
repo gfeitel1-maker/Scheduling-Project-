@@ -73,6 +73,25 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // Task 10 round-4 Fix 3: per-device op-log watermark so a reconnecting
+  // device can be sent exactly the `operations` rows it missed while it was
+  // offline (see syncServer.js's sendMissedOps). Distinct from
+  // last_synced_at, which only gates the one-time first-pairing full_sync of
+  // users/camps and is never advanced afterward.
+  if (getSchemaVersion(db) < 7) {
+    const hasLastSyncedSeq = db
+      .pragma('table_info(devices)')
+      .some((col) => col.name === 'last_synced_seq')
+
+    if (!hasLastSyncedSeq) {
+      db.exec('ALTER TABLE devices ADD COLUMN last_synced_seq INTEGER')
+    }
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (7, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 export function openLocalDb(filePath) {
