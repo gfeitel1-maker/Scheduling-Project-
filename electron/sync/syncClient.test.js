@@ -701,7 +701,9 @@ describe('remote client mode', () => {
 describe('full_sync handling', () => {
   it('bulk-loads users and camps from a real full_sync round-trip on first pairing', async () => {
     const freshDeviceId = randomUUID()
-    hostDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(freshDeviceId, 'Fresh Device')
+    // Deliberately do NOT pre-insert a devices row on hostDb: the Host must
+    // self-register this genuinely new device during authenticate (Fix 1),
+    // not rely on test setup creating the row production code should create.
     const freshToken = issueSessionToken(userId, freshDeviceId)
 
     const freshClientFile = path.join(os.tmpdir(), `shoresh-sc-fresh-${Date.now()}-${Math.random()}.sqlite`)
@@ -772,6 +774,51 @@ describe('full_sync handling', () => {
     const allCamps = clientDb.prepare('SELECT COUNT(*) as c FROM camps').get()
     // pre-existing Test Camp + the one valid camp = 2
     expect(allCamps.c).toBe(2)
+
+    client.close()
+  })
+
+  it('rolls back the entire batch (Fix 2) when a mid-loop row causes a genuine DB error after passing per-row validation', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const ws = client.__getWs()
+    const validCampId = randomUUID()
+    const validUserId = randomUUID()
+    const nonexistentCampId = randomUUID() // never inserted anywhere - triggers an FK violation
+
+    const msg = JSON.stringify({
+      type: 'full_sync',
+      camps: [{ id: validCampId, name: 'Rollback Camp' }],
+      users: [
+        // passes isValidFullSyncUser (non-empty strings), inserts fine on its own
+        { id: validUserId, camp_id: campId, name: 'Rollback User', pin_hash: 'h', pin_salt: 's', role: 'staff' },
+        // also passes per-row validation (camp_id is a non-empty string) but
+        // references a camp that does not exist anywhere - the INSERT itself
+        // throws an FK constraint violation, which should roll back the WHOLE
+        // batch (including the valid camp and valid user above) rather than
+        // leaving them partially applied.
+        { id: randomUUID(), camp_id: nonexistentCampId, name: 'Bad FK User', pin_hash: 'h', pin_salt: 's', role: 'staff' },
+      ],
+    })
+
+    expect(() => ws.emit('message', Buffer.from(msg))).not.toThrow()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const rolledBackCamp = clientDb.prepare('SELECT * FROM camps WHERE id = ?').get(validCampId)
+    expect(rolledBackCamp).toBeFalsy()
+
+    const rolledBackUser = clientDb.prepare('SELECT * FROM users WHERE id = ?').get(validUserId)
+    expect(rolledBackUser).toBeFalsy()
+
+    // client remains usable afterward (structural integrity preserved)
+    const result = await client.write({ entity: 'template_slots', entity_id: 's15', field: 'activity_id', value: 'volleyball' })
+    expect(result.status).toBe('applied')
 
     client.close()
   })

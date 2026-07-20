@@ -50,6 +50,18 @@ function handleAuthenticate(db, ws, msg) {
   }
   ws.deviceId = verified.deviceId
   ws.userId = verified.userId
+
+  // Self-register this device on the Host if it has never been seen before.
+  // Without this, a genuinely new device connecting for the first time has no
+  // `devices` row, sendFullSyncIfFirstPairing's lookup returns undefined, and
+  // the first-pairing full_sync silently never fires. INSERT OR IGNORE makes
+  // this a safe no-op for an already-known device (own-machine registration
+  // via ensureDeviceRow in main.js, or a returning peer).
+  db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(
+    ws.deviceId,
+    `Device ${ws.deviceId.slice(0, 8)}`
+  )
+
   sendFullSyncIfFirstPairing(db, ws)
 }
 

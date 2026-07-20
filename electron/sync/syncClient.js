@@ -78,17 +78,27 @@ export function createSyncClient(
     const users = Array.isArray(msg.users) ? msg.users : []
     const camps = Array.isArray(msg.camps) ? msg.camps : []
 
-    for (const camp of camps) {
-      if (!isValidFullSyncCamp(camp)) continue
-      db.prepare('INSERT OR REPLACE INTO camps (id, name) VALUES (?, ?)').run(camp.id, camp.name)
-    }
+    // Wrap the whole batch in a single transaction: a genuine mid-loop DB
+    // failure (e.g. a real constraint violation on some row that passed
+    // per-row validation) rolls back the ENTIRE batch instead of leaving
+    // camps/users partially populated. Per-row validation still runs the
+    // same way beforehand (via `continue`) - this is purely about DB-level
+    // atomicity for the writes that do proceed, and it also collapses N
+    // auto-committing statements into a single transaction for performance.
+    const applyBatch = db.transaction(() => {
+      for (const camp of camps) {
+        if (!isValidFullSyncCamp(camp)) continue
+        db.prepare('INSERT OR REPLACE INTO camps (id, name) VALUES (?, ?)').run(camp.id, camp.name)
+      }
 
-    for (const user of users) {
-      if (!isValidFullSyncUser(user)) continue
-      db.prepare(
-        'INSERT OR REPLACE INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)'
-      ).run(user.id, user.camp_id, user.name, user.pin_hash, user.pin_salt, user.role)
-    }
+      for (const user of users) {
+        if (!isValidFullSyncUser(user)) continue
+        db.prepare(
+          'INSERT OR REPLACE INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)'
+        ).run(user.id, user.camp_id, user.name, user.pin_hash, user.pin_salt, user.role)
+      }
+    })
+    applyBatch()
   }
 
   function isValidRemoteOp(op) {

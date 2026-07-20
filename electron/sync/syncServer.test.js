@@ -458,9 +458,13 @@ describe('safe broadcast (Fix 3)', () => {
 })
 
 describe('full_sync on first pairing', () => {
-  it('sends full_sync with all users and camps on a device\'s first successful authenticate', async () => {
+  it('sends full_sync with all users and camps on a genuinely new device\'s first successful authenticate (no pre-existing devices row)', async () => {
     const newDeviceId = randomUUID()
-    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(newDeviceId, 'New Device')
+    // Deliberately do NOT pre-insert a devices row here: this is exactly the
+    // real-world scenario (a brand-new device that the Host has never seen)
+    // that round 1's tests masked by manually inserting the row production
+    // code never created. The self-registration fix in handleAuthenticate
+    // must create this row itself.
     const newToken = issueSessionToken(userId, newDeviceId)
 
     const ws = connect()
@@ -482,7 +486,8 @@ describe('full_sync on first pairing', () => {
 
   it('does not send full_sync again on a second authenticate from the same device', async () => {
     const newDeviceId = randomUUID()
-    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(newDeviceId, 'New Device')
+    // No pre-existing devices row - the first authenticate below must
+    // self-register it via production code, not test setup.
     const newToken = issueSessionToken(userId, newDeviceId)
 
     const ws1 = connect()
