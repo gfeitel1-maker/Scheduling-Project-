@@ -9,6 +9,7 @@ import { openLocalDb } from '../db/localDb.js'
 import { createUser, issueSessionToken } from '../auth/localAuth.js'
 import { appendOp } from '../ops/operations.js'
 import { startSyncServer, sendMissedOps, sendWithAck } from './syncServer.js'
+import { attemptLogin } from '../auth/localAuth.js'
 
 const PORT = 8137
 
@@ -790,5 +791,83 @@ describe('Red Hat follow-up: sendWithAck is bounded by a timeout so an unfired w
     // unconfirmed op just because ws.send() didn't throw synchronously.
     const row = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
     expect(row.last_synced_seq).toBe(baseline)
+  })
+})
+
+describe('unauthenticated login message', () => {
+  it('responds login_ok with a token bound to the requesting device_id', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    const remoteDeviceId = randomUUID()
+    ws.send(JSON.stringify({ type: 'login', device_id: remoteDeviceId, name: 'Alice', pin: '1234' }))
+
+    const reply = await onceMessage(ws)
+    expect(reply.type).toBe('login_ok')
+    expect(reply.token).toEqual(expect.any(String))
+    expect(reply.userId).toBe(userId)
+    expect(reply.role).toBe('admin')
+
+    ws.close()
+  })
+
+  it('responds login_failed for a wrong pin, without closing the connection', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: 'wrong' }))
+
+    const reply = await onceMessage(ws)
+    expect(reply).toEqual({ type: 'login_failed' })
+    expect(ws.readyState).toBe(WebSocket.OPEN)
+
+    ws.close()
+  })
+
+  it('responds login_failed with lockout info after 5 failed attempts', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+
+    for (let i = 0; i < 5; i++) {
+      ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: 'wrong' }))
+      await onceMessage(ws)
+    }
+    ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: '1234' }))
+    const reply = await onceMessage(ws)
+    expect(reply.type).toBe('login_failed')
+    expect(reply.locked).toBe(true)
+    expect(reply.retryAfterMs).toBeGreaterThan(0)
+
+    ws.close()
+  })
+
+  it('does not set ws.deviceId as a side effect of login alone (still requires authenticate)', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: '1234' }))
+    await onceMessage(ws)
+
+    // A subsequent acquire_lock without ever sending `authenticate` must be
+    // silently ignored, exactly like today's behavior for any message sent
+    // before authenticate succeeds.
+    ws.send(JSON.stringify({ type: 'acquire_lock', entity: 'x', entity_id: 'y', field: 'z' }))
+    let gotReply = false
+    ws.once('message', () => { gotReply = true })
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(gotReply).toBe(false)
+
+    ws.close()
+  })
+
+  it('ignores a malformed login message (missing pin) without crashing the connection', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice' }))
+
+    // Send a well-formed, unrelated message afterward and confirm the
+    // connection is still alive and responsive.
+    ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: '1234' }))
+    const reply = await onceMessage(ws)
+    expect(reply.type).toBe('login_ok')
+
+    ws.close()
   })
 })

@@ -1,5 +1,5 @@
 import { WebSocketServer } from 'ws'
-import { verifySessionToken } from '../auth/localAuth.js'
+import { verifySessionToken, attemptLogin } from '../auth/localAuth.js'
 import { acquireLock, expireLocks, releaseLocksForDevice } from './lockManager.js'
 import { detectConflict, appendOp, recordConflict, findOpByClientWriteId } from '../ops/operations.js'
 
@@ -216,8 +216,28 @@ function handleAuthenticate(db, ws, msg) {
   sendMissedOps(db, ws)
 }
 
+function validateLoginMsg(msg) {
+  return isNonEmptyString(msg.device_id) && isNonEmptyString(msg.name) && isNonEmptyString(msg.pin)
+}
+
 function validateAcquireLockMsg(msg) {
   return isNonEmptyString(msg.entity) && isNonEmptyString(msg.entity_id) && isNonEmptyString(msg.field)
+}
+
+function handleLogin(db, ws, msg) {
+  if (!validateLoginMsg(msg)) return
+
+  const result = attemptLogin(db, { name: msg.name, pin: msg.pin, deviceId: msg.device_id })
+
+  if (!result) {
+    send(ws, { type: 'login_failed' })
+    return
+  }
+  if (result.locked) {
+    send(ws, { type: 'login_failed', locked: true, retryAfterMs: result.retryAfterMs })
+    return
+  }
+  send(ws, { type: 'login_ok', token: result.token, userId: result.userId, role: result.role })
 }
 
 function validateSubmitOpMsg(msg) {
@@ -317,6 +337,11 @@ export function startSyncServer(db, { port }) {
       try {
         if (msg.type === 'authenticate') {
           handleAuthenticate(db, ws, msg)
+          return
+        }
+
+        if (msg.type === 'login') {
+          handleLogin(db, ws, msg)
           return
         }
 
