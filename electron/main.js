@@ -119,7 +119,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     return { token, userId: user.id, role: user.role }
   }
 
-  function createUserHandler({ token, camp_id, name, pin, role } = {}) {
+  async function createUserHandler({ token, camp_id, name, pin, role } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = verifySessionToken(token)
     if (!session) throw new Error('invalid session')
@@ -131,10 +131,13 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     if (!isNonEmptyString(name)) throw new Error('name is required')
     if (!isNonEmptyString(pin)) throw new Error('pin is required')
     if (role !== 'admin' && role !== 'staff') throw new Error('role must be "admin" or "staff"')
-    return createUser(db, { camp_id, name, pin, role, device_id: deviceId })
+    if (!syncClient) {
+      throw new Error('sync not initialized — choose a mode first')
+    }
+    return createUser(db, { camp_id, name, pin, role }, (args) => syncClient.write(args))
   }
 
-  function bootstrapCamp({ campName, adminName, adminPin } = {}) {
+  async function bootstrapCamp({ campName, adminName, adminPin } = {}) {
     if (!isNonEmptyString(campName)) throw new Error('campName is required')
     if (!isNonEmptyString(adminName)) throw new Error('adminName is required')
     if (!isNonEmptyString(adminPin)) throw new Error('adminPin is required')
@@ -143,16 +146,17 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     if (n !== 0) {
       throw new Error('camp already exists')
     }
+    if (!syncClient) {
+      throw new Error('sync not initialized — choose a mode first')
+    }
 
     const campId = randomUUID()
     db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, campName)
-    const user = createUser(db, {
-      camp_id: campId,
-      name: adminName,
-      pin: adminPin,
-      role: 'admin',
-      device_id: deviceId,
-    })
+    const user = await createUser(
+      db,
+      { camp_id: campId, name: adminName, pin: adminPin, role: 'admin' },
+      (args) => syncClient.write(args)
+    )
 
     return { campId, userId: user.id }
   }

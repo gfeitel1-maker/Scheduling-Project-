@@ -14,30 +14,30 @@ function assertValidPin(pin) {
   }
 }
 
-export function createUser(db, { camp_id, name, pin, role, device_id }) {
+export async function createUser(db, { camp_id, name, pin, role }, write) {
   assertValidPin(pin)
+
+  const existing = db.prepare('SELECT id FROM users WHERE camp_id = ? AND name = ?').get(camp_id, name)
+  if (existing) {
+    throw new Error(`A user named "${name}" already exists in this camp`)
+  }
+
   const id = randomUUID()
   const salt = randomBytes(16).toString('hex')
   const pin_hash = hashPin(pin, salt)
   const fields = { camp_id, name, pin_hash, pin_salt: salt, role }
-  for (const [field, value] of Object.entries(fields)) {
-    try {
-      appendOp(db, {
-        entity: 'users',
-        entity_id: id,
-        field,
-        value,
-        author_user_id: null,
-        device_id,
-        parent_op_id: null,
-      })
-    } catch (err) {
-      if (err && err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-        throw new Error(`A user named "${name}" already exists in this camp`)
-      }
-      throw err
+
+  try {
+    for (const [field, value] of Object.entries(fields)) {
+      await write({ entity: 'users', entity_id: id, field, value })
     }
+  } catch (err) {
+    if (err && err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      throw new Error(`A user named "${name}" already exists in this camp`)
+    }
+    throw err
   }
+
   return { id, name, role }
 }
 

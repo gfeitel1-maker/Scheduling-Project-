@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
 import { openLocalDb } from '../db/localDb.js'
 import { createUser, issueSessionToken } from '../auth/localAuth.js'
+import { appendOp } from '../ops/operations.js'
 import { startSyncServer } from './syncServer.js'
 import { createSyncClient } from './syncClient.js'
 
@@ -30,13 +31,22 @@ beforeEach(async () => {
   hostDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Device A')
   clientDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Device A')
 
-  const user = createUser(hostDb, {
-    camp_id: campId,
-    name: 'Alice',
-    pin: '1234',
-    role: 'admin',
-    device_id: deviceId,
-  })
+  const user = await createUser(
+    hostDb,
+    { camp_id: campId, name: 'Alice', pin: '1234', role: 'admin' },
+    async ({ entity, entity_id, field, value }) => {
+      const op = appendOp(hostDb, {
+        entity,
+        entity_id,
+        field,
+        value,
+        author_user_id: null,
+        device_id: deviceId,
+        parent_op_id: null,
+      })
+      return { status: 'applied', op }
+    }
+  )
   userId = user.id
   clientDb.prepare('INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)')
     .run(userId, campId, 'Alice', 'x', 'x', 'admin')
