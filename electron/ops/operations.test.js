@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
-import { appendOp, latestOp, detectConflict } from './operations.js'
+import { appendOp, latestOp, detectConflict, recordConflict, listPendingConflicts } from './operations.js'
 
 let tmpFile
 let db
@@ -210,5 +210,167 @@ describe('detectConflict', () => {
     const result = detectConflict(db, incomingOp)
     expect(result.conflict).toBe(true)
     expect(result.existingOp.id).toBe(appliedOp.id)
+  })
+})
+
+describe('recordConflict + listPendingConflicts (Task 10 round 3, Fix 3: conflict rehydration)', () => {
+  it('(a) a conflict that arose before "restart" and was never resolved IS present in the rehydrated list', () => {
+    const parentOp = appendOp(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-10',
+      field: 'activity_id',
+      value: 'v1',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+    const existingOp = appendOp(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-10',
+      field: 'activity_id',
+      value: 'v2',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: parentOp.id,
+    })
+    const incomingOp = {
+      id: 'incoming-op-id',
+      entity: 'template_slots',
+      entity_id: 'slot-10',
+      field: 'activity_id',
+      value: 'v3',
+      device_id: 'device-2',
+      timestamp: new Date().toISOString(),
+      parent_op_id: parentOp.id,
+    }
+
+    recordConflict(db, { incomingOp, existingOp })
+
+    // Simulate a restart: a fresh call against the same db, no in-memory
+    // broadcast state at all — this is exactly what usePendingConflicts'
+    // mount-time fetch relies on.
+    const pending = listPendingConflicts(db)
+    expect(pending).toHaveLength(1)
+    expect(pending[0].type).toBe('op_conflict')
+    expect(pending[0].existingOp.id).toBe(existingOp.id)
+    expect(pending[0].incomingOp.id).toBe('incoming-op-id')
+  })
+
+  it('(b) a conflict that was fully resolved before "restart" is NOT present in the rehydrated list', () => {
+    const parentOp = appendOp(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-11',
+      field: 'activity_id',
+      value: 'v1',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+    const existingOp = appendOp(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-11',
+      field: 'activity_id',
+      value: 'v2',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: parentOp.id,
+    })
+    const incomingOp = {
+      id: 'incoming-op-id-2',
+      entity: 'template_slots',
+      entity_id: 'slot-11',
+      field: 'activity_id',
+      value: 'v3',
+      device_id: 'device-2',
+      timestamp: new Date().toISOString(),
+      parent_op_id: parentOp.id,
+    }
+
+    recordConflict(db, { incomingOp, existingOp })
+
+    // Resolve exactly like main.js's resolveConflict() does: a new op whose
+    // parent_op_id is the existingOp's id, regardless of which side was kept.
+    appendOp(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-11',
+      field: 'activity_id',
+      value: 'v3-kept',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: existingOp.id,
+    })
+
+    const pending = listPendingConflicts(db)
+    expect(pending).toHaveLength(0)
+  })
+
+  it('lazily marks a now-resolved row resolved_at so repeated calls stay cheap', () => {
+    const existingOp = appendOp(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-12',
+      field: 'activity_id',
+      value: 'v1',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+    const incomingOp = {
+      id: 'incoming-op-id-3',
+      entity: 'template_slots',
+      entity_id: 'slot-12',
+      field: 'activity_id',
+      value: 'v2',
+      device_id: 'device-2',
+      timestamp: new Date().toISOString(),
+      parent_op_id: null,
+    }
+    const conflictId = recordConflict(db, { incomingOp, existingOp })
+
+    appendOp(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-12',
+      field: 'activity_id',
+      value: 'v2-kept',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: existingOp.id,
+    })
+
+    listPendingConflicts(db)
+    const row = db.prepare('SELECT resolved_at FROM conflicts WHERE id = ?').get(conflictId)
+    expect(row.resolved_at).toBeTruthy()
+  })
+
+  it('multiple distinct unresolved conflicts on different keys are all returned', () => {
+    const existingOpA = appendOp(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-13',
+      field: 'activity_id',
+      value: 'a1',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+    const existingOpB = appendOp(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-14',
+      field: 'activity_id',
+      value: 'b1',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    recordConflict(db, {
+      incomingOp: { id: 'ia', entity: 'template_slots', entity_id: 'slot-13', field: 'activity_id', value: 'a2', device_id: 'device-2', timestamp: new Date().toISOString(), parent_op_id: null },
+      existingOp: existingOpA,
+    })
+    recordConflict(db, {
+      incomingOp: { id: 'ib', entity: 'template_slots', entity_id: 'slot-14', field: 'activity_id', value: 'b2', device_id: 'device-2', timestamp: new Date().toISOString(), parent_op_id: null },
+      existingOp: existingOpB,
+    })
+
+    const pending = listPendingConflicts(db)
+    expect(pending).toHaveLength(2)
   })
 })

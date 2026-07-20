@@ -80,11 +80,29 @@ function ChoiceBox({ side, label, isPin, disabled, onKeep }) {
   )
 }
 
+// Maps every non-success syncClient.write()/resolveConflict() status to an
+// inline message for the card. 'conflict' keeps the original round-1/round-2
+// copy; 'timeout'/'disconnected' get connectivity-specific copy; 'error' (and
+// anything unrecognized) gets a generic fallback so no status can ever fall
+// through silently with buttons just re-enabling and no explanation.
+export function noticeForStatus(status) {
+  switch (status) {
+    case 'conflict':
+      return "This changed again — pick again below."
+    case 'timeout':
+    case 'disconnected':
+      return "Couldn't reach the network — try again when connected."
+    case 'error':
+    default:
+      return 'Something went wrong — try again.'
+  }
+}
+
 function ConflictCard({ conflict, resolveAuthorLabel, onResolve, onDismiss }) {
   const [resolving, setResolving] = useState(false)
   const [confirmedSide, setConfirmedSide] = useState(null)
   const [collapsing, setCollapsing] = useState(false)
-  const [retryNotice, setRetryNotice] = useState(false)
+  const [errorNotice, setErrorNotice] = useState(null)
 
   const description = describeConflict(conflict.entity, conflict.field)
   const isPin = conflict.isPin || description === null
@@ -97,7 +115,7 @@ function ConflictCard({ conflict, resolveAuthorLabel, onResolve, onDismiss }) {
   async function keep(side, label) {
     if (resolving || confirmedSide) return
     setResolving(true)
-    setRetryNotice(false)
+    setErrorNotice(null)
     const result = await onResolve(conflict.id, side)
     setResolving(false)
     if (result && (result.status === 'applied' || result.status === 'queued')) {
@@ -111,11 +129,12 @@ function ConflictCard({ conflict, resolveAuthorLabel, onResolve, onDismiss }) {
         setCollapsing(true)
         setTimeout(() => onDismiss(conflict.id), 380)
       }, 1100)
-    } else if (result && result.status === 'conflict') {
-      // The resolution write itself got outraced by a newer conflicting
-      // write. Don't silently re-enable with no explanation — let the user
-      // know this one moved again.
-      setRetryNotice(true)
+    } else {
+      // Every other status (conflict / timeout / disconnected / error / any
+      // unrecognized future status) must surface SOME explanation — don't
+      // silently re-enable the buttons with no feedback. noticeForStatus
+      // always returns a string, even for an unrecognized status.
+      setErrorNotice(noticeForStatus(result && result.status))
     }
   }
 
@@ -142,9 +161,9 @@ function ConflictCard({ conflict, resolveAuthorLabel, onResolve, onDismiss }) {
             </div>
             <div style={S.mergeMeta}>{relativeTime(latestTimestamp)}</div>
           </div>
-          {retryNotice && (
+          {errorNotice && (
             <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginBottom: 10 }}>
-              This changed again — pick again below.
+              {errorNotice}
             </div>
           )}
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>

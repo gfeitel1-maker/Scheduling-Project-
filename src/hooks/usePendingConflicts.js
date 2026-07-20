@@ -76,6 +76,30 @@ export function usePendingConflicts() {
         if (mountedRef.current) setLoading(false)
       })
 
+    // Rehydration (Fix 3): the live onOpConflict broadcast below only ever
+    // fires for conflicts that occur WHILE this hook is mounted. Without
+    // this fetch, any conflict pending before an app relaunch — resolved-
+    // but-not-yet-dismissed, or plain unresolved — would silently vanish
+    // from the UI on restart, even though it's durably recorded in the
+    // op-log-backed conflicts table. Fetched once on mount; dedupes against
+    // the live path by conflictKey the same way the live handler does.
+    localClient
+      .listPendingConflicts()
+      .then((msgs) => {
+        if (!mountedRef.current || !Array.isArray(msgs)) return
+        const normalized = msgs.map(normalizeConflict).filter(Boolean)
+        if (normalized.length === 0) return
+        setConflicts((prev) => {
+          const seen = new Set(prev.map((c) => c.id))
+          const toAdd = normalized.filter((c) => !seen.has(c.id))
+          return toAdd.length ? [...prev, ...toAdd] : prev
+        })
+      })
+      .catch(() => {
+        // best-effort: a rehydration failure must not block the rest of the
+        // screen (live conflicts still work via the broadcast below)
+      })
+
     localClient.onOpConflict((msg) => {
       const normalized = normalizeConflict(msg)
       if (!normalized) return

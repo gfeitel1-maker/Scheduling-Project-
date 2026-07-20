@@ -8,6 +8,7 @@ import { createUser, verifyPin, issueSessionToken, verifySessionToken } from './
 import { startSyncServer } from './sync/syncServer.js'
 import { createSyncClient } from './sync/syncClient.js'
 import { advertiseHost, discoverHosts } from './sync/discovery.js'
+import { listPendingConflicts } from './ops/operations.js'
 
 const LOGIN_MAX_ATTEMPTS = 5
 const LOGIN_LOCKOUT_MS = 30_000
@@ -89,7 +90,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
   function wireOpApplied() {
     syncClient.onOpApplied((op) => {
       const mainWindow = getMainWindow ? getMainWindow() : null
-      if (mainWindow) mainWindow.webContents.send('shoresh:op-applied', op)
+      if (mainWindow) mainWindow.webContents.send('shoresh:op-applied', sanitizeOpForIpc(op))
     })
     if (typeof syncClient.onOpConflict === 'function') {
       syncClient.onOpConflict((msg) => {
@@ -286,6 +287,16 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     return deviceId
   }
 
+  // Rehydration query for the Conflicts screen: reconstructs the unresolved
+  // set from the durable `conflicts` table (see operations.js) rather than
+  // relying on the live op-conflict broadcast, so a conflict that was
+  // pending before an app restart is still shown afterward. Sanitized the
+  // same way the live broadcast is — this is an IPC send path just like
+  // wireOpApplied's, so raw PIN values must never cross it either.
+  function listPendingConflictsHandler() {
+    return listPendingConflicts(db).map(sanitizeConflictForIpc)
+  }
+
   return {
     chooseMode,
     discoverHosts: discoverHostsHandler,
@@ -297,6 +308,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     listUsers,
     getDeviceId,
     resolveConflict,
+    listPendingConflicts: listPendingConflictsHandler,
     getSyncClient: () => syncClient,
   }
 }
@@ -343,6 +355,7 @@ if (isElectronEntryPoint()) {
   ipcMain.handle('shoresh:list-users', () => handlers.listUsers())
   ipcMain.handle('shoresh:get-device-id', () => handlers.getDeviceId())
   ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
+  ipcMain.handle('shoresh:list-conflicts', () => handlers.listPendingConflicts())
 
   app.whenReady().then(createWindow)
   app.on('window-all-closed', () => {

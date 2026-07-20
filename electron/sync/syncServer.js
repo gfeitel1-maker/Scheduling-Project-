@@ -1,7 +1,7 @@
 import { WebSocketServer } from 'ws'
 import { verifySessionToken } from '../auth/localAuth.js'
 import { acquireLock, expireLocks, releaseLocksForDevice } from './lockManager.js'
-import { detectConflict, appendOp } from '../ops/operations.js'
+import { detectConflict, appendOp, recordConflict } from '../ops/operations.js'
 
 function send(ws, message) {
   try {
@@ -93,6 +93,15 @@ function handleSubmitOp(db, wss, ws, msg) {
   const incomingOp = { ...msg.op, device_id: ws.deviceId }
   const { conflict, existingOp } = detectConflict(db, incomingOp)
   if (conflict) {
+    // Persist so this conflict survives a restart of the host, even if the
+    // submitting device never receives/persists the op_conflict message
+    // itself (e.g. it disconnects before the reply arrives).
+    try {
+      recordConflict(db, { incomingOp, existingOp })
+    } catch {
+      // best-effort: persistence failure must never block the conflict
+      // notification the submitting device is waiting on
+    }
     send(ws, { type: 'op_conflict', incomingOp, existingOp })
     return
   }

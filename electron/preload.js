@@ -14,4 +14,5 @@ contextBridge.exposeInMainWorld('shoresh', {
   listUsers: () => ipcRenderer.invoke('shoresh:list-users'),
   getDeviceId: () => ipcRenderer.invoke('shoresh:get-device-id'),
   resolveConflict: (args) => ipcRenderer.invoke('shoresh:resolve-conflict', args),
+  listPendingConflicts: () => ipcRenderer.invoke('shoresh:list-conflicts'),
 })

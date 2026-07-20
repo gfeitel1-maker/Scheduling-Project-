@@ -21,4 +21,5 @@ export const localClient = {
   getDeviceId: () => shoresh.getDeviceId(),
   resolveConflict: (token, { entity, entity_id, field, chosen_op_id, parent_op_id }) =>
     shoresh.resolveConflict({ token, entity, entity_id, field, chosen_op_id, parent_op_id }),
+  listPendingConflicts: () => shoresh.listPendingConflicts(),
 }

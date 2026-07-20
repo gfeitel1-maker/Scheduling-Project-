@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
-import { appendOp } from '../ops/operations.js'
+import { appendOp, recordConflict } from '../ops/operations.js'
 import { PROJECTIONS, applyProjection } from '../ops/projections.js'
 
 const DEFAULT_RESOLVER_TIMEOUT_MS = 10000
@@ -236,6 +236,17 @@ export function createSyncClient(
         }
 
         if (msg.type === 'op_conflict') {
+          // Persist locally too — this device (not just the host) needs the
+          // conflict to survive its own restart, e.g. if the user closes the
+          // app before resolving it. Best-effort: never let a persistence
+          // failure block delivering the conflict to the caller/listeners.
+          try {
+            if (msg.incomingOp && msg.existingOp) {
+              recordConflict(db, { incomingOp: msg.incomingOp, existingOp: msg.existingOp })
+            }
+          } catch {
+            // ignore — see comment above
+          }
           notifyOpConflict(msg)
           const resolve = submitResolvers.shift()
           if (resolve) resolve(msg)

@@ -505,6 +505,55 @@ describe('sanitizeConflictForIpc (Round 2 Fix 1: main-process PIN filtering)', (
   })
 })
 
+describe('wireOpApplied: op-applied forwarding to renderer (Round 3 Fix 1)', () => {
+  it('sends a SANITIZED applied-op message via webContents.send — the raw PIN op value never crosses the IPC boundary', async () => {
+    const sendSpy = vi.fn()
+    const fakeWindow = { webContents: { send: sendSpy } }
+    const handlers = makeHandlers(db, deviceId, { getMainWindow: () => fakeWindow })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7160 })
+
+    expect(lastCreatedSyncClient.onOpApplied).toHaveBeenCalled()
+    const registeredCallback = lastCreatedSyncClient.onOpApplied.mock.calls[0][0]
+
+    const rawOp = { id: 'op1', entity: 'users', entity_id: 'u1', field: 'pin_hash', value: 'RAW-SCRYPT-DIGEST', device_id: 'dA' }
+    registeredCallback(rawOp)
+
+    expect(sendSpy).toHaveBeenCalledWith('shoresh:op-applied', expect.any(Object))
+    const sentOp = sendSpy.mock.calls.find((c) => c[0] === 'shoresh:op-applied')[1]
+    expect(JSON.stringify(sentOp)).not.toContain('RAW-SCRYPT-DIGEST')
+    expect(sentOp).not.toHaveProperty('value')
+  })
+
+  it('sends pin_salt applied ops sanitized too', async () => {
+    const sendSpy = vi.fn()
+    const fakeWindow = { webContents: { send: sendSpy } }
+    const handlers = makeHandlers(db, deviceId, { getMainWindow: () => fakeWindow })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7161 })
+
+    const registeredCallback = lastCreatedSyncClient.onOpApplied.mock.calls[0][0]
+    const rawOp = { id: 'op2', entity: 'users', entity_id: 'u1', field: 'pin_salt', value: 'RAW-SALT', device_id: 'dA' }
+    registeredCallback(rawOp)
+
+    const sentOp = sendSpy.mock.calls.find((c) => c[0] === 'shoresh:op-applied')[1]
+    expect(JSON.stringify(sentOp)).not.toContain('RAW-SALT')
+    expect(sentOp).not.toHaveProperty('value')
+  })
+
+  it('leaves non-PIN applied ops untouched, value included', async () => {
+    const sendSpy = vi.fn()
+    const fakeWindow = { webContents: { send: sendSpy } }
+    const handlers = makeHandlers(db, deviceId, { getMainWindow: () => fakeWindow })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7162 })
+
+    const registeredCallback = lastCreatedSyncClient.onOpApplied.mock.calls[0][0]
+    const rawOp = { id: 'op3', entity: 'users', entity_id: 'u1', field: 'name', value: 'Alice', device_id: 'dA' }
+    registeredCallback(rawOp)
+
+    const sentOp = sendSpy.mock.calls.find((c) => c[0] === 'shoresh:op-applied')[1]
+    expect(sentOp.value).toBe('Alice')
+  })
+})
+
 describe('wireOpApplied: op-conflict forwarding to renderer (Round 2 Fix 1)', () => {
   it('sends a SANITIZED conflict message via webContents.send — the raw PIN op never crosses the IPC boundary', async () => {
     const sendSpy = vi.fn()

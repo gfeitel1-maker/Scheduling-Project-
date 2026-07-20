@@ -35,6 +35,28 @@ CREATE TABLE IF NOT EXISTS operations (
 );
 CREATE INDEX IF NOT EXISTS idx_operations_entity ON operations(entity, entity_id, field);
 
+-- Durable record of every conflict ever detected (either locally, via
+-- detectConflict in handleSubmitOp on the host, or received over the wire as
+-- an op_conflict message on a client). This is what makes conflicts survive
+-- an app restart: the in-memory usePendingConflicts state is fed live events
+-- only, so without this table a pending conflict would silently vanish on
+-- relaunch. existing_op_id is the id of the op the LOSING write collided
+-- with — a resolution write always sets its parent_op_id to this value, so
+-- "is this conflict resolved" is answered by checking whether any op with
+-- parent_op_id = existing_op_id now exists (see listPendingConflicts).
+CREATE TABLE IF NOT EXISTS conflicts (
+  id TEXT PRIMARY KEY,
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  field TEXT NOT NULL,
+  incoming_op TEXT NOT NULL,
+  existing_op TEXT NOT NULL,
+  existing_op_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  resolved_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_conflicts_pending ON conflicts(entity, entity_id, field, resolved_at);
+
 CREATE TABLE IF NOT EXISTS locks (
   entity TEXT NOT NULL,
   entity_id TEXT NOT NULL,

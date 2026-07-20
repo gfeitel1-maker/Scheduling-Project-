@@ -6,9 +6,14 @@ const STORE_KEY = 'shoresh-mock-state'
 function loadState() {
   try {
     const raw = localStorage.getItem(STORE_KEY)
-    if (raw) return JSON.parse(raw)
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      // Backfill for state saved before conflicts persistence existed.
+      if (!Array.isArray(parsed.conflicts)) parsed.conflicts = []
+      return parsed
+    }
   } catch { /* fall through to default */ }
-  return { camp: null, users: [] }
+  return { camp: null, users: [], conflicts: [] }
 }
 
 function saveState(state) {
@@ -78,7 +83,15 @@ export const mockShoresh = {
   _triggerOpApplied(op) {
     opAppliedListeners.forEach((cb) => cb(op))
   },
+  // Persists the conflict into localStorage-backed mock state (mirroring the
+  // real app's `conflicts` sqlite table, per Fix 3) in addition to firing the
+  // live listener, so a page reload with no listener attached yet still sees
+  // it via listPendingConflicts() below — this is what lets the restart/
+  // rehydration scenario be exercised outside Electron.
   _triggerOpConflict(msg) {
+    const state = loadState()
+    state.conflicts.push(msg)
+    saveState(state)
     opConflictListeners.forEach((cb) => cb(msg))
   },
   async getCamp() {
@@ -90,8 +103,27 @@ export const mockShoresh = {
   async getDeviceId() {
     return 'mock-device'
   },
-  async resolveConflict() {
+  async resolveConflict(args = {}) {
+    const state = loadState()
+    state.conflicts = state.conflicts.filter(
+      (msg) =>
+        !(
+          msg.existingOp &&
+          msg.existingOp.entity === args.entity &&
+          msg.existingOp.entity_id === args.entity_id &&
+          msg.existingOp.field === args.field &&
+          msg.existingOp.id === args.parent_op_id
+        )
+    )
+    saveState(state)
     return { status: 'applied' }
+  },
+  // Rehydration query stand-in (Fix 3): returns the conflicts persisted in
+  // mock state, mirroring the real listPendingConflicts() IPC handler so the
+  // Conflicts screen shows pending conflicts immediately on mount even
+  // outside Electron.
+  async listPendingConflicts() {
+    return loadState().conflicts
   },
 }
 
