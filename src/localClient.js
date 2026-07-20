@@ -11,8 +11,14 @@ export const localClient = {
   login: (name, pin) => shoresh.login({ name, pin }),
   createUser: (args) => shoresh.createUser(args),
   bootstrapCamp: (args) => shoresh.bootstrapCamp(args),
-  write: (token, entity, entity_id, field, value) => shoresh.write({ token, entity, entity_id, field, value }),
+  write: (token, entity, entity_id, field, value, parent_op_id) =>
+    shoresh.write({ token, entity, entity_id, field, value, ...(parent_op_id ? { parent_op_id } : {}) }),
   verifySession: (token) => shoresh.verifySession({ token }),
   onOpApplied: (cb) => shoresh.onOpApplied(cb),
+  onOpConflict: (cb) => shoresh.onOpConflict(cb),
   getCamp: () => shoresh.getCamp(),
+  listUsers: () => shoresh.listUsers(),
+  getDeviceId: () => shoresh.getDeviceId(),
+  resolveConflict: (token, { entity, entity_id, field, chosen_op_id, parent_op_id }) =>
+    shoresh.resolveConflict({ token, entity, entity_id, field, chosen_op_id, parent_op_id }),
 }

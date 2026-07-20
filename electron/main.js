@@ -60,6 +60,12 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
       const mainWindow = getMainWindow ? getMainWindow() : null
       if (mainWindow) mainWindow.webContents.send('shoresh:op-applied', op)
     })
+    if (typeof syncClient.onOpConflict === 'function') {
+      syncClient.onOpConflict((msg) => {
+        const mainWindow = getMainWindow ? getMainWindow() : null
+        if (mainWindow) mainWindow.webContents.send('shoresh:op-conflict', msg)
+      })
+    }
   }
 
   function chooseMode(args) {
@@ -203,6 +209,52 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     return syncClient.write({ ...writeArgs, author_user_id: session.userId })
   }
 
+  // Resolves a conflict by re-writing the CHOSEN op's value, looked up
+  // server-side by op id. The renderer only ever passes an op id — never a
+  // value — so a PIN conflict's raw hash never has to cross the IPC
+  // boundary into the renderer to be "kept." Works identically for
+  // non-sensitive fields too, so there's a single resolution path.
+  function resolveConflict({ token, entity, entity_id, field, chosen_op_id, parent_op_id } = {}) {
+    if (!isNonEmptyString(token)) {
+      throw new Error('token is required')
+    }
+    const session = verifySessionToken(token)
+    if (!session) {
+      throw new Error('invalid session')
+    }
+    if (!syncClient) {
+      throw new Error('sync not initialized — choose a mode first')
+    }
+    if (!isNonEmptyString(chosen_op_id)) {
+      throw new Error('chosen_op_id is required')
+    }
+    const chosenOp = db
+      .prepare('SELECT value FROM operations WHERE id = ? AND entity = ? AND entity_id = ? AND field = ?')
+      .get(chosen_op_id, entity, entity_id, field)
+    if (!chosenOp) {
+      throw new Error('chosen operation not found')
+    }
+    return syncClient.write({
+      entity,
+      entity_id,
+      field,
+      value: chosenOp.value,
+      parent_op_id: parent_op_id ?? null,
+      author_user_id: session.userId,
+    })
+  }
+
+  // Never selects pin_hash/pin_salt — this is consumed by UI layers (e.g. the
+  // conflicts screen's author-label resolution) that must never receive raw
+  // PIN material, even as an unused/unrendered field.
+  function listUsers() {
+    return db.prepare('SELECT id, name, role FROM users').all()
+  }
+
+  function getDeviceId() {
+    return deviceId
+  }
+
   return {
     chooseMode,
     discoverHosts: discoverHostsHandler,
@@ -211,6 +263,9 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     bootstrapCamp,
     write,
     verifySession,
+    listUsers,
+    getDeviceId,
+    resolveConflict,
     getSyncClient: () => syncClient,
   }
 }
@@ -254,6 +309,9 @@ if (isElectronEntryPoint()) {
   ipcMain.handle('shoresh:write', (_event, args) => handlers.write(args))
   ipcMain.handle('shoresh:verify-session', (_event, args) => handlers.verifySession(args))
   ipcMain.handle('shoresh:get-camp', () => db.prepare('SELECT * FROM camps LIMIT 1').get())
+  ipcMain.handle('shoresh:list-users', () => handlers.listUsers())
+  ipcMain.handle('shoresh:get-device-id', () => handlers.getDeviceId())
+  ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
 
   app.whenReady().then(createWindow)
   app.on('window-all-closed', () => {

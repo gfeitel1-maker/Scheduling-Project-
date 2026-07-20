@@ -59,7 +59,17 @@ export const mockShoresh = {
     return { valid: false }
   },
   onOpApplied() {},
+  onOpConflict() {},
   async getCamp() {
     return loadState().camp
+  },
+  async listUsers() {
+    return loadState().users.map((u) => ({ id: u.id, name: u.name, role: u.role }))
+  },
+  async getDeviceId() {
+    return 'mock-device'
+  },
+  async resolveConflict() {
+    return { status: 'applied' }
   },
 }

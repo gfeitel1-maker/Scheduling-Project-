@@ -10,15 +10,20 @@ export function createSyncClient(
   { device_id, author_user_id, serverUrl, token, lockTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS, submitTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS }
 ) {
   const opAppliedListeners = []
+  const opConflictListeners = []
   const queue = []
 
   function notifyOpApplied(op) {
     for (const listener of opAppliedListeners) listener(op)
   }
 
+  function notifyOpConflict(msg) {
+    for (const listener of opConflictListeners) listener(msg)
+  }
+
   if (!serverUrl) {
     return {
-      async write({ entity, entity_id, field, value }) {
+      async write({ entity, entity_id, field, value, parent_op_id = null }) {
         const op = appendOp(db, {
           entity,
           entity_id,
@@ -26,13 +31,16 @@ export function createSyncClient(
           value,
           author_user_id,
           device_id,
-          parent_op_id: null,
+          parent_op_id,
         })
         notifyOpApplied(op)
         return { status: 'applied', op }
       },
       onOpApplied(callback) {
         opAppliedListeners.push(callback)
+      },
+      onOpConflict(callback) {
+        opConflictListeners.push(callback)
       },
       getQueuedOps() {
         return []
@@ -228,6 +236,7 @@ export function createSyncClient(
         }
 
         if (msg.type === 'op_conflict') {
+          notifyOpConflict(msg)
           const resolve = submitResolvers.shift()
           if (resolve) resolve(msg)
         }
@@ -305,7 +314,7 @@ export function createSyncClient(
     })
   }
 
-  async function performWrite({ entity, entity_id, field, value }) {
+  async function performWrite({ entity, entity_id, field, value, parent_op_id = null }) {
     const lockResult = await acquireLockRemote(entity, entity_id, field)
     if (lockResult.status === 'disconnected' || lockResult.status === 'timeout') {
       return { status: lockResult.status }
@@ -314,7 +323,7 @@ export function createSyncClient(
       return { status: 'conflict' }
     }
 
-    const op = { entity, entity_id, field, value, author_user_id, parent_op_id: null }
+    const op = { entity, entity_id, field, value, author_user_id, parent_op_id }
     const submitResult = await submitOpRemote(op)
     if (submitResult.status === 'disconnected' || submitResult.status === 'timeout' || submitResult.status === 'error') {
       return submitResult
@@ -349,6 +358,9 @@ export function createSyncClient(
     },
     onOpApplied(callback) {
       opAppliedListeners.push(callback)
+    },
+    onOpConflict(callback) {
+      opConflictListeners.push(callback)
     },
     getQueuedOps() {
       return queue.slice()

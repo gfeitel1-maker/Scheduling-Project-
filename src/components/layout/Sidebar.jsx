@@ -3,6 +3,7 @@ import { supabase } from '../../supabase'
 
 const NAV = [
   { key: 'setup',        label: 'Camp Setup' },
+  { key: 'conflicts',    label: 'Conflicts' },
   { key: 'cohorts',      label: 'Programs' },
   { key: 'tiers',        label: 'Units' },
   { key: 'groups',       label: 'Groups' },
@@ -13,7 +14,7 @@ const NAV = [
   { key: 'schedule',     label: 'Schedule', divider: true },
 ]
 
-export default function Sidebar({ current, onNavigate, campId }) {
+export default function Sidebar({ current, onNavigate, campId, badges = {} }) {
   const [campName, setCampName] = useState('')
 
   useEffect(() => {
@@ -59,7 +60,20 @@ export default function Sidebar({ current, onNavigate, campId }) {
               onMouseEnter={e => { if (current !== item.key) e.currentTarget.style.background = 'var(--bg)' }}
               onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
             >
-              {item.label}
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                {item.label}
+                {Boolean(badges[item.key]) && (
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    minWidth: 16, height: 16, padding: '0 5px', borderRadius: 99,
+                    background: 'var(--warning)', color: '#fff',
+                    fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                    lineHeight: '16px',
+                  }}>
+                    {badges[item.key]}
+                  </span>
+                )}
+              </span>
             </button>
           </div>
         ))}

@@ -80,6 +80,65 @@ describe('local/host mode', () => {
     expect(row).toBeTruthy()
     expect(row.value).toBe('swim')
   })
+
+  it('defaults parent_op_id to null when omitted (no regression)', async () => {
+    const client = createSyncClient(hostDb, { device_id: deviceId, author_user_id: userId })
+    const result = await client.write({ entity: 'template_slots', entity_id: 's1b', field: 'activity_id', value: 'swim' })
+    expect(result.status).toBe('applied')
+    expect(result.op.parent_op_id).toBeNull()
+  })
+
+  it('uses a provided parent_op_id instead of the hardcoded null', async () => {
+    const client = createSyncClient(hostDb, { device_id: deviceId, author_user_id: userId })
+    const first = await client.write({ entity: 'template_slots', entity_id: 's1c', field: 'activity_id', value: 'swim' })
+    const second = await client.write({
+      entity: 'template_slots',
+      entity_id: 's1c',
+      field: 'activity_id',
+      value: 'kayak',
+      parent_op_id: first.op.id,
+    })
+    expect(second.status).toBe('applied')
+    expect(second.op.parent_op_id).toBe(first.op.id)
+  })
+
+  it('a conflict-resolution write parented to the losing op does not immediately re-trigger a new conflict', async () => {
+    const { detectConflict } = await import('../ops/operations.js')
+    const client = createSyncClient(hostDb, { device_id: deviceId, author_user_id: userId })
+
+    // op A: the existing/losing op already applied
+    const opA = await client.write({ entity: 'template_slots', entity_id: 's1d', field: 'activity_id', value: 'archery' })
+
+    // op B: a conflicting attempt (parent_op_id null, but latest op is now A) -
+    // detectConflict must flag this as a real conflict against A.
+    const conflictCheck = detectConflict(hostDb, {
+      entity: 'template_slots',
+      entity_id: 's1d',
+      field: 'activity_id',
+      parent_op_id: null,
+    })
+    expect(conflictCheck.conflict).toBe(true)
+    expect(conflictCheck.existingOp.id).toBe(opA.op.id)
+
+    // Resolve by writing with parent_op_id set to the losing op's id (A's id) -
+    // this must apply cleanly as the new latest op, not loop into another conflict.
+    const resolution = await client.write({
+      entity: 'template_slots',
+      entity_id: 's1d',
+      field: 'activity_id',
+      value: 'archery', // director picked A's value
+      parent_op_id: conflictCheck.existingOp.id,
+    })
+    expect(resolution.status).toBe('applied')
+
+    const noLongerConflicting = detectConflict(hostDb, {
+      entity: 'template_slots',
+      entity_id: 's1d',
+      field: 'activity_id',
+      parent_op_id: resolution.op.id,
+    })
+    expect(noLongerConflicting.conflict).toBe(false)
+  })
 })
 
 describe('remote client mode', () => {

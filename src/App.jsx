@@ -13,13 +13,16 @@ import AnchorsScreen from './screens/AnchorsScreen'
 import CohortsScreen from './screens/CohortsScreen'
 import DayOverridesScreen from './screens/DayOverridesScreen'
 import ScheduleScreen from './screens/ScheduleScreen'
+import ConflictsScreen from './screens/ConflictsScreen'
 import { useDeviceMode } from './hooks/useDeviceMode'
+import { usePendingConflicts } from './hooks/usePendingConflicts'
 import { supabase } from './supabase'
 import { ensureCohort } from './utils/ensureCohort'
 import { S } from './styles/shared'
 
 const SCREENS = {
   setup:        CampSetup,
+  conflicts:    ConflictsScreen,
   cohorts:      CohortsScreen,
   tiers:        TiersScreen,
   groups:       GroupsScreen,
@@ -52,6 +55,10 @@ async function seedDays(campId) {
 
 function AppShell({ campId, onLogout }) {
   const [screen, setScreen] = useState('setup')
+  // Single instance of the pending-conflicts source for this whole shell —
+  // both the Sidebar badge count and ConflictsScreen's list read from it, so
+  // they can never disagree.
+  const pendingConflicts = usePendingConflicts()
 
   useEffect(() => {
     seedDays(campId)
@@ -59,10 +66,19 @@ function AppShell({ campId, onLogout }) {
   }, [campId])
 
   const Screen = SCREENS[screen] || CampSetup
+  const screenProps = screen === 'conflicts'
+    ? { campId, onNavigate: setScreen, pendingConflicts }
+    : { campId, onNavigate: setScreen }
 
   return (
-    <Shell currentScreen={screen} onNavigate={setScreen} campId={campId} onLogout={onLogout}>
-      <Screen campId={campId} onNavigate={setScreen} />
+    <Shell
+      currentScreen={screen}
+      onNavigate={setScreen}
+      campId={campId}
+      onLogout={onLogout}
+      sidebarBadges={{ conflicts: pendingConflicts.conflicts.length }}
+    >
+      <Screen {...screenProps} />
     </Shell>
   )
 }
