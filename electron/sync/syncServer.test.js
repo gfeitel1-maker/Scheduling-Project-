@@ -8,7 +8,7 @@ import WebSocket from 'ws'
 import { openLocalDb } from '../db/localDb.js'
 import { createUser, issueSessionToken } from '../auth/localAuth.js'
 import { appendOp } from '../ops/operations.js'
-import { startSyncServer, sendMissedOps } from './syncServer.js'
+import { startSyncServer, sendMissedOps, sendWithAck } from './syncServer.js'
 
 const PORT = 8137
 
@@ -730,5 +730,65 @@ describe('Task 10 round-6: sendMissedOps gates watermark on genuine async delive
 
     const row = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
     expect(row.last_synced_seq).toBe(opA.seq)
+  })
+})
+
+describe('Red Hat follow-up: sendWithAck is bounded by a timeout so an unfired ws.send() callback cannot hang forever', () => {
+  // Models the documented `ws` library edge case where the completion
+  // callback passed to ws.send() is never invoked (some destroy-path
+  // scenarios drop it entirely). Without a timeout racing the ack Promise,
+  // this would hang forever. A short timeoutMs keeps this test fast instead
+  // of waiting out the real 8s production default.
+  function fakeNeverAcksWs() {
+    return {
+      readyState: 1,
+      OPEN: 1,
+      send(_data, _callback) {
+        // Intentionally never invoke _callback — simulates the unfired-
+        // callback edge case.
+      },
+    }
+  }
+
+  it('sendWithAck resolves false (not hangs) once the timeout elapses without the callback firing', async () => {
+    const ws = fakeNeverAcksWs()
+    const result = await sendWithAck(ws, { type: 'op_applied', op: {} }, 20)
+    expect(result).toBe(false)
+  })
+
+  it('sendMissedOps treats an unfired ack callback as a failed send, stopping the loop and leaving the watermark honest', async () => {
+    const baseline = db.prepare('SELECT MAX(seq) as maxSeq FROM operations').get().maxSeq || 0
+    db.prepare('UPDATE devices SET last_synced_seq = ? WHERE id = ?').run(baseline, deviceId)
+
+    appendOp(db, { entity: 'template_slots', entity_id: 'noack-a', field: 'activity_id', value: '1', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+    appendOp(db, { entity: 'template_slots', entity_id: 'noack-b', field: 'activity_id', value: '2', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+
+    const sent = []
+    const ws = {
+      deviceId,
+      readyState: 1,
+      OPEN: 1,
+      send(data, _callback) {
+        sent.push(JSON.parse(data))
+        // op A's callback never fires — sendWithAck must time out and
+        // resolve false rather than hang, which should stop the replay
+        // loop before op B is ever attempted.
+      },
+    }
+
+    // A short ackTimeoutMs keeps this test fast (it would otherwise take
+    // the real 8s production default before resolving).
+    await sendMissedOps(db, ws, 20)
+
+    // op A itself is the one whose ack never confirms, so it must have been
+    // attempted (send() called) but never counted as successfully delivered
+    // — op B must never be attempted once op A's send fails via timeout.
+    expect(sent.map((m) => m.op.entity_id)).toEqual(['noack-a'])
+
+    // Since not even op A was confirmed delivered, the watermark must stay
+    // exactly at the pre-existing baseline — it must NOT advance past an
+    // unconfirmed op just because ws.send() didn't throw synchronously.
+    const row = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
+    expect(row.last_synced_seq).toBe(baseline)
   })
 })

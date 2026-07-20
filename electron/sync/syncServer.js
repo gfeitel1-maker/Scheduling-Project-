@@ -19,6 +19,17 @@ function send(ws, message) {
   }
 }
 
+// Red Hat review follow-up: ws.send()'s completion callback is documented to
+// go unfired in some destroy-path edge cases in the underlying `ws` library.
+// Without a bound, that would hang this Promise forever. sendMissedOps's
+// caller isn't awaited at its own call site, so this can't cascade into a
+// connection- or process-wide freeze — but it would silently stall one
+// device's catch-up with zero observability. SEND_ACK_TIMEOUT_MS races the
+// ack against a bounded timeout and resolves false on expiry, matching the
+// existing withResolverTimeout pattern in syncClient.js: settle-once guard,
+// clear the timer on whichever path wins.
+const SEND_ACK_TIMEOUT_MS = 8000
+
 // Task 10 round-6 follow-up: a synchronous absence-of-exception from
 // ws.send() is NOT proof of delivery. On a live-but-broken TCP connection,
 // ws.send() commonly returns normally (readyState stays OPEN, nothing
@@ -28,21 +39,36 @@ function send(ws, message) {
 // event. sendWithAck awaits that genuine confirmation instead of trusting
 // the synchronous return, so callers (specifically sendMissedOps) can gate
 // watermark advancement on real delivery, not just "didn't throw yet".
-function sendWithAck(ws, message) {
+export function sendWithAck(ws, message, timeoutMs = SEND_ACK_TIMEOUT_MS) {
   return new Promise((resolve) => {
     if (ws.readyState !== ws.OPEN) {
       resolve(false)
       return
     }
+    let settled = false
+    let timer = null
+    const settle = (result) => {
+      if (settled) return
+      settled = true
+      if (timer) clearTimeout(timer)
+      resolve(result)
+    }
+    timer = setTimeout(() => {
+      // The ws.send() callback never fired within the bound. Treat this the
+      // same as an explicit ack-failure so sendMissedOps's loop breaks
+      // cleanly and the watermark stays honest rather than advancing past
+      // an unconfirmed op.
+      settle(false)
+    }, timeoutMs)
     try {
       ws.send(JSON.stringify(message), (err) => {
-        resolve(!err)
+        settle(!err)
       })
     } catch {
       // Preserve round-5 behavior: a synchronous throw from ws.send() itself
       // (if the underlying implementation can still do that) is still
       // treated as an immediate failure.
-      resolve(false)
+      settle(false)
     }
   })
 }
@@ -116,7 +142,7 @@ function currentMaxOpSeq(db) {
 // over an actual network socket in a test, so the partial-send-failure path
 // is tested by calling this directly against a real SQLite db with a
 // controlled fake `ws` object whose send() throws on a specific op.
-export async function sendMissedOps(db, ws) {
+export async function sendMissedOps(db, ws, ackTimeoutMs = SEND_ACK_TIMEOUT_MS) {
   const device = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(ws.deviceId)
 
   if (!device || device.last_synced_seq === null || device.last_synced_seq === undefined) {
@@ -157,7 +183,7 @@ export async function sendMissedOps(db, ws) {
   // calling ws.send() again on a now-dead socket, and the loop stops there.
   let lastSuccessSeq = since
   for (const op of rows) {
-    const ok = await sendWithAck(ws, { type: 'op_applied', op })
+    const ok = await sendWithAck(ws, { type: 'op_applied', op }, ackTimeoutMs)
     if (!ok) break
     if (op.seq > lastSuccessSeq) lastSuccessSeq = op.seq
   }
