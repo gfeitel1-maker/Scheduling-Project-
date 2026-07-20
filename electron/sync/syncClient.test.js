@@ -1284,4 +1284,51 @@ describe('remote login (fresh client, no local token yet)', () => {
     const result = await client.loginRemote({ name: 'Alice', pin: '1234' })
     expect(result.status).toBe('disconnected')
   })
+
+  it('a fresh client with a completely empty local db can join, get full-synced, and write', async () => {
+    // Deliberately do NOT seed freshClientDb with any camps/users/devices
+    // rows — this is the exact "genuinely fresh device" scenario the
+    // original bug was found in. Confirm it really is empty first.
+    expect(freshClientDb.prepare('SELECT COUNT(*) as n FROM camps').get().n).toBe(0)
+    expect(freshClientDb.prepare('SELECT COUNT(*) as n FROM users').get().n).toBe(0)
+
+    const freshDeviceId = randomUUID()
+    // NOTE (deviation from plan): same as the earlier test in this describe
+    // block — main.js's ensureDeviceRow normally inserts this device's own
+    // row into its own local `devices` table at startup, before syncClient
+    // ever runs, because the local `operations` table's device_id column has
+    // an FK to `devices(id)`. This test operates below main.js, so the row
+    // is inserted here directly to mirror that startup step (this does NOT
+    // seed camps/users — the local db is still genuinely empty of the data
+    // this test proves gets full-synced).
+    freshClientDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(freshDeviceId, 'Fresh Device 4')
+    const client = createSyncClient(freshClientDb, {
+      device_id: freshDeviceId,
+      author_user_id: null,
+      serverUrl: `ws://localhost:${REMOTE_LOGIN_PORT}`,
+    })
+    await client.waitUntilConnected()
+
+    // Step 1: the circular dependency this whole plan exists to break —
+    // login before any local data exists.
+    const loginResult = await client.loginRemote({ name: 'Alice', pin: '1234' })
+    expect(loginResult.status).toBe('ok')
+
+    // Step 2: full-sync should now have populated local camps/users (this is
+    // the existing Sync-Task 4 mechanism — this test proves it actually
+    // fires for a client that reached authentication via loginRemote,
+    // exactly as it does for a client that already had a token).
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(freshClientDb.prepare('SELECT COUNT(*) as n FROM camps').get().n).toBeGreaterThan(0)
+    expect(freshClientDb.prepare('SELECT COUNT(*) as n FROM users').get().n).toBeGreaterThan(0)
+    const syncedUser = freshClientDb.prepare('SELECT * FROM users WHERE id = ?').get(loginResult.userId)
+    expect(syncedUser.name).toBe('Alice')
+
+    // Step 3: a normal op-log write now succeeds — this device is fully
+    // operational, not just nominally authenticated.
+    const writeResult = await client.write({ entity: 'activities', entity_id: 'a2', field: 'name', value: 'Ceramics' })
+    expect(writeResult.status).toBe('applied')
+
+    client.close()
+  })
 })
