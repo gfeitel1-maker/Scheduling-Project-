@@ -94,7 +94,7 @@ function sendFullSyncIfFirstPairing(db, ws) {
   if (!device || device.last_synced_at) return
 
   const users = db.prepare('SELECT id, camp_id, name, pin_hash, pin_salt, role FROM users').all()
-  const camps = db.prepare('SELECT id, name FROM camps').all()
+  const camps = db.prepare('SELECT id, name, signing_secret FROM camps').all()
   send(ws, { type: 'full_sync', users, camps })
 
   db.prepare('UPDATE devices SET last_synced_at = ? WHERE id = ?').run(
@@ -193,7 +193,7 @@ export async function sendMissedOps(db, ws, ackTimeoutMs = SEND_ACK_TIMEOUT_MS) 
 }
 
 function handleAuthenticate(db, ws, msg) {
-  const verified = verifySessionToken(msg.token)
+  const verified = verifySessionToken(db, msg.token)
   if (!verified || verified.deviceId !== msg.device_id) {
     ws.close()
     return

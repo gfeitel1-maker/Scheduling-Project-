@@ -57,7 +57,7 @@ beforeEach(async () => {
   db = openLocalDb(tmpFile)
 
   campId = randomUUID()
-  db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Test Camp')
+  db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Test Camp', 'b'.repeat(64))
 
   deviceId = randomUUID()
   db.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(deviceId, 'Device A', new Date().toISOString())
@@ -80,7 +80,7 @@ beforeEach(async () => {
   )
   userId = user.id
 
-  token = issueSessionToken(userId, deviceId)
+  token = issueSessionToken(db, userId, deviceId)
 
   server = startSyncServer(db, { port: PORT })
 })
@@ -167,7 +167,7 @@ describe('submit_op', () => {
 
     const otherDeviceId = randomUUID()
     db.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(otherDeviceId, 'Device B', new Date().toISOString())
-    const otherToken = issueSessionToken(userId, otherDeviceId)
+    const otherToken = issueSessionToken(db, userId, otherDeviceId)
     const ws2 = connect()
     await onceOpen(ws2)
     ws2.send(JSON.stringify({ type: 'authenticate', token: otherToken, device_id: otherDeviceId }))
@@ -361,7 +361,7 @@ describe('lock release on disconnect (Fix 2)', () => {
 
     const otherDeviceId = randomUUID()
     db.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(otherDeviceId, 'Device B', new Date().toISOString())
-    const otherToken = issueSessionToken(userId, otherDeviceId)
+    const otherToken = issueSessionToken(db, userId, otherDeviceId)
     const wsB = connect()
     await onceOpen(wsB)
     wsB.send(JSON.stringify({ type: 'authenticate', token: otherToken, device_id: otherDeviceId }))
@@ -426,7 +426,7 @@ describe('safe broadcast (Fix 3)', () => {
 
     const otherDeviceId = randomUUID()
     db.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(otherDeviceId, 'Device B', new Date().toISOString())
-    const otherToken = issueSessionToken(userId, otherDeviceId)
+    const otherToken = issueSessionToken(db, userId, otherDeviceId)
     const ws2 = connect()
     await onceOpen(ws2)
     ws2.send(JSON.stringify({ type: 'authenticate', token: otherToken, device_id: otherDeviceId }))
@@ -485,7 +485,7 @@ describe('full_sync on first pairing', () => {
     // that round 1's tests masked by manually inserting the row production
     // code never created. The self-registration fix in handleAuthenticate
     // must create this row itself.
-    const newToken = issueSessionToken(userId, newDeviceId)
+    const newToken = issueSessionToken(db, userId, newDeviceId)
 
     const ws = connect()
     await onceOpen(ws)
@@ -496,7 +496,7 @@ describe('full_sync on first pairing', () => {
     expect(msg.users).toEqual([
       { id: userId, camp_id: campId, name: 'Alice', pin_hash: expect.any(String), pin_salt: expect.any(String), role: 'admin' },
     ])
-    expect(msg.camps).toEqual([{ id: campId, name: 'Test Camp' }])
+    expect(msg.camps).toEqual([{ id: campId, name: 'Test Camp', signing_secret: 'b'.repeat(64) }])
 
     const row = db.prepare('SELECT last_synced_at FROM devices WHERE id = ?').get(newDeviceId)
     expect(row.last_synced_at).toBeTruthy()
@@ -508,7 +508,7 @@ describe('full_sync on first pairing', () => {
     const newDeviceId = randomUUID()
     // No pre-existing devices row - the first authenticate below must
     // self-register it via production code, not test setup.
-    const newToken = issueSessionToken(userId, newDeviceId)
+    const newToken = issueSessionToken(db, userId, newDeviceId)
 
     const ws1 = connect()
     await onceOpen(ws1)
