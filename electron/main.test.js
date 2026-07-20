@@ -227,8 +227,19 @@ describe('login: rate limiting (Fix B)', () => {
       expect(handlers.login({ name: 'Eve', pin: 'wrong' })).toBeNull()
     }
 
-    // now locked out: even the CORRECT pin is rejected the same way (no distinct signal)
-    expect(handlers.login({ name: 'Eve', pin: '1111' })).toBeNull()
+    // now locked out: even the CORRECT pin is rejected the same way, but the client
+    // is told it is specifically locked out (with a retry time) rather than getting
+    // the generic null a wrong PIN would get — this is safe since the client already
+    // knows it made 5 failed attempts itself.
+    const result = handlers.login({ name: 'Eve', pin: '1111' })
+    expect(result).toEqual({ locked: true, retryAfterMs: expect.any(Number) })
+    expect(result.retryAfterMs).toBeGreaterThan(0)
+  })
+
+  it('still returns plain null for a simple wrong PIN (not locked)', async () => {
+    await seedCampAndUser({ name: 'Zara', pin: '3333' })
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(handlers.login({ name: 'Zara', pin: 'wrong' })).toBeNull()
   })
 
   it('resets the failure counter for a name after a successful login', async () => {

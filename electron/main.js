@@ -85,7 +85,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
 
     const attempt = loginAttempts.get(name)
     if (attempt && attempt.lockedUntil && attempt.lockedUntil > Date.now()) {
-      return null
+      return { locked: true, retryAfterMs: attempt.lockedUntil - Date.now() }
     }
 
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
