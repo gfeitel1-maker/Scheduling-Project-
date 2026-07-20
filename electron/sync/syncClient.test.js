@@ -28,7 +28,7 @@ beforeEach(async () => {
   clientDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Test Camp')
 
   deviceId = randomUUID()
-  hostDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Device A')
+  hostDb.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(deviceId, 'Device A', new Date().toISOString())
   clientDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Device A')
 
   const user = await createUser(
@@ -113,7 +113,7 @@ describe('remote client mode', () => {
 
   it('resolves conflict without submitting when the lock is denied', async () => {
     const otherDeviceId = randomUUID()
-    hostDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(otherDeviceId, 'Device B')
+    hostDb.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(otherDeviceId, 'Device B', new Date().toISOString())
     const otherToken = issueSessionToken(userId, otherDeviceId)
 
     const holderWs = new WebSocket(`ws://localhost:${PORT}`)
@@ -173,7 +173,7 @@ describe('remote client mode', () => {
     const flushServer = startSyncServer(hostDb, { port: FLUSH_PORT })
     try {
       const otherDeviceId = randomUUID()
-      hostDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(otherDeviceId, 'Device B')
+      hostDb.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(otherDeviceId, 'Device B', new Date().toISOString())
       const otherToken = issueSessionToken(userId, otherDeviceId)
       const holderWs = new WebSocket(`ws://localhost:${FLUSH_PORT}`)
       await new Promise((resolve) => holderWs.once('open', resolve))
@@ -693,6 +693,103 @@ describe('remote client mode', () => {
 
     expect(result.status).toBe('error')
     expect(elapsed).toBeLessThan(1000)
+
+    client.close()
+  })
+})
+
+describe('full_sync handling', () => {
+  it('bulk-loads users and camps from a real full_sync round-trip on first pairing', async () => {
+    const freshDeviceId = randomUUID()
+    hostDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(freshDeviceId, 'Fresh Device')
+    const freshToken = issueSessionToken(userId, freshDeviceId)
+
+    const freshClientFile = path.join(os.tmpdir(), `shoresh-sc-fresh-${Date.now()}-${Math.random()}.sqlite`)
+    const freshClientDb = openLocalDb(freshClientFile)
+    freshClientDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(freshDeviceId, 'Fresh Device')
+
+    const client = createSyncClient(freshClientDb, {
+      device_id: freshDeviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token: freshToken,
+    })
+    await client.waitUntilConnected()
+    await new Promise((resolve) => setTimeout(resolve, 100))
+
+    const userRow = freshClientDb.prepare('SELECT * FROM users WHERE id = ?').get(userId)
+    expect(userRow).toBeTruthy()
+    expect(userRow.name).toBe('Alice')
+    const campRow = freshClientDb.prepare('SELECT * FROM camps WHERE id = ?').get(campId)
+    expect(campRow).toEqual({ id: campId, name: 'Test Camp' })
+
+    client.close()
+    freshClientDb.close()
+    fs.unlinkSync(freshClientFile)
+  })
+
+  it('skips invalid rows but inserts valid ones from a full_sync message (defensive validation)', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const ws = client.__getWs()
+    const validUserId = randomUUID()
+    const msg = JSON.stringify({
+      type: 'full_sync',
+      users: [
+        { id: validUserId, camp_id: campId, name: 'Valid User', pin_hash: 'h', pin_salt: 's', role: 'staff' },
+        { id: randomUUID(), camp_id: null, name: 'Nullable Camp Ok', pin_hash: 'h', pin_salt: 's', role: 'admin' },
+        { id: randomUUID(), camp_id: campId, name: 'Bad Role', pin_hash: 'h', pin_salt: 's', role: 'superadmin' },
+        { id: randomUUID(), camp_id: campId, name: 123, pin_hash: 'h', pin_salt: 's', role: 'staff' },
+        { camp_id: campId, name: 'Missing Id', pin_hash: 'h', pin_salt: 's', role: 'staff' },
+        'not an object',
+      ],
+      camps: [
+        { id: randomUUID(), name: 'Valid Camp' },
+        { id: '', name: 'Empty Id' },
+        { id: randomUUID(), name: '' },
+        { id: randomUUID() },
+        null,
+      ],
+    })
+
+    ws.emit('message', Buffer.from(msg))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const validUser = clientDb.prepare('SELECT * FROM users WHERE id = ?').get(validUserId)
+    expect(validUser).toBeTruthy()
+    expect(validUser.name).toBe('Valid User')
+
+    const allUsers = clientDb.prepare('SELECT COUNT(*) as c FROM users').get()
+    // pre-existing Alice + validUserId + the nullable-camp_id row = 3
+    expect(allUsers.c).toBe(3)
+
+    const allCamps = clientDb.prepare('SELECT COUNT(*) as c FROM camps').get()
+    // pre-existing Test Camp + the one valid camp = 2
+    expect(allCamps.c).toBe(2)
+
+    client.close()
+  })
+
+  it('does not throw on a malformed full_sync message (users/camps not arrays)', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const ws = client.__getWs()
+    const msg = JSON.stringify({ type: 'full_sync', users: 'not-an-array', camps: null })
+
+    expect(() => ws.emit('message', Buffer.from(msg))).not.toThrow()
+    await new Promise((resolve) => setTimeout(resolve, 20))
 
     client.close()
   })

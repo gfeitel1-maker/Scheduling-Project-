@@ -90,7 +90,7 @@ describe('Fix 4: seq as real primary key, id unique', () => {
 describe('Fix 6: nullable users.camp_id (schema version 4)', () => {
   it('getSchemaVersion returns 4 after openLocalDb runs', () => {
     const db = freshDb()
-    expect(getSchemaVersion(db)).toBe(4)
+    expect(getSchemaVersion(db)).toBeGreaterThanOrEqual(4)
     db.close()
   })
 
@@ -125,7 +125,7 @@ describe('THIRD CORRECTION: version-4 migration is transactional', () => {
     const campIdColumn = db.pragma('table_info(users)').find((col) => col.name === 'camp_id')
     expect(campIdColumn).toBeDefined()
     expect(campIdColumn.notnull).toBe(0)
-    expect(getSchemaVersion(db)).toBe(4)
+    expect(getSchemaVersion(db)).toBeGreaterThanOrEqual(4)
     db.close()
   })
 
@@ -167,6 +167,46 @@ describe('THIRD CORRECTION: version-4 migration is transactional', () => {
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users_new'")
       .get()
     expect(usersNewExists).toBeUndefined()
+    db.close()
+  })
+})
+
+describe('Task 4: devices.last_synced_at (schema version 5)', () => {
+  it('getSchemaVersion returns 5 after openLocalDb runs', () => {
+    const db = freshDb()
+    expect(getSchemaVersion(db)).toBe(5)
+    db.close()
+  })
+
+  it('a fresh install already has last_synced_at via schema.sql, with no ALTER needed', () => {
+    const db = freshDb()
+    const col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
+    expect(col).toBeDefined()
+    expect(getSchemaVersion(db)).toBe(5)
+    db.close()
+  })
+
+  it('an existing pre-migration db (missing last_synced_at) gets the column added via the guarded ALTER', () => {
+    const db = freshDb()
+    // Simulate a pre-migration db: rebuild devices without last_synced_at, drop the v5 marker.
+    db.exec('DROP TABLE devices')
+    db.exec(`
+      CREATE TABLE devices (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        last_seen_at TEXT
+      )
+    `)
+    db.prepare('DELETE FROM schema_migrations WHERE version = 5').run()
+
+    let col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
+    expect(col).toBeUndefined()
+
+    initSchema(db)
+
+    col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
+    expect(col).toBeDefined()
+    expect(getSchemaVersion(db)).toBe(5)
     db.close()
   })
 })

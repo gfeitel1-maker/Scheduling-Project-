@@ -45,6 +45,20 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  if (getSchemaVersion(db) < 5) {
+    const hasLastSyncedAt = db
+      .pragma('table_info(devices)')
+      .some((col) => col.name === 'last_synced_at')
+
+    if (!hasLastSyncedAt) {
+      db.exec('ALTER TABLE devices ADD COLUMN last_synced_at TEXT')
+    }
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (5, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 export function openLocalDb(filePath) {

@@ -28,7 +28,21 @@ function isNonEmptyString(v) {
   return typeof v === 'string' && v.length > 0
 }
 
-function handleAuthenticate(ws, msg) {
+function sendFullSyncIfFirstPairing(db, ws) {
+  const device = db.prepare('SELECT last_synced_at FROM devices WHERE id = ?').get(ws.deviceId)
+  if (!device || device.last_synced_at) return
+
+  const users = db.prepare('SELECT id, camp_id, name, pin_hash, pin_salt, role FROM users').all()
+  const camps = db.prepare('SELECT id, name FROM camps').all()
+  send(ws, { type: 'full_sync', users, camps })
+
+  db.prepare('UPDATE devices SET last_synced_at = ? WHERE id = ?').run(
+    new Date().toISOString(),
+    ws.deviceId
+  )
+}
+
+function handleAuthenticate(db, ws, msg) {
   const verified = verifySessionToken(msg.token)
   if (!verified || verified.deviceId !== msg.device_id) {
     ws.close()
@@ -36,6 +50,7 @@ function handleAuthenticate(ws, msg) {
   }
   ws.deviceId = verified.deviceId
   ws.userId = verified.userId
+  sendFullSyncIfFirstPairing(db, ws)
 }
 
 function validateAcquireLockMsg(msg) {
@@ -106,7 +121,7 @@ export function startSyncServer(db, { port }) {
 
       try {
         if (msg.type === 'authenticate') {
-          handleAuthenticate(ws, msg)
+          handleAuthenticate(db, ws, msg)
           return
         }
 

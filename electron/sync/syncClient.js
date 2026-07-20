@@ -56,6 +56,41 @@ export function createSyncClient(
     return typeof v === 'string' && v.length > 0
   }
 
+  function isValidFullSyncUser(user) {
+    if (user === null || typeof user !== 'object' || Array.isArray(user)) return false
+    if (!isNonEmptyString(user.id)) return false
+    if (!(user.camp_id === null || isNonEmptyString(user.camp_id))) return false
+    if (!isNonEmptyString(user.name)) return false
+    if (!isNonEmptyString(user.pin_hash)) return false
+    if (!isNonEmptyString(user.pin_salt)) return false
+    if (user.role !== 'admin' && user.role !== 'staff') return false
+    return true
+  }
+
+  function isValidFullSyncCamp(camp) {
+    if (camp === null || typeof camp !== 'object' || Array.isArray(camp)) return false
+    if (!isNonEmptyString(camp.id)) return false
+    if (!isNonEmptyString(camp.name)) return false
+    return true
+  }
+
+  function applyFullSync(msg) {
+    const users = Array.isArray(msg.users) ? msg.users : []
+    const camps = Array.isArray(msg.camps) ? msg.camps : []
+
+    for (const camp of camps) {
+      if (!isValidFullSyncCamp(camp)) continue
+      db.prepare('INSERT OR REPLACE INTO camps (id, name) VALUES (?, ?)').run(camp.id, camp.name)
+    }
+
+    for (const user of users) {
+      if (!isValidFullSyncUser(user)) continue
+      db.prepare(
+        'INSERT OR REPLACE INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(user.id, user.camp_id, user.name, user.pin_hash, user.pin_salt, user.role)
+    }
+  }
+
   function isValidRemoteOp(op) {
     if (op === null || typeof op !== 'object' || Array.isArray(op)) return false
     if (!isNonEmptyString(op.id)) return false
@@ -124,6 +159,11 @@ export function createSyncClient(
         }
 
         if (msg === null || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.type !== 'string') {
+          return
+        }
+
+        if (msg.type === 'full_sync') {
+          applyFullSync(msg)
           return
         }
 

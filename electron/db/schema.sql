@@ -17,7 +17,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_users_camp_name ON users(camp_id, name);
 CREATE TABLE IF NOT EXISTS devices (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  last_seen_at TEXT
+  last_seen_at TEXT,
+  last_synced_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS operations (

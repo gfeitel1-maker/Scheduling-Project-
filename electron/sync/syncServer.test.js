@@ -40,7 +40,7 @@ beforeEach(async () => {
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Test Camp')
 
   deviceId = randomUUID()
-  db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Device A')
+  db.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(deviceId, 'Device A', new Date().toISOString())
 
   const user = await createUser(
     db,
@@ -146,7 +146,7 @@ describe('submit_op', () => {
     ws1.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
 
     const otherDeviceId = randomUUID()
-    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(otherDeviceId, 'Device B')
+    db.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(otherDeviceId, 'Device B', new Date().toISOString())
     const otherToken = issueSessionToken(userId, otherDeviceId)
     const ws2 = connect()
     await onceOpen(ws2)
@@ -340,7 +340,7 @@ describe('lock release on disconnect (Fix 2)', () => {
     await new Promise((r) => setTimeout(r, 100))
 
     const otherDeviceId = randomUUID()
-    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(otherDeviceId, 'Device B')
+    db.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(otherDeviceId, 'Device B', new Date().toISOString())
     const otherToken = issueSessionToken(userId, otherDeviceId)
     const wsB = connect()
     await onceOpen(wsB)
@@ -405,7 +405,7 @@ describe('safe broadcast (Fix 3)', () => {
     ws1.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
 
     const otherDeviceId = randomUUID()
-    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(otherDeviceId, 'Device B')
+    db.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(otherDeviceId, 'Device B', new Date().toISOString())
     const otherToken = issueSessionToken(userId, otherDeviceId)
     const ws2 = connect()
     await onceOpen(ws2)
@@ -454,5 +454,57 @@ describe('safe broadcast (Fix 3)', () => {
     ws1.close()
     ws2.close()
     ws3.close()
+  })
+})
+
+describe('full_sync on first pairing', () => {
+  it('sends full_sync with all users and camps on a device\'s first successful authenticate', async () => {
+    const newDeviceId = randomUUID()
+    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(newDeviceId, 'New Device')
+    const newToken = issueSessionToken(userId, newDeviceId)
+
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token: newToken, device_id: newDeviceId }))
+    const msg = await onceMessage(ws)
+
+    expect(msg.type).toBe('full_sync')
+    expect(msg.users).toEqual([
+      { id: userId, camp_id: campId, name: 'Alice', pin_hash: expect.any(String), pin_salt: expect.any(String), role: 'admin' },
+    ])
+    expect(msg.camps).toEqual([{ id: campId, name: 'Test Camp' }])
+
+    const row = db.prepare('SELECT last_synced_at FROM devices WHERE id = ?').get(newDeviceId)
+    expect(row.last_synced_at).toBeTruthy()
+
+    ws.close()
+  })
+
+  it('does not send full_sync again on a second authenticate from the same device', async () => {
+    const newDeviceId = randomUUID()
+    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(newDeviceId, 'New Device')
+    const newToken = issueSessionToken(userId, newDeviceId)
+
+    const ws1 = connect()
+    await onceOpen(ws1)
+    ws1.send(JSON.stringify({ type: 'authenticate', token: newToken, device_id: newDeviceId }))
+    const firstMsg = await onceMessage(ws1)
+    expect(firstMsg.type).toBe('full_sync')
+    ws1.close()
+
+    const ws2 = connect()
+    await onceOpen(ws2)
+    ws2.send(JSON.stringify({ type: 'authenticate', token: newToken, device_id: newDeviceId }))
+    ws2.send(
+      JSON.stringify({
+        type: 'acquire_lock',
+        entity: 'template_slots',
+        entity_id: 'full-sync-second-auth',
+        field: 'activity_id',
+      })
+    )
+    const msg = await onceMessage(ws2)
+    expect(msg).toEqual({ type: 'lock_result', granted: true })
+    ws2.close()
   })
 })
