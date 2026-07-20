@@ -92,6 +92,12 @@ export function createSyncClient(
     if (camp === null || typeof camp !== 'object' || Array.isArray(camp)) return false
     if (!isNonEmptyString(camp.id)) return false
     if (!isNonEmptyString(camp.name)) return false
+    // A Host that has passed through the signing-secret migration/bootstrap
+    // ALWAYS has a real, non-null signing_secret to send. A null/missing/empty
+    // value here would only mask a bug elsewhere (e.g. a not-yet-migrated
+    // Host row), so reject the whole camp entry rather than silently writing
+    // a null/garbage secret that a Client would then try to sign/verify with.
+    if (!isNonEmptyString(camp.signing_secret)) return false
     return true
   }
 
@@ -109,7 +115,7 @@ export function createSyncClient(
     const applyBatch = db.transaction(() => {
       for (const camp of camps) {
         if (!isValidFullSyncCamp(camp)) continue
-        db.prepare('INSERT OR REPLACE INTO camps (id, name) VALUES (?, ?)').run(camp.id, camp.name)
+        db.prepare('INSERT OR REPLACE INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(camp.id, camp.name, camp.signing_secret ?? null)
       }
 
       for (const user of users) {

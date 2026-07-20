@@ -25,8 +25,8 @@ beforeEach(async () => {
   clientDb = openLocalDb(clientFile)
 
   campId = randomUUID()
-  hostDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Test Camp')
-  clientDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Test Camp')
+  hostDb.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Test Camp', 'c'.repeat(64))
+  clientDb.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Test Camp', 'c'.repeat(64))
 
   deviceId = randomUUID()
   hostDb.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(deviceId, 'Device A', new Date().toISOString())
@@ -52,7 +52,7 @@ beforeEach(async () => {
   clientDb.prepare('INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)')
     .run(userId, campId, 'Alice', 'x', 'x', 'admin')
 
-  token = issueSessionToken(userId, deviceId)
+  token = issueSessionToken(hostDb, userId, deviceId)
 
   server = startSyncServer(hostDb, { port: PORT })
 })
@@ -174,7 +174,7 @@ describe('remote client mode', () => {
   it('resolves lock_contention without submitting when the lock is denied (Task 10 round-5 Fix 2: distinct from a genuine op-conflict)', async () => {
     const otherDeviceId = randomUUID()
     hostDb.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(otherDeviceId, 'Device B', new Date().toISOString())
-    const otherToken = issueSessionToken(userId, otherDeviceId)
+    const otherToken = issueSessionToken(hostDb, userId, otherDeviceId)
 
     const holderWs = new WebSocket(`ws://localhost:${PORT}`)
     await new Promise((resolve) => holderWs.once('open', resolve))
@@ -234,7 +234,7 @@ describe('remote client mode', () => {
     try {
       const otherDeviceId = randomUUID()
       hostDb.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(otherDeviceId, 'Device B', new Date().toISOString())
-      const otherToken = issueSessionToken(userId, otherDeviceId)
+      const otherToken = issueSessionToken(hostDb, userId, otherDeviceId)
       const holderWs = new WebSocket(`ws://localhost:${FLUSH_PORT}`)
       await new Promise((resolve) => holderWs.once('open', resolve))
       holderWs.send(JSON.stringify({ type: 'authenticate', token: otherToken, device_id: otherDeviceId }))
@@ -506,7 +506,7 @@ describe('remote client mode', () => {
     // but NOT on the receiving client's db, so the client-side projection's
     // UPDATE ... camp_id = ? violates the FK constraint locally only.
     const otherCampId = randomUUID()
-    hostDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(otherCampId, 'Other Camp')
+    hostDb.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(otherCampId, 'Other Camp', 'd'.repeat(64))
 
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
@@ -948,7 +948,7 @@ describe('full_sync handling', () => {
     // Deliberately do NOT pre-insert a devices row on hostDb: the Host must
     // self-register this genuinely new device during authenticate (Fix 1),
     // not rely on test setup creating the row production code should create.
-    const freshToken = issueSessionToken(userId, freshDeviceId)
+    const freshToken = issueSessionToken(hostDb, userId, freshDeviceId)
 
     const freshClientFile = path.join(os.tmpdir(), `shoresh-sc-fresh-${Date.now()}-${Math.random()}.sqlite`)
     const freshClientDb = openLocalDb(freshClientFile)
@@ -967,7 +967,7 @@ describe('full_sync handling', () => {
     expect(userRow).toBeTruthy()
     expect(userRow.name).toBe('Alice')
     const campRow = freshClientDb.prepare('SELECT * FROM camps WHERE id = ?').get(campId)
-    expect(campRow).toEqual({ id: campId, name: 'Test Camp', signing_secret: null })
+    expect(campRow).toEqual({ id: campId, name: 'Test Camp', signing_secret: 'c'.repeat(64) })
 
     client.close()
     freshClientDb.close()
@@ -996,10 +996,13 @@ describe('full_sync handling', () => {
         'not an object',
       ],
       camps: [
-        { id: randomUUID(), name: 'Valid Camp' },
-        { id: '', name: 'Empty Id' },
-        { id: randomUUID(), name: '' },
-        { id: randomUUID() },
+        { id: randomUUID(), name: 'Valid Camp', signing_secret: 'f'.repeat(64) },
+        { id: '', name: 'Empty Id', signing_secret: 'f'.repeat(64) },
+        { id: randomUUID(), name: '', signing_secret: 'f'.repeat(64) },
+        { id: randomUUID(), signing_secret: 'f'.repeat(64) },
+        { id: randomUUID(), name: 'Missing Secret' },
+        { id: randomUUID(), name: 'Null Secret', signing_secret: null },
+        { id: randomUUID(), name: 'Empty Secret', signing_secret: '' },
         null,
       ],
     })
@@ -1022,6 +1025,41 @@ describe('full_sync handling', () => {
     client.close()
   })
 
+  it('skips a full_sync camp entry with a missing/null signing_secret while still applying a valid one (tightened isValidFullSyncCamp)', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const ws = client.__getWs()
+    const missingSecretCampId = randomUUID()
+    const nullSecretCampId = randomUUID()
+    const validCampId = randomUUID()
+    const msg = JSON.stringify({
+      type: 'full_sync',
+      users: [],
+      camps: [
+        { id: missingSecretCampId, name: 'No Secret Field' },
+        { id: nullSecretCampId, name: 'Null Secret', signing_secret: null },
+        { id: validCampId, name: 'Has Secret', signing_secret: 'g'.repeat(64) },
+      ],
+    })
+
+    ws.emit('message', Buffer.from(msg))
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    expect(clientDb.prepare('SELECT * FROM camps WHERE id = ?').get(missingSecretCampId)).toBeFalsy()
+    expect(clientDb.prepare('SELECT * FROM camps WHERE id = ?').get(nullSecretCampId)).toBeFalsy()
+
+    const validCamp = clientDb.prepare('SELECT * FROM camps WHERE id = ?').get(validCampId)
+    expect(validCamp).toEqual({ id: validCampId, name: 'Has Secret', signing_secret: 'g'.repeat(64) })
+
+    client.close()
+  })
+
   it('rolls back the entire batch (Fix 2) when a mid-loop row causes a genuine DB error after passing per-row validation', async () => {
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
@@ -1038,7 +1076,7 @@ describe('full_sync handling', () => {
 
     const msg = JSON.stringify({
       type: 'full_sync',
-      camps: [{ id: validCampId, name: 'Rollback Camp' }],
+      camps: [{ id: validCampId, name: 'Rollback Camp', signing_secret: 'e'.repeat(64) }],
       users: [
         // passes isValidFullSyncUser (non-empty strings), inserts fine on its own
         { id: validUserId, camp_id: campId, name: 'Rollback User', pin_hash: 'h', pin_salt: 's', role: 'staff' },
@@ -1092,7 +1130,7 @@ describe('reconnect catch-up (Task 10 round-4 Fix 3)', () => {
     const deviceBId = randomUUID()
     const bFile = path.join(os.tmpdir(), `shoresh-sc-deviceB-${Date.now()}-${Math.random()}.sqlite`)
     const dbB = openLocalDb(bFile)
-    dbB.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Test Camp')
+    dbB.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Test Camp', 'c'.repeat(64))
     dbB.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceBId, 'Device B')
     // Device A's row must also exist on B's local db — the ops B is about to
     // receive are authored by Device A, and operations.device_id is an FK.
@@ -1100,7 +1138,7 @@ describe('reconnect catch-up (Task 10 round-4 Fix 3)', () => {
     hostDb.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(
       deviceBId, 'Device B', new Date().toISOString()
     )
-    const tokenB = issueSessionToken(userId, deviceBId)
+    const tokenB = issueSessionToken(hostDb, userId, deviceBId)
 
     // B connects once so the Host knows its watermark, then disconnects —
     // "goes offline" — before any conflict-related op exists yet.
