@@ -20,6 +20,13 @@ const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 // renderer-side code (devtools, extensions, a compromised dependency).
 const IPC_PIN_FIELDS = new Set(['pin_hash', 'pin_salt'])
 
+// Bound on how long login() waits for an in-flight WebSocket handshake to
+// finish before falling back to the local/offline login path. Meaningfully
+// shorter than loginRemote's own timeout for a genuinely unreachable host —
+// this window exists only to absorb the sub-second CONNECTING-state race on
+// a healthy LAN connection, not to wait out a dead one.
+const CLIENT_CONNECT_WAIT_MS = 1500
+
 function isNonEmptyString(v) {
   return typeof v === 'string' && v.length > 0
 }
@@ -130,6 +137,22 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     }
 
     if (mode === 'client' && syncClient) {
+      // A connect() attempt may still be in the WebSocket CONNECTING state when
+      // the user submits credentials (e.g. "enter host, hit connect, immediately
+      // type PIN" is the natural flow). loginRemote()'s readyState guard returns
+      // 'disconnected' SYNCHRONOUSLY if the socket isn't OPEN yet, which would
+      // falsely tell a fresh device to "connect to the network" moments before
+      // the handshake would have completed. Give the handshake a short, bounded
+      // window to finish first — a LAN WebSocket handshake normally completes in
+      // tens of milliseconds, so this comfortably covers that case while staying
+      // far shorter than loginRemote's own timeout for a genuinely unreachable
+      // host (so an unreachable Host still falls through to the offline/local
+      // path promptly, just not instantly).
+      await Promise.race([
+        syncClient.waitUntilConnected(),
+        new Promise((resolve) => setTimeout(resolve, CLIENT_CONNECT_WAIT_MS)),
+      ])
+
       const remoteResult = await syncClient.loginRemote({ name, pin })
       if (remoteResult.status === 'ok') {
         return { token: remoteResult.token, userId: remoteResult.userId, role: remoteResult.role }

@@ -32,6 +32,15 @@ vi.mock('./sync/discovery.js', () => ({
 
 vi.mock('./sync/syncClient.js', () => ({
   createSyncClient: vi.fn((mockDb, opts) => {
+    // Mirrors real syncClient's "socket not OPEN yet" behavior: while
+    // `connected` is false, loginRemote() returns 'disconnected' synchronously
+    // (just like the real readyState guard does) and waitUntilConnected()'s
+    // promise stays pending until __setConnected(true) is called — letting
+    // tests simulate both "connects shortly after" (call __setConnected(true)
+    // after a short delay) and "never connects" (never call it).
+    let connected = true
+    let resolveConnected = null
+    let connectedPromise = Promise.resolve()
     const client = {
       opts,
       // Mirrors real local-mode syncClient behavior (appendOp + projection) so
@@ -52,11 +61,29 @@ vi.mock('./sync/syncClient.js', () => ({
       onOpApplied: vi.fn(),
       onOpConflict: vi.fn(),
       loginRemote: vi.fn(async ({ name, pin }) => {
+        if (!connected) return { status: 'disconnected' }
         const result = attemptLoginRef({ name, pin, deviceId: opts.device_id })
         if (!result) return { status: 'failed' }
         if (result.locked) return { status: 'failed', locked: true, retryAfterMs: result.retryAfterMs }
         return { status: 'ok', token: result.token, userId: result.userId, role: result.role }
       }),
+      waitUntilConnected: vi.fn(async () => {
+        await connectedPromise
+      }),
+      // test-only: simulate the socket transitioning between CONNECTING and
+      // OPEN. Starting a client "not yet connected" and later flipping it to
+      // connected mirrors a real handshake finishing after login() was called.
+      __setConnected(value) {
+        connected = value
+        if (value && resolveConnected) {
+          resolveConnected()
+          resolveConnected = null
+        } else if (!value) {
+          connectedPromise = new Promise((resolve) => {
+            resolveConnected = resolve
+          })
+        }
+      },
     }
     lastCreatedSyncClient = client
     return client
@@ -197,6 +224,38 @@ describe('chooseMode: client path', () => {
     const result = await handlers.login({ name: 'Dana', pin: '5555' })
     expect(result).toEqual({ offline: true, reason: expect.any(String) })
   })
+
+  it('succeeds when the socket is still CONNECTING at login() time but opens shortly after (Round 2 Fix)', async () => {
+    const { user } = await seedCampAndUser({ name: 'Dana', pin: '5555' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+
+    // Simulate the natural "connect, then immediately submit PIN" race: the
+    // socket is still CONNECTING when login() is called...
+    lastCreatedSyncClient.__setConnected(false)
+    setTimeout(() => lastCreatedSyncClient.__setConnected(true), 50)
+
+    const result = await handlers.login({ name: 'Dana', pin: '5555' })
+
+    // ...but because it opens well within the bounded wait, login() must
+    // succeed via loginRemote rather than falling back to the false "offline"
+    // signal.
+    expect(result).toBeTruthy()
+    expect(result.token).toEqual(expect.any(String))
+    void user
+  })
+
+  it('falls back to offline after the bounded wait when the Host is genuinely unreachable (Round 2 Fix)', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+
+    // Socket never opens — a genuinely unreachable Host, not a mid-handshake race.
+    lastCreatedSyncClient.__setConnected(false)
+
+    const result = await handlers.login({ name: 'Dana', pin: '5555' })
+
+    expect(result).toEqual({ offline: true, reason: expect.any(String) })
+  }, 10000)
 
   it('rejects an unrecognized mode', () => {
     const handlers = makeHandlers(db, deviceId, {})
