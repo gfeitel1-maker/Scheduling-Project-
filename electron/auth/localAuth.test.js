@@ -3,6 +3,7 @@ import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { randomBytes } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { createUser, verifyPin, issueSessionToken, verifySessionToken, attemptLogin } from './localAuth.js'
 import { appendOp } from '../ops/operations.js'
@@ -16,6 +17,7 @@ beforeEach(() => {
   tmpFile = path.join(os.tmpdir(), `shoresh-auth-test-${Date.now()}-${Math.random()}.sqlite`)
   db = openLocalDb(tmpFile)
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
+  db.prepare('UPDATE camps SET signing_secret = ? WHERE id = ?').run(randomBytes(32).toString('hex'), 'camp-1')
   db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(DEVICE_ID, 'Test Device')
 })
 
@@ -240,56 +242,48 @@ describe('createUser status-blindness fix', () => {
 })
 
 describe('issueSessionToken / verifySessionToken', () => {
-  it('round-trips userId and deviceId correctly', () => {
-    const token = issueSessionToken('user-1', 'device-1')
-    const payload = verifySessionToken(token)
+  it('round-trips userId/deviceId through a signed token using the camp signing_secret', () => {
+    const token = issueSessionToken(db, 'user-1', 'device-1')
+    const payload = verifySessionToken(db, token)
     expect(payload).toEqual({ userId: 'user-1', deviceId: 'device-1' })
   })
 
-  // Flips the FIRST character of the signature segment (never the last character
-  // of the whole token). The signature is a base64url encoding of a 32-byte HMAC
-  // digest: 256 bits / 6 bits-per-char = 42.67, so the encoding needs 43 characters
-  // and the LAST character only carries 4 significant bits — its bottom 2 bits are
-  // always zero padding that base64url decoding drops. That means toggling the
-  // trailing character between two values sharing the same top 4 bits (any of
-  // A/B/C/D, which together cover ~6.25% of possible trailing characters) silently
-  // decodes to IDENTICAL signature bytes, so "tampering" the token that way is a
-  // no-op roughly 1 in 16 runs — which is exactly the observed ~3-10/30 flakiness.
-  // The first character of the signature has no such truncation (it isn't the
-  // group boundary), so toggling it between two distinct values always changes the
-  // decoded bytes deterministically. Verified via 5000 simulated tokens: 0/5000
-  // collisions when flipping the first signature character, vs ~5-6% collisions
-  // when flipping the last token character.
-  it('returns null for a tampered token instead of throwing', () => {
-    const token = issueSessionToken('user-1', 'device-1')
-    const dotIndex = token.indexOf('.')
-    const sigStart = dotIndex + 1
-    const firstSigChar = token[sigStart]
-    const replacement = firstSigChar === 'A' ? 'B' : 'A'
-    const tampered = token.slice(0, sigStart) + replacement + token.slice(sigStart + 1)
+  it('rejects a token issued against a DIFFERENT camp/db signing_secret', () => {
+    const otherFile = path.join(os.tmpdir(), `shoresh-localauth-othercamp-${Date.now()}-${Math.random()}.sqlite`)
+    const otherDb = openLocalDb(otherFile)
+    otherDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-other', 'Other Camp')
+    otherDb.prepare('UPDATE camps SET signing_secret = ? WHERE id = ?').run(randomBytes(32).toString('hex'), 'camp-other')
 
-    expect(() => verifySessionToken(tampered)).not.toThrow()
-    expect(verifySessionToken(tampered)).toBeNull()
+    const tokenFromOtherCamp = issueSessionToken(otherDb, 'user-1', 'device-1')
+    expect(verifySessionToken(db, tokenFromOtherCamp)).toBeNull()
+
+    otherDb.close()
+    fs.unlinkSync(otherFile)
   })
 
-  it('reliably rejects a tampered token across many independently-issued tokens (stress test for the Fix 3 regression)', () => {
-    for (let i = 0; i < 200; i++) {
-      const token = issueSessionToken(`user-${i}`, `device-${i}`)
-      const dotIndex = token.indexOf('.')
-      const sigStart = dotIndex + 1
-      const firstSigChar = token[sigStart]
-      const replacement = firstSigChar === 'A' ? 'B' : 'A'
-      const tampered = token.slice(0, sigStart) + replacement + token.slice(sigStart + 1)
+  it('rejects a tampered token', () => {
+    const token = issueSessionToken(db, 'user-1', 'device-1')
+    const tampered = token.slice(0, -1) + (token.slice(-1) === 'A' ? 'B' : 'A')
+    expect(() => verifySessionToken(db, tampered)).not.toThrow()
+    expect(verifySessionToken(db, tampered)).toBeNull()
+  })
 
-      expect(verifySessionToken(tampered)).toBeNull()
+  it('rejects tokens with a mutated payload across many random tamper attempts', () => {
+    for (let i = 0; i < 20; i++) {
+      const token = issueSessionToken(db, `user-${i}`, `device-${i}`)
+      const chars = token.split('')
+      const idx = Math.floor(Math.random() * chars.length)
+      chars[idx] = chars[idx] === 'x' ? 'y' : 'x'
+      const tampered = chars.join('')
+      expect(verifySessionToken(db, tampered)).toBeNull()
     }
   })
 
-  it('returns null for malformed input instead of throwing', () => {
-    expect(verifySessionToken('garbage-no-separator')).toBeNull()
-    expect(verifySessionToken('')).toBeNull()
-    expect(verifySessionToken(null)).toBeNull()
-    expect(verifySessionToken('a.b.c')).toBeNull()
+  it('rejects malformed tokens without throwing', () => {
+    expect(verifySessionToken(db, 'garbage-no-separator')).toBeNull()
+    expect(verifySessionToken(db, '')).toBeNull()
+    expect(verifySessionToken(db, null)).toBeNull()
+    expect(verifySessionToken(db, 'a.b.c')).toBeNull()
   })
 })
 
@@ -337,7 +331,7 @@ describe('attemptLogin', () => {
     await createUser(db, { camp_id: 'camp-1', name: 'Zane', pin: '9999', role: 'admin' }, testWrite())
 
     const result = attemptLogin(db, { name: 'Zane', pin: '9999', deviceId: 'remote-device-42' })
-    const verified = verifySessionToken(result.token)
+    const verified = verifySessionToken(db, result.token)
     expect(verified.deviceId).toBe('remote-device-42')
   })
 })

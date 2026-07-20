@@ -2,7 +2,6 @@ import { randomUUID, randomBytes, scryptSync, createHmac, timingSafeEqual } from
 import { appendOp } from '../ops/operations.js'
 
 const SCRYPT_KEYLEN = 64
-const sessionSecret = randomBytes(32)
 
 const LOGIN_MAX_ATTEMPTS = 5
 const LOGIN_LOCKOUT_MS = 30_000
@@ -60,17 +59,32 @@ export function verifyPin(db, userId, pin) {
   return timingSafeEqual(candidate, stored)
 }
 
-function sign(payload) {
-  return createHmac('sha256', sessionSecret).update(payload).digest()
+// Looks up the current camp's signing secret from the db, mirroring the
+// existing single-camp-per-db assumption already used elsewhere in this
+// codebase (e.g. attemptLogin's own `SELECT id FROM camps LIMIT 1`). This
+// is what makes a token issued by one process (e.g. a Host) verifiable by
+// a different process (e.g. a Client that has since synced the camp row) —
+// previously each process had its own random, unshared secret, so a
+// Host-issued token could never pass a Client's own local verification.
+function getSigningSecret(db) {
+  const camp = db.prepare('SELECT signing_secret FROM camps LIMIT 1').get()
+  if (!camp || !camp.signing_secret) return null
+  return Buffer.from(camp.signing_secret, 'hex')
 }
 
-export function issueSessionToken(userId, deviceId) {
+function sign(db, payload) {
+  const secret = getSigningSecret(db)
+  if (!secret) throw new Error('no camp signing secret available')
+  return createHmac('sha256', secret).update(payload).digest()
+}
+
+export function issueSessionToken(db, userId, deviceId) {
   const payload = Buffer.from(JSON.stringify({ userId, deviceId }), 'utf8').toString('base64url')
-  const signature = sign(payload).toString('base64url')
+  const signature = sign(db, payload).toString('base64url')
   return `${payload}.${signature}`
 }
 
-export function verifySessionToken(token) {
+export function verifySessionToken(db, token) {
   if (typeof token !== 'string') return null
   const parts = token.split('.')
   if (parts.length !== 2) return null
@@ -79,7 +93,7 @@ export function verifySessionToken(token) {
 
   let expected
   try {
-    expected = sign(payload)
+    expected = sign(db, payload)
   } catch {
     return null
   }
@@ -145,6 +159,6 @@ export function attemptLogin(db, { name, pin, deviceId }) {
 
   clearAttempts(db, name)
 
-  const token = issueSessionToken(user.id, deviceId)
+  const token = issueSessionToken(db, user.id, deviceId)
   return { token, userId: user.id, role: user.role }
 }
