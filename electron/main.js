@@ -106,6 +106,12 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
       wireOpApplied()
     } else {
       pendingServerUrl = resolveClientServerUrl(args)
+      syncClient = createSyncClient(db, {
+        device_id: deviceId,
+        author_user_id: null,
+        serverUrl: pendingServerUrl,
+      })
+      wireOpApplied()
     }
 
     mode = requestedMode
@@ -118,25 +124,30 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     return discoverHosts({ timeoutMs: 3000 })
   }
 
-  function login({ name, pin } = {}) {
+  async function login({ name, pin } = {}) {
     if (!isNonEmptyString(name) || !isNonEmptyString(pin)) {
       throw new Error('name and pin are required')
     }
 
-    const result = attemptLogin(db, { name, pin, deviceId })
-    if (!result || result.locked) return result
-
-    if (mode === 'client' && pendingServerUrl && !syncClient) {
-      syncClient = createSyncClient(db, {
-        device_id: deviceId,
-        author_user_id: null,
-        serverUrl: pendingServerUrl,
-        token: result.token,
-      })
-      wireOpApplied()
+    if (mode === 'client' && syncClient) {
+      const remoteResult = await syncClient.loginRemote({ name, pin })
+      if (remoteResult.status === 'ok') {
+        return { token: remoteResult.token, userId: remoteResult.userId, role: remoteResult.role }
+      }
+      if (remoteResult.status === 'failed') {
+        return remoteResult.locked ? { locked: true, retryAfterMs: remoteResult.retryAfterMs } : null
+      }
+      // 'disconnected' or 'timeout': fall through to local verification below,
+      // which only succeeds for a device that has already synced once before.
+      // A genuinely fresh, offline device gets a clear, distinct signal
+      // rather than the generic invalid-credentials response.
+      const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+      if (!camp) {
+        return { offline: true, reason: 'Connect to the camp network to sign in for the first time.' }
+      }
     }
 
-    return result
+    return attemptLogin(db, { name, pin, deviceId })
   }
 
   async function createUserHandler({ token, camp_id, name, pin, role } = {}) {
