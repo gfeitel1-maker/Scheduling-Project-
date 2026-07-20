@@ -3,7 +3,12 @@ import WebSocket from 'ws'
 import { appendOp } from '../ops/operations.js'
 import { PROJECTIONS, applyProjection } from '../ops/projections.js'
 
-export function createSyncClient(db, { device_id, author_user_id, serverUrl, token }) {
+const DEFAULT_RESOLVER_TIMEOUT_MS = 10000
+
+export function createSyncClient(
+  db,
+  { device_id, author_user_id, serverUrl, token, lockTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS, submitTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS }
+) {
   const opAppliedListeners = []
   const queue = []
 
@@ -129,7 +134,27 @@ export function createSyncClient(db, { device_id, author_user_id, serverUrl, tok
         }
 
         if (msg.type === 'op_applied') {
-          if (!isValidRemoteOp(msg.op)) return
+          if (!isValidRemoteOp(msg.op)) {
+            // Belt-and-suspenders: full validation failed, but if we can still
+            // trust that device_id points at THIS device (a lightweight,
+            // separate check from full op validity), drain this device's
+            // pending submitResolvers now with a fast { status: 'error' }
+            // instead of silently discarding the message and relying solely
+            // on the timeout safety net to eventually unstick the caller.
+            const op = msg.op
+            if (
+              op !== null &&
+              typeof op === 'object' &&
+              !Array.isArray(op) &&
+              typeof op.device_id === 'string' &&
+              op.device_id.length > 0 &&
+              op.device_id === device_id
+            ) {
+              const resolve = submitResolvers.shift()
+              if (resolve) resolve({ status: 'error' })
+            }
+            return
+          }
 
           // Structural guarantee: resolver-draining for this device's own op
           // MUST happen no matter what throws inside this block (a bad field,
@@ -188,24 +213,52 @@ export function createSyncClient(db, { device_id, author_user_id, serverUrl, tok
 
   connect()
 
-  function acquireLockRemote(entity, entity_id, field) {
+  // Structural safety net: wrap a resolver-array push with a bounded timeout so
+  // that ANY current-or-future gap in draining (a missed message type, an early
+  // return before a drain point, a server that never replies) degrades to a
+  // bounded delay instead of hanging the caller's promise forever. If the
+  // timeout fires while our exact resolver is still sitting in the array
+  // (nothing else has drained it), we remove it ourselves and resolve with
+  // { status: 'timeout' }. If something else drains it first (normal response
+  // or an error-path drain), the timeout is cleared and never fires.
+  function withResolverTimeout(resolversArray, timeoutMs, sendFn) {
     return new Promise((resolve) => {
-      lockResolvers.push(resolve)
+      let settled = false
+      let timer = null
+      const wrappedResolve = (result) => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        resolve(result)
+      }
+      timer = setTimeout(() => {
+        const idx = resolversArray.indexOf(wrappedResolve)
+        if (idx !== -1) {
+          resolversArray.splice(idx, 1)
+          wrappedResolve({ status: 'timeout' })
+        }
+      }, timeoutMs)
+      resolversArray.push(wrappedResolve)
+      sendFn()
+    })
+  }
+
+  function acquireLockRemote(entity, entity_id, field) {
+    return withResolverTimeout(lockResolvers, lockTimeoutMs, () => {
       ws.send(JSON.stringify({ type: 'acquire_lock', entity, entity_id, field }))
     })
   }
 
   function submitOpRemote(op) {
-    return new Promise((resolve) => {
-      submitResolvers.push(resolve)
+    return withResolverTimeout(submitResolvers, submitTimeoutMs, () => {
       ws.send(JSON.stringify({ type: 'submit_op', op }))
     })
   }
 
   async function performWrite({ entity, entity_id, field, value }) {
     const lockResult = await acquireLockRemote(entity, entity_id, field)
-    if (lockResult.status === 'disconnected') {
-      return { status: 'disconnected' }
+    if (lockResult.status === 'disconnected' || lockResult.status === 'timeout') {
+      return { status: lockResult.status }
     }
     if (!lockResult.granted) {
       return { status: 'conflict' }
@@ -213,8 +266,8 @@ export function createSyncClient(db, { device_id, author_user_id, serverUrl, tok
 
     const op = { entity, entity_id, field, value, author_user_id, parent_op_id: null }
     const submitResult = await submitOpRemote(op)
-    if (submitResult.status === 'disconnected') {
-      return { status: 'disconnected' }
+    if (submitResult.status === 'disconnected' || submitResult.status === 'timeout' || submitResult.status === 'error') {
+      return submitResult
     }
     if (submitResult.type === 'op_conflict') {
       return { status: 'conflict', existingOp: submitResult.existingOp }

@@ -553,4 +553,128 @@ describe('remote client mode', () => {
     dropServer.close()
     client.close()
   })
+
+  it('resolves write with { status: "timeout" } when nothing drains the submit resolver (structural safety net)', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+      submitTimeoutMs: 100,
+    })
+    await client.waitUntilConnected()
+
+    const ws = client.__getWs()
+    const originalSend = ws.send.bind(ws)
+    // Swallow the submit_op send so the server never receives it and never
+    // responds - nothing will ever naturally drain submitResolvers. Only the
+    // timeout safety net should be able to unstick this write().
+    ws.send = (data) => {
+      const parsed = JSON.parse(data)
+      if (parsed.type === 'submit_op') return
+      originalSend(data)
+    }
+
+    const result = await client.write({ entity: 'template_slots', entity_id: 's13', field: 'activity_id', value: 'archery3' })
+    expect(result.status).toBe('timeout')
+
+    client.close()
+  })
+
+  it('resolves write with { status: "timeout" } when nothing drains the lock resolver (structural safety net)', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+      lockTimeoutMs: 100,
+    })
+    await client.waitUntilConnected()
+
+    const ws = client.__getWs()
+    const originalSend = ws.send.bind(ws)
+    // Swallow the acquire_lock send so the server never receives it and never
+    // responds - nothing will ever naturally drain lockResolvers.
+    ws.send = (data) => {
+      const parsed = JSON.parse(data)
+      if (parsed.type === 'acquire_lock') return
+      originalSend(data)
+    }
+
+    const result = await client.write({ entity: 'template_slots', entity_id: 's13b', field: 'activity_id', value: 'archery3b' })
+    expect(result.status).toBe('timeout')
+
+    client.close()
+  })
+
+  it('a normal successful write still resolves quickly and is not affected by the timeout safety net', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+      lockTimeoutMs: 100,
+      submitTimeoutMs: 100,
+    })
+    await client.waitUntilConnected()
+
+    const start = Date.now()
+    const result = await client.write({ entity: 'template_slots', entity_id: 's13c', field: 'activity_id', value: 'archery3c' })
+    const elapsed = Date.now() - start
+
+    expect(result.status).toBe('applied')
+    expect(elapsed).toBeLessThan(100)
+
+    client.close()
+  })
+
+  it('drains submitResolvers promptly with status "error" when op_applied fails full validation but device_id matches this device (defensive drain)', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+      // Long timeout: proves resolution comes from the defensive drain (fix 2),
+      // not from the timeout safety net (fix 1) firing.
+      submitTimeoutMs: 5000,
+    })
+    await client.waitUntilConnected()
+
+    const ws = client.__getWs()
+    const originalSend = ws.send.bind(ws)
+    // Swallow the real submit_op so the server's genuine op_applied reply
+    // never arrives and races our injected malformed message below - this
+    // isolates the defensive-drain path from the normal success path.
+    ws.send = (data) => {
+      const parsed = JSON.parse(data)
+      if (parsed.type === 'submit_op') return
+      originalSend(data)
+    }
+    const writePromise = client.write({ entity: 'template_slots', entity_id: 's14', field: 'activity_id', value: 'x' })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    // device_id matches this device, but 'entity' is missing so isValidRemoteOp fails.
+    const badMsg = JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: randomUUID(),
+        entity_id: 's14',
+        field: 'activity_id',
+        value: 'x',
+        device_id: deviceId,
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })
+
+    const start = Date.now()
+    ws.emit('message', Buffer.from(badMsg))
+    const result = await writePromise
+    const elapsed = Date.now() - start
+
+    expect(result.status).toBe('error')
+    expect(elapsed).toBeLessThan(1000)
+
+    client.close()
+  })
 })
