@@ -1225,6 +1225,54 @@ describe('remote login (fresh client, no local token yet)', () => {
     client.close()
   })
 
+  it('queues a write issued before loginRemote resolves instead of hanging (open-but-unauthenticated connection)', async () => {
+    const freshDeviceId = randomUUID()
+    freshClientDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(freshDeviceId, 'Fresh Device 2')
+    const client = createSyncClient(freshClientDb, {
+      device_id: freshDeviceId,
+      author_user_id: null,
+      serverUrl: `ws://localhost:${REMOTE_LOGIN_PORT}`,
+      // no token — this is the whole point
+    })
+    await client.waitUntilConnected()
+
+    // The socket is OPEN (connected === true) but no `authenticate` has ever
+    // been sent (no token, loginRemote not called/resolved yet). Round-1
+    // regressed this: write() checked only `connected`, so this call would
+    // attempt acquireLockRemote against an unauthenticated connection the
+    // Host silently ignores, hanging for the full lockTimeoutMs (10s) before
+    // resolving 'timeout'. It must instead queue immediately.
+    const start = Date.now()
+    const result = await client.write({ entity: 'activities', entity_id: 'a-early', field: 'name', value: 'Early Write' })
+    const elapsedMs = Date.now() - start
+
+    expect(result.status).toBe('queued')
+    expect(elapsedMs).toBeLessThan(1000)
+    expect(client.getQueuedOps().some((q) => q.entity_id === 'a-early')).toBe(true)
+
+    client.close()
+  })
+
+  it('does NOT queue a write issued after loginRemote resolves — it applies immediately', async () => {
+    const freshDeviceId = randomUUID()
+    freshClientDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(freshDeviceId, 'Fresh Device 3')
+    const client = createSyncClient(freshClientDb, {
+      device_id: freshDeviceId,
+      author_user_id: null,
+      serverUrl: `ws://localhost:${REMOTE_LOGIN_PORT}`,
+    })
+    await client.waitUntilConnected()
+
+    const loginResult = await client.loginRemote({ name: 'Alice', pin: '1234' })
+    expect(loginResult.status).toBe('ok')
+
+    const writeResult = await client.write({ entity: 'activities', entity_id: 'a-post-login', field: 'name', value: 'Post Login Write' })
+    expect(writeResult.status).toBe('applied')
+    expect(client.getQueuedOps().length).toBe(0)
+
+    client.close()
+  })
+
   it('returns status "disconnected" if the socket is not open when loginRemote is called', async () => {
     const client = createSyncClient(freshClientDb, {
       device_id: randomUUID(),

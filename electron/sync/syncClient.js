@@ -55,6 +55,16 @@ export function createSyncClient(
 
   let ws = null
   let connected = false
+  // Distinct from `connected`: `connected` only means the WebSocket is open.
+  // `authenticated` means we have actually SENT an `authenticate` message on
+  // this connection (either because a token existed at connect() time, or
+  // because loginRemote() just succeeded and sent one). The server currently
+  // sends no ack for `authenticate` (see syncServer.js's handleAuthenticate),
+  // so "authenticated" here means "we sent authenticate with what we believe
+  // is a valid token" — not "the server confirmed it". That is an accepted,
+  // known limitation, not a hidden one; a real ack protocol is out of scope
+  // for this fix.
+  let authenticated = false
   let connectedResolve
   let connectedPromise = new Promise((resolve) => {
     connectedResolve = resolve
@@ -167,6 +177,7 @@ export function createSyncClient(
     ws.on('open', () => {
       if (token) {
         ws.send(JSON.stringify({ type: 'authenticate', token, device_id }))
+        authenticated = true
       }
       connected = true
       connectedResolve()
@@ -289,6 +300,7 @@ export function createSyncClient(
 
     ws.on('close', () => {
       connected = false
+      authenticated = false
       connectedPromise = new Promise((resolve) => {
         connectedResolve = resolve
       })
@@ -398,7 +410,7 @@ export function createSyncClient(
 
   return {
     async write(request) {
-      if (!connected) {
+      if (!authenticated) {
         // Task 10 round-5 Fix 1: persist BEFORE acknowledging 'queued' to the
         // caller. This is what makes the queue genuinely durable — if the
         // process dies before flushQueue ever runs, the row is still here on
@@ -428,13 +440,20 @@ export function createSyncClient(
       return queue.slice()
     },
     async flushQueue() {
-      if (!connected) {
+      if (!authenticated) {
         if (!ws || (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING)) {
           connect()
         }
         await waitForReconnect()
       }
-      if (!connected) return
+      // Gate on `authenticated`, not just `connected`: a socket can be open
+      // but not yet authenticated (fresh client before loginRemote resolves,
+      // or a reconnect whose `authenticate` send hasn't happened yet).
+      // Attempting acquireLockRemote/submitOpRemote against an
+      // open-but-unauthenticated connection hits the same silent-ignore /
+      // 10s-timeout hang this fix addresses in write(). Leave queued items
+      // in place for the next flushQueue() call in that case.
+      if (!authenticated) return
 
       // Task 10 round-4 Fix 2a: previously this discarded performWrite's
       // result entirely and unconditionally removed every queued item, so a
@@ -491,6 +510,7 @@ export function createSyncClient(
       if (reply.type === 'login_ok') {
         token = reply.token
         ws.send(JSON.stringify({ type: 'authenticate', token, device_id }))
+        authenticated = true
         return { status: 'ok', token: reply.token, userId: reply.userId, role: reply.role }
       }
       // login_failed
