@@ -29,7 +29,13 @@ export async function createUser(db, { camp_id, name, pin, role }, write) {
 
   try {
     for (const [field, value] of Object.entries(fields)) {
-      await write({ entity: 'users', entity_id: id, field, value })
+      const result = await write({ entity: 'users', entity_id: id, field, value })
+      const status = result && result.status
+      if (status !== 'applied') {
+        throw new Error(
+          `User creation requires an active connection to the camp's sync host (write status: ${status})`
+        )
+      }
     }
   } catch (err) {
     if (err && err.code === 'SQLITE_CONSTRAINT_UNIQUE') {

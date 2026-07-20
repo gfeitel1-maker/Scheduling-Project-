@@ -311,6 +311,19 @@ describe('createUser handler (Fix A: admin-gated)', () => {
     const created = await handlers.createUser({ token, camp_id: campId, name: 'Bob', pin: '1234', role: 'staff' })
     expect(created.name).toBe('Bob')
   })
+
+  it('propagates a clear rejection through the IPC handler when the syncClient write resolves a non-applied status', async () => {
+    const { campId } = await seedCampAndUser({ name: 'AdminPerson3', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh', port: 7203 })
+    const { token } = handlers.login({ name: 'AdminPerson3', pin: '1234' })
+
+    lastCreatedSyncClient.write.mockImplementationOnce(async () => ({ status: 'disconnected' }))
+
+    await expect(
+      handlers.createUser({ token, camp_id: campId, name: 'Offline', pin: '1234', role: 'staff' })
+    ).rejects.toThrow(/active connection to the camp's sync host/)
+  })
 })
 
 describe('write handler', () => {

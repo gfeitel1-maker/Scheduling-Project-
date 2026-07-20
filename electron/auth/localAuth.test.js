@@ -198,6 +198,47 @@ describe('createUser op-log integration', () => {
   })
 })
 
+describe('createUser status-blindness fix', () => {
+  it('throws a clear error and stops after the first field when write() resolves a non-applied status', async () => {
+    const calls = []
+    const write = async (args) => {
+      calls.push(args)
+      return { status: 'queued' }
+    }
+
+    await expect(
+      createUser(db, { camp_id: 'camp-1', name: 'OfflineUser', pin: '1234', role: 'staff' }, write)
+    ).rejects.toThrow(/active connection to the camp's sync host/)
+
+    expect(calls).toHaveLength(1)
+  })
+
+  it('throws after the 3rd field when it resolves timeout, without calling write for remaining fields', async () => {
+    const calls = []
+    const write = async (args) => {
+      calls.push(args)
+      if (calls.length <= 2) return { status: 'applied' }
+      return { status: 'timeout' }
+    }
+
+    await expect(
+      createUser(db, { camp_id: 'camp-1', name: 'TimeoutUser', pin: '1234', role: 'staff' }, write)
+    ).rejects.toThrow(/active connection to the camp's sync host/)
+
+    expect(calls).toHaveLength(3)
+  })
+
+  it('still succeeds when all 5 writes resolve applied (happy path unchanged)', async () => {
+    const user = await createUser(
+      db,
+      { camp_id: 'camp-1', name: 'HappyUser', pin: '1234', role: 'staff' },
+      testWrite()
+    )
+    expect(user.name).toBe('HappyUser')
+    expect(verifyPin(db, user.id, '1234')).toBe(true)
+  })
+})
+
 describe('issueSessionToken / verifySessionToken', () => {
   it('round-trips userId and deviceId correctly', () => {
     const token = issueSessionToken('user-1', 'device-1')
