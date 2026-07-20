@@ -37,11 +37,18 @@ beforeEach(async () => {
 
   campId = randomUUID()
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Test Camp')
-  const user = createUser(db, { camp_id: campId, name: 'Alice', pin: '1234', role: 'admin' })
-  userId = user.id
 
   deviceId = randomUUID()
   db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Device A')
+
+  const user = createUser(db, {
+    camp_id: campId,
+    name: 'Alice',
+    pin: '1234',
+    role: 'admin',
+    device_id: deviceId,
+  })
+  userId = user.id
 
   token = issueSessionToken(userId, deviceId)
 

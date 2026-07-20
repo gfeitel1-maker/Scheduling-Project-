@@ -1,4 +1,5 @@
 import { randomUUID, randomBytes, scryptSync, createHmac, timingSafeEqual } from 'node:crypto'
+import { appendOp } from '../ops/operations.js'
 
 const SCRYPT_KEYLEN = 64
 const sessionSecret = randomBytes(32)
@@ -13,20 +14,29 @@ function assertValidPin(pin) {
   }
 }
 
-export function createUser(db, { camp_id, name, pin, role }) {
+export function createUser(db, { camp_id, name, pin, role, device_id }) {
   assertValidPin(pin)
   const id = randomUUID()
   const salt = randomBytes(16).toString('hex')
   const pin_hash = hashPin(pin, salt)
-  try {
-    db.prepare(
-      'INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)'
-    ).run(id, camp_id, name, pin_hash, salt, role)
-  } catch (err) {
-    if (err && err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-      throw new Error(`A user named "${name}" already exists in this camp`)
+  const fields = { camp_id, name, pin_hash, pin_salt: salt, role }
+  for (const [field, value] of Object.entries(fields)) {
+    try {
+      appendOp(db, {
+        entity: 'users',
+        entity_id: id,
+        field,
+        value,
+        author_user_id: null,
+        device_id,
+        parent_op_id: null,
+      })
+    } catch (err) {
+      if (err && err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
+        throw new Error(`A user named "${name}" already exists in this camp`)
+      }
+      throw err
     }
-    throw err
   }
   return { id, name, role }
 }

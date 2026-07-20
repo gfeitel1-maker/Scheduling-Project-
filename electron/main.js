@@ -131,7 +131,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     if (!isNonEmptyString(name)) throw new Error('name is required')
     if (!isNonEmptyString(pin)) throw new Error('pin is required')
     if (role !== 'admin' && role !== 'staff') throw new Error('role must be "admin" or "staff"')
-    return createUser(db, { camp_id, name, pin, role })
+    return createUser(db, { camp_id, name, pin, role, device_id: deviceId })
   }
 
   function bootstrapCamp({ campName, adminName, adminPin } = {}) {
@@ -146,7 +146,13 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
 
     const campId = randomUUID()
     db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, campName)
-    const user = createUser(db, { camp_id: campId, name: adminName, pin: adminPin, role: 'admin' })
+    const user = createUser(db, {
+      camp_id: campId,
+      name: adminName,
+      pin: adminPin,
+      role: 'admin',
+      device_id: deviceId,
+    })
 
     return { campId, userId: user.id }
   }

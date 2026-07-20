@@ -57,6 +57,7 @@ beforeEach(() => {
   tmpFile = path.join(os.tmpdir(), `shoresh-main-test-${Date.now()}-${Math.random()}.sqlite`)
   db = openLocalDb(tmpFile)
   deviceId = getOrCreateDeviceId(db)
+  db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, os.hostname())
   vi.clearAllMocks()
 })
 
@@ -68,7 +69,7 @@ afterEach(() => {
 function seedCampAndUser({ name = 'Alice', pin = '1234', role = 'staff' } = {}) {
   const campId = randomUUID()
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Camp Shoresh')
-  const user = createUser(db, { camp_id: campId, name, pin, role })
+  const user = createUser(db, { camp_id: campId, name, pin, role, device_id: deviceId })
   return { campId, user }
 }
 

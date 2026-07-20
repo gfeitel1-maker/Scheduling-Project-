@@ -26,14 +26,20 @@ beforeEach(async () => {
   hostDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Test Camp')
   clientDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run(campId, 'Test Camp')
 
-  const user = createUser(hostDb, { camp_id: campId, name: 'Alice', pin: '1234', role: 'admin' })
-  userId = user.id
-  clientDb.prepare('INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(userId, campId, 'Alice', 'x', 'x', 'admin')
-
   deviceId = randomUUID()
   hostDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Device A')
   clientDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Device A')
+
+  const user = createUser(hostDb, {
+    camp_id: campId,
+    name: 'Alice',
+    pin: '1234',
+    role: 'admin',
+    device_id: deviceId,
+  })
+  userId = user.id
+  clientDb.prepare('INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(userId, campId, 'Alice', 'x', 'x', 'admin')
 
   token = issueSessionToken(userId, deviceId)
 
@@ -230,11 +236,12 @@ describe('remote client mode', () => {
     })
 
     await client.waitUntilConnected()
-    const result = await client.write({ entity: 'users', entity_id: userId, field: 'name', value: 'Alicia' })
+    const freshUserId = randomUUID()
+    const result = await client.write({ entity: 'users', entity_id: freshUserId, field: 'name', value: 'Alicia' })
 
     expect(result.status).toBe('applied')
 
-    const clientRow = clientDb.prepare('SELECT * FROM users WHERE id = ?').get(userId)
+    const clientRow = clientDb.prepare('SELECT * FROM users WHERE id = ?').get(freshUserId)
     expect(clientRow.name).toBe('Alicia')
 
     client.close()
@@ -255,19 +262,20 @@ describe('remote client mode', () => {
     })
     await client.waitUntilConnected()
 
-    const result = await client.write({ entity: 'users', entity_id: userId, field: 'camp_id', value: otherCampId })
+    const freshUserId = randomUUID()
+    const result = await client.write({ entity: 'users', entity_id: freshUserId, field: 'camp_id', value: otherCampId })
 
     // The op was canonical (server accepted/broadcast it) so the write must resolve as applied,
     // even though local projection of it fails.
     expect(result.status).toBe('applied')
 
     // The op-log entry must be durably recorded on the client despite the projection failure.
-    const clientOpRow = clientDb.prepare('SELECT * FROM operations WHERE entity_id = ? AND field = ?').get(userId, 'camp_id')
+    const clientOpRow = clientDb.prepare('SELECT * FROM operations WHERE entity_id = ? AND field = ?').get(freshUserId, 'camp_id')
     expect(clientOpRow).toBeTruthy()
     expect(clientOpRow.value).toBe(otherCampId)
 
     // The users table projection should NOT have been updated locally (FK violation prevented it).
-    const clientUserRow = clientDb.prepare('SELECT * FROM users WHERE id = ?').get(userId)
+    const clientUserRow = clientDb.prepare('SELECT * FROM users WHERE id = ?').get(freshUserId)
     expect(clientUserRow.camp_id).not.toBe(otherCampId)
 
     client.close()
@@ -337,7 +345,8 @@ describe('remote client mode', () => {
     // a field that is not in the users-entity allowlist. This must not hang
     // the in-flight write() promise (round 1/round 2 regression).
     const submitResolversLengthBefore = 1
-    const writePromise = client.write({ entity: 'users', entity_id: userId, field: 'name', value: 'Someone' })
+    const freshUserId = randomUUID()
+    const writePromise = client.write({ entity: 'users', entity_id: freshUserId, field: 'name', value: 'Someone' })
 
     // Wait a tick so the write's acquire_lock/submit_op round trip is in flight,
     // then intercept by emitting a hand-crafted op_applied directly for the same device.
@@ -350,7 +359,7 @@ describe('remote client mode', () => {
       op: {
         id: randomUUID(),
         entity: 'users',
-        entity_id: userId,
+        entity_id: freshUserId,
         field: 'not_a_real_field',
         value: 'x',
         device_id: deviceId,
