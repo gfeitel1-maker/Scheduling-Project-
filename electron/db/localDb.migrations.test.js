@@ -174,7 +174,7 @@ describe('THIRD CORRECTION: version-4 migration is transactional', () => {
 describe('Task 4: devices.last_synced_at (schema version 5)', () => {
   it('getSchemaVersion returns 6 after openLocalDb runs', () => {
     const db = freshDb()
-    expect(getSchemaVersion(db)).toBe(7)
+    expect(getSchemaVersion(db)).toBe(8)
     db.close()
   })
 
@@ -182,7 +182,7 @@ describe('Task 4: devices.last_synced_at (schema version 5)', () => {
     const db = freshDb()
     const col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(7)
+    expect(getSchemaVersion(db)).toBe(8)
     db.close()
   })
 
@@ -206,7 +206,7 @@ describe('Task 4: devices.last_synced_at (schema version 5)', () => {
 
     col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(7)
+    expect(getSchemaVersion(db)).toBe(8)
     db.close()
   })
 })
@@ -218,14 +218,14 @@ describe('Task 9 Round 2 Fix 2: login_attempts table (schema version 6)', () => 
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='login_attempts'")
       .get()
     expect(table).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(7)
+    expect(getSchemaVersion(db)).toBe(8)
     db.close()
   })
 
   it('is idempotent: re-running initSchema on an already-migrated db does not error', () => {
     const db = freshDb()
     expect(() => initSchema(db)).not.toThrow()
-    expect(getSchemaVersion(db)).toBe(7)
+    expect(getSchemaVersion(db)).toBe(8)
     db.close()
   })
 
@@ -250,7 +250,7 @@ describe('Task 9 Round 2 Fix 2: login_attempts table (schema version 6)', () => 
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='login_attempts'")
       .get()
     expect(table).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(7)
+    expect(getSchemaVersion(db)).toBe(8)
     db.close()
   })
 })
@@ -260,7 +260,7 @@ describe('Task 10 round-4 Fix 3: devices.last_synced_seq (schema version 7)', ()
     const db = freshDb()
     const col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_seq')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(7)
+    expect(getSchemaVersion(db)).toBe(8)
     db.close()
   })
 
@@ -277,7 +277,7 @@ describe('Task 10 round-4 Fix 3: devices.last_synced_seq (schema version 7)', ()
     `)
     db.exec('INSERT INTO devices SELECT id, name, last_seen_at, last_synced_at FROM devices_tmp')
     db.exec('DROP TABLE devices_tmp')
-    db.prepare('DELETE FROM schema_migrations WHERE version = 7').run()
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 7').run()
 
     let col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_seq')
     expect(col).toBeUndefined()
@@ -286,7 +286,65 @@ describe('Task 10 round-4 Fix 3: devices.last_synced_seq (schema version 7)', ()
 
     col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_seq')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(7)
+    expect(getSchemaVersion(db)).toBe(8)
+    db.close()
+  })
+})
+
+describe('Task 10 round-5 Fix 1/3: pending_writes table + operations.client_write_id (schema version 8)', () => {
+  it('a fresh install has both the pending_writes table and operations.client_write_id, at version 8', () => {
+    const db = freshDb()
+    const table = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pending_writes'")
+      .get()
+    expect(table).toBeDefined()
+    const col = db.pragma('table_info(operations)').find((c) => c.name === 'client_write_id')
+    expect(col).toBeDefined()
+    expect(getSchemaVersion(db)).toBe(8)
+    db.close()
+  })
+
+  it('adds both to a pre-migration db missing them, via the guarded ALTER', () => {
+    const db = freshDb()
+    db.exec('DROP TABLE pending_writes')
+    db.exec('ALTER TABLE operations RENAME TO operations_tmp')
+    db.exec(`
+      CREATE TABLE operations (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        entity TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        field TEXT NOT NULL,
+        value TEXT,
+        author_user_id TEXT,
+        device_id TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        parent_op_id TEXT
+      )
+    `)
+    db.exec(`
+      INSERT INTO operations (seq, id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id)
+      SELECT seq, id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id FROM operations_tmp
+    `)
+    db.exec('DROP TABLE operations_tmp')
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 8').run()
+
+    let col = db.pragma('table_info(operations)').find((c) => c.name === 'client_write_id')
+    expect(col).toBeUndefined()
+    let table = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pending_writes'")
+      .get()
+    expect(table).toBeUndefined()
+
+    initSchema(db)
+
+    col = db.pragma('table_info(operations)').find((c) => c.name === 'client_write_id')
+    expect(col).toBeDefined()
+    table = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pending_writes'")
+      .get()
+    expect(table).toBeDefined()
+    expect(getSchemaVersion(db)).toBe(8)
     db.close()
   })
 })

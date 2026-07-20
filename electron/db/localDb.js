@@ -92,6 +92,44 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // Task 10 round-5 Fix 1 (durable write queue) and Fix 3 (retry idempotency
+  // key): add the pending_writes table and the operations.client_write_id
+  // column to existing databases that predate this schema.
+  if (getSchemaVersion(db) < 8) {
+    const hasClientWriteId = db
+      .pragma('table_info(operations)')
+      .some((col) => col.name === 'client_write_id')
+
+    if (!hasClientWriteId) {
+      db.exec('ALTER TABLE operations ADD COLUMN client_write_id TEXT')
+    }
+
+    // Created here (not in schema.sql's unconditional exec) because this
+    // column may only just have been added above by the ALTER on a
+    // pre-migration db — see the comment on this index's omission in
+    // schema.sql for why.
+    db.exec(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_operations_client_write_id ON operations(client_write_id) WHERE client_write_id IS NOT NULL'
+    )
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS pending_writes (
+        pending_id TEXT PRIMARY KEY,
+        client_write_id TEXT NOT NULL,
+        entity TEXT NOT NULL,
+        entity_id TEXT NOT NULL,
+        field TEXT NOT NULL,
+        value TEXT,
+        parent_op_id TEXT,
+        created_at TEXT NOT NULL
+      );
+    `)
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (8, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 export function openLocalDb(filePath) {

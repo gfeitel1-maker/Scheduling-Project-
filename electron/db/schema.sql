@@ -38,9 +38,27 @@ CREATE TABLE IF NOT EXISTS operations (
   author_user_id TEXT REFERENCES users(id),
   device_id TEXT NOT NULL REFERENCES devices(id),
   timestamp TEXT NOT NULL,
-  parent_op_id TEXT REFERENCES operations(id)
+  parent_op_id TEXT REFERENCES operations(id),
+  -- Client-generated idempotency key (Task 10 round-5 Fix 3). Set once by
+  -- the client when a write is first attempted and carried unchanged on any
+  -- retry (e.g. a flushQueue retry after a 'timeout'/'disconnected' result
+  -- whose submit_op may actually have been applied server-side already).
+  -- handleSubmitOp checks this before appendOp so a retried submission of
+  -- the same logical write returns the original op instead of minting a
+  -- second, distinct op id. NULL for ops that predate this fix or don't
+  -- carry a key; the partial unique index below only constrains non-NULL
+  -- values so multiple NULLs are allowed.
+  client_write_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_operations_entity ON operations(entity, entity_id, field);
+-- Note: the unique index on operations.client_write_id is NOT created here.
+-- This whole schema.sql is exec'd unconditionally on every open, including
+-- against a pre-migration db whose existing `operations` table predates the
+-- client_write_id column (that column is added by the guarded, version-gated
+-- ALTER in localDb.js's initSchema). Creating the index here would fail with
+-- "no such column" on such a db, before the migration block ever runs. The
+-- index is created in initSchema's version-8 migration block instead, right
+-- after the column is confirmed to exist.
 
 -- Durable record of every conflict ever detected (either locally, via
 -- detectConflict in handleSubmitOp on the host, or received over the wire as
@@ -109,5 +127,25 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 
 CREATE TABLE IF NOT EXISTS device_identity (
   id TEXT PRIMARY KEY,
+  created_at TEXT NOT NULL
+);
+
+-- Durable backing store for syncClient's write queue (Task 10 round-5 Fix
+-- 1). Previously the queue lived only in an in-memory array, so a queued
+-- write's resolution choice was lost with zero trace if the app closed or
+-- crashed before flushQueue synced it — while the UI had already shown a
+-- confident "Saved — will sync when connected". Every write queued while
+-- offline is persisted here BEFORE it's acknowledged to the caller as
+-- 'queued', reloaded into the in-memory queue on syncClient startup, and
+-- only deleted once flushQueue genuinely confirms it applied (or it's
+-- superseded/moot).
+CREATE TABLE IF NOT EXISTS pending_writes (
+  pending_id TEXT PRIMARY KEY,
+  client_write_id TEXT NOT NULL,
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  field TEXT NOT NULL,
+  value TEXT,
+  parent_op_id TEXT,
   created_at TEXT NOT NULL
 );

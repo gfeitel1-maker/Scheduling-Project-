@@ -8,7 +8,7 @@ import WebSocket from 'ws'
 import { openLocalDb } from '../db/localDb.js'
 import { createUser, issueSessionToken } from '../auth/localAuth.js'
 import { appendOp } from '../ops/operations.js'
-import { startSyncServer } from './syncServer.js'
+import { startSyncServer, sendMissedOps } from './syncServer.js'
 
 const PORT = 8137
 
@@ -530,5 +530,91 @@ describe('full_sync on first pairing', () => {
     const msg = await onceMessage(ws2)
     expect(msg).toEqual({ type: 'lock_result', granted: true })
     ws2.close()
+  })
+})
+
+describe('Task 10 round-5 Fix 4: sendMissedOps watermark stops at the last successfully-sent op', () => {
+  // A real, deterministic mid-replay socket failure is impractical to force
+  // reliably over an actual network socket (by the time a real ws is torn
+  // down, either nothing has been "sent" yet or everything queued in the
+  // kernel buffer looks like it succeeded from send()'s perspective). This
+  // exercises the real sendMissedOps against a real SQLite db, with a
+  // controlled fake `ws` whose send() throws on a specific op - isolating
+  // exactly the boundary condition Fix 4 is about: does the watermark stop
+  // at the last op that genuinely went out, not blindly jump to the max seq
+  // among all candidate rows.
+  function fakeWs(deviceId, failOnEntityId) {
+    const sent = []
+    return {
+      deviceId,
+      readyState: 1,
+      OPEN: 1,
+      send(data) {
+        const parsed = JSON.parse(data)
+        if (parsed.op && parsed.op.entity_id === failOnEntityId) {
+          throw new Error('simulated dead socket mid-replay')
+        }
+        sent.push(parsed)
+      },
+      __sent: sent,
+    }
+  }
+
+  it('stops the watermark at the last op that genuinely sent when a later send fails, so failed-and-later ops are re-sent next reconnect', async () => {
+    // Give this device an established watermark (0) so sendMissedOps treats
+    // every subsequent op as a missed-op candidate, rather than baselining.
+    db.prepare('UPDATE devices SET last_synced_seq = 0 WHERE id = ?').run(deviceId)
+
+    const opA = appendOp(db, { entity: 'template_slots', entity_id: 'catchup-a', field: 'activity_id', value: '1', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+    const opB = appendOp(db, { entity: 'template_slots', entity_id: 'catchup-b', field: 'activity_id', value: '2', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+    const opC = appendOp(db, { entity: 'template_slots', entity_id: 'catchup-c', field: 'activity_id', value: '3', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+    expect(opA.seq).toBeLessThan(opB.seq)
+    expect(opB.seq).toBeLessThan(opC.seq)
+
+    // Simulate the connection dying while sending op B (the middle op):
+    // op A sends fine, op B's send() throws, op C is never attempted.
+    const ws = fakeWs(deviceId, 'catchup-b')
+
+    sendMissedOps(db, ws)
+
+    // Op A genuinely went out.
+    expect(ws.__sent.some((m) => m.op.entity_id === 'catchup-a')).toBe(true)
+    // Op B's send failed - must NOT be recorded as sent.
+    expect(ws.__sent.some((m) => m.op.entity_id === 'catchup-b')).toBe(false)
+    // Op C was never attempted (loop stops at the first failure).
+    expect(ws.__sent.some((m) => m.op.entity_id === 'catchup-c')).toBe(false)
+
+    // The watermark must stop at op A's seq, NOT jump to op C's (the max
+    // seq among all candidate rows) - otherwise B and C would be falsely
+    // marked delivered and permanently lost from this device's perspective.
+    const row = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
+    expect(row.last_synced_seq).toBe(opA.seq)
+
+    // Reconnecting (a fresh sendMissedOps call, simulating the next
+    // connection) with a fully-working socket must re-send B and C, since
+    // the watermark correctly says they were never delivered.
+    const ws2 = fakeWs(deviceId, null)
+    sendMissedOps(db, ws2)
+    expect(ws2.__sent.map((m) => m.op.entity_id)).toEqual(['catchup-b', 'catchup-c'])
+
+    const rowAfter = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
+    expect(rowAfter.last_synced_seq).toBe(opC.seq)
+  })
+
+  it('when every send succeeds, the watermark still advances to the true max seq (no regression)', async () => {
+    // Baseline the watermark to "everything that exists right now" (rather
+    // than 0) so only the two ops appended below are missed-op candidates -
+    // isolating this from any ops earlier tests/setup already created.
+    const baseline = db.prepare('SELECT MAX(seq) as maxSeq FROM operations').get().maxSeq || 0
+    db.prepare('UPDATE devices SET last_synced_seq = ? WHERE id = ?').run(baseline, deviceId)
+    const opA = appendOp(db, { entity: 'template_slots', entity_id: 'catchup-ok-a', field: 'activity_id', value: '1', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+    const opB = appendOp(db, { entity: 'template_slots', entity_id: 'catchup-ok-b', field: 'activity_id', value: '2', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+
+    const ws = fakeWs(deviceId, null)
+    sendMissedOps(db, ws)
+
+    expect(ws.__sent.map((m) => m.op.entity_id)).toEqual(['catchup-ok-a', 'catchup-ok-b'])
+    const row = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
+    expect(row.last_synced_seq).toBe(opB.seq)
   })
 })

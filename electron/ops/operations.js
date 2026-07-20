@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { PROJECTIONS, applyProjection } from './projections.js'
 
-export function appendOp(db, { entity, entity_id, field, value, author_user_id, device_id, parent_op_id }) {
+export function appendOp(db, { entity, entity_id, field, value, author_user_id, device_id, parent_op_id, client_write_id }) {
   const projection = PROJECTIONS[entity]
   if (projection && !projection.fields.includes(field)) {
     throw new Error('field not allowed for entity')
@@ -13,10 +13,10 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
   const run = db.transaction(() => {
     const result = db
       .prepare(
-        `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, entity, entity_id, field, value, author_user_id ?? null, device_id, timestamp, parent_op_id ?? null)
+      .run(id, entity, entity_id, field, value, author_user_id ?? null, device_id, timestamp, parent_op_id ?? null, client_write_id ?? null)
 
     const op = db.prepare('SELECT * FROM operations WHERE seq = ?').get(result.lastInsertRowid)
     applyProjection(db, op)
@@ -24,6 +24,16 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
   })
 
   return run()
+}
+
+// Task 10 round-5 Fix 3: idempotency lookup used by handleSubmitOp before
+// appendOp/detectConflict run, so a retried submit_op carrying the same
+// client_write_id as a previously-applied write returns the ORIGINAL op
+// instead of minting a second, distinct op id (which the server otherwise
+// always does, since op ids are server-assigned per submission).
+export function findOpByClientWriteId(db, client_write_id) {
+  if (typeof client_write_id !== 'string' || client_write_id.length === 0) return null
+  return db.prepare('SELECT * FROM operations WHERE client_write_id = ?').get(client_write_id) || null
 }
 
 export function latestOp(db, entity, entity_id, field) {

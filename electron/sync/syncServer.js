@@ -1,14 +1,21 @@
 import { WebSocketServer } from 'ws'
 import { verifySessionToken } from '../auth/localAuth.js'
 import { acquireLock, expireLocks, releaseLocksForDevice } from './lockManager.js'
-import { detectConflict, appendOp, recordConflict } from '../ops/operations.js'
+import { detectConflict, appendOp, recordConflict, findOpByClientWriteId } from '../ops/operations.js'
 
+// Task 10 round-5 Fix 4: report success/failure back to the caller instead
+// of unconditionally swallowing it. sendMissedOps needs this to know exactly
+// which missed op was the LAST one that genuinely made it out over the wire,
+// so it can stop the watermark there instead of blindly advancing past ops
+// that never actually sent.
 function send(ws, message) {
   try {
-    if (ws.readyState !== ws.OPEN) return
+    if (ws.readyState !== ws.OPEN) return false
     ws.send(JSON.stringify(message))
+    return true
   } catch {
-    // ignore send failures to dead/closing sockets
+    // ignore send failures to dead/closing sockets — but tell the caller
+    return false
   }
 }
 
@@ -76,7 +83,12 @@ function currentMaxOpSeq(db) {
   return row && Number.isInteger(row.maxSeq) ? row.maxSeq : 0
 }
 
-function sendMissedOps(db, ws) {
+// Exported for direct unit testing (Task 10 round-5 Fix 4): a real,
+// deterministic mid-replay socket failure is impractical to force reliably
+// over an actual network socket in a test, so the partial-send-failure path
+// is tested by calling this directly against a real SQLite db with a
+// controlled fake `ws` object whose send() throws on a specific op.
+export function sendMissedOps(db, ws) {
   const device = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(ws.deviceId)
 
   if (!device || device.last_synced_seq === null || device.last_synced_seq === undefined) {
@@ -98,12 +110,26 @@ function sendMissedOps(db, ws) {
   const rows = db.prepare('SELECT * FROM operations WHERE seq > ? ORDER BY seq ASC').all(since)
   if (rows.length === 0) return
 
-  let maxSeq = since
+  // Task 10 round-5 Fix 4: only advance the watermark up to the seq of the
+  // LAST successfully-sent op, not blindly to the max seq among ALL
+  // candidate rows. Previously, if the connection dropped partway through
+  // this replay loop, the watermark still jumped to maxSeq over every row —
+  // falsely marking undelivered ops as delivered and silently, permanently
+  // losing them from this device's perspective (they'd never be re-sent on
+  // the next reconnect, since the watermark already claims they were seen).
+  // Stop advancing at the first send failure: ops are sent in seq order, so
+  // once one fails there's no guarantee later ones over the same dead/dying
+  // socket would succeed either, and even if a later one happened to get
+  // through, correctness requires no gaps below the watermark.
+  let lastSuccessSeq = since
   for (const op of rows) {
-    send(ws, { type: 'op_applied', op })
-    if (op.seq > maxSeq) maxSeq = op.seq
+    const ok = send(ws, { type: 'op_applied', op })
+    if (!ok) break
+    if (op.seq > lastSuccessSeq) lastSuccessSeq = op.seq
   }
-  db.prepare('UPDATE devices SET last_synced_seq = ? WHERE id = ?').run(maxSeq, ws.deviceId)
+  if (lastSuccessSeq !== since) {
+    db.prepare('UPDATE devices SET last_synced_seq = ? WHERE id = ?').run(lastSuccessSeq, ws.deviceId)
+  }
 }
 
 function handleAuthenticate(db, ws, msg) {
@@ -141,6 +167,10 @@ function validateSubmitOpMsg(msg) {
   if (!isNonEmptyString(op.entity_id)) return false
   if (!isNonEmptyString(op.field)) return false
   if (!(op.parent_op_id === null || isNonEmptyString(op.parent_op_id))) return false
+  // client_write_id (Task 10 round-5 Fix 3) is optional for backward
+  // compatibility with older clients / callers that don't set it, but if
+  // present it must be a non-empty string so it's safe to use as a dedup key.
+  if (!(op.client_write_id === undefined || op.client_write_id === null || isNonEmptyString(op.client_write_id))) return false
   return true
 }
 
@@ -156,6 +186,25 @@ function handleAcquireLock(db, ws, msg) {
 
 function handleSubmitOp(db, wss, ws, msg) {
   const incomingOp = { ...msg.op, device_id: ws.deviceId }
+
+  // Task 10 round-5 Fix 3: idempotency-at-the-logical-write-level. If a
+  // submit_op carrying this client_write_id was already applied (e.g. the
+  // original submission WAS applied server-side but its op_applied reply
+  // never reached the client — timeout/disconnect mid-flight — and the
+  // client's flushQueue retried the same logical write), return the
+  // ORIGINAL op instead of running detectConflict/appendOp again. Running
+  // detectConflict on a replay would spuriously report a conflict (the
+  // replay's parent_op_id points at the state BEFORE the original op, but
+  // the original op is now itself the latest op for this entity/field) and
+  // appendOp would mint a second, distinct op id for the same logical write.
+  if (incomingOp.client_write_id) {
+    const already = findOpByClientWriteId(db, incomingOp.client_write_id)
+    if (already) {
+      send(ws, { type: 'op_applied', op: already })
+      return
+    }
+  }
+
   const { conflict, existingOp } = detectConflict(db, incomingOp)
   if (conflict) {
     // Persist so this conflict survives a restart of the host, even if the

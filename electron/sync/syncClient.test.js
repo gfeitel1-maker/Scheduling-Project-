@@ -171,7 +171,7 @@ describe('remote client mode', () => {
     client.close()
   })
 
-  it('resolves conflict without submitting when the lock is denied', async () => {
+  it('resolves lock_contention without submitting when the lock is denied (Task 10 round-5 Fix 2: distinct from a genuine op-conflict)', async () => {
     const otherDeviceId = randomUUID()
     hostDb.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(otherDeviceId, 'Device B', new Date().toISOString())
     const otherToken = issueSessionToken(userId, otherDeviceId)
@@ -193,7 +193,7 @@ describe('remote client mode', () => {
     await client.waitUntilConnected()
 
     const result = await client.write({ entity: 'template_slots', entity_id: 's3', field: 'activity_id', value: 'archery' })
-    expect(result.status).toBe('conflict')
+    expect(result.status).toBe('lock_contention')
 
     const hostRow = hostDb.prepare('SELECT * FROM operations WHERE entity_id = ?').get('s3')
     expect(hostRow).toBeFalsy()
@@ -218,7 +218,7 @@ describe('remote client mode', () => {
     client.close()
   })
 
-  it('flushQueue re-acquires the lock and does not resubmit if denied', async () => {
+  it('flushQueue re-acquires the lock and does not resubmit if denied, but retries lock contention instead of dropping it (Task 10 round-5 Fix 2)', async () => {
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
       author_user_id: userId,
@@ -245,7 +245,11 @@ describe('remote client mode', () => {
 
       await client.flushQueue()
 
-      expect(client.getQueuedOps()).toHaveLength(0)
+      // Lock contention is transient and was never surfaced via op_conflict
+      // (submitOpRemote never ran), so unlike a genuine conflict it must NOT
+      // be dropped from the queue — it stays queued for the next flush pass.
+      expect(client.getQueuedOps()).toHaveLength(1)
+      expect(client.getQueuedOps()[0].entity_id).toBe('s5')
 
       const hostRow = hostDb.prepare('SELECT * FROM operations WHERE entity_id = ?').get('s5')
       expect(hostRow).toBeFalsy()
@@ -298,6 +302,141 @@ describe('remote client mode', () => {
       expect(client.getQueuedOps()[0].entity_id).toBe('s6')
     } finally {
       blackHoleServer.close()
+      client.close()
+    }
+  })
+
+  it('Task 10 round-5 Fix 1: a queued write persists across a simulated syncClient/process restart and is not lost', async () => {
+    const restartPort = 8241
+    // No server listening on this port yet: the write is queued (offline).
+    const client1 = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${restartPort}`,
+      token,
+    })
+
+    const queuedResult = await client1.write({ entity: 'template_slots', entity_id: 's-restart', field: 'activity_id', value: 'fishing' })
+    expect(queuedResult.status).toBe('queued')
+    expect(client1.getQueuedOps()).toHaveLength(1)
+
+    // Prove it's genuinely durable, not just in-memory: read the row back
+    // straight from SQLite before ever constructing a second client.
+    const persistedRow = clientDb.prepare('SELECT * FROM pending_writes WHERE entity_id = ?').get('s-restart')
+    expect(persistedRow).toBeTruthy()
+    expect(persistedRow.value).toBe('fishing')
+
+    // Simulate the process dying before flushQueue ever ran: close client1
+    // (its in-memory queue array is now gone) without flushing.
+    client1.close()
+
+    // Simulate app restart: construct a brand-new syncClient against the
+    // SAME on-disk db (a fresh in-memory queue array, like a real relaunch).
+    const client2 = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${restartPort}`,
+      token,
+    })
+
+    // The persisted write must be reloaded into the new in-memory queue on
+    // startup — this is the crux of Fix 1: a durable-but-unloaded row would
+    // still never get flushed.
+    expect(client2.getQueuedOps()).toHaveLength(1)
+    expect(client2.getQueuedOps()[0].entity_id).toBe('s-restart')
+
+    // Now bring connectivity up for real and prove the reloaded item
+    // actually flushes through to the host, and the durable row is cleared
+    // once it genuinely applies (not left behind as a phantom).
+    const restartServer = startSyncServer(hostDb, { port: restartPort })
+    try {
+      await client2.flushQueue()
+
+      expect(client2.getQueuedOps()).toHaveLength(0)
+      const clearedRow = clientDb.prepare('SELECT * FROM pending_writes WHERE entity_id = ?').get('s-restart')
+      expect(clearedRow).toBeFalsy()
+
+      const hostRow = hostDb.prepare('SELECT * FROM operations WHERE entity_id = ?').get('s-restart')
+      expect(hostRow).toBeTruthy()
+      expect(hostRow.value).toBe('fishing')
+    } finally {
+      restartServer.close()
+      client2.close()
+    }
+  })
+
+  it('Task 10 round-5 Fix 3: retrying a queued write after a timeout does not create a duplicate op (idempotent via client_write_id)', async () => {
+    const idemPort = 8242
+    const idemServer = startSyncServer(hostDb, { port: idemPort })
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${idemPort}`,
+      token,
+      submitTimeoutMs: 150,
+    })
+    await client.waitUntilConnected()
+
+    // Drop the WS connection so the write queues (carrying a client_write_id
+    // generated once, reused on every retry below) instead of going through
+    // the normal connected path.
+    client.__getWs().terminate()
+    await new Promise((resolve) => setTimeout(resolve, 50))
+
+    const queuedResult = await client.write({ entity: 'template_slots', entity_id: 's-idem', field: 'activity_id', value: 'archery' })
+    expect(queuedResult.status).toBe('queued')
+    const [queuedItem] = client.getQueuedOps()
+    expect(queuedItem.client_write_id).toBeTruthy()
+
+    // Patch WebSocket.prototype.emit (not the instance — flushQueue's
+    // internal reconnect creates a brand-new ws instance via connect(), so
+    // patching the old/current instance would be a no-op for it) to swallow
+    // the incoming op_applied message for this specific entity, simulating
+    // the reply never reaching the client. The reconnect + submit_op both
+    // happen for real against the real server: the op IS genuinely applied
+    // server-side (a real row lands in hostDb.operations via the real
+    // handleSubmitOp path) — only the reply delivery is dropped. That's
+    // exactly the scenario Fix 3 targets: applied server-side, but the
+    // client times out waiting and is left with the item still queued.
+    const originalEmit = WebSocket.prototype.emit
+    WebSocket.prototype.emit = function (event, ...args) {
+      if (event === 'message') {
+        try {
+          const parsed = JSON.parse(args[0].toString())
+          if (parsed.type === 'op_applied' && parsed.op && parsed.op.entity_id === 's-idem') {
+            return false
+          }
+        } catch {
+          // fall through to real emit
+        }
+      }
+      return originalEmit.call(this, event, ...args)
+    }
+
+    try {
+      await client.flushQueue()
+
+      // The client never saw a reply, so the item is still queued for
+      // retry - exactly the scenario that used to mint a duplicate op.
+      expect(client.getQueuedOps()).toHaveLength(1)
+
+      const countAfterFirstAttempt = hostDb.prepare('SELECT COUNT(*) as c FROM operations WHERE entity_id = ?').get('s-idem').c
+      expect(countAfterFirstAttempt).toBe(1)
+
+      // Restore normal message delivery and retry: flushQueue resubmits the
+      // SAME item (same client_write_id). The real server's handleSubmitOp
+      // must recognize the client_write_id and return the ORIGINAL op
+      // instead of appending a second, distinct op.
+      WebSocket.prototype.emit = originalEmit
+      await client.flushQueue()
+
+      expect(client.getQueuedOps()).toHaveLength(0)
+      const rows = hostDb.prepare('SELECT * FROM operations WHERE entity_id = ?').all('s-idem')
+      expect(rows).toHaveLength(1)
+      expect(rows[0].client_write_id).toBe(queuedItem.client_write_id)
+    } finally {
+      WebSocket.prototype.emit = originalEmit
+      idemServer.close()
       client.close()
     }
   })

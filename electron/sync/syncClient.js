@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
 import { appendOp, recordConflict } from '../ops/operations.js'
 import { PROJECTIONS, applyProjection } from '../ops/projections.js'
+import { insertPendingWrite, deletePendingWrite, listPendingWrites } from './pendingWrites.js'
 
 const DEFAULT_RESOLVER_TIMEOUT_MS = 10000
 
@@ -135,11 +136,11 @@ export function createSyncClient(
     const insert = db.transaction(() => {
       const result = db
         .prepare(
-          `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO NOTHING`
         )
-        .run(op.id, op.entity, op.entity_id, op.field, op.value, op.author_user_id ?? null, op.device_id, op.timestamp, op.parent_op_id ?? null)
+        .run(op.id, op.entity, op.entity_id, op.field, op.value, op.author_user_id ?? null, op.device_id, op.timestamp, op.parent_op_id ?? null, op.client_write_id ?? null)
       return result.changes
     })
     const changes = insert()
@@ -281,6 +282,15 @@ export function createSyncClient(
     })
   }
 
+  // Task 10 round-5 Fix 1: reload any writes that were queued (and durably
+  // persisted via insertPendingWrite) before this process last exited, so a
+  // restart/crash before flushQueue synced them does not lose the write or
+  // the resolution choice it represents. Loaded before connect() so a
+  // flushQueue triggered by the initial connection picks these up too.
+  for (const item of listPendingWrites(db)) {
+    queue.push(item)
+  }
+
   connect()
 
   // Structural safety net: wrap a resolver-array push with a bounded timeout so
@@ -325,16 +335,24 @@ export function createSyncClient(
     })
   }
 
-  async function performWrite({ entity, entity_id, field, value, parent_op_id = null }) {
+  async function performWrite({ entity, entity_id, field, value, parent_op_id = null, client_write_id = null }) {
     const lockResult = await acquireLockRemote(entity, entity_id, field)
     if (lockResult.status === 'disconnected' || lockResult.status === 'timeout') {
       return { status: lockResult.status }
     }
     if (!lockResult.granted) {
-      return { status: 'conflict' }
+      // Task 10 round-5 Fix 2: lock contention (another device currently
+      // holds the lock) is distinct from a genuine op-conflict — submitOpRemote
+      // never even runs here, so no op_conflict message fires and nothing
+      // surfaces this any other way. Previously this returned the same
+      // { status: 'conflict' } as a real op-conflict, so flushQueue could not
+      // tell the two apart and silently dropped a transiently-contended
+      // queued write instead of retrying it. Use a distinctly-named status so
+      // callers (flushQueue in particular) can't misclassify it.
+      return { status: 'lock_contention', holder_device_id: lockResult.holder_device_id }
     }
 
-    const op = { entity, entity_id, field, value, author_user_id, parent_op_id }
+    const op = { entity, entity_id, field, value, author_user_id, parent_op_id, client_write_id }
     const submitResult = await submitOpRemote(op)
     if (submitResult.status === 'disconnected' || submitResult.status === 'timeout' || submitResult.status === 'error') {
       return submitResult
@@ -361,11 +379,24 @@ export function createSyncClient(
   return {
     async write(request) {
       if (!connected) {
+        // Task 10 round-5 Fix 1: persist BEFORE acknowledging 'queued' to the
+        // caller. This is what makes the queue genuinely durable — if the
+        // process dies before flushQueue ever runs, the row is still here on
+        // next startup to be reloaded (see listPendingWrites above), so the
+        // 'queued' status this returns is now honest rather than a false
+        // confidence signal.
         const pendingId = randomUUID()
-        queue.push({ pendingId, ...request })
+        // Task 10 round-5 Fix 3: generated once, here, and carried unchanged
+        // through every future retry of this exact logical write (the same
+        // `item` object is reused by flushQueue), so a retry after
+        // timeout/disconnected is idempotent server-side.
+        const client_write_id = randomUUID()
+        const item = { pendingId, client_write_id, ...request }
+        insertPendingWrite(db, item)
+        queue.push(item)
         return { status: 'queued' }
       }
-      return performWrite(request)
+      return performWrite({ client_write_id: randomUUID(), ...request })
     },
     onOpApplied(callback) {
       opAppliedListeners.push(callback)
@@ -404,8 +435,19 @@ export function createSyncClient(
           // "queued" and is now a pending conflict instead.
           const index = queue.findIndex((q) => q.pendingId === item.pendingId)
           if (index !== -1) queue.splice(index, 1)
+          deletePendingWrite(db, item.pendingId)
           continue
         }
+
+        // Task 10 round-5 Fix 2: lock contention is transient (another
+        // device merely held the lock at this instant) and, unlike a genuine
+        // 'conflict', was never surfaced through submitOpRemote/op_conflict —
+        // submitOpRemote never even ran. Do NOT drop the item: leave it in
+        // the queue (and in the durable pending_writes table) so the next
+        // flushQueue() pass retries it, exactly like 'timeout'/'disconnected'.
+        // It's item-specific (the lock may already be free for the next
+        // item), so keep trying the rest of this batch rather than aborting.
+        if (result.status === 'lock_contention') continue
 
         // 'timeout' / 'disconnected' / 'error' (or any future unrecognized
         // status): do NOT silently drop the item. Leave it in the queue so
