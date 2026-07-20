@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Shoresh — Auth &amp; Onboarding Prototype</title>
+<style>
+  :root {
+    --primary: #00ADBB;
+    --bg: #F7F8F9;
+    --text: #1A2027;
+    --surface: #FFFFFF;
+    --surface-elevated: #FFFFFF;
+    --border: #E2E6E9;
+    --text-secondary: #6B7680;
+    --success: #00AA59;
+    --warning: #C0392B;
+    --font-condensed: 'Oswald', 'Arial Narrow', sans-serif;
+    --font-mono: 'IBM Plex Mono', 'SFMono-Regular', monospace;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    background: #ddd;
+    color: var(--text);
+  }
+
+  /* ---- prototype chrome (not part of app) ---- */
+  .proto-nav {
+    position: sticky; top: 0; z-index: 100;
+    display: flex; gap: 8px; flex-wrap: wrap;
+    padding: 10px 16px; background: #14181c; color: #fff;
+    font-family: var(--font-mono); font-size: 11px;
+  }
+  .proto-nav button {
+    background: #262c33; color: #cfd6dc; border: 1px solid #3a4148;
+    border-radius: 5px; padding: 6px 10px; cursor: pointer; font-family: inherit; font-size: 11px;
+  }
+  .proto-nav button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .stage { min-height: calc(100vh - 42px); display: none; }
+  .stage.active { display: block; }
+
+  /* ---- shared app shell simulation ---- */
+  .page {
+    display: flex; align-items: center; justify-content: center;
+    min-height: calc(100vh - 42px);
+    background: var(--bg);
+    padding: 24px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 40px 44px;
+    max-width: 460px;
+    width: 100%;
+    box-shadow: 0 2px 24px rgba(20,30,40,0.06);
+  }
+  .logo-block { margin-bottom: 28px; text-align: left; }
+  .logo { font-family: var(--font-condensed); font-weight: 700; font-size: 28px; color: var(--primary); letter-spacing: -0.5px; }
+  .logo-sub { font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary); margin-top: 2px; }
+
+  .eyebrow {
+    font-family: var(--font-condensed); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 6px;
+  }
+  .title { font-family: var(--font-condensed); font-weight: 700; font-size: 22px; color: var(--text); letter-spacing: -0.3px; margin-bottom: 8px; }
+  .subtitle { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 26px; }
+
+  .choice-card {
+    display: flex; align-items: flex-start; gap: 14px;
+    padding: 18px 18px;
+    background: var(--surface);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    text-align: left; cursor: pointer;
+    width: 100%;
+    margin-bottom: 12px;
+    transition: box-shadow 0.15s, border-color 0.15s, transform 0.1s;
+  }
+  .choice-card:hover { border-color: var(--primary); box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
+  .choice-card:active { transform: scale(0.995); }
+  .choice-icon {
+    width: 38px; height: 38px; border-radius: 9px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(0,173,187,0.1); color: var(--primary); font-size: 18px;
+  }
+  .choice-title { font-family: var(--font-condensed); font-weight: 700; font-size: 15px; color: var(--text); margin-bottom: 3px; }
+  .choice-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.5; }
+  .choice-chevron { margin-left: auto; align-self: center; color: var(--text-secondary); font-size: 15px; padding-left: 8px; }
+
+  .link-btn {
+    background: none; border: none; color: var(--text-secondary); font-size: 12px;
+    cursor: pointer; padding: 0; font-family: inherit; text-decoration: underline;
+  }
+
+  label.lbl { font-size: 12px; font-weight: 500; display: block; margin-bottom: 5px; margin-top: 16px; color: var(--text-secondary); }
+  label.lbl:first-of-type { margin-top: 0; }
+  input.field {
+    width: 100%; padding: 10px 12px; border: 1.5px solid var(--border); border-radius: 7px;
+    font-size: 14px; font-family: inherit; outline: none; background: var(--bg); color: var(--text);
+  }
+  input.field:focus { border-color: var(--primary); background: var(--surface); }
+  .hint { font-size: 11px; color: var(--text-secondary); margin-top: 5px; }
+
+  .btn-primary {
+    display: block; width: 100%; padding: 11px 0; background: var(--primary); color: #fff;
+    border: none; border-radius: 7px; font-weight: 700; font-size: 14px; cursor: pointer;
+    font-family: inherit; margin-top: 22px;
+  }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-secondary {
+    display: block; width: 100%; padding: 9px 0; background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: 7px; font-weight: 600; font-size: 13px; cursor: pointer;
+    font-family: inherit; margin-top: 10px;
+  }
+  .back-row { display: flex; align-items: center; gap: 8px; margin-bottom: 18px; }
+  .back-btn {
+    background: none; border: none; color: var(--text-secondary); font-size: 13px; cursor: pointer;
+    font-family: inherit; padding: 4px 6px; margin-left: -6px; border-radius: 5px;
+  }
+  .back-btn:hover { background: var(--border); color: var(--text); }
+
+  .error-box {
+    background: #fff5f5; border: 1px solid #f5c6c6; border-radius: 7px; padding: 10px 12px;
+    font-size: 12px; color: var(--warning); margin-bottom: 14px; display: flex; gap: 8px; align-items: flex-start;
+  }
+  .warn-box {
+    background: #fffaf0; border: 1px solid #f5deb0; border-radius: 7px; padding: 10px 12px;
+    font-size: 12px; color: #8a610; margin-bottom: 14px; display: flex; gap: 8px; align-items: flex-start;
+  }
+  .success-box {
+    background: #f0faf5; border: 1px solid #a8e6c8; border-radius: 7px; padding: 10px 12px;
+    font-size: 12px; color: #1a7a4a; margin-bottom: 14px;
+  }
+
+  /* discovery list */
+  .searching-row { display: flex; align-items: center; gap: 12px; padding: 22px 0; justify-content: center; }
+  .spinner {
+    width: 18px; height: 18px; border-radius: 50%;
+    border: 2.5px solid var(--border); border-top-color: var(--primary);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .searching-text { font-size: 13px; color: var(--text-secondary); font-family: var(--font-mono); }
+
+  .host-item {
+    display: flex; align-items: center; gap: 12px;
+    padding: 13px 14px; border: 1.5px solid var(--border); border-radius: 8px;
+    margin-bottom: 8px; cursor: pointer; transition: border-color 0.15s, background 0.15s;
+  }
+  .host-item:hover { border-color: var(--primary); background: rgba(0,173,187,0.04); }
+  .host-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); flex-shrink: 0; box-shadow: 0 0 0 3px rgba(0,170,89,0.15); }
+  .host-name { font-weight: 600; font-size: 13.5px; color: var(--text); }
+  .host-meta { font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary); margin-top: 1px; }
+  .host-chevron { margin-left: auto; color: var(--text-secondary); }
+
+  .empty-state {
+    text-align: center; padding: 30px 10px;
+  }
+  .empty-icon { font-size: 30px; margin-bottom: 12px; opacity: 0.5; }
+  .empty-title { font-family: var(--font-condensed); font-weight: 700; font-size: 15px; color: var(--text); margin-bottom: 6px; }
+  .empty-desc { font-size: 12.5px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 18px; }
+
+  /* PIN dots */
+  .pin-dots { display: flex; gap: 10px; justify-content: center; margin: 18px 0 6px; }
+  .pin-dot {
+    width: 14px; height: 14px; border-radius: 50%; border: 1.5px solid var(--border); background: var(--bg);
+    transition: background 0.12s, border-color 0.12s;
+  }
+  .pin-dot.filled { background: var(--primary); border-color: var(--primary); }
+  .pin-dot.error { background: var(--warning); border-color: var(--warning); animation: shake 0.35s; }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-3px); }
+    75% { transform: translateX(3px); }
+  }
+
+  .lockout-box {
+    text-align: center; padding: 18px 14px;
+    background: #fffaf0; border: 1px solid #f5deb0; border-radius: 8px; margin-top: 16px;
+  }
+  .lockout-icon { font-size: 20px; margin-bottom: 8px; }
+  .lockout-title { font-family: var(--font-condensed); font-weight: 700; font-size: 14px; color: #8a6110; margin-bottom: 4px; }
+  .lockout-desc { font-size: 12px; color: #8a6110; line-height: 1.5; }
+  .lockout-timer { font-family: var(--font-mono); font-weight: 700; font-size: 15px; color: #8a6110; margin-top: 8px; }
+
+  .role-pill {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+    color: var(--text-secondary); background: var(--bg); border: 1px solid var(--border);
+    border-radius: 99px; padding: 3px 9px; margin-bottom: 18px;
+  }
+  .role-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--primary); }
+
+  .step-track { display: flex; gap: 6px; margin-bottom: 22px; }
+  .step-track .seg { flex: 1; height: 3px; border-radius: 99px; background: var(--border); }
+  .step-track .seg.done { background: var(--primary); }
+
+  .name-avatar {
+    width: 30px; height: 30px; border-radius: '50%'; border-radius: 50%;
+    background: var(--primary); color: #fff; font-family: var(--font-condensed); font-weight: 700;
+    display: flex; align-items: center; justify-content: center; font-size: 13px; flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+<div class="proto-nav" id="nav"></div>
+
+<!-- ============ 1. MODE SELECT ============ -->
+<div class="stage active" data-stage="mode-select">
+  <div class="page">
+    <div class="card">
+      <div class="logo-block">
+        <div class="logo">Shoresh</div>
+        <div class="logo-sub">Camp activity scheduling</div>
+      </div>
+      <div class="eyebrow">First launch on this computer</div>
+      <div class="title">How is this device being used?</div>
+      <div class="subtitle">Shoresh needs one computer to hold the master schedule. Choose how this one participates — you can't change this later without reinstalling.</div>
+
+      <button class="choice-card" onclick="goto('bootstrap')">
+        <div class="choice-icon">&#9733;</div>
+        <div style="flex:1">
+          <div class="choice-title">Host this camp's schedule</div>
+          <div class="choice-desc">This computer becomes the source of truth. Other staff devices on your network will connect to it. Choose this on the camp office computer, or the one that stays on.</div>
+        </div>
+        <div class="choice-chevron">&#8250;</div>
+      </button>
+
+      <button class="choice-card" onclick="goto('join-searching')">
+        <div class="choice-icon">&#8635;</div>
+        <div style="flex:1">
+          <div class="choice-title">Join a camp already set up</div>
+          <div class="choice-desc">Connect to a Shoresh Host already running on your network — for staff laptops, counselor stations, or anything besides the main office computer.</div>
+        </div>
+        <div class="choice-chevron">&#8250;</div>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 2a. JOIN — searching ============ -->
+<div class="stage" data-stage="join-searching">
+  <div class="page">
+    <div class="card">
+      <div class="back-row">
+        <button class="back-btn" onclick="goto('mode-select')">&#8592; Back</button>
+      </div>
+      <div class="eyebrow">Join a camp</div>
+      <div class="title">Looking for a camp on your network&hellip;</div>
+      <div class="subtitle">Make sure this device is on the same Wi-Fi as the Host computer.</div>
+
+      <div class="searching-row">
+        <div class="spinner"></div>
+        <div class="searching-text">Searching&hellip;</div>
+      </div>
+
+      <div style="display:flex; gap:10px; justify-content:center; margin-top:8px;">
+        <button class="link-btn" onclick="goto('join-found')">(proto: simulate found)</button>
+        <span style="color:var(--border)">|</span>
+        <button class="link-btn" onclick="goto('join-empty')">(proto: simulate none found)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 2b. JOIN — found hosts ============ -->
+<div class="stage" data-stage="join-found">
+  <div class="page">
+    <div class="card">
+      <div class="back-row">
+        <button class="back-btn" onclick="goto('mode-select')">&#8592; Back</button>
+      </div>
+      <div class="eyebrow">Join a camp</div>
+      <div class="title">Choose a camp to connect to</div>
+      <div class="subtitle">Found on your network:</div>
+
+      <div class="host-item" onclick="goto('login')">
+        <div class="host-dot"></div>
+        <div>
+          <div class="host-name">Camp Achva</div>
+          <div class="host-meta">192.168.1.42 &middot; office-imac</div>
+        </div>
+        <div class="host-chevron">&#8250;</div>
+      </div>
+      <div class="host-item" onclick="goto('login')">
+        <div class="host-dot"></div>
+        <div>
+          <div class="host-name">Camp Kinneret</div>
+          <div class="host-meta">192.168.1.51 &middot; front-desk</div>
+        </div>
+        <div class="host-chevron">&#8250;</div>
+      </div>
+
+      <button class="link-btn" style="margin-top:14px;" onclick="goto('join-searching')">&#8635; Search again</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 2c. JOIN — none found ============ -->
+<div class="stage" data-stage="join-empty">
+  <div class="page">
+    <div class="card">
+      <div class="back-row">
+        <button class="back-btn" onclick="goto('mode-select')">&#8592; Back</button>
+      </div>
+      <div class="empty-state">
+        <div class="empty-icon">&#128225;</div>
+        <div class="empty-title">No camps found nearby</div>
+        <div class="empty-desc">Double-check that:<br/>&bull; This device is on the same Wi-Fi network as the Host<br/>&bull; The Host computer is turned on and Shoresh is running there</div>
+        <button class="btn-primary" style="margin-top:0;" onclick="goto('join-searching')">Search again</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 3. HOST BOOTSTRAP ============ -->
+<div class="stage" data-stage="bootstrap">
+  <div class="page">
+    <div class="card">
+      <div class="back-row">
+        <button class="back-btn" onclick="goto('mode-select')">&#8592; Back</button>
+      </div>
+      <div class="role-pill"><span class="dot"></span>HOSTING ON THIS DEVICE</div>
+      <div class="title">Set up your camp</div>
+      <div class="subtitle">This is a one-time setup. You'll create the first admin account — you can add more staff once you're in.</div>
+
+      <label class="lbl">Camp name</label>
+      <input class="field" type="text" placeholder="Camp Achva" value="Camp Achva">
+
+      <label class="lbl">Your name</label>
+      <input class="field" type="text" placeholder="e.g. Sarah Cohen" value="Sarah Cohen">
+
+      <label class="lbl">Create a PIN</label>
+      <input class="field" type="password" inputmode="numeric" placeholder="4 or more digits" value="4821">
+      <div class="hint">You'll use this PIN to log in on this and any connected device. Choose something you'll remember — staff PINs don't need to be complex.</div>
+
+      <button class="btn-primary" onclick="goto('login')">Create camp &amp; continue &#8594;</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 4a. LOGIN — default ============ -->
+<div class="stage" data-stage="login">
+  <div class="page">
+    <div class="card">
+      <div class="logo-block">
+        <div class="logo">Shoresh</div>
+        <div class="logo-sub">Camp Achva</div>
+      </div>
+      <div class="title" style="font-size:19px;">Sign in</div>
+      <div class="subtitle" style="margin-bottom:20px;">Enter your name and PIN to continue.</div>
+
+      <label class="lbl" style="margin-top:0;">Name</label>
+      <input class="field" type="text" placeholder="e.g. Sarah Cohen" value="Sarah Cohen">
+
+      <label class="lbl">PIN</label>
+      <input class="field" type="password" inputmode="numeric" placeholder="&bull;&bull;&bull;&bull;">
+
+      <button class="btn-primary" onclick="goto('login-wrong')">Sign in</button>
+
+      <div style="display:flex; gap:12px; justify-content:center; margin-top:16px;">
+        <button class="link-btn" onclick="goto('login-wrong')">(proto: wrong PIN)</button>
+        <button class="link-btn" onclick="goto('login-locked')">(proto: locked out)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 4b. LOGIN — wrong PIN ============ -->
+<div class="stage" data-stage="login-wrong">
+  <div class="page">
+    <div class="card">
+      <div class="logo-block">
+        <div class="logo">Shoresh</div>
+        <div class="logo-sub">Camp Achva</div>
+      </div>
+      <div class="title" style="font-size:19px;">Sign in</div>
+
+      <div class="error-box">
+        <span>&#9888;</span>
+        <span>That PIN doesn't match Sarah Cohen. Try again — you have a few attempts left.</span>
+      </div>
+
+      <label class="lbl" style="margin-top:0;">Name</label>
+      <input class="field" type="text" value="Sarah Cohen">
+
+      <label class="lbl">PIN</label>
+      <input class="field" type="password" placeholder="&bull;&bull;&bull;&bull;">
+      <div class="pin-dots">
+        <div class="pin-dot filled error"></div>
+        <div class="pin-dot filled error"></div>
+        <div class="pin-dot filled error"></div>
+        <div class="pin-dot filled error"></div>
+      </div>
+
+      <button class="btn-primary" onclick="goto('login-locked')">Sign in</button>
+      <div style="text-align:center; margin-top:14px;">
+        <button class="link-btn" onclick="goto('login')">(proto: back to default)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 4c. LOGIN — locked out ============ -->
+<div class="stage" data-stage="login-locked">
+  <div class="page">
+    <div class="card">
+      <div class="logo-block">
+        <div class="logo">Shoresh</div>
+        <div class="logo-sub">Camp Achva</div>
+      </div>
+      <div class="title" style="font-size:19px;">Sign in</div>
+
+      <label class="lbl" style="margin-top:0;">Name</label>
+      <input class="field" type="text" value="Sarah Cohen" disabled style="opacity:0.6;">
+
+      <label class="lbl">PIN</label>
+      <input class="field" type="password" placeholder="&bull;&bull;&bull;&bull;" disabled style="opacity:0.6;">
+
+      <div class="lockout-box">
+        <div class="lockout-icon">&#9201;</div>
+        <div class="lockout-title">Just a moment</div>
+        <div class="lockout-desc">Too many attempts. For security, sign-in is paused briefly. It'll unlock automatically — no need to do anything.</div>
+        <div class="lockout-timer" id="lockoutTimer">0:24</div>
+      </div>
+
+      <button class="btn-primary" disabled style="margin-top:16px;">Sign in</button>
+      <div style="text-align:center; margin-top:14px;">
+        <button class="link-btn" onclick="goto('login')">(proto: back to default)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const stages = ['mode-select','join-searching','join-found','join-empty','bootstrap','login','login-wrong','login-locked'];
+  const nav = document.getElementById('nav');
+  stages.forEach(s => {
+    const b = document.createElement('button');
+    b.textContent = s;
+    b.onclick = () => goto(s);
+    b.dataset.stage = s;
+    nav.appendChild(b);
+  });
+  function goto(stage) {
+    document.querySelectorAll('.stage').forEach(el => el.classList.toggle('active', el.dataset.stage === stage));
+    document.querySelectorAll('.proto-nav button').forEach(b => b.classList.toggle('active', b.dataset.stage === stage));
+    window.scrollTo(0,0);
+  }
+  goto('mode-select');
+
+  // fake countdown on lockout screen
+  let secs = 24;
+  setInterval(() => {
+    const el = document.getElementById('lockoutTimer');
+    if (!el) return;
+    secs = secs > 0 ? secs - 1 : 24;
+    const m = Math.floor(secs/60), s = secs%60;
+    el.textContent = m + ':' + String(s).padStart(2,'0');
+  }, 1000);
+</script>
+</body>
+</html>

@@ -19,6 +19,34 @@ function send(ws, message) {
   }
 }
 
+// Task 10 round-6 follow-up: a synchronous absence-of-exception from
+// ws.send() is NOT proof of delivery. On a live-but-broken TCP connection,
+// ws.send() commonly returns normally (readyState stays OPEN, nothing
+// throws) while the actual write fails asynchronously — that failure only
+// surfaces later via ws.send()'s optional completion callback (called with
+// an Error on failure, undefined on success) or a subsequent close/error
+// event. sendWithAck awaits that genuine confirmation instead of trusting
+// the synchronous return, so callers (specifically sendMissedOps) can gate
+// watermark advancement on real delivery, not just "didn't throw yet".
+function sendWithAck(ws, message) {
+  return new Promise((resolve) => {
+    if (ws.readyState !== ws.OPEN) {
+      resolve(false)
+      return
+    }
+    try {
+      ws.send(JSON.stringify(message), (err) => {
+        resolve(!err)
+      })
+    } catch {
+      // Preserve round-5 behavior: a synchronous throw from ws.send() itself
+      // (if the underlying implementation can still do that) is still
+      // treated as an immediate failure.
+      resolve(false)
+    }
+  })
+}
+
 function sendError(ws) {
   if (ws.deviceId) {
     send(ws, { type: 'error', message: 'invalid request' })
@@ -88,7 +116,7 @@ function currentMaxOpSeq(db) {
 // over an actual network socket in a test, so the partial-send-failure path
 // is tested by calling this directly against a real SQLite db with a
 // controlled fake `ws` object whose send() throws on a specific op.
-export function sendMissedOps(db, ws) {
+export async function sendMissedOps(db, ws) {
   const device = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(ws.deviceId)
 
   if (!device || device.last_synced_seq === null || device.last_synced_seq === undefined) {
@@ -121,9 +149,15 @@ export function sendMissedOps(db, ws) {
   // once one fails there's no guarantee later ones over the same dead/dying
   // socket would succeed either, and even if a later one happened to get
   // through, correctness requires no gaps below the watermark.
+  // Task 10 round-6 follow-up: gate advancement on genuine async delivery
+  // confirmation (sendWithAck), not just the absence of a synchronous throw.
+  // We also re-check readyState via sendWithAck before every op — if the
+  // socket closed/errored between one op's callback confirming success and
+  // the next op's send being attempted, sendWithAck fails fast without
+  // calling ws.send() again on a now-dead socket, and the loop stops there.
   let lastSuccessSeq = since
   for (const op of rows) {
-    const ok = send(ws, { type: 'op_applied', op })
+    const ok = await sendWithAck(ws, { type: 'op_applied', op })
     if (!ok) break
     if (op.seq > lastSuccessSeq) lastSuccessSeq = op.seq
   }

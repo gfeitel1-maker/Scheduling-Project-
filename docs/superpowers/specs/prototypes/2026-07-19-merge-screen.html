@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Shoresh — Conflicts (Merge Screen Prototype)</title>
+<style>
+  :root {
+    --primary: #00ADBB;
+    --bg: #f5f7f8;
+    --text: #1c2426;
+    --surface: #ffffff;
+    --surface-elevated: #ffffff;
+    --border: #e2e6e8;
+    --text-secondary: #6b7679;
+    --success: #1f9d55;
+    --warning: #c0392b;
+    --font-condensed: 'Oswald', 'Arial Narrow', sans-serif;
+    --font-mono: 'IBM Plex Mono', 'Menlo', monospace;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: var(--font-sans); background: var(--bg); color: var(--text);
+    display: flex; height: 100vh; overflow: hidden;
+  }
+  /* Sidebar */
+  aside {
+    width: 200px; min-width: 200px; background: var(--surface);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column; height: 100%;
+  }
+  .sb-head { padding: 20px 20px 16px; border-bottom: 1px solid var(--border); }
+  .sb-logo { font-family: var(--font-condensed); font-weight: 700; font-size: 22px; color: var(--primary); letter-spacing: -0.3px; }
+  .sb-camp { font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary); margin-top: 2px; }
+  nav { flex: 1; padding: 8px 0; overflow-y: auto; }
+  .nav-item {
+    display: flex; align-items: center; justify-content: space-between; width: 100%; text-align: left;
+    padding: 8px 20px; border: none; background: none; font-size: 13px; font-weight: 400;
+    color: var(--text); border-left: 3px solid transparent; cursor: pointer; font-family: inherit;
+  }
+  .nav-item.active { font-weight: 600; color: var(--primary); border-left-color: var(--primary); }
+  .nav-item:hover:not(.active) { background: var(--bg); }
+  .nav-badge {
+    display: inline-flex; align-items: center; justify-content: center; min-width: 17px; height: 17px;
+    padding: 0 5px; border-radius: 99px; background: var(--warning); color: #fff;
+    font-size: 10.5px; font-weight: 700; font-family: var(--font-mono);
+  }
+  .sb-foot { padding: 12px 20px; border-top: 1px solid var(--border); font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary); }
+
+  /* Shell */
+  .shell-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { height: 52px; min-height: 52px; border-bottom: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; padding: 0 24px; font-family: var(--font-condensed); font-weight: 600; font-size: 15px; }
+  main { flex: 1; overflow-y: auto; padding: 24px; }
+  .content { max-width: 760px; margin: 0 auto; }
+
+  /* Dev toolbar (prototype only, not part of the design) */
+  .devbar { position: fixed; bottom: 0; left: 200px; right: 0; background: #20282b; color: #cfe; padding: 8px 16px; font-family: var(--font-mono); font-size: 11px; display: flex; gap: 10px; align-items: center; z-index: 999; }
+  .devbar button { font-family: inherit; font-size: 11px; padding: 5px 10px; border-radius: 5px; border: 1px solid #445; background: #2c363a; color: #cfe; cursor: pointer; }
+  .devbar button:hover { background: #37444a; }
+  .devbar span { color: #8fa; }
+
+  /* Intro */
+  .eyebrow { font-family: var(--font-condensed); font-weight: 700; font-size: 18px; margin-bottom: 6px; }
+  .intro-sub { font-size: 13px; color: var(--text-secondary); line-height: 1.6; margin-bottom: 22px; max-width: 520px; }
+
+  /* Card */
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 14px; overflow: hidden; transition: max-height 0.35s ease, opacity 0.35s ease, margin-bottom 0.35s ease, padding 0.35s ease, border-color 0.3s ease;
+    max-height: 260px;
+  }
+  .card.collapsing { max-height: 0; opacity: 0; margin-bottom: 0; padding-top: 0; padding-bottom: 0; border-color: transparent; }
+  .card-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 14px; }
+  .card-title { font-family: var(--font-condensed); font-weight: 700; font-size: 15px; }
+  .card-when { font-size: 11.5px; color: var(--text-secondary); font-family: var(--font-mono); white-space: nowrap; margin-left: 12px; }
+
+  .choices { display: flex; gap: 14px; flex-wrap: wrap; transition: opacity 0.15s; }
+  .choices.fading { opacity: 0; }
+  .box {
+    flex: 1 1 220px; background: var(--bg); border: 1.5px solid var(--border); border-radius: 9px;
+    padding: 14px; transition: border-color 0.15s;
+  }
+  .box:hover { border-color: var(--primary); }
+  .box-meta { font-size: 11.5px; font-family: var(--font-mono); color: var(--text-secondary); margin-bottom: 8px; }
+  .box-value { font-size: 13.5px; line-height: 1.5; margin-bottom: 14px; min-height: 20px; }
+  .box-pin { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 6px 0 16px; color: var(--text-secondary); }
+  .box-pin .lock { font-size: 20px; margin-bottom: 6px; }
+  .box-pin .label { font-size: 13px; }
+
+  .btn-keep {
+    display: block; width: 100%; padding: 7px 0; background: var(--surface); color: var(--text);
+    border: 1px solid var(--border); border-radius: 7px; font-weight: 600; font-size: 12.5px;
+    cursor: pointer; font-family: inherit; transition: background 0.12s, color 0.12s, border-color 0.12s;
+  }
+  .box:hover .btn-keep { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .btn-keep:disabled { opacity: 0.6; cursor: default; }
+
+  /* Confirmed state */
+  .confirmed { display: none; align-items: center; justify-content: center; flex-direction: column; padding: 18px 0; opacity: 0; transition: opacity 0.15s; }
+  .confirmed.show { display: flex; opacity: 1; }
+  .confirmed .check {
+    width: 34px; height: 34px; border-radius: 50%; background: rgba(31,157,85,0.12); color: var(--success);
+    display: flex; align-items: center; justify-content: center; font-size: 18px; margin-bottom: 8px;
+  }
+  .confirmed .msg { font-size: 13px; font-weight: 600; color: var(--success); }
+  .card.resolved { border-color: rgba(31,157,85,0.35); }
+
+  /* Empty state */
+  .empty { text-align: center; padding: 70px 20px; }
+  .empty .check { width: 48px; height: 48px; border-radius: 50%; background: rgba(31,157,85,0.12); color: var(--success); display: flex; align-items: center; justify-content: center; font-size: 24px; margin: 0 auto 16px; }
+  .empty .title { font-family: var(--font-condensed); font-weight: 700; font-size: 17px; margin-bottom: 6px; }
+  .empty .sub { font-size: 13px; color: var(--text-secondary); }
+
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+
+<aside>
+  <div class="sb-head">
+    <div class="sb-logo">Shoresh</div>
+    <div class="sb-camp">Camp Kinneret</div>
+  </div>
+  <nav>
+    <button class="nav-item">Camp Setup</button>
+    <button class="nav-item active" id="conflictsNavItem">
+      <span>Conflicts</span>
+      <span class="nav-badge" id="navBadge">3</span>
+    </button>
+    <button class="nav-item">Programs</button>
+    <button class="nav-item">Units</button>
+    <button class="nav-item">Groups</button>
+    <button class="nav-item">Time Blocks</button>
+    <button class="nav-item">Activities</button>
+    <button class="nav-item">Anchors</button>
+    <button class="nav-item">Day Overrides</button>
+    <button class="nav-item">Schedule</button>
+  </nav>
+  <div class="sb-foot">v0.1.0</div>
+</aside>
+
+<div class="shell-main">
+  <div class="topbar">Conflicts</div>
+  <main>
+    <div class="content">
+
+      <!-- LIST STATE -->
+      <div id="listState">
+        <div class="eyebrow" id="countHeadline">3 conflicts need your attention</div>
+        <div class="intro-sub">These happened while two devices made changes at the same time. Pick which version to keep for each one — nothing is lost either way.</div>
+
+        <div id="cardsWrap">
+          <!-- Card 1: staff name -->
+          <div class="card" data-id="c1">
+            <div class="card-head">
+              <div class="card-title">A staff member's name</div>
+              <div class="card-when">2 hours ago</div>
+            </div>
+            <div class="choices">
+              <div class="box">
+                <div class="box-meta">This computer &middot; 2 hours ago</div>
+                <div class="box-value">Rivka Cohen</div>
+                <button class="btn-keep">Keep this version</button>
+              </div>
+              <div class="box">
+                <div class="box-meta">Front Office iPad &middot; 1 hour ago</div>
+                <div class="box-value">Rivka Cohen-Stern</div>
+                <button class="btn-keep">Keep this version</button>
+              </div>
+            </div>
+            <div class="confirmed"><div class="check">&#10003;</div><div class="msg"></div></div>
+          </div>
+
+          <!-- Card 2: schedule slot -->
+          <div class="card" data-id="c2">
+            <div class="card-head">
+              <div class="card-title">A schedule slot's assigned activity</div>
+              <div class="card-when">45 minutes ago</div>
+            </div>
+            <div class="choices">
+              <div class="box">
+                <div class="box-meta">Sarah &middot; on Front Desk Laptop &middot; 45 minutes ago</div>
+                <div class="box-value">Tuesday, Group A, 10:00am &rarr; Arts &amp; Crafts</div>
+                <button class="btn-keep">Keep this version</button>
+              </div>
+              <div class="box">
+                <div class="box-meta">Dov &middot; on This computer &middot; 30 minutes ago</div>
+                <div class="box-value">Tuesday, Group A, 10:00am &rarr; Swim</div>
+                <button class="btn-keep">Keep this version</button>
+              </div>
+            </div>
+            <div class="confirmed"><div class="check">&#10003;</div><div class="msg"></div></div>
+          </div>
+
+          <!-- Card 3: PIN conflict -->
+          <div class="card" data-id="c3">
+            <div class="card-head">
+              <div class="card-title">A staff member's login PIN</div>
+              <div class="card-when">10 minutes ago</div>
+            </div>
+            <div class="choices">
+              <div class="box">
+                <div class="box-meta">This computer &middot; 10 minutes ago</div>
+                <div class="box-pin"><div class="lock">&#128274;</div><div class="label">PIN was changed</div></div>
+                <button class="btn-keep">Keep this version</button>
+              </div>
+              <div class="box">
+                <div class="box-meta">Back Office Desktop &middot; 6 minutes ago</div>
+                <div class="box-pin"><div class="lock">&#128274;</div><div class="label">PIN was changed</div></div>
+                <button class="btn-keep">Keep this version</button>
+              </div>
+            </div>
+            <div class="confirmed"><div class="check">&#10003;</div><div class="msg"></div></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- EMPTY STATE -->
+      <div id="emptyState" class="empty hidden">
+        <div class="check">&#10003;</div>
+        <div class="title">No conflicts to resolve</div>
+        <div class="sub">Everything's in sync.</div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<div class="devbar">
+  <span>PROTOTYPE ONLY — dev controls, not part of the design:</span>
+  <button onclick="showEmpty()">View empty state</button>
+  <button onclick="showList()">Reset to 3 conflicts</button>
+</div>
+
+<script>
+  function resolve(card, side) {
+    const label = side.querySelector('.box-value')
+      ? side.querySelector('.box-value').textContent
+      : (side.querySelector('.box-meta').textContent.split(' · ')[0])
+    card.querySelectorAll('.btn-keep').forEach(b => b.disabled = true)
+    const choices = card.querySelector('.choices')
+    const confirmed = card.querySelector('.confirmed')
+    confirmed.querySelector('.msg').textContent = 'Kept ' + label + "'s version"
+    choices.classList.add('fading')
+    setTimeout(() => {
+      choices.style.display = 'none'
+      confirmed.classList.add('show')
+      card.classList.add('resolved')
+    }, 150)
+    setTimeout(() => {
+      card.classList.add('collapsing')
+      decrementBadge()
+    }, 150 + 1100)
+    card.addEventListener('transitionend', function onEnd(e) {
+      if (e.propertyName === 'max-height' && card.classList.contains('collapsing')) {
+        card.remove()
+        checkEmpty()
+        card.removeEventListener('transitionend', onEnd)
+      }
+    })
+  }
+
+  document.querySelectorAll('.box').forEach(box => {
+    const btn = box.querySelector('.btn-keep')
+    btn.addEventListener('click', () => {
+      const card = box.closest('.card')
+      resolve(card, box)
+    })
+  })
+
+  function decrementBadge() {
+    const badge = document.getElementById('navBadge')
+    const n = Math.max(0, parseInt(badge.textContent, 10) - 1)
+    badge.textContent = n
+    if (n === 0) badge.style.display = 'none'
+    const headline = document.getElementById('countHeadline')
+    headline.textContent = n === 0 ? 'All caught up' : (n + ' conflict' + (n !== 1 ? 's' : '') + ' need your attention')
+  }
+
+  function checkEmpty() {
+    if (document.querySelectorAll('#cardsWrap .card').length === 0) {
+      setTimeout(showEmpty, 300)
+    }
+  }
+
+  function showEmpty() {
+    document.getElementById('listState').classList.add('hidden')
+    document.getElementById('emptyState').classList.remove('hidden')
+    document.getElementById('navBadge').style.display = 'none'
+  }
+
+  function showList() {
+    location.reload()
+  }
+</script>
+
+</body>
+</html>

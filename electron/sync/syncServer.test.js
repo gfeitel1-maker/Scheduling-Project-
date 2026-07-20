@@ -549,12 +549,19 @@ describe('Task 10 round-5 Fix 4: sendMissedOps watermark stops at the last succe
       deviceId,
       readyState: 1,
       OPEN: 1,
-      send(data) {
+      // Round-6 note: send() still supports the optional (data, callback)
+      // completion-callback signature so this fake stays compatible with
+      // sendWithAck. The synchronous-throw behavior is preserved as-is (it's
+      // exactly the case round-6 says must keep working), while a
+      // non-failing send confirms success via the callback, asynchronously,
+      // just like a real ws.
+      send(data, callback) {
         const parsed = JSON.parse(data)
         if (parsed.op && parsed.op.entity_id === failOnEntityId) {
           throw new Error('simulated dead socket mid-replay')
         }
         sent.push(parsed)
+        if (callback) setImmediate(() => callback())
       },
       __sent: sent,
     }
@@ -575,7 +582,7 @@ describe('Task 10 round-5 Fix 4: sendMissedOps watermark stops at the last succe
     // op A sends fine, op B's send() throws, op C is never attempted.
     const ws = fakeWs(deviceId, 'catchup-b')
 
-    sendMissedOps(db, ws)
+    await sendMissedOps(db, ws)
 
     // Op A genuinely went out.
     expect(ws.__sent.some((m) => m.op.entity_id === 'catchup-a')).toBe(true)
@@ -594,7 +601,7 @@ describe('Task 10 round-5 Fix 4: sendMissedOps watermark stops at the last succe
     // connection) with a fully-working socket must re-send B and C, since
     // the watermark correctly says they were never delivered.
     const ws2 = fakeWs(deviceId, null)
-    sendMissedOps(db, ws2)
+    await sendMissedOps(db, ws2)
     expect(ws2.__sent.map((m) => m.op.entity_id)).toEqual(['catchup-b', 'catchup-c'])
 
     const rowAfter = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
@@ -611,10 +618,117 @@ describe('Task 10 round-5 Fix 4: sendMissedOps watermark stops at the last succe
     const opB = appendOp(db, { entity: 'template_slots', entity_id: 'catchup-ok-b', field: 'activity_id', value: '2', author_user_id: userId, device_id: deviceId, parent_op_id: null })
 
     const ws = fakeWs(deviceId, null)
-    sendMissedOps(db, ws)
+    await sendMissedOps(db, ws)
 
     expect(ws.__sent.map((m) => m.op.entity_id)).toEqual(['catchup-ok-a', 'catchup-ok-b'])
     const row = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
     expect(row.last_synced_seq).toBe(opB.seq)
+  })
+})
+
+describe('Task 10 round-6: sendMissedOps gates watermark on genuine async delivery confirmation, not just an absent synchronous throw', () => {
+  // A real dead-but-not-yet-closed TCP socket is the case round-5's fix
+  // couldn't handle: ws.send() returns normally (no throw) and readyState
+  // stays OPEN, but the write never actually completes — the failure only
+  // surfaces later via ws.send()'s completion callback. This fake models
+  // exactly that: send() never throws and readyState is always OPEN, but
+  // the callback for a specific op is invoked asynchronously (via
+  // setImmediate, a real turn of the event loop later, not same-tick) with
+  // an Error — simulating the real async-failure path this fix targets.
+  function fakeAsyncFailWs(deviceId, failOnEntityId) {
+    const sent = []
+    return {
+      deviceId,
+      readyState: 1,
+      OPEN: 1,
+      send(data, callback) {
+        const parsed = JSON.parse(data)
+        sent.push(parsed)
+        if (parsed.op && parsed.op.entity_id === failOnEntityId) {
+          // Genuinely asynchronous: the callback fires on a later turn of
+          // the event loop, exactly like a real ws reporting a completed
+          // (failed) write, not a same-tick synchronous call.
+          setImmediate(() => callback(new Error('simulated async write failure')))
+        } else {
+          setImmediate(() => callback())
+        }
+      },
+      __sent: sent,
+    }
+  }
+
+  it('stops the watermark at the last op whose callback genuinely confirmed success, when a later op fails asynchronously without throwing and without flipping readyState', async () => {
+    // Baseline the watermark to "everything that exists right now" (rather
+    // than 0) so only the three ops appended below are missed-op
+    // candidates - isolating this from the ops createUser's setup already
+    // appended (see the round-5 "no regression" test above for the same
+    // pattern).
+    const baseline = db.prepare('SELECT MAX(seq) as maxSeq FROM operations').get().maxSeq || 0
+    db.prepare('UPDATE devices SET last_synced_seq = ? WHERE id = ?').run(baseline, deviceId)
+
+    const opA = appendOp(db, { entity: 'template_slots', entity_id: 'async-a', field: 'activity_id', value: '1', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+    const opB = appendOp(db, { entity: 'template_slots', entity_id: 'async-b', field: 'activity_id', value: '2', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+    const opC = appendOp(db, { entity: 'template_slots', entity_id: 'async-c', field: 'activity_id', value: '3', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+
+    // op B's send() call itself does not throw, and readyState stays OPEN
+    // throughout — the only signal that it failed is the async callback.
+    const ws = fakeAsyncFailWs(deviceId, 'async-b')
+
+    await sendMissedOps(db, ws)
+
+    // send() was attempted for both A and B (B's send() call didn't throw),
+    // but C must never have been attempted, since the loop must stop once
+    // B's callback confirms failure.
+    expect(ws.__sent.map((m) => m.op.entity_id)).toEqual(['async-a', 'async-b'])
+
+    // The watermark must stop at op A's seq — the last op whose callback
+    // genuinely confirmed success — not advance past op B just because
+    // ws.send() didn't throw synchronously for it.
+    const row = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
+    expect(row.last_synced_seq).toBe(opA.seq)
+
+    // Reconnecting with a fully-working socket must re-send B and C, since
+    // the watermark correctly says they were never confirmed delivered.
+    const ws2 = fakeAsyncFailWs(deviceId, null)
+    await sendMissedOps(db, ws2)
+    expect(ws2.__sent.map((m) => m.op.entity_id)).toEqual(['async-b', 'async-c'])
+
+    const rowAfter = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
+    expect(rowAfter.last_synced_seq).toBe(opC.seq)
+  })
+
+  it('stops sending immediately once the socket goes non-OPEN between ops, even if the prior op\'s callback already confirmed success', async () => {
+    const baseline = db.prepare('SELECT MAX(seq) as maxSeq FROM operations').get().maxSeq || 0
+    db.prepare('UPDATE devices SET last_synced_seq = ? WHERE id = ?').run(baseline, deviceId)
+
+    const opA = appendOp(db, { entity: 'template_slots', entity_id: 'closemid-a', field: 'activity_id', value: '1', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+    appendOp(db, { entity: 'template_slots', entity_id: 'closemid-b', field: 'activity_id', value: '2', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+
+    const sent = []
+    const ws = {
+      deviceId,
+      readyState: 1,
+      OPEN: 1,
+      send(data, callback) {
+        const parsed = JSON.parse(data)
+        sent.push(parsed)
+        // Simulate the socket dying (close/error) right after op A's send
+        // is confirmed, before op B's send is attempted.
+        setImmediate(() => {
+          ws.readyState = 3 // CLOSED
+          callback()
+        })
+      },
+    }
+
+    await sendMissedOps(db, ws)
+
+    // Only op A was ever attempted — sendWithAck's readyState check before
+    // op B's send must have caught the now-dead socket and stopped, rather
+    // than calling ws.send() again on a closed connection.
+    expect(sent.map((m) => m.op.entity_id)).toEqual(['closemid-a'])
+
+    const row = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
+    expect(row.last_synced_seq).toBe(opA.seq)
   })
 })
