@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('shoresh', {
   chooseMode: (args) => ipcRenderer.invoke('shoresh:choose-mode', args),

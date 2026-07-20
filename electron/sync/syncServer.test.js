@@ -826,15 +826,71 @@ describe('unauthenticated login message', () => {
     const ws = connect()
     await onceOpen(ws)
 
+    // Spaced comfortably past the per-connection login throttle (300ms) so
+    // this test exercises the per-name lockout in attemptLogin, not the
+    // throttle added below.
     for (let i = 0; i < 5; i++) {
       ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: 'wrong' }))
       await onceMessage(ws)
+      await new Promise((resolve) => setTimeout(resolve, 310))
     }
     ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: '1234' }))
     const reply = await onceMessage(ws)
     expect(reply.type).toBe('login_failed')
     expect(reply.locked).toBe(true)
     expect(reply.retryAfterMs).toBeGreaterThan(0)
+
+    ws.close()
+  })
+
+  it('throttles a burst of rapid login messages from one connection, so not all of them reach attemptLogin / the per-name lockout (round 2 fix)', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    const replies = []
+    ws.on('message', (data) => replies.push(JSON.parse(data.toString())))
+
+    // Fire 20 wrong-pin login messages back-to-back with no delay, from a
+    // single connection, cycling through distinct device_ids so this isn't
+    // just re-testing the per-name lockout.
+    for (let i = 0; i < 20; i++) {
+      ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: 'wrong' }))
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 400))
+    // Only the first of the 20 rapid-fire messages should have reached
+    // attemptLogin; the rest were dropped by the per-connection throttle
+    // before ever running a query. If the flood weren't bounded, we'd see
+    // up to 20 replies here.
+    expect(replies.length).toBeGreaterThan(0)
+    expect(replies.length).toBeLessThan(5)
+
+    // Prove the dropped messages never touched the per-name lockout counter:
+    // wait past the throttle window and log in with the correct PIN. If all
+    // 20 wrong attempts had reached attemptLogin, 'Alice' would already be
+    // locked out (5 wrong attempts trips the lock) and this would come back
+    // `locked: true` instead of succeeding.
+    await new Promise((resolve) => setTimeout(resolve, 350))
+    ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: '1234' }))
+    const reply = await onceMessage(ws)
+    expect(reply.type).toBe('login_ok')
+
+    ws.close()
+  })
+
+  it('does not throttle a human-paced retry spaced beyond the throttle interval (round 2 fix)', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+
+    ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: 'wrong' }))
+    const reply1 = await onceMessage(ws)
+    expect(reply1).toEqual({ type: 'login_failed' })
+
+    // A real user retrying after seeing "wrong pin" comfortably clears the
+    // 300ms throttle window; this attempt must not be dropped.
+    await new Promise((resolve) => setTimeout(resolve, 350))
+    ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: '1234' }))
+    const reply2 = await onceMessage(ws)
+    expect(reply2.type).toBe('login_ok')
 
     ws.close()
   })

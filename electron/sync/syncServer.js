@@ -224,8 +224,33 @@ function validateAcquireLockMsg(msg) {
   return isNonEmptyString(msg.entity) && isNonEmptyString(msg.entity_id) && isNonEmptyString(msg.field)
 }
 
+// Minimum spacing between 'login' messages accepted from a single connection.
+// This is a per-connection throttle, distinct from and in addition to the
+// per-name lockout inside attemptLogin. It exists because 'login' is reachable
+// with zero prior authentication (unlike acquire_lock/submit_op, which require
+// an already-authenticated ws.deviceId): a single connection hammering 'login'
+// in a tight loop drives synchronous better-sqlite3 calls on Node's
+// single-threaded event loop, starving every other connected device's
+// acquire_lock/submit_op responses and op_applied broadcasts. 300ms bounds
+// that risk while comfortably allowing a real user's retry-after-wrong-pin
+// flow (type PIN, get it wrong, retry).
+const LOGIN_MIN_INTERVAL_MS = 300
+
 function handleLogin(db, ws, msg) {
   if (!validateLoginMsg(msg)) return
+
+  // Throttle: a message arriving faster than LOGIN_MIN_INTERVAL_MS since this
+  // connection's last login attempt is dropped silently before it ever
+  // reaches attemptLogin, so it cannot touch the login_attempts lockout
+  // counter. Silent drop (vs. an explicit throttled reply) matches this
+  // file's existing convention for rejecting bad input (see the malformed
+  // message and validateLoginMsg early-returns above) and keeps the
+  // unauthenticated surface from being handed a way to trigger extra replies.
+  const now = Date.now()
+  if (ws.lastLoginAttemptAt !== undefined && now - ws.lastLoginAttemptAt < LOGIN_MIN_INTERVAL_MS) {
+    return
+  }
+  ws.lastLoginAttemptAt = now
 
   const result = attemptLogin(db, { name: msg.name, pin: msg.pin, deviceId: msg.device_id })
 
