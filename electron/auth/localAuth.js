@@ -4,6 +4,9 @@ import { appendOp } from '../ops/operations.js'
 const SCRYPT_KEYLEN = 64
 const sessionSecret = randomBytes(32)
 
+const LOGIN_MAX_ATTEMPTS = 5
+const LOGIN_LOCKOUT_MS = 30_000
+
 function hashPin(pin, salt) {
   return scryptSync(pin, salt, SCRYPT_KEYLEN).toString('hex')
 }
@@ -97,4 +100,51 @@ export function verifySessionToken(token) {
   } catch {
     return null
   }
+}
+
+function attemptsRow(db, name) {
+  return db.prepare('SELECT name, count, locked_until FROM login_attempts WHERE name = ?').get(name)
+}
+
+function saveAttempts(db, name, count, lockedUntil) {
+  db.prepare(
+    'INSERT OR REPLACE INTO login_attempts (name, count, locked_until) VALUES (?, ?, ?)'
+  ).run(name, count, lockedUntil != null ? String(lockedUntil) : null)
+}
+
+function clearAttempts(db, name) {
+  db.prepare('DELETE FROM login_attempts WHERE name = ?').run(name)
+}
+
+// Shared PIN-verification-and-lockout logic used both for local login (a
+// device checking its own local `users` table — main.js's IPC `login`
+// handler) and for a Host verifying a remote device's first-time login
+// attempt sent unauthenticated over the sync WebSocket (syncServer.js's
+// `login` message handler). Keeping this in one place means the two paths
+// can never drift out of sync on lockout thresholds or verification rules.
+export function attemptLogin(db, { name, pin, deviceId }) {
+  const attempt = attemptsRow(db, name)
+  const lockedUntil = attempt && attempt.locked_until ? Number(attempt.locked_until) : 0
+  if (lockedUntil && lockedUntil > Date.now()) {
+    return { locked: true, retryAfterMs: lockedUntil - Date.now() }
+  }
+
+  const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+  if (!camp) return null
+  const user = db.prepare('SELECT id, role FROM users WHERE camp_id = ? AND name = ?').get(camp.id, name)
+  if (!user || !verifyPin(db, user.id, pin)) {
+    let count = (attempt ? attempt.count : 0) + 1
+    let newLockedUntil = null
+    if (count >= LOGIN_MAX_ATTEMPTS) {
+      newLockedUntil = Date.now() + LOGIN_LOCKOUT_MS
+      count = 0
+    }
+    saveAttempts(db, name, count, newLockedUntil)
+    return null
+  }
+
+  clearAttempts(db, name)
+
+  const token = issueSessionToken(user.id, deviceId)
+  return { token, userId: user.id, role: user.role }
 }

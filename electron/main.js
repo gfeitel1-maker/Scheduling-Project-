@@ -4,14 +4,11 @@ import os from 'node:os'
 import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
-import { createUser, verifyPin, issueSessionToken, verifySessionToken } from './auth/localAuth.js'
+import { createUser, issueSessionToken, verifySessionToken, attemptLogin } from './auth/localAuth.js'
 import { startSyncServer } from './sync/syncServer.js'
 import { createSyncClient } from './sync/syncClient.js'
 import { advertiseHost, discoverHosts } from './sync/discovery.js'
 import { listPendingConflicts } from './ops/operations.js'
-
-const LOGIN_MAX_ATTEMPTS = 5
-const LOGIN_LOCKOUT_MS = 30_000
 
 const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 
@@ -73,20 +70,6 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
   let mode = null
   let pendingServerUrl = null
 
-  function attemptsRow(name) {
-    return db.prepare('SELECT name, count, locked_until FROM login_attempts WHERE name = ?').get(name)
-  }
-
-  function saveAttempts(name, count, lockedUntil) {
-    db.prepare(
-      'INSERT OR REPLACE INTO login_attempts (name, count, locked_until) VALUES (?, ?, ?)'
-    ).run(name, count, lockedUntil != null ? String(lockedUntil) : null)
-  }
-
-  function clearAttempts(name) {
-    db.prepare('DELETE FROM login_attempts WHERE name = ?').run(name)
-  }
-
   function wireOpApplied() {
     syncClient.onOpApplied((op) => {
       const mainWindow = getMainWindow ? getMainWindow() : null
@@ -140,41 +123,20 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
       throw new Error('name and pin are required')
     }
 
-    const attempt = attemptsRow(name)
-    const lockedUntil = attempt && attempt.locked_until ? Number(attempt.locked_until) : 0
-    if (lockedUntil && lockedUntil > Date.now()) {
-      return { locked: true, retryAfterMs: lockedUntil - Date.now() }
-    }
-
-    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
-    if (!camp) return null
-    const user = db.prepare('SELECT id, role FROM users WHERE camp_id = ? AND name = ?').get(camp.id, name)
-    if (!user || !verifyPin(db, user.id, pin)) {
-      let count = (attempt ? attempt.count : 0) + 1
-      let newLockedUntil = null
-      if (count >= LOGIN_MAX_ATTEMPTS) {
-        newLockedUntil = Date.now() + LOGIN_LOCKOUT_MS
-        count = 0
-      }
-      saveAttempts(name, count, newLockedUntil)
-      return null
-    }
-
-    clearAttempts(name)
-
-    const token = issueSessionToken(user.id, deviceId)
+    const result = attemptLogin(db, { name, pin, deviceId })
+    if (!result || result.locked) return result
 
     if (mode === 'client' && pendingServerUrl && !syncClient) {
       syncClient = createSyncClient(db, {
         device_id: deviceId,
         author_user_id: null,
         serverUrl: pendingServerUrl,
-        token,
+        token: result.token,
       })
       wireOpApplied()
     }
 
-    return { token, userId: user.id, role: user.role }
+    return result
   }
 
   async function createUserHandler({ token, camp_id, name, pin, role } = {}) {
@@ -335,6 +297,9 @@ if (isElectronEntryPoint()) {
         preload: path.join(__dirname, 'preload.js'),
         contextIsolation: true,
       },
+    })
+    mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+      console.error('PRELOAD ERROR', preloadPath, error)
     })
     const devServerUrl = process.env.VITE_DEV_SERVER_URL
     if (devServerUrl) {

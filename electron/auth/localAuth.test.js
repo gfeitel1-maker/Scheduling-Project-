@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
-import { createUser, verifyPin, issueSessionToken, verifySessionToken } from './localAuth.js'
+import { createUser, verifyPin, issueSessionToken, verifySessionToken, attemptLogin } from './localAuth.js'
 import { appendOp } from '../ops/operations.js'
 
 let tmpFile
@@ -290,5 +290,54 @@ describe('issueSessionToken / verifySessionToken', () => {
     expect(verifySessionToken('')).toBeNull()
     expect(verifySessionToken(null)).toBeNull()
     expect(verifySessionToken('a.b.c')).toBeNull()
+  })
+})
+
+// Deviation from the plan: the plan's attemptLogin tests each created their
+// own randomUUID() camp, but this file's beforeEach already seeds a
+// 'camp-1' row, and attemptLogin (like the login() it was extracted from)
+// looks up its camp via `SELECT id FROM camps LIMIT 1` — a second camp row
+// would just be ignored (or picked ahead of it non-deterministically),
+// making a new user created under a fresh camp id invisible to the lookup.
+// Fixed by reusing the pre-seeded 'camp-1' for the positive-path tests, and
+// by deleting it for the "no camp exists" test so that case is genuine.
+describe('attemptLogin', () => {
+  it('returns a token for correct camp-scoped name and pin', async () => {
+    const user = await createUser(db, { camp_id: 'camp-1', name: 'Wanda', pin: '1234', role: 'staff' }, testWrite())
+
+    const result = attemptLogin(db, { name: 'Wanda', pin: '1234', deviceId: 'device-1' })
+    expect(result.token).toEqual(expect.any(String))
+    expect(result.userId).toBe(user.id)
+    expect(result.role).toBe('staff')
+  })
+
+  it('returns null for a wrong pin', async () => {
+    await createUser(db, { camp_id: 'camp-1', name: 'Xena', pin: '1234', role: 'staff' }, testWrite())
+
+    expect(attemptLogin(db, { name: 'Xena', pin: 'wrong', deviceId: 'device-1' })).toBeNull()
+  })
+
+  it('returns null when no camp exists at all', () => {
+    db.prepare('DELETE FROM camps').run()
+    expect(attemptLogin(db, { name: 'Nobody', pin: '1234', deviceId: 'device-1' })).toBeNull()
+  })
+
+  it('locks out after 5 failed attempts and reports retryAfterMs', async () => {
+    await createUser(db, { camp_id: 'camp-1', name: 'Yara', pin: '5555', role: 'staff' }, testWrite())
+
+    for (let i = 0; i < 5; i++) {
+      expect(attemptLogin(db, { name: 'Yara', pin: 'wrong', deviceId: 'device-1' })).toBeNull()
+    }
+    const result = attemptLogin(db, { name: 'Yara', pin: '5555', deviceId: 'device-1' })
+    expect(result).toEqual({ locked: true, retryAfterMs: expect.any(Number) })
+    expect(result.retryAfterMs).toBeGreaterThan(0)
+  })
+
+  it('issues a token bound to the deviceId passed in, not any other device', async () => {
+    await createUser(db, { camp_id: 'camp-1', name: 'Zane', pin: '9999', role: 'admin' }, testWrite())
+
+    const result = attemptLogin(db, { name: 'Zane', pin: '9999', deviceId: 'remote-device-42' })
+    const verified = verifySessionToken(result.token)
+    expect(verified.deviceId).toBe('remote-device-42')
   })
 })
