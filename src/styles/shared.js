@@ -364,7 +364,9 @@ export const S = {
   // --- Merge / conflict resolution (ConflictsScreen) ---
   mergeCard: {
     background: 'var(--surface)',
-    border: '1px solid var(--border)',
+    borderWidth: 1,
+    borderStyle: 'solid',
+    borderColor: 'var(--border)',
     borderRadius: 12,
     padding: '18px 20px',
     marginBottom: 14,

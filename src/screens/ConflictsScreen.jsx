@@ -52,7 +52,10 @@ function ChoiceBox({ side, label, isPin, disabled, onKeep }) {
 
       {isPin ? (
         <div style={S.mergePinLock}>
-          <div style={{ fontSize: 20, marginBottom: 4 }}>🔒</div>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" style={{ marginBottom: 4 }} aria-hidden="true">
+            <rect x="5" y="11" width="14" height="10" rx="2" stroke="var(--text-secondary)" strokeWidth="2" />
+            <path d="M8 11V7a4 4 0 0 1 8 0v4" stroke="var(--text-secondary)" strokeWidth="2" strokeLinecap="round" />
+          </svg>
           <div>PIN was changed</div>
         </div>
       ) : (
@@ -77,10 +80,11 @@ function ChoiceBox({ side, label, isPin, disabled, onKeep }) {
   )
 }
 
-function ConflictCard({ conflict, resolveAuthorLabel, onResolve }) {
+function ConflictCard({ conflict, resolveAuthorLabel, onResolve, onDismiss }) {
   const [resolving, setResolving] = useState(false)
   const [confirmedSide, setConfirmedSide] = useState(null)
   const [collapsing, setCollapsing] = useState(false)
+  const [retryNotice, setRetryNotice] = useState(false)
 
   const description = describeConflict(conflict.entity, conflict.field)
   const isPin = conflict.isPin || description === null
@@ -93,11 +97,25 @@ function ConflictCard({ conflict, resolveAuthorLabel, onResolve }) {
   async function keep(side, label) {
     if (resolving || confirmedSide) return
     setResolving(true)
+    setRetryNotice(false)
     const result = await onResolve(conflict.id, side)
     setResolving(false)
     if (result && (result.status === 'applied' || result.status === 'queued')) {
+      // Local animation sequence: confirming -> (1.1s hold) -> collapsing ->
+      // (0.35s collapse transition, matches shared.js mergeCard's
+      // transition duration) -> only THEN tell the hook to actually remove
+      // this conflict from shared state. This is what makes the checkmark
+      // visible for a real moment instead of the card vanishing instantly.
       setConfirmedSide(label)
-      setTimeout(() => setCollapsing(true), 1100)
+      setTimeout(() => {
+        setCollapsing(true)
+        setTimeout(() => onDismiss(conflict.id), 380)
+      }, 1100)
+    } else if (result && result.status === 'conflict') {
+      // The resolution write itself got outraced by a newer conflicting
+      // write. Don't silently re-enable with no explanation — let the user
+      // know this one moved again.
+      setRetryNotice(true)
     }
   }
 
@@ -124,6 +142,11 @@ function ConflictCard({ conflict, resolveAuthorLabel, onResolve }) {
             </div>
             <div style={S.mergeMeta}>{relativeTime(latestTimestamp)}</div>
           </div>
+          {retryNotice && (
+            <div style={{ fontSize: 12.5, color: 'var(--text-secondary)', marginBottom: 10 }}>
+              This changed again — pick again below.
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
             <ChoiceBox side={conflict.sideA} label={labelA} isPin={isPin} disabled={resolving} onKeep={() => keep('A', labelA)} />
             <ChoiceBox side={conflict.sideB} label={labelB} isPin={isPin} disabled={resolving} onKeep={() => keep('B', labelB)} />
@@ -137,7 +160,7 @@ function ConflictCard({ conflict, resolveAuthorLabel, onResolve }) {
 export default function ConflictsScreen({ pendingConflicts }) {
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const fallback = pendingConflicts ? null : usePendingConflicts()
-  const { conflicts, loading, resolveConflict, resolveAuthorLabel } = pendingConflicts || fallback
+  const { conflicts, loading, resolveConflict, dismissResolvedConflict, resolveAuthorLabel } = pendingConflicts || fallback
 
   return (
     <div style={{ maxWidth: 760 }}>
@@ -158,7 +181,7 @@ export default function ConflictsScreen({ pendingConflicts }) {
               fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text)',
               textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6,
             }}>
-              {conflicts.length} conflict{conflicts.length !== 1 ? 's' : ''} need your attention
+              {conflicts.length} conflict{conflicts.length !== 1 ? 's' : ''} {conflicts.length !== 1 ? 'need' : 'needs'} your attention
             </div>
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
               These happened while two devices made changes at the same time. Pick which version to keep for each one.
@@ -166,7 +189,13 @@ export default function ConflictsScreen({ pendingConflicts }) {
           </div>
 
           {conflicts.map((c) => (
-            <ConflictCard key={c.id} conflict={c} resolveAuthorLabel={resolveAuthorLabel} onResolve={resolveConflict} />
+            <ConflictCard
+              key={c.id}
+              conflict={c}
+              resolveAuthorLabel={resolveAuthorLabel}
+              onResolve={resolveConflict}
+              onDismiss={dismissResolvedConflict}
+            />
           ))}
         </>
       )}

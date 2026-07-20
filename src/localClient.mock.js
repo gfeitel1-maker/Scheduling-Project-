@@ -19,6 +19,14 @@ function randomId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
 
+// Registered listeners for the mock's event-style methods (onOpApplied,
+// onOpConflict). Stored here — rather than left as no-ops — so a future
+// test/dev session can trigger a synthetic op-applied or conflict event
+// (e.g. via mockShoresh._triggerOpConflict(msg)) without monkey-patching
+// this file each time.
+let opAppliedListeners = []
+let opConflictListeners = []
+
 export const mockShoresh = {
   async chooseMode() {
     return { mode: 'host' }
@@ -58,8 +66,21 @@ export const mockShoresh = {
     }
     return { valid: false }
   },
-  onOpApplied() {},
-  onOpConflict() {},
+  onOpApplied(cb) {
+    if (typeof cb === 'function') opAppliedListeners.push(cb)
+  },
+  onOpConflict(cb) {
+    if (typeof cb === 'function') opConflictListeners.push(cb)
+  },
+  // Test/dev-only helpers — not part of the real window.shoresh contract,
+  // used to synthesize events for manual/automated UI verification of
+  // screens like ConflictsScreen outside Electron.
+  _triggerOpApplied(op) {
+    opAppliedListeners.forEach((cb) => cb(op))
+  },
+  _triggerOpConflict(msg) {
+    opConflictListeners.forEach((cb) => cb(msg))
+  },
   async getCamp() {
     return loadState().camp
   },
@@ -72,4 +93,11 @@ export const mockShoresh = {
   async resolveConflict() {
     return { status: 'applied' }
   },
+}
+
+// Dev-only: expose the mock on window so a manual/automated browser session
+// (e.g. via the devtools console) can synthesize op-applied/op-conflict
+// events without monkey-patching this file, per Fix 7.
+if (typeof window !== 'undefined') {
+  window.__mockShoresh = mockShoresh
 }

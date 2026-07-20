@@ -14,8 +14,39 @@ const LOGIN_LOCKOUT_MS = 30_000
 
 const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 
+// Fields whose raw op.value must never cross the IPC boundary into the
+// renderer — this is the actual security boundary. The renderer's own
+// sanitizeSide (usePendingConflicts.js) is defense-in-depth only; by the
+// time it runs, an unfiltered value would already be sitting in the
+// renderer's JS heap as the IPC event argument, readable by any
+// renderer-side code (devtools, extensions, a compromised dependency).
+const IPC_PIN_FIELDS = new Set(['pin_hash', 'pin_salt'])
+
 function isNonEmptyString(v) {
   return typeof v === 'string' && v.length > 0
+}
+
+function sanitizeOpForIpc(op) {
+  if (!op) return op
+  if (op.entity === 'users' && IPC_PIN_FIELDS.has(op.field)) {
+    const { value, ...rest } = op
+    return rest
+  }
+  return op
+}
+
+// Strips PIN values from an op_conflict message BEFORE it is ever handed to
+// webContents.send. This must run in the main process — sanitizing only in
+// the renderer (as a pure defense-in-depth measure) is too late, since the
+// raw scrypt digest + salt would already have landed in the renderer's heap
+// as the IPC event argument by the time renderer code runs.
+export function sanitizeConflictForIpc(msg) {
+  if (!msg) return msg
+  return {
+    ...msg,
+    incomingOp: sanitizeOpForIpc(msg.incomingOp),
+    existingOp: sanitizeOpForIpc(msg.existingOp),
+  }
 }
 
 function ensureDeviceRow(db, deviceId) {
@@ -63,7 +94,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     if (typeof syncClient.onOpConflict === 'function') {
       syncClient.onOpConflict((msg) => {
         const mainWindow = getMainWindow ? getMainWindow() : null
-        if (mainWindow) mainWindow.webContents.send('shoresh:op-conflict', msg)
+        if (mainWindow) mainWindow.webContents.send('shoresh:op-conflict', sanitizeConflictForIpc(msg))
       })
     }
   }

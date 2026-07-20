@@ -9,6 +9,7 @@ const TITLES = {
   anchors:      'Anchors',
   dayoverrides: 'Day Overrides',
   schedule:     'Schedule',
+  conflicts:    'Conflicts',
 }
 
 export default function TopBar({ screen, onLogout }) {

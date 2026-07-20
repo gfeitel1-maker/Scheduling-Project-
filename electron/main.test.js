@@ -50,6 +50,7 @@ vi.mock('./sync/syncClient.js', () => ({
         return { status: 'applied', op }
       }),
       onOpApplied: vi.fn(),
+      onOpConflict: vi.fn(),
     }
     lastCreatedSyncClient = client
     return client
@@ -59,7 +60,7 @@ vi.mock('./sync/syncClient.js', () => ({
 import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
 import { createUser } from './auth/localAuth.js'
 import { appendOp } from './ops/operations.js'
-import { makeHandlers } from './main.js'
+import { makeHandlers, sanitizeConflictForIpc } from './main.js'
 import { startSyncServer } from './sync/syncServer.js'
 import { advertiseHost } from './sync/discovery.js'
 import { createSyncClient } from './sync/syncClient.js'
@@ -452,5 +453,79 @@ describe('write handler', () => {
     expect(lastCreatedSyncClient.write).toHaveBeenCalledWith(
       expect.objectContaining({ entity: 'activities', author_user_id: user.id })
     )
+  })
+})
+
+describe('sanitizeConflictForIpc (Round 2 Fix 1: main-process PIN filtering)', () => {
+  it('strips value from a users.pin_hash op on both sides', () => {
+    const msg = {
+      type: 'op_conflict',
+      incomingOp: { id: 'op1', entity: 'users', entity_id: 'u1', field: 'pin_hash', value: 'scrypt$deadbeef...', author_user_id: 'u1', device_id: 'dA', timestamp: 't1' },
+      existingOp: { id: 'op2', entity: 'users', entity_id: 'u1', field: 'pin_hash', value: 'scrypt$c0ffee...', author_user_id: 'u1', device_id: 'dB', timestamp: 't2' },
+    }
+    const sanitized = sanitizeConflictForIpc(msg)
+    expect(sanitized.incomingOp).not.toHaveProperty('value')
+    expect(sanitized.existingOp).not.toHaveProperty('value')
+    // Confirm the raw digest string is nowhere in the serialized message —
+    // this is the actual IPC payload shape, not just what the UI renders.
+    expect(JSON.stringify(sanitized)).not.toContain('deadbeef')
+    expect(JSON.stringify(sanitized)).not.toContain('c0ffee')
+    // Non-value fields the UI needs (author/device/timestamp/id) survive.
+    expect(sanitized.incomingOp.id).toBe('op1')
+    expect(sanitized.incomingOp.device_id).toBe('dA')
+  })
+
+  it('strips value from a users.pin_salt op', () => {
+    const msg = {
+      incomingOp: { id: 'op1', entity: 'users', entity_id: 'u1', field: 'pin_salt', value: 'saltvalue123' },
+      existingOp: { id: 'op2', entity: 'users', entity_id: 'u1', field: 'pin_salt', value: 'saltvalue456' },
+    }
+    const sanitized = sanitizeConflictForIpc(msg)
+    expect(sanitized.incomingOp).not.toHaveProperty('value')
+    expect(sanitized.existingOp).not.toHaveProperty('value')
+  })
+
+  it('leaves non-PIN fields (e.g. a name conflict) untouched, value included', () => {
+    const msg = {
+      incomingOp: { id: 'op1', entity: 'users', entity_id: 'u1', field: 'name', value: 'Alice' },
+      existingOp: { id: 'op2', entity: 'users', entity_id: 'u1', field: 'name', value: 'Alicia' },
+    }
+    const sanitized = sanitizeConflictForIpc(msg)
+    expect(sanitized.incomingOp.value).toBe('Alice')
+    expect(sanitized.existingOp.value).toBe('Alicia')
+  })
+
+  it('leaves non-users-entity fields untouched even if the field is named pin_hash', () => {
+    const msg = {
+      incomingOp: { id: 'op1', entity: 'template_slots', entity_id: 's1', field: 'pin_hash', value: 'not-actually-a-pin' },
+      existingOp: { id: 'op2', entity: 'template_slots', entity_id: 's1', field: 'pin_hash', value: 'also-not-a-pin' },
+    }
+    const sanitized = sanitizeConflictForIpc(msg)
+    expect(sanitized.incomingOp.value).toBe('not-actually-a-pin')
+  })
+})
+
+describe('wireOpApplied: op-conflict forwarding to renderer (Round 2 Fix 1)', () => {
+  it('sends a SANITIZED conflict message via webContents.send — the raw PIN op never crosses the IPC boundary', async () => {
+    const sendSpy = vi.fn()
+    const fakeWindow = { webContents: { send: sendSpy } }
+    const handlers = makeHandlers(db, deviceId, { getMainWindow: () => fakeWindow })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7150 })
+
+    expect(lastCreatedSyncClient.onOpConflict).toHaveBeenCalled()
+    const registeredCallback = lastCreatedSyncClient.onOpConflict.mock.calls[0][0]
+
+    const rawMsg = {
+      type: 'op_conflict',
+      incomingOp: { id: 'op1', entity: 'users', entity_id: 'u1', field: 'pin_hash', value: 'RAW-SCRYPT-DIGEST', device_id: 'dA' },
+      existingOp: { id: 'op2', entity: 'users', entity_id: 'u1', field: 'pin_hash', value: 'RAW-SCRYPT-DIGEST-2', device_id: 'dB' },
+    }
+    registeredCallback(rawMsg)
+
+    expect(sendSpy).toHaveBeenCalledWith('shoresh:op-conflict', expect.any(Object))
+    const sentMsg = sendSpy.mock.calls[0][1]
+    expect(JSON.stringify(sentMsg)).not.toContain('RAW-SCRYPT-DIGEST')
+    expect(sentMsg.incomingOp).not.toHaveProperty('value')
+    expect(sentMsg.existingOp).not.toHaveProperty('value')
   })
 })

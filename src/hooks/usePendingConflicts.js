@@ -111,11 +111,18 @@ export function usePendingConflicts() {
       parent_op_id: conflict.sideB.op_id,
     })
 
-    if (result && (result.status === 'applied' || result.status === 'queued')) {
-      setConflicts((prev) => prev.filter((c) => c.id !== conflictId))
-    }
+    // Deliberately does NOT remove the conflict from state here. The card
+    // itself owns a checkmark-hold-then-collapse animation that must run to
+    // completion before the conflict disappears from anywhere; removing it
+    // immediately would unmount the card before that animation could ever
+    // render. Removal happens later, via dismissResolvedConflict, called by
+    // the card at the end of its own local animation sequence.
     return result
   }, [conflicts])
+
+  const dismissResolvedConflict = useCallback((conflictId) => {
+    setConflicts((prev) => prev.filter((c) => c.id !== conflictId))
+  }, [])
 
   function resolveAuthorLabel(side) {
     if (!side) return 'Unknown'
@@ -132,6 +139,7 @@ export function usePendingConflicts() {
     conflicts,
     loading,
     resolveConflict,
+    dismissResolvedConflict,
     resolveAuthorLabel,
   }
 }
