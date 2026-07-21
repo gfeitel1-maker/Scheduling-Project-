@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../../supabase'
+import { localClient } from '../../localClient'
 
 const NAV = [
   { key: 'setup',        label: 'Camp Setup' },
@@ -19,8 +19,9 @@ export default function Sidebar({ current, onNavigate, campId, badges = {} }) {
 
   useEffect(() => {
     if (!campId) return
-    supabase.from('camps').select('name').eq('id', campId).single()
-      .then(({ data }) => { if (data) setCampName(data.name) })
+    localClient.getCamp()
+      .then(data => { if (data) setCampName(data.name) })
+      .catch(() => { /* fail silent — leave campName unset */ })
   }, [campId])
 
   return (
