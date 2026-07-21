@@ -1,6 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import WebSocket from 'ws'
-import { appendOp, recordConflict } from '../ops/operations.js'
+import {
+  appendOp,
+  recordConflict,
+  appendBulkReplaceOp,
+  applyBulkReplaceProjection,
+  isBulkReplaceOp,
+  latestScopeOpSeq,
+} from '../ops/operations.js'
 import { PROJECTIONS, applyProjection } from '../ops/projections.js'
 import { insertPendingWrite, deletePendingWrite, listPendingWrites } from './pendingWrites.js'
 
@@ -34,6 +41,18 @@ export function createSyncClient(
           author_user_id,
           device_id,
           parent_op_id,
+        })
+        notifyOpApplied(op)
+        return { status: 'applied', op }
+      },
+      async writeBulkReplace({ entity, scope_id, rows }) {
+        const op = appendBulkReplaceOp(db, {
+          entity,
+          scope_id,
+          rows,
+          author_user_id,
+          device_id,
+          client_write_id: randomUUID(),
         })
         notifyOpApplied(op)
         return { status: 'applied', op }
@@ -169,7 +188,18 @@ export function createSyncClient(
     }
 
     try {
-      applyProjection(db, op)
+      if (isBulkReplaceOp(op)) {
+        // Extend applyRemoteOp for the new bulk_replace op shape: instead of
+        // a single-field UPDATE (applyProjection), replay the same
+        // delete-all-then-reinsert this op represents, atomically, from the
+        // row set carried in op.value. This is what makes a bulk_replace
+        // applied on the Host replicate correctly to a Client - the op-log
+        // insert above already made it durable/canonical; this materializes
+        // it into the projected template_slots table.
+        applyBulkReplaceProjection(db, op)
+      } else {
+        applyProjection(db, op)
+      }
     } catch {
       // Projection failure on an already-logged, already-canonical op is
       // swallowed here: there's no logging/observability infra yet to
@@ -367,6 +397,24 @@ export function createSyncClient(
     })
   }
 
+  function submitBulkReplaceOpRemote(op) {
+    return withResolverTimeout(submitResolvers, submitTimeoutMs, () => {
+      ws.send(JSON.stringify({ type: 'submit_bulk_replace_op', op }))
+    })
+  }
+
+  // Round 2: real conflict-detection wiring. based_on_seq is derived here,
+  // automatically, from THIS client's own local op-log right before
+  // submitting — the caller-facing writeBulkReplace API stays unchanged
+  // ({entity, scope_id, rows}); the client doesn't need to know or track
+  // "what state am I based on" itself. latestScopeOpSeq reads this
+  // client's own (possibly stale, if offline/behind) view of the scope,
+  // which is exactly the semantics detectBulkReplaceConflict on the Host
+  // expects: "the highest op I had actually observed for this scope."
+  function computeBasedOnSeq(entity, scope_id) {
+    return latestScopeOpSeq(db, entity, scope_id)
+  }
+
   function sendLoginRemote({ name, pin }) {
     return withResolverTimeout(loginResolvers, lockTimeoutMs, () => {
       ws.send(JSON.stringify({ type: 'login', device_id, name, pin }))
@@ -395,6 +443,30 @@ export function createSyncClient(
     if (submitResult.status === 'disconnected' || submitResult.status === 'timeout' || submitResult.status === 'error') {
       return submitResult
     }
+    if (submitResult.type === 'op_conflict') {
+      return { status: 'conflict', existingOp: submitResult.existingOp }
+    }
+    return { status: 'applied', op: submitResult.op }
+  }
+
+  // No lock-acquisition step here, unlike performWrite - bulk_replace is a
+  // wholesale scope replacement rather than a single-field edit, so the
+  // per-field lock manager (designed around entity/entity_id/field
+  // contention) doesn't map onto it; see the conflict-detection reasoning in
+  // operations.js (BULK_REPLACE_FIELD comment) for why this op bypasses that
+  // machinery by design rather than by omission.
+  async function performBulkReplaceWrite({ entity, scope_id, rows, client_write_id }) {
+    const based_on_seq = computeBasedOnSeq(entity, scope_id)
+    const submitResult = await submitBulkReplaceOpRemote({ entity, scope_id, rows, client_write_id, based_on_seq })
+    if (submitResult.status === 'disconnected' || submitResult.status === 'timeout' || submitResult.status === 'error') {
+      return submitResult
+    }
+    // Round 2 fix: round 1 fell through to `{ status: 'applied', op:
+    // submitResult.op }` here unconditionally, even when the Host replied
+    // with an `op_conflict` (whose message shape has no `.op` at all — it
+    // has `incomingOp`/`existingOp`). That silently reported a genuine
+    // conflict as a successful apply. Mirror performWrite's existing
+    // op_conflict branch: surface it as a real conflict instead.
     if (submitResult.type === 'op_conflict') {
       return { status: 'conflict', existingOp: submitResult.existingOp }
     }
@@ -435,6 +507,17 @@ export function createSyncClient(
         return { status: 'queued' }
       }
       return performWrite({ client_write_id: randomUUID(), ...request })
+    },
+    // Judgment call: unlike write(), this does NOT queue while unauthenticated
+    // - offline queueing/retry for bulk_replace was not part of this task's
+    // required behavior (idempotent retry, atomicity, and replication all
+    // concern an already-connected submission), so it's left for a future
+    // task if ScheduleScreen (Sub-plan E, the sole consumer) needs it.
+    async writeBulkReplace({ entity, scope_id, rows }) {
+      if (!authenticated) {
+        return { status: 'not_authenticated' }
+      }
+      return performBulkReplaceWrite({ entity, scope_id, rows, client_write_id: randomUUID() })
     },
     onOpApplied(callback) {
       opAppliedListeners.push(callback)

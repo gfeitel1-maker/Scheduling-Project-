@@ -1,7 +1,14 @@
 import { WebSocketServer } from 'ws'
 import { verifySessionToken, attemptLogin } from '../auth/localAuth.js'
 import { acquireLock, expireLocks, releaseLocksForDevice } from './lockManager.js'
-import { detectConflict, appendOp, recordConflict, findOpByClientWriteId } from '../ops/operations.js'
+import {
+  detectConflict,
+  appendOp,
+  recordConflict,
+  findOpByClientWriteId,
+  appendBulkReplaceOp,
+  detectBulkReplaceConflict,
+} from '../ops/operations.js'
 
 // Task 10 round-5 Fix 4: report success/failure back to the caller instead
 // of unconditionally swallowing it. sendMissedOps needs this to know exactly
@@ -279,6 +286,28 @@ function validateSubmitOpMsg(msg) {
   return true
 }
 
+// Message-shape validation for the new bulk_replace submission type, run
+// BEFORE handleSubmitBulkReplaceOp (and therefore before any DB access),
+// exactly matching validateSubmitOpMsg's pattern above. Deep row-shape
+// validation (per-row required fields/types) happens one layer deeper, in
+// operations.js's validateBulkReplaceRows (called from appendBulkReplaceOp)
+// - this function only confirms the message is well-formed enough to
+// dispatch at all: entity/scope_id are non-empty strings, rows is an array.
+function validateSubmitBulkReplaceMsg(msg) {
+  const op = msg.op
+  if (!op || typeof op !== 'object') return false
+  if (!isNonEmptyString(op.entity)) return false
+  if (!isNonEmptyString(op.scope_id)) return false
+  if (!Array.isArray(op.rows)) return false
+  if (!(op.client_write_id === undefined || op.client_write_id === null || isNonEmptyString(op.client_write_id))) return false
+  // based_on_seq (round 2, conflict-detection wiring): optional for backward
+  // compatibility with any pre-existing caller, but if present must be a
+  // non-negative integer — detectBulkReplaceConflict normalizes an absent/
+  // invalid value to 0 (strictest behavior), so this is just a shape check.
+  if (!(op.based_on_seq === undefined || op.based_on_seq === null || (Number.isInteger(op.based_on_seq) && op.based_on_seq >= 0))) return false
+  return true
+}
+
 function handleAcquireLock(db, ws, msg) {
   const result = acquireLock(db, {
     entity: msg.entity,
@@ -338,6 +367,103 @@ function handleSubmitOp(db, wss, ws, msg) {
   }
 }
 
+// Host-side handling of a bulk_replace submission. Distinct from
+// handleSubmitOp, dispatched by its own `submit_bulk_replace_op` message
+// type (rather than overloading `submit_op`'s op shape) so the existing
+// field-level path is untouched and the two remain easy to reason about
+// independently.
+//
+// Idempotency: same client_write_id pattern as handleSubmitOp - if a
+// bulk_replace with this client_write_id was already applied (e.g. the
+// original submission's op_applied reply never reached the client and it
+// retried), return the ORIGINAL op rather than re-running
+// appendBulkReplaceOp. A delete-then-reinsert replay would be harmless for
+// the resulting template_slots ROWS themselves (same full-replace payload
+// twice is idempotent at the data level), but without this check the
+// op-log would still gain a spurious duplicate entry on every retry.
+//
+// Conflict detection (round 2 — replaces round 1's unconditional skip,
+// which GOVERNOR round 1 flagged CRITICAL: it let a bulk_replace silently
+// clobber a concurrent field-level edit to a row in its scope with zero
+// conflict ever recorded). See the extended mechanism comment on
+// BULK_REPLACE_FIELD / detectBulkReplaceConflict in operations.js for the
+// full "what does based_on_seq mean" design; this is the call site.
+// Ordering matters: the idempotency check above (same client_write_id ==
+// already applied) MUST run first and return early — a retried submission
+// of an op this Host already applied must short-circuit to the original
+// op, not get re-run through conflict detection against the effect IT
+// ITSELF already produced (that would spuriously self-conflict, since the
+// bulk_replace's own prior application is exactly the "newer op" a naive
+// re-check would find).
+//
+// Malformed/partial rows: appendBulkReplaceOp validates row shape BEFORE
+// touching the DB (see validateBulkReplaceRows) and throws synchronously on
+// a bad payload, without ever starting the delete+insert transaction. The
+// try/catch here is defense-in-depth on top of that validation (also
+// catching a genuine mid-transaction DB failure, e.g. a duplicate row id,
+// which appendBulkReplaceOp's transaction already rolls back) - not a
+// substitute for it.
+function handleSubmitBulkReplaceOp(db, wss, ws, msg) {
+  const { entity, scope_id, rows, client_write_id, based_on_seq } = msg.op
+
+  if (client_write_id) {
+    const already = findOpByClientWriteId(db, client_write_id)
+    if (already) {
+      send(ws, { type: 'op_applied', op: already })
+      return
+    }
+  }
+
+  const incomingOp = { entity, entity_id: scope_id, field: '__bulk_replace__', scope_id, rows, based_on_seq, device_id: ws.deviceId }
+  const { conflict, existingOp, currentSeq } = detectBulkReplaceConflict(db, { entity, scope_id, based_on_seq })
+  if (conflict) {
+    // Persist so this conflict survives a Host restart even if the
+    // submitting device never receives/persists the op_conflict reply
+    // itself, mirroring handleSubmitOp's field-level conflict path above.
+    try {
+      recordConflict(db, { incomingOp, existingOp })
+    } catch {
+      // best-effort: persistence failure must never block the conflict
+      // notification the submitting device is waiting on
+    }
+    send(ws, { type: 'op_conflict', incomingOp, existingOp })
+    return
+  }
+
+  let op
+  try {
+    op = appendBulkReplaceOp(db, {
+      entity,
+      scope_id,
+      rows,
+      author_user_id: ws.userId,
+      device_id: ws.deviceId,
+      client_write_id,
+      // Chain this bulk_replace to whatever op it was actually based on
+      // (currentSeq's op — could be a prior bulk_replace on this scope, a
+      // field-level edit to a row in it, or null for a brand-new scope),
+      // so the op-log records real scope-level provenance the same way a
+      // field-level op's parent_op_id does.
+      parent_op_id: currentSeq ? db.prepare('SELECT id FROM operations WHERE seq = ?').get(currentSeq)?.id ?? null : null,
+    })
+  } catch {
+    sendError(ws)
+    return
+  }
+
+  for (const client of wss.clients) {
+    if (client.deviceId) {
+      try {
+        if (client.readyState === client.OPEN) {
+          send(client, { type: 'op_applied', op })
+        }
+      } catch {
+        // never let one dead client stop the broadcast to others
+      }
+    }
+  }
+}
+
 export function startSyncServer(db, { port }) {
   const wss = new WebSocketServer({ port })
   wss.on('error', () => {
@@ -384,6 +510,12 @@ export function startSyncServer(db, { port }) {
             return
           }
           handleSubmitOp(db, wss, ws, msg)
+        } else if (msg.type === 'submit_bulk_replace_op') {
+          if (!validateSubmitBulkReplaceMsg(msg)) {
+            sendError(ws)
+            return
+          }
+          handleSubmitBulkReplaceOp(db, wss, ws, msg)
         }
       } catch {
         sendError(ws)
