@@ -150,3 +150,92 @@ CREATE TABLE IF NOT EXISTS pending_writes (
   parent_op_id TEXT,
   created_at TEXT NOT NULL
 );
+
+-- Renderer Supabase->local-first migration, Sub-plan A (schema version 10).
+-- New tables required by cohorts/time-blocks/anchors/schedule-template
+-- screens that previously had no local-schema equivalent. See
+-- docs/superpowers/specs/2026-07-21-renderer-supabase-migration-design.md
+-- for the full column rationale.
+CREATE TABLE IF NOT EXISTS cohorts (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  name TEXT NOT NULL,
+  session_week_start TEXT,
+  session_week_end TEXT,
+  capacity_source TEXT,
+  anchor_model TEXT,
+  sort_order INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS days_of_operation (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  label TEXT NOT NULL,
+  day_of_week INTEGER,
+  sort_order INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS time_blocks (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  cohort_id TEXT REFERENCES cohorts(id),
+  name TEXT NOT NULL,
+  start_time TEXT,
+  end_time TEXT,
+  part_of_day TEXT,
+  sort_order INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS anchor_activities (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  cohort_id TEXT REFERENCES cohorts(id),
+  day_id TEXT REFERENCES days_of_operation(id),
+  unit_id TEXT,
+  span_blocks INTEGER,
+  is_all_groups INTEGER,
+  group_ids TEXT
+);
+
+CREATE TABLE IF NOT EXISTS schedule_templates (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS template_overlays (
+  id TEXT PRIMARY KEY,
+  template_id TEXT NOT NULL REFERENCES schedule_templates(id),
+  unit_id TEXT,
+  day_id TEXT REFERENCES days_of_operation(id),
+  from_block_order INTEGER,
+  to_block_order INTEGER,
+  label TEXT
+);
+
+-- slots/overlays are JSON TEXT columns: a snapshot is an immutable
+-- point-in-time blob by design, not something field-level-synced (see design
+-- doc) — do not generalize this pattern to any actively-edited table.
+CREATE TABLE IF NOT EXISTS schedule_snapshots (
+  id TEXT PRIMARY KEY,
+  template_id TEXT NOT NULL REFERENCES schedule_templates(id),
+  name TEXT,
+  is_auto INTEGER,
+  created_at TEXT NOT NULL,
+  slots TEXT,
+  overlays TEXT
+);
+
+-- Minimal viable columns only; exact shape is deferred to Sub-plan D, which
+-- will ALTER these as needed once DayOverridesScreen.jsx's exact
+-- insert/update payloads are re-read directly.
+CREATE TABLE IF NOT EXISTS day_override_templates (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  name TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS day_override_template_slots (
+  id TEXT PRIMARY KEY,
+  day_override_template_id TEXT NOT NULL REFERENCES day_override_templates(id)
+);

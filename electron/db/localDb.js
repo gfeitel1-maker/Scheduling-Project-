@@ -158,6 +158,156 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // Renderer Supabase->local-first migration, Sub-plan A: the 9 previously
+  // Supabase-only tables (cohorts, days_of_operation, time_blocks,
+  // anchor_activities, schedule_templates, template_overlays,
+  // schedule_snapshots, day_override_templates, day_override_template_slots)
+  // plus column additions to tiers/activities/template_slots. See
+  // docs/superpowers/specs/2026-07-21-renderer-supabase-migration-design.md.
+  if (getSchemaVersion(db) < 10) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS cohorts (
+          id TEXT PRIMARY KEY,
+          camp_id TEXT NOT NULL REFERENCES camps(id),
+          name TEXT NOT NULL,
+          session_week_start TEXT,
+          session_week_end TEXT,
+          capacity_source TEXT,
+          anchor_model TEXT,
+          sort_order INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS days_of_operation (
+          id TEXT PRIMARY KEY,
+          camp_id TEXT NOT NULL REFERENCES camps(id),
+          label TEXT NOT NULL,
+          day_of_week INTEGER,
+          sort_order INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS time_blocks (
+          id TEXT PRIMARY KEY,
+          camp_id TEXT NOT NULL REFERENCES camps(id),
+          cohort_id TEXT REFERENCES cohorts(id),
+          name TEXT NOT NULL,
+          start_time TEXT,
+          end_time TEXT,
+          part_of_day TEXT,
+          sort_order INTEGER
+        );
+
+        CREATE TABLE IF NOT EXISTS anchor_activities (
+          id TEXT PRIMARY KEY,
+          camp_id TEXT NOT NULL REFERENCES camps(id),
+          cohort_id TEXT REFERENCES cohorts(id),
+          day_id TEXT REFERENCES days_of_operation(id),
+          unit_id TEXT,
+          span_blocks INTEGER,
+          is_all_groups INTEGER,
+          group_ids TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS schedule_templates (
+          id TEXT PRIMARY KEY,
+          camp_id TEXT NOT NULL REFERENCES camps(id),
+          name TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS template_overlays (
+          id TEXT PRIMARY KEY,
+          template_id TEXT NOT NULL REFERENCES schedule_templates(id),
+          unit_id TEXT,
+          day_id TEXT REFERENCES days_of_operation(id),
+          from_block_order INTEGER,
+          to_block_order INTEGER,
+          label TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS schedule_snapshots (
+          id TEXT PRIMARY KEY,
+          template_id TEXT NOT NULL REFERENCES schedule_templates(id),
+          name TEXT,
+          is_auto INTEGER,
+          created_at TEXT NOT NULL,
+          slots TEXT,
+          overlays TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS day_override_templates (
+          id TEXT PRIMARY KEY,
+          camp_id TEXT NOT NULL REFERENCES camps(id),
+          name TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS day_override_template_slots (
+          id TEXT PRIMARY KEY,
+          day_override_template_id TEXT NOT NULL REFERENCES day_override_templates(id)
+        );
+      `)
+
+      const hasTierSortOrder = db
+        .pragma('table_info(tiers)')
+        .some((col) => col.name === 'sort_order')
+      if (!hasTierSortOrder) {
+        db.exec('ALTER TABLE tiers ADD COLUMN sort_order INTEGER')
+      }
+
+      const hasTierCohortId = db
+        .pragma('table_info(tiers)')
+        .some((col) => col.name === 'cohort_id')
+      if (!hasTierCohortId) {
+        db.exec('ALTER TABLE tiers ADD COLUMN cohort_id TEXT REFERENCES cohorts(id)')
+      }
+
+      const hasActivityPriority = db
+        .pragma('table_info(activities)')
+        .some((col) => col.name === 'priority')
+      if (!hasActivityPriority) {
+        db.exec('ALTER TABLE activities ADD COLUMN priority INTEGER')
+      }
+
+      const hasActivityIsLocked = db
+        .pragma('table_info(activities)')
+        .some((col) => col.name === 'is_locked')
+      if (!hasActivityIsLocked) {
+        db.exec('ALTER TABLE activities ADD COLUMN is_locked INTEGER')
+      }
+
+      const hasActivitySpanBlocks = db
+        .pragma('table_info(activities)')
+        .some((col) => col.name === 'span_blocks')
+      if (!hasActivitySpanBlocks) {
+        db.exec('ALTER TABLE activities ADD COLUMN span_blocks INTEGER')
+      }
+
+      const hasSlotFlags = db
+        .pragma('table_info(template_slots)')
+        .some((col) => col.name === 'flags')
+      if (!hasSlotFlags) {
+        db.exec('ALTER TABLE template_slots ADD COLUMN flags TEXT')
+      }
+
+      const hasSlotIsReleased = db
+        .pragma('table_info(template_slots)')
+        .some((col) => col.name === 'is_released')
+      if (!hasSlotIsReleased) {
+        db.exec('ALTER TABLE template_slots ADD COLUMN is_released INTEGER')
+      }
+
+      const hasSlotIsSpanHead = db
+        .pragma('table_info(template_slots)')
+        .some((col) => col.name === 'is_span_head')
+      if (!hasSlotIsSpanHead) {
+        db.exec('ALTER TABLE template_slots ADD COLUMN is_span_head INTEGER')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (10, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 export function openLocalDb(filePath) {

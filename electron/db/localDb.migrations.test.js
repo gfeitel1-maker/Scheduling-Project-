@@ -174,7 +174,7 @@ describe('THIRD CORRECTION: version-4 migration is transactional', () => {
 describe('Task 4: devices.last_synced_at (schema version 5)', () => {
   it('getSchemaVersion returns 6 after openLocalDb runs', () => {
     const db = freshDb()
-    expect(getSchemaVersion(db)).toBe(9)
+    expect(getSchemaVersion(db)).toBe(10)
     db.close()
   })
 
@@ -182,7 +182,7 @@ describe('Task 4: devices.last_synced_at (schema version 5)', () => {
     const db = freshDb()
     const col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(9)
+    expect(getSchemaVersion(db)).toBe(10)
     db.close()
   })
 
@@ -206,7 +206,7 @@ describe('Task 4: devices.last_synced_at (schema version 5)', () => {
 
     col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(9)
+    expect(getSchemaVersion(db)).toBe(10)
     db.close()
   })
 })
@@ -218,14 +218,14 @@ describe('Task 9 Round 2 Fix 2: login_attempts table (schema version 6)', () => 
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='login_attempts'")
       .get()
     expect(table).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(9)
+    expect(getSchemaVersion(db)).toBe(10)
     db.close()
   })
 
   it('is idempotent: re-running initSchema on an already-migrated db does not error', () => {
     const db = freshDb()
     expect(() => initSchema(db)).not.toThrow()
-    expect(getSchemaVersion(db)).toBe(9)
+    expect(getSchemaVersion(db)).toBe(10)
     db.close()
   })
 
@@ -250,7 +250,7 @@ describe('Task 9 Round 2 Fix 2: login_attempts table (schema version 6)', () => 
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='login_attempts'")
       .get()
     expect(table).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(9)
+    expect(getSchemaVersion(db)).toBe(10)
     db.close()
   })
 })
@@ -260,7 +260,7 @@ describe('Task 10 round-4 Fix 3: devices.last_synced_seq (schema version 7)', ()
     const db = freshDb()
     const col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_seq')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(9)
+    expect(getSchemaVersion(db)).toBe(10)
     db.close()
   })
 
@@ -286,7 +286,7 @@ describe('Task 10 round-4 Fix 3: devices.last_synced_seq (schema version 7)', ()
 
     col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_seq')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(9)
+    expect(getSchemaVersion(db)).toBe(10)
     db.close()
   })
 })
@@ -300,7 +300,7 @@ describe('Task 10 round-5 Fix 1/3: pending_writes table + operations.client_writ
     expect(table).toBeDefined()
     const col = db.pragma('table_info(operations)').find((c) => c.name === 'client_write_id')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(9)
+    expect(getSchemaVersion(db)).toBe(10)
     db.close()
   })
 
@@ -344,7 +344,7 @@ describe('Task 10 round-5 Fix 1/3: pending_writes table + operations.client_writ
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pending_writes'")
       .get()
     expect(table).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(9)
+    expect(getSchemaVersion(db)).toBe(10)
     db.close()
   })
 })
@@ -355,7 +355,7 @@ describe('schema v9: camps.signing_secret', () => {
     const col = db.pragma('table_info(camps)').find((c) => c.name === 'signing_secret')
     expect(col).toBeDefined()
     expect(col.notnull).toBe(0)
-    expect(getSchemaVersion(db)).toBe(9)
+    expect(getSchemaVersion(db)).toBe(10)
     db.close()
   })
 
@@ -387,5 +387,169 @@ describe('Fix 5: WAL mode, busy_timeout, safe open', () => {
     const dirPath = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-baddb-'))
     expect(() => openLocalDb(dirPath)).toThrow(/Failed to open local database at/)
     fs.rmdirSync(dirPath)
+  })
+})
+
+describe('schema v10: renderer Supabase migration Sub-plan A schema', () => {
+  const NEW_TABLES = [
+    'cohorts',
+    'days_of_operation',
+    'time_blocks',
+    'anchor_activities',
+    'schedule_templates',
+    'template_overlays',
+    'schedule_snapshots',
+    'day_override_templates',
+    'day_override_template_slots',
+  ]
+
+  it('creates all 9 new tables on a fresh install, at version 10', () => {
+    const db = freshDb()
+    for (const t of NEW_TABLES) {
+      const table = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+        .get(t)
+      expect(table, `expected table ${t} to exist`).toBeDefined()
+    }
+    expect(getSchemaVersion(db)).toBe(10)
+    db.close()
+  })
+
+  it('adds sort_order/cohort_id to tiers, priority/is_locked/span_blocks to activities, flags/is_released/is_span_head to template_slots', () => {
+    const db = freshDb()
+    const tierCols = db.pragma('table_info(tiers)').map((c) => c.name)
+    expect(tierCols).toEqual(expect.arrayContaining(['sort_order', 'cohort_id']))
+
+    const activityCols = db.pragma('table_info(activities)').map((c) => c.name)
+    expect(activityCols).toEqual(expect.arrayContaining(['priority', 'is_locked', 'span_blocks']))
+
+    const slotCols = db.pragma('table_info(template_slots)').map((c) => c.name)
+    expect(slotCols).toEqual(expect.arrayContaining(['flags', 'is_released', 'is_span_head']))
+    db.close()
+  })
+
+  it('is idempotent: re-running initSchema on an already-migrated db does not error', () => {
+    const db = freshDb()
+    expect(() => initSchema(db)).not.toThrow()
+    expect(getSchemaVersion(db)).toBe(10)
+    db.close()
+  })
+
+  it('adds everything to a pre-migration db missing it all, via the guarded ALTER/CREATE path', () => {
+    const db = freshDb()
+    for (const t of NEW_TABLES) {
+      db.exec(`DROP TABLE ${t}`)
+    }
+    db.exec('ALTER TABLE tiers RENAME TO tiers_tmp')
+    db.exec('CREATE TABLE tiers (id TEXT PRIMARY KEY, camp_id TEXT NOT NULL REFERENCES camps(id), name TEXT NOT NULL)')
+    db.exec('INSERT INTO tiers (id, camp_id, name) SELECT id, camp_id, name FROM tiers_tmp')
+    db.exec('DROP TABLE tiers_tmp')
+
+    db.exec('ALTER TABLE activities RENAME TO activities_tmp')
+    db.exec('CREATE TABLE activities (id TEXT PRIMARY KEY, camp_id TEXT NOT NULL REFERENCES camps(id), name TEXT NOT NULL)')
+    db.exec('INSERT INTO activities (id, camp_id, name) SELECT id, camp_id, name FROM activities_tmp')
+    db.exec('DROP TABLE activities_tmp')
+
+    db.exec('ALTER TABLE template_slots RENAME TO template_slots_tmp')
+    db.exec(`
+      CREATE TABLE template_slots (
+        id TEXT PRIMARY KEY,
+        template_id TEXT NOT NULL,
+        group_id TEXT REFERENCES groups(id),
+        activity_id TEXT REFERENCES activities(id),
+        day_id TEXT,
+        time_block_id TEXT
+      )
+    `)
+    db.exec('INSERT INTO template_slots (id, template_id, group_id, activity_id, day_id, time_block_id) SELECT id, template_id, group_id, activity_id, day_id, time_block_id FROM template_slots_tmp')
+    db.exec('DROP TABLE template_slots_tmp')
+
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 10').run()
+
+    for (const t of NEW_TABLES) {
+      const table = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+        .get(t)
+      expect(table).toBeUndefined()
+    }
+    let tierCols = db.pragma('table_info(tiers)').map((c) => c.name)
+    expect(tierCols).not.toEqual(expect.arrayContaining(['sort_order']))
+
+    initSchema(db)
+
+    for (const t of NEW_TABLES) {
+      const table = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+        .get(t)
+      expect(table, `expected table ${t} to exist after migration`).toBeDefined()
+    }
+    tierCols = db.pragma('table_info(tiers)').map((c) => c.name)
+    expect(tierCols).toEqual(expect.arrayContaining(['sort_order', 'cohort_id']))
+    const activityCols = db.pragma('table_info(activities)').map((c) => c.name)
+    expect(activityCols).toEqual(expect.arrayContaining(['priority', 'is_locked', 'span_blocks']))
+    const slotCols = db.pragma('table_info(template_slots)').map((c) => c.name)
+    expect(slotCols).toEqual(expect.arrayContaining(['flags', 'is_released', 'is_span_head']))
+    expect(getSchemaVersion(db)).toBe(10)
+    db.close()
+  })
+
+  it('fresh db (schema.sql) and a pre-v10 db upgraded via the migration block end up with IDENTICAL schema', () => {
+    // Fresh db: gets everything via schema.sql's unconditional CREATE TABLE IF NOT EXISTS.
+    const freshDatabase = freshDb()
+
+    // Simulated pre-v10 db: same freshDb (also created via schema.sql, since that's
+    // unconditional), but strip the v10 additions back out and reset the version
+    // marker, then let initSchema's version-10 block rebuild them from scratch.
+    const migratedDatabase = freshDb()
+    for (const t of NEW_TABLES) {
+      migratedDatabase.exec(`DROP TABLE ${t}`)
+    }
+    migratedDatabase.exec('ALTER TABLE tiers RENAME TO tiers_tmp')
+    migratedDatabase.exec('CREATE TABLE tiers (id TEXT PRIMARY KEY, camp_id TEXT NOT NULL REFERENCES camps(id), name TEXT NOT NULL)')
+    migratedDatabase.exec('INSERT INTO tiers (id, camp_id, name) SELECT id, camp_id, name FROM tiers_tmp')
+    migratedDatabase.exec('DROP TABLE tiers_tmp')
+
+    migratedDatabase.exec('ALTER TABLE activities RENAME TO activities_tmp')
+    migratedDatabase.exec('CREATE TABLE activities (id TEXT PRIMARY KEY, camp_id TEXT NOT NULL REFERENCES camps(id), name TEXT NOT NULL)')
+    migratedDatabase.exec('INSERT INTO activities (id, camp_id, name) SELECT id, camp_id, name FROM activities_tmp')
+    migratedDatabase.exec('DROP TABLE activities_tmp')
+
+    migratedDatabase.exec('ALTER TABLE template_slots RENAME TO template_slots_tmp')
+    migratedDatabase.exec(`
+      CREATE TABLE template_slots (
+        id TEXT PRIMARY KEY,
+        template_id TEXT NOT NULL,
+        group_id TEXT REFERENCES groups(id),
+        activity_id TEXT REFERENCES activities(id),
+        day_id TEXT,
+        time_block_id TEXT
+      )
+    `)
+    migratedDatabase.exec('INSERT INTO template_slots (id, template_id, group_id, activity_id, day_id, time_block_id) SELECT id, template_id, group_id, activity_id, day_id, time_block_id FROM template_slots_tmp')
+    migratedDatabase.exec('DROP TABLE template_slots_tmp')
+
+    migratedDatabase.prepare('DELETE FROM schema_migrations WHERE version >= 10').run()
+    initSchema(migratedDatabase)
+
+    const allAffectedTables = [...NEW_TABLES, 'tiers', 'activities', 'template_slots']
+    for (const t of allAffectedTables) {
+      const freshCols = freshDatabase.pragma(`table_info(${t})`)
+      const migratedCols = migratedDatabase.pragma(`table_info(${t})`)
+      const normalize = (cols) =>
+        cols.map((c) => ({ name: c.name, type: c.type, notnull: c.notnull, dflt_value: c.dflt_value, pk: c.pk }))
+      expect(normalize(migratedCols), `schema mismatch for table ${t}`).toEqual(normalize(freshCols))
+    }
+
+    for (const t of NEW_TABLES) {
+      const table = migratedDatabase
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?")
+        .get(t)
+      expect(table, `expected table ${t} to exist in migrated db`).toBeDefined()
+    }
+
+    expect(getSchemaVersion(migratedDatabase)).toBe(10)
+
+    freshDatabase.close()
+    migratedDatabase.close()
   })
 })
