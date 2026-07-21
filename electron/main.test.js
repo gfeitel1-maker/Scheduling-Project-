@@ -657,3 +657,90 @@ describe('wireOpApplied: op-conflict forwarding to renderer (Round 2 Fix 1)', ()
     expect(sentMsg.existingOp).not.toHaveProperty('value')
   })
 })
+
+describe('list: generic entity-read IPC', () => {
+  it('direct camp_id table (groups): returns only the requesting camp rows, not another camp\'s', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    const campId = randomUUID()
+    const otherCampId = randomUUID()
+    db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp A', 'a'.repeat(64))
+    db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(otherCampId, 'Camp B', 'b'.repeat(64))
+    // list() scopes by whichever camp `SELECT id FROM camps LIMIT 1` returns
+    // (single-camp-per-db convention) — SQLite's row order for a TEXT
+    // primary key is not insertion order, so ask the db which camp that is
+    // rather than assuming it's campId, then seed "mine"/"not mine" rows
+    // relative to that camp. Both camps' groups rows exist simultaneously to
+    // prove the query actually filters rather than returning everything.
+    const myCampId = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    const foreignCampId = myCampId === campId ? otherCampId : campId
+    db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), myCampId, 'Mine')
+    db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), foreignCampId, 'Not Mine')
+
+    const rows = handlers.list('groups')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].name).toBe('Mine')
+    expect(rows[0].camp_id).toBe(myCampId)
+  })
+
+  it('parent-scoped table (template_overlays): scoped via JOIN through schedule_templates, not a literal camp_id column', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    const campId = randomUUID()
+    const otherCampId = randomUUID()
+    db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp A', 'a'.repeat(64))
+    db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(otherCampId, 'Camp B', 'b'.repeat(64))
+    const myCampId = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    const foreignCampId = myCampId === campId ? otherCampId : campId
+
+    const myTemplateId = randomUUID()
+    const otherTemplateId = randomUUID()
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(myTemplateId, myCampId, 'Mine Template')
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(otherTemplateId, foreignCampId, 'Other Camp Template')
+
+    db.prepare('INSERT INTO template_overlays (id, template_id, label) VALUES (?, ?, ?)').run(randomUUID(), myTemplateId, 'Mine Overlay')
+    db.prepare('INSERT INTO template_overlays (id, template_id, label) VALUES (?, ?, ?)').run(randomUUID(), otherTemplateId, 'Other Overlay')
+
+    const rows = handlers.list('template_overlays')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].label).toBe('Mine Overlay')
+    expect(rows[0].template_id).toBe(myTemplateId)
+  })
+
+  it('template_slots has no camp_id column in schema.sql (only template_id) — it is scoped via JOIN through schedule_templates, same as the other 3 parent-scoped tables, not treated as a direct camp_id table', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    const campId = randomUUID()
+    const otherCampId = randomUUID()
+    db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp A', 'a'.repeat(64))
+    db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(otherCampId, 'Camp B', 'b'.repeat(64))
+    const myCampId = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    const foreignCampId = myCampId === campId ? otherCampId : campId
+
+    const myTemplateId = randomUUID()
+    const otherTemplateId = randomUUID()
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(myTemplateId, myCampId, 'Mine')
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(otherTemplateId, foreignCampId, 'Other')
+
+    db.prepare('INSERT INTO template_slots (id, template_id) VALUES (?, ?)').run(randomUUID(), myTemplateId)
+    db.prepare('INSERT INTO template_slots (id, template_id) VALUES (?, ?)').run(randomUUID(), otherTemplateId)
+
+    const rows = handlers.list('template_slots')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].template_id).toBe(myTemplateId)
+  })
+
+  it('rejects a non-string entity without touching the db', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.list(123)).toThrow()
+    expect(() => handlers.list(null)).toThrow()
+    expect(() => handlers.list(undefined)).toThrow()
+  })
+
+  it('rejects an unrecognized entity string, including a SQL-injection-shaped one, without throwing an unhandled exception or touching the db', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.list('users; DROP TABLE users;--')).toThrow()
+    expect(() => handlers.list('nonexistent_table')).toThrow()
+
+    // Prove the injection attempt never reached the db: users table is intact.
+    const stillExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get()
+    expect(stillExists).toBeTruthy()
+  })
+})

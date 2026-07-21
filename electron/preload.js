@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   onOpConflict: (callback) => ipcRenderer.on('shoresh:op-conflict', (_event, msg) => callback(msg)),
   getCamp: () => ipcRenderer.invoke('shoresh:get-camp'),
   listUsers: () => ipcRenderer.invoke('shoresh:list-users'),
+  list: (entity) => ipcRenderer.invoke('shoresh:list', entity),
   getDeviceId: () => ipcRenderer.invoke('shoresh:get-device-id'),
   resolveConflict: (args) => ipcRenderer.invoke('shoresh:resolve-conflict', args),
   listPendingConflicts: () => ipcRenderer.invoke('shoresh:list-conflicts'),

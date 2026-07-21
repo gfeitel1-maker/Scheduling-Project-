@@ -20,6 +20,52 @@ const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 // renderer-side code (devtools, extensions, a compromised dependency).
 const IPC_PIN_FIELDS = new Set(['pin_hash', 'pin_salt'])
 
+// Fixed allowlist for `shoresh:list` — mirrors how ops/projections.js's
+// PROJECTIONS registry validates writable entities before ever touching the
+// db. `entity` is validated against this map by exact key lookup (never
+// regex/prefix match, never string-built into a query) before any SQL runs;
+// anything not listed here is rejected, not silently queried.
+//
+// `template_slots` is deliberately in the parent-scoped group, not the
+// direct-camp_id group: per schema.sql it has only `template_id` (no
+// `camp_id` column at all), same as template_overlays/schedule_snapshots/
+// day_override_template_slots. It is scoped via JOIN through
+// schedule_templates, exactly like those three.
+const DIRECT_CAMP_ENTITIES = new Set([
+  'groups',
+  'tiers',
+  'activities',
+  'cohorts',
+  'days_of_operation',
+  'time_blocks',
+  'anchor_activities',
+  'schedule_templates',
+  'day_override_templates',
+])
+
+const PARENT_SCOPED_ENTITIES = {
+  template_slots: {
+    table: 'template_slots',
+    parentTable: 'schedule_templates',
+    parentKey: 'template_id',
+  },
+  template_overlays: {
+    table: 'template_overlays',
+    parentTable: 'schedule_templates',
+    parentKey: 'template_id',
+  },
+  schedule_snapshots: {
+    table: 'schedule_snapshots',
+    parentTable: 'schedule_templates',
+    parentKey: 'template_id',
+  },
+  day_override_template_slots: {
+    table: 'day_override_template_slots',
+    parentTable: 'day_override_templates',
+    parentKey: 'day_override_template_id',
+  },
+}
+
 // Bound on how long login() waits for an in-flight WebSocket handshake to
 // finish before falling back to the local/offline login path. Meaningfully
 // shorter than loginRemote's own timeout for a genuinely unreachable host —
@@ -276,6 +322,32 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
   // Never selects pin_hash/pin_salt — this is consumed by UI layers (e.g. the
   // conflicts screen's author-label resolution) that must never receive raw
   // PIN material, even as an unused/unrendered field.
+  // Generic entity-read IPC for renderer screens migrating off Supabase.
+  // `entity` must be validated against the fixed allowlists above by exact
+  // match BEFORE any query is built — a malformed/non-string/unrecognized
+  // value is rejected here, never interpolated into SQL. Wrapped in
+  // try/catch as defense-in-depth on top of the allowlist check itself.
+  function list(entity) {
+    if (typeof entity !== 'string' || entity.length === 0) {
+      throw new Error('Invalid entity')
+    }
+    if (!DIRECT_CAMP_ENTITIES.has(entity) && !PARENT_SCOPED_ENTITIES[entity]) {
+      throw new Error(`Unrecognized entity: ${entity}`)
+    }
+
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) return []
+
+    if (DIRECT_CAMP_ENTITIES.has(entity)) {
+      return db.prepare(`SELECT * FROM ${entity} WHERE camp_id = ?`).all(camp.id)
+    }
+
+    const { table, parentTable, parentKey } = PARENT_SCOPED_ENTITIES[entity]
+    return db
+      .prepare(`SELECT t.* FROM ${table} t JOIN ${parentTable} p ON p.id = t.${parentKey} WHERE p.camp_id = ?`)
+      .all(camp.id)
+  }
+
   function listUsers() {
     return db.prepare('SELECT id, name, role FROM users').all()
   }
@@ -303,6 +375,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     write,
     verifySession,
     listUsers,
+    list,
     getDeviceId,
     resolveConflict,
     listPendingConflicts: listPendingConflictsHandler,
@@ -353,6 +426,13 @@ if (isElectronEntryPoint()) {
   ipcMain.handle('shoresh:verify-session', (_event, args) => handlers.verifySession(args))
   ipcMain.handle('shoresh:get-camp', () => db.prepare('SELECT * FROM camps LIMIT 1').get())
   ipcMain.handle('shoresh:list-users', () => handlers.listUsers())
+  ipcMain.handle('shoresh:list', (_event, entity) => {
+    try {
+      return handlers.list(entity)
+    } catch (err) {
+      throw err
+    }
+  })
   ipcMain.handle('shoresh:get-device-id', () => handlers.getDeviceId())
   ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
   ipcMain.handle('shoresh:list-conflicts', () => handlers.listPendingConflicts())
