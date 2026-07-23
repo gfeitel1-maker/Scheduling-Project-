@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
-import { supabase } from '../supabase'
+import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 
 const AVAIL_OPTIONS = [
@@ -86,12 +86,18 @@ export default function GroupsScreen({ campId, onNavigate }) {
     setLoading(true)
     setError(null)
     try {
-      const [{ data: gData }, { data: tData }] = await Promise.all([
-        supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
-        supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
+      const [gData, tData] = await Promise.all([
+        localClient.list('groups'),
+        localClient.list('tiers'),
       ])
-      setGroups(gData || [])
-      setTiers(tData || [])
+      const gList = (gData || [])
+        .filter(g => g.camp_id === campId)
+        .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
+      const tList = (tData || [])
+        .filter(t => t.camp_id === campId)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+      setGroups(gList)
+      setTiers(tList)
     } catch {
       setError('Failed to load data — check your connection and refresh')
     } finally {
@@ -99,30 +105,128 @@ export default function GroupsScreen({ campId, onNavigate }) {
     }
   }
 
+  // Fires one write() per field (the op-log is field-level) and surfaces
+  // the first failure rather than a silent partial write — see
+  // CohortsScreen.jsx's identical helper.
+  async function writeFields(id, fields) {
+    const token = localStorage.getItem('shoresh-token')
+    for (const [field, value] of Object.entries(fields)) {
+      const result = await localClient.write(token, 'groups', id, field, value)
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error(`write failed for field "${field}"`)
+      }
+    }
+  }
+
   async function addGroup() {
     if (!newName.trim()) return
     setAdding(true)
-    await supabase.from('groups').insert({ camp_id: campId, name: newName.trim(), tier_id: newTierId || null, availability: newAvail })
-    setNewName(''); setNewTierId(''); setNewAvail('all')
-    setAdding(false)
-    load()
+    try {
+      const id = crypto.randomUUID()
+      // `name` is written FIRST — mirrors ensureCohort.js/CohortsScreen.jsx's
+      // ordering. ensureExists creates the row as part of applying whichever
+      // field write lands first, so a UNIQUE(camp_id, name) collision on the
+      // `name` write fails atomically before the row ever exists, rather
+      // than leaving a camp_id-only orphan behind.
+      try {
+        await writeFields(id, {
+          name: newName.trim(),
+          camp_id: campId,
+          tier_id: newTierId || null,
+          availability: newAvail,
+        })
+      } catch (err) {
+        // Defense-in-depth backstop for failure causes OTHER than a name
+        // collision (IPC/disk failure mid-loop): if ensureExists already
+        // created the row on an earlier field write in this same "add" and
+        // a later field write then failed, clean up the partial row rather
+        // than leaving a half-populated group behind. Swallow any error
+        // from the delete attempt itself so a failed cleanup doesn't mask
+        // the original failure.
+        try {
+          const token = localStorage.getItem('shoresh-token')
+          await localClient.deleteEntity(token, 'groups', id)
+        } catch {
+          // best-effort only
+        }
+        throw err
+      }
+      setNewName(''); setNewTierId(''); setNewAvail('all')
+      await load()
+    } catch (err) {
+      setError(
+        /UNIQUE/i.test(err?.message ?? '')
+          ? 'A group with this name already exists — choose a different name.'
+          : 'Failed to add group — check your connection and try again'
+      )
+    } finally {
+      setAdding(false)
+    }
   }
 
   async function saveGroup(id, fields) {
-    await supabase.from('groups').update(fields).eq('id', id)
-    load()
+    try {
+      await writeFields(id, fields)
+      await load()
+    } catch (err) {
+      setError('Failed to save group — check your connection and try again')
+      throw err
+    }
   }
 
   async function deleteGroup(id) {
     if (!window.confirm('Delete this group?')) return
-    await supabase.from('groups').delete().eq('id', id)
-    load()
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      const result = await localClient.deleteEntity(token, 'groups', id)
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error('delete failed')
+      }
+      await load()
+    } catch (err) {
+      setError(
+        /admin role required/i.test(err?.message ?? '')
+          ? 'Only an admin can delete groups.'
+          : 'Failed to delete group — check your connection and try again'
+      )
+    }
   }
 
   async function deleteAll() {
     if (!window.confirm('Delete all groups? This cannot be undone.')) return
-    await supabase.from('groups').delete().eq('camp_id', campId)
-    load()
+    const token = localStorage.getItem('shoresh-token')
+    // Re-fetch immediately before building the id list rather than using the
+    // closed-over `groups` state — if another device synced in new groups
+    // between page-load and this click, the stale in-memory snapshot would
+    // silently skip them with no indication anything was missed.
+    const freshGroups = await localClient.list('groups')
+    const ids = (freshGroups || [])
+      .filter(g => g.camp_id === campId)
+      .map(g => g.id)
+    let succeeded = 0
+    let failedDueToRole = false
+    for (const id of ids) {
+      try {
+        const result = await localClient.deleteEntity(token, 'groups', id)
+        if (result && (result.status === 'applied' || result.status === 'queued')) {
+          succeeded++
+        } else {
+          console.error(`Failed to delete group ${id}`)
+        }
+      } catch (err) {
+        if (/admin role required/i.test(err?.message ?? '')) failedDueToRole = true
+        console.error(`Failed to delete group ${id}`, err)
+      }
+    }
+    await load()
+    const failed = ids.length - succeeded
+    if (failed > 0) {
+      setError(
+        failedDueToRole
+          ? 'Only an admin can delete groups — no groups were deleted.'
+          : `Deleted ${succeeded} of ${ids.length} groups (${failed} failed — see console).`
+      )
+    }
   }
 
   function downloadTemplate() {
@@ -165,11 +269,33 @@ export default function GroupsScreen({ campId, onNavigate }) {
     for (const row of importRows) {
       if (!row.name || row.warning) { skipped++; continue }
       if (existingNames.has(row.name.toLowerCase())) { skipped++; continue }
-      await supabase.from('groups').insert({ camp_id: campId, name: row.name, tier_id: row.tierId, availability: row.availability })
-      added++
+      try {
+        const id = crypto.randomUUID()
+        try {
+          // `name` first — same collision-fails-atomically reasoning as addGroup.
+          await writeFields(id, {
+            name: row.name,
+            camp_id: campId,
+            tier_id: row.tierId,
+            availability: row.availability,
+          })
+        } catch (err) {
+          try {
+            const token = localStorage.getItem('shoresh-token')
+            await localClient.deleteEntity(token, 'groups', id)
+          } catch {
+            // best-effort only
+          }
+          throw err
+        }
+        added++
+      } catch (err) {
+        console.error(`Failed to import group "${row.name}"`, err)
+        skipped++
+      }
     }
     setImportResult({ added, skipped }); setImportStep('done')
-    setImporting(false); load()
+    setImporting(false); await load()
   }
 
   // Group by tier

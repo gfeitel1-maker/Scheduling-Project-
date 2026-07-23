@@ -97,8 +97,15 @@ CREATE TABLE IF NOT EXISTS groups (
   camp_id TEXT NOT NULL REFERENCES camps(id),
   name TEXT NOT NULL,
   tier_id TEXT,
-  availability TEXT
+  availability TEXT,
+  UNIQUE(camp_id, name)
 );
+-- Round 2 Red Hat fix (Sub-plan C Task 1): the UNIQUE above only applies to
+-- brand-new installs, since this whole file runs as CREATE TABLE IF NOT
+-- EXISTS. Any db that already ran an earlier schema version keeps its
+-- pre-existing groups table verbatim; the actual enforcement for those dbs
+-- comes from the idx_groups_camp_name index added in localDb.js's
+-- version-12 migration — same pattern as idx_cohorts_camp_name (version 11).
 
 CREATE TABLE IF NOT EXISTS tiers (
   id TEXT PRIMARY KEY,

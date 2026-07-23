@@ -377,6 +377,60 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // Round 2 Red Hat fix (Sub-plan C Task 1 round 2, HIGH finding 3):
+  // closes the same duplicate-name race for `groups` that idx_cohorts_camp_name
+  // (version 11) closed for `cohorts`. A fresh install gets UNIQUE(camp_id,
+  // name) via schema.sql's CREATE TABLE; a db that already ran an earlier
+  // schema version keeps its old groups table as-is (CREATE TABLE IF NOT
+  // EXISTS never retrofits it), so this adds the same guarantee via a
+  // standalone unique index. Any pre-existing (camp_id, name) duplicate
+  // rows would make the CREATE UNIQUE INDEX itself fail, so duplicates are
+  // deduped first (keeping the lowest rowid) — and, per the cohorts
+  // version-11 precedent (and the app-launch-bricking bug that omission
+  // caused), every FK reference to the row being deleted is repointed to
+  // the surviving row FIRST. The only such reference is
+  // template_slots.group_id (schema.sql) — anchor_activities.group_ids is
+  // a plain TEXT column (JSON blob), not a REFERENCES column, so it has no
+  // FK to repoint.
+  if (getSchemaVersion(db) < 12) {
+    db.transaction(() => {
+      const survivors = db
+        .prepare(
+          `SELECT camp_id, name, MIN(rowid) as keep_rowid
+           FROM groups GROUP BY camp_id, name HAVING COUNT(*) > 1`
+        )
+        .all()
+
+      for (const { camp_id, name, keep_rowid } of survivors) {
+        const keepRow = db
+          .prepare('SELECT id FROM groups WHERE rowid = ?')
+          .get(keep_rowid)
+        const dupes = db
+          .prepare(
+            'SELECT id FROM groups WHERE camp_id = ? AND name = ? AND rowid != ?'
+          )
+          .all(camp_id, name, keep_rowid)
+
+        for (const { id: dupeId } of dupes) {
+          db.prepare('UPDATE template_slots SET group_id = ? WHERE group_id = ?').run(
+            keepRow.id,
+            dupeId
+          )
+        }
+      }
+
+      db.exec(`
+        DELETE FROM groups
+        WHERE rowid NOT IN (SELECT MIN(rowid) FROM groups GROUP BY camp_id, name);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_groups_camp_name ON groups(camp_id, name);
+      `)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (12, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 export function openLocalDb(filePath) {
