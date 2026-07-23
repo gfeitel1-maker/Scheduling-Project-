@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
-import { supabase } from '../supabase'
+import { localClient } from '../localClient'
+import { S } from '../styles/shared'
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
@@ -21,16 +22,16 @@ function DayRow({ day, onSave, onDelete }) {
   if (editing) {
     return (
       <tr style={{ background: 'var(--surface-elevated)' }}>
-        <td style={td}><input autoFocus value={label} onChange={e => setLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={inputStyle} /></td>
-        <td style={td}>
-          <select value={dow} onChange={e => setDow(e.target.value)} style={inputStyle}>
+        <td style={S.td}><input autoFocus value={label} onChange={e => setLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} /></td>
+        <td style={S.td}>
+          <select value={dow} onChange={e => setDow(e.target.value)} style={S.input}>
             {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
           </select>
         </td>
-        <td style={td}><input type="number" value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{ ...inputStyle, width: 70 }} /></td>
-        <td style={{ ...td, textAlign: 'right' }}>
-          <button onClick={save} disabled={saving} style={btnPrimary}>{saving ? 'Saving…' : 'Save'}</button>
-          <button onClick={() => { setLabel(day.label); setDow(day.day_of_week); setSortOrder(day.sort_order); setEditing(false) }} style={{ ...btnSecondary, marginLeft: 6 }}>Cancel</button>
+        <td style={S.td}><input type="number" value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{ ...S.input, width: 70 }} /></td>
+        <td style={{ ...S.td, textAlign: 'right' }}>
+          <button onClick={save} disabled={saving} style={S.btnPrimary}>{saving ? 'Saving…' : 'Save'}</button>
+          <button onClick={() => { setLabel(day.label); setDow(day.day_of_week); setSortOrder(day.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>Cancel</button>
         </td>
       </tr>
     )
@@ -41,12 +42,12 @@ function DayRow({ day, onSave, onDelete }) {
       onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
       onMouseLeave={e => e.currentTarget.style.background = ''}
     >
-      <td style={td}>{day.label}</td>
-      <td style={{ ...td, color: 'var(--text-secondary)', fontSize: 13 }}>{DOW[day.day_of_week]}</td>
-      <td style={{ ...td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{day.sort_order}</td>
-      <td style={{ ...td, textAlign: 'right' }}>
-        <button onClick={() => setEditing(true)} style={btnSecondary}>Edit</button>
-        <button onClick={() => onDelete(day.id)} style={{ ...btnDanger, marginLeft: 6 }}>Delete</button>
+      <td style={S.td}>{day.label}</td>
+      <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{DOW[day.day_of_week]}</td>
+      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{day.sort_order}</td>
+      <td style={{ ...S.td, textAlign: 'right' }}>
+        <button onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
+        <button onClick={() => onDelete(day.id)} style={{ ...S.btnDanger, marginLeft: 6 }}>Delete</button>
       </td>
     </tr>
   )
@@ -63,33 +64,101 @@ export default function DaysScreen({ campId, onNavigate }) {
   const [importRows, setImportRows] = useState([])
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
+  const [error, setError] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase.from('days_of_operation').select('*').eq('camp_id', campId).order('sort_order').order('day_of_week')
-    setDays(data || [])
-    setLoading(false)
+    setError(null)
+    try {
+      const data = await localClient.list('days_of_operation')
+      const list = (data || [])
+        .filter(d => d.camp_id === campId)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.day_of_week ?? 0) - (b.day_of_week ?? 0))
+      setDays(list)
+    } catch {
+      setError('Failed to load data — check your connection and refresh')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Fires one write() per field (the op-log is field-level) and surfaces
+  // the first failure rather than a silent partial write — see
+  // GroupsScreen.jsx's identical helper.
+  async function writeFields(id, fields) {
+    const token = localStorage.getItem('shoresh-token')
+    for (const [field, value] of Object.entries(fields)) {
+      const result = await localClient.write(token, 'days_of_operation', id, field, value)
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error(`write failed for field "${field}"`)
+      }
+    }
+  }
+
+  async function cleanupPartialRow(id) {
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      await localClient.deleteEntity(token, 'days_of_operation', id)
+    } catch {
+      // best-effort only
+    }
   }
 
   async function addDay() {
     if (!newLabel.trim()) return
     setAdding(true)
-    const sortVal = newSort !== '' ? Number(newSort) : (days.length + 1)
-    await supabase.from('days_of_operation').insert({ camp_id: campId, label: newLabel.trim(), day_of_week: Number(newDow), sort_order: sortVal })
-    setNewLabel(''); setNewSort('')
-    setAdding(false); load()
+    try {
+      const id = crypto.randomUUID()
+      const sortVal = newSort !== '' ? Number(newSort) : (days.length + 1)
+      try {
+        await writeFields(id, {
+          label: newLabel.trim(),
+          camp_id: campId,
+          day_of_week: Number(newDow),
+          sort_order: sortVal,
+        })
+      } catch (err) {
+        await cleanupPartialRow(id)
+        throw err
+      }
+      setNewLabel(''); setNewSort('')
+      await load()
+    } catch {
+      setError('Failed to add day — check your connection and try again')
+    } finally {
+      setAdding(false)
+    }
   }
 
   async function saveDay(id, fields) {
-    await supabase.from('days_of_operation').update(fields).eq('id', id); load()
+    try {
+      await writeFields(id, fields)
+      await load()
+    } catch (err) {
+      setError('Failed to save day — check your connection and try again')
+      throw err
+    }
   }
 
   async function deleteDay(id) {
     if (!window.confirm('Delete this day?')) return
-    await supabase.from('days_of_operation').delete().eq('id', id); load()
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      const result = await localClient.deleteEntity(token, 'days_of_operation', id)
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error('delete failed')
+      }
+      await load()
+    } catch (err) {
+      setError(
+        /admin role required/i.test(err?.message ?? '')
+          ? 'Only an admin can delete days.'
+          : 'Failed to delete day — check your connection and try again'
+      )
+    }
   }
 
   function downloadTemplate() {
@@ -114,7 +183,8 @@ export default function DaysScreen({ campId, onNavigate }) {
         const sort = r.sort_order !== '' ? Number(r.sort_order) : null
         let warning = null
         if (!label) warning = 'Missing label'
-        else if (isNaN(dow) || dow < 0 || dow > 6) warning = 'day_of_week must be 0–6'
+        else if (!Number.isInteger(dow) || dow < 0 || dow > 6) warning = 'day_of_week must be a whole number 0–6'
+        else if (sort !== null && !Number.isFinite(sort)) warning = 'sort_order must be a number'
         return { label, day_of_week: dow, sort_order: sort, warning }
       })
       setImportRows(parsed); setImportStep('preview')
@@ -124,17 +194,46 @@ export default function DaysScreen({ campId, onNavigate }) {
 
   async function confirmImport() {
     setImporting(true)
-    const existingLabels = new Set(days.map(d => d.label.toLowerCase()))
-    let added = 0, skipped = 0
-    for (const row of importRows) {
-      if (!row.label || row.warning) { skipped++; continue }
-      if (existingLabels.has(row.label.toLowerCase())) { skipped++; continue }
-      const sortVal = row.sort_order !== null ? row.sort_order : (days.length + added + 1)
-      await supabase.from('days_of_operation').insert({ camp_id: campId, label: row.label, day_of_week: row.day_of_week, sort_order: sortVal })
-      added++
+    try {
+      // Defense-in-depth: a row with a null/undefined label should never
+      // reach this point (import parsing and load() both normalize label
+      // to a string), but a stray malformed row here must not throw and
+      // wedge the modal on "Importing…" forever — coerce rather than crash.
+      const existingLabels = new Set(days.map(d => String(d.label ?? '').toLowerCase()))
+      let added = 0, skipped = 0
+      for (const row of importRows) {
+        if (!row.label || row.warning) { skipped++; continue }
+        const lower = String(row.label).toLowerCase()
+        if (existingLabels.has(lower)) { skipped++; continue }
+        const sortVal = row.sort_order !== null ? row.sort_order : (days.length + added + 1)
+        try {
+          const id = crypto.randomUUID()
+          try {
+            await writeFields(id, {
+              label: row.label,
+              camp_id: campId,
+              day_of_week: row.day_of_week,
+              sort_order: sortVal,
+            })
+          } catch (err) {
+            await cleanupPartialRow(id)
+            throw err
+          }
+          added++
+          existingLabels.add(lower)
+        } catch (err) {
+          console.error(`Failed to import day "${row.label}"`, err)
+          skipped++
+        }
+      }
+      setImportResult({ added, skipped }); setImportStep('done')
+    } catch (err) {
+      console.error('Import failed', err)
+      setError('Import failed — check your connection and try again')
+      setImportStep(null); setImportRows([])
+    } finally {
+      setImporting(false); await load()
     }
-    setImportResult({ added, skipped }); setImportStep('done')
-    setImporting(false); load()
   }
 
   const readyRows = importRows.filter(r => r.label && !r.warning)
@@ -142,13 +241,19 @@ export default function DaysScreen({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 680 }}>
+      {error && (
+        <div style={S.errorBanner}>
+          {error}
+        </div>
+      )}
+
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           {days.length} day{days.length !== 1 ? 's' : ''}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={downloadTemplate} style={btnSecondary}>Download Template</button>
-          <button onClick={() => fileRef.current.click()} style={btnSecondary}>Import from Excel</button>
+          <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
+          <button onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
         </div>
       </div>
@@ -160,10 +265,10 @@ export default function DaysScreen({ campId, onNavigate }) {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
-                <th style={th}>Label</th>
-                <th style={th}>Day of Week</th>
-                <th style={th}>Sort Order</th>
-                <th style={{ ...th, textAlign: 'right' }}>Actions</th>
+                <th style={S.th}>Label</th>
+                <th style={S.th}>Day of Week</th>
+                <th style={S.th}>Sort Order</th>
+                <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -180,12 +285,12 @@ export default function DaysScreen({ campId, onNavigate }) {
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '14px 16px' }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Day</div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <input placeholder="Label (e.g. Monday)" value={newLabel} onChange={e => setNewLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDay()} style={{ ...inputStyle, flex: '1 1 150px' }} />
-          <select value={newDow} onChange={e => setNewDow(e.target.value)} style={{ ...inputStyle, flex: '0 0 140px' }}>
+          <input placeholder="Label (e.g. Monday)" value={newLabel} onChange={e => setNewLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDay()} style={{ ...S.input, flex: '1 1 150px' }} />
+          <select value={newDow} onChange={e => setNewDow(e.target.value)} style={{ ...S.input, flex: '0 0 140px' }}>
             {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
           </select>
-          <input type="number" placeholder="Order" value={newSort} onChange={e => setNewSort(e.target.value)} style={{ ...inputStyle, flex: '0 0 80px' }} />
-          <button onClick={addDay} disabled={adding || !newLabel.trim()} style={{ ...btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
+          <input type="number" placeholder="Order" value={newSort} onChange={e => setNewSort(e.target.value)} style={{ ...S.input, flex: '0 0 80px' }} />
+          <button onClick={addDay} disabled={adding || !newLabel.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
         </div>
       </div>
 
@@ -197,21 +302,21 @@ export default function DaysScreen({ campId, onNavigate }) {
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>{readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings`}</div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 18 }}>
-                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={th}>Label</th><th style={th}>Day</th><th style={th}>Order</th><th style={th}>Status</th></tr></thead>
+                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Label</th><th style={S.th}>Day</th><th style={S.th}>Order</th><th style={S.th}>Status</th></tr></thead>
                   <tbody>
                     {importRows.map((r, i) => (
                       <tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}>
-                        <td style={td}>{r.label || '—'}</td>
-                        <td style={td}>{DOW[r.day_of_week] || '—'}</td>
-                        <td style={{ ...td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.sort_order ?? '—'}</td>
-                        <td style={{ ...td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td>
+                        <td style={S.td}>{r.label || '—'}</td>
+                        <td style={S.td}>{DOW[r.day_of_week] || '—'}</td>
+                        <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.sort_order ?? '—'}</td>
+                        <td style={{ ...S.td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={btnSecondary}>Cancel</button>
-                  <button onClick={confirmImport} disabled={importing || readyRows.length === 0} style={btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
+                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
+                  <button onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
                 </div>
               </>
             )}
@@ -220,7 +325,7 @@ export default function DaysScreen({ campId, onNavigate }) {
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 12 }}>Import Complete</div>
                 <div style={{ fontSize: 14 }}><span style={{ color: 'var(--success)', fontWeight: 600 }}>{importResult.added} added</span>{importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped</span>}</div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={btnPrimary}>Done</button>
+                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
                 </div>
               </>
             )}
@@ -229,15 +334,8 @@ export default function DaysScreen({ campId, onNavigate }) {
       )}
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button onClick={() => onNavigate('timeblocks')} style={btnPrimary}>Next: Time Blocks →</button>
+        <button onClick={() => onNavigate('timeblocks')} style={S.btnPrimary}>Next: Time Blocks →</button>
       </div>
     </div>
   )
 }
-
-const td = { padding: '10px 14px', textAlign: 'left', fontSize: 13 }
-const th = { padding: '9px 14px', textAlign: 'left', fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 500, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.04em' }
-const inputStyle = { padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 5, fontSize: 13, outline: 'none', background: 'var(--surface)', width: '100%' }
-const btnPrimary = { padding: '7px 14px', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 5, fontWeight: 600, fontSize: 13, cursor: 'pointer' }
-const btnSecondary = { padding: '7px 14px', background: 'var(--surface)', color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 5, fontWeight: 500, fontSize: 13, cursor: 'pointer' }
-const btnDanger = { padding: '7px 14px', background: 'none', color: 'var(--warning)', border: '1px solid var(--warning)', borderRadius: 5, fontWeight: 500, fontSize: 13, cursor: 'pointer' }

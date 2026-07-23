@@ -46,6 +46,19 @@ export const PROJECTIONS = {
       )
     },
   },
+  days_of_operation: {
+    table: 'days_of_operation',
+    key: 'id',
+    fields: ['camp_id', 'label', 'day_of_week', 'sort_order'],
+    ensureExists: (db, id) => {
+      // Same zero-camps caveat as cohorts/groups.ensureExists above.
+      const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+      db.prepare("INSERT OR IGNORE INTO days_of_operation (id, camp_id, label) VALUES (?, ?, '')").run(
+        id,
+        camp?.id ?? null
+      )
+    },
+  },
 }
 
 // Reserved field name for a row-delete op — see DELETE_FIELD's definition in
