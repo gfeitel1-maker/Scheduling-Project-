@@ -196,8 +196,20 @@ CREATE TABLE IF NOT EXISTS time_blocks (
   start_time TEXT,
   end_time TEXT,
   part_of_day TEXT,
-  sort_order INTEGER
+  sort_order INTEGER,
+  UNIQUE(camp_id, cohort_id, name)
 );
+-- Round 2 Red Hat fix (Sub-plan D Task 1): scoped by cohort_id, not just
+-- camp_id, because block names are cohort-local (mirrors groups/cohorts/
+-- days_of_operation's camp-level UNIQUE, but time_blocks additionally
+-- partitions by cohort). The UNIQUE above only applies to brand-new
+-- installs, since this whole file runs as CREATE TABLE IF NOT EXISTS. Any
+-- db that already ran an earlier schema version keeps its pre-existing
+-- time_blocks table verbatim; the actual enforcement for those dbs comes
+-- from the idx_time_blocks_camp_cohort_name index added in localDb.js's
+-- version-13 migration — same pattern as idx_groups_camp_name (version 12).
+-- template_slots.time_block_id is a plain TEXT column (no REFERENCES), so
+-- there is no FK to repoint when deduping, unlike groups.id/template_slots.group_id.
 
 CREATE TABLE IF NOT EXISTS anchor_activities (
   id TEXT PRIMARY KEY,

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
-import { supabase } from '../supabase'
+import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
@@ -23,8 +23,14 @@ function BlockRow({ block, onSave, onDelete }) {
   async function save() {
     if (!name.trim()) return
     setSaving(true)
-    await onSave(block.id, { name: name.trim(), start_time: start, end_time: end, part_of_day: pod, sort_order: Number(sortOrder) })
-    setSaving(false); setEditing(false)
+    try {
+      await onSave(block.id, { name: name.trim(), start_time: start, end_time: end, part_of_day: pod, sort_order: Number(sortOrder) })
+      setEditing(false)
+    } catch {
+      // onSave already surfaced the error; stay in edit mode so nothing is lost.
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (editing) {
@@ -87,51 +93,185 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
   const fileRef = useRef()
-  const { cohorts, activeCohort, setActiveCohortId } = useCohorts(campId)
+  const { cohorts, activeCohort, loading: cohortsLoading, setActiveCohortId } = useCohorts(campId)
+
+  // Guards against a stale load() overwriting the UI after the user has
+  // already switched cohorts — see the request-id ref comment on load().
+  const loadRequestRef = useRef(0)
 
   useEffect(() => {
     if (activeCohort) load()
   }, [campId, activeCohort?.id])
 
+  // Once useCohorts has finished loading with no cohort available, there is
+  // nothing for load() to fetch and it will never resolve loading to false
+  // on its own — fall back to the cohorts hook's own loading state instead
+  // of leaving the screen stuck on "Loading…" forever.
+  const showLoading = activeCohort ? loading : cohortsLoading
+
   async function load() {
     if (!activeCohort) return
+    const cohortIdAtStart = activeCohort.id
+    const requestId = ++loadRequestRef.current
     setLoading(true)
     setError(null)
     try {
-      const { data } = await supabase.from('time_blocks').select('*')
-        .eq('camp_id', campId)
-        .eq('cohort_id', activeCohort.id)
-        .order('sort_order').order('start_time')
-      setBlocks(data || [])
+      const data = await localClient.list('time_blocks')
+      // If a newer load() started (e.g. the user switched cohorts) while
+      // this request was in flight, this response is stale — applying it
+      // would overwrite the UI with the wrong cohort's blocks
+      // (last-resolver-wins race). Bail out without touching state.
+      if (requestId !== loadRequestRef.current) return
+      const list = (data || [])
+        .filter(b => b.camp_id === campId && b.cohort_id === cohortIdAtStart)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || String(a.start_time ?? '').localeCompare(String(b.start_time ?? '')))
+      setBlocks(list)
     } catch {
+      if (requestId !== loadRequestRef.current) return
       setError('Failed to load data — check your connection and refresh')
     } finally {
-      setLoading(false)
+      if (requestId === loadRequestRef.current) setLoading(false)
+    }
+  }
+
+  // Fires one write() per field (the op-log is field-level) and surfaces
+  // the first failure rather than a silent partial write — see
+  // DaysScreen.jsx/GroupsScreen.jsx's identical helper.
+  async function writeFields(id, fields) {
+    const token = localStorage.getItem('shoresh-token')
+    for (const [field, value] of Object.entries(fields)) {
+      const result = await localClient.write(token, 'time_blocks', id, field, value)
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error(`write failed for field "${field}"`)
+      }
+    }
+  }
+
+  async function cleanupPartialRow(id) {
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      await localClient.deleteEntity(token, 'time_blocks', id)
+    } catch {
+      // best-effort only
     }
   }
 
   async function addBlock() {
     if (!newName.trim() || !newStart || !newEnd || !activeCohort) return
+    const trimmedName = newName.trim()
+    // Case/whitespace-normalized existing-name check, matching
+    // confirmImport's dedupe — without this, the plain "+ Add" button had
+    // zero dedupe check while import did, letting a same-named block slip
+    // in through this path even before considering the cross-device race
+    // the UNIQUE(camp_id, cohort_id, name) index below guards against.
+    if (blocks.some(b => String(b.name ?? '').trim().toLowerCase() === trimmedName.toLowerCase())) {
+      setError('A time block with this name already exists — choose a different name.')
+      return
+    }
     setAdding(true)
-    const sortVal = newSort !== '' ? Number(newSort) : (blocks.length + 1)
-    await supabase.from('time_blocks').insert({ camp_id: campId, cohort_id: activeCohort.id, name: newName.trim(), start_time: newStart, end_time: newEnd, part_of_day: newPod, sort_order: sortVal })
-    setNewName(''); setNewStart(''); setNewEnd(''); setNewSort('')
-    setAdding(false); load()
+    try {
+      const id = crypto.randomUUID()
+      const sortVal = newSort !== '' ? Number(newSort) : (blocks.length + 1)
+      try {
+        // `name` written FIRST — mirrors GroupsScreen.jsx's addGroup
+        // ordering. ensureExists creates the row as part of applying
+        // whichever field write lands first, so a UNIQUE(camp_id,
+        // cohort_id, name) collision on the `name` write fails atomically
+        // before the row ever exists, rather than leaving a
+        // camp_id/cohort_id-only orphan behind.
+        await writeFields(id, {
+          name: trimmedName,
+          camp_id: campId,
+          cohort_id: activeCohort.id,
+          start_time: newStart,
+          end_time: newEnd,
+          part_of_day: newPod,
+          sort_order: sortVal,
+        })
+      } catch (err) {
+        await cleanupPartialRow(id)
+        throw err
+      }
+      setNewName(''); setNewStart(''); setNewEnd(''); setNewSort('')
+      await load()
+    } catch (err) {
+      setError(
+        /UNIQUE/i.test(err?.message ?? '')
+          ? 'A time block with this name already exists — choose a different name.'
+          : 'Failed to add time block — check your connection and try again'
+      )
+    } finally {
+      setAdding(false)
+    }
   }
 
   async function saveBlock(id, fields) {
-    await supabase.from('time_blocks').update(fields).eq('id', id); load()
+    try {
+      await writeFields(id, fields)
+      await load()
+    } catch (err) {
+      setError('Failed to save time block — check your connection and try again')
+      throw err
+    }
   }
 
   async function deleteBlock(id) {
     if (!window.confirm('Delete this time block?')) return
-    await supabase.from('time_blocks').delete().eq('id', id); load()
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      const result = await localClient.deleteEntity(token, 'time_blocks', id)
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error('delete failed')
+      }
+      await load()
+    } catch (err) {
+      setError(
+        /admin role required/i.test(err?.message ?? '')
+          ? 'Only an admin can delete time blocks.'
+          : 'Failed to delete time block — check your connection and try again'
+      )
+    }
   }
 
   async function deleteAll() {
+    if (!activeCohort) {
+      setError('No cohort selected — set up a cohort in Cohorts before deleting time blocks.')
+      return
+    }
     if (!window.confirm('Delete all time blocks? This cannot be undone.')) return
-    await supabase.from('time_blocks').delete().eq('camp_id', campId)
-    load()
+    const token = localStorage.getItem('shoresh-token')
+    // Re-fetch immediately before building the id list rather than using the
+    // closed-over `blocks` state — if another device synced in new blocks
+    // between page-load and this click, the stale in-memory snapshot would
+    // silently skip them with no indication anything was missed.
+    const freshBlocks = await localClient.list('time_blocks')
+    const ids = (freshBlocks || [])
+      .filter(b => b.camp_id === campId && b.cohort_id === activeCohort.id)
+      .map(b => b.id)
+    let succeeded = 0
+    let failedDueToRole = false
+    for (const id of ids) {
+      try {
+        const result = await localClient.deleteEntity(token, 'time_blocks', id)
+        if (result && (result.status === 'applied' || result.status === 'queued')) {
+          succeeded++
+        } else {
+          console.error(`Failed to delete time block ${id}`)
+        }
+      } catch (err) {
+        if (/admin role required/i.test(err?.message ?? '')) failedDueToRole = true
+        console.error(`Failed to delete time block ${id}`, err)
+      }
+    }
+    await load()
+    const failed = ids.length - succeeded
+    if (failed > 0) {
+      setError(
+        failedDueToRole
+          ? 'Only an admin can delete time blocks — no time blocks were deleted.'
+          : `Deleted ${succeeded} of ${ids.length} time blocks — please try again for the rest.`
+      )
+    }
   }
 
   function downloadTemplate() {
@@ -158,8 +298,9 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
         const sort_order = r.sort_order !== '' ? Number(r.sort_order) : null
         let warning = null
         if (!name) warning = 'Missing name'
-        else if (!start_time || !end_time) warning = 'Missing time'
-        else if (!['morning','afternoon','evening'].includes(pod)) warning = 'part_of_day must be morning/afternoon/evening'
+        else if (typeof start_time !== 'string' || !start_time || typeof end_time !== 'string' || !end_time) warning = 'Missing time'
+        else if (!['morning', 'afternoon', 'evening'].includes(pod)) warning = 'part_of_day must be morning/afternoon/evening'
+        else if (sort_order !== null && !(Number.isInteger(sort_order) && sort_order >= 0)) warning = 'sort_order must be a whole number 0 or greater'
         return { name, start_time, end_time, part_of_day: pod, sort_order, warning }
       })
       setImportRows(parsed); setImportStep('preview')
@@ -170,17 +311,50 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
   async function confirmImport() {
     if (!activeCohort) return
     setImporting(true)
-    const existingNames = new Set(blocks.map(b => b.name.toLowerCase()))
-    let added = 0, skipped = 0
-    for (const row of importRows) {
-      if (!row.name || row.warning) { skipped++; continue }
-      if (existingNames.has(row.name.toLowerCase())) { skipped++; continue }
-      const sortVal = row.sort_order !== null ? row.sort_order : (blocks.length + added + 1)
-      await supabase.from('time_blocks').insert({ camp_id: campId, cohort_id: activeCohort.id, name: row.name, start_time: row.start_time, end_time: row.end_time, part_of_day: row.part_of_day, sort_order: sortVal })
-      added++
+    try {
+      // Defense-in-depth: a row with a null/undefined name should never
+      // reach this point (import parsing and load() both normalize name
+      // to a string), but a stray malformed row here must not throw and
+      // wedge the modal on "Importing…" forever — coerce rather than crash.
+      const existingNames = new Set(blocks.map(b => String(b.name ?? '').toLowerCase()))
+      let added = 0, skipped = 0
+      for (const row of importRows) {
+        if (!row.name || row.warning) { skipped++; continue }
+        const lower = String(row.name).toLowerCase()
+        if (existingNames.has(lower)) { skipped++; continue }
+        const sortVal = row.sort_order !== null ? row.sort_order : (blocks.length + added + 1)
+        try {
+          const id = crypto.randomUUID()
+          try {
+            // `name` first — same collision-fails-atomically reasoning as addBlock.
+            await writeFields(id, {
+              name: row.name,
+              camp_id: campId,
+              cohort_id: activeCohort.id,
+              start_time: row.start_time,
+              end_time: row.end_time,
+              part_of_day: row.part_of_day,
+              sort_order: sortVal,
+            })
+          } catch (err) {
+            await cleanupPartialRow(id)
+            throw err
+          }
+          added++
+          existingNames.add(lower)
+        } catch (err) {
+          console.error(`Failed to import time block "${row.name}"`, err)
+          skipped++
+        }
+      }
+      setImportResult({ added, skipped }); setImportStep('done')
+    } catch (err) {
+      console.error('Import failed', err)
+      setError('Import failed — check your connection and try again')
+      setImportStep(null); setImportRows([])
+    } finally {
+      setImporting(false); await load()
     }
-    setImportResult({ added, skipped }); setImportStep('done')
-    setImporting(false); load()
   }
 
   const readyRows = importRows.filter(r => r.name && !r.warning)
@@ -202,12 +376,17 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
           <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
           <button onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button onClick={deleteAll} style={S.btnDanger}>Delete All</button>
+          <button onClick={deleteAll} disabled={!activeCohort} style={S.btnDanger}>Delete All</button>
         </div>
       </div>
 
-      {loading ? (
+      {showLoading ? (
         <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading…</div>
+      ) : !activeCohort ? (
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '40px 16px', textAlign: 'center', marginBottom: 16 }}>
+          <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No cohorts yet</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Set up a cohort in Cohorts before adding time blocks.</div>
+        </div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -245,7 +424,7 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
             {POD_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <input type="number" placeholder="Order" value={newSort} onChange={e => setNewSort(e.target.value)} style={{ ...S.input, flex: '0 0 70px' }} />
-          <button onClick={addBlock} disabled={adding || !newName.trim() || !newStart || !newEnd} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
+          <button onClick={addBlock} disabled={adding || !newName.trim() || !newStart || !newEnd || !activeCohort} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
         </div>
       </div>
 
@@ -295,4 +474,3 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
     </div>
   )
 }
-

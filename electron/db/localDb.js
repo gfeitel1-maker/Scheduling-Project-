@@ -431,6 +431,43 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // Round 2 Red Hat fix (Sub-plan D Task 1, HIGH finding 1): time_blocks had
+  // NO uniqueness constraint at all, unlike groups/cohorts/days_of_operation
+  // (all UNIQUE(camp_id, name)) — concurrent same-named adds from two
+  // devices silently created permanent duplicates with zero conflict
+  // signal. Scoped by cohort_id (not just camp_id) since block names are
+  // cohort-local. A fresh install gets UNIQUE(camp_id, cohort_id, name) via
+  // schema.sql's CREATE TABLE; a db that already ran an earlier schema
+  // version keeps its old time_blocks table as-is (CREATE TABLE IF NOT
+  // EXISTS never retrofits it), so this adds the same guarantee via a
+  // standalone unique index — same pattern as idx_groups_camp_name
+  // (version 12). SQLite treats NULL as distinct in UNIQUE indexes, so
+  // grouping by cohort_id directly (rather than coalescing) already gives
+  // the right semantics — two rows with cohort_id NULL are never
+  // considered duplicates of each other by the index, matching how a
+  // block with no cohort has no cohort-local name collision to guard
+  // against. Any pre-existing (camp_id, cohort_id, name) duplicate rows
+  // would make the CREATE UNIQUE INDEX itself fail, so duplicates are
+  // deduped first (keeping the lowest rowid). template_slots.time_block_id
+  // (schema.sql) is a plain TEXT column, not a REFERENCES column, so
+  // unlike groups.id/template_slots.group_id there is no FK to repoint.
+  if (getSchemaVersion(db) < 13) {
+    db.transaction(() => {
+      db.exec(`
+        DELETE FROM time_blocks
+        WHERE rowid NOT IN (
+          SELECT MIN(rowid) FROM time_blocks GROUP BY camp_id, cohort_id, name
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_time_blocks_camp_cohort_name
+          ON time_blocks(camp_id, cohort_id, name);
+      `)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (13, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 export function openLocalDb(filePath) {
