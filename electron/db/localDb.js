@@ -468,6 +468,69 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // Closes the same missing-uniqueness gap idx_time_blocks_camp_cohort_name
+  // (version 13) closed for time_blocks, for tiers: unit names are
+  // cohort-scoped, and tiers had NO uniqueness constraint at all, so
+  // concurrent same-named adds from two devices silently created permanent
+  // duplicates with zero conflict signal. A fresh install gets
+  // UNIQUE(camp_id, cohort_id, name) via schema.sql's CREATE TABLE; a db
+  // that already ran an earlier schema version keeps its old tiers table as
+  // -is (CREATE TABLE IF NOT EXISTS never retrofits it, and cohort_id/
+  // sort_order on those dbs came from the version-10 ALTER TABLE), so this
+  // adds the same guarantee via a standalone unique index.
+  //
+  // Unlike time_blocks (version 13), tiers.id IS referenced elsewhere:
+  // groups.tier_id (schema.sql) is a plain TEXT column with no DB-level
+  // FOREIGN KEY constraint, so the dedup DELETE below would succeed
+  // silently even if a surviving group still pointed at a duplicate's id —
+  // the exact FK-repoint gap this project already hit once (Sub-plan B
+  // Task 2's cohorts migration, and fixed for groups.id/template_slots at
+  // version 12) — same JS-loop repoint-then-delete pattern reused here,
+  // since GROUP BY includes cohort_id (nullable) and SQL `=` on NULL never
+  // matches, so the repoint must be done in JS, not a NULL-unsafe SQL join.
+  if (getSchemaVersion(db) < 14) {
+    db.transaction(() => {
+      const survivors = db
+        .prepare(
+          `SELECT camp_id, cohort_id, name, MIN(rowid) as keep_rowid
+           FROM tiers GROUP BY camp_id, cohort_id, name HAVING COUNT(*) > 1`
+        )
+        .all()
+
+      for (const { camp_id, cohort_id, name, keep_rowid } of survivors) {
+        const keepRow = db
+          .prepare('SELECT id FROM tiers WHERE rowid = ?')
+          .get(keep_rowid)
+        const dupes = db
+          .prepare(
+            `SELECT id FROM tiers
+             WHERE camp_id = ? AND name = ? AND cohort_id IS ? AND rowid != ?`
+          )
+          .all(camp_id, name, cohort_id, keep_rowid)
+
+        for (const { id: dupeId } of dupes) {
+          db.prepare('UPDATE groups SET tier_id = ? WHERE tier_id = ?').run(
+            keepRow.id,
+            dupeId
+          )
+        }
+      }
+
+      db.exec(`
+        DELETE FROM tiers
+        WHERE rowid NOT IN (
+          SELECT MIN(rowid) FROM tiers GROUP BY camp_id, cohort_id, name
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tiers_camp_cohort_name
+          ON tiers(camp_id, cohort_id, name);
+      `)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (14, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 export function openLocalDb(filePath) {

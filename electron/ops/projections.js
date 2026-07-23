@@ -72,6 +72,19 @@ export const PROJECTIONS = {
       )
     },
   },
+  tiers: {
+    table: 'tiers',
+    key: 'id',
+    fields: ['camp_id', 'cohort_id', 'name', 'sort_order'],
+    ensureExists: (db, id) => {
+      // Same zero-camps caveat as cohorts/groups/days_of_operation/time_blocks.ensureExists above.
+      const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+      db.prepare("INSERT OR IGNORE INTO tiers (id, camp_id, name) VALUES (?, ?, '')").run(
+        id,
+        camp?.id ?? null
+      )
+    },
+  },
 }
 
 // Reserved field name for a row-delete op — see DELETE_FIELD's definition in

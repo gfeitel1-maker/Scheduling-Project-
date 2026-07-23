@@ -110,8 +110,19 @@ CREATE TABLE IF NOT EXISTS groups (
 CREATE TABLE IF NOT EXISTS tiers (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
-  name TEXT NOT NULL
+  name TEXT NOT NULL,
+  sort_order INTEGER,
+  cohort_id TEXT REFERENCES cohorts(id),
+  UNIQUE(camp_id, cohort_id, name)
 );
+-- Round 2 Red Hat fix (mirrors the time_blocks version-13 fix): the UNIQUE
+-- above only applies to brand-new installs, since this whole file runs as
+-- CREATE TABLE IF NOT EXISTS. Any db that already ran an earlier schema
+-- version keeps its pre-existing tiers table (without cohort_id/sort_order,
+-- added later via ALTER TABLE in localDb.js's version-10 migration)
+-- verbatim; the actual enforcement for those dbs comes from the
+-- idx_tiers_camp_cohort_name index added in localDb.js's version-14
+-- migration — same pattern as idx_time_blocks_camp_cohort_name (version 13).
 
 CREATE TABLE IF NOT EXISTS activities (
   id TEXT PRIMARY KEY,
