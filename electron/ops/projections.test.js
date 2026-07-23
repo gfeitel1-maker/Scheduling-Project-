@@ -30,6 +30,56 @@ describe('PROJECTIONS registry', () => {
     expect(PROJECTIONS.users.fields).toEqual(['camp_id', 'name', 'pin_hash', 'pin_salt', 'role'])
     expect(typeof PROJECTIONS.users.ensureExists).toBe('function')
   })
+
+  it('registers cohorts with a fields allowlist and ensureExists', () => {
+    expect(PROJECTIONS.cohorts.table).toBe('cohorts')
+    expect(PROJECTIONS.cohorts.key).toBe('id')
+    expect(PROJECTIONS.cohorts.fields).toEqual([
+      'camp_id',
+      'name',
+      'session_week_start',
+      'session_week_end',
+      'capacity_source',
+      'anchor_model',
+      'sort_order',
+    ])
+    expect(typeof PROJECTIONS.cohorts.ensureExists).toBe('function')
+  })
+})
+
+describe('applyProjection for cohorts', () => {
+  it('creates a new cohort row (via ensureExists) scoped to the existing camp, field by field', () => {
+    applyProjection(db, { entity: 'cohorts', entity_id: 'cohort-1', field: 'camp_id', value: 'camp-1' })
+    applyProjection(db, { entity: 'cohorts', entity_id: 'cohort-1', field: 'name', value: 'Main' })
+    applyProjection(db, {
+      entity: 'cohorts',
+      entity_id: 'cohort-1',
+      field: 'session_week_start',
+      value: 1,
+    })
+    const row = db.prepare('SELECT * FROM cohorts WHERE id = ?').get('cohort-1')
+    expect(row).toBeTruthy()
+    expect(row.camp_id).toBe('camp-1')
+    expect(row.name).toBe('Main')
+    expect(row.session_week_start).toBe('1.0')
+  })
+
+  it('does not violate the NOT NULL camp_id constraint on the placeholder insert', () => {
+    expect(() =>
+      applyProjection(db, { entity: 'cohorts', entity_id: 'cohort-2', field: 'name', value: 'Second' })
+    ).not.toThrow()
+    const row = db.prepare('SELECT camp_id FROM cohorts WHERE id = ?').get('cohort-2')
+    expect(row.camp_id).toBe('camp-1')
+  })
+
+  it('is a no-op for a field not in the cohorts allowlist', () => {
+    applyProjection(db, { entity: 'cohorts', entity_id: 'cohort-3', field: 'name', value: 'Third' })
+    expect(() =>
+      applyProjection(db, { entity: 'cohorts', entity_id: 'cohort-3', field: 'not_a_real_field', value: 'x' })
+    ).not.toThrow()
+    const row = db.prepare('SELECT * FROM cohorts WHERE id = ?').get('cohort-3')
+    expect(row.name).toBe('Third')
+  })
 })
 
 describe('applyProjection', () => {

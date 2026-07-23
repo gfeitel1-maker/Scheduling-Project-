@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../supabase'
+import { localClient } from '../localClient'
 
 // Loads cohorts for a camp and tracks which one is active.
 // activeCohort defaults to cohorts[0] (lowest sort_order).
@@ -16,13 +16,22 @@ export function useCohorts(campId) {
 
   async function load() {
     setLoading(true)
-    const { data } = await supabase
-      .from('cohorts')
-      .select('*')
-      .eq('camp_id', campId)
-      .order('sort_order')
-      .order('name')
-    const list = data || []
+    let list = []
+    try {
+      const data = await localClient.list('cohorts')
+      list = (data || [])
+        .filter((c) => c.camp_id === campId)
+        .sort((a, b) => {
+          // LOW (deferred per Sub-plan B Task 2 round 1 Red Hat review,
+          // revisit in Task 3): null sort_order tie-break coerces to 0,
+          // which can interleave unpredictably with real sort_order: 0 rows.
+          const sortDiff = (a.sort_order ?? 0) - (b.sort_order ?? 0)
+          if (sortDiff !== 0) return sortDiff
+          return (a.name ?? '').localeCompare(b.name ?? '')
+        })
+    } catch {
+      list = []
+    }
     setCohorts(list)
     setActiveCohortId(prev => {
       // Keep selection if previously selected cohort still exists

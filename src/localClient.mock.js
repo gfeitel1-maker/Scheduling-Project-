@@ -100,6 +100,11 @@ export const mockShoresh = {
   async listUsers() {
     return loadState().users.map((u) => ({ id: u.id, name: u.name, role: u.role }))
   },
+  async list(entity) {
+    const state = loadState()
+    if (!Array.isArray(state[entity])) return []
+    return state[entity]
+  },
   async getDeviceId() {
     return 'mock-device'
   },

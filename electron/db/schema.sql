@@ -164,8 +164,14 @@ CREATE TABLE IF NOT EXISTS cohorts (
   session_week_end TEXT,
   capacity_source TEXT,
   anchor_model TEXT,
-  sort_order INTEGER
+  sort_order INTEGER,
+  UNIQUE(camp_id, name)
 );
+-- Round 2 Red Hat fix (Sub-plan B Task 2): the UNIQUE above only applies to
+-- brand-new installs, since this whole file runs as CREATE TABLE IF NOT
+-- EXISTS. Any db that already ran schema version 10 keeps its pre-existing
+-- cohorts table verbatim; the actual enforcement for those dbs comes from
+-- the idx_cohorts_camp_name index added in localDb.js's version-11 migration.
 
 CREATE TABLE IF NOT EXISTS days_of_operation (
   id TEXT PRIMARY KEY,

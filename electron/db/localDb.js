@@ -308,6 +308,75 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // Round 2 Red Hat fix (Sub-plan B Task 2, HIGH finding 1): closes the
+  // duplicate-cohort race at the actual DB layer. A fresh install already
+  // gets UNIQUE(camp_id, name) via schema.sql's CREATE TABLE; a db that
+  // already ran version 10 keeps its old cohorts table as-is (CREATE TABLE
+  // IF NOT EXISTS never retrofits it), so this adds the same guarantee via
+  // a standalone unique index — mirroring how idx_users_camp_name (version
+  // 4) was added for the pre-existing `users` table above. Duplicate
+  // (camp_id, name) rows that already exist from before this fix (i.e. a
+  // pre-fix race already produced two "Main" cohorts) would make the
+  // CREATE UNIQUE INDEX itself fail, so any but the first row per
+  // (camp_id, name) is deleted first.
+  //
+  // Round 2 escalation (GOVERNOR judgment call after 2 consecutive failed
+  // Red Hat rounds on this task): the original version of this migration
+  // deleted duplicate rows outright and claimed cohorts had "no established
+  // consumers yet." That claim was false — schema.sql already declares
+  // `time_blocks.cohort_id` and `anchor_activities.cohort_id` as FK
+  // references to cohorts(id), and openLocalDb turns on
+  // `PRAGMA foreign_keys = ON` before this migration runs. Red Hat
+  // reproduced a real crash: deleting a duplicate cohort that a time_block
+  // or anchor_activity still pointed at threw `FOREIGN KEY constraint
+  // failed` and made openLocalDb throw, bricking app launch for any device
+  // that had already hit the round-1 race. Fix: before deleting each
+  // duplicate row, repoint every FK reference (time_blocks.cohort_id,
+  // anchor_activities.cohort_id) from the duplicate's id to the surviving
+  // (MIN rowid) row's id, so no reference is left dangling and no delete
+  // can violate a foreign key.
+  if (getSchemaVersion(db) < 11) {
+    db.transaction(() => {
+      const survivors = db
+        .prepare(
+          `SELECT camp_id, name, MIN(rowid) as keep_rowid
+           FROM cohorts GROUP BY camp_id, name HAVING COUNT(*) > 1`
+        )
+        .all()
+
+      for (const { camp_id, name, keep_rowid } of survivors) {
+        const keepRow = db
+          .prepare('SELECT id FROM cohorts WHERE rowid = ?')
+          .get(keep_rowid)
+        const dupes = db
+          .prepare(
+            'SELECT id FROM cohorts WHERE camp_id = ? AND name = ? AND rowid != ?'
+          )
+          .all(camp_id, name, keep_rowid)
+
+        for (const { id: dupeId } of dupes) {
+          db.prepare('UPDATE time_blocks SET cohort_id = ? WHERE cohort_id = ?').run(
+            keepRow.id,
+            dupeId
+          )
+          db.prepare(
+            'UPDATE anchor_activities SET cohort_id = ? WHERE cohort_id = ?'
+          ).run(keepRow.id, dupeId)
+        }
+      }
+
+      db.exec(`
+        DELETE FROM cohorts
+        WHERE rowid NOT IN (SELECT MIN(rowid) FROM cohorts GROUP BY camp_id, name);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_cohorts_camp_name ON cohorts(camp_id, name);
+      `)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (11, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 export function openLocalDb(filePath) {

@@ -19,6 +19,7 @@ export const localClient = {
   getCamp: () => shoresh.getCamp(),
   listUsers: () => shoresh.listUsers(),
   getDeviceId: () => shoresh.getDeviceId(),
+  list: (entity) => shoresh.list(entity),
   resolveConflict: (token, { entity, entity_id, field, chosen_op_id, parent_op_id }) =>
     shoresh.resolveConflict({ token, entity, entity_id, field, chosen_op_id, parent_op_id }),
   listPendingConflicts: () => shoresh.listPendingConflicts(),
