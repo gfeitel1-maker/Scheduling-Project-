@@ -1,9 +1,25 @@
 import { randomUUID } from 'node:crypto'
 import { PROJECTIONS, applyProjection } from './projections.js'
 
+// Sentinel field name for a row-delete op. Deliberately routed through the
+// SAME appendOp/detectConflict/appendOp-log path as every other field-level
+// write (per this project's hard rule that all writes to synced entities go
+// through the op-log, never a direct bypass) rather than a new IPC channel
+// or table: a delete gets a client_write_id for idempotent retry, appears in
+// the operations log, replicates via the existing sync mechanism, and is
+// subject to the exact same per-field conflict detection a real field write
+// would get (a concurrent delete + concurrent edit of the same entity_id
+// race exactly like two concurrent field writes would, via latestOp/
+// detectConflict below — see applyProjection in projections.js for how this
+// sentinel is turned into an actual DELETE). No entity may register a real
+// field literally named '__deleted__' (mirrors BULK_REPLACE_FIELD's
+// reserved-sentinel approach above), so it's trivially distinguishable from
+// a genuine projected field.
+export const DELETE_FIELD = '__deleted__'
+
 export function appendOp(db, { entity, entity_id, field, value, author_user_id, device_id, parent_op_id, client_write_id }) {
   const projection = PROJECTIONS[entity]
-  if (projection && !projection.fields.includes(field)) {
+  if (projection && field !== DELETE_FIELD && !projection.fields.includes(field)) {
     throw new Error('field not allowed for entity')
   }
 
@@ -308,8 +324,42 @@ export function latestOp(db, entity, entity_id, field) {
     .get(entity, entity_id, field)
 }
 
+// Latest op for an entity_id across ALL fields, regardless of which field
+// the incoming op targets. Used by detectConflict below so a delete
+// (DELETE_FIELD) — which otherwise has no "own field" to key a same-field
+// lookup on — can be compared against whatever the most recent op for that
+// row actually was, and so a plain field-level op can be compared against a
+// concurrent delete even though a delete's field literally never matches a
+// real field name.
+function latestOpForEntity(db, entity, entity_id) {
+  return db
+    .prepare(`SELECT * FROM operations WHERE entity = ? AND entity_id = ? ORDER BY seq DESC LIMIT 1`)
+    .get(entity, entity_id)
+}
+
+// Round 2 Security MEDIUM #2 fix (Sub-plan B Task 3): detectConflict used to
+// key strictly on (entity, entity_id, field), so a delete op (field
+// DELETE_FIELD) never collided with a concurrent field-level edit of the
+// same entity_id (and vice versa) — both would apply silently, and a field
+// edit landing after a delete would resurrect a near-empty row via
+// ensureExists's INSERT OR IGNORE, with no conflict ever recorded.
+//
+// Fix: a delete op is compared against the latest op for its entity_id
+// ACROSS ALL FIELDS (there's no single "own field" for it to collide on
+// otherwise). A normal field-level op is compared against whichever is
+// more recent of (a) the latest op for that same field, or (b) the latest
+// delete op for that entity_id — so a field edit racing a delete surfaces
+// as a conflict too, not just the reverse direction.
 export function detectConflict(db, incomingOp) {
-  const existingOp = latestOp(db, incomingOp.entity, incomingOp.entity_id, incomingOp.field)
+  let existingOp
+  if (incomingOp.field === DELETE_FIELD) {
+    existingOp = latestOpForEntity(db, incomingOp.entity, incomingOp.entity_id)
+  } else {
+    const sameFieldOp = latestOp(db, incomingOp.entity, incomingOp.entity_id, incomingOp.field)
+    const deleteOp = latestOp(db, incomingOp.entity, incomingOp.entity_id, DELETE_FIELD)
+    existingOp =
+      !deleteOp ? sameFieldOp : !sameFieldOp || deleteOp.seq > sameFieldOp.seq ? deleteOp : sameFieldOp
+  }
   if (!existingOp) return { conflict: false }
   if (existingOp.id === incomingOp.parent_op_id) return { conflict: false }
   return { conflict: true, existingOp }

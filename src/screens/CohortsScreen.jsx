@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../supabase'
+import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 
 const ANCHOR_MODELS = [
@@ -26,16 +26,23 @@ function CohortRow({ cohort, onSave, onDelete }) {
   async function save() {
     if (!name.trim()) return
     setSaving(true)
-    await onSave(cohort.id, {
-      name: name.trim(),
-      session_week_start: Number(weekStart),
-      session_week_end: Number(weekEnd),
-      anchor_model: anchorModel,
-      capacity_source: capacitySource,
-      sort_order: Number(sortOrder),
-    })
-    setSaving(false)
-    setEditing(false)
+    try {
+      await onSave(cohort.id, {
+        name: name.trim(),
+        session_week_start: Number(weekStart),
+        session_week_end: Number(weekEnd),
+        anchor_model: anchorModel,
+        capacity_source: capacitySource,
+        sort_order: Number(sortOrder),
+      })
+      setEditing(false)
+    } catch {
+      // onSave already surfaced the failure via the screen's error banner;
+      // stay in edit mode (don't revert to read-only) so the user's
+      // in-progress changes aren't silently discarded as if they'd saved.
+    } finally {
+      setSaving(false)
+    }
   }
 
   function cancel() {
@@ -132,9 +139,15 @@ export default function CohortsScreen({ campId }) {
     setLoading(true)
     setError(null)
     try {
-      const { data } = await supabase.from('cohorts').select('*')
-        .eq('camp_id', campId).order('sort_order').order('name')
-      setCohorts(data || [])
+      const data = await localClient.list('cohorts')
+      const list = (data || [])
+        .filter((c) => c.camp_id === campId)
+        .sort((a, b) => {
+          const sortDiff = (a.sort_order ?? 0) - (b.sort_order ?? 0)
+          if (sortDiff !== 0) return sortDiff
+          return (a.name ?? '').localeCompare(b.name ?? '')
+        })
+      setCohorts(list)
     } catch {
       setError('Failed to load data — check your connection and refresh')
     } finally {
@@ -142,32 +155,73 @@ export default function CohortsScreen({ campId }) {
     }
   }
 
+  // Fires one write() per field (the op-log is field-level — see
+  // CLAUDE.md's op-log note) and surfaces the first failure rather than a
+  // silent partial write, per the project convention of checking
+  // `result.status !== 'applied'`/'queued' after each write.
+  async function writeFields(id, fields) {
+    const token = localStorage.getItem('shoresh-token')
+    for (const [field, value] of Object.entries(fields)) {
+      const result = await localClient.write(token, 'cohorts', id, field, value)
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error(`write failed for field "${field}"`)
+      }
+    }
+  }
+
   async function addCohort() {
     if (!newName.trim()) return
     setAdding(true)
     const sortVal = newSort !== '' ? Number(newSort) : (cohorts.length + 1)
-    await supabase.from('cohorts').insert({
-      camp_id: campId,
-      name: newName.trim(),
-      session_week_start: Number(newWeekStart),
-      session_week_end: Number(newWeekEnd),
-      anchor_model: newAnchorModel,
-      capacity_source: newCapacitySource,
-      sort_order: sortVal,
-    })
-    setNewName('')
-    setNewWeekStart(1)
-    setNewWeekEnd(1)
-    setNewSort('')
-    setNewAnchorModel('fixed')
-    setNewCapacitySource('groups_per_slot')
-    setAdding(false)
-    load()
+    try {
+      const id = crypto.randomUUID()
+      // `name` is written FIRST — see ensureCohort.js's identical ordering
+      // note. cohorts.ensureExists (electron/ops/projections.js) creates the
+      // row as part of applying whichever field write lands first, so if
+      // `camp_id` went first a UNIQUE(camp_id, name) collision on the later
+      // `name` write would leave an orphaned camp_id-only row behind.
+      // Writing `name` first means a collision fails on the very first
+      // write, and the row-creation + failed UPDATE are the same SQLite
+      // transaction (see appendOp), so nothing is left behind at all.
+      await writeFields(id, {
+        name: newName.trim(),
+        camp_id: campId,
+        session_week_start: Number(newWeekStart),
+        session_week_end: Number(newWeekEnd),
+        anchor_model: newAnchorModel,
+        capacity_source: newCapacitySource,
+        sort_order: sortVal,
+      })
+      setNewName('')
+      setNewWeekStart(1)
+      setNewWeekEnd(1)
+      setNewSort('')
+      setNewAnchorModel('fixed')
+      setNewCapacitySource('groups_per_slot')
+      await load()
+    } catch (err) {
+      setError(
+        /UNIQUE/i.test(err?.message ?? '')
+          ? 'A program with this name already exists — choose a different name.'
+          : 'Failed to add program — check your connection and try again'
+      )
+    } finally {
+      setAdding(false)
+    }
   }
 
   async function saveCohort(id, fields) {
-    await supabase.from('cohorts').update(fields).eq('id', id)
-    load()
+    try {
+      await writeFields(id, fields)
+      await load()
+    } catch (err) {
+      setError(
+        /UNIQUE/i.test(err?.message ?? '')
+          ? 'A program with this name already exists — choose a different name.'
+          : 'Failed to save program — check your connection and try again'
+      )
+      throw err
+    }
   }
 
   async function deleteCohort(id) {
@@ -176,8 +230,20 @@ export default function CohortsScreen({ campId }) {
       return
     }
     if (!window.confirm('Delete this program? Units and time blocks assigned to it will lose their program reference.')) return
-    await supabase.from('cohorts').delete().eq('id', id)
-    load()
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      const result = await localClient.deleteEntity(token, 'cohorts', id)
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error('delete failed')
+      }
+      await load()
+    } catch (err) {
+      setError(
+        /FOREIGN KEY/i.test(err?.message ?? '')
+          ? "Can't delete — other data (time blocks or anchors) still references this program. Remove those first."
+          : 'Failed to delete program — check your connection and try again'
+      )
+    }
   }
 
   return (

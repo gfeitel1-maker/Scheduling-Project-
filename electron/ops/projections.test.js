@@ -82,6 +82,31 @@ describe('applyProjection for cohorts', () => {
   })
 })
 
+describe('applyProjection __deleted__ sentinel', () => {
+  it('deletes the row when op.field is __deleted__', () => {
+    applyProjection(db, { entity: 'cohorts', entity_id: 'cohort-del-1', field: 'camp_id', value: 'camp-1' })
+    applyProjection(db, { entity: 'cohorts', entity_id: 'cohort-del-1', field: 'name', value: 'ToDelete' })
+    expect(db.prepare('SELECT * FROM cohorts WHERE id = ?').get('cohort-del-1')).toBeTruthy()
+
+    applyProjection(db, { entity: 'cohorts', entity_id: 'cohort-del-1', field: '__deleted__', value: 1 })
+
+    expect(db.prepare('SELECT * FROM cohorts WHERE id = ?').get('cohort-del-1')).toBeUndefined()
+  })
+
+  it('is a no-op (does not throw, does not create a row) when deleting a row that never existed', () => {
+    expect(() =>
+      applyProjection(db, { entity: 'cohorts', entity_id: 'never-existed', field: '__deleted__', value: 1 })
+    ).not.toThrow()
+    expect(db.prepare('SELECT * FROM cohorts WHERE id = ?').get('never-existed')).toBeUndefined()
+  })
+
+  it('is a no-op for an unregistered entity even with the delete sentinel', () => {
+    expect(() =>
+      applyProjection(db, { entity: 'not_a_real_entity', entity_id: 'x', field: '__deleted__', value: 1 })
+    ).not.toThrow()
+  })
+})
+
 describe('applyProjection', () => {
   it('updates the real row for a registered entity', () => {
     applyProjection(db, { entity: 'users', entity_id: 'user-1', field: 'name', value: 'Bob' })

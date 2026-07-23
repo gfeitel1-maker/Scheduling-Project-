@@ -533,6 +533,47 @@ describe('write handler', () => {
       expect.objectContaining({ entity: 'activities', author_user_id: user.id })
     )
   })
+
+  describe('DELETE_FIELD authorization (Round 2 Security MEDIUM #1: admin-gated delete)', () => {
+    it('rejects a delete write from a non-admin (staff) session', async () => {
+      const { campId } = await seedCampAndUser({ name: 'StaffDeleter', pin: '2468', role: 'staff' })
+      const handlers = makeHandlers(db, deviceId, {})
+      await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7104 })
+      const { token } = await handlers.login({ name: 'StaffDeleter', pin: '2468' })
+
+      expect(() =>
+        handlers.write({ token, entity: 'cohorts', entity_id: 'some-cohort', field: '__deleted__', value: 1 })
+      ).toThrow('admin role required')
+      expect(lastCreatedSyncClient.write).not.toHaveBeenCalled()
+      void campId
+    })
+
+    it('allows a delete write from an admin session', async () => {
+      await seedCampAndUser({ name: 'AdminDeleter', pin: '2468', role: 'admin' })
+      const handlers = makeHandlers(db, deviceId, {})
+      await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7105 })
+      const { token } = await handlers.login({ name: 'AdminDeleter', pin: '2468' })
+
+      await handlers.write({ token, entity: 'cohorts', entity_id: 'some-cohort', field: '__deleted__', value: 1 })
+
+      expect(lastCreatedSyncClient.write).toHaveBeenCalledWith(
+        expect.objectContaining({ entity: 'cohorts', field: '__deleted__' })
+      )
+    })
+
+    it('does not gate ordinary (non-delete) field writes for a non-admin', async () => {
+      const { user } = await seedCampAndUser({ name: 'StaffWriter', pin: '1357', role: 'staff' })
+      const handlers = makeHandlers(db, deviceId, {})
+      await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7106 })
+      const { token } = await handlers.login({ name: 'StaffWriter', pin: '1357' })
+
+      await handlers.write({ token, entity: 'cohorts', entity_id: 'some-cohort', field: 'name', value: 'X' })
+
+      expect(lastCreatedSyncClient.write).toHaveBeenCalledWith(
+        expect.objectContaining({ entity: 'cohorts', field: 'name', author_user_id: user.id })
+      )
+    })
+  })
 })
 
 describe('sanitizeConflictForIpc (Round 2 Fix 1: main-process PIN filtering)', () => {

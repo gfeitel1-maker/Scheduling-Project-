@@ -8,7 +8,7 @@ import { createUser, issueSessionToken, verifySessionToken, attemptLogin } from 
 import { startSyncServer } from './sync/syncServer.js'
 import { createSyncClient } from './sync/syncClient.js'
 import { advertiseHost, discoverHosts } from './sync/discovery.js'
-import { listPendingConflicts } from './ops/operations.js'
+import { listPendingConflicts, DELETE_FIELD } from './ops/operations.js'
 
 const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 
@@ -277,6 +277,18 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     const session = verifySessionToken(db, token)
     if (!session) {
       throw new Error('invalid session')
+    }
+    // Security MEDIUM #1 (Sub-plan B Task 3 round 2): a delete (the
+    // DELETE_FIELD sentinel) is a comparably sensitive action to createUser,
+    // which already requires role === 'admin' — apply the same gate here so
+    // a non-admin can't delete any PROJECTIONS-registered row (including
+    // other users). Ordinary field writes are intentionally left ungated:
+    // that's existing, unrelated behavior this fix must not change.
+    if (writeArgs.field === DELETE_FIELD) {
+      const sessionUser = db.prepare('SELECT role FROM users WHERE id = ?').get(session.userId)
+      if (!sessionUser || sessionUser.role !== 'admin') {
+        throw new Error('admin role required')
+      }
     }
     if (!syncClient) {
       throw new Error('sync not initialized — choose a mode first')

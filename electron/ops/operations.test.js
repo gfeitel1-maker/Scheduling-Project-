@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
-import { appendOp, latestOp, detectConflict, recordConflict, listPendingConflicts } from './operations.js'
+import { appendOp, latestOp, detectConflict, recordConflict, listPendingConflicts, DELETE_FIELD } from './operations.js'
 
 let tmpFile
 let db
@@ -122,6 +122,38 @@ describe('appendOp field allowlist + transaction', () => {
   })
 })
 
+describe('appendOp DELETE_FIELD sentinel', () => {
+  it('is accepted (not rejected by the fields allowlist) for a registered projection entity, and applies as a real row delete', () => {
+    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-2', 'Camp Two')
+    appendOp(db, {
+      entity: 'cohorts',
+      entity_id: 'cohort-to-delete',
+      field: 'camp_id',
+      value: 'camp-2',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+    expect(db.prepare('SELECT * FROM cohorts WHERE id = ?').get('cohort-to-delete')).toBeTruthy()
+
+    const before = db.prepare('SELECT COUNT(*) AS n FROM operations').get().n
+    const op = appendOp(db, {
+      entity: 'cohorts',
+      entity_id: 'cohort-to-delete',
+      field: DELETE_FIELD,
+      value: 1,
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+    const after = db.prepare('SELECT COUNT(*) AS n FROM operations').get().n
+
+    expect(op.field).toBe('__deleted__')
+    expect(after).toBe(before + 1)
+    expect(db.prepare('SELECT * FROM cohorts WHERE id = ?').get('cohort-to-delete')).toBeUndefined()
+  })
+})
+
 describe('latestOp', () => {
   it('orders by seq, not timestamp, returning the most recently appended op', () => {
     const op1 = appendOp(db, {
@@ -210,6 +242,101 @@ describe('detectConflict', () => {
     const result = detectConflict(db, incomingOp)
     expect(result.conflict).toBe(true)
     expect(result.existingOp.id).toBe(appliedOp.id)
+  })
+})
+
+describe('detectConflict: DELETE_FIELD vs. concurrent field-edit (Round 2 Security MEDIUM #2)', () => {
+  it('reports a conflict when an incoming delete races a concurrent field-edit op it never observed', () => {
+    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-2', 'Camp Two')
+    const createOp = appendOp(db, {
+      entity: 'cohorts',
+      entity_id: 'cohort-race-1',
+      field: 'camp_id',
+      value: 'camp-2',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+    // A concurrent field edit lands after the delete's snapshot (createOp).
+    const editOp = appendOp(db, {
+      entity: 'cohorts',
+      entity_id: 'cohort-race-1',
+      field: 'name',
+      value: 'Renamed',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    const incomingDelete = {
+      entity: 'cohorts',
+      entity_id: 'cohort-race-1',
+      field: DELETE_FIELD,
+      value: 1,
+      parent_op_id: createOp.id, // stale — never saw editOp
+    }
+
+    const result = detectConflict(db, incomingDelete)
+    expect(result.conflict).toBe(true)
+    expect(result.existingOp.id).toBe(editOp.id)
+  })
+
+  it('reports a conflict when an incoming field-edit races a concurrent delete it never observed', () => {
+    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-3', 'Camp Three')
+    const createOp = appendOp(db, {
+      entity: 'cohorts',
+      entity_id: 'cohort-race-2',
+      field: 'camp_id',
+      value: 'camp-3',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+    const deleteOp = appendOp(db, {
+      entity: 'cohorts',
+      entity_id: 'cohort-race-2',
+      field: DELETE_FIELD,
+      value: 1,
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    const incomingEdit = {
+      entity: 'cohorts',
+      entity_id: 'cohort-race-2',
+      field: 'name',
+      value: 'Should not resurrect the row',
+      parent_op_id: createOp.id, // stale — never saw deleteOp
+    }
+
+    const result = detectConflict(db, incomingEdit)
+    expect(result.conflict).toBe(true)
+    expect(result.existingOp.id).toBe(deleteOp.id)
+  })
+
+  it('does not conflict when the field-edit correctly cites the delete as its parent (deliberate resurrect/recreate)', () => {
+    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-4', 'Camp Four')
+    const deleteOp = appendOp(db, {
+      entity: 'cohorts',
+      entity_id: 'cohort-race-3',
+      field: DELETE_FIELD,
+      value: 1,
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    const incomingEdit = {
+      entity: 'cohorts',
+      entity_id: 'cohort-race-3',
+      field: 'name',
+      value: 'Recreated',
+      parent_op_id: deleteOp.id,
+    }
+
+    const result = detectConflict(db, incomingEdit)
+    expect(result.conflict).toBe(false)
   })
 })
 

@@ -13,6 +13,11 @@ export const localClient = {
   bootstrapCamp: (args) => shoresh.bootstrapCamp(args),
   write: (token, entity, entity_id, field, value, parent_op_id) =>
     shoresh.write({ token, entity, entity_id, field, value, ...(parent_op_id ? { parent_op_id } : {}) }),
+  // Row delete, routed through the same shoresh.write IPC channel as a field
+  // write — see DELETE_FIELD in electron/ops/operations.js. field: '__deleted__'
+  // is a reserved sentinel that applyProjection turns into a real DELETE.
+  deleteEntity: (token, entity, entity_id) =>
+    shoresh.write({ token, entity, entity_id, field: '__deleted__', value: 1 }),
   verifySession: (token) => shoresh.verifySession({ token }),
   onOpApplied: (cb) => shoresh.onOpApplied(cb),
   onOpConflict: (cb) => shoresh.onOpConflict(cb),

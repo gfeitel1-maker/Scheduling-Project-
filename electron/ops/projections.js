@@ -35,9 +35,22 @@ export const PROJECTIONS = {
   },
 }
 
+// Reserved field name for a row-delete op — see DELETE_FIELD's definition in
+// operations.js for why a delete is expressed as a sentinel field on the
+// same appendOp path rather than a new primitive. Kept as a separate literal
+// here (not imported) to avoid a projections.js -> operations.js import
+// cycle, since operations.js already imports PROJECTIONS/applyProjection
+// from this file.
+const DELETE_FIELD = '__deleted__'
+
 export function applyProjection(db, op) {
   const projection = PROJECTIONS[op.entity]
   if (!projection) return
+
+  if (op.field === DELETE_FIELD) {
+    db.prepare(`DELETE FROM ${projection.table} WHERE ${projection.key} = ?`).run(op.entity_id)
+    return
+  }
 
   if (!projection.fields.includes(op.field)) return
 
