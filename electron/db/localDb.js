@@ -531,6 +531,89 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // ActivitiesScreen migration off Supabase. Adds every field the screen
+  // actually needs beyond the priority/is_locked/span_blocks columns added
+  // at version 10 (location, is_outdoor, max_groups_per_slot, min_per_week,
+  // max_per_week, same_tier_only, eligible_tier_ids, eligible_group_ids,
+  // prefer_before_day, prefer_before_day_min, weather_alternative_id,
+  // notes), and closes the same missing-uniqueness gap
+  // idx_groups_camp_name (version 12) closed for groups: activities are
+  // camp-scoped only (no cohort_id — unlike tiers/time_blocks), and had NO
+  // uniqueness constraint at all. A fresh install gets UNIQUE(camp_id, name)
+  // via schema.sql's CREATE TABLE; a db that already ran an earlier schema
+  // version keeps its old activities table as-is (CREATE TABLE IF NOT
+  // EXISTS never retrofits it), so this adds the same guarantee via a
+  // standalone unique index.
+  //
+  // Two references to activities.id need repointing before the dedupe
+  // DELETE, mirroring the groups.id/template_slots.group_id fix (version
+  // 12): template_slots.activity_id IS a DB-level REFERENCES column
+  // (schema.sql), so deleting a duplicate without repointing would throw
+  // `FOREIGN KEY constraint failed`. activities.weather_alternative_id is a
+  // self-reference (plain TEXT column, no DB-level FK — like
+  // groups.tier_id's version-14 precedent), repointed too so a surviving
+  // activity's "weather alternative" pointer isn't silently orphaned by a
+  // dedupe delete of the activity it pointed at.
+  if (getSchemaVersion(db) < 15) {
+    db.transaction(() => {
+      const addColumnIfMissing = (table, name, type) => {
+        const has = db.pragma(`table_info(${table})`).some((col) => col.name === name)
+        if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`)
+      }
+
+      addColumnIfMissing('activities', 'location', 'TEXT')
+      addColumnIfMissing('activities', 'is_outdoor', 'INTEGER')
+      addColumnIfMissing('activities', 'max_groups_per_slot', 'INTEGER')
+      addColumnIfMissing('activities', 'min_per_week', 'INTEGER')
+      addColumnIfMissing('activities', 'max_per_week', 'INTEGER')
+      addColumnIfMissing('activities', 'same_tier_only', 'INTEGER')
+      addColumnIfMissing('activities', 'eligible_tier_ids', 'TEXT')
+      addColumnIfMissing('activities', 'eligible_group_ids', 'TEXT')
+      addColumnIfMissing('activities', 'prefer_before_day', 'INTEGER')
+      addColumnIfMissing('activities', 'prefer_before_day_min', 'INTEGER')
+      addColumnIfMissing('activities', 'weather_alternative_id', 'TEXT')
+      addColumnIfMissing('activities', 'notes', 'TEXT')
+
+      const survivors = db
+        .prepare(
+          `SELECT camp_id, name, MIN(rowid) as keep_rowid
+           FROM activities GROUP BY camp_id, name HAVING COUNT(*) > 1`
+        )
+        .all()
+
+      for (const { camp_id, name, keep_rowid } of survivors) {
+        const keepRow = db
+          .prepare('SELECT id FROM activities WHERE rowid = ?')
+          .get(keep_rowid)
+        const dupes = db
+          .prepare(
+            'SELECT id FROM activities WHERE camp_id = ? AND name = ? AND rowid != ?'
+          )
+          .all(camp_id, name, keep_rowid)
+
+        for (const { id: dupeId } of dupes) {
+          db.prepare('UPDATE template_slots SET activity_id = ? WHERE activity_id = ?').run(
+            keepRow.id,
+            dupeId
+          )
+          db.prepare(
+            'UPDATE activities SET weather_alternative_id = ? WHERE weather_alternative_id = ?'
+          ).run(keepRow.id, dupeId)
+        }
+      }
+
+      db.exec(`
+        DELETE FROM activities
+        WHERE rowid NOT IN (SELECT MIN(rowid) FROM activities GROUP BY camp_id, name);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_activities_camp_name ON activities(camp_id, name);
+      `)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (15, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 export function openLocalDb(filePath) {

@@ -127,8 +127,33 @@ CREATE TABLE IF NOT EXISTS tiers (
 CREATE TABLE IF NOT EXISTS activities (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
-  name TEXT NOT NULL
+  name TEXT NOT NULL,
+  priority INTEGER,
+  is_locked INTEGER,
+  span_blocks INTEGER,
+  location TEXT,
+  is_outdoor INTEGER,
+  max_groups_per_slot INTEGER,
+  min_per_week INTEGER,
+  max_per_week INTEGER,
+  same_tier_only INTEGER,
+  eligible_tier_ids TEXT,
+  eligible_group_ids TEXT,
+  prefer_before_day INTEGER,
+  prefer_before_day_min INTEGER,
+  weather_alternative_id TEXT,
+  notes TEXT,
+  UNIQUE(camp_id, name)
 );
+-- Round 2 Red Hat fix (ActivitiesScreen migration): the UNIQUE above only
+-- applies to brand-new installs, since this whole file runs as CREATE TABLE
+-- IF NOT EXISTS. Any db that already ran an earlier schema version keeps its
+-- pre-existing activities table (without these columns, added later via
+-- ALTER TABLE in localDb.js's version-15 migration) verbatim; the actual
+-- enforcement for those dbs comes from the idx_activities_camp_name index
+-- added in localDb.js's version-15 migration — same pattern as
+-- idx_groups_camp_name (version 12). activities is camp-scoped only (no
+-- cohort_id), matching groups, not tiers/time_blocks.
 
 CREATE TABLE IF NOT EXISTS template_slots (
   id TEXT PRIMARY KEY,

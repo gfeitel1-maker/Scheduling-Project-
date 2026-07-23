@@ -174,7 +174,7 @@ describe('THIRD CORRECTION: version-4 migration is transactional', () => {
 describe('Task 4: devices.last_synced_at (schema version 5)', () => {
   it('getSchemaVersion returns 6 after openLocalDb runs', () => {
     const db = freshDb()
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 
@@ -182,7 +182,7 @@ describe('Task 4: devices.last_synced_at (schema version 5)', () => {
     const db = freshDb()
     const col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 
@@ -206,7 +206,7 @@ describe('Task 4: devices.last_synced_at (schema version 5)', () => {
 
     col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 })
@@ -218,14 +218,14 @@ describe('Task 9 Round 2 Fix 2: login_attempts table (schema version 6)', () => 
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='login_attempts'")
       .get()
     expect(table).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 
   it('is idempotent: re-running initSchema on an already-migrated db does not error', () => {
     const db = freshDb()
     expect(() => initSchema(db)).not.toThrow()
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 
@@ -250,7 +250,7 @@ describe('Task 9 Round 2 Fix 2: login_attempts table (schema version 6)', () => 
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='login_attempts'")
       .get()
     expect(table).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 })
@@ -260,7 +260,7 @@ describe('Task 10 round-4 Fix 3: devices.last_synced_seq (schema version 7)', ()
     const db = freshDb()
     const col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_seq')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 
@@ -286,7 +286,7 @@ describe('Task 10 round-4 Fix 3: devices.last_synced_seq (schema version 7)', ()
 
     col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_seq')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 })
@@ -300,7 +300,7 @@ describe('Task 10 round-5 Fix 1/3: pending_writes table + operations.client_writ
     expect(table).toBeDefined()
     const col = db.pragma('table_info(operations)').find((c) => c.name === 'client_write_id')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 
@@ -344,7 +344,7 @@ describe('Task 10 round-5 Fix 1/3: pending_writes table + operations.client_writ
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pending_writes'")
       .get()
     expect(table).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 })
@@ -355,7 +355,7 @@ describe('schema v9: camps.signing_secret', () => {
     const col = db.pragma('table_info(camps)').find((c) => c.name === 'signing_secret')
     expect(col).toBeDefined()
     expect(col.notnull).toBe(0)
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 
@@ -411,7 +411,7 @@ describe('schema v10: renderer Supabase migration Sub-plan A schema', () => {
         .get(t)
       expect(table, `expected table ${t} to exist`).toBeDefined()
     }
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 
@@ -431,7 +431,7 @@ describe('schema v10: renderer Supabase migration Sub-plan A schema', () => {
   it('is idempotent: re-running initSchema on an already-migrated db does not error', () => {
     const db = freshDb()
     expect(() => initSchema(db)).not.toThrow()
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 
@@ -489,7 +489,7 @@ describe('schema v10: renderer Supabase migration Sub-plan A schema', () => {
     expect(activityCols).toEqual(expect.arrayContaining(['priority', 'is_locked', 'span_blocks']))
     const slotCols = db.pragma('table_info(template_slots)').map((c) => c.name)
     expect(slotCols).toEqual(expect.arrayContaining(['flags', 'is_released', 'is_span_head']))
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 
@@ -547,7 +547,7 @@ describe('schema v10: renderer Supabase migration Sub-plan A schema', () => {
       expect(table, `expected table ${t} to exist in migrated db`).toBeDefined()
     }
 
-    expect(getSchemaVersion(migratedDatabase)).toBe(14)
+    expect(getSchemaVersion(migratedDatabase)).toBe(15)
 
     freshDatabase.close()
     migratedDatabase.close()
@@ -597,7 +597,7 @@ describe('Round 2 Red Hat fix, HIGH finding 1: UNIQUE(camp_id, name) on cohorts 
     expect(() => {
       db.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run('c3', 'camp1', 'Main')
     }).toThrow(/UNIQUE/)
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 
@@ -683,7 +683,7 @@ describe('Round 2 Red Hat fix, HIGH finding 3: UNIQUE(camp_id, name) on groups (
     expect(() => {
       db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run('g3', 'camp1', 'Yeladim 1')
     }).toThrow(/UNIQUE/)
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 
@@ -781,7 +781,7 @@ describe('Round 2 Red Hat fix, HIGH finding 1: UNIQUE(camp_id, cohort_id, name) 
     expect(() => {
       db.prepare('INSERT INTO time_blocks (id, camp_id, cohort_id, name) VALUES (?, ?, ?, ?)').run('tb3', 'camp1', 'co1', 'Block 1')
     }).toThrow(/UNIQUE/)
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 
@@ -840,7 +840,7 @@ describe('Round 2 Red Hat fix, mirrors time_blocks HIGH finding 1: UNIQUE(camp_i
     expect(() => {
       db.prepare('INSERT INTO tiers (id, camp_id, cohort_id, name) VALUES (?, ?, ?, ?)').run('t3', 'camp1', 'co1', 'Yeladim')
     }).toThrow(/UNIQUE/)
-    expect(getSchemaVersion(db)).toBe(14)
+    expect(getSchemaVersion(db)).toBe(15)
     db.close()
   })
 
@@ -873,6 +873,164 @@ describe('Round 2 Red Hat fix, mirrors time_blocks HIGH finding 1: UNIQUE(camp_i
 
     const survivor = db.prepare('SELECT id FROM tiers WHERE camp_id = ? AND cohort_id = ? AND name = ?').get('camp1', 'co1', 'Yeladim')
     expect(db.prepare('SELECT tier_id FROM groups WHERE id = ?').get('g1').tier_id).toBe(survivor.id)
+    db.close()
+  })
+})
+
+describe('ActivitiesScreen migration: UNIQUE(camp_id, name) + new columns on activities (schema version 15)', () => {
+  it('a fresh install rejects a second activity with the same camp_id + name', () => {
+    const db = freshDb()
+    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('a1', 'camp1', 'Water Play')
+    expect(() => {
+      db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('a2', 'camp1', 'Water Play')
+    }).toThrow(/UNIQUE/)
+    db.close()
+  })
+
+  it('adds every new column to a pre-migration db missing them', () => {
+    const db = freshDb()
+    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
+    // Simulate a genuine pre-fix db: its activities table only has the
+    // version-10 columns (priority/is_locked/span_blocks), predating this
+    // migration's ALTER TABLE additions.
+    db.exec('DROP TABLE activities')
+    db.exec(`
+      CREATE TABLE activities (
+        id TEXT PRIMARY KEY,
+        camp_id TEXT NOT NULL REFERENCES camps(id),
+        name TEXT NOT NULL,
+        priority INTEGER,
+        is_locked INTEGER,
+        span_blocks INTEGER
+      )
+    `)
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('a1', 'camp1', 'Water Play')
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 15').run()
+
+    expect(() => initSchema(db)).not.toThrow()
+
+    const cols = db.pragma('table_info(activities)').map((c) => c.name)
+    for (const col of [
+      'location', 'is_outdoor', 'max_groups_per_slot', 'min_per_week', 'max_per_week',
+      'same_tier_only', 'eligible_tier_ids', 'eligible_group_ids', 'prefer_before_day',
+      'prefer_before_day_min', 'weather_alternative_id', 'notes',
+    ]) {
+      expect(cols).toContain(col)
+    }
+    expect(getSchemaVersion(db)).toBe(15)
+    db.close()
+  })
+
+  it('adds idx_activities_camp_name to a pre-migration db missing it, deduping any pre-existing violators first', () => {
+    const db = freshDb()
+    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
+    // Simulate a genuine pre-fix db: its activities table predates the
+    // inline UNIQUE(camp_id, name) in schema.sql, so rebuild it without that
+    // constraint before seeding a race-created duplicate pair.
+    db.exec('DROP TABLE activities')
+    db.exec(`
+      CREATE TABLE activities (
+        id TEXT PRIMARY KEY,
+        camp_id TEXT NOT NULL REFERENCES camps(id),
+        name TEXT NOT NULL,
+        priority INTEGER,
+        is_locked INTEGER,
+        span_blocks INTEGER
+      )
+    `)
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('a1', 'camp1', 'Water Play')
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('a2', 'camp1', 'Water Play')
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 15').run()
+
+    expect(() => initSchema(db)).not.toThrow()
+
+    const rows = db.prepare('SELECT id FROM activities WHERE camp_id = ? AND name = ?').all('camp1', 'Water Play')
+    expect(rows.length).toBe(1)
+    expect(() => {
+      db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('a3', 'camp1', 'Water Play')
+    }).toThrow(/UNIQUE/)
+    expect(getSchemaVersion(db)).toBe(15)
+    db.close()
+  })
+
+  it('repoints template_slots.activity_id off a duplicate activity before deleting it, instead of crashing on FOREIGN KEY constraint failed', () => {
+    const db = freshDb()
+    db.pragma('foreign_keys = ON')
+    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
+    db.exec('DROP TABLE activities')
+    db.exec(`
+      CREATE TABLE activities (
+        id TEXT PRIMARY KEY,
+        camp_id TEXT NOT NULL REFERENCES camps(id),
+        name TEXT NOT NULL,
+        priority INTEGER,
+        is_locked INTEGER,
+        span_blocks INTEGER
+      )
+    `)
+    // Reproduce the groups/cohorts precedent: a real-world db that already
+    // hit a duplicate-name race (two "Water Play" activities) and has since
+    // been used normally — a template_slot points at the NON-min-rowid
+    // duplicate, which is exactly the row the naive dedupe would delete.
+    // template_slots.activity_id IS a DB-level REFERENCES column (unlike
+    // the plain-TEXT columns in prior tasks), so this needs the same
+    // repoint-before-delete treatment groups.id/template_slots.group_id got
+    // at version 12.
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('a1', 'camp1', 'Water Play')
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('a2', 'camp1', 'Water Play')
+    db.prepare(
+      "INSERT INTO template_slots (id, template_id, activity_id) VALUES ('ts1', 'tmpl1', 'a2')"
+    ).run()
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 15').run()
+
+    expect(() => initSchema(db)).not.toThrow()
+
+    const survivor = db.prepare('SELECT id FROM activities WHERE camp_id = ? AND name = ?').get('camp1', 'Water Play')
+    expect(db.prepare('SELECT activity_id FROM template_slots WHERE id = ?').get('ts1').activity_id).toBe(
+      survivor.id
+    )
+    db.close()
+  })
+
+  it('repoints activities.weather_alternative_id (self-reference) off a duplicate activity before deleting it, instead of silently orphaning the pointer', () => {
+    const db = freshDb()
+    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
+    db.exec('DROP TABLE activities')
+    // weather_alternative_id is included here (unlike the other rebuilt-table
+    // tests above) so the pointer can be seeded BEFORE the migration runs —
+    // this table shape wouldn't exist on a genuine pre-version-15 db (the
+    // column is new), but the point of this test is to exercise the
+    // repoint-before-delete logic itself, not the ALTER TABLE add-column step
+    // (already covered by the "adds every new column" test above).
+    db.exec(`
+      CREATE TABLE activities (
+        id TEXT PRIMARY KEY,
+        camp_id TEXT NOT NULL REFERENCES camps(id),
+        name TEXT NOT NULL,
+        priority INTEGER,
+        is_locked INTEGER,
+        span_blocks INTEGER,
+        weather_alternative_id TEXT
+      )
+    `)
+    // Reproduce the scenario: two "Water Play" activities exist (a race
+    // before the UNIQUE constraint existed), and a third activity's weather
+    // alternative points at the NON-min-rowid duplicate — exactly the row
+    // the naive dedupe would delete.
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('a1', 'camp1', 'Water Play')
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('a2', 'camp1', 'Water Play')
+    db.prepare(
+      "INSERT INTO activities (id, camp_id, name, weather_alternative_id) VALUES ('a3', 'camp1', 'Kayaking', 'a2')"
+    ).run()
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 15').run()
+
+    expect(() => initSchema(db)).not.toThrow()
+
+    const survivor = db.prepare('SELECT id FROM activities WHERE camp_id = ? AND name = ?').get('camp1', 'Water Play')
+    expect(db.prepare('SELECT weather_alternative_id FROM activities WHERE id = ?').get('a3').weather_alternative_id).toBe(
+      survivor.id
+    )
     db.close()
   })
 })

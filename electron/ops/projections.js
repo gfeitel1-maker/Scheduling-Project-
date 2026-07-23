@@ -85,6 +85,41 @@ export const PROJECTIONS = {
       )
     },
   },
+  activities: {
+    table: 'activities',
+    key: 'id',
+    // is_locked is deliberately excluded — ScheduleScreen.jsx (not migrated
+    // until a later sub-plan) still writes activities.is_locked directly via
+    // Supabase, against the now-separate Supabase `activities` table. That
+    // is an intentional transition-window gap, not something this
+    // projection should paper over by accepting writes it doesn't yet own.
+    fields: [
+      'camp_id',
+      'name',
+      'location',
+      'is_outdoor',
+      'max_groups_per_slot',
+      'min_per_week',
+      'max_per_week',
+      'same_tier_only',
+      'priority',
+      'eligible_tier_ids',
+      'eligible_group_ids',
+      'prefer_before_day',
+      'prefer_before_day_min',
+      'weather_alternative_id',
+      'notes',
+      'span_blocks',
+    ],
+    ensureExists: (db, id) => {
+      // Same zero-camps caveat as cohorts/groups/days_of_operation/time_blocks/tiers.ensureExists above.
+      const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+      db.prepare("INSERT OR IGNORE INTO activities (id, camp_id, name) VALUES (?, ?, '')").run(
+        id,
+        camp?.id ?? null
+      )
+    },
+  },
 }
 
 // Reserved field name for a row-delete op — see DELETE_FIELD's definition in

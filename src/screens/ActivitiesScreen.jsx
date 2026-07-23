@@ -1,9 +1,48 @@
 import React, { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
-import { supabase } from '../supabase'
+import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+
+// operations.value only accepts strings/null (better-sqlite3 throws on a raw
+// boolean/array) — every write must pre-serialize through these before
+// hitting localClient.write. Reads go through normalizeActivity below.
+const BOOL_FIELDS = new Set(['is_outdoor', 'same_tier_only'])
+const ARRAY_FIELDS = new Set(['eligible_tier_ids', 'eligible_group_ids'])
+
+function serializeFieldValue(field, value) {
+  if (BOOL_FIELDS.has(field)) return value ? 1 : 0
+  if (ARRAY_FIELDS.has(field)) return JSON.stringify(value ?? [])
+  return value ?? null
+}
+
+// Defense-in-depth: malformed JSON in an eligible_*_ids column (e.g. from a
+// corrupted/tampered op) must not crash the list render — default to [].
+function parseIdList(raw) {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function normalizeActivity(row) {
+  return {
+    ...row,
+    is_outdoor: row.is_outdoor === 1 || row.is_outdoor === true,
+    same_tier_only: row.same_tier_only === 1 || row.same_tier_only === true,
+    max_groups_per_slot: row.max_groups_per_slot ?? 1,
+    min_per_week: row.min_per_week ?? 0,
+    max_per_week: row.max_per_week ?? 5,
+    span_blocks: row.span_blocks ?? 1,
+    priority: row.priority || 'low',
+    eligible_tier_ids: parseIdList(row.eligible_tier_ids),
+    eligible_group_ids: parseIdList(row.eligible_group_ids),
+  }
+}
 
 function ActivityModal({ activity, tiers, groups, activities, onSave, onClose }) {
   const isNew = !activity?.id
@@ -35,7 +74,6 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
     setSaving(true)
     setSaveError(null)
     const record = {
-      camp_id: undefined,
       name: name.trim(), location: location.trim() || null, is_outdoor: isOutdoor,
       max_groups_per_slot: Number(maxGroups), min_per_week: Number(minWeek), max_per_week: Number(maxWeek), span_blocks: Number(spanBlocks),
       same_tier_only: sameTier, priority,
@@ -45,8 +83,9 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
       weather_alternative_id: weatherAlt || null,
       notes: notes.trim() || null,
     }
-    delete record.camp_id
     try {
+      // onSave must re-throw on failure — that's what keeps saveError
+      // (rather than a silent modal close) visible to the user.
       await onSave(activity?.id || null, record)
     } catch {
       setSaveError('Failed to save — check your connection and try again')
@@ -217,14 +256,21 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
     setLoading(true)
     setError(null)
     try {
-      const [{ data: aData }, { data: tData }, { data: gData }] = await Promise.all([
-        supabase.from('activities').select('*').eq('camp_id', campId).order('priority').order('name'),
-        supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
-        supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
+      const [aData, tData, gData] = await Promise.all([
+        localClient.list('activities'),
+        localClient.list('tiers'),
+        localClient.list('groups'),
       ])
-      setActivities(aData || [])
-      setTiers(tData || [])
-      setGroups(gData || [])
+      const list = (aData || [])
+        .filter(a => a.camp_id === campId)
+        .map(normalizeActivity)
+        .sort((a, b) =>
+          (a.priority === 'high' ? 0 : 1) - (b.priority === 'high' ? 0 : 1) ||
+          String(a.name ?? '').localeCompare(String(b.name ?? ''))
+        )
+      setActivities(list)
+      setTiers((tData || []).filter(t => t.camp_id === campId))
+      setGroups((gData || []).filter(g => g.camp_id === campId))
     } catch {
       setError('Failed to load data — check your connection and refresh')
     } finally {
@@ -232,48 +278,157 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
     }
   }
 
-  async function saveActivity(id, fields) {
-    if (id) {
-      const { error } = await supabase.from('activities').update(fields).eq('id', id)
-      if (error) throw error
-    } else {
-      const { error } = await supabase.from('activities').insert({ ...fields, camp_id: campId })
-      if (error) throw error
+  // Fires one write() per field (the op-log is field-level) and surfaces
+  // the first failure rather than a silent partial write — see
+  // TiersScreen.jsx's identical helper. Boolean/array fields are serialized
+  // here since operations.value only accepts strings/null.
+  async function writeFields(id, fields) {
+    const token = localStorage.getItem('shoresh-token')
+    for (const [field, value] of Object.entries(fields)) {
+      const result = await localClient.write(token, 'activities', id, field, serializeFieldValue(field, value))
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error(`write failed for field "${field}"`)
+      }
     }
-    setModal(null)
-    load()
+  }
+
+  async function cleanupPartialRow(id) {
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      await localClient.deleteEntity(token, 'activities', id)
+    } catch {
+      // best-effort only
+    }
+  }
+
+  // Called by ActivityModal. Re-throws on failure so the modal's own
+  // saveError state stays visible instead of silently closing.
+  async function saveActivity(id, fields) {
+    const { name, ...rest } = fields
+    const trimmedName = String(name ?? '').trim()
+    if (!id && activities.some(a => String(a.name ?? '').trim().toLowerCase() === trimmedName.toLowerCase())) {
+      const err = new Error('An activity with this name already exists')
+      setError('An activity with this name already exists — choose a different name.')
+      throw err
+    }
+    try {
+      if (id) {
+        // `name` written first — a UNIQUE(camp_id, name) collision on the
+        // `name` write fails atomically before any other field commits.
+        await writeFields(id, { name: trimmedName, ...rest })
+      } else {
+        const newId = crypto.randomUUID()
+        try {
+          await writeFields(newId, { name: trimmedName, camp_id: campId, ...rest })
+        } catch (err) {
+          await cleanupPartialRow(newId)
+          throw err
+        }
+      }
+      await load()
+      setModal(null)
+    } catch (err) {
+      setError(
+        /UNIQUE/i.test(err?.message ?? '')
+          ? 'An activity with this name already exists — choose a different name.'
+          : 'Failed to save activity — check your connection and try again'
+      )
+      throw err
+    }
   }
 
   async function deleteActivity(id) {
     if (!window.confirm('Delete this activity?')) return
-    await supabase.from('activities').delete().eq('id', id); load()
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      const result = await localClient.deleteEntity(token, 'activities', id)
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error('delete failed')
+      }
+      await load()
+    } catch (err) {
+      setError(
+        /admin role required/i.test(err?.message ?? '')
+          ? 'Only an admin can delete activities.'
+          : 'Failed to delete activity — check your connection and try again'
+      )
+    }
   }
 
+  // Ported to the same writeFields-based pattern as addActivity/confirmImport
+  // rather than a special-cased raw insert.
   async function duplicateActivity(a) {
-    await supabase.from('activities').insert({
-      camp_id: campId,
-      name: `Copy of ${a.name}`,
-      location: a.location,
-      is_outdoor: a.is_outdoor,
-      max_groups_per_slot: a.max_groups_per_slot,
-      min_per_week: a.min_per_week,
-      max_per_week: a.max_per_week,
-      same_tier_only: a.same_tier_only,
-      priority: a.priority,
-      eligible_tier_ids: a.eligible_tier_ids,
-      eligible_group_ids: a.eligible_group_ids,
-      prefer_before_day: a.prefer_before_day,
-      prefer_before_day_min: a.prefer_before_day_min,
-      weather_alternative_id: a.weather_alternative_id,
-      notes: a.notes,
-    })
-    load()
+    // "Copy of X" is a deterministic, guessable collision target — a
+    // director duplicating the same activity twice hits this every time,
+    // so it needs the same pre-check + UNIQUE-aware error copy as
+    // saveActivity's create path, not just a generic connection-error
+    // fallback (Red Hat finding, Sub-plan C Task 5 round 1).
+    let copyName = `Copy of ${a.name}`
+    if (activities.some(x => String(x.name ?? '').trim().toLowerCase() === copyName.toLowerCase())) {
+      setError(`An activity named "${copyName}" already exists — rename it before duplicating again.`)
+      return
+    }
+    const newId = crypto.randomUUID()
+    try {
+      await writeFields(newId, {
+        name: copyName,
+        camp_id: campId,
+        location: a.location,
+        is_outdoor: a.is_outdoor,
+        max_groups_per_slot: a.max_groups_per_slot,
+        min_per_week: a.min_per_week,
+        max_per_week: a.max_per_week,
+        span_blocks: a.span_blocks,
+        same_tier_only: a.same_tier_only,
+        priority: a.priority,
+        eligible_tier_ids: a.eligible_tier_ids,
+        eligible_group_ids: a.eligible_group_ids,
+        prefer_before_day: a.prefer_before_day,
+        prefer_before_day_min: a.prefer_before_day_min,
+        weather_alternative_id: a.weather_alternative_id,
+        notes: a.notes,
+      })
+      await load()
+    } catch (err) {
+      await cleanupPartialRow(newId)
+      setError(
+        /UNIQUE/i.test(err?.message ?? '')
+          ? `An activity named "${copyName}" already exists — rename it before duplicating again.`
+          : 'Failed to duplicate activity — check your connection and try again'
+      )
+    }
   }
 
   async function deleteAll() {
     if (!window.confirm('Delete all activities? This cannot be undone.')) return
-    await supabase.from('activities').delete().eq('camp_id', campId)
-    load()
+    const token = localStorage.getItem('shoresh-token')
+    // Re-fetch immediately before building the id list rather than using the
+    // closed-over `activities` state — if another device synced in new
+    // activities between page-load and this click, the stale in-memory
+    // snapshot would silently skip them with no indication anything was missed.
+    const freshActivities = await localClient.list('activities')
+    const ids = (freshActivities || []).filter(a => a.camp_id === campId).map(a => a.id)
+    let succeeded = 0
+    let failedDueToRole = false
+    for (const id of ids) {
+      try {
+        const result = await localClient.deleteEntity(token, 'activities', id)
+        if (result && (result.status === 'applied' || result.status === 'queued')) {
+          succeeded++
+        }
+      } catch (err) {
+        if (/admin role required/i.test(err?.message ?? '')) failedDueToRole = true
+      }
+    }
+    await load()
+    const failed = ids.length - succeeded
+    if (failed > 0) {
+      setError(
+        failedDueToRole
+          ? 'Only an admin can delete activities — no activities were deleted.'
+          : `Deleted ${succeeded} of ${ids.length} activities — please try again for the rest.`
+      )
+    }
   }
 
   function downloadTemplate() {
@@ -343,17 +498,51 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
 
   async function confirmImport() {
     setImporting(true)
-    const existingNames = new Set(activities.map(a => a.name.toLowerCase()))
-    let added = 0, skipped = 0
-    for (const row of importRows) {
-      if (!row.name || row.warning) { skipped++; continue }
-      if (existingNames.has(row.name.toLowerCase())) { skipped++; continue }
-      const { warning, ...record } = row
-      await supabase.from('activities').insert({ ...record, camp_id: campId })
-      added++
+    try {
+      // Defense-in-depth: a stray malformed row here must not throw and
+      // wedge the modal on "Importing…" forever.
+      const existingNames = new Set(activities.map(a => String(a.name ?? '').toLowerCase()))
+      let added = 0, skipped = 0
+      for (const row of importRows) {
+        if (!row.name || row.warning) { skipped++; continue }
+        const lower = String(row.name).toLowerCase()
+        if (existingNames.has(lower)) { skipped++; continue }
+        const newId = crypto.randomUUID()
+        try {
+          // `name` first — same collision-fails-atomically reasoning as saveActivity.
+          await writeFields(newId, {
+            name: row.name,
+            camp_id: campId,
+            location: row.location,
+            is_outdoor: row.is_outdoor,
+            max_groups_per_slot: row.max_groups_per_slot,
+            min_per_week: row.min_per_week,
+            max_per_week: row.max_per_week,
+            same_tier_only: row.same_tier_only,
+            priority: row.priority,
+            eligible_tier_ids: row.eligible_tier_ids,
+            eligible_group_ids: row.eligible_group_ids,
+            prefer_before_day: row.prefer_before_day,
+            prefer_before_day_min: row.prefer_before_day_min,
+            weather_alternative_id: row.weather_alternative_id,
+            notes: row.notes,
+          })
+        } catch {
+          await cleanupPartialRow(newId)
+          skipped++
+          continue
+        }
+        added++
+        existingNames.add(lower)
+      }
+      setImportResult({ added, skipped })
+      setImportStep('done')
+    } catch {
+      setError('Import failed — check your connection and try again')
+      setImportStep(null); setImportRows([])
+    } finally {
+      setImporting(false); await load()
     }
-    setImportResult({ added, skipped }); setImportStep('done')
-    setImporting(false); load()
   }
 
   const highPriority = activities.filter(a => a.priority === 'high')
