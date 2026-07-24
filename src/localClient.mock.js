@@ -62,6 +62,9 @@ export const mockShoresh = {
   async write() {
     return { status: 'applied' }
   },
+  async bulkReplace() {
+    return { status: 'applied' }
+  },
   async verifySession({ token } = {}) {
     if (typeof token === 'string' && token.startsWith('mock.')) {
       const state = loadState()

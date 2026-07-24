@@ -18,6 +18,8 @@ export const localClient = {
   // is a reserved sentinel that applyProjection turns into a real DELETE.
   deleteEntity: (token, entity, entity_id) =>
     shoresh.write({ token, entity, entity_id, field: '__deleted__', value: 1 }),
+  bulkReplace: (token, entity, scope_id, rows) =>
+    shoresh.bulkReplace({ token, entity, scope_id, rows }),
   verifySession: (token) => shoresh.verifySession({ token }),
   onOpApplied: (cb) => shoresh.onOpApplied(cb),
   onOpConflict: (cb) => shoresh.onOpConflict(cb),

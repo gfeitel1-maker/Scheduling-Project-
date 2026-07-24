@@ -131,10 +131,32 @@ export const MAX_BULK_REPLACE_ROWS = 5000
 // design doc, Sub-plan E / ScheduleScreen). A future consumer registers
 // here rather than needing new bulk-replace machinery.
 export const BULK_REPLACE_ENTITIES = {
+  // Column list expanded (Sub-plan E Task 3): the original list only
+  // anticipated id/template_id/group_id/activity_id/day_id/time_block_id.
+  // ScheduleScreen.jsx's generate()/placeAnchors()/restoreSnapshot() rows
+  // also carry anchor_id, is_anchor, is_span_head, and flags — any row key
+  // not listed here is rejected by validateBulkReplaceRows.
   template_slots: {
     table: 'template_slots',
     scopeColumn: 'template_id',
-    columns: ['id', 'template_id', 'group_id', 'activity_id', 'day_id', 'time_block_id'],
+    columns: [
+      'id',
+      'template_id',
+      'group_id',
+      'activity_id',
+      'day_id',
+      'time_block_id',
+      'anchor_id',
+      'is_anchor',
+      'is_span_head',
+      'flags',
+    ],
+    requiredColumns: ['id', 'template_id'],
+  },
+  template_overlays: {
+    table: 'template_overlays',
+    scopeColumn: 'template_id',
+    columns: ['id', 'template_id', 'unit_id', 'day_id', 'from_block_order', 'to_block_order', 'label'],
     requiredColumns: ['id', 'template_id'],
   },
 }

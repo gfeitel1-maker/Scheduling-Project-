@@ -58,6 +58,16 @@ vi.mock('./sync/syncClient.js', () => ({
         })
         return { status: 'applied', op }
       }),
+      writeBulkReplace: vi.fn(async ({ entity, scope_id, rows, author_user_id }) => {
+        const op = appendBulkReplaceOp(mockDb, {
+          entity,
+          scope_id,
+          rows,
+          author_user_id: author_user_id ?? opts.author_user_id ?? null,
+          device_id: opts.device_id,
+        })
+        return { status: 'applied', op }
+      }),
       onOpApplied: vi.fn(),
       onOpConflict: vi.fn(),
       loginRemote: vi.fn(async ({ name, pin }) => {
@@ -93,7 +103,7 @@ vi.mock('./sync/syncClient.js', () => ({
 import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
 import { createUser, attemptLogin } from './auth/localAuth.js'
 let attemptLoginRef = (args) => attemptLogin(db, args)
-import { appendOp } from './ops/operations.js'
+import { appendOp, appendBulkReplaceOp } from './ops/operations.js'
 import { makeHandlers, sanitizeConflictForIpc } from './main.js'
 import { startSyncServer } from './sync/syncServer.js'
 import { advertiseHost } from './sync/discovery.js'
@@ -573,6 +583,59 @@ describe('write handler', () => {
         expect.objectContaining({ entity: 'cohorts', field: 'name', author_user_id: user.id })
       )
     })
+  })
+})
+
+describe('bulkReplace handler', () => {
+  it('rejects a missing token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() =>
+      handlers.bulkReplace({ entity: 'template_slots', scope_id: 't1', rows: [] })
+    ).toThrow()
+  })
+
+  it('rejects a malformed/invalid token cleanly', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7201 })
+    expect(() =>
+      handlers.bulkReplace({ token: 'not-a-real-token', entity: 'template_slots', scope_id: 't1', rows: [] })
+    ).toThrow()
+  })
+
+  it('rejects a bulk_replace from a non-admin (staff) session', async () => {
+    await seedCampAndUser({ name: 'StaffBulk', pin: '1111', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7202 })
+    const { token } = await handlers.login({ name: 'StaffBulk', pin: '1111' })
+
+    expect(() =>
+      handlers.bulkReplace({ token, entity: 'template_slots', scope_id: 't1', rows: [] })
+    ).toThrow('admin role required')
+    expect(lastCreatedSyncClient.writeBulkReplace).not.toHaveBeenCalled()
+  })
+
+  it('delegates to syncClient.writeBulkReplace for an admin session', async () => {
+    const { user } = await seedCampAndUser({ name: 'AdminBulk', pin: '2222', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7203 })
+    const { token } = await handlers.login({ name: 'AdminBulk', pin: '2222' })
+
+    const rows = [{ id: 'slot-1', template_id: 't1' }]
+    await handlers.bulkReplace({ token, entity: 'template_slots', scope_id: 't1', rows })
+
+    expect(lastCreatedSyncClient.writeBulkReplace).toHaveBeenCalledWith(
+      expect.objectContaining({ entity: 'template_slots', scope_id: 't1', rows, author_user_id: user.id })
+    )
+  })
+
+  it('rejects with a clear error when no syncClient exists yet', async () => {
+    await seedCampAndUser({ name: 'NoSync', pin: '3333', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = await handlers.login({ name: 'NoSync', pin: '3333' })
+
+    expect(() =>
+      handlers.bulkReplace({ token, entity: 'template_slots', scope_id: 't1', rows: [] })
+    ).toThrow('sync not initialized — choose a mode first')
   })
 })
 

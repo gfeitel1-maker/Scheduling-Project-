@@ -641,6 +641,28 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // Sub-plan E Task 3: template_slots never gained anchor_id/is_anchor
+  // columns (unlike flags/is_released/is_span_head, added at version 10) —
+  // surfaced only now because ScheduleScreen.jsx's generate()/placeAnchors()/
+  // restoreSnapshot() rows carry both and bulk_replace inserts directly into
+  // this table's real columns, so a missing column fails loudly instead of
+  // being silently dropped like an unregistered field-level write would be.
+  if (getSchemaVersion(db) < 17) {
+    db.transaction(() => {
+      const addColumnIfMissing = (table, name, type) => {
+        const has = db.pragma(`table_info(${table})`).some((col) => col.name === name)
+        if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`)
+      }
+
+      addColumnIfMissing('template_slots', 'anchor_id', 'TEXT')
+      addColumnIfMissing('template_slots', 'is_anchor', 'INTEGER')
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (17, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 export function openLocalDb(filePath) {

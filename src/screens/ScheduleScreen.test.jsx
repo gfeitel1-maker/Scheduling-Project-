@@ -7,6 +7,7 @@ vi.mock('../localClient', () => ({
     list: vi.fn(),
     write: vi.fn(),
     deleteEntity: vi.fn(),
+    bulkReplace: vi.fn(),
   },
 }))
 
@@ -64,6 +65,43 @@ beforeEach(() => {
   localClient.list.mockReset()
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
+  localClient.bulkReplace.mockReset().mockResolvedValue({ status: 'applied' })
+})
+
+// Round 2 Fix 1: bulk_replace rows carry `flags` JSON.stringify'd (the op-log
+// only accepts string/null row values — see validateBulkReplaceRows in
+// electron/ops/operations.js). generate()/placeAnchors()/restoreSnapshot()
+// all re-fetch via localClient.list('template_slots') after the bulkReplace
+// call, and ScheduleScreen must parse that string back to an object at the
+// read boundary — otherwise every flags?.FOO check in the UI (e.g. the
+// Unfillable stat badge below) silently breaks.
+describe('flags round-trips through bulk_replace as a parsed object (Round 2 Fix 1)', () => {
+  it('generate(): after bulkReplace, the refetched template_slots rows have flags parsed back into an object, not left as a JSON string', async () => {
+    mockList({
+      schedule_templates: [],
+      template_slots: [
+        slotRow({ template_id: 'new-id-1', flags: '{"UNFILLABLE":true}' }),
+      ],
+    })
+    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+
+    await waitFor(() => expect(screen.getByText('Generate Schedule')).toBeTruthy())
+    fireEvent.click(screen.getByText('Generate Schedule'))
+
+    await waitFor(() => {
+      expect(localClient.bulkReplace).toHaveBeenCalledWith('token-abc', 'template_slots', expect.any(String), expect.any(Array))
+    })
+
+    // The Unfillable stat badge reads `s.flags?.UNFILLABLE` — this only
+    // shows "1" if flags came back as a real object, not the raw
+    // '{"UNFILLABLE":true}' string (whose truthy-but-un-indexable .UNFILLABLE
+    // access would silently read undefined instead).
+    await waitFor(() => {
+      expect(screen.getByText(/Unfillable/)).toBeTruthy()
+    })
+    const unfillableBadge = screen.getByText(/Unfillable/).parentElement
+    expect(unfillableBadge.textContent).toContain('1')
+  })
 })
 
 // writeFields is the shared primitive that editSlotSave, swapSlots, dismissFlag,
@@ -144,6 +182,22 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
     await waitFor(() => {
       expect(screen.getByText(/Failed to release cell/i)).toBeTruthy()
     })
+  })
+
+  it('generate() failure: a non-admin bulkReplace rejection ("admin role required") is caught and surfaced as a user-visible error, not an unhandled crash (Round 2 Fix 2)', async () => {
+    mockList({ schedule_templates: [] })
+    localClient.bulkReplace.mockRejectedValue(new Error('admin role required'))
+    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+
+    await waitFor(() => expect(screen.getByText('Generate Schedule')).toBeTruthy())
+    fireEvent.click(screen.getByText('Generate Schedule'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Only an admin can regenerate the schedule/i)).toBeTruthy()
+    })
+    // Still on the "no schedule" empty state — the rejection did not leave
+    // the screen stuck on a spinner or throw past the click handler.
+    expect(screen.getByText('Generate Schedule')).toBeTruthy()
   })
 
   it('removeOverlay: clicking the remove button on a stamped overlay deletes it via localClient.deleteEntity', async () => {

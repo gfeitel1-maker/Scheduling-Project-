@@ -31,6 +31,25 @@ async function writeFields(entity, id, fields) {
   }
 }
 
+// template_slots rows written via bulk_replace carry `flags` as a
+// JSON.stringify'd string (validateBulkReplaceRows in electron/ops/operations.js
+// only accepts string/null row values, so an object can't be written directly).
+// localClient.list('template_slots') returns the raw stored string — parse it
+// back to an object here, at the single read boundary, so every consumer in
+// this file (s.flags?.UNFILLABLE, {...(slot.flags||{})}, etc.) can keep
+// treating `flags` as a plain object regardless of which write path last
+// touched the row.
+function normalizeSlots(rows) {
+  return (rows || []).map(row => {
+    if (typeof row.flags !== 'string') return { ...row, flags: row.flags || {} }
+    try {
+      return { ...row, flags: row.flags ? JSON.parse(row.flags) : {} }
+    } catch {
+      return { ...row, flags: {} }
+    }
+  })
+}
+
 export default function ScheduleScreen({ campId, onNavigate }) {
   const [groups, setGroups] = useState([])
   const [days, setDays] = useState([])
@@ -127,7 +146,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
           localClient.list('template_overlays'),
           localClient.list('schedule_snapshots'),
         ])
-        const saved = (slotData || []).filter(s => s.template_id === tmpl.id)
+        const saved = normalizeSlots(slotData).filter(s => s.template_id === tmpl.id)
         setSlots(saved)
         setOverlays((overlayData || []).filter(o => o.template_id === tmpl.id))
         recalcStats(saved)
@@ -171,34 +190,41 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       await saveSnapshot(null, true)
     }
 
-    // Delete existing slots
-    await supabase.from('template_slots').delete().eq('template_id', tid)
+    const token = localStorage.getItem('shoresh-token')
 
-    // Clear overlays when regenerating (post-generation stamps are re-applied manually)
-    await supabase.from('template_overlays').delete().eq('template_id', tid)
-    setOverlays([])
-
-    // Insert new slots
+    // Replace all slots in one transactional bulk_replace op
     const rows = result.slots.map(s => ({
+      id: crypto.randomUUID(),
       template_id: tid,
       group_id: s.groupId,
       day_id: s.dayId,
       time_block_id: s.blockId,
       activity_id: s.activityId,
       anchor_id: s.anchorId,
-      is_anchor: s.type === 'anchor',
-      is_span_head: s.is_span_head !== false,
-      flags: s.flags || {},
+      is_anchor: s.type === 'anchor' ? '1' : '0',
+      is_span_head: s.is_span_head !== false ? '1' : '0',
+      flags: JSON.stringify(s.flags || {}),
     }))
 
-    // Insert in batches of 500
-    for (let i = 0; i < rows.length; i += 500) {
-      await supabase.from('template_slots').insert(rows.slice(i, i + 500))
+    setActionError(null)
+    try {
+      // Clear overlays when regenerating (post-generation stamps are re-applied manually)
+      await localClient.bulkReplace(token, 'template_overlays', tid, [])
+      await localClient.bulkReplace(token, 'template_slots', tid, rows)
+    } catch (err) {
+      setActionError(
+        err?.message?.includes('admin role required')
+          ? 'Only an admin can regenerate the schedule'
+          : 'Failed to regenerate schedule — check your connection and try again'
+      )
+      setGenerating(false)
+      return
     }
+    setOverlays([])
 
-    const { data: freshSlots } = await supabase.from('template_slots').select('*').eq('template_id', tid)
-    setSlots(freshSlots || [])
-    recalcStats(freshSlots || [])
+    const freshSlots = normalizeSlots(await localClient.list('template_slots')).filter(s => s.template_id === tid)
+    setSlots(freshSlots)
+    recalcStats(freshSlots)
     setGenerating(false)
   }
 
@@ -367,37 +393,52 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       .single()
     if (!fullSnap?.slots) return
 
-    await supabase.from('template_slots').delete().eq('template_id', templateId)
+    const token = localStorage.getItem('shoresh-token')
 
     const rows = fullSnap.slots.map(s => ({
+      id: crypto.randomUUID(),
       template_id: templateId,
       group_id: s.group_id,
       day_id: s.day_id,
       time_block_id: s.time_block_id,
       activity_id: s.activity_id,
       anchor_id: s.anchor_id,
-      is_anchor: s.is_anchor,
-      flags: s.flags || {},
+      is_anchor: s.is_anchor ? '1' : '0',
+      flags: JSON.stringify(s.flags || {}),
     }))
 
-    for (let i = 0; i < rows.length; i += 500) {
-      await supabase.from('template_slots').insert(rows.slice(i, i + 500))
+    const snapOverlays = fullSnap.overlays || []
+    const overlayRows = snapOverlays.map(o => ({
+      id: crypto.randomUUID(),
+      template_id: templateId,
+      unit_id: o.unit_id,
+      day_id: o.day_id,
+      from_block_order: o.from_block_order != null ? String(o.from_block_order) : null,
+      to_block_order: o.to_block_order != null ? String(o.to_block_order) : null,
+      label: o.label,
+    }))
+
+    setActionError(null)
+    try {
+      await localClient.bulkReplace(token, 'template_slots', templateId, rows)
+      // Restore overlays from snapshot
+      await localClient.bulkReplace(token, 'template_overlays', templateId, overlayRows)
+    } catch (err) {
+      setActionError(
+        err?.message?.includes('admin role required')
+          ? 'Only an admin can restore a schedule snapshot'
+          : 'Failed to restore snapshot — check your connection and try again'
+      )
+      return
     }
 
-    const { data: freshSlots } = await supabase.from('template_slots').select('*').eq('template_id', templateId)
-    setSlots(freshSlots || [])
-    // Restore overlays from snapshot
-    if (templateId) {
-      await supabase.from('template_overlays').delete().eq('template_id', templateId)
-      const snapOverlays = fullSnap.overlays || []
-      if (snapOverlays.length > 0) {
-        const overlayRows = snapOverlays.map(o => ({ template_id: templateId, unit_id: o.unit_id, day_id: o.day_id, from_block_order: o.from_block_order, to_block_order: o.to_block_order, label: o.label }))
-        await supabase.from('template_overlays').insert(overlayRows)
-      }
-      const { data: freshOverlays } = await supabase.from('template_overlays').select('*').eq('template_id', templateId)
-      setOverlays(freshOverlays || [])
-    }
-    recalcStats(freshSlots || [])
+    const freshSlots = normalizeSlots(await localClient.list('template_slots')).filter(s => s.template_id === templateId)
+    setSlots(freshSlots)
+
+    const freshOverlays = (await localClient.list('template_overlays')).filter(o => o.template_id === templateId)
+    setOverlays(freshOverlays)
+
+    recalcStats(freshSlots)
   }
 
   async function renameSnapshot(snapshotId, newName) {
@@ -424,29 +465,39 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
     if (slots.length > 0) await saveSnapshot(null, true)
 
-    await supabase.from('template_slots').delete().eq('template_id', tid)
-    await supabase.from('template_overlays').delete().eq('template_id', tid)
-    setOverlays([])
+    const token = localStorage.getItem('shoresh-token')
 
     const rows = result.slots.map(s => ({
+      id: crypto.randomUUID(),
       template_id: tid,
       group_id: s.groupId,
       day_id: s.dayId,
       time_block_id: s.blockId,
       activity_id: s.activityId,
       anchor_id: s.anchorId,
-      is_anchor: s.type === 'anchor',
-      is_span_head: s.is_span_head !== false,
-      flags: s.flags || {},
+      is_anchor: s.type === 'anchor' ? '1' : '0',
+      is_span_head: s.is_span_head !== false ? '1' : '0',
+      flags: JSON.stringify(s.flags || {}),
     }))
 
-    for (let i = 0; i < rows.length; i += 500) {
-      await supabase.from('template_slots').insert(rows.slice(i, i + 500))
+    setActionError(null)
+    try {
+      await localClient.bulkReplace(token, 'template_overlays', tid, [])
+      await localClient.bulkReplace(token, 'template_slots', tid, rows)
+    } catch (err) {
+      setActionError(
+        err?.message?.includes('admin role required')
+          ? 'Only an admin can place anchors'
+          : 'Failed to place anchors — check your connection and try again'
+      )
+      setGenerating(false)
+      return
     }
+    setOverlays([])
 
-    const { data: freshSlots } = await supabase.from('template_slots').select('*').eq('template_id', tid)
-    setSlots(freshSlots || [])
-    recalcStats(freshSlots || [])
+    const freshSlots = normalizeSlots(await localClient.list('template_slots')).filter(s => s.template_id === tid)
+    setSlots(freshSlots)
+    recalcStats(freshSlots)
     setManualMode(true)
     setView('manual')
     if (groups.length > 0) setSelectedGroup(groups[0].id)

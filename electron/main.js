@@ -305,6 +305,29 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     return syncClient.write({ ...writeArgs, author_user_id: session.userId })
   }
 
+  // A bulk_replace is a delete-then-reinsert of an ENTIRE scope (e.g. every
+  // template_slots row for a template) — strictly more destructive than the
+  // DELETE_FIELD/camps.name gates above, and this app has no role tier
+  // narrower than admin/staff, so the whole handler is admin-gated rather
+  // than trying to carve out a safe non-admin subset.
+  function bulkReplace({ token, entity, scope_id, rows } = {}) {
+    if (!isNonEmptyString(token)) {
+      throw new Error('token is required')
+    }
+    const session = verifySessionToken(db, token)
+    if (!session) {
+      throw new Error('invalid session')
+    }
+    const sessionUser = db.prepare('SELECT role FROM users WHERE id = ?').get(session.userId)
+    if (!sessionUser || sessionUser.role !== 'admin') {
+      throw new Error('admin role required')
+    }
+    if (!syncClient) {
+      throw new Error('sync not initialized — choose a mode first')
+    }
+    return syncClient.writeBulkReplace({ entity, scope_id, rows, author_user_id: session.userId })
+  }
+
   // Resolves a conflict by re-writing the CHOSEN op's value, looked up
   // server-side by op id. The renderer only ever passes an op id — never a
   // value — so a PIN conflict's raw hash never has to cross the IPC
@@ -397,6 +420,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     verifySession,
     listUsers,
     list,
+    bulkReplace,
     getDeviceId,
     resolveConflict,
     listPendingConflicts: listPendingConflictsHandler,
@@ -444,6 +468,7 @@ if (isElectronEntryPoint()) {
   ipcMain.handle('shoresh:create-user', (_event, args) => handlers.createUser(args))
   ipcMain.handle('shoresh:bootstrap-camp', (_event, args) => handlers.bootstrapCamp(args))
   ipcMain.handle('shoresh:write', (_event, args) => handlers.write(args))
+  ipcMain.handle('shoresh:bulk-replace', (_event, args) => handlers.bulkReplace(args))
   ipcMain.handle('shoresh:verify-session', (_event, args) => handlers.verifySession(args))
   ipcMain.handle('shoresh:get-camp', () => db.prepare('SELECT * FROM camps LIMIT 1').get())
   ipcMain.handle('shoresh:list-users', () => handlers.listUsers())
