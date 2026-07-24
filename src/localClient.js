@@ -5,6 +5,19 @@ import { mockShoresh } from './localClient.mock'
 
 const shoresh = typeof window !== 'undefined' && window.shoresh ? window.shoresh : mockShoresh
 
+// getCamp/listUsers/list/getDeviceId/listPendingConflicts don't already
+// receive a token from their many call sites the way write/bulkReplace/
+// resolveConflict do (those take token as an explicit param because callers
+// already have it in scope for a write). Reading it here directly — the same
+// storage key useDeviceMode.js/every screen already reads via
+// `localStorage.getItem('shoresh-token')` — keeps authorize() wiring
+// (electron/main.js) from requiring a token-threading change across every
+// screen that calls these read-only helpers.
+const TOKEN_KEY = 'shoresh-token'
+function currentToken() {
+  return typeof localStorage !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null
+}
+
 export const localClient = {
   chooseMode: (args) => shoresh.chooseMode(args),
   discoverHosts: () => shoresh.discoverHosts(),
@@ -24,10 +37,10 @@ export const localClient = {
   onOpApplied: (cb) => shoresh.onOpApplied(cb),
   onOpConflict: (cb) => shoresh.onOpConflict(cb),
   getCamp: () => shoresh.getCamp(),
-  listUsers: () => shoresh.listUsers(),
-  getDeviceId: () => shoresh.getDeviceId(),
-  list: (entity) => shoresh.list(entity),
+  listUsers: () => shoresh.listUsers(currentToken()),
+  getDeviceId: () => shoresh.getDeviceId(currentToken()),
+  list: (entity) => shoresh.list(currentToken(), entity),
   resolveConflict: (token, { entity, entity_id, field, chosen_op_id, parent_op_id }) =>
     shoresh.resolveConflict({ token, entity, entity_id, field, chosen_op_id, parent_op_id }),
-  listPendingConflicts: () => shoresh.listPendingConflicts(),
+  listPendingConflicts: () => shoresh.listPendingConflicts(currentToken()),
 }

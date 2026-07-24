@@ -9,6 +9,7 @@ import { startSyncServer } from './sync/syncServer.js'
 import { createSyncClient } from './sync/syncClient.js'
 import { advertiseHost, discoverHosts } from './sync/discovery.js'
 import { listPendingConflicts, DELETE_FIELD } from './ops/operations.js'
+import { authorize } from './auth/authorize.js'
 
 const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 
@@ -77,6 +78,29 @@ function isNonEmptyString(v) {
   return typeof v === 'string' && v.length > 0
 }
 
+// Thin wrapper around authorize() (electron/auth/authorize.js) that converts
+// its { allowed: false, reason } result into the same thrown-Error convention
+// every handler in this file already uses. `reason: 'forbidden'` is mapped to
+// 'admin role required' because every action currently routed through this
+// helper that a staff caller can be denied is, in fact, admin-only in the
+// permission matrix (electron/auth/permissions.js) — matching the exact
+// error string the pre-authorize() inline checks already threw. Any other
+// denial reason (invalid/malformed token, user or device no longer existing,
+// a db error) collapses to 'invalid session', matching the existing
+// verifySessionToken-failure message. Callers must check
+// isNonEmptyString(token) themselves first if they need the more specific
+// 'token is required' message for a missing token.
+function requireAuthorized(db, { token, action, resourceId }) {
+  const result = authorize({ db, token, action, resourceId })
+  if (!result.allowed) {
+    if (result.reason === 'forbidden') {
+      throw new Error('admin role required')
+    }
+    throw new Error('invalid session')
+  }
+  return result
+}
+
 function sanitizeOpForIpc(op) {
   if (!op) return op
   if (op.entity === 'users' && IPC_PIN_FIELDS.has(op.field)) {
@@ -136,6 +160,16 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     }
   }
 
+  // Deliberately NOT wrapped in authorize(). `args` here is
+  // { mode, campName, port, host, hostAddress } — there has never been a
+  // `token` field in this handler's signature, and `src/hooks/useDeviceMode.js`
+  // calls chooseMode() as part of its pre-login init effect (before
+  // verifySession is even attempted), and again from selectJoinHost()/
+  // bootstrapCamp() on the Join/Bootstrap screens, all of which render before
+  // `phase === 'session'`. There is no session to derive a role from at this
+  // point in the flow — same category as login/verify-session, per the ADR's
+  // open question, resolved here by reading the actual call sites rather than
+  // guessing.
   function chooseMode(args) {
     const { mode: requestedMode, campName, port } = args || {}
     if (requestedMode !== 'host' && requestedMode !== 'client') {
@@ -173,6 +207,12 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     return { mode: requestedMode }
   }
 
+  // Deliberately NOT wrapped in authorize(). Takes zero arguments (see
+  // preload.js: `discoverHosts: () => ipcRenderer.invoke('shoresh:discover-hosts')`)
+  // and is called from the Join screen's mDNS host-picker before a mode is
+  // even chosen, let alone a session established — there is no token to pass
+  // in at this point in the flow, by construction of the handler's own
+  // signature.
   function discoverHostsHandler() {
     return discoverHosts({ timeoutMs: 3000 })
   }
@@ -221,12 +261,10 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
 
   async function createUserHandler({ token, camp_id, name, pin, role } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
-    const session = verifySessionToken(db, token)
-    if (!session) throw new Error('invalid session')
-    const sessionUser = db.prepare('SELECT role FROM users WHERE id = ?').get(session.userId)
-    if (!sessionUser || sessionUser.role !== 'admin') {
-      throw new Error('admin role required')
-    }
+    // Routes the existing admin-only gate through authorize() — action
+    // 'users.create' per docs/adr/2026-07-24-centralized-authorization-layer.md.
+    // No behavior change: still admin-only, still throws 'admin role required'.
+    requireAuthorized(db, { token, action: 'users.create' })
     if (!isNonEmptyString(camp_id)) throw new Error('camp_id is required')
     if (!isNonEmptyString(name)) throw new Error('name is required')
     if (!isNonEmptyString(pin)) throw new Error('pin is required')
@@ -237,6 +275,14 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     return createUser(db, { camp_id, name, pin, role }, (args) => syncClient.write(args))
   }
 
+  // Deliberately NOT wrapped in authorize(). Signature is
+  // { campName, adminName, adminPin } — no token. Ground truth from reading
+  // the body below: it only proceeds when `SELECT COUNT(*) FROM camps` is 0,
+  // i.e. no camp, no users table row, and therefore no session token that
+  // could possibly exist yet — this call creates the very first admin user.
+  // authorize() re-queries `users`/`devices` by the session's ids, which
+  // can't be satisfied before those rows exist; requiring a token here would
+  // make bootstrap uncallable. Same category as login/verify-session.
   async function bootstrapCamp({ campName, adminName, adminPin } = {}) {
     if (!isNonEmptyString(campName)) throw new Error('campName is required')
     if (!isNonEmptyString(adminName)) throw new Error('adminName is required')
@@ -274,35 +320,30 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     if (!isNonEmptyString(token)) {
       throw new Error('token is required')
     }
-    const session = verifySessionToken(db, token)
-    if (!session) {
-      throw new Error('invalid session')
-    }
-    // Security MEDIUM #1 (Sub-plan B Task 3 round 2): a delete (the
-    // DELETE_FIELD sentinel) is a comparably sensitive action to createUser,
-    // which already requires role === 'admin' — apply the same gate here so
-    // a non-admin can't delete any PROJECTIONS-registered row (including
-    // other users). Ordinary field writes are intentionally left ungated:
-    // that's existing, unrelated behavior this fix must not change.
+    // Three distinct actions dispatched from this one handler, per the ADR's
+    // IPC table — matching the three distinct gates that used to be inline
+    // checks here:
+    // - DELETE_FIELD sentinel -> '<entity>.delete' (Security MEDIUM #1,
+    //   Sub-plan B Task 3 round 2: a delete is comparably sensitive to
+    //   createUser, which is admin-only — same gate, now via authorize()).
+    // - camps.name -> 'camps.rename' (Round-2 fix, Sub-plan C Task 6 review:
+    //   a single-camp org-identity field, gated the same way).
+    // - everything else -> '<entity>.write', staff+admin per the matrix —
+    //   this is the ordinary field-write path that was always ungated for
+    //   both roles; authorize() now makes that explicit instead of implicit.
+    let action
     if (writeArgs.field === DELETE_FIELD) {
-      const sessionUser = db.prepare('SELECT role FROM users WHERE id = ?').get(session.userId)
-      if (!sessionUser || sessionUser.role !== 'admin') {
-        throw new Error('admin role required')
-      }
+      action = `${writeArgs.entity}.delete`
+    } else if (writeArgs.entity === 'camps' && writeArgs.field === 'name') {
+      action = 'camps.rename'
+    } else {
+      action = `${writeArgs.entity}.write`
     }
-    // Round-2 fix (Sub-plan C Task 6 review): camps.name is a single-camp,
-    // org-identity field — gate it the same way DELETE_FIELD is gated above
-    // so a non-admin can't rename the whole camp.
-    if (writeArgs.entity === 'camps' && writeArgs.field === 'name') {
-      const sessionUser = db.prepare('SELECT role FROM users WHERE id = ?').get(session.userId)
-      if (!sessionUser || sessionUser.role !== 'admin') {
-        throw new Error('admin role required')
-      }
-    }
+    const { userId } = requireAuthorized(db, { token, action })
     if (!syncClient) {
       throw new Error('sync not initialized — choose a mode first')
     }
-    return syncClient.write({ ...writeArgs, author_user_id: session.userId })
+    return syncClient.write({ ...writeArgs, author_user_id: userId })
   }
 
   // A bulk_replace is a delete-then-reinsert of an ENTIRE scope (e.g. every
@@ -314,18 +355,13 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     if (!isNonEmptyString(token)) {
       throw new Error('token is required')
     }
-    const session = verifySessionToken(db, token)
-    if (!session) {
-      throw new Error('invalid session')
-    }
-    const sessionUser = db.prepare('SELECT role FROM users WHERE id = ?').get(session.userId)
-    if (!sessionUser || sessionUser.role !== 'admin') {
-      throw new Error('admin role required')
-    }
+    // '<entity>.bulk_replace', admin-only for every entity — matches the
+    // whole-handler admin gate this replaces exactly.
+    const { userId } = requireAuthorized(db, { token, action: `${entity}.bulk_replace` })
     if (!syncClient) {
       throw new Error('sync not initialized — choose a mode first')
     }
-    return syncClient.writeBulkReplace({ entity, scope_id, rows, author_user_id: session.userId })
+    return syncClient.writeBulkReplace({ entity, scope_id, rows, author_user_id: userId })
   }
 
   // Resolves a conflict by re-writing the CHOSEN op's value, looked up
@@ -337,10 +373,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     if (!isNonEmptyString(token)) {
       throw new Error('token is required')
     }
-    const session = verifySessionToken(db, token)
-    if (!session) {
-      throw new Error('invalid session')
-    }
+    const { userId } = requireAuthorized(db, { token, action: 'conflicts.resolve' })
     if (!syncClient) {
       throw new Error('sync not initialized — choose a mode first')
     }
@@ -359,7 +392,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
       field,
       value: chosenOp.value,
       parent_op_id: parent_op_id ?? null,
-      author_user_id: session.userId,
+      author_user_id: userId,
     })
   }
 
@@ -371,13 +404,20 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
   // match BEFORE any query is built — a malformed/non-string/unrecognized
   // value is rejected here, never interpolated into SQL. Wrapped in
   // try/catch as defense-in-depth on top of the allowlist check itself.
-  function list(entity) {
+  function list(token, entity) {
     if (typeof entity !== 'string' || entity.length === 0) {
       throw new Error('Invalid entity')
     }
     if (!DIRECT_CAMP_ENTITIES.has(entity) && !PARENT_SCOPED_ENTITIES[entity]) {
       throw new Error(`Unrecognized entity: ${entity}`)
     }
+    if (!isNonEmptyString(token)) {
+      throw new Error('token is required')
+    }
+    // '<entity>.read', using the already-validated entity name above —
+    // staff+admin per the matrix, matching there being no existing role
+    // check on this path today.
+    requireAuthorized(db, { token, action: `${entity}.read` })
 
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) return []
@@ -392,11 +432,19 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
       .all(camp.id)
   }
 
-  function listUsers() {
+  function listUsers(token) {
+    if (!isNonEmptyString(token)) {
+      throw new Error('token is required')
+    }
+    requireAuthorized(db, { token, action: 'users.read' })
     return db.prepare('SELECT id, name, role FROM users').all()
   }
 
-  function getDeviceId() {
+  function getDeviceId(token) {
+    if (!isNonEmptyString(token)) {
+      throw new Error('token is required')
+    }
+    requireAuthorized(db, { token, action: 'devices.read' })
     return deviceId
   }
 
@@ -406,7 +454,11 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
   // pending before an app restart is still shown afterward. Sanitized the
   // same way the live broadcast is — this is an IPC send path just like
   // wireOpApplied's, so raw PIN values must never cross it either.
-  function listPendingConflictsHandler() {
+  function listPendingConflictsHandler(token) {
+    if (!isNonEmptyString(token)) {
+      throw new Error('token is required')
+    }
+    requireAuthorized(db, { token, action: 'conflicts.read' })
     return listPendingConflicts(db).map(sanitizeConflictForIpc)
   }
 
@@ -470,18 +522,33 @@ if (isElectronEntryPoint()) {
   ipcMain.handle('shoresh:write', (_event, args) => handlers.write(args))
   ipcMain.handle('shoresh:bulk-replace', (_event, args) => handlers.bulkReplace(args))
   ipcMain.handle('shoresh:verify-session', (_event, args) => handlers.verifySession(args))
-  ipcMain.handle('shoresh:get-camp', () => db.prepare('SELECT * FROM camps LIMIT 1').get())
-  ipcMain.handle('shoresh:list-users', () => handlers.listUsers())
-  ipcMain.handle('shoresh:list', (_event, entity) => {
-    try {
-      return handlers.list(entity)
-    } catch (err) {
-      throw err
-    }
+  // Disclosed deviation from the ADR's per-handler authorize() table:
+  // choose-mode, discover-hosts, and get-camp (like login/verify-session/
+  // bootstrap-camp above) are pre-session call sites with no token available
+  // yet. Confirmed against src/hooks/useDeviceMode.js's phase machine —
+  // refreshCamp() calls get-camp before mode is even chosen, to decide the
+  // bootstrap-vs-join-vs-login phase, and chooseMode/discoverHosts are only
+  // reachable from that same pre-login flow. This is a reasoned, reviewed
+  // scope decision, not an oversight.
+  //
+  // get-camp is also called post-login for display (Sidebar.jsx,
+  // CampSetup.jsx) but the handler can't distinguish those call sites from
+  // the pre-login one, and the pre-login call must keep working without a
+  // token. Rather than gate on auth, the query itself is scoped to exclude
+  // `signing_secret` — grep of every getCamp() call site under src/
+  // confirms nothing in the renderer ever reads signing_secret (it's used
+  // only server-side, in electron/auth/localAuth.js and
+  // electron/sync/syncServer.js). So an unauthenticated caller can only ever
+  // learn the camp's id/name, never the HMAC key that signs session tokens.
+  ipcMain.handle('shoresh:get-camp', () => db.prepare('SELECT id, name FROM camps LIMIT 1').get())
+  ipcMain.handle('shoresh:list-users', (_event, args) => handlers.listUsers(args && args.token))
+  ipcMain.handle('shoresh:list', (_event, args) => {
+    const { token, entity } = args || {}
+    return handlers.list(token, entity)
   })
-  ipcMain.handle('shoresh:get-device-id', () => handlers.getDeviceId())
+  ipcMain.handle('shoresh:get-device-id', (_event, args) => handlers.getDeviceId(args && args.token))
   ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
-  ipcMain.handle('shoresh:list-conflicts', () => handlers.listPendingConflicts())
+  ipcMain.handle('shoresh:list-conflicts', (_event, args) => handlers.listPendingConflicts(args && args.token))
 
   app.whenReady().then(createWindow)
   app.on('window-all-closed', () => {

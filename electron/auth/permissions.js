@@ -35,11 +35,8 @@ export const PERMISSIONS = {
   staff: [
     ...staffReadWrite,
     'users.read',
-    'camp.read',
     'devices.read',
-    'hosts.discover',
     'conflicts.read',
     'conflicts.resolve',
-    'mode.choose',
   ],
 }

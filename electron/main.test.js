@@ -513,7 +513,12 @@ describe('write handler', () => {
     const handlers = makeHandlers(db, deviceId, {})
     const { token } = await handlers.login({ name: 'Gina', pin: '6666' })
 
-    expect(() => handlers.write({ token, entity: 'x', entity_id: 'y', field: 'z', value: 1 })).toThrow(
+    // entity must be a real staff-writable entity (per PERMISSIONS.staff in
+    // electron/auth/permissions.js) now that write() routes ordinary field
+    // writes through authorize() as '<entity>.write' — 'x' isn't in the
+    // matrix and would (correctly) fail authorization before ever reaching
+    // the syncClient check this test is about.
+    expect(() => handlers.write({ token, entity: 'cohorts', entity_id: 'y', field: 'z', value: 1 })).toThrow(
       'sync not initialized — choose a mode first'
     )
     void user
@@ -763,7 +768,7 @@ describe('wireOpApplied: op-conflict forwarding to renderer (Round 2 Fix 1)', ()
 })
 
 describe('list: generic entity-read IPC', () => {
-  it('direct camp_id table (groups): returns only the requesting camp rows, not another camp\'s', () => {
+  it('direct camp_id table (groups): returns only the requesting camp rows, not another camp\'s', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     const campId = randomUUID()
     const otherCampId = randomUUID()
@@ -779,14 +784,17 @@ describe('list: generic entity-read IPC', () => {
     const foreignCampId = myCampId === campId ? otherCampId : campId
     db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), myCampId, 'Mine')
     db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), foreignCampId, 'Not Mine')
+    const user = await createUser(db, { camp_id: myCampId, name: 'Lister', pin: '1234', role: 'staff' }, localTestWrite())
+    const { token } = await handlers.login({ name: 'Lister', pin: '1234' })
+    void user
 
-    const rows = handlers.list('groups')
+    const rows = handlers.list(token, 'groups')
     expect(rows).toHaveLength(1)
     expect(rows[0].name).toBe('Mine')
     expect(rows[0].camp_id).toBe(myCampId)
   })
 
-  it('parent-scoped table (template_overlays): scoped via JOIN through schedule_templates, not a literal camp_id column', () => {
+  it('parent-scoped table (template_overlays): scoped via JOIN through schedule_templates, not a literal camp_id column', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     const campId = randomUUID()
     const otherCampId = randomUUID()
@@ -802,14 +810,16 @@ describe('list: generic entity-read IPC', () => {
 
     db.prepare('INSERT INTO template_overlays (id, template_id, label) VALUES (?, ?, ?)').run(randomUUID(), myTemplateId, 'Mine Overlay')
     db.prepare('INSERT INTO template_overlays (id, template_id, label) VALUES (?, ?, ?)').run(randomUUID(), otherTemplateId, 'Other Overlay')
+    await createUser(db, { camp_id: myCampId, name: 'Lister2', pin: '1234', role: 'staff' }, localTestWrite())
+    const { token } = await handlers.login({ name: 'Lister2', pin: '1234' })
 
-    const rows = handlers.list('template_overlays')
+    const rows = handlers.list(token, 'template_overlays')
     expect(rows).toHaveLength(1)
     expect(rows[0].label).toBe('Mine Overlay')
     expect(rows[0].template_id).toBe(myTemplateId)
   })
 
-  it('template_slots has no camp_id column in schema.sql (only template_id) — it is scoped via JOIN through schedule_templates, same as the other 3 parent-scoped tables, not treated as a direct camp_id table', () => {
+  it('template_slots has no camp_id column in schema.sql (only template_id) — it is scoped via JOIN through schedule_templates, same as the other 3 parent-scoped tables, not treated as a direct camp_id table', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     const campId = randomUUID()
     const otherCampId = randomUUID()
@@ -825,26 +835,133 @@ describe('list: generic entity-read IPC', () => {
 
     db.prepare('INSERT INTO template_slots (id, template_id) VALUES (?, ?)').run(randomUUID(), myTemplateId)
     db.prepare('INSERT INTO template_slots (id, template_id) VALUES (?, ?)').run(randomUUID(), otherTemplateId)
+    await createUser(db, { camp_id: myCampId, name: 'Lister3', pin: '1234', role: 'staff' }, localTestWrite())
+    const { token } = await handlers.login({ name: 'Lister3', pin: '1234' })
 
-    const rows = handlers.list('template_slots')
+    const rows = handlers.list(token, 'template_slots')
     expect(rows).toHaveLength(1)
     expect(rows[0].template_id).toBe(myTemplateId)
   })
 
-  it('rejects a non-string entity without touching the db', () => {
+  it('rejects a non-string entity without touching the db', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    expect(() => handlers.list(123)).toThrow()
-    expect(() => handlers.list(null)).toThrow()
-    expect(() => handlers.list(undefined)).toThrow()
+    const { token } = await seedCampAndUser({ name: 'Lister4', pin: '1234' }).then(async ({ campId }) => {
+      void campId
+      return handlers.login({ name: 'Lister4', pin: '1234' })
+    })
+    expect(() => handlers.list(token, 123)).toThrow()
+    expect(() => handlers.list(token, null)).toThrow()
+    expect(() => handlers.list(token, undefined)).toThrow()
   })
 
-  it('rejects an unrecognized entity string, including a SQL-injection-shaped one, without throwing an unhandled exception or touching the db', () => {
+  it('rejects an unrecognized entity string, including a SQL-injection-shaped one, without throwing an unhandled exception or touching the db', async () => {
     const handlers = makeHandlers(db, deviceId, {})
-    expect(() => handlers.list('users; DROP TABLE users;--')).toThrow()
-    expect(() => handlers.list('nonexistent_table')).toThrow()
+    const { campId } = await seedCampAndUser({ name: 'Lister5', pin: '1234' })
+    const { token } = await handlers.login({ name: 'Lister5', pin: '1234' })
+    void campId
+
+    expect(() => handlers.list(token, 'users; DROP TABLE users;--')).toThrow()
+    expect(() => handlers.list(token, 'nonexistent_table')).toThrow()
 
     // Prove the injection attempt never reached the db: users table is intact.
     const stillExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='users'").get()
     expect(stillExists).toBeTruthy()
+  })
+
+  it('rejects list() with no token at all', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.list(undefined, 'groups')).toThrow('token is required')
+  })
+
+  describe('authorize() wiring (staff/admin)', () => {
+    it('allows a staff session to read a staff-permitted entity (<entity>.read)', async () => {
+      const { campId } = await seedCampAndUser({ name: 'StaffReader', pin: '1234', role: 'staff' })
+      const handlers = makeHandlers(db, deviceId, {})
+      const { token } = await handlers.login({ name: 'StaffReader', pin: '1234' })
+      void campId
+
+      expect(() => handlers.list(token, 'groups')).not.toThrow()
+    })
+
+    it('rejects a malformed/invalid token cleanly', () => {
+      const handlers = makeHandlers(db, deviceId, {})
+      expect(() => handlers.list('not-a-real-token', 'groups')).toThrow()
+    })
+  })
+})
+
+describe('listUsers handler (users.read, staff+admin)', () => {
+  it('rejects with no token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.listUsers(undefined)).toThrow('token is required')
+  })
+
+  it('allows a staff session', async () => {
+    await seedCampAndUser({ name: 'StaffLister', pin: '1234', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = await handlers.login({ name: 'StaffLister', pin: '1234' })
+    expect(() => handlers.listUsers(token)).not.toThrow()
+  })
+})
+
+describe('getDeviceId handler (devices.read, staff+admin)', () => {
+  it('rejects with no token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.getDeviceId(undefined)).toThrow('token is required')
+  })
+
+  it('allows a staff session and returns this device\'s id', async () => {
+    await seedCampAndUser({ name: 'StaffDevice', pin: '1234', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = await handlers.login({ name: 'StaffDevice', pin: '1234' })
+    expect(handlers.getDeviceId(token)).toBe(deviceId)
+  })
+})
+
+describe('listPendingConflicts handler (conflicts.read, staff+admin)', () => {
+  it('rejects with no token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.listPendingConflicts(undefined)).toThrow('token is required')
+  })
+
+  it('allows a staff session', async () => {
+    await seedCampAndUser({ name: 'StaffConflicts', pin: '1234', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = await handlers.login({ name: 'StaffConflicts', pin: '1234' })
+    expect(() => handlers.listPendingConflicts(token)).not.toThrow()
+  })
+})
+
+describe('resolveConflict handler (conflicts.resolve, staff+admin)', () => {
+  it('rejects with no token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() =>
+      handlers.resolveConflict({ entity: 'groups', entity_id: 'g1', field: 'name', chosen_op_id: 'op1' })
+    ).toThrow('token is required')
+  })
+
+  it('rejects a malformed/invalid token cleanly', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7301 })
+    expect(() =>
+      handlers.resolveConflict({
+        token: 'not-a-real-token',
+        entity: 'groups',
+        entity_id: 'g1',
+        field: 'name',
+        chosen_op_id: 'op1',
+      })
+    ).toThrow()
+  })
+
+  it('allows a staff session past authorization (fails later on chosen_op_id, proving it got past the auth gate)', async () => {
+    await seedCampAndUser({ name: 'StaffResolver', pin: '1234', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7302 })
+    const { token } = await handlers.login({ name: 'StaffResolver', pin: '1234' })
+
+    expect(() =>
+      handlers.resolveConflict({ token, entity: 'groups', entity_id: 'g1', field: 'name', chosen_op_id: 'does-not-exist' })
+    ).toThrow('chosen operation not found')
   })
 })

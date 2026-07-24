@@ -100,10 +100,14 @@ export const mockShoresh = {
   async getCamp() {
     return loadState().camp
   },
+  // token param intentionally unnamed — the mock has no role model to check
+  // against, but the real preload bridge (electron/preload.js) always sends
+  // token as the first arg now that these are authorize()-gated in
+  // electron/main.js, so the signature still accepts (and ignores) it.
   async listUsers() {
     return loadState().users.map((u) => ({ id: u.id, name: u.name, role: u.role }))
   },
-  async list(entity) {
+  async list(_token, entity) {
     const state = loadState()
     if (!Array.isArray(state[entity])) return []
     return state[entity]
