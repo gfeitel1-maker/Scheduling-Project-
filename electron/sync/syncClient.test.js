@@ -753,6 +753,7 @@ describe('remote client mode', () => {
       type: 'op_applied',
       op: {
         id: opId,
+        seq: 1,
         entity: 'users',
         entity_id: userId,
         field: 'name',
@@ -773,6 +774,7 @@ describe('remote client mode', () => {
       type: 'op_applied',
       op: {
         id: opId,
+        seq: 2,
         entity: 'users',
         entity_id: userId,
         field: 'name',

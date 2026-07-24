@@ -174,7 +174,7 @@ describe('THIRD CORRECTION: version-4 migration is transactional', () => {
 describe('Task 4: devices.last_synced_at (schema version 5)', () => {
   it('getSchemaVersion returns 6 after openLocalDb runs', () => {
     const db = freshDb()
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 
@@ -182,7 +182,7 @@ describe('Task 4: devices.last_synced_at (schema version 5)', () => {
     const db = freshDb()
     const col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 
@@ -206,7 +206,7 @@ describe('Task 4: devices.last_synced_at (schema version 5)', () => {
 
     col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_at')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 })
@@ -218,14 +218,14 @@ describe('Task 9 Round 2 Fix 2: login_attempts table (schema version 6)', () => 
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='login_attempts'")
       .get()
     expect(table).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 
   it('is idempotent: re-running initSchema on an already-migrated db does not error', () => {
     const db = freshDb()
     expect(() => initSchema(db)).not.toThrow()
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 
@@ -250,7 +250,7 @@ describe('Task 9 Round 2 Fix 2: login_attempts table (schema version 6)', () => 
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='login_attempts'")
       .get()
     expect(table).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 })
@@ -260,7 +260,7 @@ describe('Task 10 round-4 Fix 3: devices.last_synced_seq (schema version 7)', ()
     const db = freshDb()
     const col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_seq')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 
@@ -286,7 +286,7 @@ describe('Task 10 round-4 Fix 3: devices.last_synced_seq (schema version 7)', ()
 
     col = db.pragma('table_info(devices)').find((c) => c.name === 'last_synced_seq')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 })
@@ -300,7 +300,7 @@ describe('Task 10 round-5 Fix 1/3: pending_writes table + operations.client_writ
     expect(table).toBeDefined()
     const col = db.pragma('table_info(operations)').find((c) => c.name === 'client_write_id')
     expect(col).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 
@@ -344,7 +344,7 @@ describe('Task 10 round-5 Fix 1/3: pending_writes table + operations.client_writ
       .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='pending_writes'")
       .get()
     expect(table).toBeDefined()
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 })
@@ -355,7 +355,7 @@ describe('schema v9: camps.signing_secret', () => {
     const col = db.pragma('table_info(camps)').find((c) => c.name === 'signing_secret')
     expect(col).toBeDefined()
     expect(col.notnull).toBe(0)
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 
@@ -411,7 +411,7 @@ describe('schema v10: renderer Supabase migration Sub-plan A schema', () => {
         .get(t)
       expect(table, `expected table ${t} to exist`).toBeDefined()
     }
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 
@@ -431,7 +431,7 @@ describe('schema v10: renderer Supabase migration Sub-plan A schema', () => {
   it('is idempotent: re-running initSchema on an already-migrated db does not error', () => {
     const db = freshDb()
     expect(() => initSchema(db)).not.toThrow()
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 
@@ -489,7 +489,7 @@ describe('schema v10: renderer Supabase migration Sub-plan A schema', () => {
     expect(activityCols).toEqual(expect.arrayContaining(['priority', 'is_locked', 'span_blocks']))
     const slotCols = db.pragma('table_info(template_slots)').map((c) => c.name)
     expect(slotCols).toEqual(expect.arrayContaining(['flags', 'is_released', 'is_span_head']))
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 
@@ -547,7 +547,7 @@ describe('schema v10: renderer Supabase migration Sub-plan A schema', () => {
       expect(table, `expected table ${t} to exist in migrated db`).toBeDefined()
     }
 
-    expect(getSchemaVersion(migratedDatabase)).toBe(17)
+    expect(getSchemaVersion(migratedDatabase)).toBe(18)
 
     freshDatabase.close()
     migratedDatabase.close()
@@ -597,7 +597,7 @@ describe('Round 2 Red Hat fix, HIGH finding 1: UNIQUE(camp_id, name) on cohorts 
     expect(() => {
       db.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run('c3', 'camp1', 'Main')
     }).toThrow(/UNIQUE/)
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 
@@ -683,7 +683,7 @@ describe('Round 2 Red Hat fix, HIGH finding 3: UNIQUE(camp_id, name) on groups (
     expect(() => {
       db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run('g3', 'camp1', 'Yeladim 1')
     }).toThrow(/UNIQUE/)
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 
@@ -781,7 +781,7 @@ describe('Round 2 Red Hat fix, HIGH finding 1: UNIQUE(camp_id, cohort_id, name) 
     expect(() => {
       db.prepare('INSERT INTO time_blocks (id, camp_id, cohort_id, name) VALUES (?, ?, ?, ?)').run('tb3', 'camp1', 'co1', 'Block 1')
     }).toThrow(/UNIQUE/)
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 
@@ -840,7 +840,7 @@ describe('Round 2 Red Hat fix, mirrors time_blocks HIGH finding 1: UNIQUE(camp_i
     expect(() => {
       db.prepare('INSERT INTO tiers (id, camp_id, cohort_id, name) VALUES (?, ?, ?, ?)').run('t3', 'camp1', 'co1', 'Yeladim')
     }).toThrow(/UNIQUE/)
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 
@@ -918,7 +918,7 @@ describe('ActivitiesScreen migration: UNIQUE(camp_id, name) + new columns on act
     ]) {
       expect(cols).toContain(col)
     }
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 
@@ -950,7 +950,7 @@ describe('ActivitiesScreen migration: UNIQUE(camp_id, name) + new columns on act
     expect(() => {
       db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('a3', 'camp1', 'Water Play')
     }).toThrow(/UNIQUE/)
-    expect(getSchemaVersion(db)).toBe(17)
+    expect(getSchemaVersion(db)).toBe(18)
     db.close()
   })
 

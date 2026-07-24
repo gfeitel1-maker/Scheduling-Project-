@@ -155,6 +155,7 @@ export function createSyncClient(
     if (!isNonEmptyString(op.field)) return false
     if (!isNonEmptyString(op.device_id)) return false
     if (!isNonEmptyString(op.timestamp)) return false
+    if (!(Number.isInteger(op.seq) && op.seq >= 0)) return false
     if (!('value' in op)) return false
     if (typeof op.value === 'object' && op.value !== null) return false
     if (!(op.parent_op_id === null || isNonEmptyString(op.parent_op_id))) return false
@@ -173,11 +174,11 @@ export function createSyncClient(
     const insert = db.transaction(() => {
       const result = db
         .prepare(
-          `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id, host_seq)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO NOTHING`
         )
-        .run(op.id, op.entity, op.entity_id, op.field, op.value, op.author_user_id ?? null, op.device_id, op.timestamp, op.parent_op_id ?? null, op.client_write_id ?? null)
+        .run(op.id, op.entity, op.entity_id, op.field, op.value, op.author_user_id ?? null, op.device_id, op.timestamp, op.parent_op_id ?? null, op.client_write_id ?? null, op.seq)
       return result.changes
     })
     const changes = insert()

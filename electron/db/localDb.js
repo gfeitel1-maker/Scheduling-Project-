@@ -663,6 +663,28 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // Bulk-replace conflict detection compared raw operations.seq across two
+  // unrelated per-db AUTOINCREMENT counters (Host's vs Client's), causing
+  // spurious conflicts on nearly every second bulk_replace to the same
+  // scope. host_seq lets the Client persist the Host's real seq (already on
+  // the wire in op_applied) instead of discarding it for a fresh local
+  // number. NULL on Host-authored rows (Host's own seq is already
+  // canonical). See docs/adr/2026-07-24-bulk-replace-seq-fix.md.
+  if (getSchemaVersion(db) < 18) {
+    db.transaction(() => {
+      const addColumnIfMissing = (table, name, type) => {
+        const has = db.pragma(`table_info(${table})`).some((col) => col.name === name)
+        if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`)
+      }
+
+      addColumnIfMissing('operations', 'host_seq', 'INTEGER')
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (18, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 export function openLocalDb(filePath) {

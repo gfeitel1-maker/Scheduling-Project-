@@ -77,6 +77,10 @@ beforeEach(async () => {
     for (const activityId of ['swim', 'kayak', 'hiking']) {
       db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(activityId, campId, activityId)
     }
+    // template_overlays.day_id (unlike template_slots.day_id) is a real FK
+    // to days_of_operation(id) — seed it so the overlay bulk_replace below
+    // doesn't fail the FOREIGN KEY constraint.
+    db.prepare('INSERT INTO days_of_operation (id, camp_id, label) VALUES (?, ?, ?)').run('day-1', campId, 'Day 1')
   }
 
   token = issueSessionToken(hostDb, userId, deviceId)
@@ -93,33 +97,21 @@ afterEach(() => {
 })
 
 describe('Sub-plan E Task 5: full schedule round trip replicates Host -> Client', () => {
-  // CONFIRMED BUG, not a test-authoring mistake (root-caused during Task 5
-  // verification): `applyRemoteOp` in electron/sync/syncClient.js inserts a
-  // received op WITHOUT its Host-assigned `seq` (electron/db/schema.sql:
-  // `seq INTEGER PRIMARY KEY AUTOINCREMENT`), so each device's local
-  // `operations.seq` is that device's own independent counter, not the
-  // Host's canonical one. `latestScopeOpSeq`/`detectBulkReplaceConflict`
-  // (electron/ops/operations.js) compare a client's locally-numbered
-  // `based_on_seq` directly against the Host's own seq counter as if they
-  // were the same numbering space. The two only coincide by accident when a
-  // device's op-log contains exactly the same ops, in the same order, as
-  // every scope it touches — which is never true in real usage, since a
-  // camp's op-log always has prior unrelated ops (bootstrap, user/group/
-  // activity creation) ahead of the first schedule write. Net effect: the
-  // SECOND `bulk_replace` to the same scope from the same client — i.e.
-  // exactly "build a schedule, then Regenerate it" from ScheduleScreen.jsx —
-  // spuriously reports a conflict essentially every time in production, even
-  // though nothing actually raced. This is a Sub-plan A primitive defect,
-  // not introduced by Sub-plan E, first surfaced here because no prior test
-  // (in this file's own describe blocks, or Sub-plan A's) chained two
-  // same-scope bulk_replace calls from one client against a Host whose
-  // op-log had any other op ahead of them. Left as `it.fails` (an honest,
-  // still-red regression test) rather than silently fixed here or dropped —
-  // fixing this requires propagating/persisting the Host's seq on the
-  // client, a change to Sub-plan A's core primitive, outside Task 5's
-  // verification-only scope and outside a single Maker round done under
-  // budget pressure. See the Task 5 Governor report for the full writeup.
-  it.fails('build -> regenerate -> snapshot create -> restore ends with identical template_slots/template_overlays on Host and Client', async () => {
+  // FIXED (see docs/adr/2026-07-24-bulk-replace-seq-fix.md): `applyRemoteOp`
+  // in electron/sync/syncClient.js used to insert a received op WITHOUT its
+  // Host-assigned `seq`, so each device's local `operations.seq` was that
+  // device's own independent AUTOINCREMENT counter, not the Host's
+  // canonical one — `latestScopeOpSeq`/`detectBulkReplaceConflict` compared
+  // a client's locally-numbered `based_on_seq` against the Host's own seq
+  // counter as if they were the same numbering space, spuriously
+  // conflicting on nearly every second bulk_replace to the same scope (e.g.
+  // "build a schedule, then Regenerate it"). Fixed by adding a nullable
+  // `operations.host_seq` column (migration version 18): `applyRemoteOp` now
+  // persists the Host's real `op.seq` into `host_seq`, and
+  // `latestScopeOpSeq` reads `COALESCE(host_seq, seq)` so it uses the
+  // Host-canonical value on a Client and plain `seq` (unaffected) on the
+  // Host.
+  it('build -> regenerate -> snapshot create -> restore ends with identical template_slots/template_overlays on Host and Client', async () => {
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
       author_user_id: userId,
@@ -147,8 +139,11 @@ describe('Sub-plan E Task 5: full schedule round trip replicates Host -> Client'
     // Also give the regenerated schedule one overlay, via bulk_replace (per
     // Task 3: template_overlays is extended into the same bulk_replace
     // allowlist, not a second bulk mechanism).
+    // from_block_order/to_block_order are stringified before bulk_replace,
+    // matching ScheduleScreen.jsx's restoreSnapshot() (validateBulkReplaceRows
+    // requires every row field to be a string or null).
     const overlayRows = [
-      { id: 'overlay-1', template_id: templateId, unit_id: 'group-1', day_id: 'day-1', from_block_order: 1, to_block_order: 2, label: 'Field trip' },
+      { id: 'overlay-1', template_id: templateId, unit_id: 'group-1', day_id: 'day-1', from_block_order: '1', to_block_order: '2', label: 'Field trip' },
     ]
     result = await client.writeBulkReplace({ entity: 'template_overlays', scope_id: templateId, rows: overlayRows })
     expect(result.status).toBe('applied')
@@ -211,7 +206,10 @@ describe('Sub-plan E Task 5: full schedule round trip replicates Host -> Client'
     expect(clientFinalSlots.map((r) => ({ id: r.id, activity_id: r.activity_id, group_id: r.group_id }))).toEqual(
       hostFinalSlots.map((r) => ({ id: r.id, activity_id: r.activity_id, group_id: r.group_id }))
     )
-    expect(hostFinalSlots.map((r) => r.id)).toEqual(['slot-1', 'slot-2'])
+    // The snapshot was taken of the REGENERATED schedule (slot-3/slot-4),
+    // not the originally-built one — restoring it reproduces that same
+    // row set, not the pre-regenerate slot-1/slot-2.
+    expect(hostFinalSlots.map((r) => r.id)).toEqual(['slot-3', 'slot-4'])
 
     const hostFinalOverlays = hostDb.prepare('SELECT * FROM template_overlays WHERE template_id = ? ORDER BY id').all(templateId)
     const clientFinalOverlays = clientDb.prepare('SELECT * FROM template_overlays WHERE template_id = ? ORDER BY id').all(templateId)

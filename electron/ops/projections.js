@@ -200,6 +200,31 @@ export const PROJECTIONS = {
       ).run(id, value)
     },
   },
+  // Never previously registered here (see the day_override_template_slots
+  // comment above referencing "same shape as ... schedule_snapshots", which
+  // was aspirational, not actual) — ScheduleScreen.jsx's writeFields()
+  // already writes these ops assuming a working projection, but with no
+  // PROJECTIONS entry applyProjection silently no-ops for every field, so a
+  // schedule_snapshots row never actually materializes. Same parent-scoped,
+  // no-camp_id pattern as day_override_template_slots: template_id is a
+  // real NOT NULL FK (schema.sql) with no default, so the row can only be
+  // created once template_id is known — writeFields() always writes
+  // template_id first, matching the required ordering.
+  schedule_snapshots: {
+    table: 'schedule_snapshots',
+    key: 'id',
+    fields: ['template_id', 'name', 'is_auto', 'created_at', 'slots', 'overlays'],
+    ensureExists: (db, id, field, value) => {
+      if (field !== 'template_id') return
+      // created_at is NOT NULL with no default (schema.sql) — placeholder
+      // here, same as every other entity's NOT NULL/no-default column
+      // (e.g. anchor_activities/day_override_templates' name), always
+      // overwritten by the subsequent write() for that field.
+      db.prepare(
+        "INSERT OR IGNORE INTO schedule_snapshots (id, template_id, created_at) VALUES (?, ?, '')"
+      ).run(id, value)
+    },
+  },
 }
 
 // Reserved field name for a row-delete op — see DELETE_FIELD's definition in

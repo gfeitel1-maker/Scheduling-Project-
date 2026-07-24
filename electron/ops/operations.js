@@ -238,9 +238,14 @@ export function validateBulkReplaceRows(entity, rows, scope_id) {
 export function latestScopeOpSeq(db, entity, scope_id) {
   const config = BULK_REPLACE_ENTITIES[entity]
   if (!config) return 0
+  // COALESCE(host_seq, seq): host_seq carries the Host's canonical seq for
+  // ops received via applyRemoteOp on a Client db (see host_seq migration,
+  // version 18) — raw seq there is a locally-minted AUTOINCREMENT value in
+  // an unrelated numbering space. On the Host's own db this is a no-op
+  // (host_seq is always NULL there), so this degenerates to plain seq.
   const row = db
     .prepare(
-      `SELECT MAX(seq) as maxSeq FROM operations
+      `SELECT MAX(COALESCE(host_seq, seq)) as maxSeq FROM operations
        WHERE entity = ?
          AND (entity_id = ? OR entity_id IN (SELECT id FROM ${config.table} WHERE ${config.scopeColumn} = ?))`
     )
@@ -262,6 +267,12 @@ export function detectBulkReplaceConflict(db, { entity, scope_id, based_on_seq }
   const currentSeq = latestScopeOpSeq(db, entity, scope_id)
   const effectiveBasedOn = Number.isInteger(based_on_seq) && based_on_seq >= 0 ? based_on_seq : 0
   if (currentSeq > effectiveBasedOn) {
+    // This lookup only runs against the Host's own db (this function is
+    // only ever called from the Host side of a bulk_replace submission), so
+    // currentSeq here is a raw seq value, never a host_seq-adjusted one —
+    // host_seq is always NULL on the Host's own rows. Do not reuse this
+    // `WHERE seq = ?` pattern against a Client db; there currentSeq may be a
+    // Host-canonical value that only matches via host_seq, not seq.
     const existingOp = db.prepare('SELECT * FROM operations WHERE seq = ?').get(currentSeq)
     return { conflict: true, existingOp }
   }
