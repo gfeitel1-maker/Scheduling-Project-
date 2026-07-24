@@ -26,4 +26,21 @@ export default defineConfig([
       'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
     },
   },
+  {
+    files: ['src/**/*.{js,jsx}', 'electron/**/*.js'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['@supabase/*'],
+              message:
+                'The Supabase backend is retired (see legacy/supabase/README.md). Do not import @supabase packages from active code under src/ or electron/.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 ])

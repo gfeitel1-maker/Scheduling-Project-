@@ -21,7 +21,15 @@ You define the rules: groups, tiers, time blocks, activities, anchors, and const
 - **Flag system** — surfaces unfillable slots, underserved activities, weather risk, and distribution gaps
 - **Locking** — protect decisions that shouldn't change across regenerations
 - **Snapshots** — named versions with auto-save before every regeneration
-- **Multi-tenant** — each camp's data is fully isolated
+- **Local-first** — each camp's data lives in its own on-device SQLite database, isolated by design
+
+## Architecture
+
+Shoresh is a local-first desktop app built on Electron and SQLite. Each device runs its own
+database; one device acts as a LAN "Host" that other "Client" devices sync with over a local
+WebSocket connection (no cloud backend, no internet dependency required for day-to-day use).
+See [`CLAUDE.md`](CLAUDE.md) and [`PLATFORM_STATE.md`](PLATFORM_STATE.md) for the full
+architecture description.
 
 ## Status
 
@@ -31,4 +39,4 @@ Self-hosting guide and contributing guidelines coming with the first stable rele
 
 ## Tech
 
-React 19 · Vite · Supabase · PostgreSQL RLS · @dnd-kit · Vitest · Vercel
+React 19 · Vite · Electron · better-sqlite3 · @dnd-kit · Vitest

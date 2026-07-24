@@ -25,7 +25,7 @@ npm rebuild better-sqlite3                   # before npm run test
 
 ## Architecture
 
-**This app is mid-migration from a Supabase (Postgres + Auth + RLS) cloud backend to a local-first design.** The active, current architecture is Electron + SQLite + LAN sync, described below. `src/supabase.js` and `src/hooks/useSession.js` are the legacy pre-rebuild path — do not build new features on them; target the Electron/SQLite path instead.
+**This app has migrated from a Supabase (Postgres + Auth + RLS) cloud backend to a local-first design.** The active, current architecture is Electron + SQLite + LAN sync, described below. The legacy pre-rebuild Supabase path has been fully retired: it lives at `legacy/supabase/` for historical reference only, is not imported by any active code under `src/` or `electron/`, and `@supabase/supabase-js` is no longer a dependency of this project. `src/hooks/useSession.js` no longer exists. See "Legacy Supabase path" below for details.
 
 **Local-first model** — each device runs its own SQLite db (`better-sqlite3`). One device acts as a LAN "Host" (WebSocket server, `electron/sync/syncServer.js`); other devices are "Clients" (`electron/sync/syncClient.js`) that discover the Host via mDNS (`electron/sync/discovery.js`) and sync over `ws://`. Data isolation is enforced by the app being single-camp-per-device-db (every `camps` lookup is `SELECT ... FROM camps LIMIT 1`), not by RLS.
 
@@ -47,13 +47,13 @@ npm rebuild better-sqlite3                   # before npm run test
 
 **Native module ABI** — `better-sqlite3` must be rebuilt when switching between running under Node (Vitest) and Electron; see Commands above. Symptoms of a mismatch: native module load errors or crashes on startup.
 
-## Legacy Supabase path (pre-rebuild, do not extend)
+## Legacy Supabase path (pre-rebuild, fully retired)
 
-`src/supabase.js` holds a single Supabase client instance; `src/hooks/useSession.js` wraps Supabase auth state (`useSession()` → `{ session, campId, loading }`, `resolveCampId(session)`). RLS policies (via `get_my_camp_id()`) enforced tenant isolation. `supabase/migrations/` is applied manually via the Supabase SQL editor, in filename order; the service role key is never used in the frontend.
+The pre-rebuild Supabase backend has moved to `legacy/supabase/` and is fully retired — not just "don't extend it," but no longer imported anywhere in `src/` or `electron/`, and `@supabase/supabase-js` has been removed from `package.json`. An ESLint rule (`eslint.config.js`) bans any new `@supabase/*` import under `src/` or `electron/` to keep it from being reintroduced.
 
-```
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your-anon-key
-```
+- `legacy/supabase/supabase.js` (previously `src/supabase.js`) held a single Supabase client instance.
+- `legacy/supabase/migrations/` (previously `supabase/migrations/`) holds the old Postgres migrations, applied manually via the Supabase SQL editor, in filename order.
+- RLS policies (via `get_my_camp_id()`) enforced tenant isolation in that era; local-first data isolation now works differently — see the local-first model above.
+- `src/hooks/useSession.js` no longer exists (removed in an earlier phase).
 
-Treat this section as historical context, not the path new work should extend — see [PLATFORM_STATE.md](PLATFORM_STATE.md) for what's actually active.
+See [legacy/supabase/README.md](legacy/supabase/README.md) for more, and [PLATFORM_STATE.md](PLATFORM_STATE.md) for what's actually active. Treat this section as historical context only.

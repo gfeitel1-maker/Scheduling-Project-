@@ -11,17 +11,6 @@ vi.mock('../localClient', () => ({
   },
 }))
 
-vi.mock('../supabase', () => ({
-  supabase: {
-    from: () => ({
-      delete: () => ({ eq: () => Promise.resolve({}) }),
-      insert: () => ({ select: () => ({ single: () => Promise.resolve({ data: null }) }) }),
-      select: () => ({ eq: () => Promise.resolve({ data: [] }) }),
-      update: () => ({ eq: () => Promise.resolve({}) }),
-    }),
-  },
-}))
-
 import ScheduleScreen from './ScheduleScreen'
 import { localClient } from '../localClient'
 
