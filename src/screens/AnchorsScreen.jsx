@@ -1,9 +1,59 @@
 import { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
-import { supabase } from '../supabase'
+import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
+
+// operations.value only accepts strings/null (better-sqlite3 throws on a raw
+// boolean/array) — every write must pre-serialize through these before
+// hitting localClient.write. Mirrors ActivitiesScreen.jsx's identical pattern.
+const BOOL_FIELDS = new Set(['is_all_groups'])
+const ARRAY_FIELDS = new Set(['group_ids'])
+
+function serializeFieldValue(field, value) {
+  if (BOOL_FIELDS.has(field)) return value ? 1 : 0
+  if (ARRAY_FIELDS.has(field)) return JSON.stringify(value ?? [])
+  return value ?? null
+}
+
+const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024
+
+// GOVERNOR judgment call (round 2->3 boundary, Sub-plan D Task 1): a
+// client-side Promise.race timeout was tried here and reverted. localClient's
+// underlying IPC call has no AbortController/cancellation — racing it against
+// a timer only stops the RENDERER from waiting, the real write/delete keeps
+// running in the main process and can complete (and, via ensureExists'
+// INSERT OR IGNORE, resurrect a row) *after* the UI has already told the user
+// it was rolled back or failed. That's a worse correctness risk (silently
+// wrong "it's gone" state) than the unbounded-hang UX gap it was meant to
+// fix, and no sibling migrated screen (ActivitiesScreen/TiersScreen/etc.) has
+// this timeout pattern either — reverting keeps this file consistent with
+// every other screen's already-accepted "IPC calls can hang, no timeout"
+// behavior. A real fix needs request cancellation or an idempotency-safe
+// generation fence at the localClient/IPC layer, which is out of scope for a
+// single-screen migration task — flagged as a genuine, not-yet-scheduled
+// follow-up (project memory).
+
+// Defense-in-depth: malformed JSON in group_ids (e.g. from a corrupted/
+// tampered op) must not crash the list render — default to [].
+function parseIdList(raw) {
+  if (!raw) return []
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function normalizeAnchor(row) {
+  return {
+    ...row,
+    is_all_groups: row.is_all_groups === 1 || row.is_all_groups === true,
+    group_ids: parseIdList(row.group_ids),
+  }
+}
 
 function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose }) {
   const isNew = !anchor?.id
@@ -51,8 +101,12 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
         time_block_id: blockId,
         notes: notes.trim() || null,
       })
-    } catch {
-      setSaveError('Failed to save — check your connection and try again')
+    } catch (err) {
+      setSaveError(
+        err?.cleanupFailed
+          ? `Save failed partway through and couldn't be fully rolled back (admin required) — ${err.orphanCount} incomplete anchor row(s) may remain; ask an admin to review/delete them.`
+          : 'Failed to save — check your connection and try again'
+      )
       setSaving(false)
       return
     }
@@ -172,23 +226,33 @@ export default function AnchorsScreen({ campId, onNavigate }) {
     setLoading(true)
     setError(null)
     try {
-      const [{ data: aData }, { data: dData }, { data: bData }, { data: tData }, { data: gData }] = await Promise.all([
-        supabase.from('anchor_activities').select('*').eq('camp_id', campId)
-          .eq('cohort_id', activeCohort.id).order('name'),
-        supabase.from('days_of_operation').select('*').eq('camp_id', campId).order('sort_order'),
-        supabase.from('time_blocks').select('*').eq('camp_id', campId)
-          .eq('cohort_id', activeCohort.id).order('sort_order'),
-        supabase.from('tiers').select('*').eq('camp_id', campId)
-          .eq('cohort_id', activeCohort.id).order('sort_order'),
-        supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
+      const [aData, dData, bData, tData, gData] = await Promise.all([
+        localClient.list('anchor_activities'),
+        localClient.list('days_of_operation'),
+        localClient.list('time_blocks'),
+        localClient.list('tiers'),
+        localClient.list('groups'),
       ])
-      setAnchors(aData || [])
+      const list = (aData || [])
+        .filter(a => a.camp_id === campId && a.cohort_id === activeCohort.id)
+        .map(normalizeAnchor)
+        .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? '')))
+      setAnchors(list)
       // Deduplicate days by day_of_week in case seed ran more than once
-      const uniqueDays = (dData || []).filter((d, i, arr) => arr.findIndex(x => x.day_of_week === d.day_of_week) === i)
+      const uniqueDays = (dData || [])
+        .filter(d => d.camp_id === campId)
+        .filter((d, i, arr) => arr.findIndex(x => x.day_of_week === d.day_of_week) === i)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
       setDays(uniqueDays)
-      setTimeBlocks(bData || [])
-      setTiers(tData || [])
-      setGroups(gData || [])
+      setTimeBlocks((bData || [])
+        .filter(b => b.camp_id === campId && b.cohort_id === activeCohort.id)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)))
+      setTiers((tData || [])
+        .filter(t => t.camp_id === campId && t.cohort_id === activeCohort.id)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)))
+      setGroups((gData || [])
+        .filter(g => g.camp_id === campId)
+        .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''))))
     } catch {
       setError('Failed to load data — check your connection and refresh')
     } finally {
@@ -196,35 +260,136 @@ export default function AnchorsScreen({ campId, onNavigate }) {
     }
   }
 
+  // Fires one write() per field (the op-log is field-level) and surfaces the
+  // first failure rather than a silent partial write — see
+  // ActivitiesScreen.jsx's identical helper.
+  async function writeFields(id, fields) {
+    const token = localStorage.getItem('shoresh-token')
+    for (const [field, value] of Object.entries(fields)) {
+      const result = await localClient.write(token, 'anchor_activities', id, field, serializeFieldValue(field, value))
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error(`write failed for field "${field}"`)
+      }
+    }
+  }
+
+  // Best-effort rollback of a row from a mid-fan-out failure. Returns
+  // whether the delete actually succeeded — deleteEntity routes to a
+  // DELETE_FIELD write, which electron/main.js gates to admin-only, so a
+  // non-admin's cleanup attempt is *correctly* refused. Callers must not
+  // treat a refused cleanup as if nothing went wrong: the row is real and
+  // orphaned, and the user needs to be told, not reassured.
+  async function cleanupPartialRow(id) {
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      const result = await localClient.deleteEntity(token, 'anchor_activities', id)
+      return !!(result && (result.status === 'applied' || result.status === 'queued'))
+    } catch {
+      return false
+    }
+  }
+
   async function saveAnchor(id, fields) {
     if (!activeCohort) return
     const { selectedDays, ...base } = fields
-    if (id) {
-      // Editing: update existing record, use first selected day
-      const { error } = await supabase.from('anchor_activities').update({ ...base, day_id: selectedDays[0] }).eq('id', id)
-      if (error) throw error
-    } else {
-      // New: insert one record per selected day
-      const results = await Promise.all(
-        selectedDays.map(dayId =>
-          supabase.from('anchor_activities').insert({ ...base, day_id: dayId, camp_id: campId, cohort_id: activeCohort.id })
-        )
+    try {
+      if (id) {
+        // Editing: update existing record, use first selected day
+        await writeFields(id, { ...base, day_id: selectedDays[0] })
+      } else {
+        // New: insert one record per selected day — each row gets its own id
+        // and its own full set of field writes (day_id differs per row,
+        // everything else is identical). Preserves the fan-out-per-day
+        // semantics of the pre-migration Supabase code exactly.
+        const createdIds = []
+        try {
+          for (const dayId of selectedDays) {
+            const newId = crypto.randomUUID()
+            createdIds.push(newId)
+            await writeFields(newId, { ...base, day_id: dayId, camp_id: campId, cohort_id: activeCohort.id })
+          }
+        } catch (err) {
+          // Known, accepted residual (Red Hat, round 2 re-review): a refused
+          // cleanup delete (admin-gated) is reported as "may remain" even in
+          // the rare case the failed write never actually reached the DB
+          // (e.g. the very first write of the very first row rejects before
+          // touching applyProjection) — the admin gate fires on the delete
+          // attempt regardless of whether a row exists to delete. The
+          // message is deliberately hedged ("may remain", not "remains") for
+          // exactly this reason; a precise existence check would need a
+          // dedicated read-before-cleanup IPC round trip, out of scope here.
+          const cleanupResults = await Promise.all(createdIds.map(cleanupPartialRow))
+          const cleanupFailed = cleanupResults.some(ok => !ok)
+          err.cleanupFailed = cleanupFailed
+          err.orphanCount = cleanupFailed ? cleanupResults.filter(ok => !ok).length : 0
+          throw err
+        }
+      }
+    } catch (err) {
+      setError(
+        err.cleanupFailed
+          ? `Save failed partway through and couldn't be fully rolled back (admin required) — ${err.orphanCount} incomplete anchor row(s) may remain; ask an admin to review/delete them.`
+          : 'Failed to save anchor — check your connection and try again'
       )
-      const firstError = results.find(r => r.error)?.error
-      if (firstError) throw firstError
+      throw err
     }
-    setModal(null); load()
+    await load()
+    setModal(null)
   }
 
   async function deleteAnchor(id) {
     if (!window.confirm('Delete this anchor?')) return
-    await supabase.from('anchor_activities').delete().eq('id', id); load()
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      const result = await localClient.deleteEntity(token, 'anchor_activities', id)
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error('delete failed')
+      }
+      await load()
+    } catch (err) {
+      setError(
+        /admin role required/i.test(err?.message ?? '')
+          ? 'Only an admin can delete anchors.'
+          : 'Failed to delete anchor — check your connection and try again'
+      )
+    }
   }
 
   async function deleteAll() {
     if (!window.confirm('Delete all anchors? This cannot be undone.')) return
-    await supabase.from('anchor_activities').delete().eq('camp_id', campId)
-    load()
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      // Re-fetch immediately rather than using the closed-over `anchors`
+      // state — a row synced in from another device between page-load and
+      // this click must not be silently skipped.
+      const freshAnchors = await localClient.list('anchor_activities')
+      const ids = (freshAnchors || [])
+        .filter(a => a.camp_id === campId && a.cohort_id === activeCohort?.id)
+        .map(a => a.id)
+      let succeeded = 0
+      let failedDueToRole = false
+      for (const anchorId of ids) {
+        try {
+          const result = await localClient.deleteEntity(token, 'anchor_activities', anchorId)
+          if (result && (result.status === 'applied' || result.status === 'queued')) {
+            succeeded++
+          }
+        } catch (err) {
+          if (/admin role required/i.test(err?.message ?? '')) failedDueToRole = true
+        }
+      }
+      await load()
+      const failed = ids.length - succeeded
+      if (failed > 0) {
+        setError(
+          failedDueToRole
+            ? 'Only an admin can delete anchors — no anchors were deleted.'
+            : `Deleted ${succeeded} of ${ids.length} anchors — please try again for the rest.`
+        )
+      }
+    } catch {
+      setError('Failed to delete anchors — check your connection and try again')
+    }
   }
 
   function downloadTemplate() {
@@ -242,94 +407,126 @@ export default function AnchorsScreen({ campId, onNavigate }) {
     const file = e.target.files[0]; if (!file) return
     e.target.value = ''
 
-    // Always fetch fresh lookups to avoid stale closure
-    const [{ data: freshDays }, { data: freshBlocks }, { data: freshTiers }, { data: freshGroups }] = await Promise.all([
-      supabase.from('days_of_operation').select('*').eq('camp_id', campId).order('sort_order'),
-      supabase.from('time_blocks').select('*').eq('camp_id', campId)
-        .eq('cohort_id', activeCohort.id).order('sort_order'),
-      supabase.from('tiers').select('*').eq('camp_id', campId)
-        .eq('cohort_id', activeCohort.id).order('sort_order'),
-      supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
-    ])
-
-    const uniqueFreshDays = (freshDays || []).filter((d, i, arr) => arr.findIndex(x => x.day_of_week === d.day_of_week) === i)
-    const dayMap = Object.fromEntries(uniqueFreshDays.map(d => [d.label.toLowerCase(), d.id]))
-    const blockMap = Object.fromEntries((freshBlocks || []).map(b => [b.name.toLowerCase(), b.id]))
-    const tierMap = Object.fromEntries((freshTiers || []).map(t => [t.name.toLowerCase(), t.id]))
-    const groupsByTier = Object.fromEntries(
-      (freshTiers || []).map(t => [t.id, (freshGroups || []).filter(g => g.tier_id === t.id).map(g => g.id)])
-    )
-
-    const buffer = await file.arrayBuffer()
-    const wb = XLSX.read(buffer, { type: 'array' })
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' })
-
-    // Expand each row into one record per day
-    const parsed = []
-    for (const r of rows) {
-      const name = String(r.name || '').trim()
-      const dayRaw = String(r.day_label || '').trim()
-      const dayLabels = dayRaw.toLowerCase() === 'all'
-        ? uniqueFreshDays.map(d => d.label)
-        : dayRaw.split(',').map(s => s.trim()).filter(Boolean)
-      const blockName = String(r.time_block_name || '').trim()
-      const isAllTiers = String(r.is_all_tiers || '').toUpperCase() === 'TRUE'
-      const tierNames = String(r.tier_names || '').split(',').map(s => s.trim()).filter(Boolean)
-
-      let baseWarning = null
-      if (!name) baseWarning = 'Missing name'
-
-      const time_block_id = blockName ? (blockMap[blockName.toLowerCase()] || null) : null
-      if (!time_block_id) baseWarning = baseWarning || `Time block "${blockName}" not found`
-
-      const resolvedTierIds = tierNames.map(n => tierMap[n.toLowerCase()]).filter(Boolean)
-      if (!isAllTiers && tierNames.length && resolvedTierIds.length < tierNames.length) {
-        const missing = tierNames.filter(n => !tierMap[n.toLowerCase()])
-        baseWarning = baseWarning || `Tier(s) not found: ${missing.join(', ')}`
-      }
-
-      const group_ids = isAllTiers
-        ? []
-        : resolvedTierIds.flatMap(tid => groupsByTier[tid] || [])
-
-      const tierLabel = tierNames.join(', ') || (isAllTiers ? 'All tiers' : '—')
-
-      if (dayLabels.length === 0) {
-        parsed.push({
-          name, day_id: null, time_block_id, is_all_groups: isAllTiers, group_ids,
-          notes: String(r.notes || '').trim() || null,
-          warning: baseWarning || 'Missing day_label',
-          _dayLabel: '—', _blockName: blockName, _tierNames: tierLabel,
-        })
-      } else {
-        for (const dayLabel of dayLabels) {
-          const day_id = dayMap[dayLabel.toLowerCase()] || null
-          const warning = baseWarning || (!day_id ? `Day "${dayLabel}" not found` : null)
-          parsed.push({
-            name, day_id, time_block_id, is_all_groups: isAllTiers, group_ids,
-            notes: String(r.notes || '').trim() || null,
-            warning,
-            _dayLabel: dayLabel, _blockName: blockName, _tierNames: tierLabel,
-          })
-        }
-      }
+    if (file.size > MAX_IMPORT_FILE_BYTES) {
+      setError('Import file is too large (max 5MB) — please split it into smaller files')
+      return
     }
 
-    setImportRows(parsed); setImportStep('preview')
+    try {
+      // Always fetch fresh lookups to avoid stale closure
+      const [freshDays, freshBlocks, freshTiers, freshGroups] = await Promise.all([
+        localClient.list('days_of_operation'),
+        localClient.list('time_blocks'),
+        localClient.list('tiers'),
+        localClient.list('groups'),
+      ])
+
+      const uniqueFreshDays = (freshDays || [])
+        .filter(d => d.camp_id === campId)
+        .filter((d, i, arr) => arr.findIndex(x => x.day_of_week === d.day_of_week) === i)
+      const dayMap = Object.fromEntries(uniqueFreshDays.map(d => [d.label.toLowerCase(), d.id]))
+      const blockMap = Object.fromEntries(
+        (freshBlocks || [])
+          .filter(b => b.camp_id === campId && b.cohort_id === activeCohort?.id)
+          .map(b => [b.name.toLowerCase(), b.id])
+      )
+      const scopedTiers = (freshTiers || []).filter(t => t.camp_id === campId && t.cohort_id === activeCohort?.id)
+      const tierMap = Object.fromEntries(scopedTiers.map(t => [t.name.toLowerCase(), t.id]))
+      const scopedGroups = (freshGroups || []).filter(g => g.camp_id === campId)
+      const groupsByTier = Object.fromEntries(
+        scopedTiers.map(t => [t.id, scopedGroups.filter(g => g.tier_id === t.id).map(g => g.id)])
+      )
+
+      const buffer = await file.arrayBuffer()
+      const wb = XLSX.read(buffer, { type: 'array' })
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' })
+
+      // Expand each row into one record per day
+      const parsed = []
+      for (const r of rows) {
+        const name = String(r.name || '').trim()
+        const dayRaw = String(r.day_label || '').trim()
+        const dayLabels = dayRaw.toLowerCase() === 'all'
+          ? uniqueFreshDays.map(d => d.label)
+          : dayRaw.split(',').map(s => s.trim()).filter(Boolean)
+        const blockName = String(r.time_block_name || '').trim()
+        const isAllTiers = String(r.is_all_tiers || '').toUpperCase() === 'TRUE'
+        const tierNames = String(r.tier_names || '').split(',').map(s => s.trim()).filter(Boolean)
+
+        let baseWarning = null
+        if (!name) baseWarning = 'Missing name'
+
+        const time_block_id = blockName ? (blockMap[blockName.toLowerCase()] || null) : null
+        if (!time_block_id) baseWarning = baseWarning || `Time block "${blockName}" not found`
+
+        const resolvedTierIds = tierNames.map(n => tierMap[n.toLowerCase()]).filter(Boolean)
+        if (!isAllTiers && tierNames.length && resolvedTierIds.length < tierNames.length) {
+          const missing = tierNames.filter(n => !tierMap[n.toLowerCase()])
+          baseWarning = baseWarning || `Tier(s) not found: ${missing.join(', ')}`
+        }
+
+        const group_ids = isAllTiers
+          ? []
+          : resolvedTierIds.flatMap(tid => groupsByTier[tid] || [])
+
+        const tierLabel = tierNames.join(', ') || (isAllTiers ? 'All tiers' : '—')
+
+        if (dayLabels.length === 0) {
+          parsed.push({
+            name, day_id: null, time_block_id, is_all_groups: isAllTiers, group_ids,
+            notes: String(r.notes || '').trim() || null,
+            warning: baseWarning || 'Missing day_label',
+            _dayLabel: '—', _blockName: blockName, _tierNames: tierLabel,
+          })
+        } else {
+          for (const dayLabel of dayLabels) {
+            const day_id = dayMap[dayLabel.toLowerCase()] || null
+            const warning = baseWarning || (!day_id ? `Day "${dayLabel}" not found` : null)
+            parsed.push({
+              name, day_id, time_block_id, is_all_groups: isAllTiers, group_ids,
+              notes: String(r.notes || '').trim() || null,
+              warning,
+              _dayLabel: dayLabel, _blockName: blockName, _tierNames: tierLabel,
+            })
+          }
+        }
+      }
+
+      setImportRows(parsed); setImportStep('preview')
+    } catch {
+      setError('Failed to read import file — check your connection and try again')
+    }
   }
 
   async function confirmImport() {
     if (!activeCohort) return
     setImporting(true)
-    let added = 0, skipped = 0
-    for (const row of importRows) {
-      if (!row.name || row.warning) { skipped++; continue }
-      const { warning, _dayLabel, _blockName, _tierNames, ...record } = row
-      await supabase.from('anchor_activities').insert({ ...record, camp_id: campId, cohort_id: activeCohort.id })
-      added++
+    try {
+      let added = 0, skipped = 0, skippedWithOrphan = 0
+      for (const row of importRows) {
+        if (!row.name || row.warning) { skipped++; continue }
+        const { warning: _warning, _dayLabel, _blockName, _tierNames, ...record } = row
+        const newId = crypto.randomUUID()
+        try {
+          await writeFields(newId, { ...record, camp_id: campId, cohort_id: activeCohort.id })
+        } catch {
+          const cleanedUp = await cleanupPartialRow(newId)
+          if (cleanedUp) {
+            skipped++
+          } else {
+            skippedWithOrphan++
+          }
+          continue
+        }
+        added++
+      }
+      setImportResult({ added, skipped, skippedWithOrphan }); setImportStep('done')
+    } catch {
+      setError('Import failed — check your connection and try again')
+      setImportStep(null); setImportRows([])
+    } finally {
+      setImporting(false); await load()
     }
-    setImportResult({ added, skipped }); setImportStep('done')
-    setImporting(false); load()
   }
 
   // Display helpers
@@ -460,7 +657,15 @@ export default function AnchorsScreen({ campId, onNavigate }) {
             {importStep === 'done' && (
               <>
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 12 }}>Import Complete</div>
-                <div style={{ fontSize: 14 }}><span style={{ color: 'var(--success)', fontWeight: 600 }}>{importResult.added} added</span>{importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped</span>}</div>
+                <div style={{ fontSize: 14 }}>
+                  <span style={{ color: 'var(--success)', fontWeight: 600 }}>{importResult.added} added</span>
+                  {importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped</span>}
+                  {importResult.skippedWithOrphan > 0 && (
+                    <span style={{ color: 'var(--warning)', marginLeft: 10 }}>
+                      {importResult.skippedWithOrphan} skipped but couldn't be fully rolled back (admin required) — stray row(s) may remain
+                    </span>
+                  )}
+                </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
                   <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
                 </div>
@@ -476,4 +681,3 @@ export default function AnchorsScreen({ campId, onNavigate }) {
     </div>
   )
 }
-
