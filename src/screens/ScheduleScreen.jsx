@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { supabase } from '../supabase'
+import { localClient } from '../localClient'
 import buildSchedule from '../engine/buildSchedule'
 import { S } from '../styles/shared'
 import StatBadge from '../components/schedule/StatBadge'
@@ -74,16 +75,21 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     setLoadError(null)
     setTemplateError(null)
     try {
-      const [{ data: gd }, { data: td }, { data: bd }, { data: ad }, { data: ancd }, { data: tierd }] = await Promise.all([
-        supabase.from('groups').select('*').eq('camp_id', campId).order('name'),
-        supabase.from('days_of_operation').select('*').eq('camp_id', campId).order('sort_order'),
-        supabase.from('time_blocks').select('*').eq('camp_id', campId).order('sort_order'),
-        supabase.from('activities').select('*').eq('camp_id', campId),
-        supabase.from('anchor_activities').select('*').eq('camp_id', campId),
-        supabase.from('tiers').select('*').eq('camp_id', campId).order('sort_order'),
+      const [gd, td, bd, ad, ancd, tierd] = await Promise.all([
+        localClient.list('groups'),
+        localClient.list('days_of_operation'),
+        localClient.list('time_blocks'),
+        localClient.list('activities'),
+        localClient.list('anchor_activities'),
+        localClient.list('tiers'),
       ])
-      const g = gd || []; const b = bd || []; const a = ad || []; const anc = ancd || []; const t = tierd || []
-      const d = (td || []).filter((x, i, arr) => arr.findIndex(y => y.day_of_week === x.day_of_week) === i)
+      const g = [...(gd || [])].filter(x => x.camp_id === campId).sort((x, y) => x.name.localeCompare(y.name))
+      const b = [...(bd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
+      const a = (ad || []).filter(x => x.camp_id === campId)
+      const anc = (ancd || []).filter(x => x.camp_id === campId)
+      const t = [...(tierd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
+      const sortedTd = [...(td || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
+      const d = sortedTd.filter((x, i, arr) => arr.findIndex(y => y.day_of_week === x.day_of_week) === i)
       const tierOrderMap = new Map(t.map(tier => [tier.id, tier.sort_order ?? 0]))
       const sortedG = [...g].sort((x, y) => {
         const ox = tierOrderMap.get(x.tier_id) ?? 999
@@ -99,25 +105,24 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       return
     }
     try {
-      const { data: tmpl } = await supabase.from('schedule_templates').select('id').eq('camp_id', campId).single()
+      const templates = await localClient.list('schedule_templates')
+      const tmpl = (templates || []).find(x => x.camp_id === campId)
       if (tmpl) {
         setTemplateId(tmpl.id)
-        const { data: slotData } = await supabase.from('template_slots').select('*').eq('template_id', tmpl.id)
-        const saved = slotData || []
+        const [slotData, overlayData, snapData] = await Promise.all([
+          localClient.list('template_slots'),
+          localClient.list('template_overlays'),
+          localClient.list('schedule_snapshots'),
+        ])
+        const saved = (slotData || []).filter(s => s.template_id === tmpl.id)
         setSlots(saved)
-        // Load overlays for this template
-        const { data: overlayData } = await supabase
-          .from('template_overlays')
-          .select('*')
-          .eq('template_id', tmpl.id)
-        setOverlays(overlayData || [])
+        setOverlays((overlayData || []).filter(o => o.template_id === tmpl.id))
         recalcStats(saved)
-        const { data: snapData } = await supabase
-          .from('schedule_snapshots')
-          .select('id, template_id, name, is_auto, created_at')
-          .eq('template_id', tmpl.id)
-          .order('created_at', { ascending: false })
-        setSnapshots(snapData || [])
+        const snaps = (snapData || [])
+          .filter(s => s.template_id === tmpl.id)
+          .sort((x, y) => new Date(y.created_at) - new Date(x.created_at))
+          .map(({ id, template_id, name, is_auto, created_at }) => ({ id, template_id, name, is_auto, created_at }))
+        setSnapshots(snaps)
       }
     } catch {
       setTemplateError('Failed to load saved schedule — check your connection and refresh')
