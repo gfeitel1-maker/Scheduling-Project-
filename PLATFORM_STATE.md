@@ -1,6 +1,6 @@
 # Shoresh — Platform State
 
-_Last updated: 2026-07-20_
+_Last updated: 2026-07-24_
 
 ---
 
@@ -12,10 +12,10 @@ _Last updated: 2026-07-20_
 | Desktop shell | Electron 43 (`electron/main.js`), contextBridge IPC via `electron/preload.js` |
 | Local database | SQLite via `better-sqlite3`, one file per device, schema versioned in-app (`electron/db/schema.sql` + migration blocks in `electron/db/localDb.js`) |
 | LAN sync | Custom `ws`-based protocol: one device runs a WebSocket host (`electron/sync/syncServer.js`), others connect as clients (`electron/sync/syncClient.js`); mDNS discovery via `bonjour-service` (`electron/sync/discovery.js`) |
-| Legacy backend (being replaced) | `@supabase/supabase-js` still a dependency; `src/supabase.js` and RLS-based auth (`src/hooks/useSession.js` per CLAUDE.md) are the pre-rebuild architecture and are being superseded by the local-first Electron/SQLite stack described below — CLAUDE.md is stale on auth/data-flow |
+| Legacy backend (nearly retired) | `@supabase/supabase-js` still a dependency; `src/supabase.js` is the pre-rebuild client. **All 5 screen-migration sub-plans (A-E) are complete** — every `src/screens/*.jsx` file is fully off Supabase. One unmigrated call site remains: `src/App.jsx`'s `seedDays()` (lines ~19, 45, 50) still calls `supabase.from('days_of_operation')` on every `AppShell` mount — this was never in scope for any of Sub-plans A-E (they covered screens, not `App.jsx`'s bootstrap effect), discovered during the Phase 1 cleanup inventory re-run. **This blocks Phase 1 cleanup Tasks 2-3** (removing the `@supabase/supabase-js` dependency and moving `src/supabase.js` to `legacy/` would break `App.jsx`'s build) until `seedDays` is ported to `localClient`/`days_of_operation` (a small, well-scoped follow-up task, not yet done). |
 | Repo | git@github.com:gfeitel1-maker/Scheduling-Project-.git (local clone at `Scheduling-Project-/`) |
 
-**Architecture note:** the app is mid-migration from a Supabase (Postgres + Auth + RLS) cloud backend to a local-first design: each device has its own SQLite db, one device acts as a LAN "Host" (WebSocket server), others are "Clients" that sync over the LAN. Data isolation that used to be enforced by Postgres RLS is now enforced by the app being fundamentally single-camp-per-device-db (see Database Tables below) plus signed session tokens. New engineering work should target the Electron/SQLite path, not `src/supabase.js`.
+**Architecture note:** the app's renderer-side migration off Supabase (Postgres + Auth + RLS) to the local-first Electron/SQLite/LAN-sync design is functionally complete for every screen. Each device has its own SQLite db; one device acts as a LAN "Host" (WebSocket server), others are "Clients" that sync over the LAN. Data isolation that used to be enforced by Postgres RLS is now enforced by the app being fundamentally single-camp-per-device-db (see Database Tables below) plus signed session tokens. New engineering work should target the Electron/SQLite path, not `src/supabase.js`. **Known CRITICAL defect in the sync layer itself** — see Key Architectural Decisions' `bulk_replace` entry below — must be fixed before the app is production-safe for the Schedule screen's Regenerate flow.
 
 ---
 
@@ -26,7 +26,9 @@ Two nested state machines, no router:
 1. **Device/session phase** — `src/hooks/useDeviceMode.js` derives a `phase` from local state (`error` → `loading` → `mode-select` → `bootstrap`/`join` → `login` → `session`). `src/App.jsx`'s top-level `App()` switches on `device.phase` to render one of: `ModeSelectScreen`, `CampBootstrapScreen` (Host: create a new camp), `JoinScreen` (Client: pick a discovered Host), `LoginScreen`, or the full `AppShell`.
 2. **In-app screen** — once in a session, `AppShell` (`src/App.jsx`) holds a `screen` string in `useState`, looked up in the `SCREENS` map and passed down through `Shell` → `Sidebar` (`src/components/layout/`). `campId` and an `onNavigate` (`setScreen`) callback are threaded as props into every screen — no context, no router.
 
-All Electron/SQLite calls from the renderer go through `window.shoresh.*` (see `electron/preload.js`), backed by IPC handlers in `electron/main.js`.
+All Electron/SQLite calls from the renderer go through `window.shoresh.*` (see `electron/preload.js`), backed by IPC handlers in `electron/main.js`: `chooseMode`, `discoverHosts`, `login`, `createUser`, `bootstrapCamp`, `write`, `bulkReplace` (new, see below), `verifySession`, `getCamp`, `listUsers`, `list`, `getDeviceId`, `resolveConflict`, `listPendingConflicts`, plus push events `onOpApplied`/`onOpConflict`. `src/localClient.js` wraps every one of these (`write`, `bulkReplace`, `deleteEntity`, `list`, etc.) — screens must always go through `localClient`, never call `window.shoresh` directly.
+
+**`bulkReplace` IPC surface (new, added during Sub-plan E Task 3):** `shoresh:bulk-replace` — admin-gated (mirrors `write`'s auth shape plus a `role === 'admin'` check, since a bulk_replace is a wholesale delete+reinsert of a scope, more destructive than any ordinary field write). Routes to the already-built `bulk_replace` op-log primitive (`appendBulkReplaceOp`/`applyBulkReplaceProjection` in `electron/ops/operations.js`, built in Sub-plan A Task 3). `BULK_REPLACE_ENTITIES` registers `template_slots` (columns: `id, template_id, group_id, activity_id, day_id, time_block_id, anchor_id, is_anchor, is_span_head, flags`) and `template_overlays` (columns: `id, template_id, unit_id, day_id, from_block_order, to_block_order, label`), scoped by `template_id`.
 
 ---
 
@@ -69,7 +71,7 @@ Local, PIN-based, per-camp — not Supabase Auth (see architecture note above).
 | `anchors` | `src/screens/AnchorsScreen.jsx` | |
 | `cohorts` | `src/screens/CohortsScreen.jsx` | |
 | `dayoverrides` | `src/screens/DayOverridesScreen.jsx` | |
-| `schedule` | `src/screens/ScheduleScreen.jsx` | Most complex screen — DnD schedule builder, three views (group/day/activity), flags, locking, snapshots |
+| `schedule` | `src/screens/ScheduleScreen.jsx` | Most complex screen — DnD schedule builder, three views (group/day/activity), flags, locking, snapshots. **Fully migrated off Supabase (Sub-plan E, Tasks 1-5, commits 855b248/db2c6f2/c687353/d324ed0/21f8a22)**: reads via `localClient.list`, single-slot writes via `writeFields`/`localClient.write`, bulk regen/snapshot-restore via `localClient.bulkReplace`, snapshot CRUD via `localClient.write` with JSON-text-column storage for the `slots`/`overlays` blobs (a scoped exception, not a precedent). See Key Architectural Decisions for the CRITICAL sync bug this migration's own verification surfaced. |
 | `conflicts` | `src/screens/ConflictsScreen.jsx` | Only screen given extra props (`onNavigate`, `pendingConflicts`) beyond `campId` |
 
 ---
@@ -93,12 +95,15 @@ Local, PIN-based, per-camp — not Supabase Auth (see architecture note above).
 - **conflicts** — durable record of every detected write conflict: `id, entity, entity_id, field, incoming_op, existing_op, existing_op_id, created_at, resolved_at`. A conflict counts as resolved when any op has `parent_op_id = existing_op_id`.
 - **locks** — `entity, entity_id, field, holder_device_id, acquired_at` — field-level edit locks.
 - **groups**, **tiers**, **activities** — camp-scoped config entities, each `camp_id`-keyed.
-- **template_slots** — `id, template_id, group_id, activity_id, day_id, time_block_id`.
-- **schema_migrations** — `version, applied_at` — versioned migration guard table.
+- **template_slots** — `id, template_id, group_id, activity_id, day_id, time_block_id, anchor_id, is_anchor, is_span_head, flags`. `anchor_id`/`is_anchor` added in schema migration v17 (Sub-plan E Task 3) — were referenced by `BULK_REPLACE_ENTITIES`'s intended column set but physically missing from SQLite until this migration.
+- **template_overlays** — `id, template_id, unit_id, day_id, from_block_order, to_block_order, label`. Now a registered `bulk_replace` entity (Sub-plan E Task 3), alongside `template_slots`.
+- **schedule_templates** — `id, camp_id, name`. Local SQLite table (ported off Supabase in Sub-plan E Task 1/2).
+- **schedule_snapshots** — `id, template_id, name, is_auto, created_at, slots (TEXT/JSON), overlays (TEXT/JSON)`. `slots`/`overlays` are JSON-text columns — an explicitly scoped exception to this app's normal field-level op-log sync, not a pattern to reuse elsewhere (per the Sub-plan E design doc). Ported off Supabase in Sub-plan E Task 4, the last Supabase call site in any screen.
+- **schema_migrations** — `version, applied_at` — versioned migration guard table (currently v17).
 - **device_identity** — `id, created_at` — this device's own persistent identity, independent of camp/login state (exists even on a totally fresh install).
 - **pending_writes** — durable backing store for a Client's offline write queue (`pending_id, client_write_id, entity, entity_id, field, value, parent_op_id, created_at`), so a queued write survives an app restart before it's confirmed applied.
 
-Legacy Supabase-era tables (`days_of_operation`, `schedule_templates`, `schedule_snapshots`, etc., referenced in `supabase/migrations/` and `src/App.jsx`'s `seedDays`) are part of the old cloud backend and not reflected in the SQLite schema above.
+`days_of_operation` (referenced by `src/App.jsx`'s still-unmigrated `seedDays`) is the one remaining table a live screen/bootstrap path still reads/writes via Supabase, not SQLite — see the Stack section's Legacy backend row.
 
 ---
 
@@ -115,6 +120,8 @@ None — no Supabase Edge Functions or HTTP API routes in the local-first archit
 - **Unified login path**: both local (offline fallback) and remote (online, incl. first-ever login) logins go through one `attemptLogin(db, ...)` function, so lockout/verification logic can't drift between the two call sites.
 - **Op-log + last-write-wins with explicit conflict table**: all mutations are appended as `operations` rows (entity/field-level), synced and replayed across devices; genuine conflicting writes are recorded in `conflicts` (not silently dropped) and must be explicitly resolved, with resolution ops linked via `parent_op_id`.
 - **Single-camp-per-db assumption**: every `camps` lookup in the codebase does `SELECT ... FROM camps LIMIT 1` rather than filtering by an active-camp id — a device's SQLite file only ever holds one camp's data. This is a real constraint, not an oversight — changing it (e.g. to support multiple camps per device) would require auditing every one of these call sites.
+- **`bulk_replace` op primitive**: a `{entity, scope_id, rows}`-shaped op that deletes all current rows in scope and inserts a new set, atomically, recorded in the op-log like any other op. Built in Sub-plan A Task 3 (`appendBulkReplaceOp`/`applyBulkReplaceProjection`/`validateBulkReplaceRows` in `electron/ops/operations.js`), extended with a renderer-facing IPC channel and a `template_overlays` registry entry in Sub-plan E Task 3. Used by `ScheduleScreen.jsx` for schedule regeneration and snapshot restore — the only consumer.
+  - **CRITICAL, CONFIRMED, UNFIXED defect** (found by Sub-plan E Task 5's end-to-end verification, `electron/sync/scheduleE2E.sync.test.js`, left as an honest `it.fails` regression test): `applyRemoteOp` in `electron/sync/syncClient.js` inserts a received op without persisting its Host-assigned `seq` (`electron/db/schema.sql`: `seq INTEGER PRIMARY KEY AUTOINCREMENT`) — each device's local `operations.seq` is that device's own independent counter, not the Host's canonical one. `latestScopeOpSeq`/`detectBulkReplaceConflict` (`electron/ops/operations.js`) compare a client's locally-numbered `based_on_seq` directly against the Host's own seq counter as if they were the same numbering space. These only coincide by accident when a device's op-log has the exact same op count/order as the Host for everything — never true in real usage, since camp bootstrap/user/group/activity ops always precede the first schedule write. **Net effect: the SECOND `bulk_replace` to the same scope from the same client — i.e. build a schedule, then click Regenerate — spuriously reports a conflict in essentially all real usage.** Not caught by Sub-plan A's own test suite (no existing test chained two same-scope bulk_replace calls from one client against a Host with any prior unrelated op history). Fix requires propagating/persisting the Host's `seq` on the client — a change to the core sync primitive, deliberately not attempted under Task 5's verification-only scope; needs its own dedicated Architect/Maker/Review round before Regenerate is production-safe.
 
 ---
 
@@ -130,6 +137,9 @@ Not role-differentiated at the top level — `setup` (`CampSetup.jsx`) is the fi
 - **Role enforcement is only partially audited**: only user-creation (`createUser`) is confirmed admin-gated server-side (`electron/main.js`). Other admin-oriented screens (tiers, groups, activities, etc.) have not been confirmed to have server-side role checks — see Role-Based Behavior table above.
 - **Single-process test-harness limitation** (documented in `docs/superpowers/specs/2026-07-20-shared-camp-signing-secret-design.md`): Vitest runs Host/Client test actors in one OS process, so it cannot by itself distinguish some cross-process bugs from correct behavior — cross-process claims require live two-Electron-instance verification, not just the automated suite.
 - No TLS anywhere in the sync protocol (`ws://`, not `wss://`) — explicitly accepted under the "trusted camp LAN" threat model, not a bug.
+- **`bulk_replace` cross-device seq bug** — see Key Architectural Decisions above. Blocks Regenerate from being production-safe.
+- **`App.jsx`'s `seedDays` still calls Supabase** — discovered during the Phase 1 cleanup inventory re-run (2026-07-24), outside every Sub-plan A-E task's stated scope. Blocks removing the `@supabase/supabase-js` dependency / moving `src/supabase.js` to `legacy/` until ported.
+- **Local dev environment cannot complete Camp Setup**: confirmed across 4 consecutive Tester rounds (Sub-plan E Tasks 2-5) — the Units screen has an unsatisfiable "Cohorts" prerequisite with no reachable UI path in the sidebar, so Groups/Time Blocks/Activities can never be configured and the Schedule screen can never show a real schedule grid in this environment. This blocked every attempt at live-UI verification for Sub-plan E; all verification for Tasks 2-5 fell back to unit/component/sync-harness tests, disclosed as an accepted gap each round. Root cause not diagnosed (out of scope for those tasks) — worth a dedicated investigation, since it may be related to or separate from the `seedDays`/Supabase gap above.
 
 ---
 
