@@ -16,8 +16,8 @@ import ScheduleScreen from './screens/ScheduleScreen'
 import ConflictsScreen from './screens/ConflictsScreen'
 import { useDeviceMode } from './hooks/useDeviceMode'
 import { usePendingConflicts } from './hooks/usePendingConflicts'
-import { supabase } from './supabase'
 import { ensureCohort } from './utils/ensureCohort'
+import { seedDays } from './utils/seedDays'
 import { S } from './styles/shared'
 
 const SCREENS = {
@@ -31,26 +31,6 @@ const SCREENS = {
   anchors:      AnchorsScreen,
   dayoverrides: DayOverridesScreen,
   schedule:     ScheduleScreen,
-}
-
-const MON_FRI = [
-  { label: 'Monday',    day_of_week: 1, sort_order: 1 },
-  { label: 'Tuesday',   day_of_week: 2, sort_order: 2 },
-  { label: 'Wednesday', day_of_week: 3, sort_order: 3 },
-  { label: 'Thursday',  day_of_week: 4, sort_order: 4 },
-  { label: 'Friday',    day_of_week: 5, sort_order: 5 },
-]
-
-async function seedDays(campId) {
-  const { count } = await supabase
-    .from('days_of_operation')
-    .select('id', { count: 'exact', head: true })
-    .eq('camp_id', campId)
-  if (count === 0) {
-    await supabase.from('days_of_operation').insert(
-      MON_FRI.map(d => ({ ...d, camp_id: campId }))
-    )
-  }
 }
 
 function AppShell({ campId, onLogout }) {
