@@ -18,6 +18,18 @@ import ScheduleActivityView from '../components/schedule/ScheduleActivityView'
 import ManualBuildView from '../components/schedule/ManualBuildView'
 import DisplacedPalette from '../components/schedule/DisplacedPalette'
 
+// Fires one write() per field (the op-log is field-level) and surfaces the
+// first failure rather than a silent partial write — mirrors
+// DayOverridesScreen.jsx/ActivitiesScreen.jsx's identical helper.
+async function writeFields(entity, id, fields) {
+  const token = localStorage.getItem('shoresh-token')
+  for (const [field, value] of Object.entries(fields)) {
+    const result = await localClient.write(token, entity, id, field, value)
+    if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+      throw new Error(`write failed for field "${field}"`)
+    }
+  }
+}
 
 export default function ScheduleScreen({ campId, onNavigate }) {
   const [groups, setGroups] = useState([])
@@ -41,6 +53,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   const [selectedActivity, setSelectedActivity] = useState(null)
   const [loadError, setLoadError] = useState(null)
   const [templateError, setTemplateError] = useState(null)
+  const [actionError, setActionError] = useState(null)
   const [snapshots, setSnapshots] = useState([])
   const [overlays, setOverlays] = useState([])
   const [showVersions, setShowVersions] = useState(false)
@@ -149,8 +162,8 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     // Upsert template
     let tid = templateId
     if (!tid) {
-      const { data } = await supabase.from('schedule_templates').insert({ camp_id: campId, name: 'Master Template' }).select('id').single()
-      tid = data.id
+      tid = crypto.randomUUID()
+      await writeFields('schedule_templates', tid, { camp_id: campId, name: 'Master Template' })
       setTemplateId(tid)
     }
 
@@ -192,12 +205,15 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   async function editSlotSave(newActivityId) {
     if (!editSlot || !templateId) return
     const { groupId, dayId, blockId } = editSlot
-    await supabase.from('template_slots')
-      .update({ activity_id: newActivityId || null, flags: {} })
-      .eq('template_id', templateId)
-      .eq('group_id', groupId)
-      .eq('day_id', dayId)
-      .eq('time_block_id', blockId)
+    const slot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId)
+    if (!slot) return
+    setActionError(null)
+    try {
+      await writeFields('template_slots', slot.id, { activity_id: newActivityId || null, flags: {} })
+    } catch {
+      setActionError('Failed to save slot — check your connection and try again')
+      return
+    }
     setSlots(prev => prev.map(s =>
       s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
         ? { ...s, activity_id: newActivityId || null, flags: {} }
@@ -209,20 +225,19 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   async function swapSlots(slotA, slotB) {
     // slotA and slotB are { groupId, dayId, blockId, activityId }
     if (!templateId) return
-    await Promise.all([
-      supabase.from('template_slots')
-        .update({ activity_id: slotB.activityId || null, flags: {} })
-        .eq('template_id', templateId)
-        .eq('group_id', slotA.groupId)
-        .eq('day_id', slotA.dayId)
-        .eq('time_block_id', slotA.blockId),
-      supabase.from('template_slots')
-        .update({ activity_id: slotA.activityId || null, flags: {} })
-        .eq('template_id', templateId)
-        .eq('group_id', slotB.groupId)
-        .eq('day_id', slotB.dayId)
-        .eq('time_block_id', slotB.blockId),
-    ])
+    const rowA = slots.find(s => s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
+    const rowB = slots.find(s => s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
+    if (!rowA || !rowB) return
+    setActionError(null)
+    try {
+      await Promise.all([
+        writeFields('template_slots', rowA.id, { activity_id: slotB.activityId || null, flags: {} }),
+        writeFields('template_slots', rowB.id, { activity_id: slotA.activityId || null, flags: {} }),
+      ])
+    } catch {
+      setActionError('Failed to swap slots — check your connection and try again')
+      return
+    }
     setSlots(prev => prev.map(s => {
       if (s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
         return { ...s, activity_id: slotB.activityId || null, flags: {} }
@@ -240,9 +255,13 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       return { id, newFlags }
     }).filter(Boolean)
 
-    await Promise.all(updates.map(({ id, newFlags }) =>
-      supabase.from('template_slots').update({ flags: newFlags }).eq('id', id)
-    ))
+    setActionError(null)
+    try {
+      await Promise.all(updates.map(({ id, newFlags }) => writeFields('template_slots', id, { flags: newFlags })))
+    } catch {
+      setActionError('Failed to dismiss flag — check your connection and try again')
+      return
+    }
 
     setSlots(prev => {
       const next = prev.map(s => {
@@ -255,12 +274,24 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   }
 
   async function lockActivity(activityId) {
-    await supabase.from('activities').update({ is_locked: true }).eq('id', activityId)
+    setActionError(null)
+    try {
+      await writeFields('activities', activityId, { is_locked: true })
+    } catch {
+      setActionError('Failed to lock activity — check your connection and try again')
+      return
+    }
     setActivities(prev => prev.map(a => a.id === activityId ? { ...a, is_locked: true } : a))
   }
 
   async function releaseCell(slotId) {
-    await supabase.from('template_slots').update({ is_released: true }).eq('id', slotId)
+    setActionError(null)
+    try {
+      await writeFields('template_slots', slotId, { is_released: true })
+    } catch {
+      setActionError('Failed to release cell — check your connection and try again')
+      return
+    }
     setSlots(prev => prev.map(s => s.id === slotId ? { ...s, is_released: true } : s))
   }
 
@@ -270,22 +301,41 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       console.warn('addOverlay: group has no tier_id — cannot create overlay')
       return
     }
-    const { data, error } = await supabase
-      .from('template_overlays')
-      .insert({ template_id: templateId, unit_id: unitId, day_id: dayId, from_block_order: fromBlockOrder, to_block_order: toBlockOrder, label })
-      .select()
-      .single()
-    if (error) { console.error('addOverlay error:', error); return }
-    if (data) setOverlays(prev => [...prev, data])
+    const id = crypto.randomUUID()
+    const overlay = { id, template_id: templateId, unit_id: unitId, day_id: dayId, from_block_order: fromBlockOrder, to_block_order: toBlockOrder, label }
+    setActionError(null)
+    try {
+      await writeFields('template_overlays', id, { template_id: templateId, unit_id: unitId, day_id: dayId, from_block_order: fromBlockOrder, to_block_order: toBlockOrder, label })
+    } catch {
+      setActionError('Failed to add overlay — check your connection and try again')
+      return
+    }
+    setOverlays(prev => [...prev, overlay])
   }
 
   async function removeOverlay(overlayId) {
-    await supabase.from('template_overlays').delete().eq('id', overlayId)
+    const token = localStorage.getItem('shoresh-token')
+    setActionError(null)
+    try {
+      const result = await localClient.deleteEntity(token, 'template_overlays', overlayId)
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error('delete failed')
+      }
+    } catch {
+      setActionError('Failed to remove overlay — check your connection and try again')
+      return
+    }
     setOverlays(prev => prev.filter(o => o.id !== overlayId))
   }
 
   async function updateOverlayRange(overlayId, toBlockOrder) {
-    await supabase.from('template_overlays').update({ to_block_order: toBlockOrder }).eq('id', overlayId)
+    setActionError(null)
+    try {
+      await writeFields('template_overlays', overlayId, { to_block_order: toBlockOrder })
+    } catch {
+      setActionError('Failed to update overlay — check your connection and try again')
+      return
+    }
     setOverlays(prev => prev.map(o => o.id === overlayId ? { ...o, to_block_order: toBlockOrder } : o))
   }
 
@@ -367,8 +417,8 @@ export default function ScheduleScreen({ campId, onNavigate }) {
 
     let tid = templateId
     if (!tid) {
-      const { data } = await supabase.from('schedule_templates').insert({ camp_id: campId, name: 'Master Template' }).select('id').single()
-      tid = data.id
+      tid = crypto.randomUUID()
+      await writeFields('schedule_templates', tid, { camp_id: campId, name: 'Master Template' })
       setTemplateId(tid)
     }
 
@@ -428,12 +478,13 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     if (!eligible || locationFull) flags.UNFILLABLE = true
     if (atMax) flags.UNDERSERVED = true
 
-    await supabase.from('template_slots')
-      .update({ activity_id: activityId, flags })
-      .eq('template_id', templateId)
-      .eq('group_id', groupId)
-      .eq('day_id', dayId)
-      .eq('time_block_id', blockId)
+    setActionError(null)
+    try {
+      await writeFields('template_slots', slot.id, { activity_id: activityId, flags })
+    } catch {
+      setActionError('Failed to place activity — check your connection and try again')
+      return
+    }
 
     setSlots(prev => prev.map(s =>
       s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
@@ -446,7 +497,8 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   async function expandSlot(groupId, dayId, headBlockId, tailBlockId, tailActivityId, tailActivityName, tailBlockName, dayLabel) {
     if (!templateId) return
     const headSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-    if (!headSlot) return
+    const tailSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+    if (!headSlot || !tailSlot) return
 
     const headActivityId = headSlot.activity_id
     const existingFlags = headSlot.flags || {}
@@ -459,21 +511,17 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       },
     }
 
-    // Update tail slot: now owned by head activity, marked as tail (is_span_head = false)
-    await supabase.from('template_slots')
-      .update({ activity_id: headActivityId, is_span_head: false })
-      .eq('template_id', templateId)
-      .eq('group_id', groupId)
-      .eq('day_id', dayId)
-      .eq('time_block_id', tailBlockId)
+    setActionError(null)
+    try {
+      // Update tail slot: now owned by head activity, marked as tail (is_span_head = false)
+      await writeFields('template_slots', tailSlot.id, { activity_id: headActivityId, is_span_head: false })
 
-    // Write flag to head slot
-    await supabase.from('template_slots')
-      .update({ flags: newFlags })
-      .eq('template_id', templateId)
-      .eq('group_id', groupId)
-      .eq('day_id', dayId)
-      .eq('time_block_id', headBlockId)
+      // Write flag to head slot
+      await writeFields('template_slots', headSlot.id, { flags: newFlags })
+    } catch {
+      setActionError('Failed to expand slot — check your connection and try again')
+      return
+    }
 
     // Update local state
     setSlots(prev => prev.map(s => {
@@ -671,6 +719,11 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       {templateError && (
         <div style={S.errorBanner}>
           {templateError}
+        </div>
+      )}
+      {actionError && (
+        <div style={S.errorBanner}>
+          {actionError}
         </div>
       )}
       {/* Controls bar */}
