@@ -92,8 +92,8 @@ export const S = {
     padding: 16,
   },
   errorBanner: {
-    background: '#fff5f5',
-    border: '1px solid #f5c6c6',
+    background: 'color-mix(in srgb, var(--warning) 8%, var(--surface))',
+    border: '1px solid color-mix(in srgb, var(--warning) 35%, var(--border))',
     borderRadius: 6,
     padding: '10px 14px',
     marginBottom: 16,
