@@ -219,3 +219,158 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
     })
   })
 })
+
+// Task 4: saveSnapshot/restoreSnapshot's payload fetch/renameSnapshot ported
+// from Supabase to localClient. slots/overlays are the one scoped exception
+// where a JSON-text-column is written via ordinary writeFields (not bulk_replace).
+describe('snapshot CRUD ported to localClient', () => {
+  it('saveSnapshot: writes template_id/name/is_auto/created_at/slots/overlays via writeFields (slots+overlays JSON.stringify\'d) and updates snapshot list optimistically', async () => {
+    mockList({
+      template_slots: [slotRow({ flags: { UNFILLABLE: true } })],
+    })
+    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('📋 Versions ▾'))
+    const nameInput = screen.getByPlaceholderText('Name current version…')
+    fireEvent.change(nameInput, { target: { value: 'My Version' } })
+    fireEvent.click(screen.getByText('Save as named version'))
+
+    await waitFor(() => {
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'new-id-1', 'name', 'My Version')
+    })
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'new-id-1', 'template_id', 'tmpl-1')
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'new-id-1', 'is_auto', false)
+    expect(localClient.write).toHaveBeenCalledWith(
+      'token-abc', 'schedule_snapshots', 'new-id-1', 'slots',
+      JSON.stringify([{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: false, flags: { UNFILLABLE: true } }])
+    )
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'new-id-1', 'overlays', JSON.stringify([]))
+
+    // Optimistic local state update — new snapshot appears in the dropdown.
+    await waitFor(() => expect(screen.getByText('My Version')).toBeTruthy())
+  })
+
+  it('renameSnapshot: writes name and is_auto:false via writeFields', async () => {
+    mockList({
+      schedule_snapshots: [
+        { id: 'snap-2', template_id: 'tmpl-1', name: 'Newest', is_auto: false, created_at: '2026-01-01T00:00:00.000Z' },
+        { id: 'snap-1', template_id: 'tmpl-1', name: null, is_auto: true, created_at: '2025-12-31T00:00:00.000Z' },
+      ],
+    })
+    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('📋 Versions ▾'))
+    await waitFor(() => expect(screen.getByText('rename')).toBeTruthy())
+    fireEvent.click(screen.getByText('rename'))
+
+    const renameInput = screen.getByPlaceholderText('Version name…')
+    fireEvent.change(renameInput, { target: { value: 'Renamed Version' } })
+    fireEvent.click(screen.getByText('Save'))
+
+    await waitFor(() => {
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'snap-1', 'name', 'Renamed Version')
+    })
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'snap-1', 'is_auto', false)
+  })
+
+  it('restoreSnapshot: parses stored slots/overlays JSON strings back into arrays and applies them to the live schedule', async () => {
+    const storedSlots = JSON.stringify([
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-restored', anchor_id: null, is_anchor: false, flags: {} },
+    ])
+    mockList({
+      schedule_snapshots: [
+        { id: 'snap-1', template_id: 'tmpl-1', name: null, is_auto: true, created_at: '2026-01-01T00:00:00.000Z' },
+        { id: 'snap-2', template_id: 'tmpl-1', name: 'Older', is_auto: false, created_at: '2025-12-31T00:00:00.000Z', slots: storedSlots, overlays: '' },
+      ],
+      activities: [activity(), activity({ id: 'act-restored', name: 'Arts & Crafts' })],
+    })
+    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+    fireEvent.click(screen.getByText('Daily View'))
+
+    fireEvent.click(screen.getByText('📋 Versions ▾'))
+    await waitFor(() => expect(screen.getByText('Restore')).toBeTruthy())
+
+    // After restore, the refetch of template_slots/template_overlays reflects
+    // what bulkReplace was called with — built from the parsed snapshot slots.
+    fireEvent.click(screen.getByText('Restore'))
+
+    await waitFor(() => {
+      expect(localClient.bulkReplace).toHaveBeenCalledWith(
+        'token-abc', 'template_slots', 'tmpl-1',
+        expect.arrayContaining([expect.objectContaining({ activity_id: 'act-restored' })])
+      )
+    })
+  })
+
+  it('restoreSnapshot: a malformed slots JSON string surfaces a corruption error instead of throwing, and does not call bulkReplace', async () => {
+    mockList({
+      schedule_snapshots: [
+        { id: 'snap-1', template_id: 'tmpl-1', name: null, is_auto: true, created_at: '2026-01-01T00:00:00.000Z' },
+        { id: 'snap-2', template_id: 'tmpl-1', name: 'Corrupt', is_auto: false, created_at: '2025-12-31T00:00:00.000Z', slots: '{not valid json', overlays: '' },
+      ],
+    })
+    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+    fireEvent.click(screen.getByText('Daily View'))
+
+    fireEvent.click(screen.getByText('📋 Versions ▾'))
+    await waitFor(() => expect(screen.getByText('Restore')).toBeTruthy())
+    fireEvent.click(screen.getByText('Restore'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/corrupted and cannot be restored/i)).toBeTruthy()
+    })
+    expect(localClient.bulkReplace).not.toHaveBeenCalled()
+  })
+
+  it('renameSnapshot failure: a rejected write surfaces an error banner instead of throwing unhandled', async () => {
+    mockList({
+      schedule_snapshots: [
+        { id: 'snap-2', template_id: 'tmpl-1', name: 'Newest', is_auto: false, created_at: '2026-01-01T00:00:00.000Z' },
+        { id: 'snap-1', template_id: 'tmpl-1', name: null, is_auto: true, created_at: '2025-12-31T00:00:00.000Z' },
+      ],
+    })
+    localClient.write.mockRejectedValue(new Error('network down'))
+    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('📋 Versions ▾'))
+    await waitFor(() => expect(screen.getByText('rename')).toBeTruthy())
+    fireEvent.click(screen.getByText('rename'))
+
+    const renameInput = screen.getByPlaceholderText('Version name…')
+    fireEvent.change(renameInput, { target: { value: 'Renamed Version' } })
+    fireEvent.click(screen.getByText('Save'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/Failed to rename snapshot/i)).toBeTruthy()
+    })
+  })
+})
+
+// Round 2 Fix 1: saveSnapshot is a safety-net undo point taken immediately
+// before generate()'s destructive bulkReplace wipe. If the snapshot write
+// fails, saveSnapshot must propagate that failure so generate() can abort
+// instead of proceeding to destroy the existing schedule with no undo point.
+describe('generate() aborts the destructive wipe when the pre-emptive snapshot fails (Round 2 Fix 1)', () => {
+  it('does not call bulkReplace when the auto-snapshot write rejects', async () => {
+    mockList({
+      template_slots: [slotRow()],
+    })
+    localClient.write.mockRejectedValue(new Error('write failed'))
+    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Regenerate from Scratch'))
+    await waitFor(() => expect(screen.getByText('Yes, Regenerate')).toBeTruthy())
+    fireEvent.click(screen.getByText('Yes, Regenerate'))
+
+    await waitFor(() => {
+      expect(screen.getByText(/undo point/i)).toBeTruthy()
+    })
+    expect(localClient.bulkReplace).not.toHaveBeenCalled()
+  })
+})

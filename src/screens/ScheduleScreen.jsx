@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
-import { supabase } from '../supabase'
 import { localClient } from '../localClient'
 import buildSchedule from '../engine/buildSchedule'
 import { S } from '../styles/shared'
@@ -187,7 +186,13 @@ export default function ScheduleScreen({ campId, onNavigate }) {
     }
 
     if (slots.length > 0) {
-      await saveSnapshot(null, true)
+      try {
+        await saveSnapshot(null, true)
+      } catch {
+        setActionError('Could not save undo point — regeneration cancelled')
+        setGenerating(false)
+        return
+      }
     }
 
     const token = localStorage.getItem('shoresh-token')
@@ -376,22 +381,40 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       is_anchor: s.is_anchor,
       flags: s.flags || {},
     }))
-    const { data: snap } = await supabase
-      .from('schedule_snapshots')
-      .insert({ template_id: templateId, name: name || null, is_auto: isAuto, slots: snapSlots, overlays: overlays.map(o => ({ unit_id: o.unit_id, day_id: o.day_id, from_block_order: o.from_block_order, to_block_order: o.to_block_order, label: o.label })) })
-      .select('id, template_id, name, is_auto, created_at')
-      .single()
-    if (snap) setSnapshots(prev => [snap, ...prev])
+    const id = crypto.randomUUID()
+    const createdAt = new Date().toISOString()
+    const snapOverlays = overlays.map(o => ({ unit_id: o.unit_id, day_id: o.day_id, from_block_order: o.from_block_order, to_block_order: o.to_block_order, label: o.label }))
+    setActionError(null)
+    try {
+      await writeFields('schedule_snapshots', id, {
+        template_id: templateId,
+        name: name || null,
+        is_auto: isAuto,
+        created_at: createdAt,
+        slots: JSON.stringify(snapSlots),
+        overlays: JSON.stringify(snapOverlays),
+      })
+    } catch (err) {
+      setActionError('Failed to save snapshot — check your connection and try again')
+      throw err
+    }
+    setSnapshots(prev => [{ id, template_id: templateId, name: name || null, is_auto: isAuto, created_at: createdAt }, ...prev])
   }
 
   async function restoreSnapshot(snapshot) {
     if (!templateId) return
-    const { data: fullSnap } = await supabase
-      .from('schedule_snapshots')
-      .select('slots, overlays')
-      .eq('id', snapshot.id)
-      .single()
+    const fullSnap = (await localClient.list('schedule_snapshots')).find(s => s.id === snapshot.id)
     if (!fullSnap?.slots) return
+    let parsedSlots, parsedOverlays
+    try {
+      parsedSlots = JSON.parse(fullSnap.slots)
+      parsedOverlays = fullSnap.overlays ? JSON.parse(fullSnap.overlays) : []
+    } catch {
+      setActionError('This snapshot appears to be corrupted and cannot be restored')
+      return
+    }
+    fullSnap.slots = parsedSlots
+    fullSnap.overlays = parsedOverlays
 
     const token = localStorage.getItem('shoresh-token')
 
@@ -442,7 +465,13 @@ export default function ScheduleScreen({ campId, onNavigate }) {
   }
 
   async function renameSnapshot(snapshotId, newName) {
-    await supabase.from('schedule_snapshots').update({ name: newName, is_auto: false }).eq('id', snapshotId)
+    setActionError(null)
+    try {
+      await writeFields('schedule_snapshots', snapshotId, { name: newName, is_auto: false })
+    } catch {
+      setActionError('Failed to rename snapshot — check your connection and try again')
+      return
+    }
     setSnapshots(prev => prev.map(s => s.id === snapshotId ? { ...s, name: newName, is_auto: false } : s))
   }
 
@@ -463,7 +492,15 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       setTemplateId(tid)
     }
 
-    if (slots.length > 0) await saveSnapshot(null, true)
+    if (slots.length > 0) {
+      try {
+        await saveSnapshot(null, true)
+      } catch {
+        setActionError('Could not save undo point — regeneration cancelled')
+        setGenerating(false)
+        return
+      }
+    }
 
     const token = localStorage.getItem('shoresh-token')
 
@@ -806,7 +843,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
               isOpen={showVersions}
               onToggle={() => setShowVersions(v => !v)}
               onRestore={restoreSnapshot}
-              onSaveNamed={name => saveSnapshot(name, false)}
+              onSaveNamed={name => { saveSnapshot(name, false).catch(() => {}) }}
               onRenameAutoSave={renameSnapshot}
             />
 
