@@ -24,6 +24,13 @@ afterEach(() => {
 })
 
 describe('PROJECTIONS registry', () => {
+  it('registers camps with a fields allowlist and a singleton-guarding ensureExists', () => {
+    expect(PROJECTIONS.camps.table).toBe('camps')
+    expect(PROJECTIONS.camps.key).toBe('id')
+    expect(PROJECTIONS.camps.fields).toEqual(['name'])
+    expect(typeof PROJECTIONS.camps.ensureExists).toBe('function')
+  })
+
   it('registers users with a fields allowlist and ensureExists', () => {
     expect(PROJECTIONS.users.table).toBe('users')
     expect(PROJECTIONS.users.key).toBe('id')
@@ -44,6 +51,41 @@ describe('PROJECTIONS registry', () => {
       'sort_order',
     ])
     expect(typeof PROJECTIONS.cohorts.ensureExists).toBe('function')
+  })
+})
+
+describe('applyProjection for camps', () => {
+  it('updates the existing camp row name via the real op-log path', () => {
+    applyProjection(db, { entity: 'camps', entity_id: 'camp-1', field: 'name', value: 'Camp Renamed' })
+    const row = db.prepare('SELECT * FROM camps WHERE id = ?').get('camp-1')
+    expect(row.name).toBe('Camp Renamed')
+  })
+
+  it('ensureExists does not create a second camps row and does not clobber signing_secret', () => {
+    const before = db.prepare('SELECT COUNT(*) as count FROM camps').get().count
+    const secretBefore = db.prepare('SELECT signing_secret FROM camps WHERE id = ?').get('camp-1')
+      .signing_secret
+
+    applyProjection(db, { entity: 'camps', entity_id: 'camp-1', field: 'name', value: 'Still One Row' })
+
+    const after = db.prepare('SELECT COUNT(*) as count FROM camps').get().count
+    const secretAfter = db.prepare('SELECT signing_secret FROM camps WHERE id = ?').get('camp-1')
+      .signing_secret
+    expect(after).toBe(before)
+    expect(secretAfter).toBe(secretBefore)
+  })
+
+  it('rejects a mismatched entity_id rather than silently creating a second camps row (round-2 singleton guard)', () => {
+    const before = db.prepare('SELECT COUNT(*) as count FROM camps').get().count
+
+    expect(() =>
+      applyProjection(db, { entity: 'camps', entity_id: 'some-other-camp-id', field: 'name', value: 'Evil' })
+    ).toThrow()
+
+    const after = db.prepare('SELECT COUNT(*) as count FROM camps').get().count
+    expect(after).toBe(before)
+    const evilRow = db.prepare('SELECT * FROM camps WHERE id = ?').get('some-other-camp-id')
+    expect(evilRow).toBeUndefined()
   })
 })
 

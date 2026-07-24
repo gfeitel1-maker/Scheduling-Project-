@@ -1,4 +1,36 @@
 export const PROJECTIONS = {
+  camps: {
+    table: 'camps',
+    key: 'id',
+    fields: ['name'],
+    // Deliberate deviation from the generic ensureExists pattern used by
+    // every other entity below: `camps` is a true singleton table, not a
+    // collection. Every other entity's ensureExists is safe to
+    // INSERT-OR-IGNORE with whatever id the caller supplies, because
+    // multiple rows are legitimate there. For `camps`, blindly doing the
+    // same with a caller-supplied entity_id could create a SECOND camps
+    // row with an empty signing_secret — corrupting the single-camp
+    // invariant every other subsystem (esp. getSigningSecret's
+    // `SELECT signing_secret FROM camps LIMIT 1`) depends on, which would
+    // silently break session-token verification camp-wide.
+    //
+    // So instead of inserting on mismatch, this looks up the one real
+    // existing camp row and only proceeds if the caller's id matches it.
+    // If there is no existing camp row, or the id doesn't match, it throws
+    // rather than silently creating/corrupting a row — bootstrapCamp is the
+    // only code path allowed to create the camps row in the first place.
+    ensureExists: (db, id) => {
+      const existing = db.prepare('SELECT id FROM camps LIMIT 1').get()
+      if (!existing || existing.id !== id) {
+        throw new Error(
+          'camps.ensureExists: refusing to write — no existing camp row matches the given id (camps is a singleton table; use bootstrapCamp to create it)'
+        )
+      }
+      // No-op in practice: the row already exists and matches. Kept as an
+      // explicit branch (rather than removed) so the guard above stays the
+      // single source of truth for "is this write allowed."
+    },
+  },
   users: {
     table: 'users',
     key: 'id',

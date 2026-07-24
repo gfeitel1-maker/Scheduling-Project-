@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../supabase'
+import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 
 const STEPS = [
@@ -53,20 +53,49 @@ export default function CampSetup({ campId, onNavigate }) {
   useEffect(() => { loadCamp(); loadCounts() }, [campId])
 
   async function loadCamp() {
-    const { data } = await supabase.from('camps').select('name').eq('id', campId).single()
-    if (data) { setCampName(data.name); setSavedName(data.name) }
+    try {
+      const camp = await localClient.getCamp()
+      if (camp) {
+        setCampName(camp.name)
+        setSavedName(camp.name)
+      } else {
+        // A zero-camp-row state is an error state (bootstrap should have
+        // created the single camps row), not a legitimate blank name field
+        // to silently let the director type into.
+        setError('No camp found — refresh the app')
+      }
+    } catch {
+      setError('Failed to load camp — check your connection and refresh')
+    }
   }
 
   async function loadCounts() {
     setLoadingCounts(true)
     setError(null)
     try {
-      const results = await Promise.all(
-        STEPS.map(s => supabase.from(s.table).select('id', { count: 'exact', head: true }).eq('camp_id', campId))
-      )
-      const map = {}
-      STEPS.forEach((s, i) => { map[s.key] = results[i].count || 0 })
-      setCounts(map)
+      // Round-2 fix: Promise.all meant ONE failing list() call blanked out
+      // ALL counts, even if the other four succeeded. Promise.allSettled
+      // preserves the previously-known count for any step that failed this
+      // round, while still surfacing an error banner so the director knows
+      // something is degraded.
+      const results = await Promise.allSettled(STEPS.map(s => localClient.list(s.table)))
+      let anyFailed = false
+      setCounts(prev => {
+        const map = { ...prev }
+        results.forEach((r, i) => {
+          const key = STEPS[i].key
+          if (r.status === 'fulfilled') {
+            map[key] = (r.value || []).length
+          } else {
+            anyFailed = true
+            map[key] = prev[key] || 0
+          }
+        })
+        return map
+      })
+      if (anyFailed) {
+        setError('Some data failed to load — counts may be out of date. Refresh to retry.')
+      }
     } catch {
       setError('Failed to load — check your connection and refresh')
     } finally {
@@ -76,12 +105,26 @@ export default function CampSetup({ campId, onNavigate }) {
 
   async function saveName() {
     if (!campName.trim() || campName === savedName) return
+    if (!campId) {
+      setError('No camp loaded — refresh the app')
+      return
+    }
     setSaving(true)
-    await supabase.from('camps').update({ name: campName.trim() }).eq('id', campId)
-    setSavedName(campName.trim())
-    setNameSaved(true)
-    setSaving(false)
-    setTimeout(() => setNameSaved(false), 4000)
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      const result = await localClient.write(token, 'camps', campId, 'name', campName.trim())
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        setError('Failed to save camp name — check your connection and try again')
+        return
+      }
+      setSavedName(campName.trim())
+      setNameSaved(true)
+      setTimeout(() => setNameSaved(false), 4000)
+    } catch {
+      setError('Failed to save camp name — check your connection and try again')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const doneCount = STEPS.filter(s => (counts[s.key] || 0) > 0).length

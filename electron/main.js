@@ -290,6 +290,15 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
         throw new Error('admin role required')
       }
     }
+    // Round-2 fix (Sub-plan C Task 6 review): camps.name is a single-camp,
+    // org-identity field — gate it the same way DELETE_FIELD is gated above
+    // so a non-admin can't rename the whole camp.
+    if (writeArgs.entity === 'camps' && writeArgs.field === 'name') {
+      const sessionUser = db.prepare('SELECT role FROM users WHERE id = ?').get(session.userId)
+      if (!sessionUser || sessionUser.role !== 'admin') {
+        throw new Error('admin role required')
+      }
+    }
     if (!syncClient) {
       throw new Error('sync not initialized — choose a mode first')
     }
