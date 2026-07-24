@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../supabase'
+import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
@@ -9,35 +9,83 @@ const FREQUENCY_MODES = [
   { value: 'best_effort', label: 'Best effort — targets unchanged, engine does what it can (coming soon)' },
 ]
 
+// Fires one write() per field (the op-log is field-level) and surfaces the
+// first failure rather than a silent partial write — mirrors
+// AnchorsScreen.jsx's identical helper.
+async function writeFields(entity, id, fields) {
+  const token = localStorage.getItem('shoresh-token')
+  for (const [field, value] of Object.entries(fields)) {
+    const result = await localClient.write(token, entity, id, field, value)
+    if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+      throw new Error(`write failed for field "${field}"`)
+    }
+  }
+}
+
+// Best-effort rollback of a row from a mid-fan-out failure. Returns whether
+// the delete actually succeeded — deleteEntity routes to a DELETE_FIELD
+// write, which electron/main.js gates to admin-only, so a non-admin's
+// cleanup attempt is *correctly* refused. Callers must not treat a refused
+// cleanup as if nothing went wrong: the row is real and orphaned, and the
+// user needs to be told, not reassured. Mirrors AnchorsScreen.jsx's
+// cleanupPartialRow exactly.
+async function cleanupPartialRow(entity, id) {
+  try {
+    const token = localStorage.getItem('shoresh-token')
+    const result = await localClient.deleteEntity(token, entity, id)
+    return !!(result && (result.status === 'applied' || result.status === 'queued'))
+  } catch {
+    return false
+  }
+}
+
 function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
   const isNew = !template?.id
   const [name, setName] = useState(template?.name || '')
   const [freqMode, setFreqMode] = useState(template?.frequency_mode || 'reduced')
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState(null)
   const [timeBlocks, setTimeBlocks] = useState([])
   const [activities, setActivities] = useState([])
+  const [existingSlotIds, setExistingSlotIds] = useState([])
+  const [loadError, setLoadError] = useState(null)
   // slots: { [blockId]: activityId | '' }  (presence = overridden, '' = clear block)
   const [slots, setSlots] = useState({})
 
-  useEffect(() => { loadResources() }, [cohortId])
-
   async function loadResources() {
-    const [{ data: blocks }, { data: acts }, { data: existing }] = await Promise.all([
-      supabase.from('time_blocks').select('*').eq('camp_id', campId)
-        .eq('cohort_id', cohortId).order('sort_order'),
-      supabase.from('activities').select('id, name').eq('camp_id', campId).order('name'),
-      template?.id
-        ? supabase.from('day_override_template_slots').select('*').eq('template_id', template.id)
-        : Promise.resolve({ data: [] }),
-    ])
-    setTimeBlocks(blocks || [])
-    setActivities(acts || [])
-    const map = {}
-    for (const s of existing || []) {
-      map[s.time_block_id] = s.activity_id || ''
+    setLoadError(null)
+    try {
+      const [blocksData, actsData, slotsData] = await Promise.all([
+        localClient.list('time_blocks'),
+        localClient.list('activities'),
+        template?.id ? localClient.list('day_override_template_slots') : Promise.resolve([]),
+      ])
+      const blocks = (blocksData || [])
+        .filter(b => b.camp_id === campId && b.cohort_id === cohortId)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+      const acts = (actsData || [])
+        .filter(a => a.camp_id === campId)
+        .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? '')))
+      const existing = template?.id
+        ? (slotsData || []).filter(s => s.day_override_template_id === template.id)
+        : []
+      setTimeBlocks(blocks)
+      setActivities(acts)
+      const map = {}
+      const ids = []
+      for (const s of existing) {
+        map[s.time_block_id] = s.activity_id || ''
+        ids.push(s.id)
+      }
+      setSlots(map)
+      setExistingSlotIds(ids)
+    } catch {
+      setLoadError('Failed to load data — check your connection and refresh')
     }
-    setSlots(map)
   }
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { loadResources() }, [cohortId])
 
   function toggleSlot(blockId) {
     setSlots(prev => {
@@ -57,35 +105,90 @@ function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
   async function save() {
     if (!name.trim()) return
     setSaving(true)
+    setSaveError(null)
+    let templateId = template?.id
+    const createdSlotIds = []
+    let deletePhaseFailed = false
+    let deletePhaseDone = false
+    let createPhaseFailed = false
     try {
-      let templateId = template?.id
       if (isNew) {
-        const { data, error: insertErr } = await supabase.from('day_override_templates').insert({
+        templateId = crypto.randomUUID()
+        await writeFields('day_override_templates', templateId, {
+          name: name.trim(),
+          frequency_mode: freqMode,
           camp_id: campId,
           cohort_id: cohortId,
-          name: name.trim(),
-          frequency_mode: freqMode,
-        }).select('id').single()
-        if (insertErr || !data) throw insertErr || new Error('Insert returned no data')
-        templateId = data.id
+        })
       } else {
-        await supabase.from('day_override_templates').update({
+        await writeFields('day_override_templates', templateId, {
           name: name.trim(),
           frequency_mode: freqMode,
-        }).eq('id', templateId)
+        })
       }
-      // Replace all slots
-      await supabase.from('day_override_template_slots').delete().eq('template_id', templateId)
-      const rows = Object.entries(slots).map(([blockId, activityId]) => ({
-        template_id: templateId,
-        time_block_id: blockId,
-        activity_id: activityId || null,
-      }))
-      if (rows.length > 0) {
-        await supabase.from('day_override_template_slots').insert(rows)
+
+      // Replace all slots: delete every existing row for this template,
+      // then create a fresh row per current entry in `slots`. Mirrors the
+      // Supabase delete-then-insert semantics exactly. Delete-phase and
+      // create-phase outcomes are tracked separately so a failure in
+      // either phase can be reported with an honest description of the
+      // template's actual final state, rather than a generic message
+      // that could mask a partial wipe or a full wipe of prior overrides.
+      try {
+        for (const slotId of existingSlotIds) {
+          const result = await localClient.deleteEntity(
+            localStorage.getItem('shoresh-token'),
+            'day_override_template_slots',
+            slotId
+          )
+          if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+            throw new Error('delete failed for slot')
+          }
+        }
+        deletePhaseDone = true
+      } catch (err) {
+        deletePhaseFailed = true
+        throw err
       }
+
+      try {
+        for (const [blockId, activityId] of Object.entries(slots)) {
+          const newId = crypto.randomUUID()
+          createdSlotIds.push(newId)
+          await writeFields('day_override_template_slots', newId, {
+            day_override_template_id: templateId,
+            time_block_id: blockId,
+            activity_id: activityId || null,
+          })
+        }
+      } catch (err) {
+        createPhaseFailed = true
+        throw err
+      }
+
       onSaved()
     } catch (err) {
+      // Known, accepted residual (same lesson as AnchorsScreen.jsx's
+      // saveAnchor): a refused cleanup delete (admin-gated) is reported as
+      // "may remain" even if the failed write never actually reached the
+      // DB — the admin gate fires on the delete attempt regardless of
+      // whether a row exists to delete.
+      const cleanupResults = await Promise.all(
+        createdSlotIds.map(id => cleanupPartialRow('day_override_template_slots', id))
+      )
+      const cleanupFailed = cleanupResults.some(ok => !ok)
+
+      let message
+      if (deletePhaseFailed) {
+        message = 'Save failed while removing your old block overrides — some old blocks may still be set, and none of your new changes were saved. Reload and check this template before assuming your changes applied.'
+      } else if (cleanupFailed) {
+        message = `Save failed partway through, and ${cleanupResults.filter(ok => !ok).length} new block override(s) couldn't be removed automatically (admin required) — ask an admin to review and clean up this template.`
+      } else if (deletePhaseDone && createPhaseFailed && existingSlotIds.length > 0) {
+        message = 'Save failed after removing your previous block overrides — this template currently has NO block overrides set. Please try again.'
+      } else {
+        message = "Couldn't save your changes — check your connection and try again."
+      }
+      setSaveError(message)
       console.error('Save failed:', err)
     } finally {
       setSaving(false)
@@ -120,7 +223,9 @@ function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12 }}>
             Check a block to override it on this day type. Leave activity blank to clear the block (free time).
           </div>
-          {timeBlocks.length === 0 ? (
+          {loadError ? (
+            <div style={{ fontSize: 13, color: 'var(--warning)', fontFamily: 'var(--font-mono)' }}>{loadError}</div>
+          ) : timeBlocks.length === 0 ? (
             <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
               No time blocks in this program yet.
             </div>
@@ -153,6 +258,8 @@ function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
           })}
         </div>
 
+        {saveError && <div style={S.errorBanner}>{saveError}</div>}
+
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
           <button onClick={onClose} style={S.btnSecondary}>Cancel</button>
           <button onClick={save} disabled={saving || !name.trim()}
@@ -181,13 +288,19 @@ export default function DayOverridesScreen({ campId }) {
     setLoading(true)
     setError(null)
     try {
-      const { data } = await supabase
-        .from('day_override_templates')
-        .select('*, day_override_template_slots(*)')
-        .eq('camp_id', campId)
-        .eq('cohort_id', activeCohort.id)
-        .order('name')
-      setTemplates(data || [])
+      const [templatesData, slotsData] = await Promise.all([
+        localClient.list('day_override_templates'),
+        localClient.list('day_override_template_slots'),
+      ])
+      const scopedTemplates = (templatesData || [])
+        .filter(t => t.camp_id === campId && t.cohort_id === activeCohort.id)
+        .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? '')))
+      const slots = slotsData || []
+      const withSlots = scopedTemplates.map(t => ({
+        ...t,
+        day_override_template_slots: slots.filter(s => s.day_override_template_id === t.id),
+      }))
+      setTemplates(withSlots)
     } catch {
       setError('Failed to load data — check your connection and refresh')
     } finally {
@@ -197,9 +310,41 @@ export default function DayOverridesScreen({ campId }) {
 
   async function deleteTemplate(id) {
     if (!window.confirm('Delete this override template?')) return
-    await supabase.from('day_override_template_slots').delete().eq('template_id', id)
-    await supabase.from('day_override_templates').delete().eq('id', id)
-    load()
+    let deletedChildCount = 0
+    let totalChildCount = 0
+    let childDeleteFailed = false
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      const allSlots = await localClient.list('day_override_template_slots')
+      const childIds = (allSlots || [])
+        .filter(s => s.day_override_template_id === id)
+        .map(s => s.id)
+      totalChildCount = childIds.length
+      for (const slotId of childIds) {
+        const result = await localClient.deleteEntity(token, 'day_override_template_slots', slotId)
+        if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+          childDeleteFailed = true
+          throw new Error('delete failed')
+        }
+        deletedChildCount++
+      }
+      const result = await localClient.deleteEntity(token, 'day_override_templates', id)
+      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+        throw new Error('delete failed')
+      }
+      await load()
+    } catch (err) {
+      if (/admin role required/i.test(err?.message ?? '')) {
+        setError('Only an admin can delete override templates.')
+      } else if (childDeleteFailed && deletedChildCount > 0 && deletedChildCount < totalChildCount) {
+        setError(`Delete failed partway through — some of this template's block overrides were removed (${deletedChildCount} of ${totalChildCount}) but the template itself was not deleted. Check this template before trying again.`)
+      } else if (!childDeleteFailed && totalChildCount > 0) {
+        setError("This template's block overrides were removed, but the template itself could not be deleted. Please try again.")
+      } else {
+        setError('Failed to delete template — check your connection and try again')
+      }
+      await load()
+    }
   }
 
   return (

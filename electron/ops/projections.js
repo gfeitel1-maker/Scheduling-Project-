@@ -165,6 +165,41 @@ export const PROJECTIONS = {
       )
     },
   },
+  day_override_templates: {
+    table: 'day_override_templates',
+    key: 'id',
+    fields: ['camp_id', 'cohort_id', 'name', 'frequency_mode'],
+    ensureExists: (db, id) => {
+      // Same zero-camps caveat as cohorts/groups/days_of_operation/time_blocks/tiers/activities/anchor_activities.ensureExists above.
+      const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+      db.prepare("INSERT OR IGNORE INTO day_override_templates (id, camp_id, name) VALUES (?, ?, '')").run(
+        id,
+        camp?.id ?? null
+      )
+    },
+  },
+  day_override_template_slots: {
+    table: 'day_override_template_slots',
+    key: 'id',
+    fields: ['day_override_template_id', 'time_block_id', 'activity_id'],
+    // Parent-scoped, no camp_id column (same shape as template_overlays/
+    // schedule_snapshots) — ensureExists must not look up `camps` at all.
+    // day_override_template_id is NOT NULL with no default (a real FK, not
+    // a uniqueness convention like other entities' name-first pattern), so
+    // this row can only be created once its parent link is known. The
+    // caller (DayOverridesScreen) is required to write day_override_template_id
+    // FIRST for every new slot row; if some other field arrived first the
+    // row doesn't exist yet and this INSERT is skipped, so the subsequent
+    // UPDATE becomes a harmless no-op rather than a constraint violation —
+    // consistent with every other entity's ensureExists being a best-effort
+    // "make the row exist" step, not a full validator.
+    ensureExists: (db, id, field, value) => {
+      if (field !== 'day_override_template_id') return
+      db.prepare(
+        'INSERT OR IGNORE INTO day_override_template_slots (id, day_override_template_id) VALUES (?, ?)'
+      ).run(id, value)
+    },
+  },
 }
 
 // Reserved field name for a row-delete op — see DELETE_FIELD's definition in
@@ -186,7 +221,12 @@ export function applyProjection(db, op) {
 
   if (!projection.fields.includes(op.field)) return
 
-  projection.ensureExists?.(db, op.entity_id)
+  // Most ensureExists implementations only need the id (they insert a
+  // placeholder row with safe defaults). day_override_template_slots is the
+  // exception: its parent FK column is NOT NULL with no default, so its
+  // ensureExists needs the current op's field/value to satisfy the FK on
+  // first insert — see that entry below.
+  projection.ensureExists?.(db, op.entity_id, op.field, op.value)
 
   db.prepare(`UPDATE ${projection.table} SET ${op.field} = ? WHERE ${projection.key} = ?`).run(
     op.value,
