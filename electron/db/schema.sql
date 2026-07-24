@@ -247,15 +247,27 @@ CREATE TABLE IF NOT EXISTS time_blocks (
 -- template_slots.time_block_id is a plain TEXT column (no REFERENCES), so
 -- there is no FK to repoint when deduping, unlike groups.id/template_slots.group_id.
 
+-- Sub-plan D Task 0 (2026-07-23): confirmed exact field set by re-reading
+-- AnchorsScreen.jsx's actual insert/update payloads directly (not the design
+-- doc's inference-only sketch, which listed unit_id/span_blocks — neither is
+-- actually read or written by the screen). Real fields used: name, day_id,
+-- time_block_id, is_all_groups, group_ids, notes. unit_id/span_blocks are
+-- kept as unused legacy columns (harmless, avoids a destructive column
+-- drop) rather than removed; name/time_block_id/notes are added by the
+-- version-16 migration in localDb.js for existing dbs that already ran this
+-- file at an earlier version.
 CREATE TABLE IF NOT EXISTS anchor_activities (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
   cohort_id TEXT REFERENCES cohorts(id),
   day_id TEXT REFERENCES days_of_operation(id),
+  time_block_id TEXT,
+  name TEXT,
   unit_id TEXT,
   span_blocks INTEGER,
   is_all_groups INTEGER,
-  group_ids TEXT
+  group_ids TEXT,
+  notes TEXT
 );
 
 CREATE TABLE IF NOT EXISTS schedule_templates (
@@ -287,16 +299,24 @@ CREATE TABLE IF NOT EXISTS schedule_snapshots (
   overlays TEXT
 );
 
--- Minimal viable columns only; exact shape is deferred to Sub-plan D, which
--- will ALTER these as needed once DayOverridesScreen.jsx's exact
--- insert/update payloads are re-read directly.
+-- Sub-plan D Task 0 (2026-07-23): confirmed exact field set by re-reading
+-- DayOverridesScreen.jsx's actual insert/update payloads directly.
+-- day_override_templates real fields: camp_id, cohort_id, name,
+-- frequency_mode. day_override_template_slots real fields: time_block_id,
+-- activity_id, keyed to the parent via `template_id` in Supabase — renamed
+-- to day_override_template_id locally to match this table's existing FK
+-- column name (already used by main.js's PARENT_SCOPED_ENTITIES mapping).
 CREATE TABLE IF NOT EXISTS day_override_templates (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
-  name TEXT NOT NULL
+  cohort_id TEXT REFERENCES cohorts(id),
+  name TEXT NOT NULL,
+  frequency_mode TEXT
 );
 
 CREATE TABLE IF NOT EXISTS day_override_template_slots (
   id TEXT PRIMARY KEY,
-  day_override_template_id TEXT NOT NULL REFERENCES day_override_templates(id)
+  day_override_template_id TEXT NOT NULL REFERENCES day_override_templates(id),
+  time_block_id TEXT,
+  activity_id TEXT
 );

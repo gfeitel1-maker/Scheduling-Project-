@@ -614,6 +614,33 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // Sub-plan D Task 0: anchor_activities/day_override_templates/
+  // day_override_template_slots were created with a minimal/inference-only
+  // column set in Sub-plan A. This adds the real columns confirmed by
+  // directly re-reading AnchorsScreen.jsx/DayOverridesScreen.jsx's actual
+  // insert/update payloads — see schema.sql's comments on each table for
+  // the full confirmation note.
+  if (getSchemaVersion(db) < 16) {
+    db.transaction(() => {
+      const addColumnIfMissing = (table, name, type) => {
+        const has = db.pragma(`table_info(${table})`).some((col) => col.name === name)
+        if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`)
+      }
+
+      addColumnIfMissing('anchor_activities', 'time_block_id', 'TEXT')
+      addColumnIfMissing('anchor_activities', 'name', 'TEXT')
+      addColumnIfMissing('anchor_activities', 'notes', 'TEXT')
+      addColumnIfMissing('day_override_templates', 'cohort_id', 'TEXT')
+      addColumnIfMissing('day_override_templates', 'frequency_mode', 'TEXT')
+      addColumnIfMissing('day_override_template_slots', 'time_block_id', 'TEXT')
+      addColumnIfMissing('day_override_template_slots', 'activity_id', 'TEXT')
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (16, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 export function openLocalDb(filePath) {
