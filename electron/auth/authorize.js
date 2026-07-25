@@ -7,7 +7,7 @@ import { recordAuditEvent } from '../audit/auditLog.js'
 // "what is this caller currently allowed to do" from the database on every
 // call — never trusts role (or anything else) cached in the token payload,
 // which only ever carries { userId, deviceId } in the first place (see
-// issueSessionToken). This is what makes a role change or a deleted
+// issueCampToken/issueLocalToken). This is what makes a role change or a deleted
 // user/device take effect on the very next call, not just future logins.
 //
 // `resourceId` is accepted but unused by any check in this phase — there is
@@ -19,14 +19,14 @@ export function authorize({ db, token, action, resourceId }) {
   void resourceId
   const session = verifySessionToken(db, token)
   if (!session) {
-    return deny(db, action, undefined, 'invalid_token', null, null)
+    return deny(db, action, undefined, 'invalid_token', null, null, null)
   }
 
   // A malformed action is denied for every role, including admin, before
   // any role/matrix lookup happens — admin's '*' shortcut must never mask
   // a caller bug where `action` wasn't actually passed.
   if (typeof action !== 'string' || action.length === 0) {
-    return deny(db, action, undefined, 'invalid_action', session.userId, session.deviceId)
+    return deny(db, action, undefined, 'invalid_action', session.userId, session.deviceId, session.jti)
   }
 
   let userRow, deviceRow
@@ -36,25 +36,35 @@ export function authorize({ db, token, action, resourceId }) {
     // role flipped by another admin) is caught here on every call.
     userRow = db.prepare('SELECT id, role FROM users WHERE id = ?').get(session.userId)
 
-    // Isolated step so a future revocation check (authorized_at/revoked_at,
-    // deferred to Phase 3) is a one-line addition here, not a redesign.
-    deviceRow = db.prepare('SELECT id FROM devices WHERE id = ?').get(session.deviceId)
+    // Revocation enforcement (docs/adr/2026-07-25-device-trust-revocation.md):
+    // re-queried fresh on EVERY call, never cached — a device revoked
+    // mid-session is denied on its very next request. This is the exact
+    // extension point the original comment here named.
+    deviceRow = db
+      .prepare('SELECT id, authorized_at, revoked_at FROM devices WHERE id = ?')
+      .get(session.deviceId)
   } catch (err) {
     console.warn(`authorize: db error while checking action=${action}: ${err.message}`)
     return deny(db, action, undefined, 'db_error', session.userId, session.deviceId)
   }
 
   if (!userRow) {
-    return deny(db, action, undefined, 'user_not_found', session.userId, session.deviceId)
+    return deny(db, action, undefined, 'user_not_found', session.userId, session.deviceId, session.jti)
   }
   if (!deviceRow) {
-    return deny(db, action, userRow.role, 'device_not_found', session.userId, session.deviceId)
+    return deny(db, action, userRow.role, 'device_not_found', session.userId, session.deviceId, session.jti)
+  }
+  if (!deviceRow.authorized_at) {
+    return deny(db, action, userRow.role, 'device_not_authorized', session.userId, session.deviceId, session.jti)
+  }
+  if (deviceRow.revoked_at) {
+    return deny(db, action, userRow.role, 'device_revoked', session.userId, session.deviceId, session.jti)
   }
 
   const role = userRow.role
   const allowedActions = PERMISSIONS[role]
   if (!allowedActions || (!allowedActions.includes('*') && !allowedActions.includes(action))) {
-    return deny(db, action, role, 'forbidden', session.userId, session.deviceId)
+    return deny(db, action, role, 'forbidden', session.userId, session.deviceId, session.jti)
   }
 
   if (typeof action === 'string' && action.startsWith('users.')) {
@@ -63,13 +73,14 @@ export function authorize({ db, token, action, resourceId }) {
       deviceId: session.deviceId,
       action,
       outcome: 'allow',
+      metadata: session.jti ? { jti: session.jti } : null,
     })
   }
 
   return { allowed: true, userId: session.userId, deviceId: session.deviceId, role }
 }
 
-function deny(db, action, role, reason, actorUserId, deviceId) {
+function deny(db, action, role, reason, actorUserId, deviceId, jti) {
   console.warn(`authorize: denied action=${action} role=${role} reason=${reason}`)
   recordAuditEvent(db, {
     actorUserId: actorUserId ?? null,
@@ -77,6 +88,7 @@ function deny(db, action, role, reason, actorUserId, deviceId) {
     action,
     outcome: 'deny',
     reason,
+    metadata: jti ? { jti } : null,
   })
   return { allowed: false, reason }
 }

@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, randomBytes } from 'node:crypto'
 import { ENTITIES } from './auth/permissions.js'
 
 vi.mock('electron', () => ({
@@ -102,7 +102,7 @@ vi.mock('./sync/syncClient.js', () => ({
 }))
 
 import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
-import { createUser, attemptLogin } from './auth/localAuth.js'
+import { createUser, attemptLogin, ensureHostSigningKey } from './auth/localAuth.js'
 let attemptLoginRef = (args) => attemptLogin(db, args)
 import { appendOp, appendBulkReplaceOp } from './ops/operations.js'
 import { makeHandlers, sanitizeConflictForIpc } from './main.js'
@@ -119,6 +119,35 @@ beforeEach(() => {
   db = openLocalDb(tmpFile)
   deviceId = getOrCreateDeviceId(db)
   db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, os.hostname())
+
+  // Device trust (docs/adr/2026-07-25-device-trust-revocation.md): the vast
+  // majority of this file's tests predate pairing/authorization and assume
+  // "this device can log in and act the moment a camp/user exists" — mirror
+  // what real bootstrapCamp() now does for the Host's own device, so those
+  // tests keep exercising what they actually test (role/entity gating, not
+  // device pairing, which is sub-task 2's concern) without every one of them
+  // individually authorizing this device.
+  db.prepare(
+    "UPDATE devices SET authorized_at = ?, device_secret_identifier = ?, pairing_status = 'authorized' WHERE id = ?"
+  ).run(new Date().toISOString(), randomBytes(32).toString('hex'), deviceId)
+
+  // This file has many call sites that INSERT INTO camps directly (bypassing
+  // the real bootstrapCamp(), which is what normally sets
+  // signing_public_key). ensureHostSigningKey + a temp trigger keeps every
+  // one of those working as a 'camp'-token-issuing Host db, matching what
+  // handlers.login actually produces (issueTokenForThisDevice sees this
+  // device's host_signing_key and issues a camp token), without editing
+  // every individual INSERT INTO camps call site in this file.
+  const hostKey = ensureHostSigningKey(db)
+  db.exec(`
+    CREATE TEMP TRIGGER IF NOT EXISTS trg_test_set_signing_public_key
+    AFTER INSERT ON camps
+    WHEN NEW.signing_public_key IS NULL
+    BEGIN
+      UPDATE camps SET signing_public_key = '${hostKey.public_key}' WHERE id = NEW.id;
+    END;
+  `)
+
   vi.clearAllMocks()
 })
 
@@ -450,6 +479,91 @@ describe('bootstrapCamp (Fix A)', () => {
     await expect(
       handlers.bootstrapCamp({ campName: 'Camp Two', adminName: 'Root2', adminPin: '8888' })
     ).rejects.toThrow('camp already exists')
+  })
+})
+
+describe('bootstrapCamp: device trust (docs/adr/2026-07-25-device-trust-revocation.md)', () => {
+  it('generates a host_signing_key, sets camps.signing_public_key, and authorizes the bootstrapping device — a write() right after bootstrap succeeds without device_not_authorized', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh', port: 7204 })
+    const result = await handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '9999' })
+
+    const keyRow = db.prepare('SELECT * FROM host_signing_key WHERE id = 1').get()
+    expect(keyRow).toBeTruthy()
+    expect(keyRow.public_key).toEqual(expect.any(String))
+    expect(keyRow.private_key).toEqual(expect.any(String))
+
+    const campRow = db.prepare('SELECT signing_public_key FROM camps WHERE id = ?').get(result.campId)
+    expect(campRow.signing_public_key).toBe(keyRow.public_key)
+
+    const deviceRow = db.prepare('SELECT authorized_at, pairing_status FROM devices WHERE id = ?').get(deviceId)
+    expect(deviceRow.authorized_at).toEqual(expect.any(String))
+    expect(deviceRow.pairing_status).toBe('authorized')
+
+    // The actual behavior this all exists for: an ordinary write right after
+    // bootstrap must not be denied as 'device_not_authorized'.
+    const { token } = await handlers.login({ name: 'Root', pin: '9999' })
+    await expect(
+      handlers.write({ token, entity: 'cohorts', entity_id: 'c1', field: 'name', value: 'Main' })
+    ).resolves.toBeTruthy()
+  })
+
+  it('does not generate a second host_signing_key if bootstrapCamp somehow runs on a device that already has one', async () => {
+    const { ensureHostSigningKey } = await import('./auth/localAuth.js')
+    const preExisting = ensureHostSigningKey(db)
+
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Shoresh', port: 7205 })
+    await handlers.bootstrapCamp({ campName: 'Camp Shoresh', adminName: 'Root', adminPin: '9999' })
+
+    const rows = db.prepare('SELECT * FROM host_signing_key').all()
+    expect(rows).toHaveLength(1)
+    expect(rows[0].public_key).toBe(preExisting.public_key)
+  })
+})
+
+describe('devAuthorizeDevice (temporary interim path, admin-gated)', () => {
+  it('rejects with no token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.devAuthorizeDevice({ deviceId: 'some-device' })).toThrow('token is required')
+  })
+
+  it('denies a staff-role caller', async () => {
+    const { user } = await seedCampAndUser({ name: 'StaffAuthorizer', pin: '1234', role: 'staff' })
+    void user
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = await handlers.login({ name: 'StaffAuthorizer', pin: '1234' })
+
+    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('target-device', 'Target Device')
+
+    expect(() => handlers.devAuthorizeDevice({ token, deviceId: 'target-device' })).toThrow('admin role required')
+
+    const targetRow = db.prepare('SELECT authorized_at FROM devices WHERE id = ?').get('target-device')
+    expect(targetRow.authorized_at).toBeNull()
+  })
+
+  it('allows an admin-role caller to authorize a pending device, minting a device_secret_identifier', async () => {
+    await seedCampAndUser({ name: 'AdminAuthorizer', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = await handlers.login({ name: 'AdminAuthorizer', pin: '1234' })
+
+    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('target-device-2', 'Target Device 2')
+
+    const result = handlers.devAuthorizeDevice({ token, deviceId: 'target-device-2' })
+    expect(result).toEqual({ deviceId: 'target-device-2', authorized: true })
+
+    const targetRow = db.prepare('SELECT authorized_at, pairing_status, device_secret_identifier FROM devices WHERE id = ?').get('target-device-2')
+    expect(targetRow.authorized_at).toEqual(expect.any(String))
+    expect(targetRow.pairing_status).toBe('authorized')
+    expect(targetRow.device_secret_identifier).toEqual(expect.any(String))
+  })
+
+  it('rejects a nonexistent deviceId', async () => {
+    await seedCampAndUser({ name: 'AdminAuthorizer2', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = await handlers.login({ name: 'AdminAuthorizer2', pin: '1234' })
+
+    expect(() => handlers.devAuthorizeDevice({ token, deviceId: 'does-not-exist' })).toThrow('device not found')
   })
 })
 

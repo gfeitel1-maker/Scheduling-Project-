@@ -3,9 +3,17 @@ import { describe, it, expect, afterEach, beforeEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { randomBytes } from 'node:crypto'
+import { randomBytes, createPrivateKey, sign as edSign } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
-import { createUser, verifyPin, issueSessionToken, verifySessionToken, attemptLogin } from './localAuth.js'
+import {
+  createUser,
+  verifyPin,
+  issueCampToken,
+  issueLocalToken,
+  verifySessionToken,
+  attemptLogin,
+  ensureHostSigningKey,
+} from './localAuth.js'
 import { appendOp } from '../ops/operations.js'
 
 let tmpFile
@@ -18,7 +26,17 @@ beforeEach(() => {
   db = openLocalDb(tmpFile)
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
   db.prepare('UPDATE camps SET signing_secret = ? WHERE id = ?').run(randomBytes(32).toString('hex'), 'camp-1')
-  db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(DEVICE_ID, 'Test Device')
+  db.prepare(
+    `INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status)
+     VALUES (?, ?, ?, ?, 'authorized')`
+  ).run(DEVICE_ID, 'Test Device', new Date().toISOString(), randomBytes(32).toString('hex'))
+  // Most of this file exercises attemptLogin as if run on the Host's own db
+  // (matching the WS login handler, which runs in the Host process), so seed
+  // a host_signing_key + matching camps.signing_public_key here — the same
+  // thing bootstrapCamp() does for real. Individual tests that specifically
+  // want the non-Host (issueLocalToken) path drop or skip this.
+  const hostKey = ensureHostSigningKey(db)
+  db.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKey.public_key, 'camp-1')
 })
 
 afterEach(() => {
@@ -241,40 +259,144 @@ describe('createUser status-blindness fix', () => {
   })
 })
 
-describe('issueSessionToken / verifySessionToken', () => {
-  it('round-trips userId/deviceId through a signed token using the camp signing_secret', () => {
-    const token = issueSessionToken(db, 'user-1', 'device-1')
+describe('ensureHostSigningKey', () => {
+  it('generates a keypair exactly once — a second call returns the SAME key, not a freshly-generated one, and only one row ever exists', () => {
+    const first = ensureHostSigningKey(db)
+    expect(first.public_key).toEqual(expect.any(String))
+    expect(first.private_key).toEqual(expect.any(String))
+
+    const second = ensureHostSigningKey(db)
+    expect(second.public_key).toBe(first.public_key)
+    expect(second.private_key).toBe(first.private_key)
+
+    const rows = db.prepare('SELECT * FROM host_signing_key').all()
+    expect(rows).toHaveLength(1)
+  })
+})
+
+describe('issueCampToken / issueLocalToken / verifySessionToken', () => {
+  it('round-trips userId/deviceId through a Host-signed camp token', () => {
+    const token = issueCampToken(db, 'user-1', 'device-1')
     const payload = verifySessionToken(db, token)
-    expect(payload).toEqual({ userId: 'user-1', deviceId: 'device-1' })
+    expect(payload).toMatchObject({ userId: 'user-1', deviceId: 'device-1', type: 'camp' })
   })
 
-  it('rejects a token issued against a DIFFERENT camp/db signing_secret', () => {
+  it('round-trips userId/deviceId through a device-HMAC local token', () => {
+    const token = issueLocalToken(db, 'user-1', DEVICE_ID)
+    const payload = verifySessionToken(db, token)
+    expect(payload).toMatchObject({ userId: 'user-1', deviceId: DEVICE_ID, type: 'local' })
+  })
+
+  it('issueCampToken throws when this device has no host_signing_key row (is not the Host)', () => {
+    const otherFile = path.join(os.tmpdir(), `shoresh-localauth-notthehost-${Date.now()}-${Math.random()}.sqlite`)
+    const clientDb = openLocalDb(otherFile)
+    clientDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
+
+    expect(() => issueCampToken(clientDb, 'user-1', 'device-1')).toThrow(/not the Host/)
+
+    clientDb.close()
+    fs.unlinkSync(otherFile)
+  })
+
+  it('issueLocalToken throws when the device has no device_secret_identifier (not paired)', () => {
+    db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES ('unpaired', 'Unpaired', 'pending')").run()
+    expect(() => issueLocalToken(db, 'user-1', 'unpaired')).toThrow(/device_secret_identifier/)
+  })
+
+  it('rejects a camp token issued against a DIFFERENT camp/db Host key', () => {
     const otherFile = path.join(os.tmpdir(), `shoresh-localauth-othercamp-${Date.now()}-${Math.random()}.sqlite`)
     const otherDb = openLocalDb(otherFile)
     otherDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-other', 'Other Camp')
-    otherDb.prepare('UPDATE camps SET signing_secret = ? WHERE id = ?').run(randomBytes(32).toString('hex'), 'camp-other')
+    const otherHostKey = ensureHostSigningKey(otherDb)
+    otherDb.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(otherHostKey.public_key, 'camp-other')
 
-    const tokenFromOtherCamp = issueSessionToken(otherDb, 'user-1', 'device-1')
+    const tokenFromOtherCamp = issueCampToken(otherDb, 'user-1', 'device-1')
     expect(verifySessionToken(db, tokenFromOtherCamp)).toBeNull()
 
     otherDb.close()
     fs.unlinkSync(otherFile)
   })
 
+  it('a local token is verifiable only against the SAME device_secret_identifier, not a different device\'s', () => {
+    db.prepare(
+      "INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status) VALUES ('device-2', 'Other Device', ?, ?, 'authorized')"
+    ).run(new Date().toISOString(), randomBytes(32).toString('hex'))
+
+    const token = issueLocalToken(db, 'user-1', DEVICE_ID)
+    // Tamper the deviceId claim to point at device-2's secret instead.
+    const [payloadB64] = token.split('.')
+    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'))
+    payload.deviceId = 'device-2'
+    const forgedPayloadB64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+    const forged = `${forgedPayloadB64}.${token.split('.')[1]}`
+
+    expect(verifySessionToken(db, forged)).toBeNull()
+  })
+
+  it('rejects an expired token', () => {
+    const token = issueCampToken(db, 'user-1', 'device-1')
+    const [payloadB64, signature] = token.split('.')
+    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'))
+    payload.exp = Date.now() - 1000
+    // Re-sign with the same Host key so this exercises exp-enforcement
+    // specifically, not signature failure.
+    const hostKey = db.prepare('SELECT private_key FROM host_signing_key WHERE id = 1').get()
+    void signature
+    const expiredPayloadB64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+    const privateKeyObj = createPrivateKey({ key: Buffer.from(hostKey.private_key, 'hex'), format: 'der', type: 'pkcs8' })
+    const expiredSignature = edSign(null, Buffer.from(expiredPayloadB64), privateKeyObj).toString('base64url')
+    const expiredToken = `${expiredPayloadB64}.${expiredSignature}`
+
+    expect(verifySessionToken(db, expiredToken)).toBeNull()
+  })
+
+  it('rejects malformed/missing type without throwing', () => {
+    const token = issueCampToken(db, 'user-1', 'device-1')
+    const [payloadB64] = token.split('.')
+    const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'))
+    delete payload.type
+    const noTypePayloadB64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+    const noTypeToken = `${noTypePayloadB64}.${token.split('.')[1]}`
+    expect(() => verifySessionToken(db, noTypeToken)).not.toThrow()
+    expect(verifySessionToken(db, noTypeToken)).toBeNull()
+
+    payload.type = 'not-a-real-type'
+    const badTypePayloadB64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+    const badTypeToken = `${badTypePayloadB64}.${token.split('.')[1]}`
+    expect(() => verifySessionToken(db, badTypeToken)).not.toThrow()
+    expect(verifySessionToken(db, badTypeToken)).toBeNull()
+  })
+
   it('rejects a tampered token', () => {
-    const token = issueSessionToken(db, 'user-1', 'device-1')
-    const tampered = token.slice(0, -1) + (token.slice(-1) === 'A' ? 'B' : 'A')
+    const token = issueCampToken(db, 'user-1', 'device-1')
+    // Flip a character comfortably inside the signature (not the very last
+    // char) — the last base64url character of a byte string can encode only
+    // a couple of unused bits, so some single-character edits there
+    // coincidentally decode to the same bytes and would flakily pass.
+    const idx = token.length - 5
+    const flipped = token[idx] === 'A' ? 'B' : 'A'
+    const tampered = token.slice(0, idx) + flipped + token.slice(idx + 1)
     expect(() => verifySessionToken(db, tampered)).not.toThrow()
     expect(verifySessionToken(db, tampered)).toBeNull()
   })
 
   it('rejects tokens with a mutated payload across many random tamper attempts', () => {
+    // Flipping a single base64url character in the raw token string is not
+    // a reliable tamper: some bit positions in a base64url character land
+    // on padding bits that don't survive re-decoding, so the flip can
+    // occasionally decode back to the SAME bytes it started from (the
+    // same root cause documented for the Sync-Task 3 test flake in project
+    // memory — ~6% of single-character flips are semantically no-ops).
+    // Guarantee a REAL semantic change instead: mutate the decoded JSON
+    // payload itself (a field value), then re-encode — this is always a
+    // different payload, so the signature must always fail to verify it.
     for (let i = 0; i < 20; i++) {
-      const token = issueSessionToken(db, `user-${i}`, `device-${i}`)
-      const chars = token.split('')
-      const idx = Math.floor(Math.random() * chars.length)
-      chars[idx] = chars[idx] === 'x' ? 'y' : 'x'
-      const tampered = chars.join('')
+      const token = issueCampToken(db, `user-${i}`, `device-${i}`)
+      const [payloadB64, signature] = token.split('.')
+      const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString('utf8'))
+      payload.userId = `${payload.userId}-tampered`
+      const tamperedPayloadB64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+      const tampered = `${tamperedPayloadB64}.${signature}`
       expect(verifySessionToken(db, tampered)).toBeNull()
     }
   })
@@ -361,5 +483,35 @@ describe('attemptLogin', () => {
     const rows = db.prepare('SELECT * FROM audit_events WHERE action = ?').all('auth.login')
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ outcome: 'deny', reason: 'user_not_found', actor_user_id: null })
+  })
+
+  it('issues a camp token (not local) when run on a db that holds host_signing_key, per the Host/Client dispatch rule', async () => {
+    await createUser(db, { camp_id: 'camp-1', name: 'HostUser', pin: '4444', role: 'admin' }, testWrite())
+
+    const result = attemptLogin(db, { name: 'HostUser', pin: '4444', deviceId: 'device-1' })
+    const verified = verifySessionToken(db, result.token)
+    expect(verified.type).toBe('camp')
+  })
+
+  it('issues a local token (not camp) when run on a db that is NOT the Host', async () => {
+    const otherFile = path.join(os.tmpdir(), `shoresh-localauth-clientlogin-${Date.now()}-${Math.random()}.sqlite`)
+    const clientDb = openLocalDb(otherFile)
+    clientDb.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
+    clientDb.prepare(
+      `INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status)
+       VALUES (?, ?, ?, ?, 'authorized')`
+    ).run('device-1', 'Test Device', new Date().toISOString(), randomBytes(32).toString('hex'))
+
+    await createUser(clientDb, { camp_id: 'camp-1', name: 'ClientUser', pin: '4444', role: 'admin' }, async (args) => {
+      const op = appendOp(clientDb, { ...args, author_user_id: null, device_id: 'device-1', parent_op_id: null })
+      return { status: 'applied', op }
+    })
+
+    const result = attemptLogin(clientDb, { name: 'ClientUser', pin: '4444', deviceId: 'device-1' })
+    const verified = verifySessionToken(clientDb, result.token)
+    expect(verified.type).toBe('local')
+
+    clientDb.close()
+    fs.unlinkSync(otherFile)
   })
 })

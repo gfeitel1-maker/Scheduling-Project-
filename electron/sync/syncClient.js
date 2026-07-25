@@ -117,6 +117,14 @@ export function createSyncClient(
     // Host row), so reject the whole camp entry rather than silently writing
     // a null/garbage secret that a Client would then try to sign/verify with.
     if (!isNonEmptyString(camp.signing_secret)) return false
+    // signing_public_key (Ed25519, docs/adr/2026-07-25-device-trust-revocation.md)
+    // is intentionally NOT required here the way signing_secret is above: a
+    // camp bootstrapped before this migration has no host_signing_key row to
+    // derive one from yet, and this slice does not add migration tooling for
+    // pre-existing camps (see that design doc's non-goals). Accepted as
+    // either a non-empty string or absent/null; only rejected if present but
+    // not a string at all (a malformed value from a compromised/buggy peer).
+    if (camp.signing_public_key != null && typeof camp.signing_public_key !== 'string') return false
     return true
   }
 
@@ -134,7 +142,9 @@ export function createSyncClient(
     const applyBatch = db.transaction(() => {
       for (const camp of camps) {
         if (!isValidFullSyncCamp(camp)) continue
-        db.prepare('INSERT OR REPLACE INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(camp.id, camp.name, camp.signing_secret ?? null)
+        db.prepare(
+          'INSERT OR REPLACE INTO camps (id, name, signing_secret, signing_public_key) VALUES (?, ?, ?, ?)'
+        ).run(camp.id, camp.name, camp.signing_secret ?? null, camp.signing_public_key ?? null)
       }
 
       for (const user of users) {

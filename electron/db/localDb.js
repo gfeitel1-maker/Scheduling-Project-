@@ -712,6 +712,69 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // Device trust, pairing, and revocation — see
+  // docs/adr/2026-07-25-device-trust-revocation.md and
+  // docs/superpowers/specs/2026-07-25-device-trust-revocation-design.md
+  // ("Schema (sub-task 1)"). Adds pairing/authorization/revocation columns
+  // to devices (a device row existing no longer implies it may log in), the
+  // Host-only host_signing_key singleton, and camps.signing_public_key
+  // (Ed25519, supersedes the HMAC signing_secret — kept, not dropped, per
+  // the ADR's own note).
+  if (getSchemaVersion(db) < 20) {
+    db.transaction(() => {
+      const addColumnIfMissing = (table, name, type) => {
+        const has = db.pragma(`table_info(${table})`).some((col) => col.name === name)
+        if (!has) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`)
+      }
+
+      addColumnIfMissing('devices', 'authorized_at', 'TEXT')
+      addColumnIfMissing('devices', 'authorized_by_user_id', 'TEXT')
+      addColumnIfMissing('devices', 'revoked_at', 'TEXT')
+      addColumnIfMissing('devices', 'revoked_by_user_id', 'TEXT')
+      addColumnIfMissing('devices', 'revocation_reason', 'TEXT')
+      addColumnIfMissing('devices', 'device_secret_identifier', 'TEXT')
+      // NOT NULL DEFAULT 'pending' cannot be added directly via ALTER TABLE
+      // ADD COLUMN on a version of SQLite that rejects a non-constant
+      // default combined with NOT NULL in some configurations; add it
+      // nullable-with-default here (SQLite backfills the default for
+      // existing rows on ADD COLUMN either way) — matching every other
+      // ALTER in this file, none of which use inline NOT NULL.
+      // Per the design doc's explicit non-goal ("no migration tooling for
+      // existing pre-pairing camps — this app has not shipped production
+      // camp data"), a pre-migration device row is NOT auto-authorized here.
+      // It lands as 'pending' like any other unauthorized row and must be
+      // explicitly authorized (dev-authorize-device for now; the real
+      // pairing-approval flow in sub-task 2) before it can act again — the
+      // stricter, revocation-first behavior this whole ADR exists for.
+      const hasPairingStatus = db
+        .pragma('table_info(devices)')
+        .some((col) => col.name === 'pairing_status')
+      if (!hasPairingStatus) {
+        // NOT NULL DEFAULT 'pending', matching schema.sql's declaration
+        // exactly — SQLite's ALTER TABLE ADD COLUMN supports NOT NULL
+        // combined with a constant DEFAULT (backfills existing rows with the
+        // default), so this can match schema.sql's column definition
+        // verbatim rather than diverging into a nullable variant.
+        db.exec("ALTER TABLE devices ADD COLUMN pairing_status TEXT NOT NULL DEFAULT 'pending'")
+      }
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS host_signing_key (
+          id INTEGER PRIMARY KEY CHECK (id = 1),
+          public_key TEXT NOT NULL,
+          private_key TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+      `)
+
+      addColumnIfMissing('camps', 'signing_public_key', 'TEXT')
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (20, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 export function openLocalDb(filePath) {

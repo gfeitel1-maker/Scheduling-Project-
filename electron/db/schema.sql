@@ -1,7 +1,13 @@
 CREATE TABLE IF NOT EXISTS camps (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  signing_secret TEXT
+  signing_secret TEXT,
+  -- Ed25519 public key (hex), superseding signing_secret (HMAC) per
+  -- docs/adr/2026-07-25-device-trust-revocation.md. signing_secret is kept
+  -- (not dropped) for now — see that ADR's own note on why a token-format
+  -- migration is out of scope for this slice. Distributed to every device
+  -- via the same full-sync path signing_secret used.
+  signing_public_key TEXT
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -26,7 +32,38 @@ CREATE TABLE IF NOT EXISTS devices (
   -- sending anything, so a device's very first connection doesn't get
   -- flooded with the entire pre-existing op history. Every authenticate
   -- after that sends operations rows with seq > last_synced_seq.
-  last_synced_seq INTEGER
+  last_synced_seq INTEGER,
+  -- Device trust/pairing/revocation, per
+  -- docs/adr/2026-07-25-device-trust-revocation.md. A device row existing no
+  -- longer implies it may log in — authorize() and handleAuthenticate both
+  -- require authorized_at NOT NULL AND revoked_at IS NULL, re-checked fresh
+  -- on every call (never cached). pairing_status defaults to 'pending' for a
+  -- freshly self-registered row (see syncServer.js's handleAuthenticate).
+  authorized_at TEXT,
+  authorized_by_user_id TEXT,
+  revoked_at TEXT,
+  revoked_by_user_id TEXT,
+  revocation_reason TEXT,
+  -- Random secret minted by the Host at pairing approval time (sub-task 2),
+  -- handed to the device once. Plaintext at rest, same precedent as
+  -- camps.signing_secret (see that column's comment) — the Host must hold
+  -- the raw value to compute/verify an HMAC with it. Doubles as the
+  -- HMAC key for this device's own 'local' token type (see localAuth.js).
+  device_secret_identifier TEXT,
+  pairing_status TEXT NOT NULL DEFAULT 'pending'
+  -- 'pending' | 'authorized' | 'denied' | 'revoked'
+);
+
+-- Host-only singleton. NEVER included in any full-sync SELECT/payload (see
+-- syncServer.js's sendFullSyncIfFirstPairing — only users/camps are sent)
+-- and never sent over the wire in any other message. Generated once, at
+-- bootstrapCamp(), only on the device that becomes Host — see
+-- localAuth.js's ensureHostSigningKey. private_key never leaves this device.
+CREATE TABLE IF NOT EXISTS host_signing_key (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  public_key TEXT NOT NULL,  -- hex-encoded SPKI DER, mirrors camps.signing_public_key
+  private_key TEXT NOT NULL, -- hex-encoded PKCS8 DER, Host-local only
+  created_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS operations (

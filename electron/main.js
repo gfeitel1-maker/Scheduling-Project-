@@ -4,7 +4,7 @@ import os from 'node:os'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
-import { createUser, issueSessionToken, verifySessionToken, attemptLogin } from './auth/localAuth.js'
+import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey } from './auth/localAuth.js'
 import { startSyncServer } from './sync/syncServer.js'
 import { createSyncClient } from './sync/syncClient.js'
 import { advertiseHost, discoverHosts } from './sync/discovery.js'
@@ -300,13 +300,63 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     const campId = randomUUID()
     const signingSecret = randomBytes(32).toString('hex')
     db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, campName, signingSecret)
+
+    // Host Ed25519 keypair, generated exactly once per
+    // docs/adr/2026-07-25-device-trust-revocation.md — this device becomes
+    // the Host by virtue of running bootstrapCamp() (the device that creates
+    // the very first admin user). ensureHostSigningKey is itself idempotency
+    // -guarded (checks for an existing host_signing_key row first), matching
+    // this codebase's existing setup-code convention.
+    const hostKey = ensureHostSigningKey(db)
+    db.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKey.public_key, campId)
+
     const user = await createUser(
       db,
       { camp_id: campId, name: adminName, pin: adminPin, role: 'admin' },
       (args) => syncClient.write(args)
     )
 
+    // This device's own `devices` row (inserted by ensureDeviceRow at
+    // handlers-creation time) is authorized as part of becoming Host —
+    // without this, the very next authorize()-gated IPC call made by this
+    // same process (e.g. the renderer's first write() after bootstrap) would
+    // be denied with 'device_not_authorized', since a devices row existing
+    // no longer implies it may act. Sub-task 2's real pairing-approval flow
+    // is what authorizes every OTHER device; this is the one device that
+    // authorizes itself, by virtue of being the one that created the camp.
+    db.prepare(
+      "UPDATE devices SET authorized_at = ?, authorized_by_user_id = ?, pairing_status = 'authorized' WHERE id = ?"
+    ).run(new Date().toISOString(), user.id, deviceId)
+
     return { campId, userId: user.id }
+  }
+
+  // Temporary stand-in for sub-task 2's real pairing-approval flow (Host
+  // approval UI + pairing_request/pairing_approved WS messages). Lets a
+  // device be manually authorized for testing this slice — schema +
+  // revocation enforcement — independently of the pairing protocol not
+  // existing yet, per the design doc's sub-task 1 acceptance note. Should be
+  // removed/superseded once sub-task 2 lands. Admin-role-gated via the same
+  // authorize() layer every other privileged handler uses — mints a fresh
+  // device_secret_identifier the way the real approval flow will.
+  function devAuthorizeDevice({ token, deviceId: targetDeviceId } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'devices.dev_authorize' })
+    if (!isNonEmptyString(targetDeviceId)) throw new Error('deviceId is required')
+    const existing = db.prepare('SELECT id FROM devices WHERE id = ?').get(targetDeviceId)
+    if (!existing) throw new Error('device not found')
+
+    const secret = randomBytes(32).toString('hex')
+    const now = new Date().toISOString()
+    db.prepare(
+      `UPDATE devices
+       SET authorized_at = ?, authorized_by_user_id = ?, pairing_status = 'authorized',
+           device_secret_identifier = COALESCE(device_secret_identifier, ?),
+           revoked_at = NULL, revoked_by_user_id = NULL, revocation_reason = NULL
+       WHERE id = ?`
+    ).run(now, userId, secret, targetDeviceId)
+
+    return { deviceId: targetDeviceId, authorized: true }
   }
 
   function verifySession({ token } = {}) {
@@ -470,6 +520,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     getDeviceId,
     resolveConflict,
     listPendingConflicts: listPendingConflictsHandler,
+    devAuthorizeDevice,
     getSyncClient: () => syncClient,
   }
 }
@@ -543,6 +594,9 @@ if (isElectronEntryPoint()) {
   ipcMain.handle('shoresh:get-device-id', (_event, args) => handlers.getDeviceId(args && args.token))
   ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
   ipcMain.handle('shoresh:list-conflicts', (_event, args) => handlers.listPendingConflicts(args && args.token))
+  // Temporary — see devAuthorizeDevice's own comment above. Stand-in for
+  // sub-task 2's real pairing-approval IPC surface (approveDevice/etc).
+  ipcMain.handle('shoresh:dev-authorize-device', (_event, args) => handlers.devAuthorizeDevice(args))
 
   app.whenReady().then(createWindow)
   app.on('window-all-closed', () => {

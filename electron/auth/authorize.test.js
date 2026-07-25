@@ -5,18 +5,27 @@ import os from 'node:os'
 import path from 'node:path'
 import { randomBytes, randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
-import { issueSessionToken } from './localAuth.js'
+import { issueLocalToken, issueCampToken, ensureHostSigningKey } from './localAuth.js'
 import { authorize } from './authorize.js'
 
 let tmpFile
 let db
+
+function issueSessionToken(db, userId, deviceId) {
+  return issueLocalToken(db, userId, deviceId)
+}
 
 beforeEach(() => {
   tmpFile = path.join(os.tmpdir(), `shoresh-authorize-test-${Date.now()}-${Math.random()}.sqlite`)
   db = openLocalDb(tmpFile)
   db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-1', 'Camp One')
   db.prepare('UPDATE camps SET signing_secret = ? WHERE id = ?').run(randomBytes(32).toString('hex'), 'camp-1')
-  db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('device-1', 'Test Device')
+  db.prepare(
+    `INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status)
+     VALUES (?, ?, ?, ?, 'authorized')`
+  ).run('device-1', 'Test Device', new Date().toISOString(), randomBytes(32).toString('hex'))
+  const hostKey = ensureHostSigningKey(db)
+  db.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKey.public_key, 'camp-1')
 })
 
 afterEach(() => {
@@ -95,7 +104,15 @@ describe('authorize', () => {
 
   it('denies when the device row has been deleted since the token was issued', () => {
     const userId = insertUser({ role: 'admin' })
-    const token = issueSessionToken(db, userId, 'device-1')
+    // Uses a camp token (not local) deliberately: a local token's signature
+    // itself depends on the device row (HMAC keyed by its
+    // device_secret_identifier), so deleting the row would make the token
+    // fail signature verification and short-circuit to 'invalid_token'
+    // before ever reaching authorize()'s own device-lookup step — which is
+    // not what this test is isolating. A camp token's signature depends
+    // only on the Host's key, so this exercises authorize()'s device
+    // lookup specifically.
+    const token = issueCampToken(db, userId, 'device-1')
 
     db.prepare('DELETE FROM devices WHERE id = ?').run('device-1')
 
@@ -232,6 +249,52 @@ describe('authorize', () => {
     expect(authorize({ db, token, action: '' })).toEqual({
       allowed: false,
       reason: 'invalid_action',
+    })
+  })
+
+  it('denies with device_not_authorized for a device row that has never been authorized', () => {
+    db.prepare(
+      "INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')"
+    ).run('device-pending', 'Pending Device')
+    db.prepare('UPDATE devices SET device_secret_identifier = ? WHERE id = ?').run(
+      randomBytes(32).toString('hex'),
+      'device-pending'
+    )
+    const userId = insertUser({ role: 'admin' })
+    const token = issueLocalToken(db, userId, 'device-pending')
+
+    const result = authorize({ db, token, action: 'users.create' })
+
+    expect(result).toEqual({ allowed: false, reason: 'device_not_authorized' })
+  })
+
+  it('denies with device_revoked for a device whose revoked_at is set, even with an otherwise-valid token', () => {
+    const userId = insertUser({ role: 'admin' })
+    const token = issueLocalToken(db, userId, 'device-1')
+
+    // Sanity: works before revocation.
+    expect(authorize({ db, token, action: 'users.create' }).allowed).toBe(true)
+
+    db.prepare("UPDATE devices SET revoked_at = ?, revocation_reason = 'lost' WHERE id = ?").run(
+      new Date().toISOString(),
+      'device-1'
+    )
+
+    const result = authorize({ db, token, action: 'users.create' })
+    expect(result).toEqual({ allowed: false, reason: 'device_revoked' })
+  })
+
+  it('re-derives revocation on every call — the SAME still-valid token is denied on its very next request after revocation', () => {
+    const userId = insertUser({ role: 'staff' })
+    const token = issueLocalToken(db, userId, 'device-1')
+
+    expect(authorize({ db, token, action: 'groups.write' }).allowed).toBe(true)
+
+    db.prepare('UPDATE devices SET revoked_at = ? WHERE id = ?').run(new Date().toISOString(), 'device-1')
+
+    expect(authorize({ db, token, action: 'groups.write' })).toEqual({
+      allowed: false,
+      reason: 'device_revoked',
     })
   })
 })

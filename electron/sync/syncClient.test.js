@@ -3,10 +3,32 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, randomBytes } from 'node:crypto'
 import WebSocket from 'ws'
 import { openLocalDb } from '../db/localDb.js'
-import { createUser, issueSessionToken, verifySessionToken } from '../auth/localAuth.js'
+import { createUser, issueCampToken, verifySessionToken, ensureHostSigningKey } from '../auth/localAuth.js'
+
+// Authorized-by-default devices row for the hostDb side of a test — see
+// docs/adr/2026-07-25-device-trust-revocation.md. Most tests in this file
+// exercise sync mechanics, not device pairing, so the connecting device must
+// already clear handleAuthenticate's authorized_at/revoked_at gate.
+function insertAuthorizedHostDevice(db, id, name) {
+  db.prepare(
+    `INSERT INTO devices (id, name, last_synced_at, authorized_at, device_secret_identifier, pairing_status)
+     VALUES (?, ?, ?, ?, ?, 'authorized')`
+  ).run(id, name, new Date().toISOString(), new Date().toISOString(), randomBytes(32).toString('hex'))
+}
+
+// Same as insertAuthorizedHostDevice but leaves last_synced_at NULL — needed
+// for full_sync tests: sendFullSyncIfFirstPairing (syncServer.js) gates on
+// last_synced_at being unset, so a pre-authorized device that must still be
+// treated as "first pairing" cannot have it pre-populated.
+function insertAuthorizedUnsyncedHostDevice(db, id, name) {
+  db.prepare(
+    `INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status)
+     VALUES (?, ?, ?, ?, 'authorized')`
+  ).run(id, name, new Date().toISOString(), randomBytes(32).toString('hex'))
+}
 import { appendOp, recordConflict, listPendingConflicts } from '../ops/operations.js'
 import { startSyncServer } from './syncServer.js'
 import { createSyncClient } from './syncClient.js'
@@ -28,8 +50,12 @@ beforeEach(async () => {
   hostDb.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Test Camp', 'c'.repeat(64))
   clientDb.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Test Camp', 'c'.repeat(64))
 
+  const hostKey = ensureHostSigningKey(hostDb)
+  hostDb.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKey.public_key, campId)
+  clientDb.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKey.public_key, campId)
+
   deviceId = randomUUID()
-  hostDb.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(deviceId, 'Device A', new Date().toISOString())
+  insertAuthorizedHostDevice(hostDb, deviceId, 'Device A')
   clientDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Device A')
 
   const user = await createUser(
@@ -52,7 +78,7 @@ beforeEach(async () => {
   clientDb.prepare('INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)')
     .run(userId, campId, 'Alice', 'x', 'x', 'admin')
 
-  token = issueSessionToken(hostDb, userId, deviceId)
+  token = issueCampToken(hostDb, userId, deviceId)
 
   server = startSyncServer(hostDb, { port: PORT })
 })
@@ -173,8 +199,8 @@ describe('remote client mode', () => {
 
   it('resolves lock_contention without submitting when the lock is denied (Task 10 round-5 Fix 2: distinct from a genuine op-conflict)', async () => {
     const otherDeviceId = randomUUID()
-    hostDb.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(otherDeviceId, 'Device B', new Date().toISOString())
-    const otherToken = issueSessionToken(hostDb, userId, otherDeviceId)
+    insertAuthorizedHostDevice(hostDb, otherDeviceId, 'Device B')
+    const otherToken = issueCampToken(hostDb, userId, otherDeviceId)
 
     const holderWs = new WebSocket(`ws://localhost:${PORT}`)
     await new Promise((resolve) => holderWs.once('open', resolve))
@@ -233,8 +259,8 @@ describe('remote client mode', () => {
     const flushServer = startSyncServer(hostDb, { port: FLUSH_PORT })
     try {
       const otherDeviceId = randomUUID()
-      hostDb.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(otherDeviceId, 'Device B', new Date().toISOString())
-      const otherToken = issueSessionToken(hostDb, userId, otherDeviceId)
+      insertAuthorizedHostDevice(hostDb, otherDeviceId, 'Device B')
+      const otherToken = issueCampToken(hostDb, userId, otherDeviceId)
       const holderWs = new WebSocket(`ws://localhost:${FLUSH_PORT}`)
       await new Promise((resolve) => holderWs.once('open', resolve))
       holderWs.send(JSON.stringify({ type: 'authenticate', token: otherToken, device_id: otherDeviceId }))
@@ -956,10 +982,12 @@ describe('remote client mode', () => {
 describe('full_sync handling', () => {
   it('bulk-loads users and camps from a real full_sync round-trip on first pairing', async () => {
     const freshDeviceId = randomUUID()
-    // Deliberately do NOT pre-insert a devices row on hostDb: the Host must
-    // self-register this genuinely new device during authenticate (Fix 1),
-    // not rely on test setup creating the row production code should create.
-    const freshToken = issueSessionToken(hostDb, userId, freshDeviceId)
+    // Pre-authorized on hostDb (standing in for sub-task 2's real
+    // pairing-approval flow — see docs/adr/2026-07-25-device-trust-revocation.md):
+    // self-registration alone is deliberately NOT enough to reach full_sync
+    // (a bare devices row is 'pending' and gets its connection rejected).
+    insertAuthorizedUnsyncedHostDevice(hostDb, freshDeviceId, 'Fresh Device')
+    const freshToken = issueCampToken(hostDb, userId, freshDeviceId)
 
     const freshClientFile = path.join(os.tmpdir(), `shoresh-sc-fresh-${Date.now()}-${Math.random()}.sqlite`)
     const freshClientDb = openLocalDb(freshClientFile)
@@ -978,7 +1006,12 @@ describe('full_sync handling', () => {
     expect(userRow).toBeTruthy()
     expect(userRow.name).toBe('Alice')
     const campRow = freshClientDb.prepare('SELECT * FROM camps WHERE id = ?').get(campId)
-    expect(campRow).toEqual({ id: campId, name: 'Test Camp', signing_secret: 'c'.repeat(64) })
+    expect(campRow).toEqual({
+      id: campId,
+      name: 'Test Camp',
+      signing_secret: 'c'.repeat(64),
+      signing_public_key: expect.any(String),
+    })
 
     client.close()
     freshClientDb.close()
@@ -1066,7 +1099,7 @@ describe('full_sync handling', () => {
     expect(clientDb.prepare('SELECT * FROM camps WHERE id = ?').get(nullSecretCampId)).toBeFalsy()
 
     const validCamp = clientDb.prepare('SELECT * FROM camps WHERE id = ?').get(validCampId)
-    expect(validCamp).toEqual({ id: validCampId, name: 'Has Secret', signing_secret: 'g'.repeat(64) })
+    expect(validCamp).toEqual({ id: validCampId, name: 'Has Secret', signing_secret: 'g'.repeat(64), signing_public_key: null })
 
     client.close()
   })
@@ -1146,10 +1179,8 @@ describe('reconnect catch-up (Task 10 round-4 Fix 3)', () => {
     // Device A's row must also exist on B's local db — the ops B is about to
     // receive are authored by Device A, and operations.device_id is an FK.
     dbB.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Device A')
-    hostDb.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(
-      deviceBId, 'Device B', new Date().toISOString()
-    )
-    const tokenB = issueSessionToken(hostDb, userId, deviceBId)
+    insertAuthorizedHostDevice(hostDb, deviceBId, 'Device B')
+    const tokenB = issueCampToken(hostDb, userId, deviceBId)
 
     // B connects once so the Host knows its watermark, then disconnects —
     // "goes offline" — before any conflict-related op exists yet.
@@ -1228,6 +1259,11 @@ describe('remote login (fresh client, no local token yet)', () => {
     // without it. This test operates below main.js, so the row is inserted
     // here directly to mirror that startup step.
     freshClientDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(freshDeviceId, 'Fresh Device')
+    // Pre-authorized on hostDb (standing in for sub-task 2's real
+    // pairing-approval flow): PIN login alone no longer implies network
+    // trust — handleAuthenticate's post-loginRemote `authenticate` would
+    // otherwise be rejected even though the PIN was correct.
+    insertAuthorizedHostDevice(hostDb, freshDeviceId, 'Fresh Device')
     const client = createSyncClient(freshClientDb, {
       device_id: freshDeviceId,
       author_user_id: null,
@@ -1305,6 +1341,7 @@ describe('remote login (fresh client, no local token yet)', () => {
   it('does NOT queue a write issued after loginRemote resolves — it applies immediately', async () => {
     const freshDeviceId = randomUUID()
     freshClientDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(freshDeviceId, 'Fresh Device 3')
+    insertAuthorizedHostDevice(hostDb, freshDeviceId, 'Fresh Device 3')
     const client = createSyncClient(freshClientDb, {
       device_id: freshDeviceId,
       author_user_id: null,
@@ -1351,6 +1388,7 @@ describe('remote login (fresh client, no local token yet)', () => {
     // seed camps/users — the local db is still genuinely empty of the data
     // this test proves gets full-synced).
     freshClientDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(freshDeviceId, 'Fresh Device 4')
+    insertAuthorizedUnsyncedHostDevice(hostDb, freshDeviceId, 'Fresh Device 4')
     const client = createSyncClient(freshClientDb, {
       device_id: freshDeviceId,
       author_user_id: null,
@@ -1385,6 +1423,7 @@ describe('remote login (fresh client, no local token yet)', () => {
     expect(freshClientDb.prepare('SELECT COUNT(*) as n FROM camps').get().n).toBe(0)
 
     const freshDeviceId = randomUUID()
+    insertAuthorizedUnsyncedHostDevice(hostDb, freshDeviceId, 'Fresh Device 5')
     const client = createSyncClient(freshClientDb, {
       device_id: freshDeviceId,
       author_user_id: null,
@@ -1412,7 +1451,7 @@ describe('remote login (fresh client, no local token yet)', () => {
     // returned null because each process had its own random, unshared
     // HMAC secret.
     const verified = verifySessionToken(freshClientDb, loginResult.token)
-    expect(verified).toEqual({ userId: loginResult.userId, deviceId: freshDeviceId })
+    expect(verified).toMatchObject({ userId: loginResult.userId, deviceId: freshDeviceId, type: 'camp' })
 
     client.close()
   })

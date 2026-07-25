@@ -11,6 +11,7 @@ import {
 } from '../ops/operations.js'
 import { authorize } from '../auth/authorize.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from '../auth/deriveWriteAction.js'
+import { recordAuditEvent } from '../audit/auditLog.js'
 
 // Task 10 round-5 Fix 4: report success/failure back to the caller instead
 // of unconditionally swallowing it. sendMissedOps needs this to know exactly
@@ -103,7 +104,11 @@ function sendFullSyncIfFirstPairing(db, ws) {
   if (!device || device.last_synced_at) return
 
   const users = db.prepare('SELECT id, camp_id, name, pin_hash, pin_salt, role FROM users').all()
-  const camps = db.prepare('SELECT id, name, signing_secret FROM camps').all()
+  // signing_public_key travels the same way signing_secret always has — see
+  // docs/adr/2026-07-25-device-trust-revocation.md: every device needs it to
+  // verify a 'camp' token fully offline. host_signing_key (the PRIVATE half)
+  // is a separate table, never selected here or anywhere else in this file.
+  const camps = db.prepare('SELECT id, name, signing_secret, signing_public_key FROM camps').all()
   send(ws, { type: 'full_sync', users, camps })
 
   db.prepare('UPDATE devices SET last_synced_at = ? WHERE id = ?').run(
@@ -204,9 +209,73 @@ export async function sendMissedOps(db, ws, ackTimeoutMs = SEND_ACK_TIMEOUT_MS) 
 function handleAuthenticate(db, ws, msg) {
   const verified = verifySessionToken(db, msg.token)
   if (!verified || verified.deviceId !== msg.device_id) {
-    ws.close()
+    // 4401: custom app-level close code (WS custom range is 4000-4999) so a
+    // client-side close handler CAN distinguish this from an ordinary
+    // network drop if it ever wants to (Red Hat: today's syncClient.js does
+    // not branch on this yet — closing the observability gap is left to
+    // whichever sub-task next touches the client reconnect UX, but the
+    // signal is now actually present on the wire rather than absent).
+    ws.close(4401, 'invalid_token')
     return
   }
+
+  // A 'local' token is this-device-only by design (HMAC'd with a device's
+  // own device_secret_identifier — see localAuth.js's issueLocalToken /
+  // verifySessionToken) and must never be accepted as proof of network
+  // trust, per docs/adr/2026-07-25-device-trust-revocation.md §3. Rejected
+  // outright here rather than relying on signature mismatch alone, since a
+  // 'local' token from THIS SAME device (or one whose secret it somehow
+  // knows) would otherwise verify successfully.
+  if (verified.type !== 'camp') {
+    ws.close(4402, 'local_token_not_valid_for_network')
+    return
+  }
+
+  // Self-registration is allowed regardless of authorization status (a
+  // brand-new device must get a `devices` row to exist at all before it can
+  // ever be authorized), but connection ACCEPTANCE is gated on
+  // authorized_at/revoked_at, re-checked fresh here rather than cached —
+  // same revocation-enforcement rule authorize() applies on every IPC call.
+  // Self-register this device on the Host if it has never been seen before.
+  // Without this, a genuinely new device connecting for the first time has no
+  // `devices` row, sendFullSyncIfFirstPairing's lookup returns undefined, and
+  // the first-pairing full_sync silently never fires. INSERT OR IGNORE makes
+  // this a safe no-op for an already-known device (own-machine registration
+  // via ensureDeviceRow in main.js, or a returning peer). pairing_status
+  // defaults to 'pending' — a device row existing no longer implies it may
+  // log in (docs/superpowers/specs/2026-07-25-device-trust-revocation-design.md).
+  db.prepare(
+    "INSERT OR IGNORE INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')"
+  ).run(verified.deviceId, `Device ${verified.deviceId.slice(0, 8)}`)
+
+  const deviceRow = db
+    .prepare('SELECT authorized_at, revoked_at FROM devices WHERE id = ?')
+    .get(verified.deviceId)
+  if (!deviceRow || !deviceRow.authorized_at) {
+    recordAuditEvent(db, {
+      actorUserId: verified.userId,
+      deviceId: verified.deviceId,
+      action: 'auth.authenticate',
+      outcome: 'deny',
+      reason: 'device_not_authorized',
+      metadata: verified.jti ? { jti: verified.jti } : null,
+    })
+    ws.close(4403, 'device_not_authorized')
+    return
+  }
+  if (deviceRow.revoked_at) {
+    recordAuditEvent(db, {
+      actorUserId: verified.userId,
+      deviceId: verified.deviceId,
+      action: 'auth.authenticate',
+      outcome: 'deny',
+      reason: 'device_revoked',
+      metadata: verified.jti ? { jti: verified.jti } : null,
+    })
+    ws.close(4404, 'device_revoked')
+    return
+  }
+
   ws.deviceId = verified.deviceId
   ws.userId = verified.userId
   // Stored so later authorize() calls on this connection (acquire_lock,
@@ -216,17 +285,6 @@ function handleAuthenticate(db, ws, msg) {
   // verifySessionToken" guarantee (electron/auth/authorize.js) requires a
   // real token, not just the derived userId/deviceId already set above.
   ws.token = msg.token
-
-  // Self-register this device on the Host if it has never been seen before.
-  // Without this, a genuinely new device connecting for the first time has no
-  // `devices` row, sendFullSyncIfFirstPairing's lookup returns undefined, and
-  // the first-pairing full_sync silently never fires. INSERT OR IGNORE makes
-  // this a safe no-op for an already-known device (own-machine registration
-  // via ensureDeviceRow in main.js, or a returning peer).
-  db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(
-    ws.deviceId,
-    `Device ${ws.deviceId.slice(0, 8)}`
-  )
 
   sendFullSyncIfFirstPairing(db, ws)
   sendMissedOps(db, ws)

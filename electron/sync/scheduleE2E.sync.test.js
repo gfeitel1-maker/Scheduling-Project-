@@ -20,9 +20,9 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, randomBytes } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
-import { createUser, issueSessionToken } from '../auth/localAuth.js'
+import { createUser, issueCampToken, ensureHostSigningKey } from '../auth/localAuth.js'
 import { appendOp } from '../ops/operations.js'
 import { startSyncServer } from './syncServer.js'
 import { createSyncClient } from './syncClient.js'
@@ -42,8 +42,15 @@ beforeEach(async () => {
   hostDb.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Test Camp', 'e'.repeat(64))
   clientDb.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Test Camp', 'e'.repeat(64))
 
+  const hostKey = ensureHostSigningKey(hostDb)
+  hostDb.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKey.public_key, campId)
+  clientDb.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKey.public_key, campId)
+
   deviceId = randomUUID()
-  hostDb.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(deviceId, 'Device A', new Date().toISOString())
+  hostDb.prepare(
+    `INSERT INTO devices (id, name, last_synced_at, authorized_at, device_secret_identifier, pairing_status)
+     VALUES (?, ?, ?, ?, ?, 'authorized')`
+  ).run(deviceId, 'Device A', new Date().toISOString(), new Date().toISOString(), randomBytes(32).toString('hex'))
   clientDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(deviceId, 'Device A')
 
   const user = await createUser(
@@ -83,7 +90,7 @@ beforeEach(async () => {
     db.prepare('INSERT INTO days_of_operation (id, camp_id, label) VALUES (?, ?, ?)').run('day-1', campId, 'Day 1')
   }
 
-  token = issueSessionToken(hostDb, userId, deviceId)
+  token = issueCampToken(hostDb, userId, deviceId)
 
   server = startSyncServer(hostDb, { port: PORT })
 })

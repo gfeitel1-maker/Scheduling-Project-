@@ -3,10 +3,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, randomBytes } from 'node:crypto'
 import WebSocket from 'ws'
 import { openLocalDb } from '../db/localDb.js'
-import { createUser, issueSessionToken } from '../auth/localAuth.js'
+import { createUser, issueCampToken, issueLocalToken, ensureHostSigningKey } from '../auth/localAuth.js'
 import { appendOp } from '../ops/operations.js'
 import { startSyncServer, sendMissedOps, sendWithAck } from './syncServer.js'
 import { attemptLogin } from '../auth/localAuth.js'
@@ -53,6 +53,29 @@ function onceClose(ws) {
   return new Promise((resolve) => ws.once('close', resolve))
 }
 
+// Authorized-by-default devices row, matching what real pairing (sub-task 2)
+// or the dev-authorize-device interim path would leave behind — most tests
+// in this file are about WS message handling, not device pairing, so they
+// need a device that ALREADY clears handleAuthenticate's
+// authorized_at/revoked_at gate.
+function insertAuthorizedDevice(db, id, name) {
+  db.prepare(
+    `INSERT INTO devices (id, name, last_synced_at, authorized_at, device_secret_identifier, pairing_status)
+     VALUES (?, ?, ?, ?, ?, 'authorized')`
+  ).run(id, name, new Date().toISOString(), new Date().toISOString(), randomBytes(32).toString('hex'))
+}
+
+// Same as insertAuthorizedDevice but leaves last_synced_at NULL — needed for
+// full_sync tests: sendFullSyncIfFirstPairing (syncServer.js) gates on
+// last_synced_at being unset, so a pre-authorized device that will still be
+// treated as "first pairing" must not have it pre-populated.
+function insertAuthorizedUnsyncedDevice(db, id, name) {
+  db.prepare(
+    `INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status)
+     VALUES (?, ?, ?, ?, 'authorized')`
+  ).run(id, name, new Date().toISOString(), randomBytes(32).toString('hex'))
+}
+
 beforeEach(async () => {
   tmpFile = path.join(os.tmpdir(), `shoresh-sync-${Date.now()}-${Math.random()}.sqlite`)
   db = openLocalDb(tmpFile)
@@ -60,8 +83,16 @@ beforeEach(async () => {
   campId = randomUUID()
   db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Test Camp', 'b'.repeat(64))
 
+  // Host Ed25519 key, per docs/adr/2026-07-25-device-trust-revocation.md —
+  // this db plays the Host's own db throughout this file (startSyncServer
+  // runs against it), so it needs a host_signing_key to issue 'camp' tokens
+  // and camps.signing_public_key so verifySessionToken (called by
+  // handleAuthenticate) can verify them.
+  const hostKey = ensureHostSigningKey(db)
+  db.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKey.public_key, campId)
+
   deviceId = randomUUID()
-  db.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(deviceId, 'Device A', new Date().toISOString())
+  insertAuthorizedDevice(db, deviceId, 'Device A')
 
   const user = await createUser(
     db,
@@ -81,7 +112,7 @@ beforeEach(async () => {
   )
   userId = user.id
 
-  token = issueSessionToken(db, userId, deviceId)
+  token = issueCampToken(db, userId, deviceId)
 
   server = startSyncServer(db, { port: PORT })
 })
@@ -167,8 +198,8 @@ describe('submit_op', () => {
     ws1.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
 
     const otherDeviceId = randomUUID()
-    db.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(otherDeviceId, 'Device B', new Date().toISOString())
-    const otherToken = issueSessionToken(db, userId, otherDeviceId)
+    insertAuthorizedDevice(db, otherDeviceId, 'Device B')
+    const otherToken = issueCampToken(db, userId, otherDeviceId)
     const ws2 = connect()
     await onceOpen(ws2)
     ws2.send(JSON.stringify({ type: 'authenticate', token: otherToken, device_id: otherDeviceId }))
@@ -361,8 +392,8 @@ describe('lock release on disconnect (Fix 2)', () => {
     await new Promise((r) => setTimeout(r, 100))
 
     const otherDeviceId = randomUUID()
-    db.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(otherDeviceId, 'Device B', new Date().toISOString())
-    const otherToken = issueSessionToken(db, userId, otherDeviceId)
+    insertAuthorizedDevice(db, otherDeviceId, 'Device B')
+    const otherToken = issueCampToken(db, userId, otherDeviceId)
     const wsB = connect()
     await onceOpen(wsB)
     wsB.send(JSON.stringify({ type: 'authenticate', token: otherToken, device_id: otherDeviceId }))
@@ -426,8 +457,8 @@ describe('safe broadcast (Fix 3)', () => {
     ws1.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
 
     const otherDeviceId = randomUUID()
-    db.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(otherDeviceId, 'Device B', new Date().toISOString())
-    const otherToken = issueSessionToken(db, userId, otherDeviceId)
+    insertAuthorizedDevice(db, otherDeviceId, 'Device B')
+    const otherToken = issueCampToken(db, userId, otherDeviceId)
     const ws2 = connect()
     await onceOpen(ws2)
     ws2.send(JSON.stringify({ type: 'authenticate', token: otherToken, device_id: otherDeviceId }))
@@ -478,15 +509,66 @@ describe('safe broadcast (Fix 3)', () => {
   })
 })
 
-describe('full_sync on first pairing', () => {
-  it('sends full_sync with all users and camps on a genuinely new device\'s first successful authenticate (no pre-existing devices row)', async () => {
+describe('device self-registration + revocation gate at authenticate (docs/adr/2026-07-25-device-trust-revocation.md)', () => {
+  it('self-registers a genuinely new device as pending, then rejects the connection since a devices row existing no longer implies it may log in', async () => {
     const newDeviceId = randomUUID()
     // Deliberately do NOT pre-insert a devices row here: this is exactly the
-    // real-world scenario (a brand-new device that the Host has never seen)
-    // that round 1's tests masked by manually inserting the row production
-    // code never created. The self-registration fix in handleAuthenticate
-    // must create this row itself.
-    const newToken = issueSessionToken(db, userId, newDeviceId)
+    // real-world scenario (a brand-new device that the Host has never seen).
+    // The self-registration fix in handleAuthenticate must create this row
+    // itself — but per the device-trust-revocation design, that row lands as
+    // 'pending', and the connection must be rejected, not granted full_sync.
+    const newToken = issueCampToken(db, userId, newDeviceId)
+
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token: newToken, device_id: newDeviceId }))
+    await onceClose(ws)
+    expect(ws.readyState).toBe(WebSocket.CLOSED)
+
+    const row = db.prepare('SELECT pairing_status, authorized_at FROM devices WHERE id = ?').get(newDeviceId)
+    expect(row).toBeTruthy()
+    expect(row.pairing_status).toBe('pending')
+    expect(row.authorized_at).toBeNull()
+  })
+
+  it('a revoked device is rejected at authenticate — the connection never gets full_sync or any other reply', async () => {
+    const revokedDeviceId = randomUUID()
+    insertAuthorizedDevice(db, revokedDeviceId, 'Revoked Device')
+    db.prepare("UPDATE devices SET revoked_at = ?, revocation_reason = 'lost' WHERE id = ?").run(
+      new Date().toISOString(),
+      revokedDeviceId
+    )
+    const revokedToken = issueCampToken(db, userId, revokedDeviceId)
+
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token: revokedToken, device_id: revokedDeviceId }))
+    await onceClose(ws)
+    expect(ws.readyState).toBe(WebSocket.CLOSED)
+  })
+
+  it('rejects a local-type token outright, even for an otherwise-authorized device', async () => {
+    // issueLocalToken requires this device's OWN device_secret_identifier —
+    // deviceId already has one from insertAuthorizedDevice in beforeEach.
+    const localToken = issueLocalToken(db, userId, deviceId)
+
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token: localToken, device_id: deviceId }))
+    await onceClose(ws)
+    expect(ws.readyState).toBe(WebSocket.CLOSED)
+  })
+})
+
+describe('full_sync on first pairing', () => {
+  it('sends full_sync with all users and camps on an ALREADY-AUTHORIZED new device\'s first successful authenticate', async () => {
+    const newDeviceId = randomUUID()
+    // Pre-authorized here (standing in for sub-task 2's real pairing-approval
+    // flow / the dev-authorize-device interim path) — self-registration
+    // alone (a bare devices row) is deliberately NOT enough to reach
+    // full_sync, per the "rejects...pending" test above.
+    insertAuthorizedUnsyncedDevice(db, newDeviceId, 'Pre-Authorized New Device')
+    const newToken = issueCampToken(db, userId, newDeviceId)
 
     const ws = connect()
     await onceOpen(ws)
@@ -497,7 +579,14 @@ describe('full_sync on first pairing', () => {
     expect(msg.users).toEqual([
       { id: userId, camp_id: campId, name: 'Alice', pin_hash: expect.any(String), pin_salt: expect.any(String), role: 'admin' },
     ])
-    expect(msg.camps).toEqual([{ id: campId, name: 'Test Camp', signing_secret: 'b'.repeat(64) }])
+    expect(msg.camps).toEqual([
+      {
+        id: campId,
+        name: 'Test Camp',
+        signing_secret: 'b'.repeat(64),
+        signing_public_key: expect.any(String),
+      },
+    ])
 
     const row = db.prepare('SELECT last_synced_at FROM devices WHERE id = ?').get(newDeviceId)
     expect(row.last_synced_at).toBeTruthy()
@@ -507,9 +596,8 @@ describe('full_sync on first pairing', () => {
 
   it('does not send full_sync again on a second authenticate from the same device', async () => {
     const newDeviceId = randomUUID()
-    // No pre-existing devices row - the first authenticate below must
-    // self-register it via production code, not test setup.
-    const newToken = issueSessionToken(db, userId, newDeviceId)
+    insertAuthorizedUnsyncedDevice(db, newDeviceId, 'Pre-Authorized New Device 2')
+    const newToken = issueCampToken(db, userId, newDeviceId)
 
     const ws1 = connect()
     await onceOpen(ws1)
@@ -938,11 +1026,7 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
 
   beforeEach(async () => {
     staffDeviceId = randomUUID()
-    db.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(
-      staffDeviceId,
-      'Staff Device',
-      new Date().toISOString()
-    )
+    insertAuthorizedDevice(db, staffDeviceId, 'Staff Device')
     const staffUser = await createUser(
       db,
       { camp_id: campId, name: 'Bob', pin: '5678', role: 'staff' },
@@ -959,7 +1043,7 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
         return { status: 'applied', op }
       }
     )
-    staffToken = issueSessionToken(db, staffUser.id, staffDeviceId)
+    staffToken = issueCampToken(db, staffUser.id, staffDeviceId)
   })
 
   it('denies a staff device submit_bulk_replace_op (admin-only action)', async () => {
