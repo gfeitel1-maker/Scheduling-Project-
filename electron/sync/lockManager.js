@@ -1,3 +1,13 @@
+// §7.4 — Locks in this system are ADVISORY PRESENCE HINTS, not hard exclusion
+// guarantees. A lock signals "another device is currently editing this field"
+// so the Host can alert the submitting device before accepting the write; it
+// does NOT prevent a write from being accepted if the lock is not held. The
+// system never surfaces language like "Taylor has locked this item" — only
+// "Taylor is currently editing this item." Lock cleanup happens automatically:
+//   - on device disconnect: syncServer.js's ws.on('close') calls releaseLocksForDevice
+//   - on timeout:           syncServer.js's setInterval calls expireLocks every 30s
+// No manual release is needed in the normal flow.
+
 function assertValidDeviceId(device_id) {
   if (typeof device_id !== 'string' || device_id === '') {
     throw new Error('device_id must be a non-empty string')

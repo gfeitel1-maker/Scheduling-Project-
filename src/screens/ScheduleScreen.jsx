@@ -85,6 +85,26 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
 
   useEffect(() => { loadAll() }, [campId])
 
+  // §7.3: Re-run the schedule after any op is applied — this covers conflict
+  // resolution (resolveConflict IPC → syncClient.write → server broadcasts
+  // op_applied → wireOpApplied → shoresh:op-applied) as well as ordinary
+  // writes from other devices. The op_applied event already fires naturally
+  // on those paths; we just need ScheduleScreen to react to it.
+  //
+  // This is best-effort / fire-and-forget: a failure in loadAll() surfaces
+  // via setLoadError (the screen's own error banner) rather than crashing
+  // the listener. The reload re-fetches all schedule data and calls
+  // recalcStats(), ensuring the ScheduleScreen's stats/flags reflect the
+  // post-resolution state of the DB.
+  useEffect(() => {
+    if (typeof localClient.onOpApplied !== 'function') return
+    let active = true
+    localClient.onOpApplied(() => {
+      if (active) loadAll()
+    })
+    return () => { active = false }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     if (!fillState) return
     function onPointerUp() {

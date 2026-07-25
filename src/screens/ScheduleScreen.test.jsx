@@ -2,12 +2,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 
+// Captured onOpApplied callbacks so tests can fire synthetic op-applied events.
+const opAppliedListeners = []
+
 vi.mock('../localClient', () => ({
   localClient: {
     list: vi.fn(),
     write: vi.fn(),
     deleteEntity: vi.fn(),
     bulkReplace: vi.fn(),
+    onOpApplied: vi.fn((cb) => { opAppliedListeners.push(cb) }),
   },
 }))
 
@@ -55,6 +59,10 @@ beforeEach(() => {
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.bulkReplace.mockReset().mockResolvedValue({ status: 'applied' })
+  localClient.onOpApplied.mockReset().mockImplementation((cb) => { opAppliedListeners.push(cb) })
+  // Clear captured listeners before each test so one test's listener
+  // callbacks can't fire in a later test's assertion window.
+  opAppliedListeners.length = 0
 })
 
 // Round 2 Fix 1: bulk_replace rows carry `flags` JSON.stringify'd (the op-log
@@ -336,6 +344,35 @@ describe('snapshot CRUD ported to localClient', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Failed to rename snapshot/i)).toBeTruthy()
+    })
+  })
+})
+
+// §7.3: ScheduleScreen registers an onOpApplied listener (for conflict-
+// resolution refresh) and re-runs loadAll() when that listener fires. This
+// test exercises the happy path: listener registered on mount, fires once
+// via the captured callback, schedule data is re-fetched.
+describe('§7.3 — onOpApplied triggers schedule reload (conflict-resolution refresh)', () => {
+  it('registers an onOpApplied listener on mount and calls loadAll() again when it fires', async () => {
+    mockList()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+
+    // Wait for initial load to finish (we see the schedule grid label).
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+
+    // Confirm the listener was registered exactly once.
+    expect(localClient.onOpApplied).toHaveBeenCalledTimes(1)
+    const listCallsAfterMount = localClient.list.mock.calls.length
+
+    // Simulate an op_applied event (e.g. after a conflict resolution) by
+    // firing the captured callback — same path as the real shoresh:op-applied
+    // IPC event going through localClient.onOpApplied.
+    expect(opAppliedListeners.length).toBeGreaterThan(0)
+    opAppliedListeners[0]()
+
+    // loadAll() must issue a fresh batch of localClient.list() calls.
+    await waitFor(() => {
+      expect(localClient.list.mock.calls.length).toBeGreaterThan(listCallsAfterMount)
     })
   })
 })
