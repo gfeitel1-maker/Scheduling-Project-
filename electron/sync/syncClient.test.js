@@ -501,10 +501,16 @@ describe('remote client mode', () => {
     client.close()
   })
 
-  it('keeps the operations-log entry even when local projection fails (FK violation only on receiving client)', async () => {
-    // A camp that exists on the host db (so the op is valid/applies fine there)
-    // but NOT on the receiving client's db, so the client-side projection's
-    // UPDATE ... camp_id = ? violates the FK constraint locally only.
+  it('keeps the operations-log entry even when local projection is rejected (camp_id projection guard rejects a foreign camp_id on both host and client)', async () => {
+    // A second camps row that exists on the host db only (not the client's),
+    // used purely as a "foreign camp id" value. Previously (pre camp_id
+    // projection guard) this scenario relied on the receiving client's
+    // UPDATE ... camp_id = ? hitting a real SQLite FK constraint violation
+    // to avoid corrupting the client's row — now electron/ops/projections.js's
+    // applyProjection rejects any camp_id write that doesn't match the
+    // device's own single real camp row (SELECT id FROM camps LIMIT 1)
+    // uniformly, on host AND client, before ever reaching the UPDATE/FK — so
+    // this op is rejected identically on both sides, not just the client.
     const otherCampId = randomUUID()
     hostDb.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(otherCampId, 'Other Camp', 'd'.repeat(64))
 
@@ -520,17 +526,20 @@ describe('remote client mode', () => {
     const result = await client.write({ entity: 'users', entity_id: freshUserId, field: 'camp_id', value: otherCampId })
 
     // The op was canonical (server accepted/broadcast it) so the write must resolve as applied,
-    // even though local projection of it fails.
+    // even though local projection of it is rejected on both sides.
     expect(result.status).toBe('applied')
 
-    // The op-log entry must be durably recorded on the client despite the projection failure.
+    // The op-log entry must be durably recorded on the client despite the projection rejection.
     const clientOpRow = clientDb.prepare('SELECT * FROM operations WHERE entity_id = ? AND field = ?').get(freshUserId, 'camp_id')
     expect(clientOpRow).toBeTruthy()
     expect(clientOpRow.value).toBe(otherCampId)
 
-    // The users table projection should NOT have been updated locally (FK violation prevented it).
+    // The users table projection should NOT have been created/updated locally
+    // — the camp_id guard rejects the write before ensureExists ever runs,
+    // so no placeholder row exists at all (a stronger guarantee than a row
+    // existing with the wrong camp_id).
     const clientUserRow = clientDb.prepare('SELECT * FROM users WHERE id = ?').get(freshUserId)
-    expect(clientUserRow.camp_id).not.toBe(otherCampId)
+    expect(clientUserRow).toBeUndefined()
 
     client.close()
   })

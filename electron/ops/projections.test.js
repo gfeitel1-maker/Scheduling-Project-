@@ -149,6 +149,56 @@ describe('applyProjection __deleted__ sentinel', () => {
   })
 })
 
+describe('applyProjection camp_id guard', () => {
+  it('applies a camp_id write on users that matches the device camp id', () => {
+    applyProjection(db, { entity: 'users', entity_id: 'user-1', field: 'camp_id', value: 'camp-1' })
+    const row = db.prepare('SELECT camp_id FROM users WHERE id = ?').get('user-1')
+    expect(row.camp_id).toBe('camp-1')
+  })
+
+  it('rejects a camp_id write on users with a mismatched value and leaves the row unchanged', () => {
+    expect(() =>
+      applyProjection(db, { entity: 'users', entity_id: 'user-1', field: 'camp_id', value: 'evil-camp' })
+    ).not.toThrow()
+    const row = db.prepare('SELECT camp_id FROM users WHERE id = ?').get('user-1')
+    expect(row.camp_id).toBe('camp-1')
+  })
+
+  it('applies a camp_id write on groups that matches the device camp id', () => {
+    applyProjection(db, { entity: 'groups', entity_id: 'group-1', field: 'camp_id', value: 'camp-1' })
+    const row = db.prepare('SELECT camp_id FROM groups WHERE id = ?').get('group-1')
+    expect(row.camp_id).toBe('camp-1')
+  })
+
+  it('rejects a camp_id write on groups with a mismatched value and never creates the row', () => {
+    expect(() =>
+      applyProjection(db, { entity: 'groups', entity_id: 'group-evil', field: 'camp_id', value: 'evil-camp' })
+    ).not.toThrow()
+    const row = db.prepare('SELECT * FROM groups WHERE id = ?').get('group-evil')
+    expect(row).toBeUndefined()
+  })
+
+  it('rejects a camp_id write on cohorts with a mismatched value and never creates the row', () => {
+    expect(() =>
+      applyProjection(db, { entity: 'cohorts', entity_id: 'cohort-evil', field: 'camp_id', value: 'evil-camp' })
+    ).not.toThrow()
+    const row = db.prepare('SELECT * FROM cohorts WHERE id = ?').get('cohort-evil')
+    expect(row).toBeUndefined()
+  })
+
+  it('rejects any camp_id write on a zero-camps db', () => {
+    const tmpFile2 = path.join(os.tmpdir(), `shoresh-projections-test-zero-${Date.now()}-${Math.random()}.sqlite`)
+    const db2 = openLocalDb(tmpFile2)
+    expect(() =>
+      applyProjection(db2, { entity: 'users', entity_id: 'user-x', field: 'camp_id', value: 'anything' })
+    ).not.toThrow()
+    const row = db2.prepare('SELECT * FROM users WHERE id = ?').get('user-x')
+    expect(row).toBeUndefined()
+    db2.close()
+    if (fs.existsSync(tmpFile2)) fs.unlinkSync(tmpFile2)
+  })
+})
+
 describe('applyProjection', () => {
   it('updates the real row for a registered entity', () => {
     applyProjection(db, { entity: 'users', entity_id: 'user-1', field: 'name', value: 'Bob' })

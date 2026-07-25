@@ -35,6 +35,18 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
       .run(id, entity, entity_id, field, value, author_user_id ?? null, device_id, timestamp, parent_op_id ?? null, client_write_id ?? null)
 
     const op = db.prepare('SELECT * FROM operations WHERE seq = ?').get(result.lastInsertRowid)
+    // applyProjection returns false only for a rejected camp_id write (see
+    // projections.js) — every other rejection (unregistered entity/field) is
+    // a legitimate silent no-op. appendOp is called both for genuinely local
+    // first-party writes AND by the Host's handleSubmitOp when applying an
+    // op a remote Client submitted (syncServer.js) — the latter must not
+    // throw here, since an uncaught exception mid-transaction would abort
+    // the Host's response to that Client's request rather than gracefully
+    // reporting rejection. So this stays a silent no-op at the appendOp
+    // level too, matching applyProjection's own non-throwing contract — the
+    // return value is preserved for a future caller that wants to
+    // distinguish success from a rejected camp_id write without forcing
+    // every appendOp call site to handle a new thrown-error case today.
     applyProjection(db, op)
     return op
   })

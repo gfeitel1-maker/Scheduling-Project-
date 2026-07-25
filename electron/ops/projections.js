@@ -246,6 +246,27 @@ export function applyProjection(db, op) {
 
   if (!projection.fields.includes(op.field)) return
 
+  if (op.field === 'camp_id') {
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp || op.value !== camp.id) {
+      console.error(
+        `applyProjection: rejected camp_id write on ${op.entity}/${op.entity_id} — value ${JSON.stringify(op.value)} does not match this device's camp (${camp?.id ?? 'none'})`
+      )
+      // Return false (not just bare `return`) specifically for this branch —
+      // unlike every other early-return above (unregistered entity/field),
+      // which are legitimate silent no-ops, a rejected camp_id is the one
+      // case appendOp's caller (a same-device, trusted, first-party write —
+      // see appendOp in operations.js) needs to distinguish from success:
+      // silently swallowing it there would let a local write commit to the
+      // op-log as if it succeeded while the row never actually changed. A
+      // rejected *remote* replay op (the case this guard was designed for)
+      // still degrades gracefully — its caller (applyRemoteOp in
+      // syncClient.js) doesn't inspect the return value, so this is a
+      // strictly additive signal, not a behavior change for that path.
+      return false
+    }
+  }
+
   // Most ensureExists implementations only need the id (they insert a
   // placeholder row with safe defaults). day_override_template_slots is the
   // exception: its parent FK column is NOT NULL with no default, so its
@@ -257,4 +278,5 @@ export function applyProjection(db, op) {
     op.value,
     op.entity_id
   )
+  return true
 }

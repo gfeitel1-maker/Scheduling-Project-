@@ -120,16 +120,58 @@ describe('appendOp field allowlist + transaction', () => {
     expect(row.name).toBe('Fresh')
     expect(row.role).toBe('staff')
   })
+
+  it('records the op but does not apply a camp_id write that does not match this device\'s camp (Red Hat round 1: same non-throwing contract as applyProjection, since appendOp is also used by the Host to apply a remote Client\'s submitted op — see operations.js)', () => {
+    const before = db.prepare('SELECT COUNT(*) AS n FROM operations').get().n
+
+    const op = appendOp(db, {
+      entity: 'users',
+      entity_id: 'user-1',
+      field: 'camp_id',
+      value: 'some-other-camp',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    expect(op).toBeTruthy()
+    const after = db.prepare('SELECT COUNT(*) AS n FROM operations').get().n
+    expect(after).toBe(before + 1)
+
+    const row = db.prepare('SELECT camp_id FROM users WHERE id = ?').get('user-1')
+    expect(row.camp_id).toBe('camp-1')
+  })
+
+  it('applies normally when a local camp_id write matches this device\'s own camp', () => {
+    appendOp(db, {
+      entity: 'users',
+      entity_id: 'user-1',
+      field: 'camp_id',
+      value: 'camp-1',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    const row = db.prepare('SELECT camp_id FROM users WHERE id = ?').get('user-1')
+    expect(row.camp_id).toBe('camp-1')
+  })
 })
 
 describe('appendOp DELETE_FIELD sentinel', () => {
   it('is accepted (not rejected by the fields allowlist) for a registered projection entity, and applies as a real row delete', () => {
-    db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp-2', 'Camp Two')
+    // Uses this device's real camp ('camp-1', inserted in beforeEach) rather
+    // than a second fabricated camps row — since the camp_id projection
+    // guard (see projections.js) now rejects any camp_id write that doesn't
+    // match this device's own single camp row, and a rejected write no
+    // longer creates the row via ensureExists at all (see the guard's
+    // ordering ahead of ensureExists), which is unrelated to what this test
+    // is actually checking (DELETE_FIELD sentinel behavior).
     appendOp(db, {
       entity: 'cohorts',
       entity_id: 'cohort-to-delete',
       field: 'camp_id',
-      value: 'camp-2',
+      value: 'camp-1',
       author_user_id: 'user-1',
       device_id: 'device-1',
       parent_op_id: null,
