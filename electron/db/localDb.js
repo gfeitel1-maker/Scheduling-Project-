@@ -685,6 +685,33 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // Append-only audit event log — see
+  // docs/adr/2026-07-25-append-only-audit-event-log.md. Local-only, does not
+  // flow through the operations table/sync.
+  if (getSchemaVersion(db) < 19) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS audit_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        camp_id TEXT,
+        actor_user_id TEXT,
+        device_id TEXT,
+        action TEXT NOT NULL,
+        target_type TEXT,
+        target_id TEXT,
+        occurred_at TEXT NOT NULL,
+        outcome TEXT NOT NULL CHECK (outcome IN ('allow', 'deny')),
+        reason TEXT,
+        metadata TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_events_occurred_at ON audit_events(occurred_at);
+      CREATE INDEX IF NOT EXISTS idx_audit_events_actor ON audit_events(actor_user_id);
+    `)
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (19, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 export function openLocalDb(filePath) {

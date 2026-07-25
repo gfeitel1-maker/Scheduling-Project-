@@ -59,6 +59,29 @@ describe('authorize', () => {
     expect(result).toEqual({ allowed: true, userId, deviceId: 'device-1', role: 'staff' })
   })
 
+  it('records an audit_events row for a denied action', () => {
+    const userId = insertUser({ role: 'staff' })
+    const token = issueSessionToken(db, userId, 'device-1')
+
+    authorize({ db, token, action: 'users.create' })
+
+    const rows = db.prepare('SELECT * FROM audit_events WHERE actor_user_id = ?').all(userId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ action: 'users.create', outcome: 'deny', reason: 'forbidden' })
+  })
+
+  it('records an audit_events row for an allowed users.* action but not for a non-users.* allowed action', () => {
+    const userId = insertUser({ role: 'admin' })
+    const token = issueSessionToken(db, userId, 'device-1')
+
+    authorize({ db, token, action: 'users.create' })
+    authorize({ db, token, action: 'groups.write' })
+
+    const rows = db.prepare('SELECT * FROM audit_events WHERE actor_user_id = ?').all(userId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ action: 'users.create', outcome: 'allow' })
+  })
+
   it('denies when the user row has been deleted since the token was issued', () => {
     const userId = insertUser({ role: 'admin' })
     const token = issueSessionToken(db, userId, 'device-1')

@@ -334,4 +334,32 @@ describe('attemptLogin', () => {
     const verified = verifySessionToken(db, result.token)
     expect(verified.deviceId).toBe('remote-device-42')
   })
+
+  it('records an audit_events row for a successful login', async () => {
+    const user = await createUser(db, { camp_id: 'camp-1', name: 'Wanda2', pin: '1234', role: 'staff' }, testWrite())
+
+    attemptLogin(db, { name: 'Wanda2', pin: '1234', deviceId: 'device-1' })
+
+    const rows = db.prepare('SELECT * FROM audit_events WHERE action = ?').all('auth.login')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ actor_user_id: user.id, outcome: 'allow' })
+  })
+
+  it('records an audit_events row for a failed login with an invalid_pin reason', async () => {
+    await createUser(db, { camp_id: 'camp-1', name: 'Xena2', pin: '1234', role: 'staff' }, testWrite())
+
+    attemptLogin(db, { name: 'Xena2', pin: 'wrong', deviceId: 'device-1' })
+
+    const rows = db.prepare('SELECT * FROM audit_events WHERE action = ?').all('auth.login')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ outcome: 'deny', reason: 'invalid_pin' })
+  })
+
+  it('records an audit_events row for a login by a nonexistent user with a user_not_found reason', () => {
+    attemptLogin(db, { name: 'Nobody2', pin: '1234', deviceId: 'device-1' })
+
+    const rows = db.prepare('SELECT * FROM audit_events WHERE action = ?').all('auth.login')
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({ outcome: 'deny', reason: 'user_not_found', actor_user_id: null })
+  })
 })

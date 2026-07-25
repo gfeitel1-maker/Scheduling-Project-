@@ -1,5 +1,6 @@
 import { verifySessionToken } from './localAuth.js'
 import { PERMISSIONS } from './permissions.js'
+import { recordAuditEvent } from '../audit/auditLog.js'
 
 // Central authorization check for every privileged action, per
 // docs/adr/2026-07-24-centralized-authorization-layer.md. Re-derives
@@ -18,14 +19,14 @@ export function authorize({ db, token, action, resourceId }) {
   void resourceId
   const session = verifySessionToken(db, token)
   if (!session) {
-    return deny(action, undefined, 'invalid_token')
+    return deny(db, action, undefined, 'invalid_token', null, null)
   }
 
   // A malformed action is denied for every role, including admin, before
   // any role/matrix lookup happens — admin's '*' shortcut must never mask
   // a caller bug where `action` wasn't actually passed.
   if (typeof action !== 'string' || action.length === 0) {
-    return deny(action, undefined, 'invalid_action')
+    return deny(db, action, undefined, 'invalid_action', session.userId, session.deviceId)
   }
 
   let userRow, deviceRow
@@ -40,26 +41,42 @@ export function authorize({ db, token, action, resourceId }) {
     deviceRow = db.prepare('SELECT id FROM devices WHERE id = ?').get(session.deviceId)
   } catch (err) {
     console.warn(`authorize: db error while checking action=${action}: ${err.message}`)
-    return deny(action, undefined, 'db_error')
+    return deny(db, action, undefined, 'db_error', session.userId, session.deviceId)
   }
 
   if (!userRow) {
-    return deny(action, undefined, 'user_not_found')
+    return deny(db, action, undefined, 'user_not_found', session.userId, session.deviceId)
   }
   if (!deviceRow) {
-    return deny(action, userRow.role, 'device_not_found')
+    return deny(db, action, userRow.role, 'device_not_found', session.userId, session.deviceId)
   }
 
   const role = userRow.role
   const allowedActions = PERMISSIONS[role]
   if (!allowedActions || (!allowedActions.includes('*') && !allowedActions.includes(action))) {
-    return deny(action, role, 'forbidden')
+    return deny(db, action, role, 'forbidden', session.userId, session.deviceId)
+  }
+
+  if (typeof action === 'string' && action.startsWith('users.')) {
+    recordAuditEvent(db, {
+      actorUserId: session.userId,
+      deviceId: session.deviceId,
+      action,
+      outcome: 'allow',
+    })
   }
 
   return { allowed: true, userId: session.userId, deviceId: session.deviceId, role }
 }
 
-function deny(action, role, reason) {
+function deny(db, action, role, reason, actorUserId, deviceId) {
   console.warn(`authorize: denied action=${action} role=${role} reason=${reason}`)
+  recordAuditEvent(db, {
+    actorUserId: actorUserId ?? null,
+    deviceId: deviceId ?? null,
+    action,
+    outcome: 'deny',
+    reason,
+  })
   return { allowed: false, reason }
 }

@@ -1,5 +1,6 @@
 import { randomUUID, randomBytes, scryptSync, createHmac, timingSafeEqual } from 'node:crypto'
 import { appendOp } from '../ops/operations.js'
+import { recordAuditEvent } from '../audit/auditLog.js'
 
 const SCRYPT_KEYLEN = 64
 
@@ -140,11 +141,27 @@ export function attemptLogin(db, { name, pin, deviceId }) {
   const attempt = attemptsRow(db, name)
   const lockedUntil = attempt && attempt.locked_until ? Number(attempt.locked_until) : 0
   if (lockedUntil && lockedUntil > Date.now()) {
+    recordAuditEvent(db, {
+      actorUserId: null,
+      deviceId,
+      action: 'auth.login',
+      outcome: 'deny',
+      reason: 'locked_out',
+    })
     return { locked: true, retryAfterMs: lockedUntil - Date.now() }
   }
 
   const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
-  if (!camp) return null
+  if (!camp) {
+    recordAuditEvent(db, {
+      actorUserId: null,
+      deviceId,
+      action: 'auth.login',
+      outcome: 'deny',
+      reason: 'no_camp',
+    })
+    return null
+  }
   const user = db.prepare('SELECT id, role FROM users WHERE camp_id = ? AND name = ?').get(camp.id, name)
   if (!user || !verifyPin(db, user.id, pin)) {
     let count = (attempt ? attempt.count : 0) + 1
@@ -154,11 +171,26 @@ export function attemptLogin(db, { name, pin, deviceId }) {
       count = 0
     }
     saveAttempts(db, name, count, newLockedUntil)
+    recordAuditEvent(db, {
+      campId: camp.id,
+      actorUserId: user ? user.id : null,
+      deviceId,
+      action: 'auth.login',
+      outcome: 'deny',
+      reason: user ? 'invalid_pin' : 'user_not_found',
+    })
     return null
   }
 
   clearAttempts(db, name)
 
   const token = issueSessionToken(db, user.id, deviceId)
+  recordAuditEvent(db, {
+    campId: camp.id,
+    actorUserId: user.id,
+    deviceId,
+    action: 'auth.login',
+    outcome: 'allow',
+  })
   return { token, userId: user.id, role: user.role }
 }
