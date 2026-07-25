@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
+import fs from 'node:fs'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
@@ -141,7 +142,7 @@ function resolveClientServerUrl({ hostAddress, host, port }) {
   return `ws://${host}:${port}`
 }
 
-export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
+export function makeHandlers(db, deviceId, { getMainWindow, dbPath } = {}) {
   ensureDeviceRow(db, deviceId)
 
   let syncClient = null
@@ -521,6 +522,20 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     if (!chosenOp) {
       throw new Error('chosen operation not found')
     }
+    // Pre-resolution snapshot: copy the DB file to a dated backup so the
+    // director can restore if they change their mind. Best-effort — a backup
+    // failure must not block the resolution itself (the op-log already
+    // provides history; this is an extra human-accessible safety net).
+    if (dbPath) {
+      try {
+        const ts = new Date().toISOString().replace(/[:.]/g, '-')
+        const backupPath = dbPath.replace(/\.sqlite$/, '') + `.pre-resolve-${ts}.sqlite`
+        fs.copyFileSync(dbPath, backupPath)
+      } catch {
+        // snapshot failure is non-fatal — resolution proceeds regardless
+      }
+    }
+
     return syncClient.write({
       entity,
       entity_id,
@@ -634,7 +649,7 @@ if (isElectronEntryPoint()) {
 
   let mainWindow = null
 
-  const handlers = makeHandlers(db, deviceId, { getMainWindow: () => mainWindow })
+  const handlers = makeHandlers(db, deviceId, { getMainWindow: () => mainWindow, dbPath })
 
   function createWindow() {
     mainWindow = new BrowserWindow({

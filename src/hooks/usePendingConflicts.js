@@ -224,25 +224,6 @@ export function usePendingConflicts() {
     return result
   }, [conflicts])
 
-  // Kept for the card's local collapse-transition timing only (see
-  // ConflictCard) — it no longer performs the actual removal from shared
-  // state; the hook's own timer (scheduled in resolveConflict above) owns
-  // that. Calling this early/late/never no longer corrupts anything.
-  const dismissResolvedConflict = useCallback((conflictId) => {
-    setConflicts((prev) => prev.filter((c) => c.id !== conflictId))
-    setResolvedMeta((prev) => {
-      if (!(conflictId in prev)) return prev
-      const { [conflictId]: _removed, ...rest } = prev
-      resolvedMetaRef.current = rest
-      return rest
-    })
-    const timer = dismissTimersRef.current[conflictId]
-    if (timer) {
-      clearTimeout(timer)
-      delete dismissTimersRef.current[conflictId]
-    }
-  }, [])
-
   function resolveAuthorLabel(side) {
     if (!side) return 'Unknown'
     if (side.device_id && side.device_id === deviceId) return 'This computer'
@@ -258,7 +239,6 @@ export function usePendingConflicts() {
     conflicts,
     loading,
     resolveConflict,
-    dismissResolvedConflict,
     resolveAuthorLabel,
     // conflictId -> { side, queued } for a resolved-but-not-yet-dismissed
     // conflict — see the Fix 1 comment above resolveConflict.

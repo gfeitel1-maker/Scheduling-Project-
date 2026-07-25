@@ -2,10 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { S } from '../styles/shared'
 import { usePendingConflicts } from '../hooks/usePendingConflicts'
 
-// Falls back to its own hook instance only when not given one by App.jsx
-// (e.g. rendered standalone in a test/dev context) — in the real app shell,
-// App.jsx passes a single shared instance so the Sidebar badge and this
-// screen's list can never disagree.
+// App.jsx passes a single shared `pendingConflicts` instance so the Sidebar
+// badge and this screen's list can never disagree. When the prop is absent
+// (standalone test / dev context), the component falls back to its own hook
+// instance. The eslint-disable below is intentional: `pendingConflicts` is
+// either always-provided or always-absent for a given render tree, so the
+// hook call order is stable across renders even though it appears conditional.
 
 // Plain-language field descriptions, per the design spec — generic-fallback
 // safe so unfamiliar entity/field pairs still read as a sentence, never a
@@ -117,6 +119,11 @@ function ConflictCard({ conflict, resolved, resolveAuthorLabel, onResolve }) {
   const [collapsing, setCollapsing] = useState(false)
   const [errorNotice, setErrorNotice] = useState(null)
   const localTimersRef = useRef([])
+  // useRef guard for in-flight state: synchronously mutable so a rapid
+  // double-click cannot bypass the "already resolving" check before the
+  // first re-render (useState setter doesn't synchronously update the
+  // closed-over value in the same event loop tick).
+  const resolvingRef = useRef(false)
 
   const description = describeConflict(conflict.entity, conflict.field)
   const isPin = conflict.isPin || description === null
@@ -156,11 +163,21 @@ function ConflictCard({ conflict, resolved, resolveAuthorLabel, onResolve }) {
   }, [])
 
   async function keep(side) {
-    if (resolving || resolved) return
+    // Check both the ref (synchronous, blocks double-click in the same tick)
+    // and the state value (drives the disabled prop on the button UI).
+    if (resolvingRef.current || resolving || resolved) return
+    resolvingRef.current = true
     setResolving(true)
     setErrorNotice(null)
-    const result = await onResolve(conflict.id, side)
-    setResolving(false)
+    let result
+    try {
+      result = await onResolve(conflict.id, side)
+    } finally {
+      // Always re-enable — even if onResolve throws, the director must be
+      // able to retry rather than being left with a permanently disabled card.
+      resolvingRef.current = false
+      setResolving(false)
+    }
     if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
       // Every other status (conflict / timeout / disconnected / error / any
       // unrecognized future status) must surface SOME explanation — don't
@@ -213,7 +230,7 @@ function ConflictCard({ conflict, resolved, resolveAuthorLabel, onResolve }) {
 export default function ConflictsScreen({ pendingConflicts }) {
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const fallback = pendingConflicts ? null : usePendingConflicts()
-  const { conflicts, loading, resolveConflict, resolveAuthorLabel, resolvedMeta } = pendingConflicts || fallback
+  const { conflicts, loading, resolveConflict, resolveAuthorLabel, resolvedMeta } = pendingConflicts ?? fallback
 
   return (
     <div style={{ maxWidth: 760 }}>
