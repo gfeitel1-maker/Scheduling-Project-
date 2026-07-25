@@ -11,7 +11,7 @@ function formatMMSS(ms) {
 export default function LoginScreen({ campName, onSubmit }) {
   const [name, setName] = useState('')
   const [pin, setPin] = useState('')
-  const [status, setStatus] = useState('default') // default | submitting | error | locked
+  const [status, setStatus] = useState('default') // default | submitting | error | locked | connection-error
   const [flash, setFlash] = useState(false)
   const [retryAt, setRetryAt] = useState(null)
   const [remainingMs, setRemainingMs] = useState(0)
@@ -40,7 +40,14 @@ export default function LoginScreen({ campName, onSubmit }) {
     e.preventDefault()
     if (status === 'submitting' || status === 'locked') return
     setStatus('submitting')
-    const result = await onSubmit(name.trim(), pin)
+    let result
+    try {
+      result = await onSubmit(name.trim(), pin)
+    } catch (err) {
+      console.error('[login] onSubmit rejected:', err)
+      setStatus('connection-error')
+      return
+    }
 
     if (result && result.locked) {
       setRetryAt(Date.now() + result.retryAfterMs)
@@ -58,7 +65,7 @@ export default function LoginScreen({ campName, onSubmit }) {
     // success — parent swaps to Shell once its session state updates
   }
 
-  const disabled = status === 'locked'
+  const disabled = status === 'locked' || status === 'submitting'
   const dots = [0, 1, 2, 3]
 
   return (
@@ -79,7 +86,14 @@ export default function LoginScreen({ campName, onSubmit }) {
           </div>
         )}
 
-        {status !== 'locked' && status !== 'error' && <div style={{ ...S.authSubtitle, marginBottom: 20 }}>Enter your name and PIN to continue.</div>}
+        {status === 'connection-error' && (
+          <div style={S.authErrorBox}>
+            <span>⚠</span>
+            <span>Couldn't reach the app right now. Check your connection and try again.</span>
+          </div>
+        )}
+
+        {status !== 'locked' && status !== 'error' && status !== 'connection-error' && <div style={{ ...S.authSubtitle, marginBottom: 20 }}>Enter your name and PIN to continue.</div>}
 
         <form onSubmit={handleSubmit}>
           <label style={{ ...S.authLabel, marginTop: 0 }}>Name</label>
