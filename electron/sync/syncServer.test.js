@@ -10,6 +10,7 @@ import { createUser, issueSessionToken } from '../auth/localAuth.js'
 import { appendOp } from '../ops/operations.js'
 import { startSyncServer, sendMissedOps, sendWithAck } from './syncServer.js'
 import { attemptLogin } from '../auth/localAuth.js'
+import { ENTITIES } from '../auth/permissions.js'
 
 const PORT = 8137
 
@@ -1058,5 +1059,159 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
     expect(gotReply).toBe(false)
 
     ws.close()
+  })
+
+  it('allows a staff device an ordinary acquire_lock (staff-permitted write action)', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token: staffToken, device_id: staffDeviceId }))
+
+    ws.send(
+      JSON.stringify({
+        type: 'acquire_lock',
+        entity: 'template_slots',
+        entity_id: 's9',
+        field: 'activity_id',
+      })
+    )
+    const reply = await onceMessageOfType(ws, 'lock_result')
+    expect(reply).toEqual({ type: 'lock_result', granted: true })
+
+    ws.close()
+  })
+
+  it('allows an admin device submit_bulk_replace_op (admin-only action)', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+
+    ws.send(
+      JSON.stringify({
+        type: 'submit_bulk_replace_op',
+        op: { entity: 'template_slots', scope_id: 'scope-admin-ok', rows: [] },
+      })
+    )
+    const reply = await onceMessageOfType(ws, 'op_applied')
+    expect(reply.type).toBe('op_applied')
+
+    ws.close()
+  })
+
+  // Design doc testing-plan item 2: exhaustive per-entity sweep on the WS
+  // path, not a sampling — every entity in permissions.js's ENTITIES list
+  // must accept an ordinary field write from a staff device via submit_op.
+  it('allows a staff device an ordinary submit_op write for every entity in the permission matrix', async () => {
+    // Imported from the real permission matrix (not hand-copied) so this
+    // sweep can't silently degrade to a sample if a future entity is added
+    // to permissions.js and this list isn't updated in lockstep.
+    // Not every entity's PROJECTIONS.fields (electron/ops/projections.js)
+    // includes a literal 'name' field — days_of_operation uses 'label' and
+    // day_override_template_slots has no name-shaped field at all. Writing
+    // an unregistered field throws inside appendOp, which the WS layer
+    // turns into an 'error' reply, not 'op_applied' — false failure
+    // unrelated to this sweep's actual purpose (proving the authorization
+    // gate, not the projection field allowlist, doesn't regress staff
+    // access).
+    const WRITABLE_FIELD_BY_ENTITY = {
+      groups: 'name',
+      tiers: 'name',
+      activities: 'name',
+      cohorts: 'name',
+      days_of_operation: 'label',
+      time_blocks: 'name',
+      anchor_activities: 'name',
+      schedule_templates: 'name',
+      day_override_templates: 'name',
+      template_slots: 'activity_id',
+      template_overlays: 'label',
+      schedule_snapshots: 'name',
+      day_override_template_slots: 'time_block_id',
+    }
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token: staffToken, device_id: staffDeviceId }))
+
+    for (const entity of ENTITIES) {
+      ws.send(
+        JSON.stringify({
+          type: 'submit_op',
+          op: { entity, entity_id: `sweep-${entity}`, field: WRITABLE_FIELD_BY_ENTITY[entity], value: 'V', parent_op_id: null },
+        })
+      )
+      const reply = await onceMessageOfType(ws, 'op_applied')
+      expect(reply.type, `entity ${entity}`).toBe('op_applied')
+    }
+
+    ws.close()
+  }, 15000)
+
+  // Design doc testing-plan item 3, WS half of the load-bearing role-change
+  // test — Task 3's Red Hat review specifically flagged that "role is
+  // re-derived fresh per call, no caching on an open connection" was proven
+  // by code trace but not pinned by a test. This reuses the SAME WebSocket
+  // connection and the SAME already-issued token across a role flip; the
+  // only thing that changes is the `users.role` row in the db.
+  describe('role-change-takes-effect (WS path, same connection + same token reused)', () => {
+    it('an admin device is denied submit_bulk_replace_op after being demoted to staff mid-connection, without reconnecting or re-authenticating', async () => {
+      const ws = connect()
+      await onceOpen(ws)
+      ws.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+
+      // Confirm the connection starts out genuinely admin-capable.
+      ws.send(
+        JSON.stringify({
+          type: 'submit_bulk_replace_op',
+          op: { entity: 'template_slots', scope_id: 'scope-before-demote', rows: [] },
+        })
+      )
+      const firstReply = await onceMessageOfType(ws, 'op_applied')
+      expect(firstReply.type).toBe('op_applied')
+
+      // Simulate another admin demoting this user elsewhere — the open
+      // socket/connection and its stored ws.token are untouched.
+      db.prepare("UPDATE users SET role = 'staff' WHERE id = ?").run(userId)
+
+      ws.send(
+        JSON.stringify({
+          type: 'submit_bulk_replace_op',
+          op: { entity: 'template_slots', scope_id: 'scope-after-demote', rows: [] },
+        })
+      )
+      const secondReply = await onceMessageOfType(ws, 'error')
+      expect(secondReply.type).toBe('error')
+
+      ws.close()
+    })
+
+    it('a staff device is denied then allowed submit_bulk_replace_op on the SAME connection after being promoted to admin mid-connection', async () => {
+      const ws = connect()
+      await onceOpen(ws)
+      ws.send(JSON.stringify({ type: 'authenticate', token: staffToken, device_id: staffDeviceId }))
+
+      ws.send(
+        JSON.stringify({
+          type: 'submit_bulk_replace_op',
+          op: { entity: 'template_slots', scope_id: 'scope-before-promote', rows: [] },
+        })
+      )
+      const firstReply = await onceMessageOfType(ws, 'error')
+      expect(firstReply.type).toBe('error')
+
+      // Another admin promotes this staff user — same open connection, same
+      // ws.token, no fresh login/authenticate message.
+      const staffUserId = db.prepare('SELECT id FROM users WHERE name = ?').get('Bob').id
+      db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(staffUserId)
+
+      ws.send(
+        JSON.stringify({
+          type: 'submit_bulk_replace_op',
+          op: { entity: 'template_slots', scope_id: 'scope-after-promote', rows: [] },
+        })
+      )
+      const secondReply = await onceMessageOfType(ws, 'op_applied')
+      expect(secondReply.type).toBe('op_applied')
+
+      ws.close()
+    })
   })
 })

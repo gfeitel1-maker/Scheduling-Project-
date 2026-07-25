@@ -12,7 +12,7 @@
 // "every action", so only the staff array needs a deliberate per-action
 // decision when a new entity/action is added.
 
-const ENTITIES = [
+export const ENTITIES = [
   'groups',
   'tiers',
   'activities',

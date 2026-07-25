@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { ENTITIES } from './auth/permissions.js'
 
 vi.mock('electron', () => ({
   app: {
@@ -641,6 +642,165 @@ describe('bulkReplace handler', () => {
     expect(() =>
       handlers.bulkReplace({ token, entity: 'template_slots', scope_id: 't1', rows: [] })
     ).toThrow('sync not initialized — choose a mode first')
+  })
+})
+
+describe('camps.rename authorization (admin-only, distinct from ordinary write)', () => {
+  it('rejects a camps.name write from a non-admin (staff) session', async () => {
+    await seedCampAndUser({ name: 'StaffRenamer', pin: '1122', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7107 })
+    const { token } = await handlers.login({ name: 'StaffRenamer', pin: '1122' })
+
+    const campId = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    expect(() =>
+      handlers.write({ token, entity: 'camps', entity_id: campId, field: 'name', value: 'New Name' })
+    ).toThrow('admin role required')
+    expect(lastCreatedSyncClient.write).not.toHaveBeenCalled()
+  })
+
+  it('allows a camps.name write from an admin session', async () => {
+    await seedCampAndUser({ name: 'AdminRenamer', pin: '1122', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7108 })
+    const { token } = await handlers.login({ name: 'AdminRenamer', pin: '1122' })
+
+    const campId = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    await handlers.write({ token, entity: 'camps', entity_id: campId, field: 'name', value: 'New Name' })
+
+    expect(lastCreatedSyncClient.write).toHaveBeenCalledWith(
+      expect.objectContaining({ entity: 'camps', field: 'name' })
+    )
+  })
+})
+
+// Design doc testing-plan item 3: the single most load-bearing test in this
+// phase. Issues a token for a user, flips that SAME user's role directly in
+// the db (never mints a fresh token), and confirms the SAME still-valid
+// token is denied/allowed on the very next call — proving authorize()
+// re-derives role fresh from the db on every IPC call rather than trusting
+// anything cached on the token/session.
+describe('role-change-takes-effect (IPC path, same token reused)', () => {
+  it('an admin token is denied for users.create (shoresh:create-user) after being demoted to staff mid-session', async () => {
+    const { campId, user } = await seedCampAndUser({ name: 'DemotedAdmin', pin: '9090', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7109 })
+    const { token } = await handlers.login({ name: 'DemotedAdmin', pin: '9090' })
+
+    // Confirm the token starts out genuinely admin-capable.
+    await expect(
+      handlers.createUser({ token, camp_id: campId, name: 'FirstHire', pin: '1234', role: 'staff' })
+    ).resolves.toBeTruthy()
+
+    // Simulate another admin disabling/demoting this user elsewhere — the
+    // token itself is untouched, only the DB row changes.
+    db.prepare("UPDATE users SET role = 'staff' WHERE id = ?").run(user.id)
+
+    await expect(
+      handlers.createUser({ token, camp_id: campId, name: 'SecondHire', pin: '1234', role: 'staff' })
+    ).rejects.toThrow('admin role required')
+  })
+
+  it('a staff token is denied for shoresh:write with DELETE_FIELD, then allowed on the SAME token after being promoted to admin mid-session', async () => {
+    const { user } = await seedCampAndUser({ name: 'PromotedStaff', pin: '4560', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7110 })
+    const { token } = await handlers.login({ name: 'PromotedStaff', pin: '4560' })
+
+    expect(() =>
+      handlers.write({ token, entity: 'cohorts', entity_id: 'c1', field: '__deleted__', value: 1 })
+    ).toThrow('admin role required')
+
+    // Another admin promotes this user — same token, no fresh login.
+    db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(user.id)
+
+    await handlers.write({ token, entity: 'cohorts', entity_id: 'c1', field: '__deleted__', value: 1 })
+    expect(lastCreatedSyncClient.write).toHaveBeenCalledWith(
+      expect.objectContaining({ entity: 'cohorts', field: '__deleted__' })
+    )
+  })
+})
+
+// Design doc testing-plan item 4: every entity/action reachable by BOTH
+// admin and staff today (per the ADR's PERMISSIONS.staff matrix) must remain
+// reachable by both after this change — guards against accidentally
+// admin-gating something staff currently uses. Sweeps the FULL entity list
+// from electron/auth/permissions.js's ENTITIES, not a sample.
+describe('existing-behavior-preserved: full entity sweep (staff + admin both reach ordinary read/write)', () => {
+  // Imported from the real permission matrix (not hand-copied) so this
+  // sweep can't silently degrade to a sample if a future entity is added
+  // to permissions.js and this list isn't updated in lockstep.
+
+  // Not every entity's PROJECTIONS.fields (electron/ops/projections.js)
+  // includes a literal 'name' field — days_of_operation uses 'label' and
+  // day_override_template_slots has no name-shaped field at all. Writing an
+  // unregistered field throws 'field not allowed for entity' before
+  // authorize() even matters, which would be a false failure unrelated to
+  // this sweep's actual purpose (proving the AUTHORIZATION gate, not the
+  // projection field allowlist, doesn't regress staff access).
+  const WRITABLE_FIELD_BY_ENTITY = {
+    groups: 'name',
+    tiers: 'name',
+    activities: 'name',
+    cohorts: 'name',
+    days_of_operation: 'label',
+    time_blocks: 'name',
+    anchor_activities: 'name',
+    schedule_templates: 'name',
+    day_override_templates: 'name',
+    template_slots: 'activity_id',
+    template_overlays: 'label',
+    schedule_snapshots: 'name',
+    day_override_template_slots: 'time_block_id',
+  }
+
+  // Login is scoped to the single camp in this db (`SELECT id FROM camps
+  // LIMIT 1` — single-camp-per-device-db convention), so both sessions here
+  // must share ONE seeded camp rather than each calling seedCampAndUser
+  // (which mints a fresh camp per call) — otherwise the second login can
+  // silently fail to find its user under the "current" camp.
+  async function seedTwoRoleSessions(handlers, { staffName, adminName }) {
+    const campId = randomUUID()
+    db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Sweep Camp', 'c'.repeat(64))
+    await createUser(db, { camp_id: campId, name: staffName, pin: '1234', role: 'staff' }, localTestWrite())
+    await createUser(db, { camp_id: campId, name: adminName, pin: '1234', role: 'admin' }, localTestWrite())
+    const { token: staffToken } = await handlers.login({ name: staffName, pin: '1234' })
+    const { token: adminToken } = await handlers.login({ name: adminName, pin: '1234' })
+    return { staffToken, adminToken }
+  }
+
+  it('every entity is readable (shoresh:list) by both a staff and an admin session', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    const { staffToken, adminToken } = await seedTwoRoleSessions(handlers, {
+      staffName: 'SweepStaffReader',
+      adminName: 'SweepAdminReader',
+    })
+
+    for (const entity of ENTITIES) {
+      expect(() => handlers.list(staffToken, entity), `staff read ${entity}`).not.toThrow()
+      expect(() => handlers.list(adminToken, entity), `admin read ${entity}`).not.toThrow()
+    }
+  })
+
+  it('every entity accepts an ordinary (non-delete, non-rename) field write from both a staff and an admin session', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7111 })
+    const { staffToken, adminToken } = await seedTwoRoleSessions(handlers, {
+      staffName: 'SweepStaffWriter',
+      adminName: 'SweepAdminWriter',
+    })
+
+    for (const entity of ENTITIES) {
+      const field = WRITABLE_FIELD_BY_ENTITY[entity]
+      await expect(
+        handlers.write({ token: staffToken, entity, entity_id: 'x1', field, value: 'V' }),
+        `staff write ${entity}`
+      ).resolves.toBeTruthy()
+      await expect(
+        handlers.write({ token: adminToken, entity, entity_id: 'x1', field, value: 'V' }),
+        `admin write ${entity}`
+      ).resolves.toBeTruthy()
+    }
   })
 })
 
