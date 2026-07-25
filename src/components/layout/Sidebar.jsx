@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { localClient } from '../../localClient'
 
 const NAV_BASE = [
@@ -21,6 +21,8 @@ const NAV_ADMIN = [
 export default function Sidebar({ current, onNavigate, campId, role, badges = {} }) {
   const NAV = role === 'admin' ? [...NAV_BASE, ...NAV_ADMIN] : NAV_BASE
   const [campName, setCampName] = useState('')
+  const [projectPath, setProjectPath] = useState(null)
+  const [backupStatus, setBackupStatus] = useState(null) // null | 'running' | 'ok' | 'error'
 
   useEffect(() => {
     if (!campId) return
@@ -28,6 +30,26 @@ export default function Sidebar({ current, onNavigate, campId, role, badges = {}
       .then(data => { if (data) setCampName(data.name) })
       .catch(() => { /* fail silent — leave campName unset */ })
   }, [campId])
+
+  useEffect(() => {
+    if (!window.shoresh?.getCurrentProject) return
+    window.shoresh.getCurrentProject()
+      .then(info => { if (info?.path) setProjectPath(info.path) })
+      .catch(() => { /* non-fatal */ })
+  }, [campId])
+
+  const handleBackupNow = useCallback(async () => {
+    if (!window.shoresh?.backupProject) return
+    setBackupStatus('running')
+    try {
+      const result = await window.shoresh.backupProject()
+      setBackupStatus(result?.error ? 'error' : 'ok')
+    } catch {
+      setBackupStatus('error')
+    }
+    // Reset status label after 3 s.
+    setTimeout(() => setBackupStatus(null), 3000)
+  }, [])
 
   return (
     <aside style={{
@@ -86,9 +108,44 @@ export default function Sidebar({ current, onNavigate, campId, role, badges = {}
       </nav>
 
       <div style={{
-        padding: '12px 20px', borderTop: '1px solid var(--border)',
+        padding: '10px 20px', borderTop: '1px solid var(--border)',
         fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)',
       }}>
+        {projectPath && (
+          <div
+            title={projectPath}
+            style={{
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              marginBottom: 6, cursor: 'default',
+              color: 'var(--text-secondary)',
+            }}
+          >
+            {projectPath.split(/[\\/]/).pop()}
+          </div>
+        )}
+        {role === 'admin' && (
+          <button
+            onClick={handleBackupNow}
+            disabled={backupStatus === 'running'}
+            style={{
+              display: 'block', width: '100%', textAlign: 'left',
+              padding: '4px 0', border: 'none', background: 'none',
+              fontSize: 11, fontFamily: 'var(--font-mono)',
+              color: backupStatus === 'ok'
+                ? 'var(--success, #22c55e)'
+                : backupStatus === 'error'
+                  ? 'var(--danger, #ef4444)'
+                  : 'var(--text-secondary)',
+              cursor: backupStatus === 'running' ? 'wait' : 'pointer',
+              marginBottom: 4,
+            }}
+          >
+            {backupStatus === 'running' ? 'Backing up…'
+              : backupStatus === 'ok' ? 'Backup saved'
+              : backupStatus === 'error' ? 'Backup failed'
+              : 'Backup now'}
+          </button>
+        )}
         v0.1.0
       </div>
     </aside>

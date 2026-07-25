@@ -27,4 +27,13 @@ contextBridge.exposeInMainWorld('shoresh', {
   onPairingApproved: (callback) => ipcRenderer.on('shoresh:pairing-approved', () => callback()),
   onPairingDenied: (callback) => ipcRenderer.on('shoresh:pairing-denied', () => callback()),
   onTokenRenewed: (callback) => ipcRenderer.on('shoresh:token-renewed', (_event, data) => callback(data.token)),
+  // §9 project-file lifecycle
+  getCurrentProject: () => ipcRenderer.invoke('shoresh:get-current-project'),
+  createProject: () => ipcRenderer.invoke('shoresh:create-project'),
+  openProject: () => ipcRenderer.invoke('shoresh:open-project'),
+  exportProject: () => ipcRenderer.invoke('shoresh:export-project'),
+  backupProject: () => ipcRenderer.invoke('shoresh:backup-project'),
+  restoreProject: () => ipcRenderer.invoke('shoresh:restore-project'),
+  listRecentProjects: () => ipcRenderer.invoke('shoresh:list-recent-projects'),
+  openRecentProject: (targetPath) => ipcRenderer.invoke('shoresh:open-recent-project', { path: targetPath }),
 })

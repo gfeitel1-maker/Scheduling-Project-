@@ -1,10 +1,10 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog } from 'electron'
 import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
-import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
+import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
 import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey } from './auth/localAuth.js'
 import { startSyncServer } from './sync/syncServer.js'
 import { createSyncClient } from './sync/syncClient.js'
@@ -13,6 +13,13 @@ import { listPendingConflicts } from './ops/operations.js'
 import { authorize } from './auth/authorize.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from './auth/deriveWriteAction.js'
 import { recordAuditEvent } from './audit/auditLog.js'
+import {
+  getCurrentProjectPath,
+  setCurrentProjectPath,
+  readRecentProjects,
+  addRecentProject,
+  writeUserBackup,
+} from './db/projectManager.js'
 
 const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 
@@ -142,7 +149,11 @@ function resolveClientServerUrl({ hostAddress, host, port }) {
   return `ws://${host}:${port}`
 }
 
-export function makeHandlers(db, deviceId, { getMainWindow, dbPath } = {}) {
+export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath: _userDataPath } = {}) {
+  // Alias to avoid shadowing the import; callers pass userDataPath as an option
+  // so backups from within makeHandlers (bulkReplace) land in the same
+  // {userData}/backups/ directory as user-initiated backups.
+  const handlersUserDataPath = _userDataPath
   ensureDeviceRow(db, deviceId)
 
   let syncClient = null
@@ -497,6 +508,16 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath } = {}) {
     if (!syncClient) {
       throw new Error('sync not initialized — choose a mode first')
     }
+    // Pre-bulk-replace snapshot: same pattern as pre-resolve-conflict backup.
+    // bulk_replace is the highest-risk mutation point (wipes an entire scope).
+    // Best-effort — backup failure must not block the operation itself.
+    if (dbPath && handlersUserDataPath) {
+      try {
+        writeUserBackup(dbPath, handlersUserDataPath)
+      } catch {
+        /* snapshot failure is non-fatal */
+      }
+    }
     return syncClient.writeBulkReplace({ entity, scope_id, rows, author_user_id: userId })
   }
 
@@ -643,13 +664,329 @@ function isElectronEntryPoint() {
 
 if (isElectronEntryPoint()) {
   const __dirname = path.dirname(fileURLToPath(import.meta.url))
-  const dbPath = path.join(app.getPath('userData'), 'shoresh.sqlite')
-  const db = openLocalDb(dbPath)
-  const deviceId = getOrCreateDeviceId(db)
+  const userDataPath = app.getPath('userData')
+  const defaultDbPath = path.join(userDataPath, 'shoresh.sqlite')
+
+  // Mutable state — swapped by project-lifecycle handlers (open/create/restore).
+  let dbPath = getCurrentProjectPath(userDataPath, defaultDbPath)
+  let db = openLocalDb(dbPath)
+  let deviceId = getOrCreateDeviceId(db)
 
   let mainWindow = null
 
-  const handlers = makeHandlers(db, deviceId, { getMainWindow: () => mainWindow, dbPath })
+  // All IPC channels registered by makeHandlers. Keep in sync with the
+  // ipcMain.handle calls in registerHandlers() below.
+  const HANDLER_CHANNELS = [
+    'shoresh:choose-mode',
+    'shoresh:discover-hosts',
+    'shoresh:login',
+    'shoresh:create-user',
+    'shoresh:bootstrap-camp',
+    'shoresh:write',
+    'shoresh:bulk-replace',
+    'shoresh:verify-session',
+    'shoresh:get-camp',
+    'shoresh:list-users',
+    'shoresh:list',
+    'shoresh:get-device-id',
+    'shoresh:resolve-conflict',
+    'shoresh:list-conflicts',
+    'shoresh:get-device-pairing-status',
+    'shoresh:list-pending-pairing-requests',
+    'shoresh:list-devices',
+    'shoresh:approve-device',
+    'shoresh:deny-device',
+    'shoresh:revoke-device',
+  ]
+
+  function registerHandlers(handlers, currentDb) {
+    // Remove existing registrations before re-registering (project switch).
+    for (const ch of HANDLER_CHANNELS) ipcMain.removeHandler(ch)
+
+    ipcMain.handle('shoresh:choose-mode', (_event, args) => handlers.chooseMode(args))
+    ipcMain.handle('shoresh:discover-hosts', () => handlers.discoverHosts())
+    ipcMain.handle('shoresh:login', (_event, args) => handlers.login(args))
+    ipcMain.handle('shoresh:create-user', (_event, args) => handlers.createUser(args))
+    ipcMain.handle('shoresh:bootstrap-camp', (_event, args) => handlers.bootstrapCamp(args))
+    ipcMain.handle('shoresh:write', (_event, args) => handlers.write(args))
+    ipcMain.handle('shoresh:bulk-replace', (_event, args) => handlers.bulkReplace(args))
+    ipcMain.handle('shoresh:verify-session', (_event, args) => handlers.verifySession(args))
+    // get-camp is pre-auth (called before a session exists to decide the
+    // bootstrap-vs-join phase). See the note in the original registration
+    // block for the full justification.
+    ipcMain.handle('shoresh:get-camp', () => currentDb.prepare('SELECT id, name FROM camps LIMIT 1').get())
+    ipcMain.handle('shoresh:list-users', (_event, args) => handlers.listUsers(args && args.token))
+    ipcMain.handle('shoresh:list', (_event, args) => {
+      const { token, entity } = args || {}
+      return handlers.list(token, entity)
+    })
+    ipcMain.handle('shoresh:get-device-id', (_event, args) => handlers.getDeviceId(args && args.token))
+    ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
+    ipcMain.handle('shoresh:list-conflicts', (_event, args) => handlers.listPendingConflicts(args && args.token))
+    ipcMain.handle('shoresh:get-device-pairing-status', () => handlers.getDevicePairingStatus())
+    ipcMain.handle('shoresh:list-pending-pairing-requests', (_event, args) => handlers.listPendingPairingRequests(args))
+    ipcMain.handle('shoresh:list-devices', (_event, args) => handlers.listDevices(args))
+    ipcMain.handle('shoresh:approve-device', (_event, args) => handlers.approveDevice(args))
+    ipcMain.handle('shoresh:deny-device', (_event, args) => handlers.denyDevice(args))
+    ipcMain.handle('shoresh:revoke-device', (_event, args) => handlers.revokeDevice(args))
+  }
+
+  /**
+   * Open a new DB at newPath, then (only on success) close the old one and
+   * swap all live state. This order ensures the old db stays open and usable
+   * if the new open fails — the app remains functional rather than left with
+   * no working database connection.
+   */
+  function reinitialize(newPath) {
+    // Open new db FIRST — if it throws (schema_too_new, corrupt file, etc.)
+    // the old db is still open and all existing handlers remain valid.
+    const newDb = openLocalDb(newPath) // throws schema_too_new if applicable
+    const newDeviceId = getOrCreateDeviceId(newDb)
+    const newHandlers = makeHandlers(newDb, newDeviceId, {
+      getMainWindow: () => mainWindow,
+      dbPath: newPath,
+      userDataPath,
+    })
+
+    // New db is open and handlers built — safe to swap.
+    try { db.close() } catch { /* ignore — db may already be closed */ }
+    db = newDb
+    dbPath = newPath
+    deviceId = newDeviceId
+    registerHandlers(newHandlers, db)
+    setCurrentProjectPath(userDataPath, newPath)
+    const camp = db.prepare('SELECT name FROM camps LIMIT 1').get()
+    addRecentProject(userDataPath, { path: newPath, campName: camp?.name ?? null })
+    if (mainWindow) mainWindow.webContents.reload()
+  }
+
+  // ---------------------------------------------------------------------------
+  // Project-lifecycle IPC handlers (registered once, never re-registered).
+  // These operate OUTSIDE makeHandlers because they swap the live db instance.
+  // ---------------------------------------------------------------------------
+
+  // Returns info about the currently-open project so the renderer can show it
+  // in the sidebar footer.
+  ipcMain.handle('shoresh:get-current-project', () => {
+    const camp = (() => {
+      try { return db.prepare('SELECT id, name FROM camps LIMIT 1').get() } catch { return null }
+    })()
+    return {
+      path: dbPath,
+      campName: camp?.name ?? null,
+      schemaVersion: getSchemaVersion(db),
+      openedAt: new Date().toISOString(),
+    }
+  })
+
+  // Show a save-file dialog, create a fresh DB at the chosen path, run full
+  // migrations, and reinitialize. The user then goes through the normal
+  // bootstrap flow in the reloaded renderer.
+  ipcMain.handle('shoresh:create-project', async () => {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Create New Shoresh Project',
+      defaultPath: path.join(app.getPath('documents'), 'shoresh-project.db'),
+      filters: [{ name: 'Shoresh Database', extensions: ['db'] }],
+      buttonLabel: 'Create',
+    })
+    if (result.canceled || !result.filePath) return { canceled: true }
+    const newPath = result.filePath
+    try {
+      reinitialize(newPath)
+      return { path: newPath }
+    } catch (err) {
+      return { error: 'create_failed', message: err.message }
+    }
+  })
+
+  // Show an open-file dialog, validate the target (integrity + schema version),
+  // run any needed migrations with a pre-migration backup, and reinitialize.
+  ipcMain.handle('shoresh:open-project', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Open Shoresh Project',
+      filters: [{ name: 'Shoresh Database', extensions: ['db'] }],
+      properties: ['openFile'],
+    })
+    if (result.canceled || !result.filePaths.length) return { canceled: true }
+    const newPath = result.filePaths[0]
+
+    // Prevent path traversal: the dialog already constrains to .db files, but
+    // we also verify the resolved path is an absolute path to a regular file.
+    const resolved = path.resolve(newPath)
+    if (!path.isAbsolute(resolved)) return { error: 'invalid_path' }
+    try {
+      const stat = fs.statSync(resolved)
+      if (!stat.isFile()) return { error: 'invalid_path' }
+    } catch {
+      return { error: 'file_not_found' }
+    }
+
+    // Open a temporary instance just to check the schema version.
+    let probe
+    try {
+      probe = new (await import('better-sqlite3')).default(resolved)
+      probe.pragma('journal_mode = WAL')
+      const version = getSchemaVersion(probe)
+      probe.close()
+      if (version > CURRENT_SCHEMA_VERSION) {
+        return {
+          error: 'schema_too_new',
+          message: `This project requires a newer version of Shoresh (schema v${version}).`,
+        }
+      }
+    } catch (err) {
+      try { probe?.close() } catch { /* ignore */ }
+      if (err.code === 'schema_too_new') {
+        return { error: 'schema_too_new', message: err.message }
+      }
+      return { error: 'invalid_file', message: 'The selected file could not be opened as a Shoresh database.' }
+    }
+
+    try {
+      reinitialize(resolved)
+      const camp = db.prepare('SELECT name FROM camps LIMIT 1').get()
+      return { path: resolved, campName: camp?.name ?? null }
+    } catch (err) {
+      return { error: 'open_failed', message: err.message }
+    }
+  })
+
+  // Copy the current DB to a user-chosen destination. Non-destructive.
+  ipcMain.handle('shoresh:export-project', async () => {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export Shoresh Project',
+      defaultPath: path.join(app.getPath('documents'), path.basename(dbPath)),
+      filters: [{ name: 'Shoresh Database', extensions: ['db'] }],
+      buttonLabel: 'Export',
+    })
+    if (result.canceled || !result.filePath) return { canceled: true }
+    const exportPath = result.filePath
+    if (path.resolve(exportPath) === path.resolve(dbPath)) {
+      return { error: 'same_file', message: 'Export destination cannot be the current project file.' }
+    }
+    try {
+      fs.copyFileSync(dbPath, exportPath)
+      try { fs.chmodSync(exportPath, 0o600) } catch { /* non-fatal */ }
+      return { exportPath }
+    } catch (err) {
+      return { error: 'export_failed', message: err.message }
+    }
+  })
+
+  // Write a dated backup to {userData}/backups/ with rotation (max 10).
+  ipcMain.handle('shoresh:backup-project', () => {
+    try {
+      const backupPath = writeUserBackup(dbPath, userDataPath)
+      return { backupPath }
+    } catch (err) {
+      return { error: 'backup_failed', message: err.message }
+    }
+  })
+
+  // Show an open-file dialog, back up the current DB first, then copy the
+  // chosen file over the current DB path and reopen the connection.
+  ipcMain.handle('shoresh:restore-project', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Restore Shoresh Project from Backup',
+      filters: [{ name: 'Shoresh Database', extensions: ['db'] }],
+      properties: ['openFile'],
+    })
+    if (result.canceled || !result.filePaths.length) return { canceled: true }
+    const sourcePath = path.resolve(result.filePaths[0])
+
+    // Path traversal guard.
+    if (!path.isAbsolute(sourcePath)) return { error: 'invalid_path' }
+    try {
+      const stat = fs.statSync(sourcePath)
+      if (!stat.isFile()) return { error: 'invalid_path' }
+    } catch {
+      return { error: 'file_not_found' }
+    }
+
+    // Schema version check on source.
+    let probe
+    try {
+      probe = new (await import('better-sqlite3')).default(sourcePath)
+      probe.pragma('journal_mode = WAL')
+      const version = getSchemaVersion(probe)
+      probe.close()
+      if (version > CURRENT_SCHEMA_VERSION) {
+        return {
+          error: 'schema_too_new',
+          message: `Backup requires a newer version of Shoresh (schema v${version}).`,
+        }
+      }
+    } catch {
+      try { probe?.close() } catch { /* ignore */ }
+      return { error: 'invalid_file', message: 'The selected file could not be read as a Shoresh database.' }
+    }
+
+    // Back up current DB before overwriting.
+    try {
+      writeUserBackup(dbPath, userDataPath)
+    } catch {
+      /* non-fatal — proceed with restore */
+    }
+
+    // Copy source over current db path, then open the new file BEFORE closing
+    // the old connection — same open-before-close pattern as reinitialize():
+    // if the copy or the open fails, the old db remains usable.
+    try {
+      fs.copyFileSync(sourcePath, dbPath)
+    } catch (err) {
+      return { error: 'restore_failed', message: err.message }
+    }
+
+    let newDb
+    try {
+      newDb = openLocalDb(dbPath)
+    } catch (err) {
+      return { error: 'restore_failed', message: err.message }
+    }
+
+    try { db.close() } catch { /* ignore */ }
+    db = newDb
+    deviceId = getOrCreateDeviceId(db)
+    const restoreHandlers = makeHandlers(db, deviceId, { getMainWindow: () => mainWindow, dbPath, userDataPath })
+    registerHandlers(restoreHandlers, db)
+    if (mainWindow) mainWindow.webContents.reload()
+    return { restored: true }
+  })
+
+  // Returns last 5 recently-opened project paths from the JSON sidecar.
+  ipcMain.handle('shoresh:list-recent-projects', () => {
+    return readRecentProjects(userDataPath)
+  })
+
+  // Open a specific path from the recent list — same validation as open-project.
+  ipcMain.handle('shoresh:open-recent-project', async (_event, { path: targetPath } = {}) => {
+    if (!isNonEmptyString(targetPath)) return { error: 'path_required' }
+    const resolved = path.resolve(targetPath)
+    if (!path.isAbsolute(resolved)) return { error: 'invalid_path' }
+    try {
+      const stat = fs.statSync(resolved)
+      if (!stat.isFile()) return { error: 'invalid_path' }
+    } catch {
+      return { error: 'file_not_found' }
+    }
+    try {
+      reinitialize(resolved)
+      const camp = db.prepare('SELECT name FROM camps LIMIT 1').get()
+      return { path: resolved, campName: camp?.name ?? null }
+    } catch (err) {
+      if (err.code === 'schema_too_new') {
+        return { error: 'schema_too_new', message: err.message }
+      }
+      return { error: 'open_failed', message: err.message }
+    }
+  })
+
+  // ---------------------------------------------------------------------------
+  // Initial handler registration and window creation.
+  // ---------------------------------------------------------------------------
+
+  const initialHandlers = makeHandlers(db, deviceId, { getMainWindow: () => mainWindow, dbPath, userDataPath })
+  registerHandlers(initialHandlers, db)
 
   function createWindow() {
     mainWindow = new BrowserWindow({
@@ -670,48 +1007,6 @@ if (isElectronEntryPoint()) {
       mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
     }
   }
-
-  ipcMain.handle('shoresh:choose-mode', (_event, args) => handlers.chooseMode(args))
-  ipcMain.handle('shoresh:discover-hosts', () => handlers.discoverHosts())
-  ipcMain.handle('shoresh:login', (_event, args) => handlers.login(args))
-  ipcMain.handle('shoresh:create-user', (_event, args) => handlers.createUser(args))
-  ipcMain.handle('shoresh:bootstrap-camp', (_event, args) => handlers.bootstrapCamp(args))
-  ipcMain.handle('shoresh:write', (_event, args) => handlers.write(args))
-  ipcMain.handle('shoresh:bulk-replace', (_event, args) => handlers.bulkReplace(args))
-  ipcMain.handle('shoresh:verify-session', (_event, args) => handlers.verifySession(args))
-  // Disclosed deviation from the ADR's per-handler authorize() table:
-  // choose-mode, discover-hosts, and get-camp (like login/verify-session/
-  // bootstrap-camp above) are pre-session call sites with no token available
-  // yet. Confirmed against src/hooks/useDeviceMode.js's phase machine —
-  // refreshCamp() calls get-camp before mode is even chosen, to decide the
-  // bootstrap-vs-join-vs-login phase, and chooseMode/discoverHosts are only
-  // reachable from that same pre-login flow. This is a reasoned, reviewed
-  // scope decision, not an oversight.
-  //
-  // get-camp is also called post-login for display (Sidebar.jsx,
-  // CampSetup.jsx) but the handler can't distinguish those call sites from
-  // the pre-login one, and the pre-login call must keep working without a
-  // token. Rather than gate on auth, the query itself is scoped to exclude
-  // `signing_secret` — grep of every getCamp() call site under src/
-  // confirms nothing in the renderer ever reads signing_secret (it's used
-  // only server-side, in electron/auth/localAuth.js and
-  // electron/sync/syncServer.js). So an unauthenticated caller can only ever
-  // learn the camp's id/name, never the HMAC key that signs session tokens.
-  ipcMain.handle('shoresh:get-camp', () => db.prepare('SELECT id, name FROM camps LIMIT 1').get())
-  ipcMain.handle('shoresh:list-users', (_event, args) => handlers.listUsers(args && args.token))
-  ipcMain.handle('shoresh:list', (_event, args) => {
-    const { token, entity } = args || {}
-    return handlers.list(token, entity)
-  })
-  ipcMain.handle('shoresh:get-device-id', (_event, args) => handlers.getDeviceId(args && args.token))
-  ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
-  ipcMain.handle('shoresh:list-conflicts', (_event, args) => handlers.listPendingConflicts(args && args.token))
-  ipcMain.handle('shoresh:get-device-pairing-status', () => handlers.getDevicePairingStatus())
-  ipcMain.handle('shoresh:list-pending-pairing-requests', (_event, args) => handlers.listPendingPairingRequests(args))
-  ipcMain.handle('shoresh:list-devices', (_event, args) => handlers.listDevices(args))
-  ipcMain.handle('shoresh:approve-device', (_event, args) => handlers.approveDevice(args))
-  ipcMain.handle('shoresh:deny-device', (_event, args) => handlers.denyDevice(args))
-  ipcMain.handle('shoresh:revoke-device', (_event, args) => handlers.revokeDevice(args))
 
   app.whenReady().then(createWindow)
   app.on('window-all-closed', () => {

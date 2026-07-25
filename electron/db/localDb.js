@@ -3,8 +3,14 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID, randomBytes } from 'node:crypto'
+import { writePreMigrationBackup } from './projectManager.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+// The highest schema_migrations.version this build of the app knows about.
+// If an opened DB file has a higher version, the app refuses to migrate it
+// (it was written by a newer build) and returns { code: 'schema_too_new' }.
+export const CURRENT_SCHEMA_VERSION = 20
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -784,16 +790,58 @@ export function openLocalDb(filePath) {
     db.pragma('foreign_keys = ON')
     db.pragma('journal_mode = WAL')
     db.pragma('busy_timeout = 5000')
+
+    // Schema-too-new guard: if this file was written by a newer build of the
+    // app, refuse to migrate it — running older migrations on a newer schema
+    // risks data corruption. The caller receives a thrown Error whose `code`
+    // property is 'schema_too_new' so IPC handlers can return a friendly
+    // message instead of a generic crash.
+    const existingVersion = getSchemaVersion(db)
+    if (existingVersion > CURRENT_SCHEMA_VERSION) {
+      db.close()
+      const err = new Error(
+        `This project file was created by a newer version of Shoresh ` +
+        `(schema v${existingVersion}, app supports up to v${CURRENT_SCHEMA_VERSION}). ` +
+        `Please update the app to open it.`
+      )
+      err.code = 'schema_too_new'
+      throw err
+    }
+
+    // Pre-migration backup: if the DB already has data and needs migrating,
+    // write a .bak copy BEFORE any migration runs so the original is
+    // recoverable if a migration fails mid-way. Best-effort — backup failure
+    // must not block opening the DB (the per-migration transactions are the
+    // primary safety net; this is a human-accessible extra).
+    if (existingVersion > 0 && existingVersion < CURRENT_SCHEMA_VERSION) {
+      try {
+        writePreMigrationBackup(filePath)
+      } catch {
+        /* non-fatal — proceed with migration */
+      }
+    }
+
     initSchema(db)
   } catch (err) {
+    // Close the handle if it was opened before the failure so we don't leak a
+    // file descriptor. Safe to call on an already-closed db (schema_too_new
+    // path closes it above, then re-throws here).
+    try { if (db) db.close() } catch { /* ignore — already closed or never opened */ }
+    // Re-throw schema_too_new as-is; wrap everything else.
+    if (err.code === 'schema_too_new') throw err
     throw new Error(`Failed to open local database at ${filePath}: ${err.message}`)
   }
   return db
 }
 
 export function getSchemaVersion(db) {
-  const row = db.prepare('SELECT MAX(version) as version FROM schema_migrations').get()
-  return row && row.version != null ? row.version : 0
+  // schema_migrations may not exist yet (fresh DB before initSchema runs).
+  try {
+    const row = db.prepare('SELECT MAX(version) as version FROM schema_migrations').get()
+    return row && row.version != null ? row.version : 0
+  } catch {
+    return 0
+  }
 }
 
 export function getOrCreateDeviceId(db) {
