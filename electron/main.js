@@ -11,6 +11,7 @@ import { advertiseHost, discoverHosts } from './sync/discovery.js'
 import { listPendingConflicts } from './ops/operations.js'
 import { authorize } from './auth/authorize.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from './auth/deriveWriteAction.js'
+import { recordAuditEvent } from './audit/auditLog.js'
 
 const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 
@@ -105,7 +106,7 @@ function requireAuthorized(db, { token, action, resourceId }) {
 function sanitizeOpForIpc(op) {
   if (!op) return op
   if (op.entity === 'users' && IPC_PIN_FIELDS.has(op.field)) {
-    const { value, ...rest } = op
+    const { value: _value, ...rest } = op
     return rest
   }
   return op
@@ -144,6 +145,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
   ensureDeviceRow(db, deviceId)
 
   let syncClient = null
+  let syncServer = null  // { wss, close, sendPairingApproved, sendPairingDenied }
   let modeChosen = false
   let mode = null
   let pendingServerUrl = null
@@ -157,6 +159,27 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
       syncClient.onOpConflict((msg) => {
         const mainWindow = getMainWindow ? getMainWindow() : null
         if (mainWindow) mainWindow.webContents.send('shoresh:op-conflict', sanitizeConflictForIpc(msg))
+      })
+    }
+  }
+
+  function wirePairingCallbacks() {
+    if (typeof syncClient.onPairingApproved === 'function') {
+      syncClient.onPairingApproved(() => {
+        const w = getMainWindow ? getMainWindow() : null
+        if (w) w.webContents.send('shoresh:pairing-approved')
+      })
+    }
+    if (typeof syncClient.onPairingDenied === 'function') {
+      syncClient.onPairingDenied(() => {
+        const w = getMainWindow ? getMainWindow() : null
+        if (w) w.webContents.send('shoresh:pairing-denied')
+      })
+    }
+    if (typeof syncClient.onTokenRenewed === 'function') {
+      syncClient.onTokenRenewed((newToken) => {
+        const w = getMainWindow ? getMainWindow() : null
+        if (w) w.webContents.send('shoresh:token-renewed', { token: newToken })
       })
     }
   }
@@ -188,18 +211,28 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     }
 
     if (requestedMode === 'host') {
-      startSyncServer(db, { port })
+      syncServer = startSyncServer(db, {
+        port,
+        onPairingRequest: (deviceId_req, deviceName_req) => {
+          const mainWindow = getMainWindow ? getMainWindow() : null
+          if (mainWindow) mainWindow.webContents.send('shoresh:pairing-request', { deviceId: deviceId_req, deviceName: deviceName_req })
+        },
+      })
       advertiseHost({ campName, port })
       syncClient = createSyncClient(db, { device_id: deviceId, author_user_id: null })
       wireOpApplied()
     } else {
       pendingServerUrl = resolveClientServerUrl(args)
+      const deviceRow = db.prepare('SELECT name FROM devices WHERE id = ?').get(deviceId)
+      const deviceNameForPairing = deviceRow?.name || `Device ${deviceId.slice(0, 8)}`
       syncClient = createSyncClient(db, {
         device_id: deviceId,
         author_user_id: null,
         serverUrl: pendingServerUrl,
+        device_name: deviceNameForPairing,
       })
       wireOpApplied()
+      wirePairingCallbacks()
     }
 
     mode = requestedMode
@@ -331,32 +364,90 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     return { campId, userId: user.id }
   }
 
-  // Temporary stand-in for sub-task 2's real pairing-approval flow (Host
-  // approval UI + pairing_request/pairing_approved WS messages). Lets a
-  // device be manually authorized for testing this slice — schema +
-  // revocation enforcement — independently of the pairing protocol not
-  // existing yet, per the design doc's sub-task 1 acceptance note. Should be
-  // removed/superseded once sub-task 2 lands. Admin-role-gated via the same
-  // authorize() layer every other privileged handler uses — mints a fresh
-  // device_secret_identifier the way the real approval flow will.
-  function devAuthorizeDevice({ token, deviceId: targetDeviceId } = {}) {
+  function getDevicePairingStatus() {
+    const device = db.prepare('SELECT pairing_status, authorized_at FROM devices WHERE id = ?').get(deviceId)
+    return { isPaired: !!(device?.authorized_at), pairing_status: device?.pairing_status ?? null }
+  }
+
+  function listPendingPairingRequests({ token } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
-    const { userId } = requireAuthorized(db, { token, action: 'devices.dev_authorize' })
+    requireAuthorized(db, { token, action: 'devices.read' })
+    // Exclude denied devices (pairing_status='denied') so a single deny action
+    // stops the device from re-appearing on the next poll (CodeReview fix).
+    return db.prepare("SELECT id, name FROM devices WHERE authorized_at IS NULL AND revoked_at IS NULL AND (pairing_status IS NULL OR pairing_status = 'pending')").all()
+  }
+
+  function listDevices({ token } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'devices.read' })
+    return db.prepare('SELECT id, name, pairing_status, authorized_at, revoked_at, last_synced_at FROM devices').all()
+  }
+
+  function approveDevice({ token, deviceId: targetDeviceId } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'devices.approve' })
     if (!isNonEmptyString(targetDeviceId)) throw new Error('deviceId is required')
+
     const existing = db.prepare('SELECT id FROM devices WHERE id = ?').get(targetDeviceId)
     if (!existing) throw new Error('device not found')
 
     const secret = randomBytes(32).toString('hex')
     const now = new Date().toISOString()
     db.prepare(
-      `UPDATE devices
-       SET authorized_at = ?, authorized_by_user_id = ?, pairing_status = 'authorized',
-           device_secret_identifier = COALESCE(device_secret_identifier, ?),
-           revoked_at = NULL, revoked_by_user_id = NULL, revocation_reason = NULL
-       WHERE id = ?`
+      "UPDATE devices SET authorized_at = ?, authorized_by_user_id = ?, pairing_status = 'authorized', device_secret_identifier = ?, revoked_at = NULL, revoked_by_user_id = NULL, revocation_reason = NULL WHERE id = ?"
     ).run(now, userId, secret, targetDeviceId)
 
+    recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.approve', outcome: 'allow' })
+
+    if (syncServer) syncServer.sendPairingApproved(targetDeviceId, secret)
+
     return { deviceId: targetDeviceId, authorized: true }
+  }
+
+  function denyDevice({ token, deviceId: targetDeviceId } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'devices.approve' })
+    if (!isNonEmptyString(targetDeviceId)) throw new Error('deviceId is required')
+
+    // CodeReview: write pairing_status='denied' so denied devices don't
+    // re-appear in listPendingPairingRequests on the next poll.
+    db.prepare("UPDATE devices SET pairing_status = 'denied' WHERE id = ?").run(targetDeviceId)
+
+    recordAuditEvent(db, { actorUserId: userId, deviceId: targetDeviceId, action: 'device.deny', outcome: 'allow' })
+
+    if (syncServer) syncServer.sendPairingDenied(targetDeviceId)
+
+    return { deviceId: targetDeviceId, denied: true }
+  }
+
+  function revokeDevice({ token, deviceId: targetDeviceId, reason } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'devices.revoke' })
+    if (!isNonEmptyString(targetDeviceId)) throw new Error('deviceId is required')
+
+    const existing = db.prepare('SELECT id FROM devices WHERE id = ?').get(targetDeviceId)
+    if (!existing) throw new Error('device not found')
+
+    const now = new Date().toISOString()
+    db.prepare(
+      "UPDATE devices SET revoked_at = ?, revoked_by_user_id = ?, revocation_reason = ?, pairing_status = 'revoked' WHERE id = ?"
+    ).run(now, userId, reason ?? null, targetDeviceId)
+
+    recordAuditEvent(db, {
+      actorUserId: userId, deviceId: targetDeviceId,
+      action: 'device.revoke', outcome: 'allow',
+      metadata: reason ? { reason } : null,
+    })
+
+    if (syncServer) {
+      for (const client of syncServer.wss.clients) {
+        if (client.deviceId === targetDeviceId) {
+          try { client.close(4404, 'device_revoked') } catch { /* ignore */ }
+        }
+      }
+    }
+
+    return { deviceId: targetDeviceId, revoked: true }
   }
 
   function verifySession({ token } = {}) {
@@ -520,12 +611,18 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     getDeviceId,
     resolveConflict,
     listPendingConflicts: listPendingConflictsHandler,
-    devAuthorizeDevice,
+    getDevicePairingStatus,
+    listPendingPairingRequests,
+    listDevices,
+    approveDevice,
+    denyDevice,
+    revokeDevice,
     getSyncClient: () => syncClient,
   }
 }
 
 function isElectronEntryPoint() {
+  // eslint-disable-next-line no-undef
   return !process.env.VITEST && typeof app !== 'undefined' && app && typeof app.whenReady === 'function'
 }
 
@@ -551,7 +648,7 @@ if (isElectronEntryPoint()) {
     mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
       console.error('PRELOAD ERROR', preloadPath, error)
     })
-    const devServerUrl = process.env.VITE_DEV_SERVER_URL
+    const devServerUrl = process.env.VITE_DEV_SERVER_URL // eslint-disable-line no-undef
     if (devServerUrl) {
       mainWindow.loadURL(devServerUrl)
     } else {
@@ -594,12 +691,15 @@ if (isElectronEntryPoint()) {
   ipcMain.handle('shoresh:get-device-id', (_event, args) => handlers.getDeviceId(args && args.token))
   ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
   ipcMain.handle('shoresh:list-conflicts', (_event, args) => handlers.listPendingConflicts(args && args.token))
-  // Temporary — see devAuthorizeDevice's own comment above. Stand-in for
-  // sub-task 2's real pairing-approval IPC surface (approveDevice/etc).
-  ipcMain.handle('shoresh:dev-authorize-device', (_event, args) => handlers.devAuthorizeDevice(args))
+  ipcMain.handle('shoresh:get-device-pairing-status', () => handlers.getDevicePairingStatus())
+  ipcMain.handle('shoresh:list-pending-pairing-requests', (_event, args) => handlers.listPendingPairingRequests(args))
+  ipcMain.handle('shoresh:list-devices', (_event, args) => handlers.listDevices(args))
+  ipcMain.handle('shoresh:approve-device', (_event, args) => handlers.approveDevice(args))
+  ipcMain.handle('shoresh:deny-device', (_event, args) => handlers.denyDevice(args))
+  ipcMain.handle('shoresh:revoke-device', (_event, args) => handlers.revokeDevice(args))
 
   app.whenReady().then(createWindow)
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit()
+    if (process.platform !== 'darwin') app.quit() // eslint-disable-line no-undef
   })
 }

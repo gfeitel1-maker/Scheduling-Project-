@@ -14,6 +14,8 @@ import CohortsScreen from './screens/CohortsScreen'
 import DayOverridesScreen from './screens/DayOverridesScreen'
 import ScheduleScreen from './screens/ScheduleScreen'
 import ConflictsScreen from './screens/ConflictsScreen'
+import DeviceManagerScreen from './screens/DeviceManagerScreen'
+import PairingPendingScreen from './screens/PairingPendingScreen'
 import { useDeviceMode } from './hooks/useDeviceMode'
 import { usePendingConflicts } from './hooks/usePendingConflicts'
 import { ensureCohort } from './utils/ensureCohort'
@@ -31,6 +33,7 @@ const SCREENS = {
   anchors:      AnchorsScreen,
   dayoverrides: DayOverridesScreen,
   schedule:     ScheduleScreen,
+  devices:      DeviceManagerScreen,
 }
 
 function AppShell({ campId, role, onLogout }) {
@@ -55,6 +58,7 @@ function AppShell({ campId, role, onLogout }) {
       currentScreen={screen}
       onNavigate={setScreen}
       campId={campId}
+      role={role}
       onLogout={onLogout}
       sidebarBadges={{ conflicts: pendingConflicts.conflicts.length }}
     >
@@ -103,6 +107,14 @@ export default function App() {
 
   if (device.phase === 'join') {
     return <JoinScreen onBack={device.backToModeSelect} onSelectHost={device.selectJoinHost} />
+  }
+
+  if (device.phase === 'pairing_pending') {
+    return <PairingPendingScreen denied={false} onBack={device.backToModeSelect} />
+  }
+
+  if (device.phase === 'pairing_denied') {
+    return <PairingPendingScreen denied onBack={device.backToModeSelect} />
   }
 
   if (device.phase === 'login') {

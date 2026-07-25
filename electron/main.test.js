@@ -18,7 +18,12 @@ vi.mock('electron', () => ({
   ipcRenderer: { invoke: vi.fn(), on: vi.fn() },
 }))
 
-const fakeSyncServer = { close: vi.fn() }
+const fakeSyncServer = {
+  close: vi.fn(),
+  sendPairingApproved: vi.fn(() => true),
+  sendPairingDenied: vi.fn(() => true),
+  wss: { clients: new Set() },
+}
 const fakeAdvertised = { stop: vi.fn() }
 let lastCreatedSyncClient
 
@@ -195,7 +200,7 @@ describe('chooseMode: host path', () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7100 })
 
-    expect(startSyncServer).toHaveBeenCalledWith(db, { port: 7100 })
+    expect(startSyncServer).toHaveBeenCalledWith(db, expect.objectContaining({ port: 7100 }))
     expect(advertiseHost).toHaveBeenCalledWith({ campName: 'Camp Test', port: 7100 })
     expect(createSyncClient).toHaveBeenCalledWith(db, {
       device_id: deviceId,
@@ -223,11 +228,11 @@ describe('chooseMode: client path', () => {
     const result = await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })
 
     expect(result).toEqual({ mode: 'client' })
-    expect(createSyncClient).toHaveBeenCalledWith(db, {
+    expect(createSyncClient).toHaveBeenCalledWith(db, expect.objectContaining({
       device_id: deviceId,
       author_user_id: null,
       serverUrl: 'ws://192.168.1.5:7100',
-    })
+    }))
     expect(lastCreatedSyncClient.onOpApplied).toHaveBeenCalled()
   })
 
@@ -235,11 +240,11 @@ describe('chooseMode: client path', () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
 
-    expect(createSyncClient).toHaveBeenCalledWith(db, {
+    expect(createSyncClient).toHaveBeenCalledWith(db, expect.objectContaining({
       device_id: deviceId,
       author_user_id: null,
       serverUrl: 'ws://192.168.1.5:7100',
-    })
+    }))
   })
 
   it('a fresh client with zero local users can still log in via the syncClient.loginRemote path', async () => {
@@ -522,48 +527,10 @@ describe('bootstrapCamp: device trust (docs/adr/2026-07-25-device-trust-revocati
   })
 })
 
-describe('devAuthorizeDevice (temporary interim path, admin-gated)', () => {
-  it('rejects with no token', () => {
+describe('devAuthorizeDevice (removed in sub-task 2, superseded by approveDevice)', () => {
+  it('is no longer exposed on handlers — use approveDevice instead', () => {
     const handlers = makeHandlers(db, deviceId, {})
-    expect(() => handlers.devAuthorizeDevice({ deviceId: 'some-device' })).toThrow('token is required')
-  })
-
-  it('denies a staff-role caller', async () => {
-    const { user } = await seedCampAndUser({ name: 'StaffAuthorizer', pin: '1234', role: 'staff' })
-    void user
-    const handlers = makeHandlers(db, deviceId, {})
-    const { token } = await handlers.login({ name: 'StaffAuthorizer', pin: '1234' })
-
-    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('target-device', 'Target Device')
-
-    expect(() => handlers.devAuthorizeDevice({ token, deviceId: 'target-device' })).toThrow('admin role required')
-
-    const targetRow = db.prepare('SELECT authorized_at FROM devices WHERE id = ?').get('target-device')
-    expect(targetRow.authorized_at).toBeNull()
-  })
-
-  it('allows an admin-role caller to authorize a pending device, minting a device_secret_identifier', async () => {
-    await seedCampAndUser({ name: 'AdminAuthorizer', pin: '1234', role: 'admin' })
-    const handlers = makeHandlers(db, deviceId, {})
-    const { token } = await handlers.login({ name: 'AdminAuthorizer', pin: '1234' })
-
-    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('target-device-2', 'Target Device 2')
-
-    const result = handlers.devAuthorizeDevice({ token, deviceId: 'target-device-2' })
-    expect(result).toEqual({ deviceId: 'target-device-2', authorized: true })
-
-    const targetRow = db.prepare('SELECT authorized_at, pairing_status, device_secret_identifier FROM devices WHERE id = ?').get('target-device-2')
-    expect(targetRow.authorized_at).toEqual(expect.any(String))
-    expect(targetRow.pairing_status).toBe('authorized')
-    expect(targetRow.device_secret_identifier).toEqual(expect.any(String))
-  })
-
-  it('rejects a nonexistent deviceId', async () => {
-    await seedCampAndUser({ name: 'AdminAuthorizer2', pin: '1234', role: 'admin' })
-    const handlers = makeHandlers(db, deviceId, {})
-    const { token } = await handlers.login({ name: 'AdminAuthorizer2', pin: '1234' })
-
-    expect(() => handlers.devAuthorizeDevice({ token, deviceId: 'does-not-exist' })).toThrow('device not found')
+    expect(handlers.devAuthorizeDevice).toBeUndefined()
   })
 })
 
@@ -1237,5 +1204,198 @@ describe('resolveConflict handler (conflicts.resolve, staff+admin)', () => {
     expect(() =>
       handlers.resolveConflict({ token, entity: 'groups', entity_id: 'g1', field: 'name', chosen_op_id: 'does-not-exist' })
     ).toThrow('chosen operation not found')
+  })
+})
+
+describe('listPendingPairingRequests handler (devices.read, staff+admin)', () => {
+  it('requires a token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.listPendingPairingRequests({})).toThrow('token is required')
+  })
+
+  it('returns pending devices for a staff user', async () => {
+    await seedCampAndUser({ name: 'StaffLister', pin: '1234', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7400 })
+    const { token: staffToken } = await handlers.login({ name: 'StaffLister', pin: '1234' })
+
+    db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('pending-device-1', 'iPad')
+
+    const result = handlers.listPendingPairingRequests({ token: staffToken })
+    const found = result.find((d) => d.id === 'pending-device-1')
+    expect(found).toBeTruthy()
+    expect(found.name).toBe('iPad')
+  })
+
+  it('does not return already-authorized or revoked devices', async () => {
+    await seedCampAndUser({ name: 'AdminLister', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7401 })
+    const { token: adminToken } = await handlers.login({ name: 'AdminLister', pin: '1234' })
+
+    db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('authorized-device', 'Laptop', new Date().toISOString())
+    db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('pending-device-2', 'Phone')
+
+    const result = handlers.listPendingPairingRequests({ token: adminToken })
+    expect(result.find((d) => d.id === 'authorized-device')).toBeUndefined()
+    expect(result.find((d) => d.id === 'pending-device-2')).toBeTruthy()
+  })
+})
+
+describe('listDevices handler (devices.read, staff+admin)', () => {
+  it('requires a token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.listDevices({})).toThrow('token is required')
+  })
+
+  it('returns all devices including authorized and pending', async () => {
+    await seedCampAndUser({ name: 'DeviceLister', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7402 })
+    const { token: adminToken } = await handlers.login({ name: 'DeviceLister', pin: '1234' })
+
+    db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('ld-pending', 'Tablet')
+
+    const result = handlers.listDevices({ token: adminToken })
+    expect(result.find((d) => d.id === 'ld-pending')).toBeTruthy()
+    // The host device itself (deviceId) should also appear
+    expect(result.find((d) => d.id === deviceId)).toBeTruthy()
+  })
+})
+
+describe('approveDevice handler (devices.approve, admin-only)', () => {
+  it('requires a token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.approveDevice({ deviceId: 'some-device' })).toThrow('token is required')
+  })
+
+  it('rejects a staff-role caller', async () => {
+    await seedCampAndUser({ name: 'StaffApprover', pin: '1234', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7403 })
+    const { token: staffToken } = await handlers.login({ name: 'StaffApprover', pin: '1234' })
+
+    db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('approve-target-1', 'iPad')
+
+    expect(() => handlers.approveDevice({ token: staffToken, deviceId: 'approve-target-1' })).toThrow()
+  })
+
+  it('authorizes a pending device for an admin caller, minting device_secret_identifier', async () => {
+    await seedCampAndUser({ name: 'AdminApprover', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7404 })
+    const { token: adminToken } = await handlers.login({ name: 'AdminApprover', pin: '1234' })
+
+    db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('approve-target-2', 'Laptop')
+
+    const result = handlers.approveDevice({ token: adminToken, deviceId: 'approve-target-2' })
+    expect(result).toEqual({ deviceId: 'approve-target-2', authorized: true })
+
+    const row = db.prepare('SELECT authorized_at, pairing_status, device_secret_identifier FROM devices WHERE id = ?').get('approve-target-2')
+    expect(row.authorized_at).toEqual(expect.any(String))
+    expect(row.pairing_status).toBe('authorized')
+    expect(row.device_secret_identifier).toEqual(expect.any(String))
+  })
+
+  it('rejects a nonexistent deviceId', async () => {
+    await seedCampAndUser({ name: 'AdminApprover2', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7405 })
+    const { token: adminToken } = await handlers.login({ name: 'AdminApprover2', pin: '1234' })
+
+    expect(() => handlers.approveDevice({ token: adminToken, deviceId: 'does-not-exist' })).toThrow('device not found')
+  })
+})
+
+describe('denyDevice handler (devices.approve, admin-only)', () => {
+  it('requires a token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.denyDevice({ deviceId: 'some-device' })).toThrow('token is required')
+  })
+
+  it('rejects a staff-role caller', async () => {
+    await seedCampAndUser({ name: 'StaffDenier', pin: '1234', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7406 })
+    const { token: staffToken } = await handlers.login({ name: 'StaffDenier', pin: '1234' })
+
+    expect(() => handlers.denyDevice({ token: staffToken, deviceId: 'some-device' })).toThrow()
+  })
+
+  it('returns denied=true for an admin caller', async () => {
+    await seedCampAndUser({ name: 'AdminDenier', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7407 })
+    const { token: adminToken } = await handlers.login({ name: 'AdminDenier', pin: '1234' })
+
+    const result = handlers.denyDevice({ token: adminToken, deviceId: 'deny-target' })
+    expect(result).toEqual({ deviceId: 'deny-target', denied: true })
+  })
+})
+
+describe('revokeDevice handler (devices.revoke, admin-only)', () => {
+  it('requires a token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.revokeDevice({ deviceId: 'some-device' })).toThrow('token is required')
+  })
+
+  it('rejects a staff-role caller', async () => {
+    await seedCampAndUser({ name: 'StaffRevoker', pin: '1234', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7408 })
+    const { token: staffToken } = await handlers.login({ name: 'StaffRevoker', pin: '1234' })
+
+    db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('revoke-target-1', 'Tablet', new Date().toISOString())
+
+    expect(() => handlers.revokeDevice({ token: staffToken, deviceId: 'revoke-target-1' })).toThrow()
+  })
+
+  it('revokes a device and stamps revoked_at for an admin caller', async () => {
+    await seedCampAndUser({ name: 'AdminRevoker', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7409 })
+    const { token: adminToken } = await handlers.login({ name: 'AdminRevoker', pin: '1234' })
+
+    db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('revoke-target-2', 'MacBook', new Date().toISOString())
+
+    const result = handlers.revokeDevice({ token: adminToken, deviceId: 'revoke-target-2', reason: 'lost' })
+    expect(result).toEqual({ deviceId: 'revoke-target-2', revoked: true })
+
+    const row = db.prepare('SELECT revoked_at, revocation_reason, pairing_status FROM devices WHERE id = ?').get('revoke-target-2')
+    expect(row.revoked_at).toEqual(expect.any(String))
+    expect(row.revocation_reason).toBe('lost')
+    expect(row.pairing_status).toBe('revoked')
+  })
+
+  it('rejects a nonexistent deviceId', async () => {
+    await seedCampAndUser({ name: 'AdminRevoker2', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7410 })
+    const { token: adminToken } = await handlers.login({ name: 'AdminRevoker2', pin: '1234' })
+
+    expect(() => handlers.revokeDevice({ token: adminToken, deviceId: 'no-such-device' })).toThrow('device not found')
+  })
+
+  it('iterates syncServer.wss.clients and calls close(4404) on the revoked device\'s socket', async () => {
+    await seedCampAndUser({ name: 'AdminRevokerWS', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7411 })
+    const { token: adminToken } = await handlers.login({ name: 'AdminRevokerWS', pin: '1234' })
+
+    const remoteDeviceId = randomUUID()
+    db.prepare(
+      "INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status) VALUES (?, ?, ?, ?, 'authorized')"
+    ).run(remoteDeviceId, 'Remote Device', new Date().toISOString(), randomBytes(32).toString('hex'))
+
+    // Simulate a fake WS client in fakeSyncServer.wss.clients with that deviceId
+    const fakeClose = vi.fn()
+    const fakeClient = { deviceId: remoteDeviceId, close: fakeClose }
+    fakeSyncServer.wss.clients.add(fakeClient)
+
+    handlers.revokeDevice({ token: adminToken, deviceId: remoteDeviceId })
+
+    expect(fakeClose).toHaveBeenCalledWith(4404, 'device_revoked')
+
+    fakeSyncServer.wss.clients.delete(fakeClient)
   })
 })

@@ -39,4 +39,6 @@ export const PERMISSIONS = {
     'conflicts.read',
     'conflicts.resolve',
   ],
+  // devices.approve and devices.revoke are admin-only (via admin: ['*'])
+  // devices.dev_authorize has been removed — superseded by devices.approve
 }

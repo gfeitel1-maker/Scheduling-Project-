@@ -744,8 +744,8 @@ export function initSchema(db) {
       // existing pre-pairing camps — this app has not shipped production
       // camp data"), a pre-migration device row is NOT auto-authorized here.
       // It lands as 'pending' like any other unauthorized row and must be
-      // explicitly authorized (dev-authorize-device for now; the real
-      // pairing-approval flow in sub-task 2) before it can act again — the
+      // explicitly authorized via the approveDevice IPC handler (Host admin
+      // approval flow, sub-task 2) before it can act again — the
       // stricter, revocation-first behavior this whole ADR exists for.
       const hasPairingStatus = db
         .pragma('table_info(devices)')

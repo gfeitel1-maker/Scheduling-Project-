@@ -43,4 +43,14 @@ export const localClient = {
   resolveConflict: (token, { entity, entity_id, field, chosen_op_id, parent_op_id }) =>
     shoresh.resolveConflict({ token, entity, entity_id, field, chosen_op_id, parent_op_id }),
   listPendingConflicts: () => shoresh.listPendingConflicts(currentToken()),
+  getDevicePairingStatus: () => shoresh.getDevicePairingStatus(),
+  listPendingPairingRequests: () => shoresh.listPendingPairingRequests(currentToken()),
+  approveDevice: (deviceId) => shoresh.approveDevice({ token: currentToken(), deviceId }),
+  denyDevice: (deviceId) => shoresh.denyDevice({ token: currentToken(), deviceId }),
+  listDevices: () => shoresh.listDevices(currentToken()),
+  revokeDevice: (deviceId, reason) => shoresh.revokeDevice({ token: currentToken(), deviceId, reason }),
+  onPairingRequest: (cb) => shoresh.onPairingRequest && shoresh.onPairingRequest(cb),
+  onPairingApproved: (cb) => shoresh.onPairingApproved && shoresh.onPairingApproved(cb),
+  onPairingDenied: (cb) => shoresh.onPairingDenied && shoresh.onPairingDenied(cb),
+  onTokenRenewed: (cb) => shoresh.onTokenRenewed && shoresh.onTokenRenewed(cb),
 }

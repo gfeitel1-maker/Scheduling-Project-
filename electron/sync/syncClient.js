@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { Buffer } from 'node:buffer'
 import WebSocket from 'ws'
 import {
   appendOp,
@@ -15,10 +16,13 @@ const DEFAULT_RESOLVER_TIMEOUT_MS = 10000
 
 export function createSyncClient(
   db,
-  { device_id, author_user_id, serverUrl, token: initialToken, lockTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS, submitTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS }
+  { device_id, author_user_id, serverUrl, token: initialToken, device_name, lockTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS, submitTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS }
 ) {
   const opAppliedListeners = []
   const opConflictListeners = []
+  const pairingApprovedListeners = []
+  const pairingDeniedListeners = []
+  const tokenRenewedListeners = []
   const queue = []
   let token = initialToken
 
@@ -74,6 +78,7 @@ export function createSyncClient(
 
   let ws = null
   let connected = false
+  let renewalTimer = null
   // Distinct from `connected`: `connected` only means the WebSocket is open.
   // `authenticated` means we have actually SENT an `authenticate` message on
   // this connection (either because a token existed at connect() time, or
@@ -94,6 +99,25 @@ export function createSyncClient(
 
   function isNonEmptyString(v) {
     return typeof v === 'string' && v.length > 0
+  }
+
+  function scheduleRenewal(tok) {
+    if (renewalTimer) clearTimeout(renewalTimer)
+    if (!tok) return
+    try {
+      const parts = tok.split('.')
+      if (parts.length !== 2) return
+      const payload = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'))
+      if (typeof payload.exp !== 'number') return
+      const renewAt = payload.exp - 4 * 60 * 60 * 1000  // renew 4h before exp
+      const delay = renewAt - Date.now()
+      if (delay <= 0) return
+      renewalTimer = setTimeout(() => {
+        if (ws && ws.readyState === ws.OPEN && token) {
+          ws.send(JSON.stringify({ type: 'renew_token', token }))
+        }
+      }, delay)
+    } catch { /* ignore */ }
   }
 
   function isValidFullSyncUser(user) {
@@ -225,6 +249,8 @@ export function createSyncClient(
       if (token) {
         ws.send(JSON.stringify({ type: 'authenticate', token, device_id }))
         authenticated = true
+      } else if (device_name) {
+        ws.send(JSON.stringify({ type: 'pairing_request', device_id, device_name }))
       }
       connected = true
       connectedResolve()
@@ -245,6 +271,34 @@ export function createSyncClient(
 
         if (msg.type === 'full_sync') {
           applyFullSync(msg)
+          return
+        }
+
+        if (msg.type === 'pairing_approved') {
+          if (isNonEmptyString(msg.device_secret_identifier)) {
+            db.prepare(
+              "UPDATE devices SET device_secret_identifier = ?, pairing_status = 'authorized', authorized_at = ? WHERE id = ?"
+            ).run(msg.device_secret_identifier, new Date().toISOString(), device_id)
+          }
+          for (const cb of pairingApprovedListeners) cb(msg)
+          return
+        }
+
+        if (msg.type === 'pairing_denied') {
+          for (const cb of pairingDeniedListeners) cb(msg)
+          return
+        }
+
+        if (msg.type === 'token_renewed') {
+          if (isNonEmptyString(msg.token)) {
+            token = msg.token
+            scheduleRenewal(token)
+            for (const cb of tokenRenewedListeners) cb(msg.token)
+          }
+          return
+        }
+
+        if (msg.type === 'token_renewal_failed') {
           return
         }
 
@@ -428,7 +482,8 @@ export function createSyncClient(
 
   function sendLoginRemote({ name, pin }) {
     return withResolverTimeout(loginResolvers, lockTimeoutMs, () => {
-      ws.send(JSON.stringify({ type: 'login', device_id, name, pin }))
+      const deviceRow = db.prepare('SELECT device_secret_identifier FROM devices WHERE id = ?').get(device_id)
+      ws.send(JSON.stringify({ type: 'login', device_id, name, pin, device_secret_identifier: deviceRow?.device_secret_identifier ?? null }))
     })
   }
 
@@ -611,6 +666,7 @@ export function createSyncClient(
         token = reply.token
         ws.send(JSON.stringify({ type: 'authenticate', token, device_id }))
         authenticated = true
+        scheduleRenewal(token)
         return { status: 'ok', token: reply.token, userId: reply.userId, role: reply.role }
       }
       // login_failed
@@ -618,7 +674,17 @@ export function createSyncClient(
         ? { status: 'failed', locked: true, retryAfterMs: reply.retryAfterMs }
         : { status: 'failed' }
     },
+    onPairingApproved(callback) {
+      pairingApprovedListeners.push(callback)
+    },
+    onPairingDenied(callback) {
+      pairingDeniedListeners.push(callback)
+    },
+    onTokenRenewed(callback) {
+      tokenRenewedListeners.push(callback)
+    },
     close() {
+      if (renewalTimer) clearTimeout(renewalTimer)
       if (ws) ws.close()
     },
     // test-only accessor: exposes the underlying ws connection so tests can

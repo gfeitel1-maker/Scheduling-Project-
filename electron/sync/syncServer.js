@@ -1,5 +1,7 @@
 import { WebSocketServer } from 'ws'
-import { verifySessionToken, attemptLogin } from '../auth/localAuth.js'
+import { timingSafeEqual } from 'node:crypto'
+import { Buffer } from 'node:buffer'
+import { verifySessionToken, attemptLogin, issueCampToken } from '../auth/localAuth.js'
 import { acquireLock, expireLocks, releaseLocksForDevice } from './lockManager.js'
 import {
   detectConflict,
@@ -291,6 +293,7 @@ function handleAuthenticate(db, ws, msg) {
 }
 
 function validateLoginMsg(msg) {
+  // device_secret_identifier is optional for backward compat with pre-sub-task-2 tests
   return isNonEmptyString(msg.device_id) && isNonEmptyString(msg.name) && isNonEmptyString(msg.pin)
 }
 
@@ -312,6 +315,34 @@ const LOGIN_MIN_INTERVAL_MS = 300
 
 function handleLogin(db, ws, msg) {
   if (!validateLoginMsg(msg)) return
+
+  // Sub-task 4: require device to be paired and secret to match BEFORE touching PIN
+  // or the per-connection throttle. This closes "any device on the LAN can
+  // attempt PIN guesses" (§6.3). The two rejection paths intentionally return
+  // the same opaque 'login_failed' response with no reason field — leaking
+  // distinct reasons would create a device-existence/authorization oracle
+  // (Security review finding 4).
+  const deviceRow = db.prepare('SELECT authorized_at, revoked_at, device_secret_identifier FROM devices WHERE id = ?').get(msg.device_id)
+  if (!deviceRow || !deviceRow.authorized_at || deviceRow.revoked_at) {
+    send(ws, { type: 'login_failed' })
+    return
+  }
+  // Constant-time comparison for the 64-char hex device secret to prevent
+  // timing side-channels (Security review finding 3).
+  const storedSecret = deviceRow.device_secret_identifier
+  const providedSecret = typeof msg.device_secret_identifier === 'string' ? msg.device_secret_identifier : ''
+  let secretOk = false
+  if (storedSecret && storedSecret.length === providedSecret.length) {
+    try {
+      secretOk = timingSafeEqual(Buffer.from(storedSecret), Buffer.from(providedSecret))
+    } catch {
+      secretOk = false
+    }
+  }
+  if (!secretOk) {
+    send(ws, { type: 'login_failed' })
+    return
+  }
 
   // Throttle: a message arriving faster than LOGIN_MIN_INTERVAL_MS since this
   // connection's last login attempt is dropped silently before it ever
@@ -562,8 +593,20 @@ function handleSubmitBulkReplaceOp(db, wss, ws, msg) {
   }
 }
 
-export function startSyncServer(db, { port }) {
+// Max pending pairing connections at once (Security: prevents Map/WS handle
+// exhaustion via LAN flood of pairing_request messages).
+const MAX_PENDING_PAIRING = 50
+// Minimum interval between pairing_request messages from the same device_id
+// (Security: per-device rate limit to bound DB write frequency).
+const PAIRING_RATE_MS = 5000
+
+export function startSyncServer(db, { port, onPairingRequest } = {}) {
   const wss = new WebSocketServer({ port })
+  // Map of device_id -> ws for devices waiting for pairing approval
+  const pendingPairingConnections = new Map()
+  // Map of device_id -> timestamp for per-device pairing_request rate limiting
+  const lastPairingRequestTime = new Map()
+
   wss.on('error', () => {
     // defense-in-depth: swallow bind failures (e.g. EADDRINUSE) so an
     // underlying port collision cannot crash the whole process via Node's
@@ -584,6 +627,53 @@ export function startSyncServer(db, { port }) {
       }
 
       try {
+        // pairing_request: unauthenticated, handled before the !ws.deviceId guard.
+        if (msg.type === 'pairing_request') {
+          const { device_id, device_name } = msg
+          if (!isNonEmptyString(device_id) || !isNonEmptyString(device_name)) {
+            sendError(ws)
+            return
+          }
+
+          // Security: rate-limit per device_id to prevent DB flood.
+          const now = Date.now()
+          const lastReq = lastPairingRequestTime.get(device_id)
+          if (lastReq && now - lastReq < PAIRING_RATE_MS) {
+            ws.close()
+            return
+          }
+          lastPairingRequestTime.set(device_id, now)
+
+          // Security: cap total pending connections to prevent Map/WS handle exhaustion.
+          if (pendingPairingConnections.size >= MAX_PENDING_PAIRING) {
+            ws.close()
+            return
+          }
+
+          // RedHat FM3/5/6 recovery: if this device is already authorized on the
+          // Host (e.g. the Client received pairing_approved but failed to persist
+          // it locally, or the WS dropped right after approval), re-deliver
+          // pairing_approved with the stored secret rather than treating this as
+          // a fresh unknown request. This makes the approval idempotent.
+          const existingDevice = db.prepare('SELECT authorized_at, revoked_at, device_secret_identifier FROM devices WHERE id = ?').get(device_id)
+          if (existingDevice && existingDevice.authorized_at && !existingDevice.revoked_at && existingDevice.device_secret_identifier) {
+            send(ws, { type: 'pairing_approved', device_secret_identifier: existingDevice.device_secret_identifier })
+            return
+          }
+
+          // First-time or pending device: upsert without overwriting the name once
+          // it's set (Security MEDIUM-2: prevents name spoofing on a pending device).
+          db.prepare("INSERT OR IGNORE INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run(device_id, device_name)
+          // Only update pairing_status, not the name — the first-seen name wins.
+          db.prepare("UPDATE devices SET pairing_status = 'pending' WHERE id = ? AND (pairing_status IS NULL OR pairing_status = 'pending')").run(device_id)
+
+          pendingPairingConnections.set(device_id, ws)
+          ws.pendingDeviceId = device_id
+          recordAuditEvent(db, { deviceId: device_id, actorUserId: null, action: 'device.pairing_request', outcome: 'allow' })
+          if (typeof onPairingRequest === 'function') onPairingRequest(device_id, device_name)
+          return
+        }
+
         if (msg.type === 'authenticate') {
           handleAuthenticate(db, ws, msg)
           return
@@ -595,6 +685,25 @@ export function startSyncServer(db, { port }) {
         }
 
         if (!ws.deviceId) return
+
+        // renew_token: authenticated only
+        if (msg.type === 'renew_token') {
+          const verified = verifySessionToken(db, msg.token)
+          if (!verified || verified.deviceId !== ws.deviceId || verified.type !== 'camp') {
+            send(ws, { type: 'token_renewal_failed', reason: 'invalid_token' })
+            return
+          }
+          const renewDeviceRow = db.prepare('SELECT authorized_at, revoked_at FROM devices WHERE id = ?').get(ws.deviceId)
+          if (!renewDeviceRow || !renewDeviceRow.authorized_at || renewDeviceRow.revoked_at) {
+            const reason = renewDeviceRow?.revoked_at ? 'device_revoked' : 'device_not_authorized'
+            send(ws, { type: 'token_renewal_failed', reason })
+            if (renewDeviceRow?.revoked_at) ws.close(4404, 'device_revoked')
+            return
+          }
+          const newToken = issueCampToken(db, verified.userId, ws.deviceId)
+          send(ws, { type: 'token_renewed', token: newToken })
+          return
+        }
 
         if (msg.type === 'acquire_lock') {
           if (!validateAcquireLockMsg(msg)) {
@@ -621,6 +730,9 @@ export function startSyncServer(db, { port }) {
     })
 
     ws.on('close', () => {
+      if (ws.pendingDeviceId) {
+        pendingPairingConnections.delete(ws.pendingDeviceId)
+      }
       if (ws.deviceId) {
         try {
           releaseLocksForDevice(db, ws.deviceId)
@@ -638,6 +750,20 @@ export function startSyncServer(db, { port }) {
     close() {
       clearInterval(expiryInterval)
       wss.close()
+    },
+    sendPairingApproved(deviceId, deviceSecretIdentifier) {
+      const ws = pendingPairingConnections.get(deviceId)
+      if (!ws) return false
+      send(ws, { type: 'pairing_approved', device_secret_identifier: deviceSecretIdentifier })
+      pendingPairingConnections.delete(deviceId)
+      return true
+    },
+    sendPairingDenied(deviceId) {
+      const ws = pendingPairingConnections.get(deviceId)
+      if (!ws) return false
+      send(ws, { type: 'pairing_denied' })
+      pendingPairingConnections.delete(deviceId)
+      return true
     },
   }
 }

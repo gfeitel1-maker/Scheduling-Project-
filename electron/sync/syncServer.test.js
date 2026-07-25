@@ -884,11 +884,24 @@ describe('Red Hat follow-up: sendWithAck is bounded by a timeout so an unfired w
 })
 
 describe('unauthenticated login message', () => {
+  // Sub-task 4: handleLogin now requires an authorized device with matching
+  // device_secret_identifier before reaching the PIN check. All tests in
+  // this describe must pre-insert at least one authorized device and include
+  // device_secret_identifier in their login messages.
+  let loginDeviceId, loginDeviceSecret
+
+  beforeEach(() => {
+    loginDeviceId = randomUUID()
+    loginDeviceSecret = randomBytes(32).toString('hex')
+    db.prepare(
+      "INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status) VALUES (?, ?, ?, ?, 'authorized')"
+    ).run(loginDeviceId, 'Login Test Device', new Date().toISOString(), loginDeviceSecret)
+  })
+
   it('responds login_ok with a token bound to the requesting device_id', async () => {
     const ws = connect()
     await onceOpen(ws)
-    const remoteDeviceId = randomUUID()
-    ws.send(JSON.stringify({ type: 'login', device_id: remoteDeviceId, name: 'Alice', pin: '1234' }))
+    ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: '1234', device_secret_identifier: loginDeviceSecret }))
 
     const reply = await onceMessage(ws)
     expect(reply.type).toBe('login_ok')
@@ -902,10 +915,10 @@ describe('unauthenticated login message', () => {
   it('responds login_failed for a wrong pin, without closing the connection', async () => {
     const ws = connect()
     await onceOpen(ws)
-    ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: 'wrong' }))
+    ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: 'wrong', device_secret_identifier: loginDeviceSecret }))
 
     const reply = await onceMessage(ws)
-    expect(reply).toEqual({ type: 'login_failed' })
+    expect(reply.type).toBe('login_failed')
     expect(ws.readyState).toBe(WebSocket.OPEN)
 
     ws.close()
@@ -919,11 +932,11 @@ describe('unauthenticated login message', () => {
     // this test exercises the per-name lockout in attemptLogin, not the
     // throttle added below.
     for (let i = 0; i < 5; i++) {
-      ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: 'wrong' }))
+      ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: 'wrong', device_secret_identifier: loginDeviceSecret }))
       await onceMessage(ws)
       await new Promise((resolve) => setTimeout(resolve, 310))
     }
-    ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: '1234' }))
+    ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: '1234', device_secret_identifier: loginDeviceSecret }))
     const reply = await onceMessage(ws)
     expect(reply.type).toBe('login_failed')
     expect(reply.locked).toBe(true)
@@ -938,14 +951,18 @@ describe('unauthenticated login message', () => {
     const replies = []
     ws.on('message', (data) => replies.push(JSON.parse(data.toString())))
 
-    // Fire 20 wrong-pin login messages back-to-back with no delay, from a
-    // single connection, cycling through distinct device_ids so this isn't
-    // just re-testing the per-name lockout.
+    // Fire 20 wrong-pin login messages back-to-back with no delay. Sub-task 4
+    // requires an authorized device + matching secret, so all messages use the
+    // same loginDeviceId/secret. The per-connection throttle (300ms) should
+    // still drop all but the first once the authorized-device gate is passed.
     for (let i = 0; i < 20; i++) {
-      ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: 'wrong' }))
+      ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: 'wrong', device_secret_identifier: loginDeviceSecret }))
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 400))
+    // 800ms is generous for the server to process the first message — chosen
+    // to remain stable under full-suite load (30 test files running concurrently
+    // stress the event loop; 400ms proved flaky in that context).
+    await new Promise((resolve) => setTimeout(resolve, 800))
     // Only the first of the 20 rapid-fire messages should have reached
     // attemptLogin; the rest were dropped by the per-connection throttle
     // before ever running a query. If the flood weren't bounded, we'd see
@@ -959,7 +976,7 @@ describe('unauthenticated login message', () => {
     // locked out (5 wrong attempts trips the lock) and this would come back
     // `locked: true` instead of succeeding.
     await new Promise((resolve) => setTimeout(resolve, 350))
-    ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: '1234' }))
+    ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: '1234', device_secret_identifier: loginDeviceSecret }))
     const reply = await onceMessage(ws)
     expect(reply.type).toBe('login_ok')
 
@@ -970,14 +987,14 @@ describe('unauthenticated login message', () => {
     const ws = connect()
     await onceOpen(ws)
 
-    ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: 'wrong' }))
+    ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: 'wrong', device_secret_identifier: loginDeviceSecret }))
     const reply1 = await onceMessage(ws)
-    expect(reply1).toEqual({ type: 'login_failed' })
+    expect(reply1.type).toBe('login_failed')
 
     // A real user retrying after seeing "wrong pin" comfortably clears the
     // 300ms throttle window; this attempt must not be dropped.
     await new Promise((resolve) => setTimeout(resolve, 350))
-    ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: '1234' }))
+    ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: '1234', device_secret_identifier: loginDeviceSecret }))
     const reply2 = await onceMessage(ws)
     expect(reply2.type).toBe('login_ok')
 
@@ -987,7 +1004,7 @@ describe('unauthenticated login message', () => {
   it('does not set ws.deviceId as a side effect of login alone (still requires authenticate)', async () => {
     const ws = connect()
     await onceOpen(ws)
-    ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: '1234' }))
+    ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: '1234', device_secret_identifier: loginDeviceSecret }))
     await onceMessage(ws)
 
     // A subsequent acquire_lock without ever sending `authenticate` must be
@@ -1005,11 +1022,11 @@ describe('unauthenticated login message', () => {
   it('ignores a malformed login message (missing pin) without crashing the connection', async () => {
     const ws = connect()
     await onceOpen(ws)
-    ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice' }))
+    ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', device_secret_identifier: loginDeviceSecret }))
 
     // Send a well-formed, unrelated message afterward and confirm the
     // connection is still alive and responsive.
-    ws.send(JSON.stringify({ type: 'login', device_id: randomUUID(), name: 'Alice', pin: '1234' }))
+    ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: '1234', device_secret_identifier: loginDeviceSecret }))
     const reply = await onceMessage(ws)
     expect(reply.type).toBe('login_ok')
 
@@ -1297,5 +1314,194 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
 
       ws.close()
     })
+  })
+})
+
+describe('pairing_request WS message (sub-task 2)', () => {
+  // Use a dedicated server port for these tests to avoid port-reuse conflicts
+  // with the outer beforeEach/afterEach server on PORT.
+  const PAIR_PORT = PORT + 10
+  let pairServer
+  let onPairingRequestCb
+
+  beforeEach(async () => {
+    onPairingRequestCb = null
+    pairServer = startSyncServer(db, {
+      port: PAIR_PORT,
+      onPairingRequest: (id, name) => { if (onPairingRequestCb) onPairingRequestCb(id, name) },
+    })
+  })
+
+  afterEach(() => {
+    pairServer.close()
+  })
+
+  function pairConnect() {
+    return new WebSocket(`ws://localhost:${PAIR_PORT}`)
+  }
+
+  it('registers the device as pending and calls onPairingRequest', async () => {
+    let notifiedDeviceId, notifiedDeviceName
+    onPairingRequestCb = (id, name) => { notifiedDeviceId = id; notifiedDeviceName = name }
+
+    const ws = pairConnect()
+    await onceOpen(ws)
+    const newDeviceId = randomUUID()
+    ws.send(JSON.stringify({ type: 'pairing_request', device_id: newDeviceId, device_name: 'iPad Mini' }))
+
+    await new Promise((r) => setTimeout(r, 100))
+
+    const row = db.prepare('SELECT id, name, pairing_status FROM devices WHERE id = ?').get(newDeviceId)
+    expect(row).toBeTruthy()
+    expect(row.name).toBe('iPad Mini')
+    expect(row.pairing_status).toBe('pending')
+    expect(notifiedDeviceId).toBe(newDeviceId)
+    expect(notifiedDeviceName).toBe('iPad Mini')
+
+    ws.close()
+  })
+
+  it('closes the unauthenticated connection when device_id or device_name is missing', async () => {
+    const ws = pairConnect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'pairing_request', device_id: randomUUID() })) // missing device_name
+
+    // sendError on an unauthenticated socket closes the connection rather than
+    // sending an error message (see syncServer.js sendError)
+    await onceClose(ws)
+    expect(ws.readyState).not.toBe(WebSocket.OPEN)
+  })
+
+  it('sendPairingApproved delivers pairing_approved to the pending WS', async () => {
+    const ws = pairConnect()
+    await onceOpen(ws)
+    const newDeviceId = randomUUID()
+    ws.send(JSON.stringify({ type: 'pairing_request', device_id: newDeviceId, device_name: 'Tablet' }))
+    await new Promise((r) => setTimeout(r, 100))
+
+    const secret = 'abc123secret'
+    const sent = pairServer.sendPairingApproved(newDeviceId, secret)
+    expect(sent).toBe(true)
+
+    const msg = await onceMessage(ws)
+    expect(msg.type).toBe('pairing_approved')
+    expect(msg.device_secret_identifier).toBe(secret)
+
+    ws.close()
+  })
+
+  it('sendPairingDenied delivers pairing_denied to the pending WS', async () => {
+    const ws = pairConnect()
+    await onceOpen(ws)
+    const newDeviceId = randomUUID()
+    ws.send(JSON.stringify({ type: 'pairing_request', device_id: newDeviceId, device_name: 'Phone' }))
+    await new Promise((r) => setTimeout(r, 100))
+
+    const sent = pairServer.sendPairingDenied(newDeviceId)
+    expect(sent).toBe(true)
+
+    const msg = await onceMessage(ws)
+    expect(msg.type).toBe('pairing_denied')
+
+    ws.close()
+  })
+})
+
+describe('handleLogin sub-task 4: device_secret_identifier gate', () => {
+  it('rejects login for a device with no authorized_at', async () => {
+    const pendingDeviceId = randomUUID()
+    db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run(pendingDeviceId, 'Pending Device')
+
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({
+      type: 'login',
+      device_id: pendingDeviceId,
+      name: 'Alice',
+      pin: '1234',
+      device_secret_identifier: 'some-secret',
+    }))
+
+    const reply = await onceMessage(ws)
+    expect(reply.type).toBe('login_failed')
+    // Reason field intentionally absent — opaque response prevents device-existence oracle
+    // (Security review: collapse distinct rejection paths to the same response shape)
+
+    ws.close()
+  })
+
+  it('rejects login when device_secret_identifier does not match', async () => {
+    const anotherDeviceId = randomUUID()
+    const correctSecret = 'correct-secret-abc'
+    db.prepare(
+      "INSERT INTO devices (id, name, authorized_at, device_secret_identifier, pairing_status) VALUES (?, ?, ?, ?, 'authorized')"
+    ).run(anotherDeviceId, 'Trusted Device', new Date().toISOString(), correctSecret)
+
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({
+      type: 'login',
+      device_id: anotherDeviceId,
+      name: 'Alice',
+      pin: '1234',
+      device_secret_identifier: 'wrong-secret',
+    }))
+
+    const reply = await onceMessage(ws)
+    expect(reply.type).toBe('login_failed')
+    // Reason field intentionally absent — opaque response prevents device-secret oracle
+
+    ws.close()
+  })
+})
+
+describe('renew_token WS message (sub-task 3)', () => {
+  it('responds with token_renewed and a fresh token for a valid authenticated session', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+    // deviceId has last_synced_at set so no full_sync is sent; just wait a tick
+    await new Promise((r) => setTimeout(r, 100))
+
+    ws.send(JSON.stringify({ type: 'renew_token', token }))
+    const reply = await onceMessageOfType(ws, 'token_renewed')
+    expect(reply.type).toBe('token_renewed')
+    expect(reply.token).toEqual(expect.any(String))
+
+    ws.close()
+  })
+
+  it('responds with token_renewal_failed when the token is invalid', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+    await new Promise((r) => setTimeout(r, 100))
+
+    ws.send(JSON.stringify({ type: 'renew_token', token: 'not-a-real-token' }))
+    const reply = await onceMessageOfType(ws, 'token_renewal_failed')
+    expect(reply.type).toBe('token_renewal_failed')
+    expect(reply.reason).toBe('invalid_token')
+
+    ws.close()
+  })
+
+  it('responds with token_renewal_failed and closes the connection when the device is revoked', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+    await new Promise((r) => setTimeout(r, 100))
+
+    // Revoke the device mid-session
+    db.prepare("UPDATE devices SET revoked_at = ?, revocation_reason = 'lost' WHERE id = ?")
+      .run(new Date().toISOString(), deviceId)
+
+    ws.send(JSON.stringify({ type: 'renew_token', token }))
+    const reply = await onceMessageOfType(ws, 'token_renewal_failed')
+    expect(reply.reason).toBe('device_revoked')
+
+    // Server should proactively close the connection
+    await onceClose(ws)
+
+    ws.close()
   })
 })

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { localClient } from '../localClient'
 
 const MODE_KEY = 'shoresh-mode'
@@ -33,6 +33,8 @@ export function useDeviceMode() {
   const [camp, setCamp] = useState(null)
   const [error, setError] = useState(null)
   const [initNonce, setInitNonce] = useState(0)
+  const [pairingStatus, setPairingStatus] = useState(null) // null | 'pending' | 'approved' | 'denied'
+  const pairingListenersRegistered = useRef(false)
 
   const refreshCamp = useCallback(async () => {
     const c = await localClient.getCamp()
@@ -51,6 +53,13 @@ export function useDeviceMode() {
           await localClient.chooseMode({ mode: 'host', campName: c.name, port: DEFAULT_HOST_PORT })
         } else if (mode === 'client' && joinHost) {
           await localClient.chooseMode({ mode: 'client', host: joinHost.host, port: joinHost.port })
+          // Check if this device is already paired
+          const pairingInfo = await localClient.getDevicePairingStatus()
+          if (!pairingInfo.isPaired) {
+            setPairingStatus('pending')
+            if (active) setLoading(false)
+            return
+          }
         }
 
         const storedToken = localStorage.getItem(TOKEN_KEY)
@@ -81,6 +90,32 @@ export function useDeviceMode() {
     // from their initial (persisted) values.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initNonce])
+
+  // Register pairing push-event listeners once, on mount
+  useEffect(() => {
+    if (pairingListenersRegistered.current) return
+    pairingListenersRegistered.current = true
+
+    if (localClient.onPairingApproved) {
+      localClient.onPairingApproved(() => {
+        setPairingStatus('approved')
+        setInitNonce((n) => n + 1)
+      })
+    }
+    if (localClient.onPairingDenied) {
+      localClient.onPairingDenied(() => {
+        setPairingStatus('denied')
+      })
+    }
+    if (localClient.onTokenRenewed) {
+      localClient.onTokenRenewed((newToken) => {
+        if (newToken) {
+          localStorage.setItem(TOKEN_KEY, newToken)
+          setToken(newToken)
+        }
+      })
+    }
+  }, [])
 
   const retry = useCallback(() => {
     setError(null)
@@ -152,6 +187,8 @@ export function useDeviceMode() {
   else if (!mode) phase = 'mode-select'
   else if (mode === 'host' && !camp) phase = 'bootstrap'
   else if (mode === 'client' && !joinHost) phase = 'join'
+  else if (mode === 'client' && joinHost && pairingStatus === 'pending') phase = 'pairing_pending'
+  else if (mode === 'client' && joinHost && pairingStatus === 'denied') phase = 'pairing_denied'
   else if (!token) phase = 'login'
   else phase = 'session'
 
@@ -161,6 +198,7 @@ export function useDeviceMode() {
     camp,
     role,
     joinHost,
+    pairingStatus,
     error,
     retry,
     chooseHost,

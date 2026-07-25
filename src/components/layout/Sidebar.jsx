@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { localClient } from '../../localClient'
 
-const NAV = [
+const NAV_BASE = [
   { key: 'setup',        label: 'Camp Setup' },
   { key: 'conflicts',    label: 'Conflicts' },
   { key: 'cohorts',      label: 'Programs' },
@@ -14,7 +14,12 @@ const NAV = [
   { key: 'schedule',     label: 'Schedule', divider: true },
 ]
 
-export default function Sidebar({ current, onNavigate, campId, badges = {} }) {
+const NAV_ADMIN = [
+  { key: 'devices', label: 'Device Manager', divider: true },
+]
+
+export default function Sidebar({ current, onNavigate, campId, role, badges = {} }) {
+  const NAV = role === 'admin' ? [...NAV_BASE, ...NAV_ADMIN] : NAV_BASE
   const [campName, setCampName] = useState('')
 
   useEffect(() => {
