@@ -62,7 +62,7 @@ describe('GroupsScreen', () => {
       if (entity === 'tiers') return Promise.resolve([tier()])
       return Promise.resolve([])
     })
-    render(<GroupsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
     expect(screen.queryByText('Other camp group')).toBeNull()
@@ -72,7 +72,7 @@ describe('GroupsScreen', () => {
 
   it('adding a group writes each field via localClient.write with the token and reloads', async () => {
     localClient.list.mockImplementation((entity) => Promise.resolve(entity === 'tiers' ? [tier()] : []))
-    render(<GroupsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No groups yet')).not.toBeNull())
 
     localClient.list.mockImplementation((entity) =>
@@ -98,7 +98,7 @@ describe('GroupsScreen', () => {
     localClient.list.mockImplementation((entity) =>
       Promise.resolve(entity === 'groups' ? [group()] : [tier()])
     )
-    render(<GroupsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Edit'))
@@ -118,7 +118,7 @@ describe('GroupsScreen', () => {
     localClient.list.mockImplementation((entity) =>
       Promise.resolve(entity === 'groups' ? [group()] : [])
     )
-    render(<GroupsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
 
     localClient.list.mockImplementation(() => Promise.resolve([]))
@@ -133,7 +133,7 @@ describe('GroupsScreen', () => {
       Promise.resolve(entity === 'groups' ? [group()] : [])
     )
     localClient.deleteEntity.mockRejectedValue(new Error('admin role required'))
-    render(<GroupsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete'))
@@ -148,7 +148,7 @@ describe('GroupsScreen', () => {
       Promise.resolve(entity === 'groups' ? [group()] : [])
     )
     localClient.deleteEntity.mockRejectedValue(new Error('network error'))
-    render(<GroupsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete'))
@@ -168,7 +168,7 @@ describe('GroupsScreen', () => {
       if (id === 'g1') return Promise.resolve({ status: 'applied' })
       return Promise.reject(new Error('boom'))
     })
-    render(<GroupsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
@@ -185,7 +185,7 @@ describe('GroupsScreen', () => {
     localClient.list.mockImplementation((entity) =>
       Promise.resolve(entity === 'groups' ? [group({ id: 'g1' })] : [])
     )
-    render(<GroupsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
 
     // Another device synced in g2 between page-load and the click — the
@@ -202,7 +202,7 @@ describe('GroupsScreen', () => {
 
   it('addGroup compensating-deletes the partially-created row when a later field write fails', async () => {
     localClient.list.mockImplementation((entity) => Promise.resolve(entity === 'tiers' ? [tier()] : []))
-    render(<GroupsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No groups yet')).not.toBeNull())
 
     localClient.write.mockImplementation((token, entity, id, field) => {
@@ -225,7 +225,7 @@ describe('GroupsScreen', () => {
 
   it('addGroup writes name first and shows a name-collision message on a UNIQUE failure', async () => {
     localClient.list.mockImplementation((entity) => Promise.resolve(entity === 'tiers' ? [tier()] : []))
-    render(<GroupsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No groups yet')).not.toBeNull())
 
     localClient.write.mockRejectedValue(new Error('UNIQUE constraint failed: groups.camp_id, groups.name'))
@@ -248,7 +248,7 @@ describe('GroupsScreen', () => {
       Promise.resolve(entity === 'groups' ? [group({ id: 'g1' }), group({ id: 'g2', name: 'Second' })] : [])
     )
     localClient.deleteEntity.mockRejectedValue(new Error('admin role required'))
-    render(<GroupsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))

@@ -11,7 +11,7 @@ const POD_OPTIONS = [
   { value: 'evening', label: 'Evening' },
 ]
 
-function BlockRow({ block, onSave, onDelete }) {
+function BlockRow({ block, role, onSave, onDelete }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(block.name)
   const [start, setStart] = useState(block.start_time)
@@ -72,13 +72,18 @@ function BlockRow({ block, onSave, onDelete }) {
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{block.sort_order}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
-        <button onClick={() => onDelete(block.id)} style={{ ...S.btnDanger, marginLeft: 6 }}>Delete</button>
+        <button
+          onClick={() => onDelete(block.id)}
+          disabled={role !== 'admin'}
+          title={role !== 'admin' ? 'Admin only' : undefined}
+          style={role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
+        >Delete</button>
       </td>
     </tr>
   )
 }
 
-export default function TimeBlocksScreen({ campId, onNavigate }) {
+export default function TimeBlocksScreen({ campId, role, onNavigate }) {
   const [blocks, setBlocks] = useState([])
   const [loading, setLoading] = useState(true)
   const [newName, setNewName] = useState('')
@@ -376,7 +381,12 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
           <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
           <button onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button onClick={deleteAll} disabled={!activeCohort} style={S.btnDanger}>Delete All</button>
+          <button
+            onClick={deleteAll}
+            disabled={!activeCohort || role !== 'admin'}
+            title={role !== 'admin' ? 'Admin only' : undefined}
+            style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
+          >Delete All</button>
         </div>
       </div>
 
@@ -407,7 +417,7 @@ export default function TimeBlocksScreen({ campId, onNavigate }) {
                   <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first time block below.</div>
                 </td></tr>
               ) : blocks.map(b => (
-                <BlockRow key={b.id} block={b} onSave={saveBlock} onDelete={deleteBlock} />
+                <BlockRow key={b.id} block={b} role={role} onSave={saveBlock} onDelete={deleteBlock} />
               ))}
             </tbody>
           </table>

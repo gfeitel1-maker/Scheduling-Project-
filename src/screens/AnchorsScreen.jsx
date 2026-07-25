@@ -201,7 +201,7 @@ function Field({ label, children }) {
   )
 }
 
-export default function AnchorsScreen({ campId, onNavigate }) {
+export default function AnchorsScreen({ campId, role, onNavigate }) {
   const [anchors, setAnchors] = useState([])
   const [days, setDays] = useState([])
   const [timeBlocks, setTimeBlocks] = useState([])
@@ -567,7 +567,12 @@ export default function AnchorsScreen({ campId, onNavigate }) {
           <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
           <button onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button onClick={deleteAll} style={S.btnDanger}>Delete All</button>
+          <button
+            onClick={deleteAll}
+            disabled={role !== 'admin'}
+            title={role !== 'admin' ? 'Admin only' : undefined}
+            style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
+          >Delete All</button>
           <button onClick={() => setModal({ anchor: null })} style={S.btnPrimary}>+ Add Anchor</button>
         </div>
       </div>
@@ -606,7 +611,12 @@ export default function AnchorsScreen({ campId, onNavigate }) {
                   <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{anchorTierLabel(a)}</td>
                   <td style={{ ...S.td, textAlign: 'right' }}>
                     <button onClick={() => setModal({ anchor: a })} style={S.btnSecondary}>Edit</button>
-                    <button onClick={() => deleteAnchor(a.id)} style={{ ...S.btnDanger, marginLeft: 6 }}>Delete</button>
+                    <button
+                      onClick={() => deleteAnchor(a.id)}
+                      disabled={role !== 'admin'}
+                      title={role !== 'admin' ? 'Admin only' : undefined}
+                      style={role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
+                    >Delete</button>
                   </td>
                 </tr>
               ))}

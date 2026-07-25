@@ -5,7 +5,7 @@ import { S } from '../styles/shared'
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
-function DayRow({ day, onSave, onDelete }) {
+function DayRow({ day, role, onSave, onDelete }) {
   const [editing, setEditing] = useState(false)
   const [label, setLabel] = useState(day.label)
   const [dow, setDow] = useState(day.day_of_week)
@@ -47,13 +47,18 @@ function DayRow({ day, onSave, onDelete }) {
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{day.sort_order}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
-        <button onClick={() => onDelete(day.id)} style={{ ...S.btnDanger, marginLeft: 6 }}>Delete</button>
+        <button
+          onClick={() => onDelete(day.id)}
+          disabled={role !== 'admin'}
+          title={role !== 'admin' ? 'Admin only' : undefined}
+          style={role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
+        >Delete</button>
       </td>
     </tr>
   )
 }
 
-export default function DaysScreen({ campId, onNavigate }) {
+export default function DaysScreen({ campId, role, onNavigate }) {
   const [days, setDays] = useState([])
   const [loading, setLoading] = useState(true)
   const [newLabel, setNewLabel] = useState('')
@@ -275,7 +280,7 @@ export default function DaysScreen({ campId, onNavigate }) {
               {days.length === 0 ? (
                 <tr><td colSpan={4} style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>No days yet.</td></tr>
               ) : days.map(day => (
-                <DayRow key={day.id} day={day} onSave={saveDay} onDelete={deleteDay} />
+                <DayRow key={day.id} day={day} role={role} onSave={saveDay} onDelete={deleteDay} />
               ))}
             </tbody>
           </table>

@@ -72,7 +72,7 @@ describe('flags round-trips through bulk_replace as a parsed object (Round 2 Fix
         slotRow({ template_id: 'new-id-1', flags: '{"UNFILLABLE":true}' }),
       ],
     })
-    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
     await waitFor(() => expect(screen.getByText('Generate Schedule')).toBeTruthy())
     fireEvent.click(screen.getByText('Generate Schedule'))
@@ -103,7 +103,7 @@ describe('flags round-trips through bulk_replace as a parsed object (Round 2 Fix
 describe('editSlotSave (exercises the shared writeFields primitive)', () => {
   it('success: selecting a different activity and saving writes activity_id and flags, then updates the cell', async () => {
     mockList({ activities: [activity({ id: 'act-1', name: 'Swim' }), activity({ id: 'act-2', name: 'Art' })] })
-    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Swim')).toBeTruthy())
     fireEvent.click(screen.getByText('Swim'))
 
@@ -121,7 +121,7 @@ describe('editSlotSave (exercises the shared writeFields primitive)', () => {
   it('failure: does not silently proceed when the write comes back non-applied — surfaces an error banner and keeps the modal open', async () => {
     mockList({ activities: [activity({ id: 'act-1', name: 'Swim' }), activity({ id: 'act-2', name: 'Art' })] })
     localClient.write.mockResolvedValue({ status: 'rejected' })
-    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Swim')).toBeTruthy())
     fireEvent.click(screen.getByText('Swim'))
 
@@ -143,7 +143,7 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
       activities: [activity({ is_locked: true })],
       template_slots: [slotRow({ is_released: false })],
     })
-    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
     fireEvent.click(screen.getByText('Daily View'))
 
@@ -161,7 +161,7 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
       template_slots: [slotRow({ is_released: false })],
     })
     localClient.write.mockResolvedValue({ status: 'rejected' })
-    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
     fireEvent.click(screen.getByText('Daily View'))
 
@@ -176,7 +176,7 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
   it('generate() failure: a non-admin bulkReplace rejection ("admin role required") is caught and surfaced as a user-visible error, not an unhandled crash (Round 2 Fix 2)', async () => {
     mockList({ schedule_templates: [] })
     localClient.bulkReplace.mockRejectedValue(new Error('admin role required'))
-    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
     await waitFor(() => expect(screen.getByText('Generate Schedule')).toBeTruthy())
     fireEvent.click(screen.getByText('Generate Schedule'))
@@ -193,7 +193,7 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
     mockList({
       template_overlays: [{ id: 'ov-1', template_id: 'tmpl-1', unit_id: 't1', day_id: 'd1', from_block_order: 1, to_block_order: 1, label: 'Field Trip' }],
     })
-    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
     fireEvent.click(screen.getByText('Daily View'))
 
@@ -217,7 +217,7 @@ describe('snapshot CRUD ported to localClient', () => {
     mockList({
       template_slots: [slotRow({ flags: { UNFILLABLE: true } })],
     })
-    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
     fireEvent.click(screen.getByText('📋 Versions ▾'))
@@ -247,7 +247,7 @@ describe('snapshot CRUD ported to localClient', () => {
         { id: 'snap-1', template_id: 'tmpl-1', name: null, is_auto: true, created_at: '2025-12-31T00:00:00.000Z' },
       ],
     })
-    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
     fireEvent.click(screen.getByText('📋 Versions ▾'))
@@ -275,7 +275,7 @@ describe('snapshot CRUD ported to localClient', () => {
       ],
       activities: [activity(), activity({ id: 'act-restored', name: 'Arts & Crafts' })],
     })
-    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
     fireEvent.click(screen.getByText('Daily View'))
 
@@ -301,7 +301,7 @@ describe('snapshot CRUD ported to localClient', () => {
         { id: 'snap-2', template_id: 'tmpl-1', name: 'Corrupt', is_auto: false, created_at: '2025-12-31T00:00:00.000Z', slots: '{not valid json', overlays: '' },
       ],
     })
-    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
     fireEvent.click(screen.getByText('Daily View'))
 
@@ -323,7 +323,7 @@ describe('snapshot CRUD ported to localClient', () => {
       ],
     })
     localClient.write.mockRejectedValue(new Error('network down'))
-    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
     fireEvent.click(screen.getByText('📋 Versions ▾'))
@@ -350,7 +350,7 @@ describe('generate() aborts the destructive wipe when the pre-emptive snapshot f
       template_slots: [slotRow()],
     })
     localClient.write.mockRejectedValue(new Error('write failed'))
-    render(<ScheduleScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
     fireEvent.click(screen.getByText('Regenerate from Scratch'))

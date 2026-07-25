@@ -33,7 +33,7 @@ const SCREENS = {
   schedule:     ScheduleScreen,
 }
 
-function AppShell({ campId, onLogout }) {
+function AppShell({ campId, role, onLogout }) {
   const [screen, setScreen] = useState('setup')
   // Single instance of the pending-conflicts source for this whole shell —
   // both the Sidebar badge count and ConflictsScreen's list read from it, so
@@ -47,8 +47,8 @@ function AppShell({ campId, onLogout }) {
 
   const Screen = SCREENS[screen] || CampSetup
   const screenProps = screen === 'conflicts'
-    ? { campId, onNavigate: setScreen, pendingConflicts }
-    : { campId, onNavigate: setScreen }
+    ? { campId, role, onNavigate: setScreen, pendingConflicts }
+    : { campId, role, onNavigate: setScreen }
 
   return (
     <Shell
@@ -109,5 +109,5 @@ export default function App() {
     return <LoginScreen campName={device.camp?.name} onSubmit={device.login} />
   }
 
-  return <AppShell campId={device.camp?.id} onLogout={device.logout} />
+  return <AppShell campId={device.camp?.id} role={device.role} onLogout={device.logout} />
 }

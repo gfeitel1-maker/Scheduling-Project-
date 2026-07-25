@@ -49,7 +49,7 @@ function normalizeSlots(rows) {
   })
 }
 
-export default function ScheduleScreen({ campId, onNavigate }) {
+export default function ScheduleScreen({ campId, role, onNavigate }) {
   const [groups, setGroups] = useState([])
   const [days, setDays] = useState([])
   const [timeBlocks, setTimeBlocks] = useState([])
@@ -841,6 +841,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
             <VersionsDropdown
               snapshots={snapshots}
               isOpen={showVersions}
+              role={role}
               onToggle={() => setShowVersions(v => !v)}
               onRestore={restoreSnapshot}
               onSaveNamed={name => { saveSnapshot(name, false).catch(() => {}) }}
@@ -873,17 +874,32 @@ export default function ScheduleScreen({ campId, onNavigate }) {
             </button>
 
             <button onClick={() => exportToExcel({ slots, activities, anchors, groups, days, timeBlocks })} style={S.btnSecondary}>Export to Excel</button>
-            <button onClick={() => setConfirmRegen(true)} style={S.btnDanger}>Regenerate from Scratch</button>
+            <button
+              onClick={() => setConfirmRegen(true)}
+              disabled={role !== 'admin'}
+              title={role !== 'admin' ? 'Admin only' : undefined}
+              style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
+            >Regenerate from Scratch</button>
           </>
         )}
 
         {!hasSchedule && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <button onClick={generate} disabled={generating} style={{ ...S.btnPrimary, padding: '10px 24px', fontSize: 14 }}>
+            <button
+              onClick={generate}
+              disabled={generating || role !== 'admin'}
+              title={role !== 'admin' ? 'Admin only' : undefined}
+              style={role !== 'admin' ? { ...S.btnPrimary, padding: '10px 24px', fontSize: 14, ...S.buttonDisabled } : { ...S.btnPrimary, padding: '10px 24px', fontSize: 14 }}
+            >
               {generating ? 'Generating…' : 'Generate Schedule'}
             </button>
             <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>or</span>
-            <button onClick={placeAnchors} disabled={generating} style={{ ...S.btnSecondary, padding: '10px 24px', fontSize: 14 }}>
+            <button
+              onClick={placeAnchors}
+              disabled={generating || role !== 'admin'}
+              title={role !== 'admin' ? 'Admin only' : undefined}
+              style={role !== 'admin' ? { ...S.btnSecondary, padding: '10px 24px', fontSize: 14, ...S.buttonDisabled } : { ...S.btnSecondary, padding: '10px 24px', fontSize: 14 }}
+            >
               Build Manually
             </button>
           </div>
@@ -1062,6 +1078,7 @@ export default function ScheduleScreen({ campId, onNavigate }) {
       {/* Regen confirm */}
       {confirmRegen && (
         <ConfirmRegenModal
+          role={role}
           onConfirm={regenFromScratch}
           onCancel={() => setConfirmRegen(false)}
         />

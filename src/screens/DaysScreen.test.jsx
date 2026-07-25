@@ -48,7 +48,7 @@ describe('DaysScreen', () => {
       day({ id: 'd-other', label: 'Wrong Camp', camp_id: 'other-camp' }),
     ])
 
-    render(<DaysScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
     await waitFor(() => expect(screen.queryByText('2 days')).not.toBeNull())
     expect(localClient.list).toHaveBeenCalledWith('days_of_operation')
@@ -61,7 +61,7 @@ describe('DaysScreen', () => {
 
   it('adds a day by writing each field via localClient.write, label first', async () => {
     localClient.list.mockResolvedValue([])
-    render(<DaysScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
 
     fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Wednesday' } })
@@ -80,7 +80,7 @@ describe('DaysScreen', () => {
       if (field === 'sort_order') return Promise.resolve({ status: 'rejected' })
       return Promise.resolve({ status: 'applied' })
     })
-    render(<DaysScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
 
     fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Thursday' } })
@@ -92,7 +92,7 @@ describe('DaysScreen', () => {
 
   it('deletes a day via localClient.deleteEntity after confirm', async () => {
     localClient.list.mockResolvedValue([day()])
-    render(<DaysScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete'))
@@ -105,7 +105,7 @@ describe('DaysScreen', () => {
   it('shows an admin-role-specific error when delete is rejected for a non-admin', async () => {
     localClient.list.mockResolvedValue([day()])
     localClient.deleteEntity.mockRejectedValue(new Error('admin role required'))
-    render(<DaysScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete'))
@@ -115,7 +115,7 @@ describe('DaysScreen', () => {
 
   it('shows a load-failure banner when localClient.list rejects', async () => {
     localClient.list.mockRejectedValue(new Error('boom'))
-    render(<DaysScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() =>
       expect(screen.queryByText(/Failed to load data/)).not.toBeNull()
     )

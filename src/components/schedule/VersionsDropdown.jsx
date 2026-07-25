@@ -13,7 +13,8 @@ function formatTime(isoString) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + timeStr
 }
 
-export default function VersionsDropdown({ snapshots, isOpen, onToggle, onRestore, onSaveNamed, onRenameAutoSave }) {
+export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, onRestore, onSaveNamed, onRenameAutoSave }) {
+  const isAdmin = role === 'admin'
   const [nameInput, setNameInput] = useState('')
   const [renamingId, setRenamingId] = useState(null)
   const [renameValue, setRenameValue] = useState('')
@@ -129,7 +130,9 @@ export default function VersionsDropdown({ snapshots, isOpen, onToggle, onRestor
                   {!isCurrent && !isRenaming && (
                     <button
                       onClick={() => { onRestore(snap); onToggle() }}
-                      style={{ fontSize: 11, fontWeight: 700, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', padding: '3px 6px', borderRadius: 5, fontFamily: 'inherit' }}
+                      disabled={!isAdmin}
+                      title={!isAdmin ? 'Admin only' : undefined}
+                      style={{ fontSize: 11, fontWeight: 700, color: isAdmin ? 'var(--primary)' : 'var(--text-secondary)', background: 'none', border: 'none', cursor: isAdmin ? 'pointer' : 'not-allowed', padding: '3px 6px', borderRadius: 5, fontFamily: 'inherit', opacity: isAdmin ? 1 : 0.6 }}
                     >
                       Restore
                     </button>

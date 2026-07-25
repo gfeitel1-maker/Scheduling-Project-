@@ -237,7 +237,7 @@ function Field({ label, children }) {
   )
 }
 
-export default function ActivitiesScreen({ campId, onNavigate }) {
+export default function ActivitiesScreen({ campId, role, onNavigate }) {
   const [activities, setActivities] = useState([])
   const [tiers, setTiers] = useState([])
   const [groups, setGroups] = useState([])
@@ -349,7 +349,7 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
-          ? 'Only an admin can delete activities.'
+          ? "You don't have permission to do this."
           : 'Failed to delete activity — check your connection and try again'
       )
     }
@@ -566,7 +566,12 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
           <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
           <button onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button onClick={deleteAll} style={S.btnDanger}>Delete All</button>
+          <button
+            onClick={deleteAll}
+            disabled={role !== 'admin'}
+            title={role !== 'admin' ? 'Admin only' : undefined}
+            style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
+          >Delete All</button>
           <button onClick={() => setModal({ activity: null })} style={S.btnPrimary}>+ Add Activity</button>
         </div>
       </div>
@@ -616,7 +621,12 @@ export default function ActivitiesScreen({ campId, onNavigate }) {
                         <td style={{ ...S.td, textAlign: 'right' }}>
                           <button onClick={() => setModal({ activity: a })} style={S.btnSecondary}>Edit</button>
                           <button onClick={() => duplicateActivity(a)} style={{ ...S.btnSecondary, marginLeft: 6 }}>Duplicate</button>
-                          <button onClick={() => deleteActivity(a.id)} style={{ ...S.btnDanger, marginLeft: 6 }}>Delete</button>
+                          <button
+                            onClick={() => deleteActivity(a.id)}
+                            disabled={role !== 'admin'}
+                            title={role !== 'admin' ? 'Admin only' : undefined}
+                            style={role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
+                          >Delete</button>
                         </td>
                       </tr>
                     ))}

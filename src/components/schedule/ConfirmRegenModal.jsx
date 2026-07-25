@@ -1,7 +1,8 @@
 import React from 'react'
 import { S } from '../../styles/shared'
 
-export default function ConfirmRegenModal({ onConfirm, onCancel }) {
+export default function ConfirmRegenModal({ role, onConfirm, onCancel }) {
+  const isAdmin = role === 'admin'
   return (
     <div style={S.overlay}>
       <div style={{ ...S.modalLg, maxWidth: 400 }}>
@@ -11,7 +12,12 @@ export default function ConfirmRegenModal({ onConfirm, onCancel }) {
         </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
           <button onClick={onCancel} style={S.btnSecondary}>Cancel</button>
-          <button onClick={onConfirm} style={S.btnDanger}>Yes, Regenerate</button>
+          <button
+            onClick={onConfirm}
+            disabled={!isAdmin}
+            title={!isAdmin ? 'Admin only' : undefined}
+            style={!isAdmin ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
+          >Yes, Regenerate</button>
         </div>
       </div>
     </div>

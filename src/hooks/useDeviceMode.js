@@ -3,6 +3,7 @@ import { localClient } from '../localClient'
 
 const MODE_KEY = 'shoresh-mode'
 const TOKEN_KEY = 'shoresh-token'
+const ROLE_KEY = 'shoresh-role'
 const JOIN_HOST_KEY = 'shoresh-join-host'
 const DEFAULT_HOST_PORT = 7777
 
@@ -23,6 +24,12 @@ export function useDeviceMode() {
   const [mode, setMode] = useState(() => localStorage.getItem(MODE_KEY))
   const [joinHost, setJoinHost] = useState(() => readJSON(JOIN_HOST_KEY))
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY))
+  // Persisted alongside the token (same lifecycle: set on login, cleared on
+  // logout/invalid-session) rather than re-fetched via verifySession on every
+  // reload — avoids an extra state where a valid token exists but role is
+  // briefly unknown, and mirrors how token itself is trusted-but-unverified
+  // until verifySession confirms it below.
+  const [role, setRole] = useState(() => localStorage.getItem(ROLE_KEY))
   const [camp, setCamp] = useState(null)
   const [error, setError] = useState(null)
   const [initNonce, setInitNonce] = useState(0)
@@ -52,7 +59,12 @@ export function useDeviceMode() {
           if (!active) return
           if (!result || !result.valid) {
             localStorage.removeItem(TOKEN_KEY)
+            localStorage.removeItem(ROLE_KEY)
             setToken(null)
+            setRole(null)
+          } else if (result.role) {
+            localStorage.setItem(ROLE_KEY, result.role)
+            setRole(result.role)
           }
         }
 
@@ -113,12 +125,18 @@ export function useDeviceMode() {
       localStorage.setItem(TOKEN_KEY, result.token)
       setToken(result.token)
     }
+    if (result && result.role) {
+      localStorage.setItem(ROLE_KEY, result.role)
+      setRole(result.role)
+    }
     return result
   }, [])
 
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(ROLE_KEY)
     setToken(null)
+    setRole(null)
   }, [])
 
   const backToModeSelect = useCallback(() => {
@@ -141,6 +159,7 @@ export function useDeviceMode() {
     phase,
     mode,
     camp,
+    role,
     joinHost,
     error,
     retry,

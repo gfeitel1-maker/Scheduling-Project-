@@ -5,7 +5,7 @@ import { S } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 
-function TierRow({ tier, groupCount, onSave, onDelete }) {
+function TierRow({ tier, groupCount, role, onSave, onDelete }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(tier.name)
   const [sortOrder, setSortOrder] = useState(tier.sort_order)
@@ -67,16 +67,17 @@ function TierRow({ tier, groupCount, onSave, onDelete }) {
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{groupCount}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
-        <button onClick={() => onDelete(tier.id)} style={{ ...S.btnDanger, marginLeft: 6 }}
-          disabled={groupCount > 0}
-          title={groupCount > 0 ? 'Remove groups from this unit first' : ''}
+        <button onClick={() => onDelete(tier.id)}
+          style={groupCount > 0 || role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
+          disabled={groupCount > 0 || role !== 'admin'}
+          title={groupCount > 0 ? 'Remove groups from this unit first' : role !== 'admin' ? 'Admin only' : ''}
         >Delete</button>
       </td>
     </tr>
   )
 }
 
-export default function TiersScreen({ campId, onNavigate }) {
+export default function TiersScreen({ campId, role, onNavigate }) {
   const [tiers, setTiers] = useState([])
   const [groupCounts, setGroupCounts] = useState({})
   const [loading, setLoading] = useState(true)
@@ -368,7 +369,12 @@ export default function TiersScreen({ campId, onNavigate }) {
           <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
           <button onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button onClick={deleteAll} disabled={!activeCohort} style={S.btnDanger}>Delete All</button>
+          <button
+            onClick={deleteAll}
+            disabled={!activeCohort || role !== 'admin'}
+            title={role !== 'admin' ? 'Admin only' : undefined}
+            style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
+          >Delete All</button>
         </div>
       </div>
 
@@ -402,6 +408,7 @@ export default function TiersScreen({ campId, onNavigate }) {
                   key={tier.id}
                   tier={tier}
                   groupCount={groupCounts[tier.id] || 0}
+                  role={role}
                   onSave={saveTier}
                   onDelete={deleteTier}
                 />

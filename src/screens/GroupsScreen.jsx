@@ -9,7 +9,7 @@ const AVAIL_OPTIONS = [
   { value: 'afternoon', label: 'Afternoon Only' },
 ]
 
-function GroupRow({ group, tiers, onSave, onDelete }) {
+function GroupRow({ group, tiers, role, onSave, onDelete }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(group.name)
   const [tierId, setTierId] = useState(group.tier_id || '')
@@ -59,13 +59,18 @@ function GroupRow({ group, tiers, onSave, onDelete }) {
       <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{AVAIL_OPTIONS.find(o => o.value === group.availability)?.label || group.availability}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
-        <button onClick={() => onDelete(group.id)} style={{ ...S.btnDanger, marginLeft: 6 }}>Delete</button>
+        <button
+          onClick={() => onDelete(group.id)}
+          disabled={role !== 'admin'}
+          title={role !== 'admin' ? 'Admin only' : undefined}
+          style={role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
+        >Delete</button>
       </td>
     </tr>
   )
 }
 
-export default function GroupsScreen({ campId, onNavigate }) {
+export default function GroupsScreen({ campId, role, onNavigate }) {
   const [groups, setGroups] = useState([])
   const [tiers, setTiers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -334,7 +339,12 @@ export default function GroupsScreen({ campId, onNavigate }) {
           <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
           <button onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button onClick={deleteAll} style={S.btnDanger}>Delete All</button>
+          <button
+            onClick={deleteAll}
+            disabled={role !== 'admin'}
+            title={role !== 'admin' ? 'Admin only' : undefined}
+            style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
+          >Delete All</button>
         </div>
       </div>
 
@@ -370,7 +380,7 @@ export default function GroupsScreen({ campId, onNavigate }) {
                           </td>
                         </tr>
                         {tierGroups.map(g => (
-                          <GroupRow key={g.id} group={g} tiers={tiers} onSave={saveGroup} onDelete={deleteGroup} />
+                          <GroupRow key={g.id} group={g} tiers={tiers} role={role} onSave={saveGroup} onDelete={deleteGroup} />
                         ))}
                       </React.Fragment>
                     )
@@ -383,7 +393,7 @@ export default function GroupsScreen({ campId, onNavigate }) {
                         </td>
                       </tr>
                       {noTier.map(g => (
-                        <GroupRow key={g.id} group={g} tiers={tiers} onSave={saveGroup} onDelete={deleteGroup} />
+                        <GroupRow key={g.id} group={g} tiers={tiers} role={role} onSave={saveGroup} onDelete={deleteGroup} />
                       ))}
                     </>
                   )}

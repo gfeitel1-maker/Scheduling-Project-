@@ -272,7 +272,7 @@ function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
   )
 }
 
-export default function DayOverridesScreen({ campId }) {
+export default function DayOverridesScreen({ campId, role }) {
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null) // null | { template: obj|null }
@@ -392,7 +392,12 @@ export default function DayOverridesScreen({ campId }) {
                   </td>
                   <td style={{ ...S.td, textAlign: 'right' }}>
                     <button onClick={() => setModal({ template: t })} style={S.btnSecondary}>Edit</button>
-                    <button onClick={() => deleteTemplate(t.id)} style={{ ...S.btnDanger, marginLeft: 6 }}>Delete</button>
+                    <button
+                      onClick={() => deleteTemplate(t.id)}
+                      disabled={role !== 'admin'}
+                      title={role !== 'admin' ? 'Admin only' : undefined}
+                      style={role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
+                    >Delete</button>
                   </td>
                 </tr>
               ))}

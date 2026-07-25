@@ -22,6 +22,10 @@ export const S = {
     cursor: 'pointer',
     fontFamily: 'inherit',
   },
+  buttonDisabled: {
+    opacity: 0.45,
+    cursor: 'not-allowed',
+  },
   btnDanger: {
     padding: '7px 14px',
     background: 'none',
