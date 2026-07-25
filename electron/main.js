@@ -8,8 +8,9 @@ import { createUser, issueSessionToken, verifySessionToken, attemptLogin } from 
 import { startSyncServer } from './sync/syncServer.js'
 import { createSyncClient } from './sync/syncClient.js'
 import { advertiseHost, discoverHosts } from './sync/discovery.js'
-import { listPendingConflicts, DELETE_FIELD } from './ops/operations.js'
+import { listPendingConflicts } from './ops/operations.js'
 import { authorize } from './auth/authorize.js'
+import { deriveWriteAction, deriveBulkReplaceAction } from './auth/deriveWriteAction.js'
 
 const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 
@@ -331,14 +332,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     // - everything else -> '<entity>.write', staff+admin per the matrix —
     //   this is the ordinary field-write path that was always ungated for
     //   both roles; authorize() now makes that explicit instead of implicit.
-    let action
-    if (writeArgs.field === DELETE_FIELD) {
-      action = `${writeArgs.entity}.delete`
-    } else if (writeArgs.entity === 'camps' && writeArgs.field === 'name') {
-      action = 'camps.rename'
-    } else {
-      action = `${writeArgs.entity}.write`
-    }
+    const action = deriveWriteAction({ entity: writeArgs.entity, field: writeArgs.field })
     const { userId } = requireAuthorized(db, { token, action })
     if (!syncClient) {
       throw new Error('sync not initialized — choose a mode first')
@@ -357,7 +351,7 @@ export function makeHandlers(db, deviceId, { getMainWindow } = {}) {
     }
     // '<entity>.bulk_replace', admin-only for every entity — matches the
     // whole-handler admin gate this replaces exactly.
-    const { userId } = requireAuthorized(db, { token, action: `${entity}.bulk_replace` })
+    const { userId } = requireAuthorized(db, { token, action: deriveBulkReplaceAction(entity) })
     if (!syncClient) {
       throw new Error('sync not initialized — choose a mode first')
     }

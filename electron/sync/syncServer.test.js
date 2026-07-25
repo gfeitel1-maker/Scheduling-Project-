@@ -927,3 +927,136 @@ describe('unauthenticated login message', () => {
     ws.close()
   })
 })
+
+describe('WS authorize() gating (Phase 2 Task 3)', () => {
+  // The IPC layer's authorize() gates (Task 2) only protect the renderer/
+  // IPC path. A device connecting directly to this Host's WebSocket
+  // listener with a staff token must be gated identically, or the WS
+  // listener is a wide-open bypass of the IPC-layer checks.
+  let staffToken, staffDeviceId
+
+  beforeEach(async () => {
+    staffDeviceId = randomUUID()
+    db.prepare('INSERT INTO devices (id, name, last_synced_at) VALUES (?, ?, ?)').run(
+      staffDeviceId,
+      'Staff Device',
+      new Date().toISOString()
+    )
+    const staffUser = await createUser(
+      db,
+      { camp_id: campId, name: 'Bob', pin: '5678', role: 'staff' },
+      async ({ entity, entity_id, field, value }) => {
+        const op = appendOp(db, {
+          entity,
+          entity_id,
+          field,
+          value,
+          author_user_id: null,
+          device_id: staffDeviceId,
+          parent_op_id: null,
+        })
+        return { status: 'applied', op }
+      }
+    )
+    staffToken = issueSessionToken(db, staffUser.id, staffDeviceId)
+  })
+
+  it('denies a staff device submit_bulk_replace_op (admin-only action)', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token: staffToken, device_id: staffDeviceId }))
+
+    ws.send(
+      JSON.stringify({
+        type: 'submit_bulk_replace_op',
+        op: { entity: 'template_slots', scope_id: 'scope1', rows: [] },
+      })
+    )
+    const reply = await onceMessage(ws)
+    expect(reply.type).toBe('error')
+
+    ws.close()
+  })
+
+  it('denies a staff device submit_op with DELETE_FIELD (admin-only delete)', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token: staffToken, device_id: staffDeviceId }))
+
+    ws.send(
+      JSON.stringify({
+        type: 'submit_op',
+        op: {
+          entity: 'template_slots',
+          entity_id: 's1',
+          field: '__deleted__',
+          value: null,
+          parent_op_id: null,
+        },
+      })
+    )
+    const reply = await onceMessage(ws)
+    expect(reply.type).toBe('error')
+
+    ws.close()
+  })
+
+  it('allows a staff device an ordinary submit_op write', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token: staffToken, device_id: staffDeviceId }))
+
+    ws.send(
+      JSON.stringify({
+        type: 'submit_op',
+        op: {
+          entity: 'template_slots',
+          entity_id: 's1',
+          field: 'activity_id',
+          value: 'act1',
+          parent_op_id: null,
+        },
+      })
+    )
+    const reply = await onceMessage(ws)
+    expect(reply.type).toBe('op_applied')
+
+    ws.close()
+  })
+
+  it('denies a staff device acquire_lock on an admin-only write action (camps.name)', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token: staffToken, device_id: staffDeviceId }))
+
+    ws.send(
+      JSON.stringify({
+        type: 'acquire_lock',
+        entity: 'camps',
+        entity_id: campId,
+        field: 'name',
+      })
+    )
+    const reply = await onceMessage(ws)
+    expect(reply.type).toBe('error')
+
+    ws.close()
+  })
+
+  it('rejects submit_op/acquire_lock/submit_bulk_replace_op for a socket that never authenticated (no ws.token to authorize with)', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(
+      JSON.stringify({
+        type: 'submit_op',
+        op: { entity: 'template_slots', entity_id: 's1', field: 'activity_id', value: 'x', parent_op_id: null },
+      })
+    )
+    let gotReply = false
+    ws.once('message', () => { gotReply = true })
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    expect(gotReply).toBe(false)
+
+    ws.close()
+  })
+})

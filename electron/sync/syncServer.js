@@ -9,6 +9,8 @@ import {
   appendBulkReplaceOp,
   detectBulkReplaceConflict,
 } from '../ops/operations.js'
+import { authorize } from '../auth/authorize.js'
+import { deriveWriteAction, deriveBulkReplaceAction } from '../auth/deriveWriteAction.js'
 
 // Task 10 round-5 Fix 4: report success/failure back to the caller instead
 // of unconditionally swallowing it. sendMissedOps needs this to know exactly
@@ -207,6 +209,13 @@ function handleAuthenticate(db, ws, msg) {
   }
   ws.deviceId = verified.deviceId
   ws.userId = verified.userId
+  // Stored so later authorize() calls on this connection (acquire_lock,
+  // submit_op, submit_bulk_replace_op) can re-verify via the SAME
+  // already-authenticated session token, never a client-claimed field from
+  // a later message body. authorize()'s "always re-verify via
+  // verifySessionToken" guarantee (electron/auth/authorize.js) requires a
+  // real token, not just the derived userId/deviceId already set above.
+  ws.token = msg.token
 
   // Self-register this device on the Host if it has never been seen before.
   // Without this, a genuinely new device connecting for the first time has no
@@ -308,7 +317,28 @@ function validateSubmitBulkReplaceMsg(msg) {
   return true
 }
 
+// This is the actual network trust boundary for a Host process — any device
+// that has completed the `authenticate` handshake can otherwise reach these
+// handlers directly over the WS listener, bypassing the renderer/IPC path
+// entirely. authorize() is called with THIS connection's already-verified
+// ws.token (set in handleAuthenticate from the authenticate message's own
+// token, itself already verified via verifySessionToken during the
+// handshake) — never from a client-claimed field inside the mutating
+// message body (e.g. msg.op.device_id) — so a staff-role device cannot
+// forge a different identity by lying in submit_op/acquire_lock payloads.
+function authorizeWs(db, ws, action) {
+  return authorize({ db, token: ws.token, action })
+}
+
 function handleAcquireLock(db, ws, msg) {
+  // Per the ADR's WS table: a lock is acquired as a precondition to a write
+  // on that entity/field, so it reuses the entity's write action rather
+  // than an independent locks.* privilege.
+  const action = deriveWriteAction({ entity: msg.entity, field: msg.field })
+  if (!authorizeWs(db, ws, action).allowed) {
+    sendError(ws)
+    return
+  }
   const result = acquireLock(db, {
     entity: msg.entity,
     entity_id: msg.entity_id,
@@ -319,6 +349,11 @@ function handleAcquireLock(db, ws, msg) {
 }
 
 function handleSubmitOp(db, wss, ws, msg) {
+  const action = deriveWriteAction({ entity: msg.op.entity, field: msg.op.field })
+  if (!authorizeWs(db, ws, action).allowed) {
+    sendError(ws)
+    return
+  }
   const incomingOp = { ...msg.op, device_id: ws.deviceId }
 
   // Task 10 round-5 Fix 3: idempotency-at-the-logical-write-level. If a
@@ -405,6 +440,11 @@ function handleSubmitOp(db, wss, ws, msg) {
 // substitute for it.
 function handleSubmitBulkReplaceOp(db, wss, ws, msg) {
   const { entity, scope_id, rows, client_write_id, based_on_seq } = msg.op
+
+  if (!authorizeWs(db, ws, deriveBulkReplaceAction(entity)).allowed) {
+    sendError(ws)
+    return
+  }
 
   if (client_write_id) {
     const already = findOpByClientWriteId(db, client_write_id)
