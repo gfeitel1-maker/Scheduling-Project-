@@ -14,6 +14,17 @@ import { run as scenario04 } from './scenarios/04-conflict.js'
 import { run as scenario05 } from './scenarios/05-revocation.js'
 import { run as scenario06 } from './scenarios/06-catchup.js'
 import { run as scenario07 } from './scenarios/07-pairing-reconnect.js'
+import { run as scenario08 } from './scenarios/08-different-field-merge.js'
+import { run as scenario09 } from './scenarios/09-idempotency-ordering.js'
+import { run as scenario10 } from './scenarios/10-lock-expiry.js'
+import { run as scenario11 } from './scenarios/11-snapshot-restore.js'
+import { run as scenario12 } from './scenarios/12-schema-migration.js'
+import { run as scenario13 } from './scenarios/13-host-crash-mid-sync.js'
+import { run as scenario14 } from './scenarios/14-corrupt-payload.js'
+
+// Deferred scenarios (not yet implemented):
+//   15 – clock skew: op timestamps diverge between host and client clock
+//   16 – role changes: user role updated while client is mid-session
 
 const SCENARIOS = [
   { name: '01 bootstrap + first sync', fn: scenario01 },
@@ -23,6 +34,13 @@ const SCENARIOS = [
   { name: '05 revoked device → 4404', fn: scenario05 },
   { name: '06 catchup from watermark', fn: scenario06 },
   { name: '07 mid-pairing reconnect loop', fn: scenario07 },
+  { name: '08 different-field edits merge (no conflict)', fn: scenario08 },
+  { name: '09 idempotency + out-of-order messages', fn: scenario09 },
+  { name: '10 lock expiry (disconnect + timeout)', fn: scenario10 },
+  { name: '11 pre-merge snapshot restores', fn: scenario11 },
+  { name: '12 schema migration with pending writes', fn: scenario12 },
+  { name: '13 host crash mid-sync + resume', fn: scenario13 },
+  { name: '14 corrupt payload rejected transactionally', fn: scenario14 },
 ]
 
 const PASS = '\x1b[32mPASS\x1b[0m'

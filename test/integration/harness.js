@@ -376,6 +376,16 @@ export class Client {
     this.db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, name)
   }
 
+  /**
+   * Send a raw JSON object over the underlying WS connection. Test-only.
+   * Use this to inject malformed or out-of-protocol messages for negative tests.
+   */
+  sendRawMessage(payload) {
+    const ws = this.syncClient.__getWs()
+    if (!ws) throw new Error('No WS connection')
+    ws.send(JSON.stringify(payload))
+  }
+
   /** Full teardown. */
   close() { this.closeDb() }
 }
