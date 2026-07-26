@@ -26,10 +26,38 @@ You define the rules: groups, tiers, time blocks, activities, anchors, and const
 ## Architecture
 
 Shoresh is a local-first desktop app built on Electron and SQLite. Each device runs its own
-database; one device acts as a LAN "Host" that other "Client" devices sync with over a local
-WebSocket connection (no cloud backend, no internet dependency required for day-to-day use).
-See [`CLAUDE.md`](CLAUDE.md) and [`PLATFORM_STATE.md`](PLATFORM_STATE.md) for the full
-architecture description.
+SQLite database. One device acts as the LAN "Host" — it runs a WebSocket server and is the
+authoritative source of truth. Other devices are "Clients" that discover the Host via mDNS
+and sync over the local network (`ws://`). There is no cloud backend, no Postgres, no
+Supabase — everything lives on-device.
+
+Device access is gated by a pairing flow: a new Client sends a `pairing_request` over the
+WebSocket; an admin approves it in the Device Manager screen; the Host mints a
+`device_secret_identifier` for that device. After pairing, a Client's offline sessions are
+backed by a local HMAC token; online sessions use a Host-minted Ed25519 camp token.
+
+See [`PLATFORM_STATE.md`](PLATFORM_STATE.md) for the full architecture, screen inventory,
+and database schema. See [`SECURITY.md`](SECURITY.md) for the security model and known
+limitations.
+
+## Security model
+
+Shoresh is designed for a **trusted private LAN** — a known group of collaborators on a
+network they control (camp office Wi-Fi, a direct switch, etc.).
+
+- **Device pairing gate**: every new device must be explicitly approved by an admin before
+  it can sync or log in.
+- **Ed25519 camp tokens**: session tokens for network use are signed exclusively by the
+  Host's private key (Ed25519). Clients can verify but never mint them.
+- **Device-scoped local tokens**: offline Client sessions use a per-device HMAC secret
+  (`device_secret_identifier`) minted at pairing time.
+- **Centralized `authorize()`**: every mutating IPC and WebSocket handler calls a single
+  authorization primitive that re-derives the user's role from the database on every call.
+- **Audit log**: auth events and denied calls are written to the `audit_events` table.
+
+**This system is not designed for public internet hosting, open Wi-Fi, or enterprise
+identity requirements.** See `SECURITY.md` for explicit limitations and things that are
+deliberately out of scope.
 
 ## Status
 

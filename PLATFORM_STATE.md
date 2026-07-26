@@ -1,6 +1,6 @@
 # Shoresh — Platform State
 
-_Last updated: 2026-07-25_
+_Last updated: 2026-07-26_
 
 ---
 
@@ -23,7 +23,7 @@ _Last updated: 2026-07-25_
 
 Two nested state machines, no router:
 
-1. **Device/session phase** — `src/hooks/useDeviceMode.js` derives a `phase` from local state (`error` → `loading` → `mode-select` → `bootstrap`/`join` → `login` → `session`). `src/App.jsx`'s top-level `App()` switches on `device.phase` to render one of: `ModeSelectScreen`, `CampBootstrapScreen` (Host: create a new camp), `JoinScreen` (Client: pick a discovered Host), `LoginScreen`, or the full `AppShell`.
+1. **Device/session phase** — `src/hooks/useDeviceMode.js` derives a `phase` from local state (`error` → `loading` → `mode-select` → `bootstrap`/`join` → `pairing_pending` → `pairing_denied` → `login` → `session`). `src/App.jsx`'s top-level `App()` switches on `device.phase` to render one of: `ModeSelectScreen`, `CampBootstrapScreen` (Host: create a new camp), `JoinScreen` (Client: pick a discovered Host), `PairingPendingScreen` (Client: waiting for admin approval), `LoginScreen`, or the full `AppShell`. `pairing_denied` renders an inline error state in `PairingPendingScreen`.
 2. **In-app screen** — once in a session, `AppShell` (`src/App.jsx`) holds a `screen` string in `useState`, looked up in the `SCREENS` map and passed down through `Shell` → `Sidebar` (`src/components/layout/`). `campId` and an `onNavigate` (`setScreen`) callback are threaded as props into every screen — no context, no router.
 
 All Electron/SQLite calls from the renderer go through `window.shoresh.*` (see `electron/preload.js`), backed by IPC handlers in `electron/main.js`: `chooseMode`, `discoverHosts`, `login`, `createUser`, `bootstrapCamp`, `write`, `bulkReplace` (new, see below), `verifySession`, `getCamp`, `listUsers`, `list`, `getDeviceId`, `resolveConflict`, `listPendingConflicts`, plus push events `onOpApplied`/`onOpConflict`. `src/localClient.js` wraps every one of these (`write`, `bulkReplace`, `deleteEntity`, `list`, etc.) — screens must always go through `localClient`, never call `window.shoresh` directly.
@@ -36,11 +36,35 @@ All Electron/SQLite calls from the renderer go through `window.shoresh.*` (see `
 
 Local, PIN-based, per-camp — not Supabase Auth (see architecture note above).
 
-- Each camp has an HMAC-SHA256 **shared signing secret** (`camps.signing_secret`, hex-encoded 32 random bytes), generated once at camp bootstrap (`bootstrapCamp` in `electron/main.js`) and replicated to every device via full-sync. This lets any device — Host or Client — locally issue and verify session tokens offline once it has synced, without a shared per-device secret. (See [Camp Signing Secret](project_camp_signing_secret_fix.md) for the bug this fixed.)
-- `electron/auth/localAuth.js`: `attemptLogin(db, {name, pin, deviceId})` does the PIN check (`scryptSync` against `pin_hash`/`pin_salt`) + lockout tracking (`LOGIN_MAX_ATTEMPTS`/`LOGIN_LOCKOUT_MS`), and `issueSessionToken`/`verifySessionToken(db, ...)` sign/verify tokens using the camp's `signing_secret` looked up per-call (not a per-process constant).
+### Token types (device trust model)
+
+Two token types are minted, verified, and enforced separately — see `electron/auth/localAuth.js` and `docs/adr/2026-07-25-device-trust-revocation.md`.
+
+**Camp token (`type: 'camp'`)** — issued exclusively by the Host using its Ed25519 private key (`host_signing_key` table, generated once at `bootstrapCamp()`). Payload: `{type, userId, deviceId, campId, iat, exp, jti}`, base64url-encoded JSON, signature appended as `{payload}.{sig}`. 24h TTL (`TOKEN_TTL_MS`). The Host's Ed25519 public key is stored as `camps.signing_public_key` (hex-encoded DER/SPKI) and replicated to Clients via full-sync — Clients can verify camp tokens but can never mint them (private key never leaves the Host). `syncServer.js`'s `handleAuthenticate` rejects any `local` token on the network path outright.
+
+**Local token (`type: 'local'`)** — issued by the Client itself using its device-scoped HMAC-SHA256 secret (`devices.device_secret_identifier`, a 32-byte hex value minted by the Host at device pairing approval). Used only for offline Client sessions (local IPC path). Never accepted on the WS authentication path.
+
+**Which token is issued** is re-derived from `host_signing_key`'s presence in the DB (`issueTokenForThisDevice`), never passed in by the caller — so callers can't get the routing wrong.
+
+**Token verification** (`verifySessionToken(db, token)`): the `type` claim dispatches to Ed25519 verification (camp) or HMAC-SHA256 (local) only after parsing the payload — a tampered type claim doesn't reroute; it fails signature verification. `exp` is enforced (tokens past their TTL return null). Malformed tokens, unknown types, and missing DB rows all fail closed (return null).
+
+**Renewal**: `renew_token` WS message — Host re-checks revocation status before issuing a fresh camp token; client schedules renewal at ~20h.
+
+### Device pairing and revocation
+
+- New Client sends a `pairing_request` WebSocket message; Host records it as a pending device.
+- Admin approves in `DeviceManagerScreen.jsx` — Host mints a `device_secret_identifier` and sets `devices.authorized_at`.
+- Revocation: admin revokes via Device Manager → Host sets `devices.revoked_at`, `revoked_by_user_id`, `revocation_reason`; live WS socket for the revoked device is closed immediately.
+- `devices` table fields: `id, name, last_seen_at, last_synced_at, last_synced_seq, authorized_at, revoked_at, revoked_by_user_id, revocation_reason, device_secret_identifier`.
+- `authorize()` checks device revocation status on every privileged call — a revocation takes effect on the very next call from an already-connected device.
+- `useDeviceMode.js` pairing phases: `pairing_pending` (request sent, awaiting admin approval) and `pairing_denied` (request rejected).
+
+### Login paths
+
+- `electron/auth/localAuth.js`: `attemptLogin(db, {name, pin, deviceId})` does the PIN check (`scryptSync` against `pin_hash`/`pin_salt`) + lockout tracking (`LOGIN_MAX_ATTEMPTS = 5`, `LOGIN_LOCKOUT_MS = 30s`). Issues the appropriate token via `issueTokenForThisDevice`.
 - **Two login paths**, unified through `attemptLogin` so behavior can't drift:
-  - Local IPC `login` handler (`electron/main.js`) — Host's own login, and a Client's offline fallback (only works if that Client has synced before).
-  - Unauthenticated WebSocket `login` message (`electron/sync/syncServer.js`) — lets a genuinely fresh Client (empty local db) verify its PIN against the Host directly, receive a token, then `authenticate` normally. This is the path used for every online Client login, not just the first.
+  - Local IPC `login` handler (`electron/main.js`) — Host's own login, and a Client's offline fallback.
+  - Unauthenticated WebSocket `login` message (`electron/sync/syncServer.js`) — lets a genuinely fresh Client verify its PIN against the Host and receive a camp token before its first sync.
 - `useDeviceMode` derives `phase: 'login'` when there's a camp/host but no token yet; `phase: 'session'` once a token exists.
 
 ### Role-Based Behavior — centralized authorization layer (Phase 2, 2026-07-25)
@@ -71,6 +95,7 @@ Local, PIN-based, per-camp — not Supabase Auth (see architecture note above).
 | (mode-select, not in `SCREENS` map) | `src/screens/ModeSelectScreen.jsx` | Choose "Host a camp" vs "Join a camp" — pre-session |
 | (bootstrap) | `src/screens/CampBootstrapScreen.jsx` | Host: create a new camp + admin user — pre-session |
 | (join) | `src/screens/JoinScreen.jsx` | Client: pick a discovered Host from mDNS results — pre-session |
+| (pairing_pending / pairing_denied) | `src/screens/PairingPendingScreen.jsx` | Client: waiting UX after sending a pairing request; also renders the denied state inline — pre-session |
 | (login) | `src/screens/LoginScreen.jsx` | Name + PIN entry — pre-session |
 | `setup` | `src/screens/CampSetup.jsx` | Default/landing screen inside a session |
 | `tiers` | `src/screens/TiersScreen.jsx` | |
@@ -81,7 +106,8 @@ Local, PIN-based, per-camp — not Supabase Auth (see architecture note above).
 | `cohorts` | `src/screens/CohortsScreen.jsx` | |
 | `dayoverrides` | `src/screens/DayOverridesScreen.jsx` | |
 | `schedule` | `src/screens/ScheduleScreen.jsx` | Most complex screen — DnD schedule builder, three views (group/day/activity), flags, locking, snapshots. **Fully migrated off Supabase (Sub-plan E, Tasks 1-5, commits 855b248/db2c6f2/c687353/d324ed0/21f8a22)**: reads via `localClient.list`, single-slot writes via `writeFields`/`localClient.write`, bulk regen/snapshot-restore via `localClient.bulkReplace`, snapshot CRUD via `localClient.write` with JSON-text-column storage for the `slots`/`overlays` blobs (a scoped exception, not a precedent). See Key Architectural Decisions for the CRITICAL sync bug this migration's own verification surfaced. |
-| `conflicts` | `src/screens/ConflictsScreen.jsx` | Only screen given extra props (`onNavigate`, `pendingConflicts`) beyond `campId` |
+| `conflicts` | `src/screens/ConflictsScreen.jsx` | Write-conflict resolution with pre-resolution DB snapshot; only screen given extra props (`onNavigate`, `pendingConflicts`) beyond `campId` |
+| `devices` | `src/screens/DeviceManagerScreen.jsx` | Admin: approve pairing requests, view paired devices, revoke device access — admin-only |
 
 ---
 
@@ -95,11 +121,13 @@ Local, PIN-based, per-camp — not Supabase Auth (see architecture note above).
 
 ## Database Tables
 
-(SQLite, one file per device — `electron/db/schema.sql`, schema v18 as of this writing)
+(SQLite, one file per device — `electron/db/schema.sql`, schema v19 as of this writing)
 
-- **camps** — `id, name, signing_secret`. Exactly one row expected per device db (single-camp-per-db assumption used throughout, e.g. `SELECT ... FROM camps LIMIT 1`).
+- **camps** — `id, name, signing_public_key` (Ed25519 public key, hex-encoded DER/SPKI — replicated to all Clients so they can verify camp tokens). Exactly one row expected per device db (single-camp-per-db assumption used throughout, e.g. `SELECT ... FROM camps LIMIT 1`).
+- **host_signing_key** — `id (always 1), public_key, private_key, created_at`. Host-only table; generated once at `bootstrapCamp()`. Never replicated. The private key never leaves the Host device.
 - **users** — `id, camp_id, name, pin_hash, pin_salt, role('admin'|'staff')`. Unique on `(camp_id, name)`.
-- **devices** — `id, name, last_seen_at, last_synced_at, last_synced_seq`. `last_synced_seq` is the op-log watermark used for reconnect catch-up (NULL = never watermarked, so a device's first connection doesn't get flooded with full history).
+- **devices** — `id, name, last_seen_at, last_synced_at, last_synced_seq, authorized_at, revoked_at, revoked_by_user_id, revocation_reason, device_secret_identifier`. `last_synced_seq` is the op-log watermark for reconnect catch-up. `device_secret_identifier` is the HMAC secret for local tokens, minted at pairing approval. `revoked_at`/`revoked_by_user_id`/`revocation_reason` are set at revocation; live WS socket is closed immediately.
+- **audit_events** — `id, camp_id, actor_user_id, device_id, action, outcome, reason, metadata (JSON), created_at`. Written by `electron/audit/auditLog.js`. Captured events include: `auth.login` (allow/deny with reason), `auth.authorize` (deny only — action + role + reason logged, no PIN/token material), device pairing and revocation events.`
 - **operations** — the op-log: `seq (autoincrement), id (unique), entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id`. `client_write_id` is a client-generated idempotency key so a retried `submit_op` doesn't mint a duplicate op.
 - **conflicts** — durable record of every detected write conflict: `id, entity, entity_id, field, incoming_op, existing_op, existing_op_id, created_at, resolved_at`. A conflict counts as resolved when any op has `parent_op_id = existing_op_id`.
 - **locks** — `entity, entity_id, field, holder_device_id, acquired_at` — field-level edit locks.
@@ -118,6 +146,34 @@ All tables above are local SQLite, read/written exclusively via `window.shoresh`
 
 ---
 
+## Project Lifecycle
+
+Managed by `electron/db/projectManager.js`. A "project" is a named SQLite file on disk.
+
+**IPC surface** (exposed via `electron/preload.js`, handled in `electron/main.js`):
+
+| IPC channel | Description |
+|---|---|
+| `shoresh:create-project` | Create a new SQLite db file at a chosen path, run schema migrations, bootstrap a camp |
+| `shoresh:open-project` | Open an existing `.shoresh` db file |
+| `shoresh:backup-project` | Write a timestamped backup copy of the current db |
+| `shoresh:restore-project` | Replace the active db with a backup (pre-restore backup is automatically taken first) |
+| `shoresh:export-project` | Export a copy to a user-chosen location |
+| `shoresh:list-recent-projects` | Return the MRU list of recently opened project paths |
+| `shoresh:open-recent-project` | Open a project from the recent list |
+| `shoresh:get-current-project` | Return metadata (path, name) for the currently open project |
+
+**Backup rotation**: maximum 10 backups kept per project; oldest are pruned automatically. Pre-migration and pre-restore backups are taken automatically before any destructive operation.
+
+---
+
+## Test Coverage
+
+- **Vitest unit tests**: ~527+ tests across `electron/` and `src/` — auth, ops, projections, sync handlers, IPC handlers, schedule engine.
+- **Integration test harness**: `test/integration/` — 6 separate-process scenarios driven by `node test/integration/run.js`. Each scenario spawns real Electron processes to verify cross-process behavior (device pairing, revocation, token renewal, conflict detection, bulk_replace cross-device correctness) that single-process Vitest cannot distinguish from correct behavior.
+
+---
+
 ## Edge Functions / API Routes
 
 None — no Supabase Edge Functions or HTTP API routes in the local-first architecture. All device-to-device communication is the custom WebSocket protocol in `electron/sync/syncServer.js` / `syncClient.js` (message types include `authenticate`, `login`, `acquire_lock`, `submit_op`, plus server→client `login_ok`/`login_failed`, `op_applied`, `op_conflict`, `full_sync`).
@@ -126,7 +182,7 @@ None — no Supabase Edge Functions or HTTP API routes in the local-first archit
 
 ## Key Architectural Decisions
 
-- **Shared per-camp signing secret over per-device secrets**: session tokens are HMAC-signed with one secret per camp, distributed to every device via full-sync, rather than each device having its own. Chosen because the alternative (per-process secret) made it impossible for a Client to verify its own tokens after receiving them from the Host — see [Camp Signing Secret Fix](project_camp_signing_secret_fix.md). Accepted tradeoff: a compromised device can forge tokens accepted by every other device in the camp — deemed acceptable under the project's "trusted camp LAN" threat model (same reasoning applied to plain `ws://` with no TLS, and to raw PINs sent for remote login).
+- **Ed25519 Host-only token minting**: camp tokens (used for network authentication) are signed with an Ed25519 private key that never leaves the Host. The public key (`camps.signing_public_key`, hex DER/SPKI) is distributed to Clients via full-sync so they can verify tokens but never mint them. Client offline sessions use per-device HMAC-SHA256 local tokens keyed to a `device_secret_identifier` minted by the Host at pairing. This replaced the original shared HMAC signing secret (`camps.signing_secret`) that was distributed to all devices — that earlier design meant any compromised device could forge tokens accepted by all others. See Auth section above for full details.
 - **Raw PIN sent over LAN for remote login**: a fresh Client verifies its PIN against the Host by sending it in plaintext over the WebSocket (`login` message), rather than a hash — necessary because the Host must run its own `scryptSync` check. Accepted under the same trusted-LAN threat model; flagged for revisit if camps ever share network with untrusted devices.
 - **Unified login path**: both local (offline fallback) and remote (online, incl. first-ever login) logins go through one `attemptLogin(db, ...)` function, so lockout/verification logic can't drift between the two call sites.
 - **Op-log + last-write-wins with explicit conflict table**: all mutations are appended as `operations` rows (entity/field-level), synced and replayed across devices; genuine conflicting writes are recorded in `conflicts` (not silently dropped) and must be explicitly resolved, with resolution ops linked via `parent_op_id`.
@@ -145,8 +201,8 @@ Not role-differentiated at the top level — `setup` (`CampSetup.jsx`) is the fi
 
 ## Known Deferred Items
 
-- **Device pairing/revocation, token expiration/lifetime**: explicitly deferred by Phase 2's design (see Key Architectural Decisions) — `authorize()`'s device-check is structured as an isolated step specifically so a future `authorized_at`/`revoked_at` check is a one-line addition, not a redesign. Tokens remain non-expiring.
-- **Audit-event-stream infrastructure**: only a single `console.warn` (action+role+reason, no PIN/token material) fires on a denied `authorize()` call — no persisted audit table/export flow yet.
+- **Device pairing/revocation**: implemented — Ed25519 key pair, `pairing_request` WS flow, `DeviceManagerScreen.jsx`, `authorized_at`/`revoked_at` fields, live socket close on revocation, `pairing_pending`/`pairing_denied` phases. Token expiration (24h TTL, `renew_token` WS message) is also implemented.
+- **Audit-event-stream infrastructure**: implemented — `electron/audit/auditLog.js`, `audit_events` table (schema v19), events for auth.login, auth.authorize denials, pairing, and revocation.
 - Two LOW-severity residual notes from Phase 2 Task 4's Red Hat review, not currently exploitable: the existing-behavior-preserved test sweep exercises one hardcoded writable field per entity, not every field within an entity (fine today since the permission model is entity-level, not field-level); the WS role-change-takes-effect test exercises `submit_bulk_replace_op` specifically rather than also `submit_op`/`acquire_lock` individually (they share the same `authorize()` code path, verified by code trace).
 - **Single-process test-harness limitation** (documented in `docs/superpowers/specs/2026-07-20-shared-camp-signing-secret-design.md`): Vitest runs Host/Client test actors in one OS process, so it cannot by itself distinguish some cross-process bugs from correct behavior — cross-process claims require live two-Electron-instance verification, not just the automated suite.
 - No TLS anywhere in the sync protocol (`ws://`, not `wss://`) — explicitly accepted under the "trusted camp LAN" threat model, not a bug.
