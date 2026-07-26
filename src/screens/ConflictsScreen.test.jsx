@@ -141,6 +141,91 @@ describe('ConflictsScreen keep(): exercises every real write-status path through
   })
 })
 
+describe('ConflictsScreen PIN masking: lock icon shown, raw value never rendered', () => {
+  it('shows "PIN was changed" and lock SVG for a pin_hash conflict, not any value string', () => {
+    const pinConflict = makeConflict({
+      entity: 'users',
+      field: 'pin_hash',
+      isPin: true,
+      // sanitizeSide strips `value` for PIN fields; sideA/sideB carry no value here
+      sideA: { op_id: 'op1', author_user_id: 'u1', device_id: 'dA', timestamp: '2026-07-20T00:00:00.000Z' },
+      sideB: { op_id: 'op2', author_user_id: 'u1', device_id: 'dB', timestamp: '2026-07-20T00:01:00.000Z' },
+    })
+    const pendingConflicts = {
+      conflicts: [pinConflict],
+      loading: false,
+      resolveConflict: vi.fn(),
+      dismissResolvedConflict: vi.fn(),
+      resolveAuthorLabel: () => 'Someone',
+      resolvedMeta: {},
+    }
+    render(<ConflictsScreen pendingConflicts={pendingConflicts} />)
+
+    // Lock copy must be present in both choice boxes
+    expect(screen.getAllByText('PIN was changed')).toHaveLength(2)
+    // The heading should call it "A PIN was changed on two devices"
+    expect(screen.getByText('A PIN was changed on two devices')).toBeTruthy()
+    // No raw hash-like string should appear — confirm neither side has a value
+    // rendered (values would be empty string / undefined, not a hash string,
+    // because sanitizeSide strips them; but we also confirm no String(undefined)
+    // leak via the "undefined" text node).
+    expect(screen.queryByText('undefined')).toBeNull()
+  })
+
+  it('does not render any value for a pin_salt conflict', () => {
+    const pinConflict = makeConflict({
+      entity: 'users',
+      field: 'pin_salt',
+      isPin: true,
+      sideA: { op_id: 'op1', author_user_id: 'u1', device_id: 'dA', timestamp: '2026-07-20T00:00:00.000Z' },
+      sideB: { op_id: 'op2', author_user_id: 'u1', device_id: 'dB', timestamp: '2026-07-20T00:01:00.000Z' },
+    })
+    const pendingConflicts = {
+      conflicts: [pinConflict],
+      loading: false,
+      resolveConflict: vi.fn(),
+      dismissResolvedConflict: vi.fn(),
+      resolveAuthorLabel: () => 'Someone',
+      resolvedMeta: {},
+    }
+    render(<ConflictsScreen pendingConflicts={pendingConflicts} />)
+    expect(screen.getAllByText('PIN was changed')).toHaveLength(2)
+    expect(screen.queryByText('undefined')).toBeNull()
+  })
+})
+
+describe('ConflictsScreen empty state: graceful UI when no conflicts', () => {
+  it('shows a no-conflicts message and does not crash when conflicts is empty', () => {
+    const pendingConflicts = {
+      conflicts: [],
+      loading: false,
+      resolveConflict: vi.fn(),
+      dismissResolvedConflict: vi.fn(),
+      resolveAuthorLabel: () => 'Someone',
+      resolvedMeta: {},
+    }
+    render(<ConflictsScreen pendingConflicts={pendingConflicts} />)
+    expect(screen.getByText(/no conflicts to resolve/i)).toBeTruthy()
+    expect(screen.getByText(/everything'?s in sync/i)).toBeTruthy()
+    // No error — no buttons, no cards
+    expect(screen.queryByRole('button', { name: /keep this version/i })).toBeNull()
+  })
+
+  it('shows a loading indicator while conflicts are being fetched', () => {
+    const pendingConflicts = {
+      conflicts: [],
+      loading: true,
+      resolveConflict: vi.fn(),
+      dismissResolvedConflict: vi.fn(),
+      resolveAuthorLabel: () => 'Someone',
+      resolvedMeta: {},
+    }
+    render(<ConflictsScreen pendingConflicts={pendingConflicts} />)
+    expect(screen.getByText(/loading/i)).toBeTruthy()
+    expect(screen.queryByText(/no conflicts/i)).toBeNull()
+  })
+})
+
 describe('ConflictCard (Fix 1): renders from resolved-state props, not a self-owned dismiss timer', () => {
   it('a fresh mount for a conflict already present in resolvedMeta shows the confirmed state immediately, never the pristine unresolved buttons', () => {
     const conflict = makeConflict()

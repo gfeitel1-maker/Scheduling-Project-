@@ -10,8 +10,8 @@ vi.mock('../localClient', () => {
       listUsers: vi.fn().mockResolvedValue([]),
       getDeviceId: vi.fn().mockResolvedValue('device-self'),
       listPendingConflicts: vi.fn().mockResolvedValue([]),
-      onOpApplied: vi.fn((cb) => listeners.opApplied.push(cb)),
-      onOpConflict: vi.fn((cb) => listeners.opConflict.push(cb)),
+      onOpApplied: vi.fn((cb) => { listeners.opApplied.push(cb); return () => {} }),
+      onOpConflict: vi.fn((cb) => { listeners.opConflict.push(cb); return () => {} }),
       resolveConflict: vi.fn(),
       __listeners: listeners,
     },
@@ -181,5 +181,37 @@ describe('usePendingConflicts (Fix 3, renderer-side): reconciles pending conflic
     })
 
     expect(result.current.conflicts).toHaveLength(0)
+  })
+})
+
+describe('resolveAuthorLabel: all three label branches', () => {
+  it('returns "This computer" when side.device_id matches the current device', async () => {
+    localClient.getDeviceId.mockResolvedValue('my-device')
+    const { result } = renderHook(() => usePendingConflicts())
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    const label = result.current.resolveAuthorLabel({ device_id: 'my-device', author_user_id: null })
+    expect(label).toBe('This computer')
+  })
+
+  it('returns the user name when side.author_user_id resolves to a known user', async () => {
+    localClient.getDeviceId.mockResolvedValue('other-device')
+    localClient.listUsers.mockResolvedValue([{ id: 'u1', name: 'Alice', role: 'staff' }])
+    const { result } = renderHook(() => usePendingConflicts())
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    const label = result.current.resolveAuthorLabel({ device_id: 'dA', author_user_id: 'u1' })
+    expect(label).toBe('Alice')
+  })
+
+  it('falls back to a device-id prefix when author_user_id is absent or unknown', async () => {
+    localClient.getDeviceId.mockResolvedValue('other-device')
+    localClient.listUsers.mockResolvedValue([])
+    const { result } = renderHook(() => usePendingConflicts())
+    await act(async () => { await Promise.resolve(); await Promise.resolve() })
+    // device_id present but no matching user → "Device <prefix>"
+    const label = result.current.resolveAuthorLabel({ device_id: 'abcdef123456', author_user_id: null })
+    expect(label).toMatch(/^Device abcde/)
+    // nothing at all → "Unknown"
+    const unknown = result.current.resolveAuthorLabel({ device_id: null, author_user_id: null })
+    expect(unknown).toBe('Unknown')
   })
 })

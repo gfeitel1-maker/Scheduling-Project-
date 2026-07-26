@@ -67,8 +67,14 @@ export async function run() {
     await waitFor(() => clientB.getOps().some(o => o.id === op0Id), 6000)
 
     // Step 2: Client B disconnects (simulates going offline).
+    const clientCountBeforeB = host.server.wss.clients.size
     clientB.disconnect()
-    await new Promise(r => setTimeout(r, 120))  // let server-side close propagate
+    // Wait for the server-side WS close to propagate (client removed from
+    // wss.clients) rather than sleeping a fixed duration.
+    await waitFor(
+      () => host.server.wss.clients.size < clientCountBeforeB,
+      500,
+    ).catch(() => { /* server may have processed close synchronously */ })
 
     // Step 3: Client A writes op_A with parent_op_id = op0Id.
     const resultA = await clientA.write({
@@ -81,8 +87,13 @@ export async function run() {
     if (resultA.status !== 'applied') throw new Error(`Client A second write: ${resultA.status}`)
 
     // Client A disconnects so its lock is released.
+    const clientCountBeforeA = host.server.wss.clients.size
     clientA.disconnect()
-    await new Promise(r => setTimeout(r, 120))  // let lock release propagate
+    // Wait for the server-side WS close to propagate before Client B reconnects.
+    await waitFor(
+      () => host.server.wss.clients.size < clientCountBeforeA,
+      500,
+    ).catch(() => { /* server may have processed close synchronously */ })
 
     // Verify the host now has op_A as the latest op for this field.
     const hostOps = host.getOps().filter(o => o.entity === 'activities' && o.entity_id === entityId && o.field === 'name')

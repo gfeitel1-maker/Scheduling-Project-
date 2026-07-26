@@ -120,7 +120,7 @@ export function usePendingConflicts() {
         // screen (live conflicts still work via the broadcast below)
       })
 
-    localClient.onOpConflict((msg) => {
+    const unsubConflict = localClient.onOpConflict((msg) => {
       const normalized = normalizeConflict(msg)
       if (!normalized) return
       setConflicts((prev) => {
@@ -140,8 +140,9 @@ export function usePendingConflicts() {
     // otherwise know to re-render. Scope: this only reconciles conflicts
     // already visible in THIS mounted screen; it does not by itself deliver
     // brand-new conflicts (those already arrive via onOpConflict above).
+    let unsubApplied
     if (typeof localClient.onOpApplied === 'function') {
-      localClient.onOpApplied(() => {
+      unsubApplied = localClient.onOpApplied(() => {
         localClient
           .listPendingConflicts()
           .then((msgs) => {
@@ -161,6 +162,10 @@ export function usePendingConflicts() {
     const timers = dismissTimersRef.current
     return () => {
       mountedRef.current = false
+      // Remove IPC listeners to prevent accumulation on repeated mount/unmount
+      // (e.g. in StrictMode double-invoke or navigating away and back).
+      unsubConflict?.()
+      unsubApplied?.()
       // Clear every pending dismiss timer on hook teardown (app close / test
       // unmount). This hook is otherwise long-lived for the app's lifetime,
       // so this mainly guards test environments and StrictMode double-invoke,

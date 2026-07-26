@@ -19,6 +19,7 @@ import {
   readRecentProjects,
   addRecentProject,
   writeUserBackup,
+  rotatePreResolveBackups,
 } from './db/projectManager.js'
 
 const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
@@ -544,11 +545,13 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       throw new Error('chosen operation not found')
     }
     // Pre-resolution snapshot: copy the DB file to a dated backup so the
-    // director can restore if they change their mind. Best-effort — a backup
+    // director can restore if they change their mind. Rotated to keep at
+    // most 10 files (same limit as writeUserBackup). Best-effort — a backup
     // failure must not block the resolution itself (the op-log already
     // provides history; this is an extra human-accessible safety net).
     if (dbPath) {
       try {
+        rotatePreResolveBackups(dbPath)
         const ts = new Date().toISOString().replace(/[:.]/g, '-')
         const backupPath = dbPath.replace(/\.sqlite$/, '') + `.pre-resolve-${ts}.sqlite`
         fs.copyFileSync(dbPath, backupPath)
@@ -928,12 +931,20 @@ if (isElectronEntryPoint()) {
       /* non-fatal — proceed with restore */
     }
 
-    // Copy source over current db path, then open the new file BEFORE closing
-    // the old connection — same open-before-close pattern as reinitialize():
-    // if the copy or the open fails, the old db remains usable.
+    // Copy source to a temp path first, then atomically rename to the target.
+    // This closes the corruption window where a mid-write failure (disk full,
+    // etc.) would leave the target partially written — rename(2) is atomic for
+    // same-volume moves on macOS/Linux/Windows (NTFS). The temp file is
+    // cleaned up in the finally block if anything goes wrong before the rename.
+    // Open the new file BEFORE closing the old connection — same open-before-
+    // close pattern as reinitialize(): if anything fails, the old db is still
+    // usable.
+    const tmpPath = `${dbPath}.tmp`
     try {
-      fs.copyFileSync(sourcePath, dbPath)
+      fs.copyFileSync(sourcePath, tmpPath)
+      fs.renameSync(tmpPath, dbPath)
     } catch (err) {
+      try { fs.unlinkSync(tmpPath) } catch { /* ignore — may not exist */ }
       return { error: 'restore_failed', message: err.message }
     }
 

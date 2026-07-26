@@ -76,9 +76,11 @@ export const mockShoresh = {
   },
   onOpApplied(cb) {
     if (typeof cb === 'function') opAppliedListeners.push(cb)
+    return () => { opAppliedListeners = opAppliedListeners.filter((l) => l !== cb) }
   },
   onOpConflict(cb) {
     if (typeof cb === 'function') opConflictListeners.push(cb)
+    return () => { opConflictListeners = opConflictListeners.filter((l) => l !== cb) }
   },
   // Test/dev-only helpers — not part of the real window.shoresh contract,
   // used to synthesize events for manual/automated UI verification of

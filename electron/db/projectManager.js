@@ -115,6 +115,35 @@ export function writeUserBackup(dbPath, userDataPath) {
 }
 
 /**
+ * Rotate pre-resolution backup files that sit beside the db file.
+ * Files match the pattern: `{dbBasename}.pre-resolve-*.sqlite` in the same
+ * directory as dbPath. Keeps at most `max` files, deleting the oldest first.
+ * Called before each new pre-resolve backup is written so the directory
+ * never accumulates unbounded files.
+ */
+export function rotatePreResolveBackups(dbPath, max = MAX_BACKUPS) {
+  const dir = path.dirname(dbPath)
+  const base = path.basename(dbPath, '.sqlite')
+  let files
+  try {
+    files = fs
+      .readdirSync(dir)
+      .filter((f) => f.startsWith(`${base}.pre-resolve-`) && f.endsWith('.sqlite'))
+      .map((f) => {
+        const fullPath = path.join(dir, f)
+        return { name: f, mtime: fs.statSync(fullPath).mtimeMs, fullPath }
+      })
+      .sort((a, b) => a.mtime - b.mtime) // oldest first
+  } catch {
+    return
+  }
+  while (files.length >= max) {
+    const oldest = files.shift()
+    try { fs.unlinkSync(oldest.fullPath) } catch { /* ignore — disk race */ }
+  }
+}
+
+/**
  * Write a pre-migration backup to the same directory as the db file.
  * Named {dbPath}.pre-migration-{timestamp}.bak.
  * Returns the backup path, or null if the source doesn't exist yet (fresh db).

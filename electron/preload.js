@@ -9,8 +9,16 @@ contextBridge.exposeInMainWorld('shoresh', {
   write: (args) => ipcRenderer.invoke('shoresh:write', args),
   bulkReplace: (args) => ipcRenderer.invoke('shoresh:bulk-replace', args),
   verifySession: (args) => ipcRenderer.invoke('shoresh:verify-session', args),
-  onOpApplied: (callback) => ipcRenderer.on('shoresh:op-applied', (_event, op) => callback(op)),
-  onOpConflict: (callback) => ipcRenderer.on('shoresh:op-conflict', (_event, msg) => callback(msg)),
+  onOpApplied: (callback) => {
+    const wrapped = (_event, op) => callback(op)
+    ipcRenderer.on('shoresh:op-applied', wrapped)
+    return () => ipcRenderer.removeListener('shoresh:op-applied', wrapped)
+  },
+  onOpConflict: (callback) => {
+    const wrapped = (_event, msg) => callback(msg)
+    ipcRenderer.on('shoresh:op-conflict', wrapped)
+    return () => ipcRenderer.removeListener('shoresh:op-conflict', wrapped)
+  },
   getCamp: () => ipcRenderer.invoke('shoresh:get-camp'),
   listUsers: (token) => ipcRenderer.invoke('shoresh:list-users', { token }),
   list: (token, entity) => ipcRenderer.invoke('shoresh:list', { token, entity }),

@@ -98,11 +98,8 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
   // post-resolution state of the DB.
   useEffect(() => {
     if (typeof localClient.onOpApplied !== 'function') return
-    let active = true
-    localClient.onOpApplied(() => {
-      if (active) loadAll()
-    })
-    return () => { active = false }
+    const unsub = localClient.onOpApplied(() => { loadAll() })
+    return () => { unsub?.() }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
