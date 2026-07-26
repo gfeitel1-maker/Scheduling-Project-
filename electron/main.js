@@ -232,6 +232,14 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         },
       })
       advertiseHost({ campName, port })
+      // Auto-authorize the Host device if its devices row lacks authorized_at.
+      // Pre-trust-system DBs were bootstrapped before authorize() existed, so
+      // bootstrapCamp never stamped it. Do this at mode-selection time so it
+      // applies to both fresh logins AND stored-session restores (which bypass
+      // the login handler entirely but still call chooseMode on every startup).
+      db.prepare(
+        "UPDATE devices SET authorized_at = COALESCE(authorized_at, ?), pairing_status = 'authorized' WHERE id = ?"
+      ).run(new Date().toISOString(), deviceId)
       syncClient = createSyncClient(db, { device_id: deviceId, author_user_id: null })
       wireOpApplied()
     } else {
@@ -305,7 +313,16 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
     // Lazily create the Ed25519 signing key for Host devices that were
     // bootstrapped before §5 (pre-existing camps have no host_signing_key row).
-    if (mode !== 'client') ensureHostSigningKey(db)
+    if (mode !== 'client') {
+      ensureHostSigningKey(db)
+      // Auto-authorize the Host device if its devices row lacks authorized_at —
+      // pre-trust-system DBs were bootstrapped before authorize() existed so
+      // bootstrapCamp never stamped authorized_at. Holding the private key IS
+      // the proof of Host identity; no separate approval is needed.
+      db.prepare(
+        "UPDATE devices SET authorized_at = COALESCE(authorized_at, ?), pairing_status = 'authorized' WHERE id = ?"
+      ).run(new Date().toISOString(), deviceId)
+    }
 
     return attemptLogin(db, { name, pin, deviceId })
   }
