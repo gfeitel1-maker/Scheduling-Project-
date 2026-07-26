@@ -88,7 +88,15 @@ export function verifyPin(db, userId, pin) {
 // device_secret_identifier).
 export function ensureHostSigningKey(db) {
   const existing = db.prepare('SELECT public_key, private_key, created_at FROM host_signing_key WHERE id = 1').get()
-  if (existing) return existing
+  if (existing) {
+    // Ensure camps.signing_public_key is populated even if this key was
+    // created before the camps column sync was introduced.
+    const camp = db.prepare('SELECT signing_public_key FROM camps LIMIT 1').get()
+    if (camp && !camp.signing_public_key) {
+      db.prepare('UPDATE camps SET signing_public_key = ?').run(existing.public_key)
+    }
+    return existing
+  }
 
   const { publicKey, privateKey } = generateKeyPairSync('ed25519', {
     publicKeyEncoding: { type: 'spki', format: 'der' },
@@ -102,6 +110,10 @@ export function ensureHostSigningKey(db) {
   db.prepare(
     'INSERT INTO host_signing_key (id, public_key, private_key, created_at) VALUES (1, ?, ?, ?)'
   ).run(row.public_key, row.private_key, row.created_at)
+  // Mirror public key into camps.signing_public_key so verifySessionToken
+  // (and Client devices, which only receive camps via full-sync) can verify
+  // camp tokens without needing access to host_signing_key.
+  db.prepare('UPDATE camps SET signing_public_key = ?').run(row.public_key)
   return row
 }
 
