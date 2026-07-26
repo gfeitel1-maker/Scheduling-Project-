@@ -303,6 +303,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       }
     }
 
+    // Lazily create the Ed25519 signing key for Host devices that were
+    // bootstrapped before §5 (pre-existing camps have no host_signing_key row).
+    if (mode !== 'client') ensureHostSigningKey(db)
+
     return attemptLogin(db, { name, pin, deviceId })
   }
 
