@@ -66,6 +66,7 @@ export async function run() {
         value: `Activity-${i}`,
       })
     }
+    localWriter.close()
 
     // The ops were written by the host device — register it on the client so
     // applyRemoteOp can insert them (FK on device_id).
