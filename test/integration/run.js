@@ -13,6 +13,7 @@ import { run as scenario03 } from './scenarios/03-idempotency.js'
 import { run as scenario04 } from './scenarios/04-conflict.js'
 import { run as scenario05 } from './scenarios/05-revocation.js'
 import { run as scenario06 } from './scenarios/06-catchup.js'
+import { run as scenario07 } from './scenarios/07-pairing-reconnect.js'
 
 const SCENARIOS = [
   { name: '01 bootstrap + first sync', fn: scenario01 },
@@ -21,6 +22,7 @@ const SCENARIOS = [
   { name: '04 conflict recorded in DB', fn: scenario04 },
   { name: '05 revoked device → 4404', fn: scenario05 },
   { name: '06 catchup from watermark', fn: scenario06 },
+  { name: '07 mid-pairing reconnect loop', fn: scenario07 },
 ]
 
 const PASS = '\x1b[32mPASS\x1b[0m'

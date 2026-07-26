@@ -79,6 +79,16 @@ export function createSyncClient(
   let ws = null
   let connected = false
   let renewalTimer = null
+  // Set to true when the consumer explicitly calls close() so the auto-reconnect
+  // loop does not restart a deliberately-closed client.
+  let closedIntentionally = false
+  // Delay between automatic reconnect attempts (ms).  Short enough to feel
+  // responsive; long enough not to hammer a temporarily-down host.  The Host's
+  // pairing_request rate-limit (PAIRING_RATE_MS = 5 s) will close the connection
+  // if a mid-pairing reconnect re-sends pairing_request too soon, but that is
+  // fine: the close triggers the next reconnect attempt, and eventually (once
+  // the 5-s window has passed) the request is accepted.
+  const RECONNECT_DELAY_MS = 1500
   // Distinct from `connected`: `connected` only means the WebSocket is open.
   // `authenticated` means we have actually SENT an `authenticate` message on
   // this connection (either because a token existed at connect() time, or
@@ -285,6 +295,12 @@ export function createSyncClient(
         }
 
         if (msg.type === 'pairing_denied') {
+          // Stop the auto-reconnect loop: denial is terminal.  The WS will be
+          // closed by the Host after this message; without this flag the close
+          // handler would schedule a reconnect that re-sends pairing_request,
+          // undoing the denial in an infinite retry storm.  The consumer can
+          // create a fresh syncClient if they want to re-initiate pairing.
+          closedIntentionally = true
           for (const cb of pairingDeniedListeners) cb(msg)
           return
         }
@@ -406,6 +422,21 @@ export function createSyncClient(
         connectedResolve = resolve
       })
       settlePendingOnDisconnect()
+      // Auto-reconnect unless close() was called explicitly.
+      //
+      // On reconnect the existing open handler re-enters the correct state:
+      //   • token present              → sends authenticate (already-paired device)
+      //   • no token, device_name set  → sends pairing_request (mid-pairing device)
+      //
+      // This means a Client that sent pairing_request and is waiting for approval
+      // will automatically re-send pairing_request after the drop.  The Host
+      // re-delivers pairing_approved for already-approved devices (idempotent),
+      // and fires onPairingRequest again for still-pending ones.
+      if (!closedIntentionally) {
+        setTimeout(() => {
+          if (!closedIntentionally) connect()
+        }, RECONNECT_DELAY_MS)
+      }
     })
   }
 
@@ -684,6 +715,9 @@ export function createSyncClient(
       tokenRenewedListeners.push(callback)
     },
     close() {
+      // Signal the close handler that this is intentional so the reconnect
+      // loop does not restart.
+      closedIntentionally = true
       if (renewalTimer) clearTimeout(renewalTimer)
       if (ws) ws.close()
     },
