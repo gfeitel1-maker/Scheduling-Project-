@@ -942,7 +942,20 @@ if (isElectronEntryPoint()) {
     const tmpPath = `${dbPath}.tmp`
     try {
       fs.copyFileSync(sourcePath, tmpPath)
-      fs.renameSync(tmpPath, dbPath)
+      try {
+        fs.renameSync(tmpPath, dbPath)
+      } catch (renameErr) {
+        if (renameErr.code === 'EXDEV') {
+          // Cross-device move: tmp and target are on different filesystems.
+          // Fall back to copy+delete — not atomic, but the pre-restore backup
+          // above already guards against a mid-write failure here.
+          fs.copyFileSync(tmpPath, dbPath)
+          fs.unlinkSync(tmpPath)
+        } else {
+          try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
+          throw renameErr
+        }
+      }
     } catch (err) {
       try { fs.unlinkSync(tmpPath) } catch { /* ignore — may not exist */ }
       return { error: 'restore_failed', message: err.message }

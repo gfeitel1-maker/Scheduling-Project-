@@ -21,10 +21,8 @@ import { run as scenario11 } from './scenarios/11-snapshot-restore.js'
 import { run as scenario12 } from './scenarios/12-schema-migration.js'
 import { run as scenario13 } from './scenarios/13-host-crash-mid-sync.js'
 import { run as scenario14 } from './scenarios/14-corrupt-payload.js'
-
-// Deferred scenarios (not yet implemented):
-//   15 – clock skew: op timestamps diverge between host and client clock
-//   16 – role changes: user role updated while client is mid-session
+import { run as scenario15 } from './scenarios/15-clock-skew.js'
+import { run as scenario16 } from './scenarios/16-role-change.js'
 
 const SCENARIOS = [
   { name: '01 bootstrap + first sync', fn: scenario01 },
@@ -41,6 +39,8 @@ const SCENARIOS = [
   { name: '12 schema migration with pending writes', fn: scenario12 },
   { name: '13 host crash mid-sync + resume', fn: scenario13 },
   { name: '14 corrupt payload rejected transactionally', fn: scenario14 },
+  { name: '15 clock-skew on created_at does not reject op', fn: scenario15 },
+  { name: '16 mid-session role change takes effect (same token)', fn: scenario16 },
 ]
 
 const PASS = '\x1b[32mPASS\x1b[0m'

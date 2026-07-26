@@ -215,6 +215,17 @@ export class Host {
     ).get(entity, entityId, field).n
   }
 
+  /**
+   * Execute raw SQL on the Host DB.  TEST-ONLY — not a real IPC surface.
+   * Use for test setup and teardown that cannot go through the WS protocol
+   * (e.g. mutating user roles without re-login, or injecting seed data).
+   * Never call this from production code paths.
+   */
+  dbExec(sql, params = []) {
+    if (!this.db) throw new Error('Host DB is not open')
+    return this.db.prepare(sql).run(...params)
+  }
+
   /** Simulate the host process crashing: close WS server and DB abruptly. */
   kill() {
     try { this.server?.close() } catch { /* ignore */ }

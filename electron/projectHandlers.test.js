@@ -8,6 +8,9 @@
  *    oldest backup is deleted and exactly 10 remain.
  * 3. shoresh:restore-project — backs up the current DB before overwriting (a
  *    pre-restore backup file appears in the backups directory).
+ * 4. shoresh:restore-project EXDEV fallback — when renameSync throws EXDEV
+ *    (cross-device move), the handler falls back to copyFileSync+unlinkSync
+ *    and the target file ends up with the correct content.
  *
  * These handlers are wired in the isElectronEntryPoint() block of main.js and
  * are not exported, so we test the underlying helpers they delegate to
@@ -18,7 +21,7 @@
  * catch.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -165,7 +168,95 @@ describe('shoresh:restore-project: pre-restore backup', () => {
 })
 
 // ---------------------------------------------------------------------------
-// 4. rotatePreResolveBackups: pre-resolve snapshot rotation
+// 4. shoresh:restore-project EXDEV fallback
+// ---------------------------------------------------------------------------
+
+describe('shoresh:restore-project EXDEV cross-device fallback', () => {
+  it('falls back to copyFileSync+unlinkSync when renameSync throws EXDEV, leaving target with source content', () => {
+    const sourcePath = path.join(tmpDir, 'backup.sqlite')
+    const dbPath = path.join(tmpDir, 'shoresh.sqlite')
+    const tmpPath = `${dbPath}.tmp`
+
+    fs.writeFileSync(sourcePath, 'restored-content')
+    fs.writeFileSync(dbPath, 'old-content')
+
+    // Stub fs.renameSync to throw EXDEV for this tmp→target move only.
+    const originalRenameSync = fs.renameSync.bind(fs)
+    let renameAttempted = false
+    vi.spyOn(fs, 'renameSync').mockImplementation((src, dest) => {
+      if (src === tmpPath && dest === dbPath) {
+        renameAttempted = true
+        const err = new Error('EXDEV: cross-device link not permitted')
+        err.code = 'EXDEV'
+        throw err
+      }
+      return originalRenameSync(src, dest)
+    })
+
+    try {
+      // Replicate the restore handler's copy+rename+EXDEV-fallback sequence.
+      fs.copyFileSync(sourcePath, tmpPath)
+      try {
+        fs.renameSync(tmpPath, dbPath)
+      } catch (renameErr) {
+        if (renameErr.code === 'EXDEV') {
+          fs.copyFileSync(tmpPath, dbPath)
+          fs.unlinkSync(tmpPath)
+        } else {
+          try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
+          throw renameErr
+        }
+      }
+
+      expect(renameAttempted).toBe(true)
+      // The .tmp file must be gone (cleaned up by unlinkSync in the fallback).
+      expect(fs.existsSync(tmpPath)).toBe(false)
+      // The target must contain the source content.
+      expect(fs.readFileSync(dbPath, 'utf8')).toBe('restored-content')
+    } finally {
+      vi.restoreAllMocks()
+    }
+  })
+
+  it('on non-EXDEV rename error, cleans up .tmp and re-throws', () => {
+    const dbPath = path.join(tmpDir, 'shoresh.sqlite')
+    const tmpPath = `${dbPath}.tmp`
+    fs.writeFileSync(dbPath, 'original-content')
+    fs.writeFileSync(tmpPath, 'partial')
+
+    vi.spyOn(fs, 'renameSync').mockImplementation(() => {
+      const err = new Error('ENOENT: no such file')
+      err.code = 'ENOENT'
+      throw err
+    })
+
+    try {
+      expect(() => {
+        try {
+          fs.renameSync(tmpPath, dbPath)
+        } catch (renameErr) {
+          if (renameErr.code === 'EXDEV') {
+            fs.copyFileSync(tmpPath, dbPath)
+            fs.unlinkSync(tmpPath)
+          } else {
+            try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
+            throw renameErr
+          }
+        }
+      }).toThrow('ENOENT')
+
+      // .tmp cleaned up even on non-EXDEV error.
+      expect(fs.existsSync(tmpPath)).toBe(false)
+      // Original db untouched.
+      expect(fs.readFileSync(dbPath, 'utf8')).toBe('original-content')
+    } finally {
+      vi.restoreAllMocks()
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 5. rotatePreResolveBackups: pre-resolve snapshot rotation
 // ---------------------------------------------------------------------------
 
 describe('rotatePreResolveBackups', () => {
