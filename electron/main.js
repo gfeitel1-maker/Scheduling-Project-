@@ -950,7 +950,9 @@ if (isElectronEntryPoint()) {
           // Fall back to copy+delete — not atomic, but the pre-restore backup
           // above already guards against a mid-write failure here.
           fs.copyFileSync(tmpPath, dbPath)
-          fs.unlinkSync(tmpPath)
+          // Do not let a cleanup failure here propagate as a restore failure —
+          // dbPath already has the correct content at this point.
+          try { fs.unlinkSync(tmpPath) } catch { /* stale .tmp; harmless */ }
         } else {
           try { fs.unlinkSync(tmpPath) } catch { /* ignore */ }
           throw renameErr

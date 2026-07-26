@@ -124,12 +124,24 @@ export async function run() {
     if (!a1 || !a2) throw new Error('ClientA missing one or both ops')
 
     // On the client DB, host_seq stores the Host's canonical seq.
-    // Ordering by host_seq must match the op submission order.
-    const a1Seq = a1.host_seq ?? a1.seq
-    const a2Seq = a2.host_seq ?? a2.seq
-    if (a1Seq >= a2Seq) {
+    // Assert it was actually written — a null here means op_applied broadcast
+    // did not populate host_seq, which would make the ordering comparison below
+    // meaningless (it would fall back to local insert order, always monotonic).
+    if (a1.host_seq == null) {
       throw new Error(
-        `ClientA host_seq ordering wrong: a1=${a1Seq} should be < a2=${a2Seq}`
+        `ClientA op1 host_seq is null — op_applied broadcast may not have populated it ` +
+        `(client_write_id=${cwid1})`
+      )
+    }
+    if (a2.host_seq == null) {
+      throw new Error(
+        `ClientA op2 host_seq is null — op_applied broadcast may not have populated it ` +
+        `(client_write_id=${cwid2})`
+      )
+    }
+    if (a1.host_seq >= a2.host_seq) {
+      throw new Error(
+        `ClientA host_seq ordering wrong: a1.host_seq=${a1.host_seq} should be < a2.host_seq=${a2.host_seq}`
       )
     }
 

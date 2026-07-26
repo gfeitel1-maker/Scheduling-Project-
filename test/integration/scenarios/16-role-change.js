@@ -84,7 +84,6 @@ export async function run() {
     // on a fresh scope_id produces no conflict and succeeds cleanly.
     const scopeId1 = randomUUID()
     const cwid4 = randomUUID()
-    const opsBeforeStep4 = host.getOps().length
     clientBob.sendRawMessage({
       type: 'submit_bulk_replace_op',
       op: {
@@ -97,8 +96,10 @@ export async function run() {
     })
 
     // If Bob is now admin the op lands; if still staff it is rejected (error).
+    // Poll specifically for cwid4 so an unrelated concurrent op cannot resolve
+    // this waitFor prematurely.
     await waitFor(
-      () => host.getOps().length > opsBeforeStep4 || host.getOps().some(o => o.client_write_id === cwid4),
+      () => host.getOps().some(o => o.client_write_id === cwid4),
       5000
     )
     const adminOp = host.getOps().find(o => o.client_write_id === cwid4)
