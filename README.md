@@ -8,7 +8,7 @@ It's the adaptive scheduling layer for camps that outgrow spreadsheets but don't
 
 ## The problem
 
-Camp scheduling is a constraint satisfaction problem dressed up as a logistics problem. A typical week involves groups with different availability windows, activities with location capacity and eligibility rules, anchors that can't move, frequency goals, and preferences like “swimming should happen before Wednesday.”
+Camp scheduling is a constraint satisfaction problem dressed up as a logistics problem. A typical week involves groups with different availability windows, activities with location capacity and eligibility rules, anchors that can't move, frequency goals, and preferences like "swimming should happen before Wednesday."
 
 Spreadsheets break down fast. Black-box tools make decisions you can't see or override. Shoresh sits in between — it handles the constraints and surfaces the conflicts, but you stay in control.
 
@@ -21,43 +21,55 @@ You define the rules: groups, tiers, time blocks, activities, anchors, and const
 - **Flag system** — surfaces unfillable slots, underserved activities, weather risk, and distribution gaps
 - **Locking** — protect decisions that shouldn't change across regenerations
 - **Snapshots** — named versions with auto-save before every regeneration
+- **Conflict resolution** — when two devices edit the same field offline, a dedicated screen surfaces the conflict and lets a director choose which version to keep
 - **Local-first** — each camp's data lives in its own on-device SQLite database, isolated by design
 
 ## Architecture
 
-Shoresh is a local-first desktop app built on Electron and SQLite. Each device runs its own
-SQLite database. One device acts as the LAN "Host" — it runs a WebSocket server and is the
-authoritative source of truth. Other devices are "Clients" that discover the Host via mDNS
-and sync over the local network (`ws://`). There is no cloud backend, no Postgres, no
-Supabase — everything lives on-device.
+Shoresh is a local-first desktop app built on Electron and SQLite. Each device runs its own SQLite database. One device acts as the LAN "Host" — it runs a WebSocket server and is the authoritative source of truth. Other devices are "Clients" that discover the Host via mDNS and sync over the local network (`ws://`). There is no cloud backend — everything lives on-device.
 
-Device access is gated by a pairing flow: a new Client sends a `pairing_request` over the
-WebSocket; an admin approves it in the Device Manager screen; the Host mints a
-`device_secret_identifier` for that device. After pairing, a Client's offline sessions are
-backed by a local HMAC token; online sessions use a Host-minted Ed25519 camp token.
+**Device access is gated by a pairing flow:** a new Client sends a `pairing_request` over the WebSocket; an admin approves it in the Device Manager screen; the Host mints a per-device secret for that device. After pairing, a Client's offline sessions use a local HMAC token; online sessions use a Host-minted Ed25519 camp token that Clients can verify but never forge.
 
-See [`PLATFORM_STATE.md`](PLATFORM_STATE.md) for the full architecture, screen inventory,
-and database schema. See [`SECURITY.md`](SECURITY.md) for the security model and known
-limitations.
+All mutations flow through an op-log — every write is recorded as an operation row, synced and replayed across devices. When two devices edit the same field while offline, the conflict is recorded explicitly and surfaced in the Conflicts screen for a human to resolve. Nothing is silently dropped.
+
+See [`PLATFORM_STATE.md`](PLATFORM_STATE.md) for the full architecture, screen inventory, and database schema. See [`SECURITY.md`](SECURITY.md) for the security model and known limitations.
 
 ## Security model
 
-Shoresh is designed for a **trusted private LAN** — a known group of collaborators on a
-network they control (camp office Wi-Fi, a direct switch, etc.).
+Shoresh is designed for a **trusted private LAN** — a known group of collaborators on a network they control (camp office Wi-Fi, a direct switch, etc.).
 
-- **Device pairing gate**: every new device must be explicitly approved by an admin before
-  it can sync or log in.
-- **Ed25519 camp tokens**: session tokens for network use are signed exclusively by the
-  Host's private key (Ed25519). Clients can verify but never mint them.
-- **Device-scoped local tokens**: offline Client sessions use a per-device HMAC secret
-  (`device_secret_identifier`) minted at pairing time.
-- **Centralized `authorize()`**: every mutating IPC and WebSocket handler calls a single
-  authorization primitive that re-derives the user's role from the database on every call.
-- **Audit log**: auth events and denied calls are written to the `audit_events` table.
+- **Device pairing gate** — every new device must be explicitly approved by an admin before it can sync or log in.
+- **Ed25519 camp tokens** — session tokens for network use are signed exclusively by the Host's private key. Clients can verify but never mint them.
+- **Device revocation** — an admin can revoke a device in Device Manager; the live connection is closed immediately and all future requests from that device are denied.
+- **Centralized `authorize()`** — every mutating IPC and WebSocket handler re-derives the user's role from the database on every call, so a role change or revocation takes effect immediately.
+- **Audit log** — auth events and denied calls are written to the `audit_events` table.
 
-**This system is not designed for public internet hosting, open Wi-Fi, or enterprise
-identity requirements.** See `SECURITY.md` for explicit limitations and things that are
-deliberately out of scope.
+**This system is not designed for public internet hosting, open Wi-Fi, or enterprise identity requirements.** See [`SECURITY.md`](SECURITY.md) for explicit limitations.
+
+## Running locally
+
+```bash
+npm install
+npx electron-rebuild -f -w better-sqlite3   # required before first electron:dev run
+npm run electron:dev                          # Vite + Electron together
+```
+
+After switching between `npm run test` (Node) and `npm run electron:dev` (Electron), rebuild the native module for the target:
+
+```bash
+npx electron-rebuild -f -w better-sqlite3   # before electron:dev
+npm rebuild better-sqlite3                   # before npm run test
+```
+
+## Tests
+
+```bash
+npm run test                          # Vitest unit tests (~527+)
+node test/integration/run.js          # 16 multi-process integration scenarios
+npm run lint                          # ESLint
+```
+
+The integration harness spawns real child processes to cover cross-process behavior (pairing, revocation, token renewal, conflict detection, clock skew, role changes) that Vitest's single-process model cannot verify.
 
 ## Status
 

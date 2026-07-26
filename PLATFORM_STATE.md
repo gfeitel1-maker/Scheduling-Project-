@@ -1,6 +1,6 @@
 # Shoresh — Platform State
 
-_Last updated: 2026-07-26_
+_Last updated: 2026-07-26 (schema v20, 16 integration scenarios)_
 
 ---
 
@@ -121,12 +121,12 @@ Two token types are minted, verified, and enforced separately — see `electron/
 
 ## Database Tables
 
-(SQLite, one file per device — `electron/db/schema.sql`, schema v19 as of this writing)
+(SQLite, one file per device — `electron/db/schema.sql`, schema v20 as of this writing)
 
 - **camps** — `id, name, signing_public_key` (Ed25519 public key, hex-encoded DER/SPKI — replicated to all Clients so they can verify camp tokens). Exactly one row expected per device db (single-camp-per-db assumption used throughout, e.g. `SELECT ... FROM camps LIMIT 1`).
 - **host_signing_key** — `id (always 1), public_key, private_key, created_at`. Host-only table; generated once at `bootstrapCamp()`. Never replicated. The private key never leaves the Host device.
 - **users** — `id, camp_id, name, pin_hash, pin_salt, role('admin'|'staff')`. Unique on `(camp_id, name)`.
-- **devices** — `id, name, last_seen_at, last_synced_at, last_synced_seq, authorized_at, revoked_at, revoked_by_user_id, revocation_reason, device_secret_identifier`. `last_synced_seq` is the op-log watermark for reconnect catch-up. `device_secret_identifier` is the HMAC secret for local tokens, minted at pairing approval. `revoked_at`/`revoked_by_user_id`/`revocation_reason` are set at revocation; live WS socket is closed immediately.
+- **devices** — `id, name, last_seen_at, last_synced_at, last_synced_seq, pairing_status ('pending'|'authorized'), authorized_at, authorized_by_user_id, revoked_at, revoked_by_user_id, revocation_reason, device_secret_identifier`. `last_synced_seq` is the op-log watermark for reconnect catch-up. `pairing_status` defaults to `'pending'`; flips to `'authorized'` on admin approval. `device_secret_identifier` is the HMAC secret for local tokens, minted at pairing approval. `revoked_at`/`revoked_by_user_id`/`revocation_reason` are set at revocation; live WS socket is closed immediately. `authorize()` checks `authorized_at IS NOT NULL` on every privileged call — a device row without it is always denied.
 - **audit_events** — `id, camp_id, actor_user_id, device_id, action, outcome, reason, metadata (JSON), created_at`. Written by `electron/audit/auditLog.js`. Captured events include: `auth.login` (allow/deny with reason), `auth.authorize` (deny only — action + role + reason logged, no PIN/token material), device pairing and revocation events.`
 - **operations** — the op-log: `seq (autoincrement), id (unique), entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id`. `client_write_id` is a client-generated idempotency key so a retried `submit_op` doesn't mint a duplicate op.
 - **conflicts** — durable record of every detected write conflict: `id, entity, entity_id, field, incoming_op, existing_op, existing_op_id, created_at, resolved_at`. A conflict counts as resolved when any op has `parent_op_id = existing_op_id`.
@@ -138,7 +138,7 @@ Two token types are minted, verified, and enforced separately — see `electron/
 - **schedule_snapshots** — `id, template_id, name, is_auto, created_at, slots (TEXT/JSON), overlays (TEXT/JSON)`. `slots`/`overlays` are JSON-text columns — an explicitly scoped exception to this app's normal field-level op-log sync, not a pattern to reuse elsewhere (per the Sub-plan E design doc). Ported off Supabase in Sub-plan E Task 4. Gained a `PROJECTIONS` registry entry (`electron/ops/projections.js`) on 2026-07-24 — previously `ScheduleScreen.jsx`'s `writeFields()` calls to this entity silently never materialized the row (op-log write succeeded, but nothing projected it into the table); found and fixed while un-skipping the Sub-plan E Task 5 E2E regression test.
 - **days_of_operation** — `id, camp_id, label, day_of_week, sort_order`. Default Monday-Friday rows are seeded on first camp mount by `src/utils/seedDays.js` (ported off Supabase 2026-07-24, previously `App.jsx`'s last live `supabase.from()` call site) — mirrors `ensureCohort.js`'s per-row completeness-check/repair pattern rather than a single "any row exists" flag, so a crash mid-seed self-repairs on the next mount instead of permanently under-seeding. No `UNIQUE` constraint exists on this table (unlike `cohorts`/`groups`/`time_blocks`) — two other files (`schema.sql`, `localDb.js`) have stale comments claiming otherwise, flagged as a follow-up cleanup, not yet fixed.
 - **operations.host_seq** — new nullable column (schema migration v18, 2026-07-24). Persists the Host's canonical `seq` value on a Client's replicated copy of an op (`applyRemoteOp` in `syncClient.js`), fixing the `bulk_replace` cross-device seq bug — see Key Architectural Decisions.
-- **schema_migrations** — `version, applied_at` — versioned migration guard table (currently v18).
+- **schema_migrations** — `version, applied_at` — versioned migration guard table (currently v20). v19 added `audit_events`; v20 added device trust columns (`authorized_at`, `authorized_by_user_id`, `revoked_at`, `revoked_by_user_id`, `revocation_reason`, `device_secret_identifier`, `pairing_status`) to `devices`, the `host_signing_key` singleton table, and `camps.signing_public_key`.
 - **device_identity** — `id, created_at` — this device's own persistent identity, independent of camp/login state (exists even on a totally fresh install).
 - **pending_writes** — durable backing store for a Client's offline write queue (`pending_id, client_write_id, entity, entity_id, field, value, parent_op_id, created_at`), so a queued write survives an app restart before it's confirmed applied.
 
@@ -170,7 +170,7 @@ Managed by `electron/db/projectManager.js`. A "project" is a named SQLite file o
 ## Test Coverage
 
 - **Vitest unit tests**: ~527+ tests across `electron/` and `src/` — auth, ops, projections, sync handlers, IPC handlers, schedule engine.
-- **Integration test harness**: `test/integration/` — 6 separate-process scenarios driven by `node test/integration/run.js`. Each scenario spawns real Electron processes to verify cross-process behavior (device pairing, revocation, token renewal, conflict detection, bulk_replace cross-device correctness) that single-process Vitest cannot distinguish from correct behavior.
+- **Integration test harness**: `test/integration/` — 16 separate-process scenarios driven by `node test/integration/run.js`. Each scenario spawns real Node child processes (not Electron, but using the same `electron/` modules) to verify cross-process behavior that single-process Vitest cannot distinguish from correct behavior. Scenarios cover: bootstrap, offline restart, idempotency, conflict detection, device revocation, seq catch-up, pairing reconnect, field-merge ordering, lock expiry, snapshot restore, schema migration, host crash mid-sync, corrupt payload rejection, clock skew, and role-change enforcement.
 
 ---
 
@@ -199,18 +199,14 @@ Not role-differentiated at the top level — `setup` (`CampSetup.jsx`) is the fi
 
 ---
 
-## Known Deferred Items
+## Known Issues and Open Items
 
-- **Device pairing/revocation**: implemented — Ed25519 key pair, `pairing_request` WS flow, `DeviceManagerScreen.jsx`, `authorized_at`/`revoked_at` fields, live socket close on revocation, `pairing_pending`/`pairing_denied` phases. Token expiration (24h TTL, `renew_token` WS message) is also implemented.
-- **Audit-event-stream infrastructure**: implemented — `electron/audit/auditLog.js`, `audit_events` table (schema v19), events for auth.login, auth.authorize denials, pairing, and revocation.
-- Two LOW-severity residual notes from Phase 2 Task 4's Red Hat review, not currently exploitable: the existing-behavior-preserved test sweep exercises one hardcoded writable field per entity, not every field within an entity (fine today since the permission model is entity-level, not field-level); the WS role-change-takes-effect test exercises `submit_bulk_replace_op` specifically rather than also `submit_op`/`acquire_lock` individually (they share the same `authorize()` code path, verified by code trace).
-- **Single-process test-harness limitation** (documented in `docs/superpowers/specs/2026-07-20-shared-camp-signing-secret-design.md`): Vitest runs Host/Client test actors in one OS process, so it cannot by itself distinguish some cross-process bugs from correct behavior — cross-process claims require live two-Electron-instance verification, not just the automated suite.
-- No TLS anywhere in the sync protocol (`ws://`, not `wss://`) — explicitly accepted under the "trusted camp LAN" threat model, not a bug.
-- **Local dev environment cannot complete Camp Setup**: confirmed across multiple Tester rounds (Sub-plan E Tasks 2-5, and again 2026-07-24) — the Units screen has an unsatisfiable "Cohorts" prerequisite with no reachable UI path in the sidebar, so Groups/Time Blocks/Activities can never be configured and the Schedule screen can never show a real schedule grid in this environment. Root cause not diagnosed (out of scope for the tasks that hit it). Separately, `DaysScreen.jsx` exists but is not wired into `App.jsx`'s `SCREENS` map or `Sidebar` navigation — confirmed pre-existing, unrelated to the 2026-07-24 `seedDays` port, no live UI path to it either. Both are worth a dedicated navigation-audit task.
-- **`days_of_operation` has no UNIQUE constraint**, unlike `cohorts`/`groups`/`time_blocks` — `seedDays.js`'s repair logic works around this, but two other files (`electron/db/schema.sql`, `electron/db/localDb.js`) have stale comments incorrectly claiming a UNIQUE constraint exists on this table. Flagged 2026-07-24, not yet fixed — low-severity documentation landmine.
-- **ESLint's Supabase-import ban only catches ES `import` syntax**, not CommonJS `require(...)` — narrow, plausible-not-confirmed bypass in an `electron/**` file using `require()` (the codebase is ESM-first; `require()` is currently confined to `electron/preload.js`). Flagged 2026-07-24 as a follow-up, not urgent.
-- **`.env` (gitignored, untracked)** still contains a local Supabase demo `service_role` JWT (`iss: supabase-demo`, `127.0.0.1:54321` — not a real secret) left over from the pre-rebuild setup. Not tracked, not read by any active code, left alone per Security review (2026-07-24) — `.env.example` now documents these vars as legacy/dead.
-- Two pre-existing, unrelated flaky tests observed repeatedly under full-suite (`npm run test`) parallel load during 2026-07-24's work: `electron/sync/discovery.test.js` (mDNS "finds an advertised host on the LAN" — passes reliably in isolation) and `electron/sync/syncServer.test.js` ("throttles a burst of rapid login messages" — timing-sensitive under CPU contention). Neither is caused by or related to any change made 2026-07-24; not fixed, out of scope each time they surfaced.
+- **Camp Setup cannot be fully completed in a local dev environment**: the Units screen has an unsatisfiable "Cohorts" prerequisite with no reachable UI path in the sidebar, blocking Groups / Time Blocks / Activities and preventing the Schedule screen from showing a real schedule grid. Root cause not diagnosed. Separately, `DaysScreen.jsx` exists but is not wired into `App.jsx`'s `SCREENS` map or `Sidebar` — no live UI path to it. Both warrant a dedicated navigation-audit task.
+- **`days_of_operation` has no UNIQUE constraint** — `seedDays.js`'s repair logic works around this, but `electron/db/schema.sql` and `electron/db/localDb.js` have stale comments incorrectly claiming a UNIQUE constraint exists on this table. Low-severity documentation inconsistency, not yet fixed.
+- **Two pre-existing flaky tests** under full-suite parallel load: `electron/sync/discovery.test.js` ("finds an advertised host on the LAN" — passes reliably in isolation) and `electron/sync/syncServer.test.js` ("throttles a burst of rapid login messages" — timing-sensitive under CPU contention). Neither is related to any recent change; both are out of scope until they become reliably reproducible.
+- **No TLS on the sync connection** (`ws://`, not `wss://`) — explicitly accepted under the trusted-LAN threat model. See `SECURITY.md`.
+- **ESLint's Supabase-import ban covers ES `import` only**, not CommonJS `require()` — narrow theoretical bypass in an `electron/**` file. The codebase is ESM-first; `require()` is currently confined to `electron/preload.js`. Low priority.
+- **`.env` (gitignored)** contains a local Supabase demo JWT left over from the pre-rebuild setup. Not read by any active code; documented in `.env.example` as legacy/dead.
 
 ---
 
