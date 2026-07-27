@@ -200,6 +200,18 @@ export const PROJECTIONS = {
       ).run(id, value)
     },
   },
+  schedule_templates: {
+    table: 'schedule_templates',
+    key: 'id',
+    fields: ['camp_id', 'name'],
+    ensureExists: (db, id) => {
+      const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+      db.prepare("INSERT OR IGNORE INTO schedule_templates (id, camp_id, name) VALUES (?, ?, '')").run(
+        id,
+        camp?.id ?? null
+      )
+    },
+  },
   // Never previously registered here (see the day_override_template_slots
   // comment above referencing "same shape as ... schedule_snapshots", which
   // was aspirational, not actual) — ScheduleScreen.jsx's writeFields()

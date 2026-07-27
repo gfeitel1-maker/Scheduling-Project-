@@ -69,10 +69,15 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
   const blockOrder = new Map(timeBlocksSorted.map((b, i) => [b.id, i]))
 
   // ── Pass 0: resolve eligibility ──────────────────────────────────────────
+  function parseIds(v) {
+    if (Array.isArray(v)) return v
+    if (typeof v === 'string') { try { return JSON.parse(v) } catch { return [] } }
+    return []
+  }
   const eligibility = new Map() // activityId → Set<groupId>
   for (const act of activities) {
-    const tierIds = act.eligible_tier_ids || []
-    const groupIds = act.eligible_group_ids || []
+    const tierIds = parseIds(act.eligible_tier_ids)
+    const groupIds = parseIds(act.eligible_group_ids)
     let eligible = new Set()
     if (tierIds.length === 0 && groupIds.length === 0) {
       for (const g of groups) eligible.add(g.id)
