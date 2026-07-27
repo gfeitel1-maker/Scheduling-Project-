@@ -1,19 +1,41 @@
-import { DndContext } from '@dnd-kit/core'
+import { useDroppable } from '@dnd-kit/core'
 import SlotCell, { emptyTd } from '../schedule/SlotCell'
 import OverlayCell from '../schedule/OverlayCell'
 import { S } from '../../styles/shared'
 
+// DndContext lives in ScheduleScreen for day view (covers sidebar + grid).
+// isExpandDragActive is passed down from ScheduleScreen's drag-start handler.
+function DroppableEmptyCell({ groupId, dayId, blockId }) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `day-drop-${groupId}-${dayId}-${blockId}`,
+    data: { groupId, dayId, blockId },
+  })
+  return (
+    <td
+      ref={setNodeRef}
+      style={{
+        ...emptyTd,
+        background: isOver ? 'var(--primary)22' : 'transparent',
+        outline: isOver ? '2px dashed var(--primary)' : 'none',
+        outlineOffset: -2,
+        transition: 'background 0.1s',
+        borderRadius: 6,
+      }}
+    />
+  )
+}
+
 export default function ScheduleDayView({
   groups, days, timeBlocks, selectedDay, onSelectDay,
   weatherMode, stampMode, actMap, anchorMap,
-  sensors, swapSlots, lockActivity, releaseCell,
+  releaseCell,
   overlayForCell, isOverlayHead, getOverlayRowSpan,
   isAnchorTail, getAnchorRowSpan,
   isActivityTail, getActivityRowSpan,
   handleFillEnter, startFill, removeOverlay, handleStampClick,
   onEditSlot, fillState,
   getSlot,
-  onExpandSlot,
+  isExpandDragActive,
 }) {
   return (
     <div>
@@ -31,58 +53,6 @@ export default function ScheduleDayView({
       </div>
 
       {selectedDay && (
-        <DndContext
-          sensors={sensors}
-          onDragEnd={({ active, over }) => {
-            if (!over) return
-
-            const expandDrag = active.data.current?.expandDrag
-            if (expandDrag) {
-              const { groupId, dayId, blockId: headBlockId } = expandDrag
-              const overData = over.data.current || {}
-              const tailBlockId = overData.blockId || overData.slot?.blockId
-              const tailGroupId = overData.groupId || overData.slot?.groupId
-              const tailDayId = overData.dayId || overData.slot?.dayId
-
-              if (!tailBlockId || tailGroupId !== groupId || tailDayId !== dayId) return
-
-              const headBlock = timeBlocks.find(b => b.id === headBlockId)
-              const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
-              if (!headBlock || !tailBlock) return
-              if (tailBlock.sort_order !== headBlock.sort_order + 1) return
-
-              const tailSlot = getSlot(groupId, dayId, tailBlockId)
-              if (!tailSlot || !tailSlot.activity_id || tailSlot.is_anchor) return
-
-              const tailActivity = actMap.get(tailSlot.activity_id)
-              const tailBlockName = tailBlock.name
-              const day = days ? days.find(d => d.id === dayId) : null
-              const dayLabel = day ? day.label : dayId
-
-              onExpandSlot(
-                groupId,
-                dayId,
-                headBlockId,
-                tailBlockId,
-                tailSlot.activity_id,
-                tailActivity?.name || '',
-                tailBlockName,
-                dayLabel,
-              )
-              return
-            }
-
-            const slotA = active.data.current?.slot
-            const slotB = over.data.current?.slot
-            if (!slotA || !slotB) return
-            if (slotA.groupId === slotB.groupId && slotA.dayId === slotB.dayId && slotA.blockId === slotB.blockId) return
-            if (slotB.type === 'anchor' || slotB.type === 'unavailable') return
-            swapSlots(
-              { groupId: slotA.groupId, dayId: slotA.dayId, blockId: slotA.blockId, activityId: slotA.activity_id },
-              { groupId: slotB.groupId, dayId: slotB.dayId, blockId: slotB.blockId, activityId: slotB.activity_id }
-            )
-          }}
-        >
         <div style={{ overflowX: 'auto' }}>
           <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: '100%', minWidth: 140 + groups.length * 130, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
             <thead>
@@ -125,7 +95,7 @@ export default function ScheduleDayView({
                     }
 
                     const slot = getSlot(group.id, selectedDay, block.id)
-                    if (!slot) return <td key={group.id} style={emptyTd} />
+                    if (!slot) return <DroppableEmptyCell key={group.id} groupId={group.id} dayId={selectedDay} blockId={block.id} />
                     if (slot.is_anchor && isAnchorTail(group.id, selectedDay, block.id)) return null
                     if (!slot.is_anchor && isActivityTail(group.id, selectedDay, block.id)) return null
                     const rowSpan = slot.is_anchor
@@ -138,6 +108,11 @@ export default function ScheduleDayView({
                     const cellClickHandler = stampMode
                       ? () => handleStampClick(group.id, selectedDay, block.id)
                       : undefined
+
+                    if (!slot.activity_id && !slot.is_anchor) {
+                      return <DroppableEmptyCell key={group.id} groupId={group.id} dayId={selectedDay} blockId={block.id} />
+                    }
+
                     return (
                       <SlotCell
                         key={group.id}
@@ -150,10 +125,10 @@ export default function ScheduleDayView({
                         actColorIdx={act?.colorIdx || 0}
                         weatherMode={weatherMode}
                         onEdit={cellClickHandler || (s => onEditSlot(s))}
-                        onLock={s => lockActivity(s.activity_id)}
                         onRelease={s => releaseCell(s.id)}
                         isLocked={isLocked}
                         isDndEnabled={!isLocked && !stampMode}
+                        isExpandDragActive={isExpandDragActive}
                       />
                     )
                   })}
@@ -162,7 +137,6 @@ export default function ScheduleDayView({
             </tbody>
           </table>
         </div>
-        </DndContext>
       )}
     </div>
   )

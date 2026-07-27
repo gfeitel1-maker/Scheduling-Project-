@@ -1,5 +1,4 @@
-import { useState } from 'react'
-import { DndContext, PointerSensor, useSensor, useSensors, useDroppable } from '@dnd-kit/core'
+import { useDroppable } from '@dnd-kit/core'
 import SlotCell, { emptyTd } from '../schedule/SlotCell'
 import OverlayCell from '../schedule/OverlayCell'
 import { S } from '../../styles/shared'
@@ -25,6 +24,8 @@ function DroppableEmptyCell({ groupId, dayId, blockId }) {
 }
 
 
+// DndContext lives in ScheduleScreen for group view (covers sidebar + grid).
+// isExpandDragActive is passed down from ScheduleScreen's drag-start handler.
 export default function ScheduleGroupView({
   groups, days, timeBlocks, selectedGroup, onSelectGroup,
   weatherMode, stampMode, actMap, anchorMap,
@@ -35,73 +36,13 @@ export default function ScheduleGroupView({
   onEditSlot, fillState,
   getSlot,
   onExpandSlot,
-  onPlaceActivity,
+  onSplitSlot,
+  isExpandDragActive,
+  selectedSlotKeys,
+  pasteMode,
+  onCellSelect,
 }) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
-  const [isExpandDragActive, setIsExpandDragActive] = useState(false)
-
-  function handleDragStart({ active }) {
-    if (active.data.current?.expandDrag) setIsExpandDragActive(true)
-  }
-
-  function handleDragEnd({ active, over }) {
-    setIsExpandDragActive(false)
-    if (!over) return
-
-    const expandDrag = active.data.current?.expandDrag
-    const paletteActivity = active.data.current?.paletteActivity
-
-    if (expandDrag) {
-      const { groupId, dayId, blockId: headBlockId } = expandDrag
-      const overData = over.data.current || {}
-      // Support both DroppableEmptyCell data ({ groupId, dayId, blockId })
-      // and SlotCell droppable data ({ slot: { groupId, dayId, blockId } })
-      const tailBlockId = overData.blockId || overData.slot?.blockId
-      const tailGroupId = overData.groupId || overData.slot?.groupId
-      const tailDayId = overData.dayId || overData.slot?.dayId
-
-      if (!tailBlockId || tailGroupId !== groupId || tailDayId !== dayId) return
-
-      // Verify the over block is directly below the head block (consecutive sort_order)
-      const headBlock = timeBlocks.find(b => b.id === headBlockId)
-      const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
-      if (!headBlock || !tailBlock) return
-      if (tailBlock.sort_order !== headBlock.sort_order + 1) return
-
-      // Verify the tail cell has an activity to displace
-      const tailSlot = getSlot(groupId, dayId, tailBlockId)
-      if (!tailSlot || !tailSlot.activity_id || tailSlot.is_anchor) return
-
-      const tailActivity = actMap.get(tailSlot.activity_id)
-      const tailBlockName = tailBlock.name
-      const day = days ? days.find(d => d.id === dayId) : null
-      const dayLabel = day ? day.label : dayId
-
-      onExpandSlot(
-        groupId,
-        dayId,
-        headBlockId,
-        tailBlockId,
-        tailSlot.activity_id,
-        tailActivity?.name || '',
-        tailBlockName,
-        dayLabel,
-      )
-      return
-    }
-
-    if (paletteActivity && onPlaceActivity) {
-      const overData = over.data.current || {}
-      const { groupId, dayId, blockId } = overData
-      if (!groupId || !dayId || !blockId) return
-      const targetSlot = getSlot(groupId, dayId, blockId)
-      if (targetSlot && targetSlot.activity_id) return
-      onPlaceActivity(paletteActivity.id, groupId, dayId, blockId)
-    }
-  }
-
   return (
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setIsExpandDragActive(false)}>
       <div>
         {/* Group pills */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -175,6 +116,19 @@ export default function ScheduleGroupView({
                           return <DroppableEmptyCell key={day.id} groupId={selectedGroup} dayId={day.id} blockId={block.id} />
                         }
 
+                        const slotKey = `${selectedGroup}|${day.id}|${block.id}`
+                        const isMerged = Boolean(slot.flags?.expanded)
+                        const isSelected = selectedSlotKeys?.has(slotKey) ?? false
+                        const isMultiSelected = isSelected && (selectedSlotKeys?.size ?? 0) > 1
+                        const nextBlock = timeBlocks.find(b => b.sort_order === block.sort_order + 1)
+                        const nextSlot = nextBlock ? getSlot(selectedGroup, day.id, nextBlock.id) : null
+                        const hasMergeDown = !isMerged && Boolean(nextBlock) && !nextSlot?.is_anchor && nextSlot?.is_span_head !== false
+                        const onMergeDown = hasMergeDown && onExpandSlot ? () => {
+                          const tailAct = nextSlot?.activity_id ? actMap.get(nextSlot.activity_id) : null
+                          onExpandSlot(selectedGroup, day.id, block.id, nextBlock.id, nextSlot?.activity_id ?? null, tailAct?.name ?? '', nextBlock.name, day.label)
+                        } : undefined
+                        const onSplit = isMerged && onSplitSlot ? () => onSplitSlot(selectedGroup, day.id, block.id) : undefined
+
                         return (
                           <SlotCell
                             key={day.id}
@@ -185,7 +139,15 @@ export default function ScheduleGroupView({
                             actColorIdx={act?.colorIdx || 0}
                             weatherMode={weatherMode}
                             onEdit={cellClickHandler || (s => onEditSlot(s))}
+                            onSelect={!stampMode && !slot.is_anchor ? onCellSelect : undefined}
                             isExpandDragActive={isExpandDragActive}
+                            isSelected={isSelected}
+                            isMultiSelected={isMultiSelected}
+                            pasteMode={pasteMode}
+                            hasMergeDown={hasMergeDown}
+                            isMerged={isMerged}
+                            onMergeDown={onMergeDown}
+                            onSplitSlot={onSplit}
                           />
                         )
                       })}
@@ -196,6 +158,5 @@ export default function ScheduleGroupView({
             </div>
         )}
       </div>
-    </DndContext>
   )
 }

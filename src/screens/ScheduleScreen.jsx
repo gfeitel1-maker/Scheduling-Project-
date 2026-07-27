@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { localClient } from '../localClient'
 import buildSchedule from '../engine/buildSchedule'
 import { S } from '../styles/shared'
@@ -15,6 +15,7 @@ import ScheduleGroupView from '../components/schedule/ScheduleGroupView'
 import ScheduleDayView from '../components/schedule/ScheduleDayView'
 import ScheduleActivityView from '../components/schedule/ScheduleActivityView'
 import ManualBuildView from '../components/schedule/ManualBuildView'
+import ActivityPalette from '../components/schedule/ActivityPalette'
 import DisplacedPalette from '../components/schedule/DisplacedPalette'
 
 // Fires one write() per field (the op-log is field-level) and surfaces the
@@ -78,10 +79,23 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
   const [stampMode, setStampMode] = useState(null) // null | string (label of active stamp)
   const [showFieldTripDrawer, setShowFieldTripDrawer] = useState(false)
   const [fillState, setFillState] = useState(null)  // null | { overlayId, previewToOrder }
-  const [manualMode, setManualMode] = useState(false)
+  const [_manualMode, setManualMode] = useState(false)
   const [displacedItems, setDisplacedItems] = useState([])
+  const [isDayExpandDragActive, setIsDayExpandDragActive] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [isGroupExpandDragActive, setIsGroupExpandDragActive] = useState(false)
+  // T5 — undo / redo
+  const [undoStack, setUndoStack] = useState([])
+  const [redoStack, setRedoStack] = useState([])
+  // T3 — selection and copy/paste
+  const [selectedSlotKeys, setSelectedSlotKeys] = useState(new Set())
+  const [clipboardItems, setClipboardItems] = useState([])
+  const [pasteMode, setPasteMode] = useState(false)
+  const [pasteModeIndex, setPasteModeIndex] = useState(0)
+  const [pasteError, setPasteError] = useState(null)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+
 
   useEffect(() => { loadAll() }, [campId])
 
@@ -101,6 +115,68 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     const unsub = localClient.onOpApplied(() => { loadAll() })
     return () => { unsub?.() }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // T3 — keyboard shortcuts: Ctrl+C (copy), Ctrl+A (select all), Escape
+  useEffect(() => {
+    function onKeyDown(e) {
+      const isMeta = e.ctrlKey || e.metaKey
+      if (e.key === 'Escape') {
+        if (pasteMode) {
+          setPasteMode(false)
+          setClipboardItems([])
+          setPasteModeIndex(0)
+        } else {
+          setSelectedSlotKeys(new Set())
+        }
+        return
+      }
+      if (isMeta && e.key === 'c') {
+        e.preventDefault()
+        if (selectedSlotKeys.size === 0) return
+        const items = []
+        for (const key of selectedSlotKeys) {
+          const [gId, dId, bId] = key.split('|')
+          const s = slots.find(sl => sl.group_id === gId && sl.day_id === dId && sl.time_block_id === bId)
+          if (!s || !s.activity_id) continue
+          const actIdx = activities.findIndex(a => a.id === s.activity_id)
+          const act = activities.find(a => a.id === s.activity_id)
+          items.push({ activityId: s.activity_id, activityName: act?.name || '', colorIdx: actIdx >= 0 ? actIdx : 0 })
+        }
+        if (items.length === 0) return
+        setClipboardItems(items)
+        setPasteModeIndex(0)
+        setPasteMode(true)
+        setSelectedSlotKeys(new Set())
+      }
+      if (isMeta && e.key === 'a') {
+        e.preventDefault()
+        const newKeys = new Set()
+        for (const s of slots) {
+          if (s.is_anchor || !s.activity_id || s.is_span_head === false) continue
+          if (selectedGroup && s.group_id !== selectedGroup) continue
+          newKeys.add(`${s.group_id}|${s.day_id}|${s.time_block_id}`)
+        }
+        setSelectedSlotKeys(newKeys)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [pasteMode, selectedSlotKeys, slots, activities, selectedGroup])
+
+  // T5 — undo/redo keyboard shortcuts: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z
+  useEffect(() => {
+    function onKeyDown(e) {
+      const isMac = navigator.platform.toUpperCase().includes('MAC')
+      const ctrl = isMac ? e.metaKey : e.ctrlKey
+      if (!ctrl) return
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return
+      if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); handleUndo() }
+      if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) { e.preventDefault(); handleRedo() }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [undoStack, redoStack])
 
   useEffect(() => {
     if (!fillState) return
@@ -186,6 +262,8 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
 
   async function generate() {
     setGenerating(true)
+    setUndoStack([])
+    setRedoStack([])
 
     const lockedActIds = new Set(activities.filter(a => a.is_locked).map(a => a.id))
     const preplacedSlots = slots
@@ -255,19 +333,47 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     const { groupId, dayId, blockId } = editSlot
     const slot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId)
     if (!slot) return
+
+    const prevActivityId = slot.activity_id ?? null
+    const prevFlags = slot.flags ?? {}
+    const nextActivityId = newActivityId || null
+
     setActionError(null)
     try {
-      await writeFields('template_slots', slot.id, { activity_id: newActivityId || null, flags: {} })
+      await writeFields('template_slots', slot.id, { activity_id: nextActivityId, flags: {} })
     } catch {
       setActionError('Failed to save slot — check your connection and try again')
       return
     }
     setSlots(prev => prev.map(s =>
       s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-        ? { ...s, activity_id: newActivityId || null, flags: {} }
+        ? { ...s, activity_id: nextActivityId, flags: {} }
         : s
     ))
     setEditSlot(null)
+
+    const actAfter = activities.find(a => a.id === nextActivityId)
+    const day = days.find(d => d.id === dayId)
+    const block = timeBlocks.find(b => b.id === blockId)
+    pushUndo({
+      description: `Edited slot → ${actAfter?.name ?? 'empty'} ${day?.label ?? dayId} ${block?.name ?? blockId}`,
+      undo: async () => {
+        await writeFields('template_slots', slot.id, { activity_id: prevActivityId, flags: prevFlags })
+        setSlots(prev => prev.map(s =>
+          s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
+            ? { ...s, activity_id: prevActivityId, flags: prevFlags }
+            : s
+        ))
+      },
+      redo: async () => {
+        await writeFields('template_slots', slot.id, { activity_id: nextActivityId, flags: {} })
+        setSlots(prev => prev.map(s =>
+          s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
+            ? { ...s, activity_id: nextActivityId, flags: {} }
+            : s
+        ))
+      },
+    })
   }
 
   async function swapSlots(slotA, slotB) {
@@ -293,6 +399,38 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
         return { ...s, activity_id: slotA.activityId || null, flags: {} }
       return s
     }))
+
+    const actA = activities.find(a => a.id === slotA.activityId)
+    const actB = activities.find(a => a.id === slotB.activityId)
+    pushUndo({
+      description: `Swapped ${actA?.name ?? 'slot'} ↔ ${actB?.name ?? 'slot'}`,
+      undo: async () => {
+        await Promise.all([
+          writeFields('template_slots', rowA.id, { activity_id: slotA.activityId || null, flags: {} }),
+          writeFields('template_slots', rowB.id, { activity_id: slotB.activityId || null, flags: {} }),
+        ])
+        setSlots(prev => prev.map(s => {
+          if (s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
+            return { ...s, activity_id: slotA.activityId || null, flags: {} }
+          if (s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
+            return { ...s, activity_id: slotB.activityId || null, flags: {} }
+          return s
+        }))
+      },
+      redo: async () => {
+        await Promise.all([
+          writeFields('template_slots', rowA.id, { activity_id: slotB.activityId || null, flags: {} }),
+          writeFields('template_slots', rowB.id, { activity_id: slotA.activityId || null, flags: {} }),
+        ])
+        setSlots(prev => prev.map(s => {
+          if (s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
+            return { ...s, activity_id: slotB.activityId || null, flags: {} }
+          if (s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
+            return { ...s, activity_id: slotA.activityId || null, flags: {} }
+          return s
+        }))
+      },
+    })
   }
 
   async function dismissFlag(slotIds, flagName) {
@@ -420,6 +558,8 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
 
   async function restoreSnapshot(snapshot) {
     if (!templateId) return
+    setUndoStack([])
+    setRedoStack([])
     const fullSnap = (await localClient.list('schedule_snapshots')).find(s => s.id === snapshot.id)
     if (!fullSnap?.slots) return
     let parsedSlots, parsedOverlays
@@ -583,6 +723,9 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     if (!eligible || locationFull) flags.UNFILLABLE = true
     if (atMax) flags.UNDERSERVED = true
 
+    const prevActivityId = slot.activity_id ?? null
+    const prevFlags = slot.flags ?? {}
+
     setActionError(null)
     try {
       await writeFields('template_slots', slot.id, { activity_id: activityId, flags })
@@ -596,8 +739,145 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
         ? { ...s, activity_id: activityId, flags }
         : s
     ))
+
+    const day = days.find(d => d.id === dayId)
+    const block = timeBlocks.find(b => b.id === blockId)
+    pushUndo({
+      description: `Placed ${activity.name} → ${group?.name ?? groupId} ${day?.label ?? dayId} ${block?.name ?? blockId}`,
+      undo: async () => {
+        await writeFields('template_slots', slot.id, { activity_id: prevActivityId, flags: prevFlags })
+        setSlots(prev => prev.map(s =>
+          s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
+            ? { ...s, activity_id: prevActivityId, flags: prevFlags }
+            : s
+        ))
+      },
+      redo: async () => {
+        await writeFields('template_slots', slot.id, { activity_id: activityId, flags })
+        setSlots(prev => prev.map(s =>
+          s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
+            ? { ...s, activity_id: activityId, flags }
+            : s
+        ))
+      },
+    })
   }
 
+
+  function handleManualDragEnd({ active, over }) {
+    if (!over) return
+    const paletteAct = active.data.current?.paletteActivity
+    if (!paletteAct) return
+    const { groupId, dayId, blockId } = over.data.current || {}
+    if (!groupId || !dayId || !blockId) return
+    placeActivityManual(paletteAct.id, groupId, dayId, blockId)
+  }
+
+  // Group-view DnD: covers both expand-drag (ExpandHandle) and palette drops.
+  // DndContext for group view lives in ScheduleScreen so the sidebar palette chips
+  // (outside ScheduleGroupView) share the same DnD context as the droppable cells.
+  function handleGroupDragStart({ active }) {
+    if (active.data.current?.expandDrag) setIsGroupExpandDragActive(true)
+  }
+
+  function handleGroupDragEnd({ active, over }) {
+    setIsGroupExpandDragActive(false)
+    if (!over) return
+
+    const expandDrag = active.data.current?.expandDrag
+    const paletteActivity = active.data.current?.paletteActivity
+
+    if (expandDrag) {
+      const { groupId, dayId, blockId: headBlockId } = expandDrag
+      const overData = over.data.current || {}
+      const tailBlockId = overData.blockId || overData.slot?.blockId
+      const tailGroupId = overData.groupId || overData.slot?.groupId
+      const tailDayId = overData.dayId || overData.slot?.dayId
+
+      if (!tailBlockId || tailGroupId !== groupId || tailDayId !== dayId) return
+
+      const headBlock = timeBlocks.find(b => b.id === headBlockId)
+      const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
+      if (!headBlock || !tailBlock) return
+      if (tailBlock.sort_order !== headBlock.sort_order + 1) return
+
+      const tailSlot = getSlot(groupId, dayId, tailBlockId)
+      if (!tailSlot || !tailSlot.activity_id || tailSlot.is_anchor) return
+
+      const tailActivity = actMap.get(tailSlot.activity_id)
+      const day = days.find(d => d.id === dayId)
+      expandSlot(groupId, dayId, headBlockId, tailBlockId, tailSlot.activity_id, tailActivity?.name || '', tailBlock.name, day?.label ?? dayId)
+      return
+    }
+
+    if (paletteActivity) {
+      const overData = over.data.current || {}
+      const { groupId, dayId, blockId } = overData
+      if (!groupId || !dayId || !blockId) return
+      const targetSlot = getSlot(groupId, dayId, blockId)
+      if (targetSlot && targetSlot.activity_id) return
+      placeActivityManual(paletteActivity.id, groupId, dayId, blockId)
+    }
+  }
+
+  // Day-view DnD: covers expand-drag, palette drops, and slot-swap.
+  // DndContext for day view lives in ScheduleScreen so the sidebar palette chips
+  // (outside ScheduleDayView) share the same DnD context as the droppable cells.
+  function handleDayDragStart({ active }) {
+    if (active.data.current?.expandDrag) setIsDayExpandDragActive(true)
+  }
+
+  function handleDayDragEnd({ active, over }) {
+    setIsDayExpandDragActive(false)
+    if (!over) return
+
+    const expandDrag = active.data.current?.expandDrag
+    const paletteActivity = active.data.current?.paletteActivity
+
+    if (expandDrag) {
+      const { groupId, dayId, blockId: headBlockId } = expandDrag
+      const overData = over.data.current || {}
+      const tailBlockId = overData.blockId || overData.slot?.blockId
+      const tailGroupId = overData.groupId || overData.slot?.groupId
+      const tailDayId = overData.dayId || overData.slot?.dayId
+
+      if (!tailBlockId || tailGroupId !== groupId || tailDayId !== dayId) return
+
+      const headBlock = timeBlocks.find(b => b.id === headBlockId)
+      const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
+      if (!headBlock || !tailBlock) return
+      if (tailBlock.sort_order !== headBlock.sort_order + 1) return
+
+      const tailSlot = getSlot(groupId, dayId, tailBlockId)
+      if (!tailSlot || !tailSlot.activity_id || tailSlot.is_anchor) return
+
+      const tailActivity = actMap.get(tailSlot.activity_id)
+      const day = days.find(d => d.id === dayId)
+      expandSlot(groupId, dayId, headBlockId, tailBlockId, tailSlot.activity_id, tailActivity?.name || '', tailBlock.name, day?.label ?? dayId)
+      return
+    }
+
+    if (paletteActivity) {
+      const overData = over.data.current || {}
+      const { groupId, dayId, blockId } = overData
+      if (!groupId || !dayId || !blockId) return
+      const targetSlot = getSlot(groupId, dayId, blockId)
+      if (targetSlot?.activity_id) return
+      placeActivityManual(paletteActivity.id, groupId, dayId, blockId)
+      return
+    }
+
+    // Slot swap
+    const slotA = active.data.current?.slot
+    const slotB = over.data.current?.slot
+    if (!slotA || !slotB) return
+    if (slotA.groupId === slotB.groupId && slotA.dayId === slotB.dayId && slotA.blockId === slotB.blockId) return
+    if (slotB.type === 'anchor' || slotB.type === 'unavailable') return
+    swapSlots(
+      { groupId: slotA.groupId, dayId: slotA.dayId, blockId: slotA.blockId, activityId: slotA.activity_id },
+      { groupId: slotB.groupId, dayId: slotB.dayId, blockId: slotB.blockId, activityId: slotB.activity_id }
+    )
+  }
 
   async function expandSlot(groupId, dayId, headBlockId, tailBlockId, tailActivityId, tailActivityName, tailBlockName, dayLabel) {
     if (!templateId) return
@@ -641,22 +921,213 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
 
     // Add displaced activity to palette
     const colorIdx = activities.findIndex(a => a.id === tailActivityId)
-    setDisplacedItems(prev => [
-      ...prev,
-      {
-        activityId: tailActivityId,
-        activityName: tailActivityName,
-        fromBlockName: tailBlockName,
-        dayLabel,
-        colorIdx: colorIdx >= 0 ? colorIdx : 0,
+    if (tailActivityId) {
+      setDisplacedItems(prev => [
+        ...prev,
+        {
+          activityId: tailActivityId,
+          activityName: tailActivityName,
+          fromBlockName: tailBlockName,
+          dayLabel,
+          colorIdx: colorIdx >= 0 ? colorIdx : 0,
+        },
+      ])
+    }
+
+    const prevHeadFlags = headSlot.flags ?? {}
+    const prevTailActivityId = tailSlot.activity_id ?? null
+    pushUndo({
+      description: `Merged ${headActivityId ? actMap.get(headActivityId)?.name ?? 'slot' : 'slot'} down → ${tailBlockName} ${dayLabel}`,
+      undo: async () => {
+        await writeFields('template_slots', tailSlot.id, { activity_id: prevTailActivityId, is_span_head: true })
+        await writeFields('template_slots', headSlot.id, { flags: prevHeadFlags })
+        setSlots(prev => prev.map(s => {
+          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+            return { ...s, activity_id: prevTailActivityId, is_span_head: true }
+          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+            return { ...s, flags: prevHeadFlags }
+          return s
+        }))
+        if (tailActivityId) setDisplacedItems(prev => prev.filter(i => !(i.activityId === tailActivityId && i.fromBlockName === tailBlockName)))
       },
-    ])
+      redo: async () => {
+        await writeFields('template_slots', tailSlot.id, { activity_id: headActivityId, is_span_head: false })
+        await writeFields('template_slots', headSlot.id, { flags: newFlags })
+        setSlots(prev => prev.map(s => {
+          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+            return { ...s, activity_id: headActivityId, is_span_head: false }
+          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+            return { ...s, flags: newFlags }
+          return s
+        }))
+        if (tailActivityId) {
+          setDisplacedItems(prev => [...prev, { activityId: tailActivityId, activityName: tailActivityName, fromBlockName: tailBlockName, dayLabel, colorIdx: colorIdx >= 0 ? colorIdx : 0 }])
+        }
+      },
+    })
   }
 
   function dismissDisplaced(activityId, fromBlockName) {
     setDisplacedItems(prev => prev.filter(
       item => !(item.activityId === activityId && item.fromBlockName === fromBlockName)
     ))
+  }
+
+  // T5 — undo/redo helpers
+  function pushUndo(entry) {
+    setUndoStack(prev => {
+      const next = [...prev, entry]
+      return next.length > 50 ? next.slice(next.length - 50) : next
+    })
+    setRedoStack([])
+  }
+
+  async function handleUndo() {
+    if (undoStack.length === 0) return
+    const entry = undoStack[undoStack.length - 1]
+    try {
+      await entry.undo()
+      setUndoStack(prev => prev.slice(0, -1))
+      setRedoStack(prev => [...prev, entry])
+    } catch {
+      setActionError('Undo failed — check your connection and try again')
+    }
+  }
+
+  async function handleRedo() {
+    if (redoStack.length === 0) return
+    const entry = redoStack[redoStack.length - 1]
+    try {
+      await entry.redo()
+      setRedoStack(prev => prev.slice(0, -1))
+      setUndoStack(prev => [...prev, entry])
+    } catch {
+      setActionError('Redo failed — check your connection and try again')
+    }
+  }
+
+  // T4 — split a merged span back into two independent slots
+  async function splitSlot(groupId, dayId, headBlockId) {
+    if (!templateId) return
+    const headSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+    if (!headSlot || !headSlot.flags?.expanded) return
+
+    const { displacedActivityId, displacedActivityName, from_block: tailBlockId } = headSlot.flags.expanded
+    const tailSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+    if (!tailSlot) return
+
+    const cleanedFlags = { ...headSlot.flags }
+    delete cleanedFlags.expanded
+
+    setActionError(null)
+    try {
+      await writeFields('template_slots', tailSlot.id, { activity_id: null, is_span_head: true, flags: {} })
+      await writeFields('template_slots', headSlot.id, { flags: cleanedFlags })
+    } catch {
+      setActionError('Failed to split slot — check your connection and try again')
+      return
+    }
+
+    setSlots(prev => prev.map(s => {
+      if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+        return { ...s, activity_id: null, is_span_head: true, flags: {} }
+      if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+        return { ...s, flags: cleanedFlags }
+      return s
+    }))
+
+    const prevHeadFlags = headSlot.flags
+    const prevTailActivityId = tailSlot.activity_id ?? null
+    const prevTailIsSpanHead = tailSlot.is_span_head
+
+    if (displacedActivityId && displacedActivityName) {
+      const colorIdx = activities.findIndex(a => a.id === displacedActivityId)
+      const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
+      const day = days.find(d => d.id === dayId)
+      setDisplacedItems(prev => [
+        ...prev,
+        {
+          activityId: displacedActivityId,
+          activityName: displacedActivityName,
+          fromBlockName: tailBlock?.name ?? '',
+          dayLabel: day?.label ?? '',
+          colorIdx: colorIdx >= 0 ? colorIdx : 0,
+        },
+      ])
+    }
+
+    pushUndo({
+      description: `Split merged slot ${headBlockId}`,
+      undo: async () => {
+        await writeFields('template_slots', tailSlot.id, { activity_id: prevTailActivityId, is_span_head: prevTailIsSpanHead ?? false, flags: tailSlot.flags ?? {} })
+        await writeFields('template_slots', headSlot.id, { flags: prevHeadFlags })
+        setSlots(prev => prev.map(s => {
+          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+            return { ...s, activity_id: prevTailActivityId, is_span_head: prevTailIsSpanHead ?? false }
+          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+            return { ...s, flags: prevHeadFlags }
+          return s
+        }))
+        if (displacedActivityId) {
+          const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
+          setDisplacedItems(prev => prev.filter(i => !(i.activityId === displacedActivityId && i.fromBlockName === (tailBlock?.name ?? ''))))
+        }
+      },
+      redo: async () => {
+        await writeFields('template_slots', tailSlot.id, { activity_id: null, is_span_head: true, flags: {} })
+        await writeFields('template_slots', headSlot.id, { flags: cleanedFlags })
+        setSlots(prev => prev.map(s => {
+          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+            return { ...s, activity_id: null, is_span_head: true, flags: {} }
+          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+            return { ...s, flags: cleanedFlags }
+          return s
+        }))
+      },
+    })
+  }
+
+  // T3 — cell selection (single and multi) and paste mode
+  function handleSelectGroup(groupId) {
+    setSelectedGroup(groupId)
+    setSelectedSlotKeys(new Set())
+  }
+
+  function handleCellSelect(slot, e) {
+    if (pasteMode) {
+      handlePasteClick(slot)
+      return
+    }
+    const key = `${slot.groupId}|${slot.dayId}|${slot.blockId}`
+    if (e?.ctrlKey || e?.metaKey) {
+      setSelectedSlotKeys(prev => {
+        const next = new Set(prev)
+        if (next.has(key)) next.delete(key)
+        else next.add(key)
+        return next
+      })
+    } else {
+      setSelectedSlotKeys(new Set([key]))
+    }
+  }
+
+  async function handlePasteClick(slot) {
+    if (slot.is_anchor || slot.is_span_head === false) {
+      setPasteError('Cannot paste onto an anchor or merged tail')
+      setTimeout(() => setPasteError(null), 2000)
+      return
+    }
+    const item = clipboardItems[pasteModeIndex]
+    if (!item) return
+    await placeActivityManual(item.activityId, slot.groupId, slot.dayId, slot.blockId)
+    const nextIndex = pasteModeIndex + 1
+    if (nextIndex >= clipboardItems.length) {
+      setPasteMode(false)
+      setClipboardItems([])
+      setPasteModeIndex(0)
+    } else {
+      setPasteModeIndex(nextIndex)
+    }
   }
 
   // Slots scoped to the active context — group view filters to selected group, all other views show camp-wide
@@ -838,12 +1309,26 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
             {/* View toggle */}
             <div style={{ display: 'flex', gap: 2, background: 'var(--border)', borderRadius: 8, padding: 3 }}>
               {[
-                ...(manualMode ? [['manual', 'Manual Build']] : []),
+                ...(hasSchedule ? [['manual', 'Manual Build']] : []),
                 ['group','Group View'],['day','Daily View'],['activity','Activity View'],
               ].map(([v, label]) => (
                 <button key={v} onClick={() => { setView(v); if (v !== 'activity') setSelectedActivity(null) }} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'var(--font-sans)', background: view === v ? 'var(--surface)' : 'none', color: view === v ? 'var(--text)' : 'var(--text-secondary)', boxShadow: view === v ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}>{label}</button>
               ))}
             </div>
+
+            {/* Undo / Redo (T5) */}
+            <button
+              onClick={handleUndo}
+              disabled={undoStack.length === 0}
+              title={undoStack.length > 0 ? `Undo: ${undoStack[undoStack.length - 1].description}` : 'Nothing to undo'}
+              style={{ padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: undoStack.length === 0 ? 'not-allowed' : 'pointer', opacity: undoStack.length === 0 ? 0.35 : 1, fontSize: 14, fontFamily: 'inherit' }}
+            >↩</button>
+            <button
+              onClick={handleRedo}
+              disabled={redoStack.length === 0}
+              title={redoStack.length > 0 ? `Redo: ${redoStack[redoStack.length - 1].description}` : 'Nothing to redo'}
+              style={{ padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: redoStack.length === 0 ? 'not-allowed' : 'pointer', opacity: redoStack.length === 0 ? 0.35 : 1, fontSize: 14, fontFamily: 'inherit' }}
+            >↪</button>
 
             {/* Weather toggle */}
             <button
@@ -936,117 +1421,201 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
         </div>
       )}
 
-      {/* No schedule state */}
-      {!hasSchedule && !generating && (
-        <div style={{ textAlign: 'center', padding: '60px 24px', color: 'var(--text-secondary)', fontSize: 13 }}>
-          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 20, color: 'var(--text)', marginBottom: 8 }}>No schedule yet</div>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Click "Generate Schedule" to build one from your current setup.</div>
+      {/* Paste mode status line */}
+      {pasteMode && clipboardItems.length > 0 && (
+        <div style={{ ...S.pasteStatusLine, ...(pasteError ? S.pasteStatusLineError : {}), marginBottom: 16 }}>
+          <span>
+            {pasteError
+              ? `⚠ ${pasteError}`
+              : `⊡ ${clipboardItems.length - pasteModeIndex} of ${clipboardItems.length} to paste — click a cell to place "${clipboardItems[pasteModeIndex]?.activityName}"`}
+          </span>
+          <button
+            onClick={() => { setPasteMode(false); setClipboardItems([]); setPasteModeIndex(0) }}
+            style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 11, fontFamily: 'inherit', padding: 0 }}
+          >Esc to cancel</button>
         </div>
       )}
+
+      {/* === Main content: persistent sidebar + grid area === */}
+      {(() => {
+        // Slots scoped for the palette count display
+        const paletteSlots = view === 'activity'
+          ? slots.filter(s => !s.is_anchor)
+          : slots.filter(s => s.group_id === selectedGroup && !s.is_anchor)
+
+        const sidebar = (
+          <ActivityPalette
+            activities={activities}
+            slots={paletteSlots}
+            draggable={view === 'manual' || view === 'group' || view === 'day'}
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={() => setSidebarCollapsed(c => !c)}
+          />
+        )
+
+        const gridContent = (
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {/* No schedule state */}
+            {!hasSchedule && !generating && (
+              <div style={{ textAlign: 'center', padding: '60px 24px', color: 'var(--text-secondary)', fontSize: 13 }}>
+                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 20, color: 'var(--text)', marginBottom: 8 }}>No schedule yet</div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Click "Generate Schedule" to build one from your current setup.</div>
+              </div>
+            )}
+
+            {/* Group view */}
+            {hasSchedule && view === 'group' && (
+              <ScheduleGroupView
+                groups={groups}
+                days={days}
+                timeBlocks={timeBlocks}
+                selectedGroup={selectedGroup}
+                onSelectGroup={handleSelectGroup}
+                weatherMode={weatherMode}
+                stampMode={stampMode}
+                actMap={actMap}
+                anchorMap={anchorMap}
+                overlayForCell={overlayForCell}
+                isOverlayHead={isOverlayHead}
+                getOverlayRowSpan={getOverlayRowSpan}
+                isAnchorTail={isAnchorTail}
+                getAnchorRowSpan={getAnchorRowSpan}
+                isActivityTail={isActivityTail}
+                getActivityRowSpan={getActivityRowSpan}
+                handleFillEnter={handleFillEnter}
+                startFill={startFill}
+                removeOverlay={removeOverlay}
+                handleStampClick={handleStampClick}
+                onEditSlot={setEditSlot}
+                fillState={fillState}
+                getSlot={getSlot}
+                onExpandSlot={expandSlot}
+                onSplitSlot={splitSlot}
+                isExpandDragActive={isGroupExpandDragActive}
+                selectedSlotKeys={selectedSlotKeys}
+                pasteMode={pasteMode}
+                onCellSelect={handleCellSelect}
+              />
+            )}
+
+            {/* Daily view */}
+            {hasSchedule && view === 'day' && (
+              <ScheduleDayView
+                groups={groups}
+                days={days}
+                timeBlocks={timeBlocks}
+                selectedDay={selectedDay}
+                onSelectDay={setSelectedDay}
+                weatherMode={weatherMode}
+                stampMode={stampMode}
+                actMap={actMap}
+                anchorMap={anchorMap}
+                lockActivity={lockActivity}
+                releaseCell={releaseCell}
+                overlayForCell={overlayForCell}
+                isOverlayHead={isOverlayHead}
+                getOverlayRowSpan={getOverlayRowSpan}
+                isAnchorTail={isAnchorTail}
+                getAnchorRowSpan={getAnchorRowSpan}
+                isActivityTail={isActivityTail}
+                getActivityRowSpan={getActivityRowSpan}
+                handleFillEnter={handleFillEnter}
+                startFill={startFill}
+                removeOverlay={removeOverlay}
+                handleStampClick={handleStampClick}
+                onEditSlot={setEditSlot}
+                fillState={fillState}
+                getSlot={getSlot}
+                isExpandDragActive={isDayExpandDragActive}
+              />
+            )}
+
+            {/* Activity view */}
+            {hasSchedule && view === 'activity' && (
+              <ScheduleActivityView
+                activities={activities}
+                groups={groups}
+                days={days}
+                timeBlocks={timeBlocks}
+                slots={slots}
+                selectedActivity={selectedActivity}
+                onSelectActivity={setSelectedActivity}
+              />
+            )}
+
+            {/* Manual build view — grid only; DndContext wraps sidebar+grid below */}
+            {hasSchedule && view === 'manual' && (
+              <ManualBuildView
+                groups={groups}
+                days={days}
+                timeBlocks={timeBlocks}
+                activities={activities}
+                selectedGroup={selectedGroup}
+                onSelectGroup={handleSelectGroup}
+                actMap={actMap}
+                anchorMap={anchorMap}
+                isAnchorTail={isAnchorTail}
+                getAnchorRowSpan={getAnchorRowSpan}
+                getSlot={getSlot}
+                onEditSlot={setEditSlot}
+                onExpandSlot={expandSlot}
+                onSplitSlot={splitSlot}
+                selectedSlotKeys={selectedSlotKeys}
+                pasteMode={pasteMode}
+                onCellSelect={handleCellSelect}
+              />
+            )}
+          </div>
+        )
+
+        const twoCol = (
+          <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+            {sidebar}
+            {gridContent}
+          </div>
+        )
+
+        // Group view and manual view each get a DndContext so palette chips can
+        // reach the droppable cells. Group view also handles expand-drag.
+        if (view === 'group') {
+          return (
+            <DndContext
+              sensors={sensors}
+              onDragStart={handleGroupDragStart}
+              onDragEnd={handleGroupDragEnd}
+              onDragCancel={() => setIsGroupExpandDragActive(false)}
+            >
+              {twoCol}
+            </DndContext>
+          )
+        }
+        if (view === 'day') {
+          return (
+            <DndContext
+              sensors={sensors}
+              onDragStart={handleDayDragStart}
+              onDragEnd={handleDayDragEnd}
+              onDragCancel={() => setIsDayExpandDragActive(false)}
+            >
+              {twoCol}
+            </DndContext>
+          )
+        }
+        if (view === 'manual') {
+          return (
+            <DndContext sensors={sensors} onDragEnd={handleManualDragEnd}>
+              {twoCol}
+            </DndContext>
+          )
+        }
+        return twoCol
+      })()}
 
       {/* Displaced activity palette (floating) */}
       {hasSchedule && (
         <DisplacedPalette
           displacedItems={displacedItems}
           onDismiss={dismissDisplaced}
-        />
-      )}
-
-      {/* Group view */}
-      {hasSchedule && view === 'group' && (
-        <ScheduleGroupView
-          groups={groups}
-          days={days}
-          timeBlocks={timeBlocks}
-          selectedGroup={selectedGroup}
-          onSelectGroup={setSelectedGroup}
-          weatherMode={weatherMode}
-          stampMode={stampMode}
-          actMap={actMap}
-          anchorMap={anchorMap}
-          overlayForCell={overlayForCell}
-          isOverlayHead={isOverlayHead}
-          getOverlayRowSpan={getOverlayRowSpan}
-          isAnchorTail={isAnchorTail}
-          getAnchorRowSpan={getAnchorRowSpan}
-          isActivityTail={isActivityTail}
-          getActivityRowSpan={getActivityRowSpan}
-          handleFillEnter={handleFillEnter}
-          startFill={startFill}
-          removeOverlay={removeOverlay}
-          handleStampClick={handleStampClick}
-          onEditSlot={setEditSlot}
-          fillState={fillState}
-          getSlot={getSlot}
-          onExpandSlot={expandSlot}
-          onPlaceActivity={placeActivityManual}
-        />
-      )}
-
-      {/* Daily view — all groups for one day */}
-      {hasSchedule && view === 'day' && (
-        <ScheduleDayView
-          groups={groups}
-          days={days}
-          timeBlocks={timeBlocks}
-          selectedDay={selectedDay}
-          onSelectDay={setSelectedDay}
-          weatherMode={weatherMode}
-          stampMode={stampMode}
-          actMap={actMap}
-          anchorMap={anchorMap}
-          sensors={sensors}
-          swapSlots={swapSlots}
-          lockActivity={lockActivity}
-          releaseCell={releaseCell}
-          overlayForCell={overlayForCell}
-          isOverlayHead={isOverlayHead}
-          getOverlayRowSpan={getOverlayRowSpan}
-          isAnchorTail={isAnchorTail}
-          getAnchorRowSpan={getAnchorRowSpan}
-          isActivityTail={isActivityTail}
-          getActivityRowSpan={getActivityRowSpan}
-          handleFillEnter={handleFillEnter}
-          startFill={startFill}
-          removeOverlay={removeOverlay}
-          handleStampClick={handleStampClick}
-          onEditSlot={setEditSlot}
-          fillState={fillState}
-          getSlot={getSlot}
-          onExpandSlot={expandSlot}
-        />
-      )}
-
-      {/* Activity view — card grid + drilldown */}
-      {hasSchedule && view === 'activity' && (
-        <ScheduleActivityView
-          activities={activities}
-          groups={groups}
-          days={days}
-          timeBlocks={timeBlocks}
-          slots={slots}
-          selectedActivity={selectedActivity}
-          onSelectActivity={setSelectedActivity}
-        />
-      )}
-
-      {/* Manual build view */}
-      {hasSchedule && view === 'manual' && (
-        <ManualBuildView
-          groups={groups}
-          days={days}
-          timeBlocks={timeBlocks}
-          activities={activities}
-          slots={slots}
-          selectedGroup={selectedGroup}
-          onSelectGroup={setSelectedGroup}
-          actMap={actMap}
-          anchorMap={anchorMap}
-          isAnchorTail={isAnchorTail}
-          getAnchorRowSpan={getAnchorRowSpan}
-          getSlot={getSlot}
-          onPlaceActivity={placeActivityManual}
-          onEditSlot={setEditSlot}
         />
       )}
 

@@ -1,5 +1,6 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
+import { S } from '../../styles/shared'
 
 const ACTIVITY_COLORS = ['#00ADBB','#2F7DE1','#00AA59','#A63595','#F0585D','#7DC433']
 export const ANCHOR_COLOR = '#A63595'
@@ -69,8 +70,16 @@ function ExpandHandle({ groupId, dayId, blockId, activityId, cellHovered }) {
   )
 }
 
-export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherMode, onEdit, onRelease, isLocked, isDndEnabled, rowSpan = 1, isExpandDragActive = false }) {
+export default function SlotCell({
+  slot, activity, anchor, actColorIdx, weatherMode,
+  onEdit, onRelease, onSelect,
+  isLocked, isDndEnabled, rowSpan = 1, isExpandDragActive = false,
+  isSelected = false, isMultiSelected = false, pasteMode = false,
+  hasMergeDown = false, isMerged = false,
+  onMergeDown, onSplitSlot,
+}) {
   const [cellHovered, setCellHovered] = useState(false)
+  const [splitHovered, setSplitHovered] = useState(false)
   const id = slot ? `${slot.groupId}|${slot.dayId}|${slot.blockId}` : 'empty'
   const canDrag = isDndEnabled && slot?.type === 'activity' && !isLocked
   const showExpandHandle = slot?.activity_id && !slot?.is_anchor && !isLocked
@@ -126,8 +135,14 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
   const color = activity ? activityColor(actColorIdx) : null
   const isWeatherHighlight = weatherMode && isOutdoor
 
-  function handleClick() {
+  function handleClick(e) {
     if (isLocked) { onRelease?.(slot); return }
+    if (onSelect) { onSelect(slot, e); return }
+    onEdit(slot)
+  }
+
+  function handleDoubleClick() {
+    if (isLocked) return
     onEdit(slot)
   }
 
@@ -178,22 +193,36 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
   }
   const tooltipText = tooltipParts.join('\n')
 
+  const selectionOutline = isSelected
+    ? { outline: '2px solid var(--primary)', outlineOffset: -2 }
+    : {}
+  const pasteTargetStyle = pasteMode && !slot?.is_anchor
+    ? { cursor: 'crosshair' }
+    : {}
+
   return (
     <td
       ref={setRef}
       style={{
         ...cellTd,
         cursor: canDrag ? (isDragging ? 'grabbing' : 'grab') : 'pointer',
+        ...selectionOutline,
+        ...pasteTargetStyle,
+        ...(isMultiSelected ? S.cellMultiSelectedFill : {}),
       }}
       rowSpan={rowSpan}
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
       onPointerEnter={() => setCellHovered(true)}
       onPointerLeave={() => setCellHovered(false)}
       title={tooltipText}
       {...(canDrag ? { ...listeners, ...attributes } : {})}
     >
-      <div style={innerStyle}>
+      <div style={{
+        ...innerStyle,
+        ...(pasteMode && cellHovered && !slot?.is_anchor ? { border: '2px dashed var(--primary)', background: 'color-mix(in srgb, var(--primary) 12%, transparent)' } : {}),
+      }}>
         {/* Amber corner triangle for locked cells */}
         {isLocked && (
           <div style={{
@@ -202,6 +231,27 @@ export default function SlotCell({ slot, activity, anchor, actColorIdx, weatherM
             borderTop: '12px solid #E8A020',
             borderLeft: '12px solid transparent',
           }} />
+        )}
+        {/* Merge-down button (T4) */}
+        {cellHovered && hasMergeDown && !isMerged && (
+          <button
+            style={S.cellActionBtn}
+            title="Merge with block below"
+            onClick={e => { e.stopPropagation(); onMergeDown?.() }}
+          >↕</button>
+        )}
+        {/* Split button (T4) */}
+        {cellHovered && isMerged && (
+          <button
+            style={{
+              ...S.cellActionBtn,
+              ...(splitHovered ? { borderColor: 'var(--warning)', color: 'var(--warning)' } : {}),
+            }}
+            title="Split merged block"
+            onClick={e => { e.stopPropagation(); onSplitSlot?.() }}
+            onPointerEnter={() => setSplitHovered(true)}
+            onPointerLeave={() => setSplitHovered(false)}
+          >↕</button>
         )}
         <div style={{
           fontSize: 12,
