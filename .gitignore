@@ -32,3 +32,6 @@ dist-ssr
 .agents/
 skills-lock.json
 supabase/.temp/
+
+# electron-builder output
+release/

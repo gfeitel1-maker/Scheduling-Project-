@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "electron/main.js",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -39,5 +40,23 @@
     "jsdom": "^29.1.1",
     "vite": "^8.0.9",
     "vitest": "^4.1.7"
+  },
+  "build": {
+    "appId": "com.shoresh.scheduling",
+    "productName": "Shoresh",
+    "files": [
+      "electron/**/*",
+      "dist/**/*",
+      "package.json"
+    ],
+    "asar": false,
+    "directories": {
+      "output": "release"
+    },
+    "mac": {
+      "target": "dir",
+      "category": "public.app-category.productivity",
+      "identity": null
+    }
   }
 }
