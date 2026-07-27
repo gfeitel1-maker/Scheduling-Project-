@@ -1268,8 +1268,8 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
   if (setupIncomplete) {
     return (
       <div style={{ maxWidth: 480 }}>
-        <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 12, padding: '20px 24px', fontSize: 13 }}>
-          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 16, marginBottom: 8, color: '#7A5100' }}>Setup incomplete</div>
+        <div style={{ background: 'color-mix(in srgb, var(--accent) 8%, var(--surface))', border: '1px solid var(--accent)', borderRadius: 12, padding: '20px 24px', fontSize: 13 }}>
+          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 16, marginBottom: 8, color: 'color-mix(in srgb, var(--accent) 60%, var(--text))' }}>Setup incomplete</div>
           Setup the following before generating a schedule:
           <ul style={{ marginTop: 8, paddingLeft: 18, lineHeight: 2 }}>
             {groups.length === 0 && <li>Groups</li>}
@@ -1312,7 +1312,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
                 ...(hasSchedule ? [['manual', 'Manual Build']] : []),
                 ['group','Group View'],['day','Daily View'],['activity','Activity View'],
               ].map(([v, label]) => (
-                <button key={v} onClick={() => { setView(v); if (v !== 'activity') setSelectedActivity(null) }} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'var(--font-sans)', background: view === v ? 'var(--surface)' : 'none', color: view === v ? 'var(--text)' : 'var(--text-secondary)', boxShadow: view === v ? '0 1px 3px rgba(0,0,0,0.08)' : 'none' }}>{label}</button>
+                <button key={v} onClick={() => { setView(v); if (v !== 'activity') setSelectedActivity(null) }} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', borderBottom: view === v ? '2px solid var(--primary)' : '2px solid transparent', cursor: 'pointer', fontSize: 12, fontWeight: view === v ? 700 : 600, fontFamily: 'var(--font-sans)', background: view === v ? 'var(--surface)' : 'none', color: view === v ? 'var(--primary)' : 'var(--text-secondary)', boxShadow: view === v ? '0 1px 4px rgba(0,0,0,0.12)' : 'none', transition: 'color 0.12s, background 0.12s' }}>{label}</button>
               ))}
             </div>
 
@@ -1333,7 +1333,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
             {/* Weather toggle */}
             <button
               onClick={() => setWeatherMode(w => !w)}
-              style={{ padding: '6px 14px', border: `1px solid ${weatherMode ? '#2F7DE1' : 'var(--border)'}`, borderRadius: 6, background: weatherMode ? '#EEF4FD' : 'var(--surface)', color: weatherMode ? '#2F7DE1' : 'var(--text)', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}
+              style={{ padding: '6px 14px', border: `1px solid ${weatherMode ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 6, background: weatherMode ? 'color-mix(in srgb, var(--accent) 9%, var(--surface))' : 'var(--surface)', color: weatherMode ? 'var(--accent)' : 'var(--text)', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}
             >
               ⛅ Weather Mode {weatherMode ? 'ON' : 'OFF'}
             </button>
@@ -1361,10 +1361,10 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
               }}
               style={{
                 padding: '6px 14px',
-                border: `1px solid ${showFieldTripDrawer || stampMode ? '#f59e0b' : 'var(--border)'}`,
+                border: `1px solid ${showFieldTripDrawer || stampMode ? 'var(--accent)' : 'var(--border)'}`,
                 borderRadius: 6,
-                background: showFieldTripDrawer || stampMode ? '#f59e0b18' : 'var(--surface)',
-                color: showFieldTripDrawer || stampMode ? '#92400e' : 'var(--text)',
+                background: showFieldTripDrawer || stampMode ? 'color-mix(in srgb, var(--accent) 9%, transparent)' : 'var(--surface)',
+                color: showFieldTripDrawer || stampMode ? 'color-mix(in srgb, var(--accent) 60%, var(--text))' : 'var(--text)',
                 fontWeight: 600,
                 fontSize: 12,
                 cursor: 'pointer',
@@ -1414,10 +1414,10 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       {hasSchedule && stats && (
         <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
           <StatBadge label="Filled" value={`${stats.filled}/${stats.open}`} color="var(--success)" />
-          <StatBadge label="Unfillable" value={flagSlots.filter(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed).length} color={flagSlots.some(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed) ? '#F0585D' : 'var(--text-secondary)'} onClick={() => setActiveFlag('UNFILLABLE')} />
-          <StatBadge label="Underserved" value={flagSlots.filter(s => s.flags?.UNDERSERVED && !s.flags?.UNDERSERVED_dismissed).length} color={flagSlots.some(s => s.flags?.UNDERSERVED && !s.flags?.UNDERSERVED_dismissed) ? '#F5A623' : 'var(--text-secondary)'} onClick={() => setActiveFlag('UNDERSERVED')} />
-          <StatBadge label="Weather Risk" value={flagSlots.filter(s => s.flags?.WEATHER_RISK && !s.flags?.WEATHER_RISK_dismissed).length} color="#2F7DE1" onClick={() => setActiveFlag('WEATHER_RISK')} />
-          <StatBadge label="Distribution" value={flagSlots.filter(s => s.flags?.DISTRIBUTION && !s.flags?.DISTRIBUTION_dismissed).length} color="#7DC433" onClick={() => setActiveFlag('DISTRIBUTION')} />
+          <StatBadge label="Unfillable" value={flagSlots.filter(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed).length} color={flagSlots.some(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed) ? 'var(--danger)' : 'var(--text-secondary)'} onClick={() => setActiveFlag('UNFILLABLE')} />
+          <StatBadge label="Underserved" value={flagSlots.filter(s => s.flags?.UNDERSERVED && !s.flags?.UNDERSERVED_dismissed).length} color={flagSlots.some(s => s.flags?.UNDERSERVED && !s.flags?.UNDERSERVED_dismissed) ? 'var(--primary)' : 'var(--text-secondary)'} onClick={() => setActiveFlag('UNDERSERVED')} />
+          <StatBadge label="Weather Risk" value={flagSlots.filter(s => s.flags?.WEATHER_RISK && !s.flags?.WEATHER_RISK_dismissed).length} color="var(--accent)" onClick={() => setActiveFlag('WEATHER_RISK')} />
+          <StatBadge label="Distribution" value={flagSlots.filter(s => s.flags?.DISTRIBUTION && !s.flags?.DISTRIBUTION_dismissed).length} color="var(--secondary)" onClick={() => setActiveFlag('DISTRIBUTION')} />
         </div>
       )}
 
