@@ -126,6 +126,7 @@ export function useDeviceMode() {
   const chooseHost = useCallback(() => {
     localStorage.setItem(MODE_KEY, 'host')
     setMode('host')
+    setInitNonce((n) => n + 1)
   }, [])
 
   const chooseJoin = useCallback(() => {
