@@ -155,7 +155,7 @@ describe('THIRD CORRECTION: version-4 migration is transactional', () => {
     let threw = false
     try {
       initSchema(db)
-    } catch (err) {
+    } catch {
       threw = true
     }
     expect(threw).toBe(true)

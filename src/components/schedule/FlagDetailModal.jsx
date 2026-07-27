@@ -1,5 +1,5 @@
 import React from 'react'
-import { FLAG_COLORS } from './SlotCell'
+import { FLAG_COLORS } from './slotCellConstants'
 import { S } from '../../styles/shared'
 
 const FLAG_DESCRIPTIONS = {

@@ -682,7 +682,6 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 }
 
 function isElectronEntryPoint() {
-  // eslint-disable-next-line no-undef
   return !process.env.VITEST && typeof app !== 'undefined' && app && typeof app.whenReady === 'function'
 }
 
@@ -1047,7 +1046,7 @@ if (isElectronEntryPoint()) {
     mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
       console.error('PRELOAD ERROR', preloadPath, error)
     })
-    const devServerUrl = process.env.VITE_DEV_SERVER_URL // eslint-disable-line no-undef
+    const devServerUrl = process.env.VITE_DEV_SERVER_URL
     if (devServerUrl) {
       mainWindow.loadURL(devServerUrl)
     } else {
@@ -1057,6 +1056,6 @@ if (isElectronEntryPoint()) {
 
   app.whenReady().then(createWindow)
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit() // eslint-disable-line no-undef
+    if (process.platform !== 'darwin') app.quit()
   })
 }

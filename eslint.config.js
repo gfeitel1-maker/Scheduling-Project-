@@ -23,7 +23,16 @@ export default defineConfig([
       },
     },
     rules: {
-      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]' }],
+      'no-unused-vars': ['error', { varsIgnorePattern: '^[A-Z_]', argsIgnorePattern: '^_' }],
+    },
+  },
+  {
+    // Electron main-process files and all test files run under Node, not the
+    // browser — so Node globals (Buffer, process, require, setImmediate, …)
+    // are legitimately defined. Merge them on top of the browser globals.
+    files: ['electron/**/*.js', '**/*.test.{js,jsx}'],
+    languageOptions: {
+      globals: globals.node,
     },
   },
   {

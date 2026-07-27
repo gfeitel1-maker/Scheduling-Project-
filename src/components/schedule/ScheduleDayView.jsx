@@ -1,5 +1,6 @@
 import { useDroppable } from '@dnd-kit/core'
-import SlotCell, { emptyTd } from '../schedule/SlotCell'
+import SlotCell from '../schedule/SlotCell'
+import { emptyTd } from '../schedule/slotCellConstants'
 import OverlayCell from '../schedule/OverlayCell'
 import { S } from '../../styles/shared'
 

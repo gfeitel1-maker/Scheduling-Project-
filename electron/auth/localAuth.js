@@ -10,7 +10,6 @@ import {
   createPrivateKey,
   createPublicKey,
 } from 'node:crypto'
-import { appendOp } from '../ops/operations.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 
 const SCRYPT_KEYLEN = 64

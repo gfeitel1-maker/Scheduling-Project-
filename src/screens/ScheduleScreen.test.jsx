@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 
 // Captured onOpApplied callbacks so tests can fire synthetic op-applied events.
 const opAppliedListeners = []
@@ -19,6 +19,20 @@ import ScheduleScreen from './ScheduleScreen'
 import { localClient } from '../localClient'
 
 const CAMP_ID = 'camp-1'
+
+// An activity name (e.g. "Swim") renders in two places: the schedule cell
+// (inside a <td>) and the always-present ActivityPalette sidebar chip. Plain
+// getByText is therefore ambiguous — scope to the cell, which is the only
+// occurrence inside a <td>.
+function scheduleCell(name) {
+  return screen.getAllByText(name).find((el) => el.closest('td'))
+}
+
+// Activity names also appear in the palette sidebar, so queries meant for the
+// edit modal must be scoped to it rather than run against the whole screen.
+function editModal() {
+  return screen.getByText('Assign Activity').parentElement
+}
 
 function group(overrides = {}) { return { id: 'g1', camp_id: CAMP_ID, name: 'Group A', tier_id: 't1', ...overrides } }
 function day(overrides = {}) { return { id: 'd1', camp_id: CAMP_ID, day_of_week: 1, sort_order: 1, label: 'Monday', ...overrides } }
@@ -112,12 +126,14 @@ describe('editSlotSave (exercises the shared writeFields primitive)', () => {
   it('success: selecting a different activity and saving writes activity_id and flags, then updates the cell', async () => {
     mockList({ activities: [activity({ id: 'act-1', name: 'Swim' }), activity({ id: 'act-2', name: 'Art' })] })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.getByText('Swim')).toBeTruthy())
-    fireEvent.click(screen.getByText('Swim'))
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+    // Group view wires onCellSelect, so a single click SELECTS the cell —
+    // the edit modal is opened by double-click (SlotCell.handleDoubleClick).
+    fireEvent.doubleClick(scheduleCell('Swim'))
 
     await waitFor(() => expect(screen.getByText('Assign Activity')).toBeTruthy())
-    fireEvent.click(screen.getByText('Art'))
-    fireEvent.click(screen.getByText('Save'))
+    fireEvent.click(within(editModal()).getByText('Art'))
+    fireEvent.click(within(editModal()).getByText('Save'))
 
     await waitFor(() => {
       expect(localClient.write).toHaveBeenCalledWith('token-abc', 'template_slots', 'slot-1', 'activity_id', 'act-2')
@@ -130,12 +146,13 @@ describe('editSlotSave (exercises the shared writeFields primitive)', () => {
     mockList({ activities: [activity({ id: 'act-1', name: 'Swim' }), activity({ id: 'act-2', name: 'Art' })] })
     localClient.write.mockResolvedValue({ status: 'rejected' })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.getByText('Swim')).toBeTruthy())
-    fireEvent.click(screen.getByText('Swim'))
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+    // See note above: double-click is what opens the edit modal in group view.
+    fireEvent.doubleClick(scheduleCell('Swim'))
 
     await waitFor(() => expect(screen.getByText('Assign Activity')).toBeTruthy())
-    fireEvent.click(screen.getByText('Art'))
-    fireEvent.click(screen.getByText('Save'))
+    fireEvent.click(within(editModal()).getByText('Art'))
+    fireEvent.click(within(editModal()).getByText('Save'))
 
     await waitFor(() => {
       expect(screen.getByText(/Failed to save slot/i)).toBeTruthy()
@@ -155,8 +172,8 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
     fireEvent.click(screen.getByText('Daily View'))
 
-    await waitFor(() => expect(screen.getByText('Swim')).toBeTruthy())
-    fireEvent.click(screen.getByText('Swim'))
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+    fireEvent.click(scheduleCell('Swim'))
 
     await waitFor(() => {
       expect(localClient.write).toHaveBeenCalledWith('token-abc', 'template_slots', 'slot-1', 'is_released', true)
@@ -173,8 +190,8 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
     fireEvent.click(screen.getByText('Daily View'))
 
-    await waitFor(() => expect(screen.getByText('Swim')).toBeTruthy())
-    fireEvent.click(screen.getByText('Swim'))
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+    fireEvent.click(scheduleCell('Swim'))
 
     await waitFor(() => {
       expect(screen.getByText(/Failed to release cell/i)).toBeTruthy()

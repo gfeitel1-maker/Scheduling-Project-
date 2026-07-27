@@ -1,6 +1,7 @@
 import { useDroppable } from '@dnd-kit/core'
 import { S } from '../../styles/shared'
-import SlotCell, { emptyTd } from './SlotCell'
+import SlotCell from './SlotCell'
+import { emptyTd } from './slotCellConstants'
 
 function EmptyDropCell({ groupId, dayId, blockId }) {
   const { setNodeRef, isOver } = useDroppable({

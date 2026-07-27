@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { ANCHOR_COLOR, activityColor } from './SlotCell'
+import { ANCHOR_COLOR, activityColor } from './slotCellConstants'
 import { S } from '../../styles/shared'
 
 export default function EditModal({ slot, eligibleActivities, currentActivity, currentAnchor, weatherAlt, weatherMode, onSave, onClose }) {

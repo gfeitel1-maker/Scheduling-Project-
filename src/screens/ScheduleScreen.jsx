@@ -4,7 +4,7 @@ import { localClient } from '../localClient'
 import buildSchedule from '../engine/buildSchedule'
 import { S } from '../styles/shared'
 import StatBadge from '../components/schedule/StatBadge'
-import { FLAG_COLORS } from '../components/schedule/SlotCell'
+import { FLAG_COLORS } from '../components/schedule/slotCellConstants'
 import FlagDetailModal from '../components/schedule/FlagDetailModal'
 import EditModal from '../components/schedule/EditModal'
 import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
@@ -1280,7 +1280,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
           Setup the following before generating a schedule:
           <ul style={{ marginTop: 8, paddingLeft: 18, lineHeight: 2 }}>
             {groups.length === 0 && <li>Groups</li>}
-            {days.length === 0 && <li>Days of Operation</li>}
+            {days.length === 0 && <li>Days</li>}
             {timeBlocks.length === 0 && <li>Time Blocks</li>}
             {activities.length === 0 && <li>Activities</li>}
           </ul>

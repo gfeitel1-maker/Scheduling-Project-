@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { S } from '../styles/shared'
 import { usePendingConflicts } from '../hooks/usePendingConflicts'
+import { noticeForStatus } from './conflictsNotice'
 
 // App.jsx passes a single shared `pendingConflicts` instance so the Sidebar
 // badge and this screen's list can never disagree. When the prop is absent
@@ -80,24 +81,6 @@ function ChoiceBox({ side, label, isPin, disabled, onKeep }) {
       </button>
     </div>
   )
-}
-
-// Maps every non-success syncClient.write()/resolveConflict() status to an
-// inline message for the card. 'conflict' keeps the original round-1/round-2
-// copy; 'timeout'/'disconnected' get connectivity-specific copy; 'error' (and
-// anything unrecognized) gets a generic fallback so no status can ever fall
-// through silently with buttons just re-enabling and no explanation.
-export function noticeForStatus(status) {
-  switch (status) {
-    case 'conflict':
-      return "This changed again — pick again below."
-    case 'timeout':
-    case 'disconnected':
-      return "Couldn't reach the network — try again when connected."
-    case 'error':
-    default:
-      return 'Something went wrong — try again.'
-  }
 }
 
 // Task 10 round-4 Fix 1: this card no longer owns the setTimeout chain that

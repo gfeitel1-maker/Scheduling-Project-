@@ -1,4 +1,4 @@
-import { activityColor, cellTd } from '../schedule/SlotCell'
+import { activityColor, cellTd } from '../schedule/slotCellConstants'
 import { S } from '../../styles/shared'
 
 export default function ScheduleActivityView({

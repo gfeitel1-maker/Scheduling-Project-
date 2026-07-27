@@ -1,23 +1,7 @@
 import { useState } from 'react'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { S } from '../../styles/shared'
-
-const ACTIVITY_COLORS = ['#3F6690','#3C8C86','#5F8A5A','#8C6F26','#B26B47','#7C5E86']
-export const ANCHOR_COLOR = 'var(--anchor)'
-
-export const FLAG_COLORS = {
-  UNFILLABLE: 'var(--danger)',
-  UNDERSERVED: 'var(--primary)',
-  WEATHER_RISK: 'var(--accent)',
-  DISTRIBUTION: 'var(--secondary)',
-}
-
-const REAL_FLAG_NAMES = new Set(Object.keys(FLAG_COLORS))
-
-export function activityColor(idx) { return ACTIVITY_COLORS[idx % ACTIVITY_COLORS.length] }
-
-export const cellTd = { padding: '8px 6px', verticalAlign: 'top', cursor: 'pointer' }
-export const emptyTd = { padding: '8px 6px', verticalAlign: 'top' }
+import { ANCHOR_COLOR, FLAG_COLORS, REAL_FLAG_NAMES, activityColor, cellTd, emptyTd } from './slotCellConstants'
 
 function ExpandHandle({ groupId, dayId, blockId, activityId, cellHovered }) {
   const [hovered, setHovered] = useState(false)

@@ -649,7 +649,6 @@ describe('remote client mode', () => {
     // Simulate the server confirming this device's own submitted op, but with
     // a field that is not in the users-entity allowlist. This must not hang
     // the in-flight write() promise (round 1/round 2 regression).
-    const submitResolversLengthBefore = 1
     const freshUserId = randomUUID()
     const writePromise = client.write({ entity: 'users', entity_id: freshUserId, field: 'name', value: 'Someone' })
 
@@ -1555,8 +1554,10 @@ describe('token renewal scheduling (sub-task 3)', () => {
       token,
     })
 
-    let renewedToken = null
-    client.onTokenRenewed((tok) => { renewedToken = tok })
+    // Register a renewal listener to exercise the onTokenRenewed code path.
+    // The captured value is not asserted here (renewal firing is covered by
+    // the token_renewed reply assertion below), so we don't retain it.
+    client.onTokenRenewed(() => {})
 
     await client.waitUntilConnected()
 

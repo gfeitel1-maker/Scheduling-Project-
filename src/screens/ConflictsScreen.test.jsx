@@ -3,7 +3,8 @@ import { useState } from 'react'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, cleanup, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import ConflictsScreen, { noticeForStatus } from './ConflictsScreen'
+import ConflictsScreen from './ConflictsScreen'
+import { noticeForStatus } from './conflictsNotice'
 
 afterEach(() => cleanup())
 
