@@ -768,7 +768,10 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     if (!over) return
     const paletteAct = active.data.current?.paletteActivity
     if (!paletteAct) return
-    const { groupId, dayId, blockId } = over.data.current || {}
+    const d = over.data.current || {}
+    const groupId = d.groupId ?? d.slot?.groupId
+    const dayId = d.dayId ?? d.slot?.dayId
+    const blockId = d.blockId ?? d.slot?.blockId
     if (!groupId || !dayId || !blockId) return
     placeActivityManual(paletteAct.id, groupId, dayId, blockId)
   }
@@ -811,11 +814,13 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     }
 
     if (paletteActivity) {
-      const overData = over.data.current || {}
-      const { groupId, dayId, blockId } = overData
+      const d = over.data.current || {}
+      const groupId = d.groupId ?? d.slot?.groupId
+      const dayId = d.dayId ?? d.slot?.dayId
+      const blockId = d.blockId ?? d.slot?.blockId
       if (!groupId || !dayId || !blockId) return
       const targetSlot = getSlot(groupId, dayId, blockId)
-      if (targetSlot && targetSlot.activity_id) return
+      if (targetSlot?.is_anchor) return
       placeActivityManual(paletteActivity.id, groupId, dayId, blockId)
     }
   }
@@ -858,11 +863,13 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     }
 
     if (paletteActivity) {
-      const overData = over.data.current || {}
-      const { groupId, dayId, blockId } = overData
+      const d = over.data.current || {}
+      const groupId = d.groupId ?? d.slot?.groupId
+      const dayId = d.dayId ?? d.slot?.dayId
+      const blockId = d.blockId ?? d.slot?.blockId
       if (!groupId || !dayId || !blockId) return
       const targetSlot = getSlot(groupId, dayId, blockId)
-      if (targetSlot?.activity_id) return
+      if (targetSlot?.is_anchor) return
       placeActivityManual(paletteActivity.id, groupId, dayId, blockId)
       return
     }
@@ -1580,6 +1587,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
         if (view === 'group') {
           return (
             <DndContext
+              key="group"
               sensors={sensors}
               onDragStart={handleGroupDragStart}
               onDragEnd={handleGroupDragEnd}
@@ -1592,6 +1600,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
         if (view === 'day') {
           return (
             <DndContext
+              key="day"
               sensors={sensors}
               onDragStart={handleDayDragStart}
               onDragEnd={handleDayDragEnd}
@@ -1603,7 +1612,13 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
         }
         if (view === 'manual') {
           return (
-            <DndContext sensors={sensors} onDragEnd={handleManualDragEnd}>
+            <DndContext
+              key="manual"
+              sensors={sensors}
+              onDragStart={() => {}}
+              onDragEnd={handleManualDragEnd}
+              onDragCancel={() => {}}
+            >
               {twoCol}
             </DndContext>
           )

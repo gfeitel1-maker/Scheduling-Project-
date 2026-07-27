@@ -143,15 +143,19 @@ function ConflictCard({ conflict, resolved, resolveAuthorLabel, onResolve }) {
   // hold-then-collapse visual. Cleared on unmount / whenever `resolved`
   // changes, so it can never fire after this card instance is gone.
   useEffect(() => {
-    if (!resolved) {
-      setCollapsing(false)
-      return
-    }
+    // `collapsing` starts false and is only ever driven true by the timer
+    // below, which only arms when `resolved` is truthy — so when `resolved`
+    // is falsy there is nothing to reset synchronously. The reset back to
+    // false is done in the cleanup, which runs whenever `resolved` changes
+    // (truthy→falsy or a re-resolve), keeping the reset out of the effect
+    // body (react-hooks/set-state-in-effect).
+    if (!resolved) return
     const holdTimer = setTimeout(() => setCollapsing(true), 1100)
     localTimersRef.current.push(holdTimer)
     return () => {
       clearTimeout(holdTimer)
       localTimersRef.current = localTimersRef.current.filter((t) => t !== holdTimer)
+      setCollapsing(false)
     }
   }, [resolved])
 

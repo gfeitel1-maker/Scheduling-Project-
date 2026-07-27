@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { ANCHOR_COLOR, activityColor } from './SlotCell'
 import { S } from '../../styles/shared'
 
-export default function EditModal({ slot, activities, eligibleActivities, currentActivity, currentAnchor, weatherAlt, weatherMode, onSave, onClose }) {
+export default function EditModal({ slot, eligibleActivities, currentActivity, currentAnchor, weatherAlt, weatherMode, onSave, onClose }) {
   const [selected, setSelected] = useState(slot.activityId || '')
 
   if (slot.type === 'anchor') {

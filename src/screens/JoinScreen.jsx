@@ -32,7 +32,6 @@ export default function JoinScreen({ onBack, onSelectHost }) {
     runDiscovery()
   }, [runDiscovery])
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { runDiscovery() }, [runDiscovery])
 
   return (
@@ -84,10 +83,14 @@ export default function JoinScreen({ onBack, onSelectHost }) {
               </button>
             ))}
 
+            {/* This button only renders in the 'found' state, which is reached
+                only after a scan completes (runDiscovery's finally clears
+                scanningRef before setState('found')), so a scan is never in
+                flight here. searchAgain also re-guards against concurrent
+                scans internally. */}
             <button
-              style={{ ...S.authLinkBtn, marginTop: 14, opacity: scanningRef.current ? 0.5 : 1 }}
+              style={{ ...S.authLinkBtn, marginTop: 14 }}
               onClick={searchAgain}
-              disabled={scanningRef.current}
             >
               ↻ Search again
             </button>

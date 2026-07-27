@@ -92,7 +92,6 @@ describe('preplacedSlots (locking)', () => {
   it('populates locationUsage for preplaced slots so capacity is respected', () => {
     // Pool has max_groups_per_slot = 2. Preplaced one group. Another group should fill the same slot (capacity allows it).
     // A third group should NOT be placed there if capacity would be exceeded.
-    const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
     const g2 = { id: 'g2', name: 'Bet', tier_id: 't1', availability: 'all' }
     const g3 = { id: 'g3', name: 'Gimel', tier_id: 't1', availability: 'all' }
     const pool = {

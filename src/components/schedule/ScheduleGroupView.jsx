@@ -140,6 +140,7 @@ export default function ScheduleGroupView({
                             weatherMode={weatherMode}
                             onEdit={cellClickHandler || (s => onEditSlot(s))}
                             onSelect={!stampMode && !slot.is_anchor ? onCellSelect : undefined}
+                            isDndEnabled={!stampMode && !slot.is_anchor}
                             isExpandDragActive={isExpandDragActive}
                             isSelected={isSelected}
                             isMultiSelected={isMultiSelected}

@@ -112,7 +112,7 @@ export default function ManualBuildView({
                           weatherMode={false}
                           onEdit={s => onEditSlot(s)}
                           onSelect={onCellSelect}
-                          isDndEnabled={false}
+                          isDndEnabled={true}
                           isSelected={isSelected}
                           isMultiSelected={isMultiSelected}
                           pasteMode={pasteMode}

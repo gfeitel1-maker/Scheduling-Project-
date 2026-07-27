@@ -49,7 +49,6 @@ export default function CampSetup({ campId, onNavigate }) {
   const [loadingCounts, setLoadingCounts] = useState(true)
   const [error, setError] = useState(null)
 
-  // eslint-disable-next-line react-hooks/immutability
   useEffect(() => { loadCamp(); loadCounts() }, [campId])
 
   async function loadCamp() {
