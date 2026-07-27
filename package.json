@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "test": "vitest run",
     "electron:dev": "concurrently -k \"vite\" \"cross-env VITE_DEV_SERVER_URL=http://localhost:5200 electron electron/main.js\"",
-    "electron:build": "vite build && electron-builder"
+    "electron:build": "vite build && electron-builder",
+    "install:mac": "bash scripts/install-macos.sh"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
