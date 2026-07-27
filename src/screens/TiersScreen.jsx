@@ -278,7 +278,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
     ])
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Units')
-    XLSX.writeFile(wb, 'tiers_template.xlsx')
+    XLSX.writeFile(wb, 'units_template.xlsx')
   }
 
   function onFileChange(e) {
