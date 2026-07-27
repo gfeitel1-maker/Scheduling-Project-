@@ -1,9 +1,9 @@
 import { useState } from 'react'
 
-export const OVERLAY_COLOR = '#f59e0b'
-export const OVERLAY_BG = '#f59e0b18'
-export const OVERLAY_TEXT = '#d97706'
-export const OVERLAY_BORDER = '#f59e0b'
+export const OVERLAY_COLOR = 'var(--accent)'
+export const OVERLAY_BG = 'color-mix(in srgb, var(--accent) 9%, transparent)'
+export const OVERLAY_TEXT = 'color-mix(in srgb, var(--accent) 60%, var(--text))'
+export const OVERLAY_BORDER = 'var(--accent)'
 
 export default function OverlayCell({ label, onRemove, rowSpan = 1, showFillHandle = false, fillHandleDirection = 'vertical', onFillStart }) {
   const [showRemoveBtn, setShowRemoveBtn] = useState(false)
@@ -42,7 +42,7 @@ export default function OverlayCell({ label, onRemove, rowSpan = 1, showFillHand
               position: 'absolute',
               top: 4,
               right: 4,
-              background: '#DC2626',
+              background: 'var(--danger)',
               color: '#fff',
               border: 'none',
               borderRadius: 4,

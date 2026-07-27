@@ -240,7 +240,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
 
   async function deleteAll() {
     if (!activeCohort) {
-      setError('No cohort selected — set up a cohort in Cohorts before deleting time blocks.')
+      setError('No program selected — add a program before deleting time blocks.')
       return
     }
     if (!window.confirm('Delete all time blocks? This cannot be undone.')) return
@@ -394,8 +394,8 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
         <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading…</div>
       ) : !activeCohort ? (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '40px 16px', textAlign: 'center', marginBottom: 16 }}>
-          <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No cohorts yet</div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Set up a cohort in Cohorts before adding time blocks.</div>
+          <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No programs yet</div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add a program before adding time blocks.</div>
         </div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>

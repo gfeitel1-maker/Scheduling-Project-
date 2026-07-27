@@ -3,8 +3,8 @@ import { useState } from 'react'
 
 const PRESET_STAMPS = ['Field Trip', 'Special Event', 'Service Project']
 
-const OVERLAY_COLOR = '#f59e0b'
-const OVERLAY_BG = '#f59e0b18'
+const OVERLAY_COLOR = 'var(--accent)'
+const OVERLAY_BG = 'color-mix(in srgb, var(--accent) 9%, transparent)'
 
 export default function FieldTripDrawer({ isOpen, onClose, activeStamp, onSelectStamp }) {
   const [customLabel, setCustomLabel] = useState('')
@@ -65,11 +65,11 @@ export default function FieldTripDrawer({ isOpen, onClose, activeStamp, onSelect
         </div>
 
         {activeStamp && (
-          <div style={{ background: '#f59e0b20', border: '1px solid #f59e0b', borderRadius: 6, padding: '8px 10px', fontSize: 12, color: '#92400e', marginBottom: 4 }}>
+          <div style={{ background: 'color-mix(in srgb, var(--accent) 13%, transparent)', border: '1px solid var(--accent)', borderRadius: 6, padding: '8px 10px', fontSize: 12, color: 'color-mix(in srgb, var(--accent) 60%, var(--text))', marginBottom: 4 }}>
             <strong>Stamp mode:</strong> Click any slot to place "{activeStamp}".<br />
             <button
               onClick={() => onSelectStamp(null)}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', color: '#92400e', fontSize: 11, padding: 0, marginTop: 4 }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline', color: 'color-mix(in srgb, var(--accent) 60%, var(--text))', fontSize: 11, padding: 0, marginTop: 4 }}
             >Cancel stamp</button>
           </div>
         )}
@@ -90,7 +90,7 @@ export default function FieldTripDrawer({ isOpen, onClose, activeStamp, onSelect
               borderRadius: 7,
               border: `1.5px solid ${activeStamp === label ? OVERLAY_COLOR : 'var(--border)'}`,
               background: activeStamp === label ? OVERLAY_BG : 'var(--surface)',
-              color: activeStamp === label ? '#92400e' : 'var(--text)',
+              color: activeStamp === label ? 'color-mix(in srgb, var(--accent) 60%, var(--text))' : 'var(--text)',
               fontSize: 13,
               fontWeight: activeStamp === label ? 700 : 500,
               cursor: 'pointer',

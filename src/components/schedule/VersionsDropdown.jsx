@@ -31,10 +31,10 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
 
   const btnStyle = {
     padding: '6px 12px',
-    border: `1px solid ${isOpen ? '#E8A020' : 'var(--border)'}`,
+    border: `1px solid ${isOpen ? 'var(--accent)' : 'var(--border)'}`,
     borderRadius: 6,
-    background: isOpen ? '#FFF3DC' : 'var(--surface)',
-    color: isOpen ? '#9A6200' : 'var(--text)',
+    background: isOpen ? 'color-mix(in srgb, var(--accent) 8%, var(--surface))' : 'var(--surface)',
+    color: isOpen ? 'color-mix(in srgb, var(--accent) 60%, var(--text))' : 'var(--text)',
     fontWeight: 600,
     fontSize: 12,
     cursor: 'pointer',
@@ -73,7 +73,7 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
                 <div key={snap.id} style={{
                   display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px',
                   borderBottom: '1px solid var(--border)',
-                  background: isCurrent ? '#00ADBB08' : undefined,
+                  background: isCurrent ? 'color-mix(in srgb, var(--primary) 3%, transparent)' : undefined,
                 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     {isRenaming ? (
@@ -113,7 +113,7 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
                   </div>
 
                   {isCurrent && !isRenaming && (
-                    <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--primary)', background: '#00ADBB14', padding: '2px 6px', borderRadius: 10, whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--primary)', background: 'color-mix(in srgb, var(--primary) 8%, transparent)', padding: '2px 6px', borderRadius: 10, whiteSpace: 'nowrap' }}>
                       current
                     </span>
                   )}

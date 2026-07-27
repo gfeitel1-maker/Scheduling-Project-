@@ -28,8 +28,8 @@ export default function EditModal({ slot, activities, eligibleActivities, curren
         </div>
 
         {weatherMode && weatherAlt && (
-          <div style={{ background: '#EEF4FD', border: '1px solid #2F7DE1', borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>
-            <span style={{ color: '#2F7DE1', fontWeight: 600 }}>Weather alternative: </span>{weatherAlt.name}
+          <div style={{ background: 'color-mix(in srgb, var(--accent) 9%, var(--surface))', border: '1px solid var(--accent)', borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>
+            <span style={{ color: 'var(--accent)', fontWeight: 600 }}>Weather alternative: </span>{weatherAlt.name}
             <button onClick={() => { setSelected(weatherAlt.id); setTimeout(() => onSave(weatherAlt.id), 50) }} style={{ ...S.btnPrimary, padding: '4px 10px', marginLeft: 10, fontSize: 12 }}>Swap</button>
           </div>
         )}

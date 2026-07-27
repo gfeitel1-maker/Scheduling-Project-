@@ -17,7 +17,7 @@ const NAV_SECTIONS = [
       { key: 'days',         label: 'Days' },
       { key: 'timeblocks',   label: 'Time Blocks' },
       { key: 'activities',   label: 'Activities' },
-      { key: 'anchors',      label: 'Anchors' },
+      { key: 'anchors',      label: 'Fixed Events' },
       { key: 'dayoverrides', label: 'Day Overrides' },
     ],
   },

@@ -88,7 +88,7 @@ export default function FlagDetailModal({ flag, slots, groups, days, timeBlocks,
     DISTRIBUTION: ['Group', 'Activity', 'Preference', ''],
   }[flag] || ['Col 1', 'Col 2', 'Col 3', 'Col 4']
 
-  const color = FLAG_COLORS[flag] || '#ccc'
+  const color = FLAG_COLORS[flag] || 'var(--text-secondary)'
 
   return (
     <div style={S.overlay}>

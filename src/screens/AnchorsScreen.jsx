@@ -104,7 +104,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
     } catch (err) {
       setSaveError(
         err?.cleanupFailed
-          ? `Save failed partway through and couldn't be fully rolled back (admin required) — ${err.orphanCount} incomplete anchor row(s) may remain; ask an admin to review/delete them.`
+          ? `Save failed partway through and couldn't be fully rolled back (admin required) — ${err.orphanCount} incomplete fixed-event row(s) may remain; ask an admin to review/delete them.`
           : 'Failed to save — check your connection and try again'
       )
       setSaving(false)
@@ -117,7 +117,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 24 }}>
       <div style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width: 520, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, marginBottom: 20 }}>
-          {isNew ? 'Add Anchor' : `Edit: ${anchor.name}`}
+          {isNew ? 'Add Fixed Event' : `Edit: ${anchor.name}`}
         </div>
 
         <Field label="Name">
@@ -172,7 +172,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
 
         {isNew && selectedDays.length > 1 && (
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, fontFamily: 'var(--font-mono)' }}>
-            Will create {selectedDays.length} anchors (one per day)
+            Will create {selectedDays.length} fixed events (one per day)
           </div>
         )}
 
@@ -184,7 +184,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
           <button onClick={onClose} style={S.btnSecondary}>Cancel</button>
           <button onClick={save} disabled={saving || !canSave} style={{ ...S.btnPrimary, opacity: (!canSave || saving) ? 0.5 : 1 }}>
-            {saving ? 'Saving…' : isNew ? `Add Anchor${selectedDays.length > 1 ? ` (×${selectedDays.length})` : ''}` : 'Save Changes'}
+            {saving ? 'Saving…' : isNew ? `Add Fixed Event${selectedDays.length > 1 ? ` (×${selectedDays.length})` : ''}` : 'Save Changes'}
           </button>
         </div>
       </div>
@@ -328,8 +328,8 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
     } catch (err) {
       setError(
         err.cleanupFailed
-          ? `Save failed partway through and couldn't be fully rolled back (admin required) — ${err.orphanCount} incomplete anchor row(s) may remain; ask an admin to review/delete them.`
-          : 'Failed to save anchor — check your connection and try again'
+          ? `Save failed partway through and couldn't be fully rolled back (admin required) — ${err.orphanCount} incomplete fixed-event row(s) may remain; ask an admin to review/delete them.`
+          : 'Failed to save fixed event — check your connection and try again'
       )
       throw err
     }
@@ -338,7 +338,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
   }
 
   async function deleteAnchor(id) {
-    if (!window.confirm('Delete this anchor?')) return
+    if (!window.confirm('Delete this fixed event?')) return
     try {
       const token = localStorage.getItem('shoresh-token')
       const result = await localClient.deleteEntity(token, 'anchor_activities', id)
@@ -349,14 +349,14 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
-          ? 'Only an admin can delete anchors.'
-          : 'Failed to delete anchor — check your connection and try again'
+          ? 'Only an admin can delete fixed events.'
+          : 'Failed to delete fixed event — check your connection and try again'
       )
     }
   }
 
   async function deleteAll() {
-    if (!window.confirm('Delete all anchors? This cannot be undone.')) return
+    if (!window.confirm('Delete all fixed events? This cannot be undone.')) return
     try {
       const token = localStorage.getItem('shoresh-token')
       // Re-fetch immediately rather than using the closed-over `anchors`
@@ -383,12 +383,12 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       if (failed > 0) {
         setError(
           failedDueToRole
-            ? 'Only an admin can delete anchors — no anchors were deleted.'
-            : `Deleted ${succeeded} of ${ids.length} anchors — please try again for the rest.`
+            ? 'Only an admin can delete fixed events — no fixed events were deleted.'
+            : `Deleted ${succeeded} of ${ids.length} fixed events — please try again for the rest.`
         )
       }
     } catch {
-      setError('Failed to delete anchors — check your connection and try again')
+      setError('Failed to delete fixed events — check your connection and try again')
     }
   }
 
@@ -462,14 +462,14 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
         const resolvedTierIds = tierNames.map(n => tierMap[n.toLowerCase()]).filter(Boolean)
         if (!isAllTiers && tierNames.length && resolvedTierIds.length < tierNames.length) {
           const missing = tierNames.filter(n => !tierMap[n.toLowerCase()])
-          baseWarning = baseWarning || `Tier(s) not found: ${missing.join(', ')}`
+          baseWarning = baseWarning || `Unit(s) not found: ${missing.join(', ')}`
         }
 
         const group_ids = isAllTiers
           ? []
           : resolvedTierIds.flatMap(tid => groupsByTier[tid] || [])
 
-        const tierLabel = tierNames.join(', ') || (isAllTiers ? 'All tiers' : '—')
+        const tierLabel = tierNames.join(', ') || (isAllTiers ? 'All units' : '—')
 
         if (dayLabels.length === 0) {
           parsed.push({
@@ -555,13 +555,13 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       )}
       {timeBlocks.length === 0 && !loading && (
         <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#7a5100' }}>
-          No time blocks found. Set these up before adding anchors.
+          No time blocks found. Set these up before adding fixed events.
         </div>
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          {anchors.length} anchor{anchors.length !== 1 ? 's' : ''}
+          {anchors.length} fixed event{anchors.length !== 1 ? 's' : ''}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
@@ -573,7 +573,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
             title={role !== 'admin' ? 'Admin only' : undefined}
             style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
           >Delete All</button>
-          <button onClick={() => setModal({ anchor: null })} style={S.btnPrimary}>+ Add Anchor</button>
+          <button onClick={() => setModal({ anchor: null })} style={S.btnPrimary}>+ Add Fixed Event</button>
         </div>
       </div>
 
@@ -594,8 +594,8 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
             <tbody>
               {anchors.length === 0 ? (
                 <tr><td colSpan={5} style={{ padding: '40px 16px', textAlign: 'center' }}>
-                  <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No anchors yet</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first anchor below.</div>
+                  <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No fixed events yet</div>
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first fixed event below.</div>
                 </td></tr>
               ) : anchors.map(a => (
                 <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}
@@ -603,7 +603,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
                   onMouseLeave={e => e.currentTarget.style.background = ''}
                 >
                   <td style={{ ...S.td, fontWeight: 500 }}>
-                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--purple)', marginRight: 8 }} />
+                    <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--anchor)', marginRight: 8 }} />
                     {a.name}
                   </td>
                   <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{dayMap[a.day_id] || '—'}</td>

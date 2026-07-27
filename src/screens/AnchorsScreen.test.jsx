@@ -68,9 +68,9 @@ describe('AnchorsScreen fan-out-per-day creation', () => {
     })
 
     render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('No anchors yet')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('+ Add Anchor'))
+    fireEvent.click(screen.getByText('+ Add Fixed Event'))
 
     fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'Mifkad' } })
     fireEvent.click(screen.getByText('Monday'))
@@ -78,7 +78,7 @@ describe('AnchorsScreen fan-out-per-day creation', () => {
     fireEvent.click(screen.getByText('Wednesday'))
     fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
 
-    fireEvent.click(screen.getByText('Add Anchor (×3)'))
+    fireEvent.click(screen.getByText('Add Fixed Event (×3)'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
     await waitFor(() => {
@@ -130,15 +130,15 @@ describe('AnchorsScreen cleanup-failure surfacing', () => {
     localClient.deleteEntity.mockRejectedValue(new Error('admin role required'))
 
     render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('No anchors yet')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('+ Add Anchor'))
+    fireEvent.click(screen.getByText('+ Add Fixed Event'))
     fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'Mifkad' } })
     fireEvent.click(screen.getByText('Monday'))
     fireEvent.click(screen.getByText('Tuesday'))
     fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
 
-    fireEvent.click(screen.getByText('Add Anchor (×2)'))
+    fireEvent.click(screen.getByText('Add Fixed Event (×2)'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalled())
 

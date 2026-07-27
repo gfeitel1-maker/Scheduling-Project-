@@ -1,6 +1,6 @@
 import { useDraggable } from '@dnd-kit/core'
 
-const COLORS = ['#00ADBB','#2F7DE1','#00AA59','#A63595','#F0585D','#7DC433']
+const COLORS = ['#3F6690','#3C8C86','#5F8A5A','#8C6F26','#B26B47','#7C5E86']
 
 function DraggablePaletteItem({ activity, colorIdx, scheduledCount, atMax, draggable }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -51,7 +51,7 @@ function DraggablePaletteItem({ activity, colorIdx, scheduledCount, atMax, dragg
       <span style={{
         fontFamily: 'var(--font-mono)',
         fontSize: 10,
-        color: atMax ? '#F0585D' : 'var(--text-secondary)',
+        color: atMax ? 'var(--danger)' : 'var(--text-secondary)',
         flexShrink: 0,
       }}>
         {scheduledCount}/{activity.max_per_week ?? '∞'}

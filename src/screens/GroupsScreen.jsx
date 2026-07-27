@@ -258,7 +258,7 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
         let warning = null
         if (!name) warning = 'Missing name'
         const tierId = tierName ? tierMap[tierName.toLowerCase()] : null
-        if (tierName && !tierId) warning = `Tier "${tierName}" not found`
+        if (tierName && !tierId) warning = `Unit "${tierName}" not found`
         const availability = ['all','morning','afternoon'].includes(avail) ? avail : 'all'
         return { name, tierName, tierId: tierId || null, availability, warning }
       })

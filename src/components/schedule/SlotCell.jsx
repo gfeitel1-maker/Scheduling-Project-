@@ -86,6 +86,7 @@ export default function SlotCell({
     setPressed(true)
     setTimeout(() => setPressed(false), 110)
   }
+
   const id = slot ? `${slot.groupId}|${slot.dayId}|${slot.blockId}` : 'empty'
   const canDrag = isDndEnabled && slot?.type === 'activity' && !isLocked
   const showExpandHandle = slot?.activity_id && !slot?.is_anchor && !isLocked

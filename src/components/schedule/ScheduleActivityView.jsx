@@ -34,7 +34,7 @@ export default function ScheduleActivityView({
                     <span style={{ fontSize: 10, background: color, color: '#fff', borderRadius: 3, padding: '1px 6px', fontWeight: 700 }}>HIGH</span>
                   )}
                   {act.is_outdoor && (
-                    <span style={{ fontSize: 10, color: '#2F7DE1', fontWeight: 600 }}>OUTDOOR</span>
+                    <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 600 }}>OUTDOOR</span>
                   )}
                 </div>
                 <div style={{ marginTop: 8, fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)' }}>
@@ -61,7 +61,7 @@ export default function ScheduleActivityView({
                 <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, color: 'var(--text)' }}>{act?.name}</span>
                 {act?.location && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{act.location}</span>}
                 {act?.priority === 'high' && <span style={{ fontSize: 11, background: color, color: '#fff', borderRadius: 3, padding: '2px 8px', fontWeight: 700 }}>HIGH PRIORITY</span>}
-                {act?.is_outdoor && <span style={{ fontSize: 11, color: '#2F7DE1', fontWeight: 600 }}>OUTDOOR</span>}
+                {act?.is_outdoor && <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>OUTDOOR</span>}
               </div>
 
               <div style={{ overflowX: 'auto' }}>

@@ -3,9 +3,9 @@ import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 
 const ANCHOR_MODELS = [
-  { value: 'none',     label: 'None — no anchors' },
-  { value: 'fixed',    label: 'Fixed — anchors locked to day + block' },
-  { value: 'floating', label: 'Floating — anchors constrained to a day window (coming soon)' },
+  { value: 'none',     label: 'None — no fixed events' },
+  { value: 'fixed',    label: 'Fixed — fixed events locked to day + block' },
+  { value: 'floating', label: 'Floating — fixed events constrained to a day window (coming soon)' },
 ]
 
 const CAPACITY_SOURCES = [
@@ -240,7 +240,7 @@ export default function CohortsScreen({ campId }) {
     } catch (err) {
       setError(
         /FOREIGN KEY/i.test(err?.message ?? '')
-          ? "Can't delete — other data (time blocks or anchors) still references this program. Remove those first."
+          ? "Can't delete — other data (time blocks or fixed events) still references this program. Remove those first."
           : 'Failed to delete program — check your connection and try again'
       )
     }
@@ -265,7 +265,7 @@ export default function CohortsScreen({ campId }) {
               <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
                 <th style={S.th}>Name</th>
                 <th style={S.th}>Session Weeks</th>
-                <th style={S.th}>Anchor Model</th>
+                <th style={S.th}>Fixed Events</th>
                 <th style={S.th}>Capacity Source</th>
                 <th style={S.th}>Order</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
@@ -325,7 +325,7 @@ export default function CohortsScreen({ campId }) {
       </div>
 
       <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-        A program groups units, time blocks, and anchors that share a schedule structure.
+        A program groups units, time blocks, and fixed events that share a schedule structure.
         Most camps have one program ("Main"). Add a second for specialty programs with a different time grid.
       </div>
     </div>

@@ -463,7 +463,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
         const eligible_tier_ids = eligTierNames.map(n => tierMap[n]).filter(Boolean)
         if (eligTierNames.length && eligible_tier_ids.length < eligTierNames.length) {
           const missing = eligTierNames.filter(n => !tierMap[n])
-          warning = warning || `Tier(s) not found: ${missing.join(', ')}`
+          warning = warning || `Unit(s) not found: ${missing.join(', ')}`
         }
 
         const weatherName = String(r.weather_alternative || '').trim()
@@ -689,7 +689,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
       )}
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button onClick={() => onNavigate('anchors')} style={S.btnPrimary}>Next: Anchors →</button>
+        <button onClick={() => onNavigate('anchors')} style={S.btnPrimary}>Next: Fixed Events →</button>
       </div>
     </div>
   )
