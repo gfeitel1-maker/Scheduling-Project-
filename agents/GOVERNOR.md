@@ -181,8 +181,22 @@ Wait for score + justification.
 - **App:** Shoresh camp scheduling app — React 19 + Vite frontend, Supabase local Docker
 - **Preview:** http://localhost:5200
 - **Key constraint:** ALL styles are inline React style objects. No CSS files. No className for styling.
-- **CSS vars:** `--primary`, `--bg`, `--text`, `--surface`, `--surface-elevated`, `--border`, `--text-secondary`, `--success`, `--warning`
-- **Activity colors:** `['#00ADBB','#2F7DE1','#00AA59','#A63595','#F0585D','#7DC433']`
+- **Design system (canonical):** `docs/superpowers/specs/design-system.md` — the durable token contract.
+  Attach it (or its relevant sections) to every UI-significant Maker/Designer brief. Personality:
+  Professional, grounded, warm, quiet, precise — **never playful**. Color = meaning, not decoration.
+- **CSS vars (semantic — full meaning in the spec):** `--primary` Deep Navy `#173B63`, `--primary-dark` `#0F2A47`,
+  `--secondary` Forest Green `#2F6B58`, `--accent` Warm Bronze `#B8833A`, `--danger` Muted Brick `#B44E48`
+  (`--warning` = same value, legacy alias), `--success` `#4C8A63`, `--anchor` `#5C6B7A` (fixed events),
+  `--bg` `#F4F3EF`, `--surface` `#FCFBF8`, `--surface-elevated` `#FFFFFF`, `--text` `#1E2A34`,
+  `--text-secondary` `#5C6670`, `--border` `#D8DBD9`. `--purple` / `--yellow-green`: DEPRECATED.
+- **Fonts:** `--font-sans` `'Inter'`, `--font-condensed` `'IBM Plex Sans'`, `--font-mono` `'IBM Plex Mono'`
+- **Activity colors:** `['#3F6690','#3C8C86','#5F8A5A','#8C6F26','#B26B47','#7C5E86']`
+  (muted: Slate Blue, Muted Teal, Sage Green, Ochre, Clay Terracotta, Dusty Plum)
+- **Motion:** Fade / Lift / Slide / Settle — no bounce. `--motion-fast` 140ms, `--motion-base` 220ms, `--motion-settle` 340ms, `--ease-out` `cubic-bezier(0.22,1,0.36,1)`.
+- **Retheme status:** the token *values* above are the contract, but `src/index.css` / `index.html` fonts /
+  `src/styles/shared.js` / schedule components still hold the OLD vivid values. Applying these tokens to
+  live code is a **separate future retheme task**, not assumed done.
 - **DnD:** `@dnd-kit/core`, PointerSensor, `distance: 8` activation constraint
 - **DB:** `template_slots` table (not `schedule_slots`). RLS via `get_my_camp_id()`.
-- **Spec:** `docs/superpowers/specs/2026-07-19-multi-agent-workflow-design.md`
+- **Workflow spec:** `docs/superpowers/specs/2026-07-19-multi-agent-workflow-design.md`
+- **Design spec:** `docs/superpowers/specs/design-system.md`

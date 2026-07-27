@@ -94,7 +94,7 @@ export default function CampSetup({ campId, onNavigate }) {
         return map
       })
       if (anyFailed) {
-        setError('Some data failed to load — counts may be out of date. Refresh to retry.')
+        setError("Some sections couldn't be loaded just now — your saved data is safe. The counts below may be out of date.")
       }
     } catch {
       setError('Failed to load — check your connection and refresh')
@@ -132,7 +132,22 @@ export default function CampSetup({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 560 }}>
-      {error && <div style={S.errorBanner}>{error}</div>}
+      {error && (
+        <div style={{ ...S.errorBanner, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ flex: 1 }}>{error}</span>
+          <button
+            onClick={() => { loadCamp(); loadCounts() }}
+            style={{
+              flexShrink: 0, padding: '4px 12px', fontSize: 12, fontWeight: 600,
+              fontFamily: 'inherit', cursor: 'pointer', borderRadius: 6,
+              color: 'var(--warning)', background: 'transparent',
+              border: '1px solid color-mix(in srgb, var(--warning) 45%, var(--border))',
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
 
       {/* Header */}
       <div style={{ marginBottom: 28 }}>

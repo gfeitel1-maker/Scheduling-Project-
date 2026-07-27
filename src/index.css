@@ -1,23 +1,32 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg: #FAF6F0;
-  --surface: #FFFCF8;
-  --surface-elevated: #FFF8F0;
-  --primary: #00ADBB;
-  --primary-dark: #008a96;
-  --secondary: #2F7DE1;
-  --success: #00AA59;
-  --warning: #F0585D;
-  --purple: #A63595;
-  --yellow-green: #7DC433;
-  --text: #2D1F12;
-  --text-secondary: #7A6152;
-  --border: #E8DDD0;
+  --bg: #F4F3EF;
+  --surface: #FCFBF8;
+  --surface-elevated: #FFFFFF;
+  --primary: #173B63;
+  --primary-dark: #0F2A47;
+  --secondary: #2F6B58;
+  --accent: #B8833A;
+  --success: #4C8A63;
+  --warning: #B44E48; /* legacy alias of --danger — existing errorBanner/btnDanger reference this; do not give it a new meaning */
+  --danger: #B44E48;
+  --anchor: #5C6B7A;
+  --purple: #5C6B7A; /* deprecated: alias of --anchor. Kept because src/screens/AnchorsScreen.jsx still references var(--purple); do not use in new code */
+  /* --yellow-green removed: zero references in src; absorbed into the activity palette (design-system.md §3) */
+  --text: #1E2A34;
+  --text-secondary: #5C6670;
+  --border: #D8DBD9;
 
-  --font-sans: 'Nunito', sans-serif;
-  --font-condensed: 'Fredoka', sans-serif;
-  --font-mono: 'IBM Plex Mono', monospace;
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-condensed: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  --motion-fast:   140ms;
+  --motion-base:   220ms;
+  --motion-settle: 340ms;
+  --ease-out:      cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 html, body, #root {

@@ -24,6 +24,20 @@ function randomId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
 }
 
+// Mirrors the real SQLite UNIQUE(...) indexes (electron/db/schema.sql +
+// migrations) so the mock reproduces the same collision behavior the app's
+// write logic is built around (ensureCohort / addTier / etc. deliberately
+// write `name` first and match on /UNIQUE/i errors). Without emulating these,
+// StrictMode's double-invoked mount effect would create duplicate "Main"
+// cohorts/days in a `npm run dev` browser that could never happen in Electron.
+const UNIQUE_KEYS = {
+  cohorts:     ['camp_id', 'name'],
+  groups:      ['camp_id', 'name'],
+  activities:  ['camp_id', 'name'],
+  tiers:       ['camp_id', 'cohort_id', 'name'],
+  time_blocks: ['camp_id', 'cohort_id', 'name'],
+}
+
 // Registered listeners for the mock's event-style methods (onOpApplied,
 // onOpConflict). Stored here — rather than left as no-ops — so a future
 // test/dev session can trigger a synthetic op-applied or conflict event
@@ -59,10 +73,78 @@ export const mockShoresh = {
     saveState(state)
     return { campId: state.camp.id, userId: state.users[state.users.length - 1].id }
   },
-  async write() {
+  // Field-level write, mirroring the real op-log/projection contract
+  // (electron/ops/projections.js): each call creates-or-updates a single
+  // field on one row, building a row up field-by-field. Without this the mock
+  // was write-blind — `write` returned {status:'applied'} but never persisted,
+  // so `list` (below) always came back empty, making it impossible to create
+  // a Program/Unit/Group/etc. in a plain `npm run dev` browser and blocking
+  // Camp Setup end-to-end outside Electron.
+  async write({ entity, entity_id, field, value } = {}) {
+    if (!entity || !entity_id) return { status: 'applied' }
+    const state = loadState()
+
+    // `camps` is the singleton stored as state.camp (read by getCamp), not an
+    // array — keep it consistent so a camp rename reflects everywhere.
+    if (entity === 'camps') {
+      if (state.camp && state.camp.id === entity_id && field !== '__deleted__') {
+        state.camp = { ...state.camp, [field]: value }
+        saveState(state)
+      }
+      return { status: 'applied' }
+    }
+
+    if (!Array.isArray(state[entity])) state[entity] = []
+    const rows = state[entity]
+    const idx = rows.findIndex((r) => r.id === entity_id)
+
+    // Row-delete sentinel — see DELETE_FIELD in electron/ops/operations.js.
+    if (field === '__deleted__') {
+      if (idx !== -1) rows.splice(idx, 1)
+      saveState(state)
+      return { status: 'applied' }
+    }
+
+    // Build the candidate row. New rows get camp_id stamped from the singleton
+    // camp, mirroring ensureExists (electron/ops/projections.js), so the
+    // UNIQUE(camp_id, name) tuple is complete on the very first (`name`) write
+    // — matching how a real collision fails atomically before an orphan row
+    // exists.
+    const uniqueKey = UNIQUE_KEYS[entity]
+    const isNew = idx === -1
+    const base = isNew
+      ? { id: entity_id, ...(uniqueKey?.includes('camp_id') && state.camp ? { camp_id: state.camp.id } : {}) }
+      : rows[idx]
+    const candidate = { ...base, [field]: value }
+
+    // Emulate the UNIQUE constraint: once every key field is present, reject a
+    // write that would duplicate another row's key tuple (throwing a
+    // better-sqlite3-shaped message the app already matches on with /UNIQUE/i).
+    if (uniqueKey && uniqueKey.every((k) => candidate[k] != null && candidate[k] !== '')) {
+      const collision = rows.some(
+        (r) => r.id !== entity_id && uniqueKey.every((k) => r[k] === candidate[k])
+      )
+      if (collision) {
+        throw new Error(`UNIQUE constraint failed: ${entity}.${uniqueKey.join(', ' + entity + '.')}`)
+      }
+    }
+
+    if (isNew) rows.push(candidate)
+    else rows[idx] = candidate
+    saveState(state)
     return { status: 'applied' }
   },
-  async bulkReplace() {
+  // Wholesale delete-and-reinsert of one scope, mirroring the real
+  // bulk_replace primitive (electron/ops/operations.js). The two registered
+  // bulk_replace entities (template_slots, template_overlays) are both scoped
+  // by template_id, so replace every row in that scope with the new set.
+  async bulkReplace({ entity, scope_id, rows } = {}) {
+    if (!entity) return { status: 'applied' }
+    const state = loadState()
+    if (!Array.isArray(state[entity])) state[entity] = []
+    state[entity] = state[entity].filter((r) => r.template_id !== scope_id)
+    for (const row of rows || []) state[entity].push({ ...row })
+    saveState(state)
     return { status: 'applied' }
   },
   async verifySession({ token } = {}) {

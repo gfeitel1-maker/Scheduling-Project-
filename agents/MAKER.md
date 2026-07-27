@@ -37,9 +37,23 @@ You do not have opinions about the design or architecture. Governor and Designer
 
 ### Styling
 - ALL styles are inline React style objects — no CSS files, no `className` for styling
-- Use existing CSS vars: `--primary`, `--bg`, `--text`, `--surface`, `--surface-elevated`, `--border`, `--text-secondary`, `--success`, `--warning`
-- Activity colors: `['#00ADBB','#2F7DE1','#00AA59','#A63595','#F0585D','#7DC433']`
-- Font vars: `--font-condensed`, `--font-mono`, `--font-sans`
+- **Canonical design system:** `docs/superpowers/specs/design-system.md`. It is the contract for every
+  color/type/spacing/motion value and gives the semantic meaning of each token. Read it before styling.
+  Personality: Professional, grounded, warm, quiet, precise — **never playful**. Color = meaning, not decoration.
+- Use existing CSS vars (semantic — full meaning in spec §2):
+  - `--primary` Deep Navy `#173B63` (primary action), `--primary-dark` `#0F2A47` (hover/active)
+  - `--secondary` Forest Green `#2F6B58` · `--accent` Warm Bronze `#B8833A` (accent + caution states)
+  - `--danger` Muted Brick `#B44E48` (destructive/error) · `--warning` = same value, **legacy alias only** (existing code uses it as danger; do not give it a new meaning)
+  - `--success` `#4C8A63` · `--anchor` `#5C6B7A` (fixed events, not an activity color)
+  - `--bg` `#F4F3EF` · `--surface` `#FCFBF8` · `--surface-elevated` `#FFFFFF`
+  - `--text` `#1E2A34` · `--text-secondary` `#5C6670` · `--border` `#D8DBD9`
+  - `--purple` / `--yellow-green`: **DEPRECATED — do not use in new code.**
+- Activity colors: `['#3F6690','#3C8C86','#5F8A5A','#8C6F26','#B26B47','#7C5E86']`
+  (Slate Blue, Muted Teal, Sage Green, Ochre, Clay Terracotta, Dusty Plum). Muted by design — never re-saturate.
+- Font vars: `--font-sans` `'Inter'`, `--font-condensed` `'IBM Plex Sans'`, `--font-mono` `'IBM Plex Mono'`
+- Prefer tokens over hardcoded hex. New tints use `color-mix(in srgb, var(--token) N%, var(--surface|--border|transparent))` (see spec §6), not raw hex.
+- Motion: Fade / Lift / Slide / Settle — **no bounce/elastic**. Tokens: `--motion-fast` 140ms, `--motion-base` 220ms, `--motion-settle` 340ms, `--ease-out` `cubic-bezier(0.22,1,0.36,1)`; always add a `prefers-reduced-motion` fallback.
+- **Note:** the new token values above are the design contract. `src/index.css`, `index.html` fonts, and the schedule components still hold the OLD values until a dedicated retheme task lands — do not assume the runtime already matches these hexes unless the retheme has shipped.
 
 ### Drag and Drop
 - Use `@dnd-kit/core` exclusively — no native drag events

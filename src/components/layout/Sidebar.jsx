@@ -1,25 +1,40 @@
 import { useState, useEffect, useCallback } from 'react'
 import { localClient } from '../../localClient'
 
-const NAV_BASE = [
-  { key: 'setup',        label: 'Camp Setup' },
-  { key: 'conflicts',    label: 'Conflicts' },
-  { key: 'cohorts',      label: 'Programs' },
-  { key: 'tiers',        label: 'Units' },
-  { key: 'groups',       label: 'Groups' },
-  { key: 'timeblocks',   label: 'Time Blocks' },
-  { key: 'activities',   label: 'Activities' },
-  { key: 'anchors',      label: 'Anchors' },
-  { key: 'dayoverrides', label: 'Day Overrides' },
-  { key: 'schedule',     label: 'Schedule', divider: true },
-]
-
-const NAV_ADMIN = [
-  { key: 'devices', label: 'Device Manager', divider: true },
+// Nav is grouped into two labelled sections so the setup workflow (build the
+// camp's structure, top to bottom) reads as distinct from day-to-day
+// operations (view/adjust the live schedule, resolve conflicts, manage
+// devices). Conflicts + Device Manager are operational, not setup, so they
+// live in the second group rather than interleaved among the setup steps.
+const NAV_SECTIONS = [
+  {
+    title: 'Setup',
+    items: [
+      { key: 'setup',        label: 'Camp Setup' },
+      { key: 'cohorts',      label: 'Programs' },
+      { key: 'tiers',        label: 'Units' },
+      { key: 'groups',       label: 'Groups' },
+      { key: 'days',         label: 'Days' },
+      { key: 'timeblocks',   label: 'Time Blocks' },
+      { key: 'activities',   label: 'Activities' },
+      { key: 'anchors',      label: 'Anchors' },
+      { key: 'dayoverrides', label: 'Day Overrides' },
+    ],
+  },
+  {
+    title: 'Operations',
+    items: [
+      { key: 'schedule',  label: 'Schedule' },
+      { key: 'conflicts', label: 'Conflicts' },
+    ],
+    // Appended only for admins (Device Manager is admin-only).
+    adminItems: [
+      { key: 'devices', label: 'Device Manager' },
+    ],
+  },
 ]
 
 export default function Sidebar({ current, onNavigate, campId, role, badges = {} }) {
-  const NAV = role === 'admin' ? [...NAV_BASE, ...NAV_ADMIN] : NAV_BASE
   const [campName, setCampName] = useState('')
   const [projectPath, setProjectPath] = useState(null)
   const [backupStatus, setBackupStatus] = useState(null) // null | 'running' | 'ok' | 'error'
@@ -70,41 +85,59 @@ export default function Sidebar({ current, onNavigate, campId, role, badges = {}
       </div>
 
       <nav style={{ flex: 1, padding: '8px 0', overflowY: 'auto' }}>
-        {NAV.map(item => (
-          <div key={item.key}>
-            {item.divider && <div style={{ height: 1, background: 'var(--border)', margin: '8px 16px' }} />}
-            <button
-              onClick={() => onNavigate(item.key)}
-              style={{
-                display: 'block', width: '100%', textAlign: 'left',
-                padding: '8px 20px', border: 'none', background: 'none',
-                fontSize: 13, fontWeight: current === item.key ? 600 : 400,
-                color: current === item.key ? 'var(--primary)' : 'var(--text)',
-                borderLeft: current === item.key
-                  ? '3px solid var(--primary)'
-                  : '3px solid transparent',
-                transition: 'background 0.1s',
-              }}
-              onMouseEnter={e => { if (current !== item.key) e.currentTarget.style.background = 'var(--bg)' }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
-            >
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
-                {item.label}
-                {Boolean(badges[item.key]) && (
-                  <span style={{
-                    display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                    minWidth: 16, height: 16, padding: '0 5px', borderRadius: 99,
-                    background: 'var(--warning)', color: '#fff',
-                    fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
-                    lineHeight: '16px',
-                  }}>
-                    {badges[item.key]}
+        {NAV_SECTIONS.map((section, sIdx) => {
+          const items = [
+            ...section.items,
+            ...(role === 'admin' && section.adminItems ? section.adminItems : []),
+          ]
+          return (
+            <div key={section.title}>
+              <div style={{
+                padding: sIdx === 0 ? '4px 20px 6px' : '14px 20px 6px',
+                marginTop: sIdx === 0 ? 0 : 8,
+                borderTop: sIdx === 0 ? 'none' : '1px solid var(--border)',
+                fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
+                letterSpacing: '0.12em', textTransform: 'uppercase',
+                color: 'var(--text-secondary)',
+              }}>
+                {section.title}
+              </div>
+              {items.map(item => (
+                <button
+                  key={item.key}
+                  onClick={() => onNavigate(item.key)}
+                  style={{
+                    display: 'block', width: '100%', textAlign: 'left',
+                    padding: '8px 20px', border: 'none', background: 'none',
+                    fontSize: 13, fontWeight: current === item.key ? 600 : 400,
+                    color: current === item.key ? 'var(--primary)' : 'var(--text)',
+                    borderLeft: current === item.key
+                      ? '3px solid var(--primary)'
+                      : '3px solid transparent',
+                    transition: 'background 0.1s',
+                  }}
+                  onMouseEnter={e => { if (current !== item.key) e.currentTarget.style.background = 'var(--bg)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+                >
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 7 }}>
+                    {item.label}
+                    {Boolean(badges[item.key]) && (
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        minWidth: 16, height: 16, padding: '0 5px', borderRadius: 99,
+                        background: 'var(--warning)', color: '#fff',
+                        fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                        lineHeight: '16px',
+                      }}>
+                        {badges[item.key]}
+                      </span>
+                    )}
                   </span>
-                )}
-              </span>
-            </button>
-          </div>
-        ))}
+                </button>
+              ))}
+            </div>
+          )
+        })}
       </nav>
 
       <div style={{

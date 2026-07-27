@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Shell from './components/layout/Shell'
 import ModeSelectScreen from './screens/ModeSelectScreen'
 import JoinScreen from './screens/JoinScreen'
@@ -10,6 +10,7 @@ import GroupsScreen from './screens/GroupsScreen'
 import TimeBlocksScreen from './screens/TimeBlocksScreen'
 import ActivitiesScreen from './screens/ActivitiesScreen'
 import AnchorsScreen from './screens/AnchorsScreen'
+import DaysScreen from './screens/DaysScreen'
 import CohortsScreen from './screens/CohortsScreen'
 import DayOverridesScreen from './screens/DayOverridesScreen'
 import ScheduleScreen from './screens/ScheduleScreen'
@@ -28,6 +29,7 @@ const SCREENS = {
   cohorts:      CohortsScreen,
   tiers:        TiersScreen,
   groups:       GroupsScreen,
+  days:         DaysScreen,
   timeblocks:   TimeBlocksScreen,
   activities:   ActivitiesScreen,
   anchors:      AnchorsScreen,
@@ -43,7 +45,17 @@ function AppShell({ campId, role, onLogout }) {
   // they can never disagree.
   const pendingConflicts = usePendingConflicts()
 
+  // Run the one-time camp bootstrap (default weekdays + "Main" program) once
+  // per camp. The ref guard neutralizes React StrictMode's dev-mode
+  // double-invocation of this effect: seedDays/ensureCohort each read-then-write
+  // and are not safe against two concurrent invocations (days_of_operation has
+  // no UNIQUE constraint, so a double-invoke would seed Mon–Fri twice → 10
+  // days). Without this guard the duplication is only masked in production
+  // builds, where StrictMode does not double-invoke.
+  const seededForCamp = useRef(null)
   useEffect(() => {
+    if (!campId || seededForCamp.current === campId) return
+    seededForCamp.current = campId
     seedDays(campId)
     ensureCohort(campId)
   }, [campId])
