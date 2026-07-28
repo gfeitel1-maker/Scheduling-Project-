@@ -1,3 +1,9 @@
+> **ARCHIVED — historical record, not current authority.**
+> Governance audit of 2026-07-28. Its recommendations were executed across four PRs;
+> where this document and the current tree differ, the tree is right. Several proposals
+> here were deliberately **not** adopted (see the PRs for why).
+> Current law: [`docs/governance/GOVERNANCE_INDEX.md`](../../governance/GOVERNANCE_INDEX.md)
+
 # Governance Migration Plan — Shoresh
 
 **Produced:** 2026-07-28 · **Phase:** read-only audit · **Status:** PROPOSAL — NOT APPROVED, NOT EXECUTED
