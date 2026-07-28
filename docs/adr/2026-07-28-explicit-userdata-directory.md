@@ -2,17 +2,17 @@
 title: "Development and packaged builds use explicitly named, separate userData directories"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-07-28
 supersedes: []
-implementation_state: not started — awaiting human approval
+implementation_state: shipped
 affects: [docs/governance/standards/ARCHITECTURE_STANDARD.md, CLAUDE.md]
 ---
 
 # Development and packaged builds use explicitly named, separate userData directories
 
-**Status: PROPOSED.** This ADR moves where a database lives. It is not implemented and must not be
-implemented without explicit approval — see Consequences.
+**Status: ACCEPTED and implemented, 2026-07-28.** The orphaned directory is left in place, per the
+approved disposition below.
 
 ---
 
@@ -94,12 +94,11 @@ better intentions. If only one of the four changes above is implemented, it shou
 ## Consequences
 
 **A one-time data-location change.** `~/Library/Application Support/Electron` becomes orphaned.
-It holds Test Camp, 290 ops. Options, requiring a human decision:
+It holds Test Camp, 290 ops.
 
-- **Leave it.** Dev starts from an empty database. Simplest, loses nothing real, and the old
-  directory remains on disk if anything is wanted from it.
-- **Copy it once** to the new `shoresh-dev` location, preserving current dev state.
-- **Do nothing yet** — ship only the indicator (change 3), and defer the move.
+**Approved disposition — leave it.** Development starts from an empty database. Nothing real is lost — it held
+Test Camp, three operations from its sibling — and `~/Library/Application Support/Electron` is not
+deleted by this change, so anything wanted from it is still recoverable.
 
 Per `CONSTITUTION.md` Art. II rule 5, this is a sensitive change and needs migration, rollback, and
 recovery plans. Rollback is reverting the commit: the old directory is never deleted by this change,

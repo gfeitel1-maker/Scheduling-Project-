@@ -26,6 +26,13 @@ npm run test             # Run all Vitest tests
 npm test -- src/path/to/file.test.js  # Run a single test file
 ```
 
+**Dev and packaged builds use separate databases, deliberately.** `npm run electron:dev` reads
+`~/Library/Application Support/shoresh-dev`; the installed app reads `.../shoresh`. Development work
+therefore cannot touch a real camp's data. The sidebar footer shows a **DEV** badge whenever the
+development database is loaded — if you do not see it, you are looking at the installed app's data.
+Set explicitly in `electron/db/userDataPath.js`; see
+[docs/adr/2026-07-28-explicit-userdata-directory.md](docs/adr/2026-07-28-explicit-userdata-directory.md).
+
 After touching `electron/db/**` (better-sqlite3 is a native module), the binary ABI can drift between Node (used by Vitest) and Electron:
 
 ```bash

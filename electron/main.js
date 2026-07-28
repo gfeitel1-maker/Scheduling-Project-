@@ -11,6 +11,7 @@ import { createSyncClient } from './sync/syncClient.js'
 import { advertiseHost, discoverHosts } from './sync/discovery.js'
 import { listPendingConflicts } from './ops/operations.js'
 import { authorize } from './auth/authorize.js'
+import { applyUserDataPath } from './db/userDataPath.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from './auth/deriveWriteAction.js'
 import { recordAuditEvent } from './audit/auditLog.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from './ops/campScopedEntities.js'
@@ -673,7 +674,12 @@ function isElectronEntryPoint() {
 
 if (isElectronEntryPoint()) {
   const __dirname = path.dirname(fileURLToPath(import.meta.url))
-  const userDataPath = app.getPath('userData')
+  // MUST run before any app.getPath() call and before whenReady(), or setName
+  // silently has no effect — see electron/db/userDataPath.js and
+  // docs/adr/2026-07-28-explicit-userdata-directory.md. Without it Electron
+  // infers the directory from argv, which put every dev clone in one shared
+  // "Electron" directory while the packaged app used "shoresh".
+  const userDataPath = applyUserDataPath(app)
   const defaultDbPath = path.join(userDataPath, 'shoresh.sqlite')
 
   // Mutable state — swapped by project-lifecycle handlers (open/create/restore).
@@ -783,6 +789,9 @@ if (isElectronEntryPoint()) {
     return {
       path: dbPath,
       campName: camp?.name ?? null,
+      // The UI must be able to tell which database it is looking at — the T9
+      // harm was never that two exist, but that nothing on screen distinguished them.
+      isDev: !app.isPackaged,
       schemaVersion: getSchemaVersion(db),
       openedAt: new Date().toISOString(),
     }
