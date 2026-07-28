@@ -55,7 +55,7 @@ Source: Security report.
 | 4 | Minor issues (low severity), no exploitable path found |
 | 3 | Medium severity finding — exploitable but limited blast radius or requires specific conditions |
 | 2 | High severity finding — exploitable with significant consequence |
-| 1 | Critical unmitigated vulnerability — RLS bypass, data isolation failure, JWT exposure |
+| 1 | Critical unmitigated vulnerability — Host Ed25519 private-key exposure, token forgery, `authorize()` bypass, device pairing/revocation bypass, or cross-camp data isolation failure |
 
 ### Dimension 3: Resilience (always)
 Source: Red Hat report.

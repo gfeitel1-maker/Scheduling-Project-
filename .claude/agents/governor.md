@@ -184,8 +184,12 @@ Wait for score + justification.
 
 ## Project Context
 
-- **App:** Shoresh camp scheduling app — React 19 + Vite frontend, Supabase local Docker
-- **Preview:** http://localhost:5200
+- **App:** Shoresh camp scheduling app — React 19 + Vite renderer inside an Electron desktop app.
+  Local-first: each device has its own SQLite db (`better-sqlite3`); one device is the LAN Host
+  (WebSocket server), others are Clients that sync to it. **No cloud backend.** See `CLAUDE.md`.
+- **Preview:** `npm run dev` → http://localhost:5200 is the *browser* renderer against a dev mock
+  (`src/localClient.mock.js`), not the real stack. `npm run electron:dev` runs the real app.
+  Anything involving persistence, auth, or sync must be verified under Electron.
 - **Key constraint:** ALL styles are inline React style objects. No CSS files. No className for styling.
 - **Design system (canonical):** `docs/superpowers/specs/design-system.md` — the durable token contract.
   Attach it (or its relevant sections) to every UI-significant Maker/Designer brief. Personality:
@@ -203,6 +207,10 @@ Wait for score + justification.
   `src/styles/shared.js` / schedule components still hold the OLD vivid values. Applying these tokens to
   live code is a **separate future retheme task**, not assumed done.
 - **DnD:** `@dnd-kit/core`, PointerSensor, `distance: 8` activation constraint
-- **DB:** `template_slots` table (not `schedule_slots`). RLS via `get_my_camp_id()`.
+- **DB:** local SQLite, read/written only through `window.shoresh`/`localClient` IPC — never
+  directly from the renderer. `template_slots` (not `schedule_slots`). Every mutation is appended
+  to the `operations` op-log and replayed across devices; new entities must be registered in
+  `PROJECTIONS` (`electron/ops/projections.js`) or writes silently never materialize.
+  Isolation is one-camp-per-device-db (`SELECT ... FROM camps LIMIT 1`).
 - **Workflow spec:** `docs/superpowers/specs/2026-07-19-multi-agent-workflow-design.md`
 - **Design spec:** `docs/superpowers/specs/design-system.md`
