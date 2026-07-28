@@ -128,13 +128,30 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
                   )}
 
                   {!isCurrent && !isRenaming && (
+                    // `restorable === false` means this version recorded no schedule
+                    // data (saved before the write bug was fixed) — there is nothing
+                    // to restore. Offering it as if it worked is the T8 defect, so it
+                    // is disabled and labelled rather than silently doing nothing.
+                    // `undefined` is treated as restorable so a freshly saved snapshot
+                    // is never wrongly greyed out.
                     <button
                       onClick={() => { onRestore(snap); onToggle() }}
-                      disabled={!isAdmin}
-                      title={!isAdmin ? 'Admin only' : undefined}
-                      style={{ fontSize: 11, fontWeight: 700, color: isAdmin ? 'var(--primary)' : 'var(--text-secondary)', background: 'none', border: 'none', cursor: isAdmin ? 'pointer' : 'not-allowed', padding: '3px 6px', borderRadius: 5, fontFamily: 'inherit', opacity: isAdmin ? 1 : 0.6 }}
+                      disabled={!isAdmin || snap.restorable === false}
+                      title={
+                        snap.restorable === false ? 'This version recorded no schedule data and cannot be restored'
+                          : !isAdmin ? 'Admin only'
+                            : undefined
+                      }
+                      style={{
+                        fontSize: 11, fontWeight: 700,
+                        color: (isAdmin && snap.restorable !== false) ? 'var(--primary)' : 'var(--text-secondary)',
+                        background: 'none', border: 'none',
+                        cursor: (isAdmin && snap.restorable !== false) ? 'pointer' : 'not-allowed',
+                        padding: '3px 6px', borderRadius: 5, fontFamily: 'inherit',
+                        opacity: (isAdmin && snap.restorable !== false) ? 1 : 0.6,
+                      }}
                     >
-                      Restore
+                      {snap.restorable === false ? 'Empty' : 'Restore'}
                     </button>
                   )}
                 </div>

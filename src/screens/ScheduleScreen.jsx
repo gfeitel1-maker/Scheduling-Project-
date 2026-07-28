@@ -9,6 +9,7 @@ import FlagDetailModal from '../components/schedule/FlagDetailModal'
 import EditModal from '../components/schedule/EditModal'
 import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
 import VersionsDropdown from '../components/schedule/VersionsDropdown'
+import { isRestorable, parseSnapshotPayload, unrestorableMessage } from './snapshotRestore'
 import FieldTripDrawer from '../components/schedule/FieldTripDrawer'
 import { exportToExcel } from '../utils/exportSchedule'
 import { normalizeSlots } from '../utils/normalizeSlots'
@@ -228,7 +229,13 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
         const snaps = (snapData || [])
           .filter(s => s.template_id === tmpl.id)
           .sort((x, y) => new Date(y.created_at) - new Date(x.created_at))
-          .map(({ id, template_id, name, is_auto, created_at }) => ({ id, template_id, name, is_auto, created_at }))
+          // `restorable` is carried so the Versions list and the restore action
+          // agree — offering a version restore will refuse is the T8 defect.
+          .map(s => ({
+            id: s.id, template_id: s.template_id, name: s.name,
+            is_auto: s.is_auto, created_at: s.created_at,
+            restorable: isRestorable(s),
+          }))
         setSnapshots(snaps)
       }
     } catch {
@@ -536,7 +543,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       setActionError('Failed to save snapshot — check your connection and try again')
       throw err
     }
-    setSnapshots(prev => [{ id, template_id: templateId, name: name || null, is_auto: isAuto, created_at: createdAt }, ...prev])
+    setSnapshots(prev => [{ id, template_id: templateId, name: name || null, is_auto: isAuto, created_at: createdAt, restorable: true }, ...prev])
   }
 
   async function restoreSnapshot(snapshot) {
@@ -544,17 +551,16 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     setUndoStack([])
     setRedoStack([])
     const fullSnap = (await localClient.list('schedule_snapshots')).find(s => s.id === snapshot.id)
-    if (!fullSnap?.slots) return
-    let parsedSlots, parsedOverlays
-    try {
-      parsedSlots = JSON.parse(fullSnap.slots)
-      parsedOverlays = fullSnap.overlays ? JSON.parse(fullSnap.overlays) : []
-    } catch {
-      setActionError('This snapshot appears to be corrupted and cannot be restored')
+    const parsed = parseSnapshotPayload(fullSnap)
+    if (!parsed.ok) {
+      // Never a bare return: a restore that cannot proceed must say so. This
+      // failing silently is the whole of T8.
+      setActionError(unrestorableMessage(parsed.reason))
+      setSnapshots(prev => prev.map(s => s.id === snapshot.id ? { ...s, restorable: false } : s))
       return
     }
-    fullSnap.slots = parsedSlots
-    fullSnap.overlays = parsedOverlays
+    fullSnap.slots = parsed.slots
+    fullSnap.overlays = parsed.overlays
 
     const token = localStorage.getItem('shoresh-token')
 
