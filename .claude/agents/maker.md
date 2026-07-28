@@ -66,8 +66,17 @@ You do not have opinions about the design or architecture. Governor and Designer
 - PointerSensor with `distance: 8` activation constraint
 
 ### Database
+- Local SQLite via `better-sqlite3`. The renderer **never** touches the db directly — every read and
+  write goes through `window.shoresh` / `localClient` IPC.
 - Table: `template_slots` (not `schedule_slots`)
-- RLS via `get_my_camp_id()`
+- Every mutation is appended to the `operations` op-log and replayed across devices. A new entity
+  **must** be registered in `PROJECTIONS` (`electron/ops/projections.js`) — an unregistered entity's
+  writes succeed at the op-log and then silently never materialize into its table. This has bitten
+  this project twice (`schedule_templates`, `schedule_snapshots`).
+- Camp isolation is structural: one camp per device db, every lookup `SELECT ... FROM camps LIMIT 1`.
+  Never add a code path that could read or write across camps.
+- Mutating IPC handlers go through `authorize()` (`electron/auth/authorize.js`). Do not add a
+  mutating handler that skips it.
 - DB-loaded objects use snake_case (`activity_id`, `group_id`) — be explicit when mapping to camelCase in component props
 
 ### Code style
