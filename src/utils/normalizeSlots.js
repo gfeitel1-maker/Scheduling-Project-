@@ -29,6 +29,34 @@ function toSlotBool(value) {
   return value === 1 || value === true
 }
 
+// Pre-reshape snapshots (see docs/adr/2026-07-28-schedule-flag-findings-reshape.md)
+// stamped UNDERSERVED/DISTRIBUTION/WEATHER_RISK onto individual slots. Those
+// three kinds are now computed fresh as aggregate `findings` on every
+// buildSchedule() run and are never persisted, so a legacy row's stamps are
+// stale by construction — stripped here, not re-derived (the adapter only
+// sees one row, not the whole-template context a fresh finding needs).
+// UNFILLABLE and its _reason/_dismissed siblings pass through unchanged.
+const STALE_FLAG_KEYS = new Set([
+  'UNDERSERVED', 'UNDERSERVED_reason', 'UNDERSERVED_dismissed',
+  'DISTRIBUTION', 'DISTRIBUTION_reason', 'DISTRIBUTION_dismissed',
+  'WEATHER_RISK', 'WEATHER_RISK_reason', 'WEATHER_RISK_dismissed',
+])
+
+// `flags` crosses the LAN op-log sync boundary as JSON.parse'd input, so a
+// peer device can plant an own-enumerable "__proto__" key (JSON.parse does
+// not treat it specially). Object.create(null) means the assignment below
+// can never reach the real Object.prototype — a spoofed "__proto__" key just
+// becomes an inert own property named "__proto__" instead of swapping next's
+// prototype.
+function stripStaleFlags(flags) {
+  const next = Object.create(null)
+  for (const [k, v] of Object.entries(flags || {})) {
+    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue
+    if (!STALE_FLAG_KEYS.has(k)) next[k] = v
+  }
+  return next
+}
+
 export function normalizeSlots(rows) {
   return (rows || []).map(row => {
     const booleans = {
@@ -36,9 +64,9 @@ export function normalizeSlots(rows) {
       is_span_head: toSlotBool(row.is_span_head),
       is_released: toSlotBool(row.is_released),
     }
-    if (typeof row.flags !== 'string') return { ...row, ...booleans, flags: row.flags || {} }
+    if (typeof row.flags !== 'string') return { ...row, ...booleans, flags: stripStaleFlags(row.flags || {}) }
     try {
-      return { ...row, ...booleans, flags: row.flags ? JSON.parse(row.flags) : {} }
+      return { ...row, ...booleans, flags: row.flags ? stripStaleFlags(JSON.parse(row.flags)) : {} }
     } catch {
       return { ...row, ...booleans, flags: {} }
     }

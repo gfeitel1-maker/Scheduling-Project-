@@ -380,11 +380,11 @@ export default function TiersScreen({ campId, role, onNavigate }) {
 
       {/* Table */}
       {showLoading ? (
-        <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading…</div>
+        <div style={S.stateLoading}>Loading…</div>
       ) : !activeCohort ? (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '40px 16px', textAlign: 'center', marginBottom: 16 }}>
-          <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No programs yet</div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add a program before adding units.</div>
+        <div style={{ ...S.emptyState, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, marginBottom: 16 }}>
+          <div style={S.emptyStateTitle}>No programs yet</div>
+          <div style={S.emptyStateBody}>Add a program before adding units.</div>
         </div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
@@ -399,9 +399,9 @@ export default function TiersScreen({ campId, role, onNavigate }) {
             </thead>
             <tbody>
               {tiers.length === 0 ? (
-                <tr><td colSpan={4} style={{ padding: '40px 16px', textAlign: 'center' }}>
-                  <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No units yet</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first unit below or import from Excel.</div>
+                <tr><td colSpan={4} style={S.emptyState}>
+                  <div style={S.emptyStateTitle}>No units yet</div>
+                  <div style={S.emptyStateBody}>Add your first unit below or import from Excel.</div>
                 </td></tr>
               ) : tiers.map(tier => (
                 <TierRow

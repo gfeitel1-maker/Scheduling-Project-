@@ -264,7 +264,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       </div>
 
       {loading ? (
-        <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading…</div>
+        <div style={S.stateLoading}>Loading…</div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -278,7 +278,8 @@ export default function DaysScreen({ campId, role, onNavigate }) {
             </thead>
             <tbody>
               {days.length === 0 ? (
-                <tr><td colSpan={4} style={{ padding: '32px 16px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>No days yet.</td></tr>
+                // 32px padding intentionally shorter than S.emptyState's 40px — single-line empty state, not a title+body block
+                <tr><td colSpan={4} style={{ ...S.emptyState, padding: '32px 16px', color: 'var(--text-secondary)', fontSize: 13 }}>No days yet.</td></tr>
               ) : days.map(day => (
                 <DayRow key={day.id} day={day} role={role} onSave={saveDay} onDelete={deleteDay} />
               ))}

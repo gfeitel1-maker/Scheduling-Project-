@@ -9,10 +9,16 @@
 //   LEGACY (single-cohort, backward compat):
 //   buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId, preplacedSlots })
 //
-// Output: { slots, stats, conflicts }
-//   slots     — array of scheduled slot objects (cohort_id and is_span_head added)
+// Output: { slots, stats, conflicts, findings }
+//   slots     — array of scheduled slot objects (cohort_id and is_span_head added).
+//               Per-slot flags carry only UNFILLABLE now — UNDERSERVED/DISTRIBUTION
+//               moved to `findings` and WEATHER_RISK was removed entirely (outdoor
+//               exposure is read at render time from activity.is_outdoor).
 //   stats     — coverage stats
 //   conflicts — cross-cohort resource conflicts (always [] until multi-cohort engine in Sub-project 3)
+//   findings  — aggregate, one entry per (groupId, activityId, kind) for
+//               UNDERSERVED/DISTRIBUTION. Never persisted — recomputed fresh
+//               on every build. See docs/adr/2026-07-28-schedule-flag-findings-reshape.md.
 
 function djb2(str) {
   let hash = 5381
@@ -327,17 +333,9 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
     const isSpanHead = !spanTails.has(key)
     const flags = {}
 
-    if (!actId) {
-      if (!anchorsOnly) {
-        flags.UNFILLABLE = true
-        flags.UNFILLABLE_reason = 'No eligible activity could be placed in this slot'
-      }
-    } else {
-      const act = activities.find(a => a.id === actId)
-      if (act?.is_outdoor) {
-        flags.WEATHER_RISK = true
-        flags.WEATHER_RISK_reason = 'Outdoor activity scheduled in this slot'
-      }
+    if (!actId && !anchorsOnly) {
+      flags.UNFILLABLE = true
+      flags.UNFILLABLE_reason = 'No eligible activity could be placed in this slot'
     }
 
     resultSlots.push({ groupId: os.groupId, dayId: os.dayId, blockId: os.blockId, cohort_id: cohortId, type: 'activity', activityId: actId, anchorId: null, is_span_head: isSpanHead, flags })
@@ -349,6 +347,9 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
     return activities.find(a => a.id === actId)?.min_per_week ?? 0
   }
 
+  // Aggregate findings — one per (groupId, activityId, kind), never stamped
+  // onto individual slots. See docs/adr/2026-07-28-schedule-flag-findings-reshape.md.
+  const findings = []
   const underserved = []
   if (!anchorsOnly) {
     for (const group of groups) {
@@ -366,11 +367,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
       const act = activities.find(a => a.id === u.activityId)
       const actName = act?.name || u.activityId
       const reason = `Goal: ${u.needed}×/wk — scheduled ${u.got}× (group: ${groupName}, activity: ${actName})`
-      for (const slot of resultSlots) {
-        if (slot.type === 'activity' && slot.groupId === u.groupId && slot.activityId === u.activityId) {
-          slot.flags = { ...slot.flags, UNDERSERVED: true, UNDERSERVED_reason: reason }
-        }
-      }
+      findings.push({ kind: 'UNDERSERVED', groupId: u.groupId, activityId: u.activityId, severity: 'caution', reason, got: u.got, needed: u.needed })
     }
 
     for (const group of groups) {
@@ -385,11 +382,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
         ).length
         if (beforeCount < act.prefer_before_day_min) {
           const reason = `Goal: ${act.prefer_before_day_min}× before day ${act.prefer_before_day} — only ${beforeCount}× placed (group: ${group.name}, activity: ${act.name})`
-          for (const slot of resultSlots) {
-            if (slot.type === 'activity' && slot.groupId === group.id && slot.activityId === act.id) {
-              slot.flags = { ...slot.flags, DISTRIBUTION: true, DISTRIBUTION_reason: reason }
-            }
-          }
+          findings.push({ kind: 'DISTRIBUTION', groupId: group.id, activityId: act.id, severity: 'info', reason, beforeCount, requiredBefore: act.prefer_before_day_min, byDay: act.prefer_before_day })
         }
       }
     }
@@ -399,13 +392,102 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
   const filledCount = resultSlots.filter(s => s.type === 'activity' && s.activityId).length
   const unfillableCount = resultSlots.filter(s => s.flags?.UNFILLABLE).length
   const underservedCount = new Set(underserved.map(u => `${u.groupId}|${u.activityId}`)).size
-  const totalFlags = resultSlots.reduce((sum, s) =>
-    sum + Object.keys(s.flags || {}).filter(k => !k.includes('_')).length, 0)
+  const totalFlags = unfillableCount + findings.length
 
   return {
     slots: resultSlots,
     stats: { openCount, filledCount, unfillableCount, underservedCount, totalFlags },
+    findings,
   }
+}
+
+// Pure, placement-free recompute of UNDERSERVED/DISTRIBUTION findings from an
+// already-persisted set of template_slots rows (snake_case DB shape:
+// group_id/day_id/time_block_id/activity_id). Used when the screen loads or
+// restores a schedule without regenerating it — see B2 in the round-2 review:
+// findings must reflect what's on screen, not just what the last generate()
+// happened to compute. Mirrors the aggregate-findings logic in scheduleCohort's
+// Pass 3, but reads counts off `slots` instead of the live placement maps.
+function parseIdsField(v) {
+  if (Array.isArray(v)) return v
+  if (typeof v === 'string') { try { return JSON.parse(v) } catch { return [] } }
+  return []
+}
+
+export function computeFindings({ slots, groups, activities, days }) {
+  const findings = []
+  if (!slots || !groups || !activities || !days) return findings
+
+  const eligibility = new Map()
+  for (const act of activities) {
+    const tierIds = parseIdsField(act.eligible_tier_ids)
+    const groupIds = parseIdsField(act.eligible_group_ids)
+    const eligible = new Set()
+    if (tierIds.length === 0 && groupIds.length === 0) {
+      for (const g of groups) eligible.add(g.id)
+    } else {
+      if (tierIds.length > 0) {
+        const tierSet = new Set(tierIds)
+        for (const g of groups) {
+          if (tierSet.has(g.tier_id)) eligible.add(g.id)
+        }
+      }
+      for (const gid of groupIds) eligible.add(gid)
+    }
+    eligibility.set(act.id, eligible)
+  }
+
+  const groupMap = new Map(groups.map(g => [g.id, g]))
+  const dayOrder = new Map(days.map((d, i) => [d.id, i]))
+
+  // Count once per placement (head only), matching Pass 3 above — a spanned
+  // activity persists as a head row plus one tail row per extra block. Rows
+  // predating the is_span_head column have it undefined and count as heads.
+  const activitySlots = slots.filter(s => !s.is_anchor && s.activity_id && s.is_span_head !== false)
+  const counts = new Map() // "groupId|activityId" → count
+  for (const s of activitySlots) {
+    const k = `${s.group_id}|${s.activity_id}`
+    counts.set(k, (counts.get(k) || 0) + 1)
+  }
+  function getCount(groupId, actId) { return counts.get(`${groupId}|${actId}`) || 0 }
+
+  const underserved = []
+  for (const group of groups) {
+    for (const act of activities) {
+      if (!(eligibility.get(act.id) || new Set()).has(group.id)) continue
+      const min = act.min_per_week ?? 0
+      if (min <= 0) continue
+      const got = getCount(group.id, act.id)
+      if (got < min) underserved.push({ groupId: group.id, activityId: act.id, got, needed: min })
+    }
+  }
+
+  for (const u of underserved) {
+    const groupName = groupMap.get(u.groupId)?.name || u.groupId
+    const act = activities.find(a => a.id === u.activityId)
+    const actName = act?.name || u.activityId
+    const reason = `Goal: ${u.needed}×/wk — scheduled ${u.got}× (group: ${groupName}, activity: ${actName})`
+    findings.push({ kind: 'UNDERSERVED', groupId: u.groupId, activityId: u.activityId, severity: 'caution', reason, got: u.got, needed: u.needed })
+  }
+
+  for (const group of groups) {
+    for (const act of activities) {
+      if (act.prefer_before_day == null || act.prefer_before_day_min == null) continue
+      if (!(eligibility.get(act.id) || new Set()).has(group.id)) continue
+      const targetIdx = days.findIndex(d => d.day_of_week === act.prefer_before_day)
+      if (targetIdx < 0) continue
+      const beforeCount = activitySlots.filter(s =>
+        s.group_id === group.id && s.activity_id === act.id &&
+        (dayOrder.get(s.day_id) ?? 99) < targetIdx
+      ).length
+      if (beforeCount < act.prefer_before_day_min) {
+        const reason = `Goal: ${act.prefer_before_day_min}× before day ${act.prefer_before_day} — only ${beforeCount}× placed (group: ${group.name}, activity: ${act.name})`
+        findings.push({ kind: 'DISTRIBUTION', groupId: group.id, activityId: act.id, severity: 'info', reason, beforeCount, requiredBefore: act.prefer_before_day_min, byDay: act.prefer_before_day })
+      }
+    }
+  }
+
+  return findings
 }
 
 function buildSchedule(input) {
@@ -415,14 +497,16 @@ function buildSchedule(input) {
   // (multi-cohort cross-resource conflict detection is Sub-project 3)
   const allSlots = []
   const allStats = []
+  const allFindings = []
 
   for (let idx = 0; idx < cohorts.length; idx++) {
     const cohortEntry = cohorts[idx]
     const cohortSeed = campId + (cohortEntry.cohort?.id || String(idx))
     const rand = mulberry32(djb2(cohortSeed))
-    const { slots, stats } = scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly })
+    const { slots, stats, findings } = scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly })
     allSlots.push(...slots)
     allStats.push(stats)
+    allFindings.push(...findings)
   }
 
   // Combine stats across cohorts
@@ -438,6 +522,7 @@ function buildSchedule(input) {
     slots: allSlots,
     stats: cohorts.length === 1 ? allStats[0] : { ...combined, per_cohort: allStats },
     conflicts: [], // Sub-project 3: cross-cohort conflict detection
+    findings: allFindings,
   }
 }
 

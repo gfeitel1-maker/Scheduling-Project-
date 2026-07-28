@@ -360,7 +360,7 @@ export default function DayOverridesScreen({ campId, role }) {
       </div>
 
       {loading ? (
-        <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading…</div>
+        <div style={S.stateLoading}>Loading…</div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -374,9 +374,9 @@ export default function DayOverridesScreen({ campId, role }) {
             </thead>
             <tbody>
               {templates.length === 0 ? (
-                <tr><td colSpan={4} style={{ padding: '40px 16px', textAlign: 'center' }}>
-                  <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No templates yet</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Create templates for field trips, color war, or other days with a different schedule.</div>
+                <tr><td colSpan={4} style={S.emptyState}>
+                  <div style={S.emptyStateTitle}>No templates yet</div>
+                  <div style={S.emptyStateBody}>Create templates for field trips, color war, or other days with a different schedule.</div>
                 </td></tr>
               ) : templates.map(t => (
                 <tr key={t.id} style={{ borderBottom: '1px solid var(--border)' }}

@@ -152,6 +152,28 @@ describe('DB-shaped slots (integers, as list() actually returns) drive the span/
   })
 })
 
+// Round 2 B2: loadAll() previously never called buildSchedule() or otherwise
+// populated `findings`, so the Underserved/Distribution badges silently read
+// 0 (neutral gray — visually "all clear") for an EXISTING schedule that was
+// simply opened, never regenerated in this session. This is the ordinary
+// director path — nobody regenerates just to look.
+describe('findings recompute on load without regenerating (Round 2 B2)', () => {
+  it('loadAll(): the Underserved badge reflects persisted slot counts on initial render, before Generate is ever clicked', async () => {
+    mockList({
+      activities: [activity({ id: 'act-1', name: 'Swim', min_per_week: 3, eligible_tier_ids: [], eligible_group_ids: [] })],
+      template_slots: [slotRow({ activity_id: 'act-1' })], // only 1 placement, needs 3
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+
+    await waitFor(() => expect(screen.getByText(/Underserved/)).toBeTruthy())
+    const badge = screen.getByText(/Underserved/).parentElement
+    expect(badge.textContent).toContain('1')
+    // The Generate button must never have been clicked — proves this is
+    // loadAll(), not a leftover buildSchedule() call from generate().
+    expect(localClient.bulkReplace).not.toHaveBeenCalled()
+  })
+})
+
 // writeFields is the shared primitive that editSlotSave, swapSlots, dismissFlag,
 // lockActivity, releaseCell, addOverlay, updateOverlayRange, placeActivityManual,
 // and expandSlot all route through (it is module-private, so it is exercised here
@@ -232,6 +254,27 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
 
     await waitFor(() => {
       expect(screen.getByText(/Failed to release cell/i)).toBeTruthy()
+    })
+  })
+
+  // Round 2 B1: ScheduleGroupView (the default, primary view) destructures
+  // and calls `releaseCell` from SlotCell's onRelease, but ScheduleScreen
+  // never passed the prop down — clicking a locked cell in group view threw
+  // "releaseCell is not a function". Day view got the prop; group view did
+  // not. This test renders in the DEFAULT view (no "Daily View" click) so it
+  // fails with that TypeError if the prop wiring regresses.
+  it('releaseCell in GROUP view (default view): clicking a locked slot cell writes template_slots.is_released without throwing', async () => {
+    mockList({
+      activities: [activity({ is_locked: true })],
+      template_slots: [slotRow({ is_released: 0 })],
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+    fireEvent.click(scheduleCell('Swim'))
+
+    await waitFor(() => {
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'template_slots', 'slot-1', 'is_released', true)
     })
   })
 

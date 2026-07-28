@@ -257,7 +257,7 @@ export default function CohortsScreen({ campId }) {
       </div>
 
       {loading ? (
-        <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading…</div>
+        <div style={S.stateLoading}>Loading…</div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -273,9 +273,9 @@ export default function CohortsScreen({ campId }) {
             </thead>
             <tbody>
               {cohorts.length === 0 ? (
-                <tr><td colSpan={6} style={{ padding: '40px 16px', textAlign: 'center' }}>
-                  <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No programs yet</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first program below.</div>
+                <tr><td colSpan={6} style={S.emptyState}>
+                  <div style={S.emptyStateTitle}>No programs yet</div>
+                  <div style={S.emptyStateBody}>Add your first program below.</div>
                 </td></tr>
               ) : cohorts.map(c => (
                 <CohortRow key={c.id} cohort={c} onSave={saveCohort} onDelete={deleteCohort} />

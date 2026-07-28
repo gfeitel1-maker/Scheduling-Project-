@@ -391,11 +391,11 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       </div>
 
       {showLoading ? (
-        <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading…</div>
+        <div style={S.stateLoading}>Loading…</div>
       ) : !activeCohort ? (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '40px 16px', textAlign: 'center', marginBottom: 16 }}>
-          <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No programs yet</div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add a program before adding time blocks.</div>
+        <div style={{ ...S.emptyState, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, marginBottom: 16 }}>
+          <div style={S.emptyStateTitle}>No programs yet</div>
+          <div style={S.emptyStateBody}>Add a program before adding time blocks.</div>
         </div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
@@ -412,9 +412,9 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
             </thead>
             <tbody>
               {blocks.length === 0 ? (
-                <tr><td colSpan={6} style={{ padding: '40px 16px', textAlign: 'center' }}>
-                  <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No time blocks yet</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first time block below.</div>
+                <tr><td colSpan={6} style={S.emptyState}>
+                  <div style={S.emptyStateTitle}>No time blocks yet</div>
+                  <div style={S.emptyStateBody}>Add your first time block below.</div>
                 </td></tr>
               ) : blocks.map(b => (
                 <BlockRow key={b.id} block={b} role={role} onSave={saveBlock} onDelete={deleteBlock} />

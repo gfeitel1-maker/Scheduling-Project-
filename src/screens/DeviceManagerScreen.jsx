@@ -222,6 +222,9 @@ const styles = {
     display: 'flex',
     gap: 8,
   },
+  // Deliberately NOT S.errorBanner. This screen authorizes and revokes device
+  // access; a failed revoke must be impossible to scroll past, so it keeps the
+  // solid high-contrast band rather than the shared tinted treatment.
   errorBanner: {
     background: 'var(--warning)',
     color: '#fff',

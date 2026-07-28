@@ -578,7 +578,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       </div>
 
       {loading ? (
-        <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading…</div>
+        <div style={S.stateLoading}>Loading…</div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -593,9 +593,9 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
             </thead>
             <tbody>
               {anchors.length === 0 ? (
-                <tr><td colSpan={5} style={{ padding: '40px 16px', textAlign: 'center' }}>
-                  <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No fixed events yet</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first fixed event below.</div>
+                <tr><td colSpan={5} style={S.emptyState}>
+                  <div style={S.emptyStateTitle}>No fixed events yet</div>
+                  <div style={S.emptyStateBody}>Add your first fixed event below.</div>
                 </td></tr>
               ) : anchors.map(a => (
                 <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}

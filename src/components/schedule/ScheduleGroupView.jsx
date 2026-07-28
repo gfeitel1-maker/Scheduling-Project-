@@ -14,7 +14,8 @@ function DroppableEmptyCell({ groupId, dayId, blockId }) {
       ref={setNodeRef}
       style={{
         ...emptyTd,
-        background: isOver ? 'var(--primary)22' : 'transparent',
+        ...S.cellEmptyOutline,
+        background: isOver ? 'var(--primary)22' : S.cellEmptyOutline.background,
         outline: isOver ? '2px dashed var(--primary)' : 'none',
         outlineOffset: -2,
         transition: 'background 0.1s',
@@ -30,6 +31,7 @@ function DroppableEmptyCell({ groupId, dayId, blockId }) {
 export default function ScheduleGroupView({
   groups, days, timeBlocks, selectedGroup, onSelectGroup,
   weatherMode, stampMode, actMap, anchorMap,
+  releaseCell,
   overlayForCell, isOverlayHead, getOverlayRowSpan,
   isAnchorTail, getAnchorRowSpan,
   isActivityTail, getActivityRowSpan,
@@ -111,11 +113,26 @@ export default function ScheduleGroupView({
                         const cellClickHandler = stampMode
                           ? () => handleStampClick(selectedGroup, day.id, block.id)
                           : undefined
+                        const isUnfillable = Boolean(slot.flags?.UNFILLABLE) && !slot.flags?.UNFILLABLE_dismissed
 
-                        // Empty slot (no activity) — render as droppable
-                        if (!slot.activity_id && !slot.is_anchor) {
+                        // A row with no activity and not flagged UNFILLABLE is a genuinely
+                        // empty open slot — no template_slots row means "no slot placed" at
+                        // all (handled above); this is "nothing placed here, not flagged
+                        // either" which the engine doesn't currently produce post-build but
+                        // is kept as a defensive droppable-empty fallback.
+                        if (!slot.activity_id && !slot.is_anchor && !isUnfillable) {
                           return <DroppableEmptyCell key={day.id} groupId={selectedGroup} dayId={day.id} blockId={block.id} />
                         }
+
+                        // Every open slot the engine couldn't fill is flagged UNFILLABLE
+                        // (buildSchedule.js), so a row with no activity, not an anchor, and
+                        // not UNFILLABLE-flagged is the "unavailable" case (group not
+                        // available for this block) — route it through SlotCell for the
+                        // distinct unavailable treatment instead of the empty/droppable one.
+                        const cellType = !slot.activity_id && !isUnfillable ? 'unavailable' : 'activity'
+
+                        const actIsLocked = slot.activity_id && act?.is_locked
+                        const isLocked = Boolean(actIsLocked && !slot.is_released)
 
                         const slotKey = `${selectedGroup}|${day.id}|${block.id}`
                         const isMerged = Boolean(slot.flags?.expanded)
@@ -134,14 +151,16 @@ export default function ScheduleGroupView({
                           <SlotCell
                             key={day.id}
                             rowSpan={rowSpan}
-                            slot={slot.is_anchor ? { ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id } : { ...slot, type: slot.activity_id || !slot.is_anchor ? 'activity' : 'unavailable', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
+                            slot={slot.is_anchor ? { ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id } : { ...slot, type: cellType, groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
                             activity={act}
                             anchor={anchor}
                             actColorIdx={act?.colorIdx || 0}
                             weatherMode={weatherMode}
                             onEdit={cellClickHandler || (s => onEditSlot(s))}
+                            onRelease={s => releaseCell(s.id)}
+                            isLocked={isLocked}
                             onSelect={!stampMode && !slot.is_anchor ? onCellSelect : undefined}
-                            isDndEnabled={!stampMode && !slot.is_anchor}
+                            isDndEnabled={!stampMode && !slot.is_anchor && !isLocked}
                             isExpandDragActive={isExpandDragActive}
                             isSelected={isSelected}
                             isMultiSelected={isMultiSelected}

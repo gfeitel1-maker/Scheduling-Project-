@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { localClient } from '../localClient'
-import buildSchedule from '../engine/buildSchedule'
+import buildSchedule, { computeFindings } from '../engine/buildSchedule'
 import { S } from '../styles/shared'
 import StatBadge from '../components/schedule/StatBadge'
-import { FLAG_COLORS } from '../components/schedule/slotCellConstants'
-import FlagDetailModal from '../components/schedule/FlagDetailModal'
+import { FLAG_COLORS, FLAG_SEVERITY } from '../components/schedule/slotCellConstants'
+import FindingsRail from '../components/schedule/FindingsRail'
 import EditModal from '../components/schedule/EditModal'
 import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
 import VersionsDropdown from '../components/schedule/VersionsDropdown'
@@ -45,6 +45,19 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
   const [templateId, setTemplateId] = useState(null)
   const [slots, setSlots] = useState([]) // saved template_slots from DB
   const [stats, setStats] = useState(null)
+  // Aggregate UNDERSERVED/DISTRIBUTION findings from the last buildSchedule()
+  // call — never persisted, recomputed fresh on every generate()/placeAnchors()
+  // (docs/adr/2026-07-28-schedule-flag-findings-reshape.md §"findings never persisted").
+  const [findings, setFindings] = useState([])
+  const [dismissedFindingKeys, setDismissedFindingKeys] = useState(new Set())
+  // null = rail closed; otherwise the kind ('UNFILLABLE'|'UNDERSERVED'|'DISTRIBUTION') filtered to
+  // Deviation from design spec: spec called for one aggregate header badge
+  // opening one rail. We kept three per-kind badges (director-legible counts
+  // at a glance) but all of them open the SAME rail, listing every kind
+  // together severity-sorted, so a director can read all problems in one
+  // click regardless of which badge they clicked. See "Deviations" section
+  // appended to docs/superpowers/specs/2026-07-28-schedule-flag-findings-reshape-design.md.
+  const [findingsRailOpen, setFindingsRailOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [view, setView] = useState('group') // 'group' | 'activity' | 'day'
@@ -53,7 +66,6 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
   const [weatherMode, setWeatherMode] = useState(false)
   const [editSlot, setEditSlot] = useState(null)
   const [confirmRegen, setConfirmRegen] = useState(false)
-  const [activeFlag, setActiveFlag] = useState(null)
   const [selectedActivity, setSelectedActivity] = useState(null)
   const [loadError, setLoadError] = useState(null)
   const [templateError, setTemplateError] = useState(null)
@@ -183,6 +195,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     setLoading(true)
     setLoadError(null)
     setTemplateError(null)
+    let g, a, d
     try {
       const [gd, td, bd, ad, ancd, tierd] = await Promise.all([
         localClient.list('groups'),
@@ -192,13 +205,13 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
         localClient.list('anchor_activities'),
         localClient.list('tiers'),
       ])
-      const g = [...(gd || [])].filter(x => x.camp_id === campId).sort((x, y) => x.name.localeCompare(y.name))
+      g = [...(gd || [])].filter(x => x.camp_id === campId).sort((x, y) => x.name.localeCompare(y.name))
       const b = [...(bd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
-      const a = (ad || []).filter(x => x.camp_id === campId).map(normalizeActivityEligibility)
+      a = (ad || []).filter(x => x.camp_id === campId).map(normalizeActivityEligibility)
       const anc = (ancd || []).filter(x => x.camp_id === campId)
       const t = [...(tierd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
       const sortedTd = [...(td || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
-      const d = sortedTd.filter((x, i, arr) => arr.findIndex(y => y.day_of_week === x.day_of_week) === i)
+      d = sortedTd.filter((x, i, arr) => arr.findIndex(y => y.day_of_week === x.day_of_week) === i)
       const tierOrderMap = new Map(t.map(tier => [tier.id, tier.sort_order ?? 0]))
       const sortedG = [...g].sort((x, y) => {
         const ox = tierOrderMap.get(x.tier_id) ?? 999
@@ -231,6 +244,8 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
         setSlots(saved)
         setOverlays((overlayData || []).filter(o => o.template_id === tmpl.id))
         recalcStats(saved)
+        setFindings(computeFindings({ slots: saved, groups: g, activities: a, days: d }))
+        setDismissedFindingKeys(new Set())
         const snaps = (snapData || [])
           .filter(s => s.template_id === tmpl.id)
           .sort((x, y) => new Date(y.created_at) - new Date(x.created_at))
@@ -266,6 +281,8 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, activityId: s.activity_id }))
 
     const result = buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId, preplacedSlots })
+    setFindings(result.findings || [])
+    setDismissedFindingKeys(new Set())
 
     // Upsert template
     let tid = templateId
@@ -450,6 +467,18 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
         return u ? { ...s, flags: u.newFlags } : s
       })
       recalcStats(next)
+      return next
+    })
+  }
+
+  // Findings (UNDERSERVED/DISTRIBUTION) are keyed by (groupId, activityId, kind)
+  // — not by a template_slots row — so dismissal lives in ephemeral component
+  // state (a Set), never persisted. Cleared on every rebuild alongside
+  // `findings` itself. See Architect's ADR §5.
+  function dismissFinding(groupId, activityId, kind) {
+    setDismissedFindingKeys(prev => {
+      const next = new Set(prev)
+      next.add(`${groupId}|${activityId}|${kind}`)
       return next
     })
   }
@@ -642,6 +671,8 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     setOverlays(freshOverlays)
 
     recalcStats(freshSlots)
+    setFindings(computeFindings({ slots: freshSlots, groups, activities, days }))
+    setDismissedFindingKeys(new Set())
   }
 
   async function renameSnapshot(snapshotId, newName) {
@@ -664,6 +695,8 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
   async function placeAnchors() {
     setGenerating(true)
     const result = buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId, anchorsOnly: true })
+    setFindings(result.findings || [])
+    setDismissedFindingKeys(new Set())
 
     let tid = templateId
     if (!tid) {
@@ -736,15 +769,14 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       || tierIds.includes(group?.tier_id)
       || groupIds.includes(groupId)
 
-    const weekCount = slots.filter(s => s.group_id === groupId && s.activity_id === activityId).length
-    const atMax = activity.max_per_week != null && weekCount >= activity.max_per_week
-
     const coScheduled = slots.filter(s => s.day_id === dayId && s.time_block_id === blockId && s.activity_id === activityId).length
     const locationFull = activity.max_groups_per_slot != null && coScheduled >= activity.max_groups_per_slot
 
+    // Weekly-max enforcement is ActivityPalette disabling the drag source —
+    // it's not a per-slot flag kind anymore (UNDERSERVED moved to
+    // buildSchedule()'s aggregate findings).
     const flags = {}
     if (!eligible || locationFull) flags.UNFILLABLE = true
-    if (atMax) flags.UNDERSERVED = true
 
     const prevActivityId = slot.activity_id ?? null
     const prevFlags = slot.flags ?? {}
@@ -1160,16 +1192,51 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     }
   }
 
-  // Slots scoped to the active context — group view filters to selected group, all other views show camp-wide
-  const visibleSlots = view === 'group' && selectedGroup
-    ? slots.filter(s => s.group_id === selectedGroup)
-    : slots
-
   // Always count flags camp-wide so badges don't change value when switching views
   const flagSlots = slots
 
-  // Build lookup maps for rendering
-  const actMap = new Map(activities.map((a, i) => [a.id, { ...a, colorIdx: i }]))
+  // Findings rail rows: UNFILLABLE (per-slot, unchanged) + UNDERSERVED/
+  // DISTRIBUTION (aggregate findings from the last buildSchedule() run) —
+  // the header badge counts distinct problems, not flagged slots.
+  const unfillableSlots = flagSlots.filter(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed)
+  const activeFindings = findings.filter(f => !dismissedFindingKeys.has(`${f.groupId}|${f.activityId}|${f.kind}`))
+  const SEVERITY_ORDER = { danger: 0, caution: 1, info: 2 }
+  const findingsRows = [
+    ...unfillableSlots.map(s => ({
+      key: s.id,
+      kind: 'UNFILLABLE',
+      severity: FLAG_SEVERITY.UNFILLABLE,
+      reason: s.flags?.UNFILLABLE_reason || 'No eligible activity could be placed in this slot',
+      locator: [groups.find(g => g.id === s.group_id)?.name, days.find(d => d.id === s.day_id)?.label, timeBlocks.find(b => b.id === s.time_block_id)?.name].filter(Boolean).join(' · '),
+      slotIds: [s.id],
+      groupId: s.group_id,
+    })),
+    ...activeFindings.map(f => ({
+      key: `${f.groupId}|${f.activityId}|${f.kind}`,
+      kind: f.kind,
+      severity: f.severity,
+      reason: f.reason,
+      locator: [groups.find(g => g.id === f.groupId)?.name, activities.find(a => a.id === f.activityId)?.name].filter(Boolean).join(' · '),
+      groupId: f.groupId,
+      activityId: f.activityId,
+    })),
+  ].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
+
+  function dismissFindingsRow(row) {
+    if (row.kind === 'UNFILLABLE') dismissFlag(row.slotIds, 'UNFILLABLE')
+    else dismissFinding(row.groupId, row.activityId, row.kind)
+  }
+
+  function locateFindingsRow(row) {
+    setView('group')
+    setSelectedGroup(row.groupId)
+    setFindingsRailOpen(false)
+  }
+
+  // Build lookup maps for rendering. colorIdx carries the activity's stable
+  // id (not array position) so activityColor() can derive a djb2-stable hue
+  // that survives reordering/additions — see slotCellConstants.js.
+  const actMap = new Map(activities.map(a => [a.id, { ...a, colorIdx: a.id }]))
   const anchorMap = new Map(anchors.map(a => [a.id, a]))
 
   function getSlot(groupId, dayId, blockId) {
@@ -1293,7 +1360,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
 
   const setupIncomplete = groups.length === 0 || days.length === 0 || timeBlocks.length === 0 || activities.length === 0
 
-  if (loading) return <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-secondary)' }}>Loading…</div>
+  if (loading) return <div style={S.stateLoading}>Loading…</div>
 
   if (setupIncomplete) {
     return (
@@ -1443,12 +1510,34 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
 
       {/* Stats bar */}
       {hasSchedule && stats && (
-        <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+        <div style={{ position: 'relative', display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
           <StatBadge label="Filled" value={`${stats.filled}/${stats.open}`} color="var(--success)" />
-          <StatBadge label="Unfillable" value={flagSlots.filter(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed).length} color={flagSlots.some(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed) ? 'var(--danger)' : 'var(--text-secondary)'} onClick={() => setActiveFlag('UNFILLABLE')} />
-          <StatBadge label="Underserved" value={flagSlots.filter(s => s.flags?.UNDERSERVED && !s.flags?.UNDERSERVED_dismissed).length} color={flagSlots.some(s => s.flags?.UNDERSERVED && !s.flags?.UNDERSERVED_dismissed) ? 'var(--primary)' : 'var(--text-secondary)'} onClick={() => setActiveFlag('UNDERSERVED')} />
-          <StatBadge label="Weather Risk" value={flagSlots.filter(s => s.flags?.WEATHER_RISK && !s.flags?.WEATHER_RISK_dismissed).length} color="var(--accent)" onClick={() => setActiveFlag('WEATHER_RISK')} />
-          <StatBadge label="Distribution" value={flagSlots.filter(s => s.flags?.DISTRIBUTION && !s.flags?.DISTRIBUTION_dismissed).length} color="var(--secondary)" onClick={() => setActiveFlag('DISTRIBUTION')} />
+          <StatBadge
+            label="Unfillable"
+            value={unfillableSlots.length}
+            color={unfillableSlots.length > 0 ? 'var(--danger)' : 'var(--text-secondary)'}
+            onClick={() => setFindingsRailOpen(o => !o)}
+          />
+          <StatBadge
+            label="Underserved"
+            value={activeFindings.filter(f => f.kind === 'UNDERSERVED').length}
+            color={activeFindings.some(f => f.kind === 'UNDERSERVED') ? 'var(--accent)' : 'var(--text-secondary)'}
+            onClick={() => setFindingsRailOpen(o => !o)}
+          />
+          <StatBadge
+            label="Distribution"
+            value={activeFindings.filter(f => f.kind === 'DISTRIBUTION').length}
+            color={activeFindings.some(f => f.kind === 'DISTRIBUTION') ? 'var(--secondary)' : 'var(--text-secondary)'}
+            onClick={() => setFindingsRailOpen(o => !o)}
+          />
+          {findingsRailOpen && (
+            <FindingsRail
+              rows={findingsRows}
+              onDismiss={dismissFindingsRow}
+              onLocate={locateFindingsRow}
+              onClose={() => setFindingsRailOpen(false)}
+            />
+          )}
         </div>
       )}
 
@@ -1488,9 +1577,10 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
           <div style={{ flex: 1, minWidth: 0 }}>
             {/* No schedule state */}
             {!hasSchedule && !generating && (
-              <div style={{ textAlign: 'center', padding: '60px 24px', color: 'var(--text-secondary)', fontSize: 13 }}>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 20, color: 'var(--text)', marginBottom: 8 }}>No schedule yet</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Click "Generate Schedule" to build one from your current setup.</div>
+              <div style={{ ...S.emptyStateTall, padding: '60px 24px' }}>
+                <div style={S.emptyStateTitleLarge}>No schedule yet</div>
+                {/* fontSize 13 override intentional — larger than the default emptyStateBody (12) */}
+                <div style={{ ...S.emptyStateBody, fontSize: 13 }}>Click "Generate Schedule" to build one from your current setup.</div>
               </div>
             )}
 
@@ -1506,6 +1596,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
                 stampMode={stampMode}
                 actMap={actMap}
                 anchorMap={anchorMap}
+                releaseCell={releaseCell}
                 overlayForCell={overlayForCell}
                 isOverlayHead={isOverlayHead}
                 getOverlayRowSpan={getOverlayRowSpan}
@@ -1686,19 +1777,6 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
         />
       )}
 
-      {/* Flag detail modal */}
-      {activeFlag && (
-        <FlagDetailModal
-          flag={activeFlag}
-          slots={visibleSlots}
-          groups={groups}
-          days={days}
-          timeBlocks={timeBlocks}
-          activities={activities}
-          onDismiss={dismissFlag}
-          onClose={() => setActiveFlag(null)}
-        />
-      )}
 
       {/* Regen confirm */}
       {confirmRegen && (

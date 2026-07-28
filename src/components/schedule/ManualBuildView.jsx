@@ -26,7 +26,7 @@ function EmptyDropCell({ groupId, dayId, blockId }) {
 // DndContext lives in ScheduleScreen (for manual mode). This component is
 // just the grid — group pills + droppable slot table.
 export default function ManualBuildView({
-  groups, days, timeBlocks, activities,
+  groups, days, timeBlocks,
   selectedGroup, onSelectGroup,
   actMap, anchorMap,
   isAnchorTail, getAnchorRowSpan,
@@ -89,7 +89,6 @@ export default function ManualBuildView({
 
                     if (slot?.activity_id) {
                       const act = actMap.get(slot.activity_id)
-                      const colorIdx = activities.findIndex(a => a.id === slot.activity_id)
                       const slotKey = `${selectedGroup}|${day.id}|${block.id}`
                       const isMerged = Boolean(slot.flags?.expanded)
                       const isSelected = selectedSlotKeys?.has(slotKey) ?? false
@@ -109,7 +108,7 @@ export default function ManualBuildView({
                           rowSpan={1}
                           slot={{ ...slot, type: 'activity', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
                           activity={act}
-                          actColorIdx={colorIdx >= 0 ? colorIdx : 0}
+                          actColorIdx={slot.activity_id}
                           weatherMode={false}
                           onEdit={s => onEditSlot(s)}
                           onSelect={onCellSelect}

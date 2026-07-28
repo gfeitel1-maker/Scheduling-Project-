@@ -1,4 +1,11 @@
 // Shared inline style constants — import as: import { S } from '../styles/shared'
+
+// No CSS files in this codebase, so prefers-reduced-motion fallbacks are
+// read via matchMedia at render time rather than a @media block.
+export function prefersReducedMotion() {
+  return typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+}
+
 export const S = {
   btnPrimary: {
     padding: '7px 14px',
@@ -381,13 +388,92 @@ export const S = {
     color: 'var(--warning)',
     borderColor: 'color-mix(in srgb, var(--warning) 35%, var(--border))',
   },
+  // Selection moves off navy (navy is reserved for DnD drop-target chrome) —
+  // elevation is a channel nothing else on the grid uses. See
+  // docs/superpowers/specs/2026-07-28-schedule-grid-decolorization-design.md §8-9.
   cellSelected: {
-    outline: '2px solid var(--primary)',
-    outlineOffset: -2,
+    boxShadow: '0 2px 8px color-mix(in srgb, var(--text) 18%, transparent)',
+    outline: '1.5px solid var(--text)',
+    outlineOffset: -1,
+    transform: 'translateY(-1px)',
+    transition: 'transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out)',
   },
   cellMultiSelectedFill: {
-    background: 'color-mix(in srgb, var(--primary) 6%, transparent)',
+    background: 'color-mix(in srgb, var(--text) 6%, var(--surface))',
   },
+
+  // --- Schedule grid cell states (2026-07-28 decolorization pass) ---
+  cellIdentityChip: {
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    display: 'inline-block',
+    marginRight: 4,
+    verticalAlign: 'middle',
+    flexShrink: 0,
+  },
+  cellStructuralBar: accentVar => ({
+    // used for both anchor (--anchor) and locked (--accent); pass the token string
+    borderLeft: `3px solid ${accentVar}`,
+    borderTop: '1px solid var(--border)',
+    borderRight: '1px solid var(--border)',
+    borderBottom: '1px solid var(--border)',
+  }),
+  cellUnfillableBar: {
+    borderLeft: '4px solid var(--danger)',
+    borderTop: '1px solid var(--border)',
+    borderRight: '1px solid var(--border)',
+    borderBottom: '1px solid var(--border)',
+    background: 'color-mix(in srgb, var(--danger) 6%, var(--surface))',
+  },
+  cellUnavailableFill: {
+    background: 'color-mix(in srgb, var(--text) 5%, var(--bg))',
+    border: '1px solid var(--border)',
+  },
+  cellEmptyOutline: {
+    background: 'var(--surface)',
+    border: '1.5px dashed var(--border)',
+  },
+  cellOutdoorIconStyle: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    fontSize: 10,
+    color: 'var(--text-secondary)',
+    lineHeight: 1,
+    pointerEvents: 'none',
+  },
+  cellUnfillableIconStyle: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 12,
+    height: 12,
+    color: 'var(--danger)',
+  },
+
+  // Findings & Flags rail (popover under header badge)
+  findingsRailPanel: {
+    position: 'absolute',
+    background: 'var(--surface-elevated)',
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    boxShadow: '0 2px 24px color-mix(in srgb, var(--text) 6%, transparent)',
+    maxWidth: 360,
+    maxHeight: 400,
+    overflowY: 'auto',
+    zIndex: 20,
+  },
+  findingsRailRow: severityColor => ({
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: '8px 10px',
+    borderLeft: `3px solid ${severityColor}`,
+    borderBottom: '1px solid var(--border)',
+    fontSize: 13,
+    color: 'var(--text)',
+  }),
   cellActionBtn: {
     position: 'absolute', top: 4, right: 4,
     width: 16, height: 16,
@@ -456,9 +542,9 @@ export const S = {
     color: 'var(--text-secondary)',
     fontSize: 13,
   },
-  mergeEmptyState: {
-    textAlign: 'center',
+  emptyStateTall: {
     padding: '60px 16px',
+    textAlign: 'center',
   },
   mergeConfirmed: {
     textAlign: 'center',
@@ -468,5 +554,34 @@ export const S = {
     fontWeight: 700,
     fontSize: 15,
     transition: 'opacity 0.15s',
+  },
+
+  // --- Empty / loading / error state primitives ---
+  stateLoading: {
+    color: 'var(--text-secondary)',
+    fontFamily: 'var(--font-mono)',
+    fontSize: 13,
+  },
+  emptyState: {
+    padding: '40px 16px',
+    textAlign: 'center',
+  },
+  emptyStateTitle: {
+    fontFamily: 'var(--font-condensed)',
+    fontSize: 16,
+    fontWeight: 600,
+    color: 'var(--text-secondary)',
+    marginBottom: 4,
+  },
+  emptyStateTitleLarge: {
+    fontFamily: 'var(--font-condensed)',
+    fontSize: 20,
+    fontWeight: 600,
+    color: 'var(--text)',
+    marginBottom: 8,
+  },
+  emptyStateBody: {
+    fontSize: 12,
+    color: 'var(--text-secondary)',
   },
 }

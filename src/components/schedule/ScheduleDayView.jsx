@@ -16,7 +16,8 @@ function DroppableEmptyCell({ groupId, dayId, blockId }) {
       ref={setNodeRef}
       style={{
         ...emptyTd,
-        background: isOver ? 'var(--primary)22' : 'transparent',
+        ...S.cellEmptyOutline,
+        background: isOver ? 'var(--primary)22' : S.cellEmptyOutline.background,
         outline: isOver ? '2px dashed var(--primary)' : 'none',
         outlineOffset: -2,
         transition: 'background 0.1s',
@@ -110,9 +111,16 @@ export default function ScheduleDayView({
                       ? () => handleStampClick(group.id, selectedDay, block.id)
                       : undefined
 
-                    if (!slot.activity_id && !slot.is_anchor) {
+                    const isUnfillable = Boolean(slot.flags?.UNFILLABLE) && !slot.flags?.UNFILLABLE_dismissed
+
+                    if (!slot.activity_id && !slot.is_anchor && !isUnfillable) {
                       return <DroppableEmptyCell key={group.id} groupId={group.id} dayId={selectedDay} blockId={block.id} />
                     }
+
+                    // Every open slot the engine couldn't fill is flagged UNFILLABLE, so a
+                    // row with no activity, not an anchor, and not UNFILLABLE is the
+                    // "unavailable" case (group not available for this block).
+                    const cellType = !slot.activity_id && !isUnfillable ? 'unavailable' : 'activity'
 
                     return (
                       <SlotCell
@@ -120,7 +128,7 @@ export default function ScheduleDayView({
                         rowSpan={rowSpan}
                         slot={slot.is_anchor
                           ? { ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id }
-                          : { ...slot, type: 'activity', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
+                          : { ...slot, type: cellType, groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
                         activity={act}
                         anchor={anchor}
                         actColorIdx={act?.colorIdx || 0}
