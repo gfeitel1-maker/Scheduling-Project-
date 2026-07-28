@@ -13,17 +13,20 @@ function formatTime(isoString) {
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + timeStr
 }
 
-export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, onRestore, onSaveNamed, onRenameAutoSave }) {
+export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, onRestore, onSaveNamed, onRenameAutoSave, onDelete }) {
   const isAdmin = role === 'admin'
   const [nameInput, setNameInput] = useState('')
   const [renamingId, setRenamingId] = useState(null)
+  // Two-step inline confirm rather than a modal — matches the rename affordance
+  // beside it, and keeps an irreversible action one deliberate click away.
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState(null)
   const [renameValue, setRenameValue] = useState('')
   const dropRef = useRef(null)
 
   useEffect(() => {
     if (!isOpen) return
     function handleClick(e) {
-      if (dropRef.current && !dropRef.current.contains(e.target)) onToggle()
+      if (dropRef.current && !dropRef.current.contains(e.target)) { setConfirmingDeleteId(null); onToggle() }
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
@@ -44,7 +47,7 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
 
   return (
     <div ref={dropRef} style={{ position: 'relative' }}>
-      <button onClick={onToggle} style={btnStyle}>
+      <button onClick={() => { setConfirmingDeleteId(null); onToggle() }} style={btnStyle}>
         📋 Versions ▾
       </button>
 
@@ -153,6 +156,28 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
                     >
                       {snap.restorable === false ? 'Empty' : 'Restore'}
                     </button>
+                  )}
+
+                  {!isRenaming && isAdmin && (
+                    confirmingDeleteId === snap.id ? (
+                      <button
+                        onClick={() => { onDelete(snap.id); setConfirmingDeleteId(null) }}
+                        onBlur={() => setConfirmingDeleteId(null)}
+                        autoFocus
+                        title="Permanently delete this version"
+                        style={{ fontSize: 10, fontWeight: 700, color: 'var(--danger)', background: 'color-mix(in srgb, var(--danger) 10%, transparent)', border: 'none', borderRadius: 5, cursor: 'pointer', padding: '3px 6px', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                      >
+                        Delete?
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmingDeleteId(snap.id)}
+                        title={snap.restorable === false ? 'Delete this empty version' : 'Delete this version'}
+                        style={{ fontSize: 10, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
+                      >
+                        delete
+                      </button>
+                    )
                   )}
                 </div>
               )

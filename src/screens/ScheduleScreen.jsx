@@ -546,6 +546,35 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     setSnapshots(prev => [{ id, template_id: templateId, name: name || null, is_auto: isAuto, created_at: createdAt, restorable: true }, ...prev])
   }
 
+  // Deleting a version is the director's call, never an automatic cleanup.
+  // Every snapshot saved before the op-value coercion fix (af6a9d8) recorded no
+  // schedule data and shows as "Empty" — this is how those get cleared, one at a
+  // time, by a human who can see what they are removing.
+  //
+  // deleteEntity routes to a DELETE_FIELD write, which main.js gates to admin.
+  // A refused delete must surface: the row is still there, and saying otherwise
+  // would repeat the exact silent-no-op failure this ticket exists to fix.
+  async function deleteSnapshot(snapshotId) {
+    setActionError(null)
+    let result
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      result = await localClient.deleteEntity(token, 'schedule_snapshots', snapshotId)
+    } catch (err) {
+      setActionError(
+        err?.message?.includes('admin role required')
+          ? 'Only an admin can delete a saved version'
+          : 'Failed to delete that version — check your connection and try again'
+      )
+      return
+    }
+    if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
+      setActionError('That version could not be deleted. It is still in the list.')
+      return
+    }
+    setSnapshots(prev => prev.filter(s => s.id !== snapshotId))
+  }
+
   async function restoreSnapshot(snapshot) {
     if (!templateId) return
     setUndoStack([])
@@ -1344,6 +1373,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
               onRestore={restoreSnapshot}
               onSaveNamed={name => { saveSnapshot(name, false).catch(() => {}) }}
               onRenameAutoSave={renameSnapshot}
+              onDelete={deleteSnapshot}
             />
 
             <button
