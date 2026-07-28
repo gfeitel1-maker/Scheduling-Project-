@@ -40,6 +40,7 @@ export default function Sidebar({ current, onNavigate, campId, role, badges = {}
   // Which database is loaded must be visible, not inferable — see
   // docs/adr/2026-07-28-explicit-userdata-directory.md.
   const [isDevDb, setIsDevDb] = useState(false)
+  const [buildLabel, setBuildLabel] = useState(null)
   const [backupStatus, setBackupStatus] = useState(null) // null | 'running' | 'ok' | 'error'
 
   useEffect(() => {
@@ -52,7 +53,7 @@ export default function Sidebar({ current, onNavigate, campId, role, badges = {}
   useEffect(() => {
     if (!window.shoresh?.getCurrentProject) return
     window.shoresh.getCurrentProject()
-      .then(info => { if (info?.path) setProjectPath(info.path); if (info) setIsDevDb(!!info.isDev) })
+      .then(info => { if (info?.path) setProjectPath(info.path); if (info) { setIsDevDb(!!info.isDev); setBuildLabel(info.build || null) } })
       .catch(() => { /* non-fatal */ })
   }, [campId])
 
@@ -169,6 +170,20 @@ export default function Sidebar({ current, onNavigate, campId, role, badges = {}
             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {projectPath.split(/[\\/]/).pop()}
             </span>
+          </div>
+        )}
+        {buildLabel && (
+          // Which build is running, next to which database it opened — the two
+          // questions that together explain "why does the app behave like that".
+          <div
+            title={`Build: ${buildLabel}`}
+            style={{
+              fontSize: 10, marginBottom: 6, cursor: 'default',
+              color: 'var(--text-secondary)', opacity: 0.75,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}
+          >
+            {buildLabel}
           </div>
         )}
         {role === 'admin' && (

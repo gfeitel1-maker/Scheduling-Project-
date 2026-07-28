@@ -5,7 +5,12 @@ import reactRefresh from 'eslint-plugin-react-refresh'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // 'release' is the electron-builder output: a full copy of the project,
+  // including a minified bundle. Linting it produced 325 errors that describe
+  // build artifacts, not source. Same defect class as the vitest collection
+  // bug fixed alongside this — packaging copies everything, and every tool
+  // that walks the tree has to know that.
+  globalIgnores(['dist', 'release']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [
