@@ -456,9 +456,9 @@ export const S = {
     color: 'var(--text-secondary)',
     fontSize: 13,
   },
-  mergeEmptyState: {
-    textAlign: 'center',
+  emptyStateTall: {
     padding: '60px 16px',
+    textAlign: 'center',
   },
   mergeConfirmed: {
     textAlign: 'center',
@@ -468,5 +468,34 @@ export const S = {
     fontWeight: 700,
     fontSize: 15,
     transition: 'opacity 0.15s',
+  },
+
+  // --- Empty / loading / error state primitives ---
+  stateLoading: {
+    color: 'var(--text-secondary)',
+    fontFamily: 'var(--font-mono)',
+    fontSize: 13,
+  },
+  emptyState: {
+    padding: '40px 16px',
+    textAlign: 'center',
+  },
+  emptyStateTitle: {
+    fontFamily: 'var(--font-condensed)',
+    fontSize: 16,
+    fontWeight: 600,
+    color: 'var(--text-secondary)',
+    marginBottom: 4,
+  },
+  emptyStateTitleLarge: {
+    fontFamily: 'var(--font-condensed)',
+    fontSize: 20,
+    fontWeight: 600,
+    color: 'var(--text)',
+    marginBottom: 8,
+  },
+  emptyStateBody: {
+    fontSize: 12,
+    color: 'var(--text-secondary)',
   },
 }

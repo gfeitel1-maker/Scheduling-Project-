@@ -222,14 +222,15 @@ export default function ConflictsScreen({ pendingConflicts }) {
   return (
     <div style={{ maxWidth: 760 }}>
       {loading ? (
-        <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading…</div>
+        <div style={S.stateLoading}>Loading…</div>
       ) : conflicts.length === 0 ? (
-        <div style={S.mergeEmptyState}>
+        <div style={S.emptyStateTall}>
           <div style={{ fontSize: 32, color: 'var(--success)', marginBottom: 10 }}>✓</div>
-          <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
+          {/* color: 'var(--text)' intentional — success state, not an absence */}
+          <div style={{ ...S.emptyStateTitle, color: 'var(--text)' }}>
             No conflicts to resolve
           </div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Everything's in sync.</div>
+          <div style={S.emptyStateBody}>Everything's in sync.</div>
         </div>
       ) : (
         <>

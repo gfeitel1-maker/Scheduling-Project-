@@ -1253,7 +1253,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
 
   const setupIncomplete = groups.length === 0 || days.length === 0 || timeBlocks.length === 0 || activities.length === 0
 
-  if (loading) return <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: 'var(--text-secondary)' }}>Loading…</div>
+  if (loading) return <div style={S.stateLoading}>Loading…</div>
 
   if (setupIncomplete) {
     return (
@@ -1447,9 +1447,10 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
           <div style={{ flex: 1, minWidth: 0 }}>
             {/* No schedule state */}
             {!hasSchedule && !generating && (
-              <div style={{ textAlign: 'center', padding: '60px 24px', color: 'var(--text-secondary)', fontSize: 13 }}>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 20, color: 'var(--text)', marginBottom: 8 }}>No schedule yet</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Click "Generate Schedule" to build one from your current setup.</div>
+              <div style={{ ...S.emptyStateTall, padding: '60px 24px' }}>
+                <div style={S.emptyStateTitleLarge}>No schedule yet</div>
+                {/* fontSize 13 override intentional — larger than the default emptyStateBody (12) */}
+                <div style={{ ...S.emptyStateBody, fontSize: 13 }}>Click "Generate Schedule" to build one from your current setup.</div>
               </div>
             )}
 

@@ -577,11 +577,12 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
       </div>
 
       {loading ? (
-        <div style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', fontSize: 13 }}>Loading…</div>
+        <div style={S.stateLoading}>Loading…</div>
       ) : activities.length === 0 ? (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '40px 24px', textAlign: 'center' }}>
-          <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 16, fontWeight: 600, color: 'var(--text-secondary)', marginBottom: 4 }}>No activities yet</div>
-          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Add your first activity or import from Excel.</div>
+        // padding 40px 24px intentional — wider horizontal padding than other empty states
+        <div style={{ ...S.emptyState, padding: '40px 24px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
+          <div style={S.emptyStateTitle}>No activities yet</div>
+          <div style={S.emptyStateBody}>Add your first activity or import from Excel.</div>
         </div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
