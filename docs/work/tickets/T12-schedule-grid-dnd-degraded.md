@@ -1,68 +1,93 @@
 ---
 title: T12-schedule-grid-dnd-degraded
 document_type: ticket
-status: open
+status: completed
 created: 2026-07-28
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_adrs: []
-archive_when: reproduction confirmed fixed under electron:dev and a regression test exists
+resolved_by: af6a9d8
+archive_when: next archive sweep — no code change required
 ---
 
-# T12 — Drag-and-drop on the schedule grid is degraded across all views
+> **RESOLVED — no code change required.** Already fixed on `main` by `af6a9d8`.
+> The installed app is a stale build that predates the fix. Remedy: rebuild and reinstall.
 
-**Risk:** HIGH for usability — dragging is the primary way a director builds a schedule.
-**Found:** 2026-07-28, hand-check of the running app by the product owner.
-**Status:** REPORTED — not yet reproduced or diagnosed.
+# T12 — Drag-and-drop on the schedule grid does not work in the installed app
+
+**Risk:** HIGH while it persists — dragging is the primary way a director builds a schedule.
+**Found:** 2026-07-28, hand-check of the **installed** app by the product owner.
+**Status:** DIAGNOSED. Root cause confirmed in the shipped bundle. Fixed on `main`.
 
 ---
 
 ## The report
 
-> the screens are ok but not working fully well on the dnd for the schedule grid
-> across any view, otherwise is fine
+> drag from side bar and expand down do not work. doesn't drop at all, doesn't move
+> for either. i was looking at the version installed on my computer
 
-Everything else in the app was reported fine. The problem is specific to dragging on
-the schedule grid, and present in **every** view (group, day, manual) rather than one.
+## Root cause
 
-## What is not yet known
+The installed app predates the op-value coercion fix.
 
-This ticket is deliberately thin. It records a real observation and **no diagnosis**.
-Before any code changes, establish:
+| | |
+|---|---|
+| `/Applications/Shoresh.app` built | **2026-07-27 13:01** |
+| `af6a9d8` (the fix) committed | **2026-07-27 21:12** |
 
-1. **Which build was running.** The `shoresh-ui` worktree had `electron:dev` running its
-   own branch (`ui/state-primitives`) at the time. That branch modifies `SlotCell.jsx`,
-   `ScheduleScreen.jsx`, and `normalizeSlots.js` — all on the DnD path. The report may be
-   about that branch rather than `main`. This must be settled first; the two have different
-   suspects.
-2. **What "not fully well" means concretely.** Drag does not start? Starts but no drop
-   target highlights? Drops on the wrong cell? Drops and reverts? Works but feels wrong?
-   Each points somewhere different.
-3. **Which drag.** Palette → grid, or cell → cell (swap)? Both are separate code paths.
+Eight hours apart. Confirmed by reading the shipped bundle directly, not inferred from
+timestamps: `Contents/Resources/app/electron/ops/operations.js` binds the raw `value` into
+the operations INSERT and contains **no `coerceOpValue`** — that function does not exist
+in the installed build.
 
-## Suspects, unranked and unverified
+better-sqlite3 binds only numbers, strings, bigints, buffers and null. Other JS types are
+not merely rejected, they are misinterpreted — a plain object is read as a named-parameter
+bag, and booleans throw outright.
 
-- `distance: 8` PointerSensor activation constraint — exists so drag coexists with click
-  handlers. If click handling changed, the threshold may now fight it.
-- `ui/state-primitives`'s `SlotCell.jsx` rewrite (+157) — drop targets and their visual
-  affordances live here.
-- `normalizeSlots.js` changes on the same branch — if slot identity or keys shifted, drop
-  resolution would mis-target.
-- T10's selection change (`main`) — kept the day/group selection stable across reloads.
-  It is on the post-drop path, so it must be ruled out, though it only alters which day is
-  *displayed*, not how a drop resolves.
+Every slot placement writes an object:
 
-## Completion evidence
+```js
+await writeFields('template_slots', slot.id, { activity_id: nextActivityId, flags: {} })
+```
 
-1. A written reproduction: view, drag type, expected, actual.
-2. Root cause identified, and stated as a cause rather than a guess.
-3. Fix verified under `npm run electron:dev` — not the browser dev mock, per
-   `TESTING_STANDARD.md` §2, since drop resolution ends in an op-log write.
-4. A regression test at whatever seam the bug turns out to live in. The branch now brings
-   component-test infrastructure (`ScheduleScreen.test.jsx`), so a rendered-interaction
-   test is possible for the first time.
+`flags: {}` reaches the bind, `appendOp` throws before the row is ever touched, and the
+op-log write, the projection, the renderer's optimistic update, and its undo-point push are
+all skipped together. Nothing moves, nothing persists, no partial state is left behind —
+which is exactly why it reads as "doesn't drop at all, doesn't move either", identically in
+every view. It is not view-specific because it is not a view bug; it is the write path.
 
-## Note
+`af6a9d8`'s own commit message names this symptom: *"This is what surfaced as 'Failed to
+place activity' and blocked drag-and-drop end to end."*
 
-Do not begin by changing DnD code. The last four defects on this project (T6-T11) were each
-diagnosed by reading the actual data or running the real app, and in three cases the
-plausible first guess was wrong.
+## Same root cause as T8
+
+The dead snapshots in T8 were this bug wearing a different hat: `saveSnapshot` wrote the
+boolean `is_auto`, which threw at the same bind, so every field after it in key order —
+`created_at`, `slots`, `overlays` — was never written. One defect, two symptoms, eight
+months of apparent unrelatedness. Worth remembering next time two unrelated-looking
+features fail at once.
+
+## Remedy
+
+Rebuild and reinstall:
+
+```bash
+npm run electron:build
+```
+
+No code change. `main` already contains the fix, plus `2b69ec7` (register `template_slots`
+in `PROJECTIONS`), which the installed build also predates and which would have caused
+silent non-persistence even after the bind was fixed.
+
+## What this cost, and the cheap guard
+
+The report was initially ambiguous between three candidate builds — `main`, the
+`ui/state-primitives` worktree, and the installed app — and the suspects differed for each.
+That ambiguity is precisely what ADR 2026-07-28 addressed for dev-versus-packaged, and the
+DEV badge now distinguishes them at a glance.
+
+It does not yet distinguish a **stale** packaged build from a current one. The app reports
+`CFBundleShortVersionString 0.0.0`, so there is nothing in the UI or the bundle to date it.
+Stamping the build with its commit and date, and surfacing it in the sidebar beside the
+database name, would have turned this diagnosis into a five-second read.
+
+**Follow-up filed as T13.**
