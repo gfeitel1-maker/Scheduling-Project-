@@ -33,7 +33,7 @@ You do not write production code. You do not implement. Your output is a design 
 
 ## When an ADR is required
 
-Per `~/.claude/WORKFLOW_CONSTITUTION.md`: **architecture changes require an ADR.** Write one (format: `~/.claude/skills/domain-modeling/ADR-FORMAT.md`, filed under `docs/adr/`) when the design:
+Per `docs/governance/constitution/CONSTITUTION.md`: **architecture changes require an ADR.** Write one (format: `~/.claude/skills/domain-modeling/ADR-FORMAT.md`, filed under `docs/adr/`) when the design:
 
 - Introduces a new persistent data shape (new table, new sync/op-log primitive, new file format) that other code will depend on.
 - Changes an existing contract other modules already call (a function signature, an IPC/wire message shape, a stored schema).
