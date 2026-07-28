@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
 import { PROJECTIONS, applyProjection } from './projections.js'
+import { appendOp } from './operations.js'
 
 let tmpFile
 let db
@@ -149,6 +150,180 @@ describe('applyProjection __deleted__ sentinel', () => {
   })
 })
 
+// Regression suite for the "manual schedule edits silently do nothing" bug.
+// template_slots had no PROJECTIONS entry at all, so applyProjection's
+// `if (!projection) return` discarded every field-level write to it: the op
+// was appended to the operations log (and replicated) while the row itself
+// was never touched. Engine generation kept working only because it goes
+// through bulkReplace, which writes rows directly and never consults
+// PROJECTIONS.
+describe('applyProjection for template_slots', () => {
+  beforeEach(() => {
+    // operations.device_id is NOT NULL REFERENCES devices(id), and
+    // template_slots.activity_id REFERENCES activities(id) — with
+    // `PRAGMA foreign_keys = ON` (localDb.js) both must be real rows or the
+    // op-log insert / the projected UPDATE fails on the FK rather than on
+    // the behavior under test.
+    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('device-1', 'Device One')
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(
+      'template-1',
+      'camp-1',
+      'Week 1'
+    )
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(
+      'act-flag-football',
+      'camp-1',
+      'flag football'
+    )
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(
+      'act-basketball',
+      'camp-1',
+      'basketball'
+    )
+    // A slot as generation would have left it — the exact starting state of
+    // the production repro (an occupied cell showing "flag football").
+    db.prepare(
+      'INSERT INTO template_slots (id, template_id, activity_id) VALUES (?, ?, ?)'
+    ).run('slot-1', 'template-1', 'act-flag-football')
+  })
+
+  it('registers template_slots with a fields allowlist and ensureExists', () => {
+    expect(PROJECTIONS.template_slots).toBeTruthy()
+    expect(PROJECTIONS.template_slots.table).toBe('template_slots')
+    expect(PROJECTIONS.template_slots.key).toBe('id')
+    expect(typeof PROJECTIONS.template_slots.ensureExists).toBe('function')
+  })
+
+  // Every field ScheduleScreen.jsx's writeFields() actually sends for a
+  // template_slots row. appendOp throws 'field not allowed for entity' for
+  // anything absent here the moment the entity is registered, so an
+  // incomplete allowlist would convert the silent no-op into a hard failure.
+  it('allowlists every field ScheduleScreen writeFields sends', () => {
+    for (const field of ['activity_id', 'flags', 'is_released', 'is_span_head']) {
+      expect(PROJECTIONS.template_slots.fields).toContain(field)
+    }
+  })
+
+  // The headline regression: reproduces production op seq 293 exactly — a
+  // drag-and-drop onto an occupied cell, through the real appendOp op-log
+  // path rather than calling applyProjection directly.
+  it('applies an activity_id write to the row, not just to the operations log', () => {
+    appendOp(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-1',
+      field: 'activity_id',
+      value: 'act-basketball',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    // The op was always logged — that half never broke, which is why the bug
+    // looked like a sync problem rather than a projection problem.
+    const loggedOp = db
+      .prepare('SELECT * FROM operations WHERE entity = ? AND entity_id = ? AND field = ?')
+      .get('template_slots', 'slot-1', 'activity_id')
+    expect(loggedOp).toBeTruthy()
+    expect(loggedOp.value).toBe('act-basketball')
+
+    // ...and this is the half that silently did nothing.
+    const row = db.prepare('SELECT * FROM template_slots WHERE id = ?').get('slot-1')
+    expect(row.activity_id).toBe('act-basketball')
+  })
+
+  it('applies an activity_id write via applyProjection directly', () => {
+    applyProjection(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-1',
+      field: 'activity_id',
+      value: 'act-basketball',
+    })
+    const row = db.prepare('SELECT * FROM template_slots WHERE id = ?').get('slot-1')
+    expect(row.activity_id).toBe('act-basketball')
+  })
+
+  // ScheduleScreen clears a cell with `activity_id: null` (the span-tail
+  // clear path), so null must round-trip rather than being treated as absent.
+  it('applies a null activity_id write (clearing a cell)', () => {
+    applyProjection(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-1',
+      field: 'activity_id',
+      value: null,
+    })
+    const row = db.prepare('SELECT * FROM template_slots WHERE id = ?').get('slot-1')
+    expect(row.activity_id).toBe(null)
+  })
+
+  it('is a no-op for a field not in the template_slots allowlist', () => {
+    expect(() =>
+      applyProjection(db, {
+        entity: 'template_slots',
+        entity_id: 'slot-1',
+        field: 'not_a_real_field',
+        value: 'x',
+      })
+    ).not.toThrow()
+    const row = db.prepare('SELECT * FROM template_slots WHERE id = ?').get('slot-1')
+    expect(row.activity_id).toBe('act-flag-football')
+  })
+
+  // Parent-scoped entity: template_slots has no camp_id column at all (same
+  // as day_override_template_slots/schedule_snapshots), so ensureExists must
+  // never consult or create a camps row.
+  it('ensureExists does not touch the camps table', () => {
+    const before = db.prepare('SELECT COUNT(*) as count FROM camps').get().count
+    applyProjection(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-new',
+      field: 'activity_id',
+      value: 'act-basketball',
+    })
+    const after = db.prepare('SELECT COUNT(*) as count FROM camps').get().count
+    expect(after).toBe(before)
+  })
+
+  // template_id is NOT NULL with no default, so the row can only be created
+  // once the parent link is known — mirrors day_override_template_slots and
+  // schedule_snapshots.
+  it('ensureExists creates the row when template_id is written first', () => {
+    applyProjection(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-new',
+      field: 'template_id',
+      value: 'template-1',
+    })
+    const row = db.prepare('SELECT * FROM template_slots WHERE id = ?').get('slot-new')
+    expect(row).toBeTruthy()
+    expect(row.template_id).toBe('template-1')
+  })
+
+  // A non-template_id field arriving for a row that does not exist must skip
+  // the insert (it cannot satisfy the NOT NULL FK) and let the UPDATE be a
+  // harmless zero-row no-op, rather than raising a constraint violation.
+  it('skips the insert (no throw, no row) when a non-template_id field arrives for a missing row', () => {
+    expect(() =>
+      applyProjection(db, {
+        entity: 'template_slots',
+        entity_id: 'slot-missing',
+        field: 'activity_id',
+        value: 'act-basketball',
+      })
+    ).not.toThrow()
+    expect(db.prepare('SELECT * FROM template_slots WHERE id = ?').get('slot-missing')).toBeUndefined()
+  })
+
+  it('deletes the row via the __deleted__ sentinel', () => {
+    applyProjection(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-1',
+      field: '__deleted__',
+      value: 1,
+    })
+    expect(db.prepare('SELECT * FROM template_slots WHERE id = ?').get('slot-1')).toBeUndefined()
+  })
+})
+
 describe('applyProjection camp_id guard', () => {
   it('applies a camp_id write on users that matches the device camp id', () => {
     applyProjection(db, { entity: 'users', entity_id: 'user-1', field: 'camp_id', value: 'camp-1' })
@@ -206,9 +381,13 @@ describe('applyProjection', () => {
     expect(row.name).toBe('Bob')
   })
 
+  // Was written against `template_slots` back when it genuinely had no
+  // PROJECTIONS entry. That absence was the bug (see the template_slots
+  // describe block below), so this case needs an entity that is actually
+  // unregistered to still be testing what it claims to test.
   it('is a no-op for an unregistered entity', () => {
     expect(() =>
-      applyProjection(db, { entity: 'template_slots', entity_id: 'slot-1', field: 'activity_id', value: 'x' })
+      applyProjection(db, { entity: 'not_a_registered_entity', entity_id: 'x-1', field: 'activity_id', value: 'x' })
     ).not.toThrow()
   })
 

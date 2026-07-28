@@ -237,6 +237,60 @@ export const PROJECTIONS = {
       ).run(id, value)
     },
   },
+  // Same never-registered bug class as schedule_snapshots above, and the
+  // direct cause of "manual schedule edits silently do nothing":
+  // ScheduleScreen.jsx's writeFields() has always written these fields, so
+  // each op was appended to the operations log (and replicated to peers)
+  // while applyProjection's `if (!projection) return` discarded it — the
+  // template_slots row was never updated. Engine generation was unaffected
+  // only because it goes through localClient.bulkReplace, which writes rows
+  // directly via BULK_REPLACE_ENTITIES (operations.js) and never consults
+  // this registry.
+  //
+  // Parent-scoped with no camp_id column (schema.sql), like
+  // day_override_template_slots/schedule_snapshots — so ensureExists must
+  // not look up `camps`, and applyProjection's camp_id guard never applies.
+  //
+  // Field list is every non-key column of template_slots (schema.sql plus
+  // the flags/is_released/is_span_head columns added in localDb.js's
+  // version-10 migration and anchor_id/is_anchor added in version 17),
+  // matching BULK_REPLACE_ENTITIES.template_slots' column set minus `id`.
+  // Completeness matters more here than for most entities: appendOp
+  // enforces this allowlist with a THROW ('field not allowed for entity')
+  // for any registered entity, so a field omitted here would turn today's
+  // silent no-op into a hard write failure.
+  template_slots: {
+    table: 'template_slots',
+    key: 'id',
+    fields: [
+      'template_id',
+      'group_id',
+      'activity_id',
+      'day_id',
+      'time_block_id',
+      'anchor_id',
+      'is_anchor',
+      'is_span_head',
+      'is_released',
+      'flags',
+    ],
+    // template_id is NOT NULL with no default and is a real FK, so the row
+    // can only be created once the parent link is known — identical shape to
+    // day_override_template_slots/schedule_snapshots above.
+    //
+    // Unlike those two, however, NO current caller ever reaches the insert:
+    // every writeFields('template_slots', ...) call in ScheduleScreen.jsx
+    // updates a row that bulkReplace already created, and none of them
+    // writes template_id at all. So for today's call sites this is always a
+    // no-op and the fix that matters is the UPDATE below. It is kept
+    // (rather than dropped) so the ordering contract is already correct for
+    // the not-yet-existing create path — placeActivityManual currently has
+    // no INSERT branch, which is a separate tracked bug.
+    ensureExists: (db, id, field, value) => {
+      if (field !== 'template_id') return
+      db.prepare('INSERT OR IGNORE INTO template_slots (id, template_id) VALUES (?, ?)').run(id, value)
+    },
+  },
 }
 
 // Reserved field name for a row-delete op — see DELETE_FIELD's definition in
