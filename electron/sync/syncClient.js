@@ -15,6 +15,94 @@ import { insertPendingWrite, deletePendingWrite, listPendingWrites } from './pen
 
 const DEFAULT_RESOLVER_TIMEOUT_MS = 10000
 
+// T7 fix: every camp-scoped domain table shipped in the extended full_sync
+// snapshot (design doc §2.1/§2.2), in FK-respecting apply order.
+// `schedule_snapshots` is deliberately excluded (see design doc
+// Consequences: unbounded historical growth, out of scope for this ticket).
+// `foreign_keys = ON` (openLocalDb) makes this order load-bearing: a table
+// must appear after every other table whose id it references.
+const DOMAIN_SNAPSHOT_TABLES = [
+  'cohorts',
+  'days_of_operation',
+  'groups',
+  'tiers', // references cohorts.id, nullable
+  'time_blocks', // references cohorts.id, nullable
+  'activities',
+  'anchor_activities', // references cohorts.id/days_of_operation.id, both nullable
+  'schedule_templates',
+  'day_override_templates', // references cohorts.id, nullable
+  'template_slots', // references groups.id/activities.id, both nullable — no declared FK to schedule_templates.id (schema.sql)
+  'template_overlays', // references schedule_templates.id NOT NULL, days_of_operation.id nullable
+  'day_override_template_slots', // references day_override_templates.id NOT NULL
+]
+
+// Full column list per table, matching schema.sql's authoritative column set
+// (including columns added later via localDb.js's guarded ALTER TABLE
+// migrations) — deliberately NOT derived from PROJECTIONS
+// (electron/ops/projections.js), which excludes non-synced/internal columns
+// for some tables (design doc §2.2).
+const DOMAIN_TABLE_COLUMNS = {
+  cohorts: ['id', 'camp_id', 'name', 'session_week_start', 'session_week_end', 'capacity_source', 'anchor_model', 'sort_order'],
+  days_of_operation: ['id', 'camp_id', 'label', 'day_of_week', 'sort_order'],
+  groups: ['id', 'camp_id', 'name', 'tier_id', 'availability'],
+  tiers: ['id', 'camp_id', 'name', 'sort_order', 'cohort_id'],
+  time_blocks: ['id', 'camp_id', 'cohort_id', 'name', 'start_time', 'end_time', 'part_of_day', 'sort_order'],
+  activities: [
+    'id', 'camp_id', 'name', 'priority', 'is_locked', 'span_blocks', 'location', 'is_outdoor',
+    'max_groups_per_slot', 'min_per_week', 'max_per_week', 'same_tier_only', 'eligible_tier_ids',
+    'eligible_group_ids', 'prefer_before_day', 'prefer_before_day_min', 'weather_alternative_id', 'notes',
+  ],
+  anchor_activities: ['id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks', 'is_all_groups', 'group_ids', 'notes'],
+  schedule_templates: ['id', 'camp_id', 'name'],
+  day_override_templates: ['id', 'camp_id', 'cohort_id', 'name', 'frequency_mode'],
+  template_slots: ['id', 'template_id', 'group_id', 'activity_id', 'day_id', 'time_block_id', 'flags', 'is_released', 'is_span_head', 'anchor_id', 'is_anchor'],
+  template_overlays: ['id', 'template_id', 'unit_id', 'day_id', 'from_block_order', 'to_block_order', 'label'],
+  day_override_template_slots: ['id', 'day_override_template_id', 'time_block_id', 'activity_id'],
+}
+
+// Loose, intentionally-not-a-full-schema-check row validator (design doc
+// §2.3): these rows come from a real `SELECT *` on the Host (already-
+// materialized SQLite values — string/number/null only, per better-sqlite3's
+// own type mapping), so the only realistic failure mode for an individual
+// row is a fabricated/malformed message from a non-genuine peer.
+function isValidSnapshotRow(row) {
+  if (row === null || typeof row !== 'object' || Array.isArray(row)) return false
+  if (typeof row.id !== 'string' || row.id.length === 0) return false
+  for (const value of Object.values(row)) {
+    if (typeof value === 'boolean') return false
+    if (value !== null && typeof value === 'object') return false
+  }
+  return true
+}
+
+// Validates every row of every domain table BEFORE any DB access. Correction
+// vs. an earlier draft of this design: a per-row skip-and-continue is not
+// safe here — under foreign_keys=ON, in one shared transaction, a skipped
+// row that is itself the FK target of a later table's row (e.g. a skipped
+// schedule_templates row a valid template_overlays row references via a
+// NOT NULL FK) makes that later INSERT throw, aborting the whole transaction
+// anyway. Validating everything up front and applying all-or-nothing is the
+// deliberately conservative choice this design settled on (see design doc
+// §2.3 Consequences) — it is safe specifically because the caller only
+// acknowledges (and the Host only latches last_synced_at) once this
+// succeeds; a rejected batch simply retries whole on the next reconnect.
+function isValidDomainSnapshotBatch(msg) {
+  for (const key of DOMAIN_SNAPSHOT_TABLES) {
+    const rows = Array.isArray(msg[key]) ? msg[key] : null
+    if (rows === null) return false
+    if (!rows.every(isValidSnapshotRow)) return false
+  }
+  return true
+}
+
+function insertSnapshotRows(db, table, columns, rows) {
+  const placeholders = columns.map(() => '?').join(', ')
+  const stmt = db.prepare(`INSERT OR REPLACE INTO ${table} (${columns.join(', ')}) VALUES (${placeholders})`)
+  for (const row of rows) {
+    stmt.run(...columns.map((col) => (row[col] !== undefined ? row[col] : null)))
+  }
+}
+
 export function createSyncClient(
   db,
   { device_id, author_user_id, serverUrl, token: initialToken, device_name, lockTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS, submitTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS }
@@ -24,6 +112,7 @@ export function createSyncClient(
   const pairingApprovedListeners = []
   const pairingDeniedListeners = []
   const tokenRenewedListeners = []
+  const fullSyncAppliedListeners = []
   const queue = []
   let token = initialToken
 
@@ -33,6 +122,10 @@ export function createSyncClient(
 
   function notifyOpConflict(msg) {
     for (const listener of opConflictListeners) listener(msg)
+  }
+
+  function notifyFullSyncApplied() {
+    for (const listener of fullSyncAppliedListeners) listener()
   }
 
   if (!serverUrl) {
@@ -67,6 +160,9 @@ export function createSyncClient(
       },
       onOpConflict(callback) {
         opConflictListeners.push(callback)
+      },
+      onFullSyncApplied(callback) {
+        fullSyncAppliedListeners.push(callback)
       },
       getQueuedOps() {
         return []
@@ -167,13 +263,28 @@ export function createSyncClient(
     const users = Array.isArray(msg.users) ? msg.users : []
     const camps = Array.isArray(msg.camps) ? msg.camps : []
 
-    // Wrap the whole batch in a single transaction: a genuine mid-loop DB
+    // Validate the ENTIRE domain-table batch before touching the DB at all
+    // (design doc §2.3). A per-row skip-and-continue (what camps/users still
+    // do, below) is not safe for these tables: under foreign_keys=ON, in one
+    // shared transaction, a skipped row that is itself the FK target of a
+    // later table's row would make that later INSERT throw anyway, aborting
+    // everything regardless. So instead: fail the whole message up front, do
+    // not open a transaction, and throw — the caller (the `full_sync`
+    // message handler below) does not send full_sync_applied on a throw, so
+    // the Host retries the entire snapshot on the next reconnect. Camps/users
+    // keep their existing independent per-row `continue` behavior: they are
+    // not FK targets of anything else in this batch, so a bad row among them
+    // was already safe to skip on its own.
+    if (!isValidDomainSnapshotBatch(msg)) {
+      throw new Error('full_sync: invalid or missing domain snapshot table(s)')
+    }
+
+    // Wrap the whole batch — camps, users, AND every domain table, in
+    // FK-respecting order — in a single transaction: a genuine mid-loop DB
     // failure (e.g. a real constraint violation on some row that passed
-    // per-row validation) rolls back the ENTIRE batch instead of leaving
-    // camps/users partially populated. Per-row validation still runs the
-    // same way beforehand (via `continue`) - this is purely about DB-level
-    // atomicity for the writes that do proceed, and it also collapses N
-    // auto-committing statements into a single transaction for performance.
+    // per-row validation) rolls back the ENTIRE batch instead of leaving it
+    // partially populated. It also collapses many auto-committing statements
+    // into one transaction for performance.
     const applyBatch = db.transaction(() => {
       for (const camp of camps) {
         if (!isValidFullSyncCamp(camp)) continue
@@ -188,6 +299,20 @@ export function createSyncClient(
           'INSERT OR REPLACE INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)'
         ).run(user.id, user.camp_id, user.name, user.pin_hash, user.pin_salt, user.role)
       }
+
+      for (const table of DOMAIN_SNAPSHOT_TABLES) {
+        insertSnapshotRows(db, table, DOMAIN_TABLE_COLUMNS[table], msg[table])
+      }
+
+      // Part 4.1: fold this device's "first sync complete" flag into the
+      // SAME transaction as the domain-table inserts, so a rollback of the
+      // batch also rolls back this flag — if the apply fails, the gate must
+      // stay closed. device_identity is this install's own per-device
+      // singleton row (getOrCreateDeviceId), always exactly one row by the
+      // time a syncClient exists.
+      db.prepare(
+        'UPDATE device_identity SET first_sync_completed_at = COALESCE(first_sync_completed_at, ?)'
+      ).run(new Date().toISOString())
     })
     applyBatch()
   }
@@ -281,7 +406,26 @@ export function createSyncClient(
         }
 
         if (msg.type === 'full_sync') {
-          applyFullSync(msg)
+          // Corrected mechanism (design doc §2.4): applyFullSync throws on
+          // any validation/DB failure — no partial commit, per the
+          // transaction above. Only send full_sync_applied, and only notify
+          // listeners, once that has genuinely succeeded. On failure: do NOT
+          // ack. The Host's wait times out, does not latch last_synced_at,
+          // and the next reconnect retries the entire snapshot from scratch
+          // — safe, every insert is INSERT OR REPLACE. No new
+          // logging/observability is added here, matching this file's
+          // existing convention for swallowed projection failures
+          // (applyRemoteOp's own catch, above).
+          try {
+            applyFullSync(msg)
+            notifyFullSyncApplied()
+            if (ws && ws.readyState === ws.OPEN) {
+              ws.send(JSON.stringify({ type: 'full_sync_applied' }))
+            }
+          } catch {
+            // Apply failed (bad batch, genuine DB error) or the ack send
+            // itself failed (connection already going bad) — either way, no ack.
+          }
           return
         }
 
@@ -629,6 +773,9 @@ export function createSyncClient(
     },
     onOpConflict(callback) {
       opConflictListeners.push(callback)
+    },
+    onFullSyncApplied(callback) {
+      fullSyncAppliedListeners.push(callback)
     },
     getQueuedOps() {
       return queue.slice()

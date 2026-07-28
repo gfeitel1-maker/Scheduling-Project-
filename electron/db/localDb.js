@@ -4,13 +4,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { writePreMigrationBackup } from './projectManager.js'
+import { deriveScheduleTemplateId } from '../ops/scheduleTemplateId.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 20
+export const CURRENT_SCHEMA_VERSION = 22
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -778,6 +779,110 @@ export function initSchema(db) {
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (20, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // T7 fix (see docs/adr/2026-07-28-first-pairing-domain-sync-and-template-identity.md
+  // and its companion design doc, Part 3.4): schedule_templates.id becomes a
+  // pure function of camp_id (deriveScheduleTemplateId, electron/ops/scheduleTemplateId.js)
+  // instead of a random UUID, so two devices that independently mint a
+  // "Master Template" row for the same camp always agree on its id. Existing
+  // rows must be RE-KEYED to that deterministic value, not just backstopped
+  // by the UNIQUE(camp_id) constraint added below — schedule_templates.
+  // ensureExists (electron/ops/projections.js) is INSERT OR IGNORE, so a
+  // create attempt using the deterministic id against a camp whose existing
+  // row has a DIFFERENT (pre-existing, random-UUID) id would be silently
+  // absorbed by a bare UNIQUE(camp_id) constraint — no throw, no row created,
+  // the following field UPDATE affects zero rows. See the design doc's
+  // Finding 2 for the full mechanism this closes.
+  if (getSchemaVersion(db) < 21) {
+    db.transaction(() => {
+      // 1. Dedupe: for any camp_id with more than one row (not live in
+      // production today, but a correct migration must still handle it),
+      // keep MIN(rowid) and repoint every table that references a
+      // duplicate's id to the survivor before deleting the duplicates. This
+      // step keeps an EXISTING row (the survivor), so — unlike step 2's
+      // rename — it does not need the insert-copy dance: no id actually
+      // changes here, only which row a shared id's data ends up under.
+      const survivors = db
+        .prepare(
+          `SELECT camp_id, MIN(rowid) as keep_rowid FROM schedule_templates GROUP BY camp_id HAVING COUNT(*) > 1`
+        )
+        .all()
+
+      for (const { camp_id, keep_rowid } of survivors) {
+        const keepRow = db.prepare('SELECT id FROM schedule_templates WHERE rowid = ?').get(keep_rowid)
+        const dupes = db
+          .prepare('SELECT id FROM schedule_templates WHERE camp_id = ? AND rowid != ?')
+          .all(camp_id, keep_rowid)
+
+        for (const { id: dupeId } of dupes) {
+          db.prepare('UPDATE template_slots SET template_id = ? WHERE template_id = ?').run(keepRow.id, dupeId)
+          db.prepare('UPDATE template_overlays SET template_id = ? WHERE template_id = ?').run(keepRow.id, dupeId)
+          db.prepare('UPDATE schedule_snapshots SET template_id = ? WHERE template_id = ?').run(keepRow.id, dupeId)
+        }
+      }
+
+      db.exec(
+        `DELETE FROM schedule_templates WHERE rowid NOT IN (SELECT MIN(rowid) FROM schedule_templates GROUP BY camp_id)`
+      )
+
+      // 2. Re-key: after dedupe, exactly one row per camp_id. Rewrite each
+      // row's id to the deterministic value via insert-copy -> repoint ->
+      // delete-old — never a raw UPDATE of the referenced primary key.
+      // template_overlays/schedule_snapshots have a NOT NULL REFERENCES
+      // schedule_templates(id) with foreign_keys=ON (schema.sql), and that
+      // check is immediate (not deferred) per-statement: the instant a raw
+      // UPDATE changed the parent's id, any child still pointing at the old
+      // value would reference a row that no longer exists. Inserting the new
+      // row BEFORE repointing children (and deleting the old row only after
+      // every child is repointed) means no child ever points at a
+      // non-existent parent.
+      const rows = db.prepare('SELECT id, camp_id, name FROM schedule_templates').all()
+      for (const { id: oldId, camp_id, name } of rows) {
+        const newId = deriveScheduleTemplateId(camp_id)
+        if (newId === oldId) continue
+        db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(newId, camp_id, name)
+        db.prepare('UPDATE template_slots SET template_id = ? WHERE template_id = ?').run(newId, oldId)
+        db.prepare('UPDATE template_overlays SET template_id = ? WHERE template_id = ?').run(newId, oldId)
+        db.prepare('UPDATE schedule_snapshots SET template_id = ? WHERE template_id = ?').run(newId, oldId)
+        db.prepare('DELETE FROM schedule_templates WHERE id = ?').run(oldId)
+      }
+
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_templates_camp ON schedule_templates(camp_id);')
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (21, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // T7 fix, Part 4.1: a device that has not yet completed its first domain
+  // sync must not be permitted to run schedule-mutating actions (the
+  // write-gate itself is slice 2, ScheduleScreen.jsx — this migration only
+  // lays down the persisted flag it reads). device_identity is this
+  // install's own per-device singleton row (getOrCreateDeviceId), distinct
+  // from the camp-wide `devices` roster.
+  if (getSchemaVersion(db) < 22) {
+    db.transaction(() => {
+      const has = db.pragma('table_info(device_identity)').some((c) => c.name === 'first_sync_completed_at')
+      if (!has) db.exec('ALTER TABLE device_identity ADD COLUMN first_sync_completed_at TEXT')
+
+      // Backfill: a device that already has a camps row at migration time
+      // already has SOME camp data locally — it's either the pre-existing
+      // Host, or a Client that already completed a sync before this gate
+      // existed. Do not retroactively gate it; the gate is meant to apply
+      // only to a Client pairing for the first time AFTER this ships, not to
+      // punish an already-working install.
+      const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+      if (camp) {
+        db.prepare(
+          'UPDATE device_identity SET first_sync_completed_at = COALESCE(first_sync_completed_at, ?)'
+        ).run(new Date().toISOString())
+      }
+    })()
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (22, ?)').run(
       new Date().toISOString()
     )
   }

@@ -13,6 +13,7 @@ import { listPendingConflicts } from './ops/operations.js'
 import { authorize } from './auth/authorize.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from './auth/deriveWriteAction.js'
 import { recordAuditEvent } from './audit/auditLog.js'
+import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from './ops/campScopedEntities.js'
 import {
   getCurrentProjectPath,
   setCurrentProjectPath,
@@ -38,45 +39,10 @@ const IPC_PIN_FIELDS = new Set(['pin_hash', 'pin_salt'])
 // regex/prefix match, never string-built into a query) before any SQL runs;
 // anything not listed here is rejected, not silently queried.
 //
-// `template_slots` is deliberately in the parent-scoped group, not the
-// direct-camp_id group: per schema.sql it has only `template_id` (no
-// `camp_id` column at all), same as template_overlays/schedule_snapshots/
-// day_override_template_slots. It is scoped via JOIN through
-// schedule_templates, exactly like those three.
-const DIRECT_CAMP_ENTITIES = new Set([
-  'groups',
-  'tiers',
-  'activities',
-  'cohorts',
-  'days_of_operation',
-  'time_blocks',
-  'anchor_activities',
-  'schedule_templates',
-  'day_override_templates',
-])
-
-const PARENT_SCOPED_ENTITIES = {
-  template_slots: {
-    table: 'template_slots',
-    parentTable: 'schedule_templates',
-    parentKey: 'template_id',
-  },
-  template_overlays: {
-    table: 'template_overlays',
-    parentTable: 'schedule_templates',
-    parentKey: 'template_id',
-  },
-  schedule_snapshots: {
-    table: 'schedule_snapshots',
-    parentTable: 'schedule_templates',
-    parentKey: 'template_id',
-  },
-  day_override_template_slots: {
-    table: 'day_override_template_slots',
-    parentTable: 'day_override_templates',
-    parentKey: 'day_override_template_id',
-  },
-}
+// DIRECT_CAMP_ENTITIES/PARENT_SCOPED_ENTITIES now live in
+// ./ops/campScopedEntities.js (imported above) so that this read path and
+// syncServer.js's first-pairing full_sync snapshot are structurally
+// guaranteed to cover the same table set — see that module's own comment.
 
 // Bound on how long login() waits for an in-flight WebSocket handshake to
 // finish before falling back to the local/offline login path. Meaningfully
@@ -172,6 +138,17 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       syncClient.onOpConflict((msg) => {
         const mainWindow = getMainWindow ? getMainWindow() : null
         if (mainWindow) mainWindow.webContents.send('shoresh:op-conflict', sanitizeConflictForIpc(msg))
+      })
+    }
+    // Completion push for the first-sync write-gate (design doc Part 4.2).
+    // No payload — this is a pure "your domain data just landed, reload"
+    // signal, mirroring onOpApplied's wiring shape but with nothing to
+    // sanitize/forward. Renderer consumption (reading it, and the actual
+    // write-gate it unblocks) is slice 2 of this fix.
+    if (typeof syncClient.onFullSyncApplied === 'function') {
+      syncClient.onFullSyncApplied(() => {
+        const mainWindow = getMainWindow ? getMainWindow() : null
+        if (mainWindow) mainWindow.webContents.send('shoresh:full-sync-applied')
       })
     }
   }
@@ -394,6 +371,15 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     db.prepare(
       "UPDATE devices SET authorized_at = ?, authorized_by_user_id = ?, pairing_status = 'authorized' WHERE id = ?"
     ).run(new Date().toISOString(), user.id, deviceId)
+
+    // A Host trivially has 100% of its own data from the instant of its own
+    // bootstrap — it never syncs FROM another device, so it must never be
+    // gated by the first-sync write-gate (design doc Part 4.1/4.3, slice 2).
+    // Migration v22's backfill only covers a camp that already existed at
+    // migration time; a brand-new bootstrap (this path) needs its own set.
+    db.prepare(
+      'UPDATE device_identity SET first_sync_completed_at = COALESCE(first_sync_completed_at, ?)'
+    ).run(new Date().toISOString())
 
     return { campId, userId: user.id }
   }
