@@ -10,6 +10,12 @@ export default defineConfig({
   test: {
     environment: 'node',
     globals: true,
+    // electron-builder copies the whole project — including every *.test.js —
+    // into release/. Without this, `npm run test` after `npm run electron:build`
+    // collects two copies of the suite, and the duplicated syncServer tests
+    // bind the same WebSocket ports concurrently and fail on contention. The
+    // failures look like real sync regressions and are not.
+    exclude: ['**/node_modules/**', '**/dist/**', 'release/**'],
   },
   server: {
     port: 5200,
