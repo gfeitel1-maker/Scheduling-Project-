@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import buildSchedule from './buildSchedule.js'
+import buildSchedule, { computeFindings } from './buildSchedule.js'
 
 const baseGroup = { id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }
 const baseDay = { id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }
@@ -27,40 +27,114 @@ describe('UNFILLABLE flag', () => {
   })
 })
 
-describe('WEATHER_RISK flag', () => {
-  it('sets WEATHER_RISK_reason on outdoor activity slots', () => {
+describe('WEATHER_RISK', () => {
+  it('is no longer emitted anywhere in flags — outdoor exposure is read at render time from activity.is_outdoor', () => {
     const act = { id: 'a1', name: 'Swimming', priority: 'low', max_per_week: 5, min_per_week: 0, is_outdoor: true, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
     const { slots } = buildSchedule(minimal({ activities: [act] }))
-    const weatherSlot = slots.find(s => s.flags?.WEATHER_RISK)
-    expect(weatherSlot).toBeTruthy()
-    expect(weatherSlot.flags.WEATHER_RISK_reason).toBe('Outdoor activity scheduled in this slot')
+    expect(slots.some(s => s.flags?.WEATHER_RISK)).toBe(false)
   })
 })
 
-describe('UNDERSERVED flag', () => {
-  it('sets UNDERSERVED_reason with counts when min_per_week cannot be met', () => {
+describe('UNDERSERVED finding', () => {
+  it('emits a single aggregate finding (not per-slot stamps) when min_per_week cannot be met', () => {
     // 1 block available, min_per_week = 3 → underserved
     const act = { id: 'a1', name: 'Archery', priority: 'low', max_per_week: 5, min_per_week: 3, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
-    const { slots } = buildSchedule(minimal({ activities: [act] }))
-    const underservedSlot = slots.find(s => s.flags?.UNDERSERVED)
-    expect(underservedSlot).toBeTruthy()
-    expect(underservedSlot.flags.UNDERSERVED_reason).toMatch(/Goal: 3×\/wk/)
-    expect(underservedSlot.flags.UNDERSERVED_reason).toMatch(/Aleph/)
-    expect(underservedSlot.flags.UNDERSERVED_reason).toMatch(/Archery/)
+    const { slots, findings } = buildSchedule(minimal({ activities: [act] }))
+
+    expect(slots.some(s => s.flags?.UNDERSERVED)).toBe(false)
+
+    const underservedFindings = findings.filter(f => f.kind === 'UNDERSERVED')
+    expect(underservedFindings).toHaveLength(1)
+    const finding = underservedFindings[0]
+    expect(finding.groupId).toBe('g1')
+    expect(finding.activityId).toBe('a1')
+    expect(finding.severity).toBe('caution')
+    expect(finding.got).toBe(1)
+    expect(finding.needed).toBe(3)
+    expect(finding.reason).toMatch(/Goal: 3×\/wk/)
+    expect(finding.reason).toMatch(/Aleph/)
+    expect(finding.reason).toMatch(/Archery/)
   })
 })
 
-describe('DISTRIBUTION flag', () => {
-  it('sets DISTRIBUTION_reason when early-week goal not met', () => {
+describe('DISTRIBUTION finding', () => {
+  it('emits a single aggregate finding (not per-slot stamps) when early-week goal not met', () => {
     // 2 days, prefer 2× before day_of_week=2 (Tuesday), but activity placed both Mon+Tue
     const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
     const act = { id: 'a1', name: 'Arts', priority: 'low', max_per_week: 5, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: 2, prefer_before_day_min: 2 }
-    const { slots } = buildSchedule(minimal({ days: [baseDay, day2], activities: [act] }))
-    const distSlot = slots.find(s => s.flags?.DISTRIBUTION)
-    expect(distSlot).toBeTruthy()
-    expect(distSlot.flags.DISTRIBUTION_reason).toMatch(/Goal: 2×/)
-    expect(distSlot.flags.DISTRIBUTION_reason).toMatch(/Arts/)
-    expect(distSlot.flags.DISTRIBUTION_reason).toMatch(/Aleph/)
+    const { slots, findings } = buildSchedule(minimal({ days: [baseDay, day2], activities: [act] }))
+
+    expect(slots.some(s => s.flags?.DISTRIBUTION)).toBe(false)
+
+    const distFindings = findings.filter(f => f.kind === 'DISTRIBUTION')
+    expect(distFindings).toHaveLength(1)
+    const finding = distFindings[0]
+    expect(finding.groupId).toBe('g1')
+    expect(finding.activityId).toBe('a1')
+    expect(finding.severity).toBe('info')
+    expect(finding.reason).toMatch(/Goal: 2×/)
+    expect(finding.reason).toMatch(/Arts/)
+    expect(finding.reason).toMatch(/Aleph/)
+  })
+})
+
+// Round 2 B2: loadAll()/restoreSnapshot() in ScheduleScreen never called
+// buildSchedule(), so findings badges silently read 0/empty ("all clear")
+// for an existing schedule that was never regenerated in this session.
+// computeFindings() is a placement-free extraction of buildSchedule's Pass 3
+// aggregate-findings logic — it takes already-persisted template_slots rows
+// (snake_case DB shape) and recomputes UNDERSERVED/DISTRIBUTION without
+// re-placing anything.
+describe('computeFindings (placement-free recompute from persisted slots)', () => {
+  const groups = [baseGroup]
+  const days = [baseDay]
+
+  it('emits UNDERSERVED when persisted slots show fewer placements than min_per_week', () => {
+    const act = { id: 'a1', name: 'Archery', min_per_week: 3, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_anchor: false, flags: {} },
+    ]
+    const findings = computeFindings({ slots, groups, activities: [act], days })
+    expect(findings).toHaveLength(1)
+    expect(findings[0].kind).toBe('UNDERSERVED')
+    expect(findings[0].groupId).toBe('g1')
+    expect(findings[0].activityId).toBe('a1')
+    expect(findings[0].got).toBe(1)
+    expect(findings[0].needed).toBe(3)
+  })
+
+  it('emits no findings when persisted counts already meet min_per_week', () => {
+    const act = { id: 'a1', name: 'Archery', min_per_week: 1, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_anchor: false, flags: {} },
+    ]
+    expect(computeFindings({ slots, groups, activities: [act], days })).toHaveLength(0)
+  })
+
+  it('emits DISTRIBUTION when persisted placements land after the prefer_before_day target', () => {
+    const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
+    const act = { id: 'a1', name: 'Arts', min_per_week: 0, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: 2, prefer_before_day_min: 1 }
+    // Only placement is ON day2 (Tuesday itself), not strictly before it.
+    const slots = [
+      { group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a1', is_anchor: false, flags: {} },
+    ]
+    const findings = computeFindings({ slots, groups, activities: [act], days: [baseDay, day2] })
+    expect(findings.filter(f => f.kind === 'DISTRIBUTION')).toHaveLength(1)
+  })
+
+  it('ignores anchor slots and empty slots when counting placements', () => {
+    const act = { id: 'a1', name: 'Archery', min_per_week: 1, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_anchor: true, flags: {} },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, is_anchor: false, flags: {} },
+    ]
+    const findings = computeFindings({ slots, groups, activities: [act], days })
+    expect(findings.filter(f => f.kind === 'UNDERSERVED')).toHaveLength(1)
+    expect(findings[0].got).toBe(0)
+  })
+
+  it('returns [] when required inputs are missing rather than throwing', () => {
+    expect(computeFindings({})).toEqual([])
   })
 })
 

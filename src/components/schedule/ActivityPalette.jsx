@@ -1,15 +1,14 @@
 import { useDraggable } from '@dnd-kit/core'
+import { activityColor } from './slotCellConstants'
 
-const COLORS = ['#3F6690','#3C8C86','#5F8A5A','#8C6F26','#B26B47','#7C5E86']
-
-function DraggablePaletteItem({ activity, colorIdx, scheduledCount, atMax, draggable }) {
+function DraggablePaletteItem({ activity, scheduledCount, atMax, draggable }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `palette-${activity.id}`,
-    data: { paletteActivity: { id: activity.id, colorIdx } },
+    data: { paletteActivity: { id: activity.id } },
     disabled: atMax || !draggable,
   })
 
-  const color = COLORS[colorIdx % COLORS.length]
+  const color = activityColor(activity.id)
 
   return (
     <div
@@ -160,14 +159,13 @@ export default function ActivityPalette({
           No activities defined.{'\n'}Go to Camp Setup to add some.
         </div>
       ) : (
-        activities.map((activity, i) => {
+        activities.map((activity) => {
           const scheduledCount = nonAnchorSlots.filter(s => s.activity_id === activity.id).length
           const atMax = activity.max_per_week != null && scheduledCount >= activity.max_per_week
           return (
             <DraggablePaletteItem
               key={activity.id}
               activity={activity}
-              colorIdx={i}
               scheduledCount={scheduledCount}
               atMax={atMax}
               draggable={draggable}

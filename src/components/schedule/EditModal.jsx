@@ -46,7 +46,7 @@ export default function EditModal({ slot, eligibleActivities, currentActivity, c
               style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 13, fontWeight: 500, background: selected === a.id ? 'var(--surface-elevated)' : '', borderBottom: i < eligibleActivities.length - 1 ? '1px solid var(--border)' : '', display: 'flex', alignItems: 'center', gap: 8 }}
               onClick={() => setSelected(a.id)}
             >
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: activityColor(i), display: 'inline-block', flexShrink: 0 }} />
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: activityColor(a.id), display: 'inline-block', flexShrink: 0 }} />
               {a.name}
               {a.priority === 'high' && <span style={{ fontSize: 10, background: 'var(--primary)', color: '#fff', borderRadius: 3, padding: '1px 5px', marginLeft: 'auto' }}>HIGH</span>}
             </div>

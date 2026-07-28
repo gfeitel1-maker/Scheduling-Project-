@@ -10,8 +10,8 @@ export default function ScheduleActivityView({
       {!selectedActivity ? (
         /* Card grid */
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 10 }}>
-          {activities.map((act, idx) => {
-            const color = activityColor(idx)
+          {activities.map((act) => {
+            const color = activityColor(act.id)
             const totalSlots = slots.filter(s => s.activity_id === act.id).length
             const weeklyGroups = new Set(slots.filter(s => s.activity_id === act.id).map(s => s.group_id)).size
             return (
@@ -47,9 +47,8 @@ export default function ScheduleActivityView({
       ) : (
         /* Drilldown: weekly schedule for selected activity */
         (() => {
-          const actIdx = activities.findIndex(a => a.id === selectedActivity)
-          const act = activities[actIdx]
-          const color = activityColor(actIdx)
+          const act = activities.find(a => a.id === selectedActivity)
+          const color = activityColor(selectedActivity)
           return (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>

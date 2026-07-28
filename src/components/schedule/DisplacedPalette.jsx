@@ -1,14 +1,13 @@
 import { useDraggable } from '@dnd-kit/core'
-
-const COLORS = ['#3F6690','#3C8C86','#5F8A5A','#8C6F26','#B26B47','#7C5E86']
+import { activityColor } from './slotCellConstants'
 
 function DisplacedItem({ item, onDismiss }) {
-  const { activityId, activityName, fromBlockName, dayLabel, colorIdx } = item
-  const color = COLORS[colorIdx % COLORS.length]
+  const { activityId, activityName, fromBlockName, dayLabel } = item
+  const color = activityColor(activityId)
 
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `displaced-${activityId}-${fromBlockName}`,
-    data: { paletteActivity: { id: activityId, colorIdx } },
+    data: { paletteActivity: { id: activityId } },
   })
 
   return (
