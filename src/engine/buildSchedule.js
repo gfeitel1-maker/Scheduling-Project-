@@ -440,7 +440,10 @@ export function computeFindings({ slots, groups, activities, days }) {
   const groupMap = new Map(groups.map(g => [g.id, g]))
   const dayOrder = new Map(days.map((d, i) => [d.id, i]))
 
-  const activitySlots = slots.filter(s => !s.is_anchor && s.activity_id)
+  // Count once per placement (head only), matching Pass 3 above — a spanned
+  // activity persists as a head row plus one tail row per extra block. Rows
+  // predating the is_span_head column have it undefined and count as heads.
+  const activitySlots = slots.filter(s => !s.is_anchor && s.activity_id && s.is_span_head !== false)
   const counts = new Map() // "groupId|activityId" → count
   for (const s of activitySlots) {
     const k = `${s.group_id}|${s.activity_id}`

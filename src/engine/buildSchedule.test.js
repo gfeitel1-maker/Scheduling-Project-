@@ -133,6 +133,49 @@ describe('computeFindings (placement-free recompute from persisted slots)', () =
     expect(findings[0].got).toBe(0)
   })
 
+  // A merged/spanned activity persists as one head row plus one tail row per
+  // extra block. buildSchedule counts it once (head only); computeFindings must
+  // agree, or reloading the app silently inflates counts and hides a real
+  // UNDERSERVED warning.
+  it('counts a spanned activity once, not once per block it occupies', () => {
+    const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
+    const act = { id: 'a1', name: 'Swim', min_per_week: 4, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    // Two 2-block swims = 2 placements, not 4.
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_anchor: false, is_span_head: true, flags: {} },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'a1', is_anchor: false, is_span_head: false, flags: {} },
+      { group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a1', is_anchor: false, is_span_head: true, flags: {} },
+      { group_id: 'g1', day_id: 'd2', time_block_id: 'b2', activity_id: 'a1', is_anchor: false, is_span_head: false, flags: {} },
+    ]
+    const findings = computeFindings({ slots, groups, activities: [act], days: [baseDay, day2] })
+    const underserved = findings.filter(f => f.kind === 'UNDERSERVED')
+    expect(underserved).toHaveLength(1)
+    expect(underserved[0].got).toBe(2)
+  })
+
+  // Slots persisted before is_span_head existed have it undefined; those must
+  // still count, or every legacy schedule reads as empty.
+  it('counts slots with is_span_head undefined (pre-migration rows)', () => {
+    const act = { id: 'a1', name: 'Archery', min_per_week: 3, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_anchor: false, flags: {} },
+    ]
+    const findings = computeFindings({ slots, groups, activities: [act], days })
+    expect(findings[0].got).toBe(1)
+  })
+
+  it('excludes span tails from DISTRIBUTION before-day counting', () => {
+    const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
+    const act = { id: 'a1', name: 'Arts', min_per_week: 0, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: 2, prefer_before_day_min: 2 }
+    // One 2-block placement on Monday = 1 before the target, short of 2.
+    const slots = [
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_anchor: false, is_span_head: true, flags: {} },
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'a1', is_anchor: false, is_span_head: false, flags: {} },
+    ]
+    const findings = computeFindings({ slots, groups, activities: [act], days: [baseDay, day2] })
+    expect(findings.filter(f => f.kind === 'DISTRIBUTION')).toHaveLength(1)
+  })
+
   it('returns [] when required inputs are missing rather than throwing', () => {
     expect(computeFindings({})).toEqual([])
   })
