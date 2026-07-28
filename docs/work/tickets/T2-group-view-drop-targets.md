@@ -10,7 +10,7 @@ archive_when: fix merged and Verifier PASS recorded
 
 # T2 — Group-View Drop Targets from Persistent Palette
 
-**Spec:** `docs/workflow/specs/2026-07-26-manual-grid-editing.md`  
+**Spec:** `docs/work/specs/2026-07-26-manual-grid-editing.md`  
 **Risk:** Moderate  
 **Depends on:** T1  
 **Blocks:** T3

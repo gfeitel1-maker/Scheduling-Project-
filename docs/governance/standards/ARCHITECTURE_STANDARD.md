@@ -13,7 +13,7 @@ review_trigger: any ADR that changes the op-log, sync protocol, IPC surface, or 
 
 What must remain structurally true, regardless of what any given feature does.
 
-This is not a description of the system — that is [`PLATFORM_STATE.md`](../../../PLATFORM_STATE.md),
+This is not a description of the system — that is [`docs/current/PLATFORM_STATE.md`](../../current/PLATFORM_STATE.md),
 which is descriptive and ranks below code. This document is normative and ranks above it. Where the
 code violates a rule here, that is a defect or a gap requiring human review, never evidence that the
 rule has changed.

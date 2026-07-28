@@ -10,7 +10,7 @@ archive_when: fix merged and Verifier PASS recorded
 
 # T4 — Surface Merge-Down and Split in Grid
 
-**Spec:** `docs/workflow/specs/2026-07-26-manual-grid-editing.md`  
+**Spec:** `docs/work/specs/2026-07-26-manual-grid-editing.md`  
 **Risk:** Low-Moderate  
 **Depends on:** T1 (layout stable), T2 (DnD context stable)  
 **Blocks:** T5 (undo stack needs merge/split as known undoable actions)

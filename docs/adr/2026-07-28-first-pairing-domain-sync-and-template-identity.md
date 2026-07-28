@@ -51,7 +51,7 @@ never contend and no conflict is ever recorded in the `conflicts` table —
 this is silent by construction, not a narrowly-missed edge case.
 
 Three defects, all required to fix for the observable evidence in
-`docs/workflow/tickets/T7-joining-device-gets-empty-camp.md`:
+`docs/work/tickets/T7-joining-device-gets-empty-camp.md`:
 
 1. First pairing does not transfer current camp-configuration state.
 2. Template identity is resolved by an unordered `.find()` over a table each
@@ -192,7 +192,7 @@ push signal alone does not stop a click that lands in the race window.
   log — this project has already produced at least one confirmed case
   (`schedule_templates` missing from `PROJECTIONS` until 2026-07-26 meant
   `template_slots`/`schedule_templates` ops were logged but never
-  materialized for a period, per `PLATFORM_STATE.md`'s Known Issues) — and a
+  materialized for a period, per `docs/current/PLATFORM_STATE.md`'s Known Issues) — and a
   first-join replay has no way to distinguish "stale-but-now-fixed" history
   from current truth without re-deriving it op-by-op, which is exactly the
   work a row-snapshot skips by construction. (b) it is O(entire camp

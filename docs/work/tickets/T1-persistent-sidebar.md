@@ -10,7 +10,7 @@ archive_when: fix merged and Verifier PASS recorded
 
 # T1 — Persistent ActivityPalette Sidebar
 
-**Spec:** `docs/workflow/specs/2026-07-26-manual-grid-editing.md`  
+**Spec:** `docs/work/specs/2026-07-26-manual-grid-editing.md`  
 **Risk:** Low-Moderate  
 **Depends on:** nothing  
 **Blocks:** T2, T3, T4

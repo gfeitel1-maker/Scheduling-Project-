@@ -30,17 +30,17 @@ When two sources disagree, the higher number yields to the lower.
 | 2 | This constitution |
 | 3 | Domain normative standard (design, architecture, testing, security) |
 | 4 | Accepted ADR (`docs/adr/`) |
-| 5 | Approved active specification (`docs/workflow/specs/`) |
+| 5 | Approved active specification (`docs/work/specs/`) |
 | 6 | Approved implementation plan |
 | 7 | Code and deterministic test evidence |
-| 8 | Current-state documentation (`PLATFORM_STATE.md`, `README.md`) |
+| 8 | Current-state documentation (`docs/current/PLATFORM_STATE.md`, `README.md`) |
 | 9 | Historical documents (completed plans and specs, `legacy/`) |
 
 ### Two rules about this order that are routinely misread
 
 **Code outranks current-state prose (7 over 8), and this is deliberate.** Between a document
 describing the system and the system itself, the system is the more reliable witness.
-`PLATFORM_STATE.md` is evidence, not law; where it disagrees with the code, the code is right and
+`docs/current/PLATFORM_STATE.md` is evidence, not law; where it disagrees with the code, the code is right and
 the document is stale.
 
 **Code does not outrank a standard (7 is below 3).** Current implementation is evidence of reality,

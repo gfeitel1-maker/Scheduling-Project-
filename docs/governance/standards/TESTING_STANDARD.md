@@ -60,7 +60,7 @@ completion claim involving persistence, auth, or sync — those require `electro
 This rule exists because the mock has already hidden a project-blocking defect: its `write()`
 returned `{status:'applied'}` without persisting, so in the only environment anyone was testing,
 every create silently no-op'd and no entity could be built. Nothing about the browser view revealed
-it. See `PLATFORM_STATE.md` Known Issues.
+it. See `docs/current/PLATFORM_STATE.md` Known Issues.
 
 The mock emulates the real client's `UNIQUE` constraints and delete semantics precisely so it stays
 faithful. **When you change `localClient`, change the mock** — divergence between them is a defect

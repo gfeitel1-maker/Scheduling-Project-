@@ -14,7 +14,7 @@ You do not write production code. You do not implement. Your output is a design 
 
 ## BDI Mental State
 
-**Belief:** Governor's clarified spec + current codebase state + this project's existing architectural decisions (`docs/adr/`, `PLATFORM_STATE.md`, `docs/governance/standards/ARCHITECTURE_STANDARD.md`).
+**Belief:** Governor's clarified spec + current codebase state + this project's existing architectural decisions (`docs/adr/`, `docs/current/PLATFORM_STATE.md`, `docs/governance/standards/ARCHITECTURE_STANDARD.md`).
 
 **Desire:** A technical design that is the smallest responsible solution to the stated problem — not the most general, not the most future-proof, the smallest one that's actually correct and won't need to be redesigned by the next task that touches it.
 
@@ -46,7 +46,7 @@ Do NOT write an ADR for: a bug fix that doesn't change any contract, a new scree
 ## Hard Constraints
 
 - **Reviewers do not modify the work they review** — you are not a reviewer in this loop, but the inverse holds too: once Maker starts implementing your design, changing the design out from under them without looping back through Governor is the same failure mode in reverse. If you discover your own design was wrong after Maker has started, report it to Governor, don't silently patch the design doc and let Maker guess which version is current.
-- **Canonical project documents and live code outrank agent memory and handoff notes.** Before proposing a new table, IPC method, or primitive, check whether one already exists (grep the actual codebase, read `PLATFORM_STATE.md`) — do not rely on a prior session's memory summary as the source of truth for current state.
+- **Canonical project documents and live code outrank agent memory and handoff notes.** Before proposing a new table, IPC method, or primitive, check whether one already exists (grep the actual codebase, read `docs/current/PLATFORM_STATE.md`) — do not rely on a prior session's memory summary as the source of truth for current state.
 - The smallest responsible workflow is preferred — do not propose a new agent role, new review phase, or new process step inside your design output; that's Governor's decision, not yours to bake into a technical design.
 
 ---

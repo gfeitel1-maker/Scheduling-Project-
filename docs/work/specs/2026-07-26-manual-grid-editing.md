@@ -12,7 +12,7 @@ archive_when: all child tickets closed and Verifier PASS recorded
 
 **Date:** 2026-07-26  
 **Status:** Active — Designer spec complete; undo/redo added 2026-07-26  
-**Task state:** `docs/workflow/task-state/2026-07-26-manual-grid-editing.md`
+**Task state:** `docs/work/task-state/2026-07-26-manual-grid-editing-state.md`
 
 ---
 

@@ -10,7 +10,7 @@ archive_when: fix merged and Verifier PASS recorded
 
 # T5 — Undo / Redo for Slot Edits
 
-**Spec:** `docs/workflow/specs/2026-07-26-manual-grid-editing.md`  
+**Spec:** `docs/work/specs/2026-07-26-manual-grid-editing.md`  
 **Risk:** Moderate  
 **Depends on:** T3 (paste must exist), T4 (merge/split must exist)  
 **Blocks:** nothing

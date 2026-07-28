@@ -10,7 +10,7 @@ archive_when: fix merged and Verifier PASS recorded
 
 # T3 — Cell Selection and Copy/Paste (Single and Multi-Cell)
 
-**Spec:** `docs/workflow/specs/2026-07-26-manual-grid-editing.md`  
+**Spec:** `docs/work/specs/2026-07-26-manual-grid-editing.md`  
 **Risk:** Moderate  
 **Depends on:** T2 (DnD context must be stable before adding selection click handlers)  
 **Blocks:** T5 (undo stack needs paste as a known undoable action)

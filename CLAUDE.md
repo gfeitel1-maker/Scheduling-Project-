@@ -10,7 +10,7 @@ The highest authority is [`docs/governance/constitution/CONSTITUTION.md`](docs/g
 
 Three things worth knowing before you read anything else here:
 
-- **This file and [PLATFORM_STATE.md](PLATFORM_STATE.md) are descriptive, not authoritative.** They record what exists. Where they disagree with the code, the code is right and the document is stale — say so rather than reasoning from the stale text.
+- **This file and [PLATFORM_STATE.md](docs/current/PLATFORM_STATE.md) are descriptive, not authoritative.** They record what exists. Where they disagree with the code, the code is right and the document is stale — say so rather than reasoning from the stale text.
 - **A standard is not overridden by code.** If the implementation contradicts a standard, that is a gap to report, not a licence to amend either one.
 - **`docs/archive/**` and `legacy/**` are historical.** Several documents there describe the retired Supabase architecture accurately as of their date. They are never current instruction, however detailed they look.
 
@@ -66,4 +66,4 @@ The pre-rebuild Supabase backend has moved to `legacy/supabase/` and is fully re
 - RLS policies (via `get_my_camp_id()`) enforced tenant isolation in that era; local-first data isolation now works differently — see the local-first model above.
 - `src/hooks/useSession.js` no longer exists (removed in an earlier phase).
 
-See [legacy/supabase/README.md](legacy/supabase/README.md) for more, and [PLATFORM_STATE.md](PLATFORM_STATE.md) for what's actually active. Treat this section as historical context only.
+See [legacy/supabase/README.md](legacy/supabase/README.md) for more, and [PLATFORM_STATE.md](docs/current/PLATFORM_STATE.md) for what's actually active. Treat this section as historical context only.
