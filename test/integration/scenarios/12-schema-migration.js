@@ -11,7 +11,7 @@
 import fs from 'node:fs'
 import Database from 'better-sqlite3'
 import { Host, getFreePort, makeTmpDir, cleanupDirs } from '../harness.js'
-import { openLocalDb, getSchemaVersion } from '../../../electron/db/localDb.js'
+import { openLocalDb, getSchemaVersion, CURRENT_SCHEMA_VERSION } from '../../../electron/db/localDb.js'
 
 export async function run() {
   const dirs = []
@@ -34,12 +34,15 @@ export async function run() {
     // Close everything before messing with the DB file.
     host.close();   host = null
 
-    // Delete the v20 migration row to simulate "rolled back" schema version.
+    // Delete every migration row from v20 onward to simulate a "rolled back"
+    // schema version (>= , not just = 20 — with v21/v22 also applied by
+    // bootstrap now, MAX(version) would otherwise still report the current
+    // version and the reopen below would never detect a downgrade at all).
     const rawDb = new Database(hostDbPath)
-    rawDb.prepare('DELETE FROM schema_migrations WHERE version = 20').run()
+    rawDb.prepare('DELETE FROM schema_migrations WHERE version >= 20').run()
     rawDb.close()
 
-    // Reopen via openLocalDb — should detect v19 < 20 and migrate.
+    // Reopen via openLocalDb — should detect v19 < CURRENT_SCHEMA_VERSION and migrate.
     migratedDb = openLocalDb(hostDbPath)
 
     // a. A .bak backup file should exist alongside the DB.
@@ -50,10 +53,10 @@ export async function run() {
       throw new Error('Expected a .pre-migration-*.bak backup file, none found')
     }
 
-    // b. Schema version is back to 20.
+    // b. Schema version is back to CURRENT_SCHEMA_VERSION.
     const version = getSchemaVersion(migratedDb)
-    if (version !== 20) {
-      throw new Error(`Expected schema version 20 after re-migration, got ${version}`)
+    if (version !== CURRENT_SCHEMA_VERSION) {
+      throw new Error(`Expected schema version ${CURRENT_SCHEMA_VERSION} after re-migration, got ${version}`)
     }
 
     // c. Ops written before migration survived (data-survival check).

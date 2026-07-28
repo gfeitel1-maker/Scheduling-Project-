@@ -2,7 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-For a fuller picture of screens, tables, and architectural decisions, see [PLATFORM_STATE.md](PLATFORM_STATE.md) — keep both in sync when structural things change.
+## Finding what governs your work
+
+**[`docs/governance/GOVERNANCE_INDEX.md`](docs/governance/GOVERNANCE_INDEX.md) resolves which documents govern a given task.** Start there rather than inferring authority from whatever file you happened to open.
+
+The highest authority is [`docs/governance/constitution/CONSTITUTION.md`](docs/governance/constitution/CONSTITUTION.md) — precedence order, the ten standing rules, human-approval gates, the agent roster, and the review loop. It is subordinate only to explicit current human instruction, and it overrides any personal `~/.claude/` defaults within this repository.
+
+Three things worth knowing before you read anything else here:
+
+- **This file and [PLATFORM_STATE.md](docs/current/PLATFORM_STATE.md) are descriptive, not authoritative.** They record what exists. Where they disagree with the code, the code is right and the document is stale — say so rather than reasoning from the stale text.
+- **A standard is not overridden by code.** If the implementation contradicts a standard, that is a gap to report, not a licence to amend either one.
+- **`docs/archive/**` and `legacy/**` are historical.** Several documents there describe the retired Supabase architecture accurately as of their date. They are never current instruction, however detailed they look.
 
 ## Commands
 
@@ -15,6 +25,13 @@ npm run lint            # ESLint
 npm run test             # Run all Vitest tests
 npm test -- src/path/to/file.test.js  # Run a single test file
 ```
+
+**Dev and packaged builds use separate databases, deliberately.** `npm run electron:dev` reads
+`~/Library/Application Support/shoresh-dev`; the installed app reads `.../shoresh`. Development work
+therefore cannot touch a real camp's data. The sidebar footer shows a **DEV** badge whenever the
+development database is loaded — if you do not see it, you are looking at the installed app's data.
+Set explicitly in `electron/db/userDataPath.js`; see
+[docs/adr/2026-07-28-explicit-userdata-directory.md](docs/adr/2026-07-28-explicit-userdata-directory.md).
 
 After touching `electron/db/**` (better-sqlite3 is a native module), the binary ABI can drift between Node (used by Vitest) and Electron:
 
@@ -31,7 +48,7 @@ npm rebuild better-sqlite3                   # before npm run test
 
 **Renderer ↔ Electron IPC** — the renderer never touches SQLite directly. All calls go through `window.shoresh.*` (exposed via `contextBridge` in `electron/preload.js`), handled in `electron/main.js`: `chooseMode`, `discoverHosts`, `login`, `createUser`, `bootstrapCamp`, `write`, `verifySession`, `getCamp`, `listUsers`, `getDeviceId`, `resolveConflict`, `listPendingConflicts`, plus push events `onOpApplied`/`onOpConflict`.
 
-**Auth** — local, PIN-based, per-camp. `electron/auth/localAuth.js`'s `attemptLogin(db, {name, pin, deviceId})` does the PIN check (`scryptSync`) and lockout tracking; `issueSessionToken`/`verifySessionToken(db, ...)` sign/verify tokens using a shared per-camp HMAC secret (`camps.signing_secret`, generated at bootstrap, distributed to every device via full-sync). Two login paths — local IPC (Host, or a Client's offline fallback) and an unauthenticated WebSocket `login` message (lets a genuinely fresh Client verify its PIN against the Host and get its first token) — both route through `attemptLogin` so behavior can't drift.
+**Auth** — local, PIN-based, per-camp. `electron/auth/localAuth.js`'s `attemptLogin(db, {name, pin, deviceId})` does the PIN check (`scryptSync` + `timingSafeEqual`) and lockout tracking (5 attempts, 30s). Two token types: `camp` tokens are signed with the Host's Ed25519 private key, which lives only in `host_signing_key` on the Host and never replicates — Clients receive the public half via `camps.signing_public_key` and can verify but never mint. `local` tokens are HMAC-SHA256 keyed to that device's own `device_secret_identifier` (issued at pairing) and are accepted only for local IPC on that device; the Host's WebSocket server rejects them. Both expire in 24h. Two login paths — local IPC and an unauthenticated WebSocket `login` message (lets a fresh Client verify its PIN against the Host) — both route through `attemptLogin` so behavior can't drift. Every mutating IPC and WS handler goes through `authorize()` (`electron/auth/authorize.js`), which re-queries role and device trust on every call. See [SECURITY.md](SECURITY.md).
 
 **Op-log sync** — all mutations are appended as rows to the `operations` table (entity/field-level, with `client_write_id` for idempotent retries) and replayed across devices. Genuine conflicting writes are recorded in the `conflicts` table (not silently dropped) and require explicit resolution via `resolveConflict`, linked by `parent_op_id`.
 
@@ -56,4 +73,4 @@ The pre-rebuild Supabase backend has moved to `legacy/supabase/` and is fully re
 - RLS policies (via `get_my_camp_id()`) enforced tenant isolation in that era; local-first data isolation now works differently — see the local-first model above.
 - `src/hooks/useSession.js` no longer exists (removed in an earlier phase).
 
-See [legacy/supabase/README.md](legacy/supabase/README.md) for more, and [PLATFORM_STATE.md](PLATFORM_STATE.md) for what's actually active. Treat this section as historical context only.
+See [legacy/supabase/README.md](legacy/supabase/README.md) for more, and [PLATFORM_STATE.md](docs/current/PLATFORM_STATE.md) for what's actually active. Treat this section as historical context only.

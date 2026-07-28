@@ -19,6 +19,14 @@ contextBridge.exposeInMainWorld('shoresh', {
     ipcRenderer.on('shoresh:op-conflict', wrapped)
     return () => ipcRenderer.removeListener('shoresh:op-conflict', wrapped)
   },
+  // No payload — mirrors onOpApplied's exact shape (subscribe/unsubscribe),
+  // but the event itself carries nothing beyond "it happened". Consumed by
+  // the first-sync write-gate (slice 2).
+  onFullSyncApplied: (callback) => {
+    const wrapped = () => callback()
+    ipcRenderer.on('shoresh:full-sync-applied', wrapped)
+    return () => ipcRenderer.removeListener('shoresh:full-sync-applied', wrapped)
+  },
   getCamp: () => ipcRenderer.invoke('shoresh:get-camp'),
   listUsers: (token) => ipcRenderer.invoke('shoresh:list-users', { token }),
   list: (token, entity) => ipcRenderer.invoke('shoresh:list', { token, entity }),

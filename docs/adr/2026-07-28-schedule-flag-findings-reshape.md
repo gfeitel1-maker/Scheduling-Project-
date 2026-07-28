@@ -1,3 +1,14 @@
+---
+title: "Reshape schedule flags: per-cell dots vs. group-level findings"
+document_type: adr
+authority: normative
+status: accepted
+date: 2026-07-28
+supersedes: []
+implementation_state: shipped
+affects: [docs/governance/standards/DESIGN_STANDARD.md]
+---
+
 # Reshape schedule flags: per-cell dots vs. group-level findings
 
 **Status:** proposed

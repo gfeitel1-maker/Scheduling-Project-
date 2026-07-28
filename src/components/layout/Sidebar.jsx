@@ -37,6 +37,9 @@ const NAV_SECTIONS = [
 export default function Sidebar({ current, onNavigate, campId, role, badges = {} }) {
   const [campName, setCampName] = useState('')
   const [projectPath, setProjectPath] = useState(null)
+  // Which database is loaded must be visible, not inferable — see
+  // docs/adr/2026-07-28-explicit-userdata-directory.md.
+  const [isDevDb, setIsDevDb] = useState(false)
   const [backupStatus, setBackupStatus] = useState(null) // null | 'running' | 'ok' | 'error'
 
   useEffect(() => {
@@ -49,7 +52,7 @@ export default function Sidebar({ current, onNavigate, campId, role, badges = {}
   useEffect(() => {
     if (!window.shoresh?.getCurrentProject) return
     window.shoresh.getCurrentProject()
-      .then(info => { if (info?.path) setProjectPath(info.path) })
+      .then(info => { if (info?.path) setProjectPath(info.path); if (info) setIsDevDb(!!info.isDev) })
       .catch(() => { /* non-fatal */ })
   }, [campId])
 
@@ -146,14 +149,26 @@ export default function Sidebar({ current, onNavigate, campId, role, badges = {}
       }}>
         {projectPath && (
           <div
-            title={projectPath}
+            title={isDevDb ? `Development database — not the installed app's data\n${projectPath}` : projectPath}
             style={{
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', gap: 6,
               marginBottom: 6, cursor: 'default',
               color: 'var(--text-secondary)',
             }}
           >
-            {projectPath.split(/[\\/]/).pop()}
+            {isDevDb && (
+              <span style={{
+                flexShrink: 0, fontSize: 9, fontWeight: 700, letterSpacing: '0.04em',
+                color: 'var(--accent)', background: 'color-mix(in srgb, var(--accent) 12%, transparent)',
+                border: '1px solid color-mix(in srgb, var(--accent) 35%, transparent)',
+                padding: '1px 4px', borderRadius: 4,
+              }}>
+                DEV
+              </span>
+            )}
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {projectPath.split(/[\\/]/).pop()}
+            </span>
           </div>
         )}
         {role === 'admin' && (

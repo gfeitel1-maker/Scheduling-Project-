@@ -49,6 +49,27 @@ import { appendOp, recordConflict, listPendingConflicts } from '../ops/operation
 import { startSyncServer } from './syncServer.js'
 import { createSyncClient } from './syncClient.js'
 
+// T7 fix: isValidDomainSnapshotBatch (syncClient.js) now requires every
+// camp-scoped domain table to be present (as an array) on any full_sync
+// message, or applyFullSync throws before touching the DB at all. Tests that
+// hand-construct a full_sync message to exercise camps/users validation
+// specifically must still include these (empty is fine) or they'd
+// accidentally be testing "malformed batch missing domain tables" instead.
+const EMPTY_DOMAIN_SNAPSHOT_TABLES = {
+  cohorts: [],
+  days_of_operation: [],
+  groups: [],
+  tiers: [],
+  time_blocks: [],
+  activities: [],
+  anchor_activities: [],
+  schedule_templates: [],
+  day_override_templates: [],
+  template_slots: [],
+  template_overlays: [],
+  day_override_template_slots: [],
+}
+
 const PORT = 8237
 const FLUSH_PORT = 8238
 const FLUSH_PORT_TIMEOUT = 8239
@@ -1165,6 +1186,7 @@ describe('full_sync handling', () => {
         { id: randomUUID(), name: 'Empty Secret', signing_secret: '' },
         null,
       ],
+      ...EMPTY_DOMAIN_SNAPSHOT_TABLES,
     })
 
     ws.emit('message', Buffer.from(msg))
@@ -1206,6 +1228,7 @@ describe('full_sync handling', () => {
         { id: nullSecretCampId, name: 'Null Secret', signing_secret: null },
         { id: validCampId, name: 'Has Secret', signing_secret: 'g'.repeat(64) },
       ],
+      ...EMPTY_DOMAIN_SNAPSHOT_TABLES,
     })
 
     ws.emit('message', Buffer.from(msg))
@@ -1247,6 +1270,7 @@ describe('full_sync handling', () => {
         // leaving them partially applied.
         { id: randomUUID(), camp_id: nonexistentCampId, name: 'Bad FK User', pin_hash: 'h', pin_salt: 's', role: 'staff' },
       ],
+      ...EMPTY_DOMAIN_SNAPSHOT_TABLES,
     })
 
     expect(() => ws.emit('message', Buffer.from(msg))).not.toThrow()

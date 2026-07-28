@@ -149,6 +149,13 @@ export class Host {
       "UPDATE devices SET authorized_at = ?, authorized_by_user_id = ?, pairing_status = 'authorized' WHERE id = ?"
     ).run(new Date().toISOString(), user.id, this.deviceId)
 
+    // Mirrors electron/main.js's bootstrapCamp: a Host trivially has 100% of
+    // its own data from the instant of its own bootstrap and must never be
+    // gated by the first-sync write-gate (T7 fix, design doc Part 4.1).
+    this.db.prepare(
+      'UPDATE device_identity SET first_sync_completed_at = COALESCE(first_sync_completed_at, ?)'
+    ).run(new Date().toISOString())
+
     this.campId = campId
     this.adminUserId = user.id
     this.adminToken = issueCampToken(this.db, user.id, this.deviceId)
@@ -213,6 +220,17 @@ export class Host {
     return this.db.prepare(
       'SELECT COUNT(*) as n FROM operations WHERE entity = ? AND entity_id = ? AND field = ?'
     ).get(entity, entityId, field).n
+  }
+
+  /**
+   * T7 fix: reads device_identity.first_sync_completed_at directly — the
+   * real IPC surface (electron/main.js's hasCompletedInitialSync handler) is
+   * slice 2 of this fix, so tests read the underlying flag straight from the
+   * DB, matching this file's existing dbExec-style test-only access pattern.
+   */
+  hasCompletedInitialSync() {
+    const row = this.db.prepare('SELECT first_sync_completed_at FROM device_identity LIMIT 1').get()
+    return !!(row && row.first_sync_completed_at)
   }
 
   /**
@@ -320,6 +338,12 @@ export class Client {
   /** Read all unresolved conflicts from the client DB. */
   getConflicts() {
     return this.db.prepare('SELECT * FROM conflicts WHERE resolved_at IS NULL').all()
+  }
+
+  /** T7 fix: reads device_identity.first_sync_completed_at directly (see Host's own copy above). */
+  hasCompletedInitialSync() {
+    const row = this.db.prepare('SELECT first_sync_completed_at FROM device_identity LIMIT 1').get()
+    return !!(row && row.first_sync_completed_at)
   }
 
   /**

@@ -45,8 +45,8 @@ Walk through the feature as a camp director who has never seen it. At each step:
 - If I make a mistake, will I know?
 - Does the result make sense?
 
-Check against `tester/SCRIPT.md` for relevant regression cases.
-Check against `tester/DIRECTOR_BRIEF.md` for the director's perspective framework.
+Check against [`docs/governance/references/regression-script.md`](../../docs/governance/references/regression-script.md) for relevant regression cases.
+Check against [`docs/governance/references/director-persona.md`](../../docs/governance/references/director-persona.md) for the director's perspective framework.
 
 ### Visual Fidelity (Dimension 2)
 **When Designer ran (DESIGN SPEC present):**

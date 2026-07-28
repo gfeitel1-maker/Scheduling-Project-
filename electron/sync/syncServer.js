@@ -14,6 +14,12 @@ import {
 import { authorize } from '../auth/authorize.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from '../auth/deriveWriteAction.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
+import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from '../ops/campScopedEntities.js'
+
+// The parent-scoped entities shipped in the first-pairing domain snapshot —
+// deliberately excludes `schedule_snapshots` (see design doc Consequences:
+// unbounded historical growth over a season, out of scope for this ticket).
+const DOMAIN_PARENT_SCOPED_ENTITIES = ['template_slots', 'template_overlays', 'day_override_template_slots']
 
 // Task 10 round-5 Fix 4: report success/failure back to the caller instead
 // of unconditionally swallowing it. sendMissedOps needs this to know exactly
@@ -101,9 +107,53 @@ function isNonEmptyString(v) {
   return typeof v === 'string' && v.length > 0
 }
 
-function sendFullSyncIfFirstPairing(db, ws) {
+// T7 fix: how long the Host waits for the Client's application-level
+// `full_sync_applied` ack (see waitForFullSyncAck below) after the transport
+// send itself is confirmed. Generous vs. SEND_ACK_TIMEOUT_MS's 8s: this is a
+// larger, one-time batch commit on the Client (every camp-scoped domain
+// table), not a single op.
+const FULL_SYNC_ACK_TIMEOUT_MS = 15000
+
+// Resolves once this connection's Client sends `full_sync_applied`, or after
+// timeoutMs elapses with no ack (resolves false either way on timeout — the
+// Host must not latch last_synced_at on a transport-confirmed-but-never-
+// -acked send). Only one full_sync is ever in flight per connection, since
+// sendFullSyncIfFirstPairing's own last_synced_at guard prevents re-entry
+// until the latch is actually set.
+function waitForFullSyncAck(ws, timeoutMs = FULL_SYNC_ACK_TIMEOUT_MS) {
+  return new Promise((resolve) => {
+    let settled = false
+    let timer = null
+    const settle = (result) => {
+      if (settled) return
+      settled = true
+      // Clear the timer on whichever path settles first, exactly as
+      // sendWithAck does above. Without this, an acked full-sync still left a
+      // live 15s timer holding this socket: harmless-looking in production,
+      // but it keeps the event loop busy and made the test suite's 5s-timeout
+      // cases fail nondeterministically under load.
+      if (timer) clearTimeout(timer)
+      ws.pendingFullSyncAckResolve = null
+      resolve(result)
+    }
+    ws.pendingFullSyncAckResolve = settle
+    timer = setTimeout(() => settle(false), timeoutMs)
+  })
+}
+
+// asOfSeq is not read by this function's own body — it is accepted purely so
+// the caller (handleAuthenticate) can pass the SAME single, synchronously-
+// computed value into both this function and sendMissedOps, per the design
+// doc §2.5: the two must agree on the exact same instant, and passing it
+// through here keeps that invariant true by construction rather than true
+// only because nothing currently awaits between two independently-read values.
+// eslint-disable-next-line no-unused-vars
+async function sendFullSyncIfFirstPairing(db, ws, asOfSeq) {
   const device = db.prepare('SELECT last_synced_at FROM devices WHERE id = ?').get(ws.deviceId)
   if (!device || device.last_synced_at) return
+
+  const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+  const campId = camp?.id ?? null
 
   const users = db.prepare('SELECT id, camp_id, name, pin_hash, pin_salt, role FROM users').all()
   // signing_public_key travels the same way signing_secret always has — see
@@ -111,12 +161,56 @@ function sendFullSyncIfFirstPairing(db, ws) {
   // verify a 'camp' token fully offline. host_signing_key (the PRIVATE half)
   // is a separate table, never selected here or anywhere else in this file.
   const camps = db.prepare('SELECT id, name, signing_secret, signing_public_key FROM camps').all()
-  send(ws, { type: 'full_sync', users, camps })
 
-  db.prepare('UPDATE devices SET last_synced_at = ? WHERE id = ?').run(
-    new Date().toISOString(),
-    ws.deviceId
-  )
+  // Extend the same full_sync message with every camp-scoped domain table
+  // (design doc §2.1) — reusing the exact registry/scoping logic main.js's
+  // `list()` IPC handler uses, so "camp-scoped" can never mean two different
+  // things between the renderer's read path and this snapshot. If there is
+  // no camp row yet (should not be reachable via a real pairing flow, but
+  // defensive), every domain table ships as an empty array rather than the
+  // message being skipped, so the Client's applyFullSync still runs and the
+  // rest of the handshake still completes.
+  const domainTables = {}
+  for (const entity of DIRECT_CAMP_ENTITIES) {
+    domainTables[entity] = campId
+      ? db.prepare(`SELECT * FROM ${entity} WHERE camp_id = ?`).all(campId)
+      : []
+  }
+  for (const entity of DOMAIN_PARENT_SCOPED_ENTITIES) {
+    const { table, parentTable, parentKey } = PARENT_SCOPED_ENTITIES[entity]
+    domainTables[entity] = campId
+      ? db.prepare(`SELECT t.* FROM ${table} t JOIN ${parentTable} p ON p.id = t.${parentKey} WHERE p.camp_id = ?`).all(campId)
+      : []
+  }
+
+  const delivered = await sendWithAck(ws, { type: 'full_sync', users, camps, ...domainTables })
+  if (!delivered) return // transport failure — no point waiting for an app-level ack that can't arrive
+
+  // Corrected mechanism (design doc §2.4): a transport-confirmed send is NOT
+  // proof the Client's applyFullSync transaction actually committed. Wait
+  // for the Client's own `full_sync_applied` reply — sent only after that
+  // transaction commits (syncClient.js) — before latching last_synced_at.
+  const applied = await waitForFullSyncAck(ws)
+  if (applied) {
+    try {
+      db.prepare('UPDATE devices SET last_synced_at = ? WHERE id = ?').run(
+        new Date().toISOString(),
+        ws.deviceId
+      )
+    } catch {
+      // The ack timeout can resolve up to FULL_SYNC_ACK_TIMEOUT_MS after this
+      // function started — long enough that the Host's own db/process may
+      // already be shutting down by the time this fires (e.g. test teardown,
+      // or a genuine host restart). A closed-db error here must not become
+      // an unhandled rejection; harmless either way, since a still-unset
+      // last_synced_at simply means the next reconnect retries the snapshot.
+    }
+  }
+  // applied === false: transport delivered, but no application ack arrived
+  // within the timeout (Client's apply failed, or the ack itself was lost).
+  // last_synced_at stays NULL either way — next reconnect retries the whole
+  // snapshot from scratch, safe by construction since every insert on the
+  // Client side is INSERT OR REPLACE.
 }
 
 // Task 10 round-4 Fix 3: reconnect catch-up. sendFullSyncIfFirstPairing only
@@ -158,7 +252,14 @@ function currentMaxOpSeq(db) {
 // over an actual network socket in a test, so the partial-send-failure path
 // is tested by calling this directly against a real SQLite db with a
 // controlled fake `ws` object whose send() throws on a specific op.
-export async function sendMissedOps(db, ws, ackTimeoutMs = SEND_ACK_TIMEOUT_MS) {
+// asOfSeq (design doc §2.5): the caller (handleAuthenticate) computes
+// currentMaxOpSeq(db) synchronously ONCE and passes the SAME value into both
+// this function and sendFullSyncIfFirstPairing, so a write landing between
+// two separately-computed baselines can never end up claimed as "already
+// seen" by the watermark while also missing the domain snapshot (or vice
+// versa). This is a signature change to an exported, directly-unit-tested
+// function — every existing direct call site must pass asOfSeq explicitly.
+export async function sendMissedOps(db, ws, asOfSeq, ackTimeoutMs = SEND_ACK_TIMEOUT_MS) {
   const device = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(ws.deviceId)
 
   if (!device || device.last_synced_seq === null || device.last_synced_seq === undefined) {
@@ -170,7 +271,7 @@ export async function sendMissedOps(db, ws, ackTimeoutMs = SEND_ACK_TIMEOUT_MS) 
     // From this point on, only ops created AFTER this moment are missed-op
     // candidates for this device.
     db.prepare('UPDATE devices SET last_synced_seq = ? WHERE id = ?').run(
-      currentMaxOpSeq(db),
+      asOfSeq,
       ws.deviceId
     )
     return
@@ -288,8 +389,21 @@ function handleAuthenticate(db, ws, msg) {
   // real token, not just the derived userId/deviceId already set above.
   ws.token = msg.token
 
-  sendFullSyncIfFirstPairing(db, ws)
-  sendMissedOps(db, ws)
+  // Computed once, synchronously, here — before either call below, and
+  // before either has a chance to await anything. Both
+  // sendFullSyncIfFirstPairing's row snapshot and sendMissedOps's own
+  // first-time watermark baseline must agree on the exact same instant, or a
+  // write landing between two separately-computed values could end up in
+  // neither the snapshot nor any future replay (design doc §2.5). Nothing
+  // between here and the two calls below yields to the event loop, so this
+  // is the one instant both need.
+  const asOfSeq = currentMaxOpSeq(db)
+
+  // Fire-and-forget, per this file's existing convention (sendMissedOps was
+  // already un-awaited here before this change) — handleAuthenticate must
+  // not block on either completing.
+  sendFullSyncIfFirstPairing(db, ws, asOfSeq)
+  sendMissedOps(db, ws, asOfSeq)
 }
 
 function validateLoginMsg(msg) {
@@ -685,6 +799,15 @@ export function startSyncServer(db, { port, onPairingRequest } = {}) {
         }
 
         if (!ws.deviceId) return
+
+        // Client -> Host application-level ack that the full_sync batch
+        // actually committed (design doc §2.4) — only ever sent after
+        // `authenticate` has already set ws.deviceId, so this sits alongside
+        // the other authenticated-only branches below.
+        if (msg.type === 'full_sync_applied') {
+          if (ws.pendingFullSyncAckResolve) ws.pendingFullSyncAckResolve(true)
+          return
+        }
 
         // renew_token: authenticated only
         if (msg.type === 'renew_token') {

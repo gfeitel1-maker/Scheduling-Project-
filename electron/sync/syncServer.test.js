@@ -586,8 +586,26 @@ describe('full_sync on first pairing', () => {
         signing_public_key: expect.any(String),
       },
     ])
+    // Extended domain snapshot (T7 fix): every camp-scoped domain table
+    // ships too, as empty arrays here since none has any data yet.
+    for (const table of [
+      'cohorts', 'days_of_operation', 'groups', 'tiers', 'time_blocks', 'activities',
+      'anchor_activities', 'schedule_templates', 'day_override_templates',
+      'template_slots', 'template_overlays', 'day_override_template_slots',
+    ]) {
+      expect(msg[table], `expected msg.${table} to be []`).toEqual([])
+    }
 
-    const row = db.prepare('SELECT last_synced_at FROM devices WHERE id = ?').get(newDeviceId)
+    // last_synced_at must NOT be set on transport delivery alone — only once
+    // the Client's application-level full_sync_applied ack arrives (T7 fix,
+    // design doc §2.4).
+    let row = db.prepare('SELECT last_synced_at FROM devices WHERE id = ?').get(newDeviceId)
+    expect(row.last_synced_at).toBeNull()
+
+    ws.send(JSON.stringify({ type: 'full_sync_applied' }))
+    await new Promise((r) => setTimeout(r, 100))
+
+    row = db.prepare('SELECT last_synced_at FROM devices WHERE id = ?').get(newDeviceId)
     expect(row.last_synced_at).toBeTruthy()
 
     ws.close()
@@ -603,6 +621,10 @@ describe('full_sync on first pairing', () => {
     ws1.send(JSON.stringify({ type: 'authenticate', token: newToken, device_id: newDeviceId }))
     const firstMsg = await onceMessage(ws1)
     expect(firstMsg.type).toBe('full_sync')
+    // Ack it — without this, last_synced_at stays NULL and a second
+    // authenticate would correctly (per the T7 fix) retry the snapshot.
+    ws1.send(JSON.stringify({ type: 'full_sync_applied' }))
+    await new Promise((r) => setTimeout(r, 100))
     ws1.close()
 
     const ws2 = connect()
@@ -671,7 +693,12 @@ describe('Task 10 round-5 Fix 4: sendMissedOps watermark stops at the last succe
     // op A sends fine, op B's send() throws, op C is never attempted.
     const ws = fakeWs(deviceId, 'catchup-b')
 
-    await sendMissedOps(db, ws)
+    // asOfSeq (the new required 3rd arg, design doc §2.5) is unused by
+    // sendMissedOps whenever last_synced_seq is already established (as it
+    // is here, set to 0 above) — it only matters for the first-time
+    // baselining branch, exercised separately below. 0 is a harmless
+    // placeholder for that reason.
+    await sendMissedOps(db, ws, 0)
 
     // Op A genuinely went out.
     expect(ws.__sent.some((m) => m.op.entity_id === 'catchup-a')).toBe(true)
@@ -690,7 +717,7 @@ describe('Task 10 round-5 Fix 4: sendMissedOps watermark stops at the last succe
     // connection) with a fully-working socket must re-send B and C, since
     // the watermark correctly says they were never delivered.
     const ws2 = fakeWs(deviceId, null)
-    await sendMissedOps(db, ws2)
+    await sendMissedOps(db, ws2, 0)
     expect(ws2.__sent.map((m) => m.op.entity_id)).toEqual(['catchup-b', 'catchup-c'])
 
     const rowAfter = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
@@ -707,7 +734,7 @@ describe('Task 10 round-5 Fix 4: sendMissedOps watermark stops at the last succe
     const opB = appendOp(db, { entity: 'template_slots', entity_id: 'catchup-ok-b', field: 'activity_id', value: '2', author_user_id: userId, device_id: deviceId, parent_op_id: null })
 
     const ws = fakeWs(deviceId, null)
-    await sendMissedOps(db, ws)
+    await sendMissedOps(db, ws, baseline)
 
     expect(ws.__sent.map((m) => m.op.entity_id)).toEqual(['catchup-ok-a', 'catchup-ok-b'])
     const row = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
@@ -763,7 +790,7 @@ describe('Task 10 round-6: sendMissedOps gates watermark on genuine async delive
     // throughout — the only signal that it failed is the async callback.
     const ws = fakeAsyncFailWs(deviceId, 'async-b')
 
-    await sendMissedOps(db, ws)
+    await sendMissedOps(db, ws, baseline)
 
     // send() was attempted for both A and B (B's send() call didn't throw),
     // but C must never have been attempted, since the loop must stop once
@@ -779,7 +806,7 @@ describe('Task 10 round-6: sendMissedOps gates watermark on genuine async delive
     // Reconnecting with a fully-working socket must re-send B and C, since
     // the watermark correctly says they were never confirmed delivered.
     const ws2 = fakeAsyncFailWs(deviceId, null)
-    await sendMissedOps(db, ws2)
+    await sendMissedOps(db, ws2, baseline)
     expect(ws2.__sent.map((m) => m.op.entity_id)).toEqual(['async-b', 'async-c'])
 
     const rowAfter = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
@@ -810,7 +837,7 @@ describe('Task 10 round-6: sendMissedOps gates watermark on genuine async delive
       },
     }
 
-    await sendMissedOps(db, ws)
+    await sendMissedOps(db, ws, baseline)
 
     // Only op A was ever attempted — sendWithAck's readyState check before
     // op B's send must have caught the now-dead socket and stopped, rather
@@ -867,7 +894,7 @@ describe('Red Hat follow-up: sendWithAck is bounded by a timeout so an unfired w
 
     // A short ackTimeoutMs keeps this test fast (it would otherwise take
     // the real 8s production default before resolving).
-    await sendMissedOps(db, ws, 20)
+    await sendMissedOps(db, ws, baseline, 20)
 
     // op A itself is the one whose ack never confirms, so it must have been
     // attempted (send() called) but never counted as successfully delivered

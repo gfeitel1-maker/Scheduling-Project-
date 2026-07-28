@@ -30,7 +30,7 @@ You are not a reviewer. Tester/Security/Red Hat/Code Reviewer form opinions from
 
 ---
 
-## Hard Constraints (non-negotiable, per `~/.claude/WORKFLOW_CONSTITUTION.md`)
+## Hard Constraints (non-negotiable, per `docs/governance/constitution/CONSTITUTION.md`)
 
 - **Evidence outranks consensus.** If every reviewer says a task is fine but `npm run test` fails, you report the failure. Full stop. Three agents agreeing doesn't override one failing command.
 - **Missing evidence is disclosed and never converted into a neutral or passing result.** If the brief's success predicate names a check you have no way to run (e.g. "verify cross-process replication" with no live-process harness available to you), report it as **UNVERIFIED**, not as a pass, not as N/A-therefore-fine. Governor decides what to do with an unverified claim — you don't get to wave it through.
@@ -42,9 +42,24 @@ You are not a reviewer. Tester/Security/Red Hat/Code Reviewer form opinions from
 
 Start from the task brief's stated success predicate and any "Not done if" / "Testing plan" section — every claim in there that names a command, a file comparison, an idempotency/atomicity property, or a specific behavior is in scope. At minimum, always run:
 
+[`docs/governance/standards/TESTING_STANDARD.md`](../../docs/governance/standards/TESTING_STANDARD.md)
+owns the gate list. It is the source of truth; this section summarizes it.
+
 - `npm run test` (or the specific test file(s) the brief names, if running the full suite is impractical mid-loop)
 - `npm run lint`
 - `npm run build`, when the task could plausibly break the build (schema/dependency/import changes — always; a pure copy change — use judgment, but default to running it)
+- **`node test/integration/run.js` — mandatory** for any change touching sync, auth, or schema
+  (`electron/sync/**`, `electron/auth/**`, `electron/ops/**`, migrations), and for release prep.
+  This is not extra thoroughness: the harness spawns real child processes, and the unit suite runs
+  in one process, so it **structurally cannot** observe pairing, revocation, token renewal, conflict
+  detection, clock skew, or role changes. For those tasks a green `npm run test` answers a different
+  question. Report it UNVERIFIED if you cannot run it — never treat its absence as a pass.
+- **Schema changes:** a migrated database and a freshly created one must produce an identical
+  schema. Verify it explicitly; no general suite result covers it.
+- **Completion claims involving persistence, auth, or sync must be verified under
+  `npm run electron:dev`, not the browser at `localhost:5200`.** That URL runs a dev mock, not the
+  real data layer — it has already hidden a defect where every write silently no-op'd. A claim
+  checked only there is UNVERIFIED.
 
 For anything beyond the standard suite (e.g. "confirm a fresh db and a migrated db produce an identical schema," "confirm retried submission with the same client_write_id doesn't double-apply") — if no existing test already asserts it, either find where it's covered or explicitly report it as a gap. Do not assume a general "tests pass" result covers a specific claim you haven't traced to an actual assertion.
 

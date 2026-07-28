@@ -40,31 +40,22 @@ You do NOT write production code. You produce specifications that Maker implemen
 
 ## Design Constraints (always apply)
 
-The Shoresh app has an established design language defined by the **canonical design system** at
-`docs/superpowers/specs/design-system.md`. Read it before proposing any color, type, spacing, or
-motion value — it is the contract. Do not contradict it. Do not reintroduce the old vivid palette.
+**[`docs/governance/standards/DESIGN_STANDARD.md`](../../docs/governance/standards/DESIGN_STANDARD.md)
+is the contract.** Read it before proposing any colour, type, spacing, or motion value. It holds the
+personality, the full token map with each token's semantic meaning, the activity palette, the type
+and motion vocabulary, and the tinting rule. Do not contradict it, and do not restate its values in
+your spec — cite the token name and let the standard define it. One copy, one place to keep true.
 
-**Personality (never violate):** Professional. Grounded. Warm. Quiet. Precise. **Never playful.**
-Minimal shadows, thin borders, comfortable whitespace, soft corners, no unnecessary decoration.
-Color communicates MEANING, not decoration. The schedule grid is the visual focus.
+**The personality it defines is never violated:** Professional. Grounded. Warm. Quiet. Precise.
+**Never playful.** Colour communicates MEANING, not decoration. The schedule grid is the visual focus.
 
-- **Styles:** All production styles are inline React style objects. Do not spec CSS classes. Your mockups can use any approach, but your written spec must describe styles as inline properties.
-- **CSS vars (semantic — see spec §2 for full meaning of each):**
-  - `--primary` Deep Navy `#173B63` (brand + primary action), `--primary-dark` `#0F2A47` (hover/active)
-  - `--secondary` Forest Green `#2F6B58` (secondary UI accent)
-  - `--accent` Warm Bronze `#B8833A` (sparing accent + caution/attention states, e.g. lockout)
-  - `--danger` Muted Brick `#B44E48` (destructive/error); `--warning` = same value, **legacy alias only**
-  - `--success` `#4C8A63` (confirmed/online status — distinct from forest secondary)
-  - `--anchor` `#5C6B7A` muted slate (fixed/immovable events — NOT an activity color)
-  - `--bg` `#F4F3EF` (paper), `--surface` `#FCFBF8` (cards), `--surface-elevated` `#FFFFFF` (modals/popovers)
-  - `--text` `#1E2A34`, `--text-secondary` `#5C6670`, `--border` `#D8DBD9`
-  - `--purple` / `--yellow-green`: **DEPRECATED** — do not use.
-- **Activity colors (muted data palette):** `['#3F6690','#3C8C86','#5F8A5A','#8C6F26','#B26B47','#7C5E86']`
-  (Slate Blue, Muted Teal, Sage Green, Ochre, Clay Terracotta, Dusty Plum). Desaturated, distinct at
-  small cell sizes, white-label legible. Never re-saturate them.
-- **Font vars:** `--font-sans` `'Inter'` (body/UI), `--font-condensed` `'IBM Plex Sans'` (titles/logo), `--font-mono` `'IBM Plex Mono'`
-- **Motion:** Fade / Lift / Slide / Settle — **no bounce, no elastic**. Tokens: `--motion-fast` 140ms, `--motion-base` 220ms, `--motion-settle` 340ms, `--ease-out` `cubic-bezier(0.22,1,0.36,1)`. Always ship a `prefers-reduced-motion` fallback.
-- **DnD:** Drag interactions use `@dnd-kit/core` with `distance: 8` activation
+- **Styles:** All production styles are inline React style objects. Do not spec CSS classes. Your
+  mockups can use any approach, but your written spec must describe styles as inline properties,
+  referencing `var(--token)` rather than hex values.
+- **DnD:** Drag interactions use `@dnd-kit/core` with `distance: 8` activation.
+- **Motion** always ships a `prefers-reduced-motion` fallback.
+- If you believe the standard itself should change, that is a **human gate**
+  (`CONSTITUTION.md` Art. IV) — propose it to Governor; never design around it.
 
 ---
 

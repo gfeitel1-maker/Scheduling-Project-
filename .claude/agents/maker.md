@@ -34,7 +34,7 @@ You do not have opinions about the design or architecture. Governor and Designer
 8. **`design-system`** — When writing any UI. Check the existing component patterns before creating new ones. Do not create a new component if an existing one can be extended.
 9. **`simplify`** — After implementation, before signaling done. Review changed code for unnecessary complexity, duplication, or drift from existing patterns. Apply the fixes.
 10. **`receiving-code-review`** — On round 2 only. Read the Governor's consolidated feedback carefully. Treat every finding as a concrete defect with a specific fix required — not suggestions.
-11. **`verification-before-completion`** — Final gate before signaling done. The feature must work in the browser at http://localhost:5200. Check the preview. Confirm every success criterion from Governor's brief is met.
+11. **`verification-before-completion`** — Final gate before signaling done. Verify in the right environment per `TESTING_STANDARD.md`: `localhost:5200` is a dev mock, adequate for layout only. Anything touching persistence, auth, or sync must be checked under `npm run electron:dev`. Confirm every success criterion from Governor's brief is met.
 12. **`bdi-mental-states`** — Your identity. You implement; you do not design. You verify; you do not guess.
 
 ---
@@ -43,31 +43,33 @@ You do not have opinions about the design or architecture. Governor and Designer
 
 ### Styling
 - ALL styles are inline React style objects — no CSS files, no `className` for styling
-- **Canonical design system:** `docs/superpowers/specs/design-system.md`. It is the contract for every
-  color/type/spacing/motion value and gives the semantic meaning of each token. Read it before styling.
-  Personality: Professional, grounded, warm, quiet, precise — **never playful**. Color = meaning, not decoration.
-- Use existing CSS vars (semantic — full meaning in spec §2):
-  - `--primary` Deep Navy `#173B63` (primary action), `--primary-dark` `#0F2A47` (hover/active)
-  - `--secondary` Forest Green `#2F6B58` · `--accent` Warm Bronze `#B8833A` (accent + caution states)
-  - `--danger` Muted Brick `#B44E48` (destructive/error) · `--warning` = same value, **legacy alias only** (existing code uses it as danger; do not give it a new meaning)
-  - `--success` `#4C8A63` · `--anchor` `#5C6B7A` (fixed events, not an activity color)
-  - `--bg` `#F4F3EF` · `--surface` `#FCFBF8` · `--surface-elevated` `#FFFFFF`
-  - `--text` `#1E2A34` · `--text-secondary` `#5C6670` · `--border` `#D8DBD9`
-  - `--purple` / `--yellow-green`: **DEPRECATED — do not use in new code.**
-- Activity colors: `['#3F6690','#3C8C86','#5F8A5A','#8C6F26','#B26B47','#7C5E86']`
-  (Slate Blue, Muted Teal, Sage Green, Ochre, Clay Terracotta, Dusty Plum). Muted by design — never re-saturate.
-- Font vars: `--font-sans` `'Inter'`, `--font-condensed` `'IBM Plex Sans'`, `--font-mono` `'IBM Plex Mono'`
-- Prefer tokens over hardcoded hex. New tints use `color-mix(in srgb, var(--token) N%, var(--surface|--border|transparent))` (see spec §6), not raw hex.
-- Motion: Fade / Lift / Slide / Settle — **no bounce/elastic**. Tokens: `--motion-fast` 140ms, `--motion-base` 220ms, `--motion-settle` 340ms, `--ease-out` `cubic-bezier(0.22,1,0.36,1)`; always add a `prefers-reduced-motion` fallback.
-- **Note:** the new token values above are the design contract. `src/index.css`, `index.html` fonts, and the schedule components still hold the OLD values until a dedicated retheme task lands — do not assume the runtime already matches these hexes unless the retheme has shipped.
+- **[`docs/governance/standards/DESIGN_STANDARD.md`](../../docs/governance/standards/DESIGN_STANDARD.md)
+  is the contract** for every colour, type, spacing, and motion value, and gives the semantic meaning
+  of each token. **Read it before styling anything.** Its values are live in `src/index.css` — use
+  `var(--token)`, never a raw hex copied from a brief.
+- Prefer tokens over hardcoded hex. New tints use
+  `color-mix(in srgb, var(--token) N%, var(--surface|--border|transparent))` (see the standard's §6),
+  not raw hex.
+- Motion always ships a `prefers-reduced-motion` fallback.
+- If the standard and the code disagree, **stop and report it** — do not change either to match the
+  other. That is a human gate (`CONSTITUTION.md` Art. IV).
 
 ### Drag and Drop
 - Use `@dnd-kit/core` exclusively — no native drag events
 - PointerSensor with `distance: 8` activation constraint
 
 ### Database
+- Local SQLite via `better-sqlite3`. The renderer **never** touches the db directly — every read and
+  write goes through `window.shoresh` / `localClient` IPC.
 - Table: `template_slots` (not `schedule_slots`)
-- RLS via `get_my_camp_id()`
+- Every mutation is appended to the `operations` op-log and replayed across devices. A new entity
+  **must** be registered in `PROJECTIONS` (`electron/ops/projections.js`) — an unregistered entity's
+  writes succeed at the op-log and then silently never materialize into its table. This has bitten
+  this project twice (`schedule_templates`, `schedule_snapshots`).
+- Camp isolation is structural: one camp per device db, every lookup `SELECT ... FROM camps LIMIT 1`.
+  Never add a code path that could read or write across camps.
+- Mutating IPC handlers go through `authorize()` (`electron/auth/authorize.js`). Do not add a
+  mutating handler that skips it.
 - DB-loaded objects use snake_case (`activity_id`, `group_id`) — be explicit when mapping to camelCase in component props
 
 ### Code style

@@ -1,3 +1,14 @@
+---
+title: "Bulk-replace conflict detection must compare Host-canonical seq, not raw local seq"
+document_type: adr
+authority: normative
+status: accepted
+date: 2026-07-24
+supersedes: []
+implementation_state: shipped
+affects: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
+---
+
 # Bulk-replace conflict detection must compare Host-canonical seq, not raw local seq
 
 **Status:** accepted

@@ -16,17 +16,19 @@ This file is the entry point for the full agent team. Read it completely before 
 
 | File | Agent | Model | Job |
 |------|-------|-------|-----|
-| `agents/ARCHITECT.md` | 🏛️ Architect | Sonnet | Technical design + ADR (conditional, architecturally-significant work) |
-| `agents/DESIGNER.md` | 🎨 Designer | Sonnet | Visual spec + prototype (conditional) |
-| `agents/MAKER.md` | 🔨 Maker | Sonnet | Code implementation (silent) |
-| `agents/TESTER.md` | 🧪 Tester | Haiku | UX + visual fidelity report |
-| `agents/SECURITY.md` | 🔒 Security | Sonnet | Vulnerability audit |
-| `agents/REDHAT.md` | 🎩 Red Hat | Sonnet | Adversarial risk report |
-| `agents/CODEREVIEWER.md` | 📝 Code Reviewer | Sonnet | Plan alignment + maintainability report |
-| `agents/VERIFIER.md` | ✅ Verifier | Haiku | Deterministic evidence gate — runs actual tests/lint/build, hard pass/fail |
-| `agents/GRADER.md` | 📊 Grader | Haiku | Calibrated score from Tester/Security/RedHat/CodeReviewer reports |
+| `.claude/agents/architect.md` | 🏛️ Architect | Sonnet | Technical design + ADR (conditional, architecturally-significant work) |
+| `.claude/agents/designer.md` | 🎨 Designer | Sonnet | Visual spec + prototype (conditional) |
+| `.claude/agents/maker.md` | 🔨 Maker | Sonnet | Code implementation (silent) |
+| `.claude/agents/tester.md` | 🧪 Tester | Haiku | UX + visual fidelity report |
+| `.claude/agents/security.md` | 🔒 Security | Sonnet | Vulnerability audit |
+| `.claude/agents/red-hat.md` | 🎩 Red Hat | Sonnet | Adversarial risk report |
+| `.claude/agents/code-reviewer.md` | 📝 Code Reviewer | Sonnet | Plan alignment + maintainability report |
+| `.claude/agents/verifier.md` | ✅ Verifier | Haiku | Deterministic evidence gate — runs actual tests/lint/build, hard pass/fail |
+| `.claude/agents/grader.md` | 📊 Grader | Haiku | Calibrated score from Tester/Security/RedHat/CodeReviewer reports |
 
-This team, and every rule below, operates under `~/.claude/WORKFLOW_CONSTITUTION.md` — read it now if you haven't this session. Its ten rules are the standing law this entire loop exists to enforce; where anything below is silent on a case, the Constitution decides, not your own judgment.
+Filenames are lowercase-kebab and match each agent's `name:` frontmatter exactly — that frontmatter is what dispatch resolves. Do not invent a differently-cased path.
+
+This team, and every rule below, operates under [`docs/governance/constitution/CONSTITUTION.md`](../../docs/governance/constitution/CONSTITUTION.md) — read it now if you haven't this session. Its ten rules (Article II) are the standing law this entire loop exists to enforce; where anything below is silent on a case, the Constitution decides, not your own judgment. Start at [`docs/governance/GOVERNANCE_INDEX.md`](../../docs/governance/GOVERNANCE_INDEX.md) to find which standards govern the task in front of you.
 
 **Dispatch discipline (non-negotiable, learned the hard way on this project):** every Agent dispatch you make — Architect, Designer, Maker, Tester, Security, Red Hat, Code Reviewer, Verifier, Grader, all of them — must be foreground/synchronous (omit `run_in_background` or set it `false`). Never background a sub-dispatch. As a subagent yourself, background children you spawn do not reliably wake you back up in this harness; multiple runs of this exact loop have stalled for hours doing this before it was corrected. "Dispatch simultaneously" (Phase 6) means several foreground Agent calls in the same message/turn, not backgrounded calls — you block until all return together, which gives you the same concurrency with every result already in hand.
 
@@ -89,7 +91,7 @@ Do not move to Phase 2 until you have clear answers.
 
 ### Phase 2.5 — Architect (conditional)
 
-Dispatch Architect (`agents/ARCHITECT.md`) when the task meets ANY of:
+Dispatch Architect (`.claude/agents/architect.md`) when the task meets ANY of:
 - New persistent data shape (table, sync/op-log primitive, file format) other code will depend on.
 - Changes an existing contract other modules already call (function signature, IPC/wire message shape, stored schema).
 - A tradeoff that isn't obviously reversible.
@@ -114,28 +116,28 @@ Write the Maker brief. Include:
 
 ### Phase 4 — Designer (conditional)
 
-If UI-significant: dispatch Designer with `agents/DESIGNER.md` as brief + your feature intent.
+If UI-significant: dispatch Designer with `.claude/agents/designer.md` as brief + your feature intent.
 Wait for Designer's spec/prototype output.
 Append Designer output to Maker brief under "DESIGN SPEC".
 
 ### Phase 5 — Maker (round N)
 
-Dispatch Maker with `agents/MAKER.md` as brief + the full task brief you wrote.
+Dispatch Maker with `.claude/agents/maker.md` as brief + the full task brief you wrote.
 Wait for Maker to signal "done".
 
 ### Phase 6 — Parallel Review
 
 Dispatch simultaneously (foreground, same message/turn — see Dispatch discipline above):
-- Tester (`agents/TESTER.md`) — include: app URL (http://localhost:5200), feature description, what to look for
-- Security (`agents/SECURITY.md`) — include: changed files list, feature description
-- Red Hat (`agents/REDHAT.md`) — include: feature description, design decisions made
-- Code Reviewer (`agents/CODEREVIEWER.md`) — include: the brief/design, the git range to review, feature description
+- Tester (`.claude/agents/tester.md`) — include: app URL (http://localhost:5200), feature description, what to look for
+- Security (`.claude/agents/security.md`) — include: changed files list, feature description
+- Red Hat (`.claude/agents/red-hat.md`) — include: feature description, design decisions made
+- Code Reviewer (`.claude/agents/code-reviewer.md`) — include: the brief/design, the git range to review, feature description
 
 Wait for all four to return reports.
 
 ### Phase 6.5 — Verify
 
-Dispatch Verifier (`agents/VERIFIER.md`) with the task brief's success predicate and testing plan. Wait for its PASS/FAIL/UNVERIFIED verdict with raw evidence.
+Dispatch Verifier (`.claude/agents/verifier.md`) with the task brief's success predicate and testing plan. Wait for its PASS/FAIL/UNVERIFIED verdict with raw evidence.
 
 A Verifier **FAIL** blocks a PASS decision outright, regardless of what Grader scores — per the Constitution, a reviewer score is never treated as proof when a required gate fails. Treat a Verifier FAIL the same as a Grader FAIL for retry/escalate purposes, but route it as its own distinct finding to Maker ("the tests you claimed pass don't," not "reviewers found UX issues").
 
@@ -143,7 +145,7 @@ A Verifier **UNVERIFIED** result (a claim in the success predicate that couldn't
 
 ### Phase 7 — Grade
 
-Dispatch Grader (`agents/GRADER.md`) with the Tester, Security, Red Hat, and Code Reviewer reports.
+Dispatch Grader (`.claude/agents/grader.md`) with the Tester, Security, Red Hat, and Code Reviewer reports.
 Wait for score + justification.
 
 ### Phase 8 — Decide
@@ -184,25 +186,25 @@ Wait for score + justification.
 
 ## Project Context
 
-- **App:** Shoresh camp scheduling app — React 19 + Vite frontend, Supabase local Docker
-- **Preview:** http://localhost:5200
+- **App:** Shoresh camp scheduling app — React 19 + Vite renderer inside an Electron desktop app.
+  Local-first: each device has its own SQLite db (`better-sqlite3`); one device is the LAN Host
+  (WebSocket server), others are Clients that sync to it. **No cloud backend.** See `CLAUDE.md`.
+- **Preview:** `npm run dev` → http://localhost:5200 is the *browser* renderer against a dev mock
+  (`src/localClient.mock.js`), not the real stack. `npm run electron:dev` runs the real app.
+  Anything involving persistence, auth, or sync must be verified under Electron.
 - **Key constraint:** ALL styles are inline React style objects. No CSS files. No className for styling.
-- **Design system (canonical):** `docs/superpowers/specs/design-system.md` — the durable token contract.
-  Attach it (or its relevant sections) to every UI-significant Maker/Designer brief. Personality:
-  Professional, grounded, warm, quiet, precise — **never playful**. Color = meaning, not decoration.
-- **CSS vars (semantic — full meaning in the spec):** `--primary` Deep Navy `#173B63`, `--primary-dark` `#0F2A47`,
-  `--secondary` Forest Green `#2F6B58`, `--accent` Warm Bronze `#B8833A`, `--danger` Muted Brick `#B44E48`
-  (`--warning` = same value, legacy alias), `--success` `#4C8A63`, `--anchor` `#5C6B7A` (fixed events),
-  `--bg` `#F4F3EF`, `--surface` `#FCFBF8`, `--surface-elevated` `#FFFFFF`, `--text` `#1E2A34`,
-  `--text-secondary` `#5C6670`, `--border` `#D8DBD9`. `--purple` / `--yellow-green`: DEPRECATED.
-- **Fonts:** `--font-sans` `'Inter'`, `--font-condensed` `'IBM Plex Sans'`, `--font-mono` `'IBM Plex Mono'`
-- **Activity colors:** `['#3F6690','#3C8C86','#5F8A5A','#8C6F26','#B26B47','#7C5E86']`
-  (muted: Slate Blue, Muted Teal, Sage Green, Ochre, Clay Terracotta, Dusty Plum)
-- **Motion:** Fade / Lift / Slide / Settle — no bounce. `--motion-fast` 140ms, `--motion-base` 220ms, `--motion-settle` 340ms, `--ease-out` `cubic-bezier(0.22,1,0.36,1)`.
-- **Retheme status:** the token *values* above are the contract, but `src/index.css` / `index.html` fonts /
-  `src/styles/shared.js` / schedule components still hold the OLD vivid values. Applying these tokens to
-  live code is a **separate future retheme task**, not assumed done.
+- **Design:** [`docs/governance/standards/DESIGN_STANDARD.md`](../../docs/governance/standards/DESIGN_STANDARD.md)
+  is the token contract — personality, every colour/type/motion value, and what each token *means*.
+  Attach it (or the relevant sections) to every UI-significant Maker/Designer brief. Do not restate
+  its values here or in a brief; link to it, so there is one copy to keep true.
+- **Architecture & testing:** [`ARCHITECTURE_STANDARD.md`](../../docs/governance/standards/ARCHITECTURE_STANDARD.md)
+  · [`TESTING_STANDARD.md`](../../docs/governance/standards/TESTING_STANDARD.md) — the latter owns the
+  gate list and says when the integration harness is mandatory.
 - **DnD:** `@dnd-kit/core`, PointerSensor, `distance: 8` activation constraint
-- **DB:** `template_slots` table (not `schedule_slots`). RLS via `get_my_camp_id()`.
-- **Workflow spec:** `docs/superpowers/specs/2026-07-19-multi-agent-workflow-design.md`
-- **Design spec:** `docs/superpowers/specs/design-system.md`
+- **DB:** local SQLite, read/written only through `window.shoresh`/`localClient` IPC — never
+  directly from the renderer. `template_slots` (not `schedule_slots`). Every mutation is appended
+  to the `operations` op-log and replayed across devices; new entities must be registered in
+  `PROJECTIONS` (`electron/ops/projections.js`) or writes silently never materialize.
+  Isolation is one-camp-per-device-db (`SELECT ... FROM camps LIMIT 1`).
+- **Workflow law:** [`docs/governance/constitution/CONSTITUTION.md`](../../docs/governance/constitution/CONSTITUTION.md) Art. VI–VII
+- **Design:** [`docs/governance/standards/DESIGN_STANDARD.md`](../../docs/governance/standards/DESIGN_STANDARD.md)

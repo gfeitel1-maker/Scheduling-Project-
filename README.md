@@ -32,7 +32,7 @@ Shoresh is a local-first desktop app built on Electron and SQLite. Each device r
 
 All mutations flow through an op-log — every write is recorded as an operation row, synced and replayed across devices. When two devices edit the same field while offline, the conflict is recorded explicitly and surfaced in the Conflicts screen for a human to resolve. Nothing is silently dropped.
 
-See [`PLATFORM_STATE.md`](PLATFORM_STATE.md) for the full architecture, screen inventory, and database schema. See [`SECURITY.md`](SECURITY.md) for the security model and known limitations.
+See [`docs/current/PLATFORM_STATE.md`](docs/current/PLATFORM_STATE.md) for the full architecture, screen inventory, and database schema. See [`SECURITY.md`](SECURITY.md) for the security model and known limitations.
 
 ## Security model
 
