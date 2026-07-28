@@ -1,12 +1,17 @@
 ---
 title: T13-stamp-build-provenance
 document_type: ticket
-status: open
+status: completed
 created: 2026-07-28
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: [docs/adr/2026-07-28-explicit-userdata-directory.md]
-archive_when: build stamp visible in-app and verified under electron:build
+archive_when: next archive sweep — resolved
 ---
+
+> **RESOLVED.** `scripts/write-build-info.js` stamps commit and build time at package
+> time; the sidebar footer shows `v0.1.0 · <commit> · <date>` beside the database name and
+> DEV badge. Verified end to end through `npm run electron:build`: the stamp reaches the
+> packaged bundle and `CFBundleShortVersionString` is now `0.1.0`, not `0.0.0`.
 
 # T13 — A packaged build cannot be told apart from a current one
 

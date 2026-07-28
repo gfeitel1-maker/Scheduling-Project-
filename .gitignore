@@ -39,3 +39,6 @@ supabase/.temp/
 
 # electron-builder output
 release/
+
+# Generated at package time (T13) — describes one artifact, never the repo
+electron/build-info.json

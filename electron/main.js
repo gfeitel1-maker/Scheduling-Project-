@@ -12,6 +12,7 @@ import { advertiseHost, discoverHosts } from './sync/discovery.js'
 import { listPendingConflicts } from './ops/operations.js'
 import { authorize } from './auth/authorize.js'
 import { applyUserDataPath } from './db/userDataPath.js'
+import { readBuildInfo, formatBuildLabel } from './buildInfo.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from './auth/deriveWriteAction.js'
 import { recordAuditEvent } from './audit/auditLog.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from './ops/campScopedEntities.js'
@@ -792,6 +793,10 @@ if (isElectronEntryPoint()) {
       // The UI must be able to tell which database it is looking at — the T9
       // harm was never that two exist, but that nothing on screen distinguished them.
       isDev: !app.isPackaged,
+      // ...and which BUILD it is running (T13). A stale packaged build was
+      // previously indistinguishable from a current one, which cost a whole
+      // diagnosis cycle on T12.
+      build: formatBuildLabel(readBuildInfo(), app.getVersion()),
       schemaVersion: getSchemaVersion(db),
       openedAt: new Date().toISOString(),
     }
