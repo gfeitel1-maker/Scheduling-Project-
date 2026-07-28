@@ -8,6 +8,7 @@ import {
   applyBulkReplaceProjection,
   isBulkReplaceOp,
   latestScopeOpSeq,
+  coerceOpValue,
 } from '../ops/operations.js'
 import { PROJECTIONS, applyProjection } from '../ops/projections.js'
 import { insertPendingWrite, deletePendingWrite, listPendingWrites } from './pendingWrites.js'
@@ -598,7 +599,14 @@ export function createSyncClient(
         // `item` object is reused by flushQueue), so a retry after
         // timeout/disconnected is idempotent server-side.
         const client_write_id = randomUUID()
-        const item = { pendingId, client_write_id, ...request }
+        // Coerce here, ONCE, before the item is both persisted and queued.
+        // insertPendingWrite has to bind a SQLite-compatible primitive, but
+        // coercing inside it would only fix the durable row and leave the
+        // in-memory `item` holding the raw object/boolean — so the payload
+        // flushQueue put on the wire depended on whether the app had restarted
+        // in between (fresh queue = raw object, queue rebuilt from
+        // pending_writes = JSON string). One coercion, one value, both paths.
+        const item = { pendingId, client_write_id, ...request, value: coerceOpValue(request.value ?? null) }
         insertPendingWrite(db, item)
         queue.push(item)
         return { status: 'queued' }

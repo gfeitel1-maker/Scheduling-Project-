@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { Buffer } from 'node:buffer'
 import { PROJECTIONS, applyProjection } from './projections.js'
 
 // Sentinel field name for a row-delete op. Deliberately routed through the
@@ -17,6 +18,61 @@ import { PROJECTIONS, applyProjection } from './projections.js'
 // a genuine projected field.
 export const DELETE_FIELD = '__deleted__'
 
+// The single serialization boundary for a field-level op's `value`.
+//
+// better-sqlite3 only binds numbers, strings, bigints, buffers and null. Every
+// other JS type is not merely rejected — it is MISinterpreted: a bare object
+// is treated as a NAMED-PARAMETER bag ("Too few parameter values were
+// provided") and an array is spread as positional parameters ("Too many
+// parameter values were provided", or, for a 1-element array, silently bound
+// to the WRONG column). Booleans throw outright.
+//
+// Callers legitimately hold richer JS values: ScheduleScreen writes
+// template_slots.flags as a plain object, and is_released/is_span_head/
+// is_anchor as booleans. Because appendOp binds `value` into the operations
+// INSERT *before* applyProjection runs, an uncoerced value threw before the
+// row was ever touched — the op-log write, the projection, the renderer's
+// optimistic state update and its undo-point push were all skipped, surfacing
+// as "Failed to place activity" / "Could not save undo point".
+//
+// Coercing here rather than at each call site (or in the renderer's
+// writeFields helper) fixes every current and future caller at once, on both
+// the local no-serverUrl path and the Host's handleSubmitOp path for ops
+// arriving from a remote Client.
+//
+// Storage shapes are chosen to MATCH what appendBulkReplaceOp already
+// produces for the same columns, so a generated slot and a manually-edited
+// slot are byte-identical in the DB:
+//   - objects/arrays -> JSON string. bulk_replace rows must be string-or-null
+//     (validateBulkReplaceRows), so ScheduleScreen already sends
+//     JSON.stringify(flags) there; template_slots.flags is TEXT either way.
+//     normalizeSlots() in src/utils/normalizeSlots.js is the matching read
+//     side for template_slots, but it covers only the columns it explicitly
+//     names (flags, is_anchor, is_span_head, is_released) — it is not a
+//     general decoder, and no other entity has a read-side counterpart at
+//     all. Any FUTURE object- or boolean-valued column coerced here needs its
+//     own case added there, or the renderer silently reads back the raw
+//     stored primitive (an integer 0 that never equals `false`, or an
+//     unparsed JSON string).
+//   - booleans -> the STRINGS '1'/'0', deliberately not the numbers 1/0.
+//     ScheduleScreen's bulk_replace rows already carry '1'/'0' strings (again
+//     because of the string-or-null rule). is_anchor/is_span_head/is_released
+//     are INTEGER-affinity columns, so SQLite normalizes '1'/'0' to the
+//     integers 1/0 on write — the projected row is byte-identical either way
+//     (verified by the bulk_replace-parity test in operations.test.js). The
+//     tie-break is operations.value, which is a TEXT column: better-sqlite3
+//     binds every JS number as a REAL, so binding the number 0 would log the
+//     op's value as the string '0.0' (and 1 as '1.0'). The string form keeps
+//     the op-log — the thing peers replay and humans read — exactly '1'/'0'.
+// null, strings, numbers, bigints and buffers pass through untouched.
+export function coerceOpValue(value) {
+  if (typeof value === 'boolean') return value ? '1' : '0'
+  if (value !== null && typeof value === 'object' && !Buffer.isBuffer(value)) {
+    return JSON.stringify(value)
+  }
+  return value
+}
+
 export function appendOp(db, { entity, entity_id, field, value, author_user_id, device_id, parent_op_id, client_write_id }) {
   const projection = PROJECTIONS[entity]
   if (projection && field !== DELETE_FIELD && !projection.fields.includes(field)) {
@@ -25,6 +81,7 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
 
   const id = randomUUID()
   const timestamp = new Date().toISOString()
+  const storedValue = coerceOpValue(value)
 
   const run = db.transaction(() => {
     const result = db
@@ -32,7 +89,7 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
         `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(id, entity, entity_id, field, value, author_user_id ?? null, device_id, timestamp, parent_op_id ?? null, client_write_id ?? null)
+      .run(id, entity, entity_id, field, storedValue, author_user_id ?? null, device_id, timestamp, parent_op_id ?? null, client_write_id ?? null)
 
     const op = db.prepare('SELECT * FROM operations WHERE seq = ?').get(result.lastInsertRowid)
     // applyProjection returns false only for a rejected camp_id write (see

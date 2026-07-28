@@ -4,7 +4,15 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
-import { appendOp, latestOp, detectConflict, recordConflict, listPendingConflicts, DELETE_FIELD } from './operations.js'
+import {
+  appendOp,
+  appendBulkReplaceOp,
+  latestOp,
+  detectConflict,
+  recordConflict,
+  listPendingConflicts,
+  DELETE_FIELD,
+} from './operations.js'
 
 let tmpFile
 let db
@@ -78,6 +86,205 @@ describe('appendOp projection', () => {
 
     const row = db.prepare('SELECT name FROM users WHERE id = ?').get('user-1')
     expect(row.name).toBe('Alicia')
+  })
+})
+
+// Regression suite for the caller/serialization boundary defect: appendOp
+// binds `value` straight into the operations INSERT, so a plain JS object
+// (ScheduleScreen's `flags`) was interpreted by better-sqlite3 as NAMED
+// PARAMETERS ("Too few parameter values were provided") and a boolean
+// (is_released / is_span_head) was rejected outright ("SQLite3 can only bind
+// numbers, strings, bigints, buffers, and null"). Both threw BEFORE
+// applyProjection ran, so the write never reached the row, the renderer's
+// optimistic setSlots + undo-point push were skipped, and the user saw
+// "Failed to place activity". Coercion lives in appendOp (not at the call
+// sites, not in the renderer) so every current and future caller is covered.
+describe('appendOp value coercion', () => {
+  // Mirrors normalizeSlots() in src/screens/ScheduleScreen.jsx — the single
+  // read boundary that turns the stored `flags` TEXT back into an object.
+  // Duplicated here rather than imported so this node-environment test does
+  // not pull in a JSX screen module.
+  function normalizeFlags(storedValue) {
+    if (typeof storedValue !== 'string') return storedValue || {}
+    try {
+      return storedValue ? JSON.parse(storedValue) : {}
+    } catch {
+      return {}
+    }
+  }
+
+  function writeSlot(field, value) {
+    return appendOp(db, {
+      entity: 'template_slots',
+      entity_id: 'slot-coerce',
+      field,
+      value,
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+  }
+
+  function readSlot() {
+    return db.prepare('SELECT * FROM template_slots WHERE id = ?').get('slot-coerce')
+  }
+
+  beforeEach(() => {
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(
+      'tmpl-1',
+      'camp-1',
+      'Master Template'
+    )
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(
+      'act-bb',
+      'camp-1',
+      'Basketball'
+    )
+    // The row bulk_replace would already have created — every writeFields()
+    // call in ScheduleScreen updates an existing generated slot.
+    db.prepare(
+      'INSERT INTO template_slots (id, template_id, day_id, time_block_id) VALUES (?, ?, ?, ?)'
+    ).run('slot-coerce', 'tmpl-1', 'day-1', 'block-1')
+  })
+
+  it('applies an object value (flags) as JSON instead of throwing "Too few parameter values were provided"', () => {
+    // The exact two-field sequence placeActivityManual writes. Before the fix
+    // activity_id landed and flags threw, leaving flags NULL and aborting the
+    // caller mid-way.
+    const errors = []
+    for (const [field, value] of Object.entries({
+      activity_id: 'act-bb',
+      flags: { UNFILLABLE: true },
+    })) {
+      try {
+        writeSlot(field, value)
+      } catch (e) {
+        errors.push(`${field}: ${e.message}`)
+      }
+    }
+
+    expect(errors).toEqual([])
+    const row = readSlot()
+    expect(row.activity_id).toBe('act-bb')
+    expect(row.flags).toBe('{"UNFILLABLE":true}')
+  })
+
+  it('applies boolean values as SQLite integers instead of throwing "SQLite3 can only bind..."', () => {
+    const errors = []
+    for (const [field, value] of Object.entries({ is_released: true, is_span_head: false })) {
+      try {
+        writeSlot(field, value)
+      } catch (e) {
+        errors.push(`${field}: ${e.message}`)
+      }
+    }
+
+    expect(errors).toEqual([])
+    const row = readSlot()
+    expect(row.is_released).toBe(1)
+    expect(row.is_span_head).toBe(0)
+  })
+
+  it('stores the coerced scalar in the op-log too, so a replaying peer applies the same value', () => {
+    writeSlot('flags', { UNDERSERVED: true })
+    writeSlot('is_span_head', false)
+    writeSlot('is_released', true)
+
+    expect(latestOp(db, 'template_slots', 'slot-coerce', 'flags').value).toBe('{"UNDERSERVED":true}')
+    // '0'/'1', not 0/1: operations.value is a TEXT column and better-sqlite3
+    // binds every JS number as a REAL, so the number 0 would be logged as
+    // '0.0'. See coerceOpValue's comment in operations.js.
+    expect(latestOp(db, 'template_slots', 'slot-coerce', 'is_span_head').value).toBe('0')
+    expect(latestOp(db, 'template_slots', 'slot-coerce', 'is_released').value).toBe('1')
+  })
+
+  it('round-trips flags write -> read back to a usable object for the renderer', () => {
+    const flags = { UNFILLABLE: true, expanded: { displacedActivityId: 'act-bb', from_block: 'block-2' } }
+    writeSlot('flags', flags)
+
+    expect(normalizeFlags(readSlot().flags)).toEqual(flags)
+
+    // The empty-object case ScheduleScreen writes on every clear/swap.
+    writeSlot('flags', {})
+    expect(normalizeFlags(readSlot().flags)).toEqual({})
+  })
+
+  it('stores flags and boolean columns in the SAME shape bulk_replace does', () => {
+    // bulk_replace rows must be string-or-null (validateBulkReplaceRows), so
+    // placeAnchors/generate build '1'/'0' strings and JSON.stringify'd flags.
+    // The INTEGER column affinity on is_anchor/is_span_head/is_released means
+    // those strings land as integers — identical to coercing booleans to 1/0.
+    appendBulkReplaceOp(db, {
+      entity: 'template_slots',
+      scope_id: 'tmpl-1',
+      rows: [
+        {
+          id: 'slot-bulk',
+          template_id: 'tmpl-1',
+          day_id: 'day-1',
+          time_block_id: 'block-1',
+          is_anchor: '0',
+          is_span_head: '1',
+          flags: JSON.stringify({ UNFILLABLE: true }),
+        },
+      ],
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+    })
+
+    // bulk_replace deleted every row in the template scope, so recreate the
+    // field-level target and write the equivalent values through appendOp.
+    db.prepare(
+      'INSERT INTO template_slots (id, template_id, day_id, time_block_id) VALUES (?, ?, ?, ?)'
+    ).run('slot-coerce', 'tmpl-1', 'day-1', 'block-1')
+    writeSlot('is_anchor', false)
+    writeSlot('is_span_head', true)
+    writeSlot('flags', { UNFILLABLE: true })
+
+    const types = (id) =>
+      db
+        .prepare(
+          'SELECT typeof(is_anchor) AS is_anchor, typeof(is_span_head) AS is_span_head, typeof(flags) AS flags FROM template_slots WHERE id = ?'
+        )
+        .get(id)
+
+    const bulkRow = db.prepare('SELECT * FROM template_slots WHERE id = ?').get('slot-bulk')
+    const opRow = readSlot()
+
+    expect(types('slot-coerce')).toEqual(types('slot-bulk'))
+    expect(opRow.is_anchor).toBe(bulkRow.is_anchor)
+    expect(opRow.is_span_head).toBe(bulkRow.is_span_head)
+    expect(opRow.flags).toBe(bulkRow.flags)
+  })
+
+  it('stores an array value as JSON (same rule as an object)', () => {
+    appendOp(db, {
+      entity: 'activities',
+      entity_id: 'act-bb',
+      field: 'eligible_tier_ids',
+      value: ['tier-1', 'tier-2'],
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    const row = db.prepare('SELECT eligible_tier_ids FROM activities WHERE id = ?').get('act-bb')
+    expect(row.eligible_tier_ids).toBe('["tier-1","tier-2"]')
+    expect(JSON.parse(row.eligible_tier_ids)).toEqual(['tier-1', 'tier-2'])
+  })
+
+  it('leaves null, strings and numbers untouched', () => {
+    writeSlot('flags', null)
+    expect(readSlot().flags).toBeNull()
+
+    writeSlot('activity_id', 'act-bb')
+    expect(readSlot().activity_id).toBe('act-bb')
+
+    writeSlot('is_span_head', 1)
+    expect(readSlot().is_span_head).toBe(1)
+
+    writeSlot('activity_id', null)
+    expect(readSlot().activity_id).toBeNull()
   })
 })
 

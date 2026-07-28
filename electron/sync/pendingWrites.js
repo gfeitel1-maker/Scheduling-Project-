@@ -4,6 +4,14 @@
 // vanished with zero trace if the app closed/crashed before flushQueue
 // synced it, while the UI had already confidently shown "Saved".
 
+// Second SQLite bind site for a field-level op's `value`, reached only on the
+// LAN-Client offline/unauthenticated path (syncClient's write() -> queue). It
+// has the same object/boolean binding hazard appendOp does, and appendOp's
+// coercion does NOT cover it — this INSERT happens on the Client long before
+// the op ever reaches a Host's appendOp. `value` must therefore already be
+// coerced (coerceOpValue) by the caller: syncClient.write() does it once, so
+// the durable row here and the in-memory queue item hold the identical value.
+// This stays a dumb writer — coercing here too would let those two diverge.
 export function insertPendingWrite(db, { pendingId, client_write_id, entity, entity_id, field, value, parent_op_id }) {
   db.prepare(
     `INSERT INTO pending_writes (pending_id, client_write_id, entity, entity_id, field, value, parent_op_id, created_at)

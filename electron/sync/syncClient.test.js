@@ -407,6 +407,107 @@ describe('remote client mode', () => {
     }
   })
 
+  it('queues an offline write whose value is an object or a boolean instead of throwing at the pending_writes bind (same coercion appendOp applies)', async () => {
+    // insertPendingWrite is a SECOND SQLite bind site for a field-level op's
+    // value, reached before any Host appendOp ever sees the write — so
+    // appendOp's coercion alone does not cover it. Un-coerced, an offline
+    // ScheduleScreen edit threw ("Too few parameter values were provided" /
+    // "SQLite3 can only bind ...") before the write was ever durably queued.
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: 'ws://localhost:8249',
+      token,
+    })
+
+    try {
+      const flagsResult = await client.write({
+        entity: 'template_slots',
+        entity_id: 's-offline-flags',
+        field: 'flags',
+        value: { UNFILLABLE: true },
+      })
+      const boolResult = await client.write({
+        entity: 'template_slots',
+        entity_id: 's-offline-flags',
+        field: 'is_released',
+        value: true,
+      })
+
+      expect(flagsResult.status).toBe('queued')
+      expect(boolResult.status).toBe('queued')
+
+      const rows = clientDb
+        .prepare('SELECT field, value FROM pending_writes WHERE entity_id = ? ORDER BY created_at ASC')
+        .all('s-offline-flags')
+      expect(rows.map((r) => [r.field, r.value])).toEqual([
+        ['flags', '{"UNFILLABLE":true}'],
+        ['is_released', '1'],
+      ])
+    } finally {
+      client.close()
+    }
+  })
+
+  it('an object-valued write is coerced ONCE in write(), so the in-memory queue item and the durable pending_writes row agree and a restart cannot change the wire payload', async () => {
+    // write() persists via insertPendingWrite AND pushes the same logical
+    // item onto the in-memory queue. If only the INSERT coerced, the two
+    // diverged: flushing without a restart put the raw object on the wire,
+    // flushing after a restart (queue rebuilt from pending_writes) put the
+    // JSON string on the wire. Same logical write, two payloads, decided by
+    // whether the app happened to relaunch.
+    const restartPort = 8250
+    const client1 = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${restartPort}`,
+      token,
+    })
+
+    const queued = await client1.write({
+      entity: 'template_slots',
+      entity_id: 's-restart-flags',
+      field: 'flags',
+      value: { UNFILLABLE: true },
+    })
+    expect(queued.status).toBe('queued')
+
+    const persistedRow = clientDb
+      .prepare('SELECT value FROM pending_writes WHERE entity_id = ?')
+      .get('s-restart-flags')
+    expect(persistedRow.value).toBe('{"UNFILLABLE":true}')
+    // The crux: the queued item carries the SAME already-coerced value the
+    // durable row does, not the raw object.
+    expect(client1.getQueuedOps()[0].value).toBe(persistedRow.value)
+
+    // Simulate the process dying before flushQueue ran, then relaunching
+    // against the same on-disk db (queue rebuilt from pending_writes).
+    client1.close()
+    const client2 = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${restartPort}`,
+      token,
+    })
+    expect(client2.getQueuedOps()[0].value).toBe('{"UNFILLABLE":true}')
+
+    const restartServer = startSyncServer(hostDb, { port: restartPort })
+    try {
+      await client2.flushQueue()
+      expect(client2.getQueuedOps()).toHaveLength(0)
+
+      const hostRow = hostDb.prepare('SELECT value FROM operations WHERE entity_id = ?').get('s-restart-flags')
+      // Exactly one level of encoding: the Host stores the JSON object text,
+      // not a JSON string containing JSON object text.
+      expect(hostRow.value).toBe('{"UNFILLABLE":true}')
+      expect(hostRow.value).not.toBe(JSON.stringify('{"UNFILLABLE":true}'))
+      expect(JSON.parse(hostRow.value)).toEqual({ UNFILLABLE: true })
+    } finally {
+      restartServer.close()
+      client2.close()
+    }
+  })
+
   it('Task 10 round-5 Fix 3: retrying a queued write after a timeout does not create a duplicate op (idempotent via client_write_id)', async () => {
     const idemPort = 8242
     const idemServer = startSyncServer(hostDb, { port: idemPort })

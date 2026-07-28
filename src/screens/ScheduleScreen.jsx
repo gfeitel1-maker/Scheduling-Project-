@@ -11,6 +11,7 @@ import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
 import VersionsDropdown from '../components/schedule/VersionsDropdown'
 import FieldTripDrawer from '../components/schedule/FieldTripDrawer'
 import { exportToExcel } from '../utils/exportSchedule'
+import { normalizeSlots } from '../utils/normalizeSlots'
 import ScheduleGroupView from '../components/schedule/ScheduleGroupView'
 import ScheduleDayView from '../components/schedule/ScheduleDayView'
 import ScheduleActivityView from '../components/schedule/ScheduleActivityView'
@@ -29,25 +30,6 @@ async function writeFields(entity, id, fields) {
       throw new Error(`write failed for field "${field}"`)
     }
   }
-}
-
-// template_slots rows written via bulk_replace carry `flags` as a
-// JSON.stringify'd string (validateBulkReplaceRows in electron/ops/operations.js
-// only accepts string/null row values, so an object can't be written directly).
-// localClient.list('template_slots') returns the raw stored string — parse it
-// back to an object here, at the single read boundary, so every consumer in
-// this file (s.flags?.UNFILLABLE, {...(slot.flags||{})}, etc.) can keep
-// treating `flags` as a plain object regardless of which write path last
-// touched the row.
-function normalizeSlots(rows) {
-  return (rows || []).map(row => {
-    if (typeof row.flags !== 'string') return { ...row, flags: row.flags || {} }
-    try {
-      return { ...row, flags: row.flags ? JSON.parse(row.flags) : {} }
-    } catch {
-      return { ...row, flags: {} }
-    }
-  })
 }
 
 export default function ScheduleScreen({ campId, role, onNavigate }) {

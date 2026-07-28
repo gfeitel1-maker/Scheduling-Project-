@@ -39,8 +39,13 @@ function day(overrides = {}) { return { id: 'd1', camp_id: CAMP_ID, day_of_week:
 function timeBlock(overrides = {}) { return { id: 'b1', camp_id: CAMP_ID, name: 'Morning', sort_order: 1, start_time: '09:00:00', end_time: '10:00:00', ...overrides } }
 function activity(overrides = {}) { return { id: 'act-1', camp_id: CAMP_ID, name: 'Swim', ...overrides } }
 function tier(overrides = {}) { return { id: 't1', camp_id: CAMP_ID, name: 'Tier 1', sort_order: 1, ...overrides } }
+// DB shape, deliberately: is_anchor/is_span_head/is_released are INTEGER
+// columns (electron/db/localDb.js) and localClient.list() returns raw
+// `SELECT *` rows with no coercion (electron/main.js), so the renderer only
+// ever receives 0/1 here — never false/true. Fixturing JS booleans hid every
+// `=== false` comparison bug in the component.
 function slotRow(overrides = {}) {
-  return { id: 'slot-1', template_id: 'tmpl-1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: false, is_span_head: true, is_released: false, flags: {}, ...overrides }
+  return { id: 'slot-1', template_id: 'tmpl-1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: 0, is_span_head: 1, is_released: 0, flags: {}, ...overrides }
 }
 
 function mockList(overridesByEntity = {}) {
@@ -115,6 +120,38 @@ describe('flags round-trips through bulk_replace as a parsed object (Round 2 Fix
   })
 })
 
+// Regression at the real defect: a merge-down writes is_span_head:false, the
+// resulting op_applied fires loadAll(), and the reloaded rows come back as
+// integers. Without coercion isActivityTail()/getActivityRowSpan() stop
+// recognising the tail and the head activity renders twice in two unmerged
+// cells; recalcStats' `is_anchor === false` filters likewise match nothing.
+describe('DB-shaped slots (integers, as list() actually returns) drive the span/stat readers correctly', () => {
+  it('isActivityTail/getActivityRowSpan: a merged pair renders the head activity ONCE, in a rowSpan=2 cell — not twice in two unmerged cells', async () => {
+    mockList({
+      time_blocks: [timeBlock(), timeBlock({ id: 'b2', name: 'Afternoon', sort_order: 2, start_time: '10:00:00', end_time: '11:00:00' })],
+      template_slots: [
+        slotRow({ id: 'slot-1', time_block_id: 'b1', is_span_head: 1 }),
+        slotRow({ id: 'slot-2', time_block_id: 'b2', is_span_head: 0 }),
+      ],
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+
+    const cells = screen.getAllByText('Swim').filter((el) => el.closest('td'))
+    expect(cells).toHaveLength(1)
+    expect(cells[0].closest('td').rowSpan).toBe(2)
+  })
+
+  it('recalcStats: `is_anchor === false` counts DB-loaded non-anchor slots instead of reporting 0/0 after every reload', async () => {
+    mockList()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+
+    await waitFor(() => expect(screen.getByText('Filled')).toBeTruthy())
+    expect(screen.getByText('Filled').parentElement.textContent).toContain('1/1')
+  })
+})
+
 // writeFields is the shared primitive that editSlotSave, swapSlots, dismissFlag,
 // lockActivity, releaseCell, addOverlay, updateOverlayRange, placeActivityManual,
 // and expandSlot all route through (it is module-private, so it is exercised here
@@ -166,7 +203,7 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
   it('releaseCell: clicking a locked slot cell writes template_slots.is_released and updates the UI to unlocked', async () => {
     mockList({
       activities: [activity({ is_locked: true })],
-      template_slots: [slotRow({ is_released: false })],
+      template_slots: [slotRow({ is_released: 0 })],
     })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
@@ -183,7 +220,7 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
   it('releaseCell failure: surfaces an error banner and leaves the cell locked when the write is rejected', async () => {
     mockList({
       activities: [activity({ is_locked: true })],
-      template_slots: [slotRow({ is_released: false })],
+      template_slots: [slotRow({ is_released: 0 })],
     })
     localClient.write.mockResolvedValue({ status: 'rejected' })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
