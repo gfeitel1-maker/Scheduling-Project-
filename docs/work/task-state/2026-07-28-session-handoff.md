@@ -16,29 +16,48 @@ what governs a given task. This file records only what the repo cannot tell you.
 ## State
 
 `main` is green: 678 unit tests, 17/17 integration, lint 0 errors, build clean.
-Tickets T6–T13 are all closed. No open PRs. No known defects.
+Tickets T6–T13 are all closed. No open PRs. **T14 is open** — a development run reports
+itself as a packaged build; see below.
 
 The installed app at `/Applications/Shoresh.app` is commit `655e57a` — identical to `main`.
 Its sidebar footer shows `v0.1.0 · 655e57a · 2026-07-28`, so this is checkable at a glance
 rather than by extracting files from the bundle.
 
-## The one real gap
+## The one real gap — CLOSED 2026-07-28, and it found a defect
 
-**Five changes are proven at the data layer and have never been seen rendered.** Screen
-access was denied for the whole session, so no UI was visually verified:
+Screen access was granted in a later session on the same day and all five were looked at
+under `npm run electron:dev`:
 
-| Change | Where to look |
+| Change | Result |
 |---|---|
-| Snapshot "Empty" labels (T8) | Schedule → Versions dropdown |
-| DEV badge (T9) | Sidebar footer — absent on a packaged build, present under `electron:dev` |
-| Day tab holds after a drop (T10) | Day View — drop on Tuesday, stay on Tuesday |
-| Device Manager list (T11) | Device Manager, under `npm run dev` |
-| Build stamp (T13) | Sidebar footer |
+| Snapshot "Empty" labels (T8) | **Confirmed** — greyed, disabled, delete affordance retained |
+| DEV badge (T9) | **Confirmed** — orange pill beside the database name |
+| Day tab holds after a drop (T10) | **Confirmed** — dropped on Tuesday, stayed on Tuesday |
+| Device Manager list (T11) | **Confirmed** — real IPC path, not the `:5200` mock |
+| Build stamp (T13) | **Renders, but wrong in dev** — see T14 |
 
-Drag-and-drop was confirmed working by the product owner. The rest were not checked.
+Two things came free: drag-and-drop works (T12 again), and new snapshots write a real
+payload, so the `af6a9d8` fix holds.
 
-If a future session is granted screen access, closing this out is roughly a minute of
-looking and would retire the largest standing uncertainty in the project.
+**T13 was not verified on the packaged app.** Its footer only renders in-session, which needs
+a PIN. What is verified read-only: the bundle carries commit `655e57a`, `builtAt`
+`2026-07-28`, `CFBundleShortVersionString 0.1.0`. That is data plus an observed render path,
+not an eyeball on the packaged build. It is a one-glance check for whoever can sign in.
+
+**The estimate in the previous version of this file was wrong,** and the reason is worth
+keeping. "Roughly a minute of looking" holds only for a dev database that already has data.
+The dev database was empty — schema present, zero camps — so the check first required
+bootstrapping a camp, groups, a time block and activities before the Schedule screen existed
+at all. Budget for the fixture, not just the glance.
+
+Two fixtures were needed and neither is reachable by ordinary use:
+
+- **T8's "Empty" label cannot occur naturally in a fresh camp.** It keys off `slots` being
+  NULL, which only legacy pre-`af6a9d8` rows have. It was reproduced by saving a version and
+  NULLing `slots`/`overlays` in the dev database.
+- A throwaway "Dev Verify Camp" now lives in `~/Library/Application Support/shoresh-dev`
+  (PIN 1234 — a local test fixture, not a credential). Real camp data was never opened,
+  copied, or modified.
 
 ## What was learned, that isn't obvious from the diffs
 
@@ -55,6 +74,10 @@ running the real thing, not from reading about it:
 
 **Corollary: resist adding governance in response to problems that looking would have caught.**
 The standards are good at preventing false claims. They do not find bugs.
+
+T14 is the fifth entry in that list and was found the same way. It sat behind a green suite —
+its unit tests are correct and pass, because both causes live outside the pure functions those
+tests cover. The only thing that surfaced it was running the app and reading the footer.
 
 ## Judgement calls made here, worth revisiting if they chafe
 
