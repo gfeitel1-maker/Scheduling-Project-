@@ -4,7 +4,7 @@ document_type: spec
 status: active
 created: 2026-07-26
 governing_docs: [docs/governance/standards/DESIGN_STANDARD.md]
-parent_spec: docs/workflow/specs/2026-07-26-manual-grid-editing.md
+parent_spec: docs/work/specs/2026-07-26-manual-grid-editing.md
 archive_when: with its parent spec
 ---
 

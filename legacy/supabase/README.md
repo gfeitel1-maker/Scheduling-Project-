@@ -11,5 +11,5 @@ architecture described in the root [`CLAUDE.md`](../../CLAUDE.md).
 This code is kept for historical/reference purposes only. It is **not imported by any active
 code** under `src/` or `electron/`, and `@supabase/supabase-js` has been removed from
 `package.json` — do not resurrect or extend this path. New work should target the
-Electron/SQLite local-first architecture; see [`PLATFORM_STATE.md`](../../PLATFORM_STATE.md) for
+Electron/SQLite local-first architecture; see [`PLATFORM_STATE.md`](../../docs/current/PLATFORM_STATE.md) for
 what's actually active.

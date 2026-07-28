@@ -1,16 +1,18 @@
 ---
 title: T2-group-view-drop-targets
 document_type: ticket
-status: open
+status: completed
 created: 2026-07-26
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: []
-archive_when: fix merged and Verifier PASS recorded
+archive_when: with its parent spec, docs/work/specs/2026-07-26-manual-grid-editing.md
 ---
+
+> **COMPLETED** — recorded Done in `docs/work/task-state/2026-07-26-manual-grid-editing-state.md`.
 
 # T2 — Group-View Drop Targets from Persistent Palette
 
-**Spec:** `docs/workflow/specs/2026-07-26-manual-grid-editing.md`  
+**Spec:** `docs/work/specs/2026-07-26-manual-grid-editing.md`  
 **Risk:** Moderate  
 **Depends on:** T1  
 **Blocks:** T3
