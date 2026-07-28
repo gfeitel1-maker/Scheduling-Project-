@@ -10,10 +10,38 @@ function loadState() {
       const parsed = JSON.parse(raw)
       // Backfill for state saved before conflicts persistence existed.
       if (!Array.isArray(parsed.conflicts)) parsed.conflicts = []
+      // Backfill for state saved before device pairing was mocked (T11).
+      if (!Array.isArray(parsed.devices)) parsed.devices = seedDevices()
       return parsed
     }
   } catch { /* fall through to default */ }
-  return { camp: null, users: [], conflicts: [] }
+  return { camp: null, users: [], conflicts: [], devices: seedDevices() }
+}
+
+// Sample devices so Device Manager has something to render and its actions do
+// something observable. Every name is marked "(sample)" — the dev mock is for
+// evaluating layout and flow, never for concluding anything about real devices,
+// and a screen that silently showed plausible-looking fake hardware would be
+// worse than one that showed nothing. The sidebar's DEV badge is the other half
+// of that signal (see ADR 2026-07-28).
+function seedDevices() {
+  const now = new Date().toISOString()
+  return [
+    { id: 'mock-device', name: 'This computer (sample)', pairing_status: 'authorized', authorized_at: now, revoked_at: null, last_synced_at: now },
+    { id: 'mock-device-pending', name: 'Front Office iPad (sample)', pairing_status: 'pending', authorized_at: null, revoked_at: null, last_synced_at: null },
+    { id: 'mock-device-paired', name: 'Kitchen Laptop (sample)', pairing_status: 'authorized', authorized_at: now, revoked_at: null, last_synced_at: now },
+  ]
+}
+
+function updateDevice(deviceId, patch) {
+  const state = loadState()
+  const device = (state.devices || []).find((d) => d.id === deviceId)
+  // Mirrors the real handler, which throws 'device not found' rather than
+  // silently succeeding — the screen's error path should be reachable in dev.
+  if (!device) throw new Error('device not found')
+  Object.assign(device, patch)
+  saveState(state)
+  return device
 }
 
 function saveState(state) {
@@ -44,6 +72,10 @@ const UNIQUE_KEYS = {
 // (e.g. via mockShoresh._triggerOpConflict(msg)) without monkey-patching
 // this file each time.
 let opAppliedListeners = []
+let pairingRequestListeners = []
+let pairingApprovedListeners = []
+let pairingDeniedListeners = []
+let tokenRenewedListeners = []
 let opConflictListeners = []
 
 export const mockShoresh = {
@@ -214,6 +246,53 @@ export const mockShoresh = {
     saveState(state)
     return { status: 'applied' }
   },
+  // --- Device pairing and trust (T11) ---
+  //
+  // Stateful rather than stubbed: approve/deny/revoke actually move a device
+  // between states and the list re-renders, so the Device Manager flow can be
+  // evaluated in `npm run dev`. What this canNOT prove is anything about real
+  // pairing — there is no second device, no WebSocket, and no Ed25519 minting
+  // here. Per TESTING_STANDARD.md §2, device-trust behaviour is only ever
+  // demonstrated under electron:dev plus the integration harness.
+  async listPendingPairingRequests() {
+    // Mirrors the real query: excludes denied devices so a single deny stops
+    // the device re-appearing on the next poll.
+    return (loadState().devices || [])
+      .filter((d) => !d.authorized_at && !d.revoked_at && (d.pairing_status == null || d.pairing_status === 'pending'))
+      .map(({ id, name }) => ({ id, name }))
+  },
+  async listDevices() {
+    return (loadState().devices || []).map(({ id, name, pairing_status, authorized_at, revoked_at, last_synced_at }) =>
+      ({ id, name, pairing_status, authorized_at, revoked_at, last_synced_at }))
+  },
+  async approveDevice(deviceId) {
+    const now = new Date().toISOString()
+    updateDevice(deviceId, { pairing_status: 'authorized', authorized_at: now, revoked_at: null })
+    return { deviceId, authorized: true }
+  },
+  async denyDevice(deviceId) {
+    updateDevice(deviceId, { pairing_status: 'denied' })
+    return { deviceId, denied: true }
+  },
+  async revokeDevice(deviceId, reason = null) {
+    updateDevice(deviceId, { revoked_at: new Date().toISOString(), revocation_reason: reason })
+    return { deviceId, revoked: true }
+  },
+  async getDevicePairingStatus() {
+    const self = (loadState().devices || []).find((d) => d.id === 'mock-device')
+    return { isPaired: !!(self && self.authorized_at), pairing_status: self ? self.pairing_status : null }
+  },
+  // Event subscriptions. Registered rather than dropped so a dev session can
+  // synthesize one from the console, matching the onOpApplied pattern above.
+  onPairingRequest(cb) { pairingRequestListeners.push(cb); return () => { pairingRequestListeners = pairingRequestListeners.filter((f) => f !== cb) } },
+  onPairingApproved(cb) { pairingApprovedListeners.push(cb); return () => { pairingApprovedListeners = pairingApprovedListeners.filter((f) => f !== cb) } },
+  onPairingDenied(cb) { pairingDeniedListeners.push(cb); return () => { pairingDeniedListeners = pairingDeniedListeners.filter((f) => f !== cb) } },
+  onTokenRenewed(cb) { tokenRenewedListeners.push(cb); return () => { tokenRenewedListeners = tokenRenewedListeners.filter((f) => f !== cb) } },
+  _triggerPairingRequest(payload) { pairingRequestListeners.forEach((cb) => cb(payload)) },
+  _triggerPairingApproved(payload) { pairingApprovedListeners.forEach((cb) => cb(payload)) },
+  _triggerPairingDenied(payload) { pairingDeniedListeners.forEach((cb) => cb(payload)) },
+  _triggerTokenRenewed(payload) { tokenRenewedListeners.forEach((cb) => cb(payload)) },
+
   // Rehydration query stand-in (Fix 3): returns the conflicts persisted in
   // mock state, mirroring the real listPendingConflicts() IPC handler so the
   // Conflicts screen shows pending conflicts immediately on mount even

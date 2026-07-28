@@ -64,7 +64,13 @@ it. See `docs/current/PLATFORM_STATE.md` Known Issues.
 
 The mock emulates the real client's `UNIQUE` constraints and delete semantics precisely so it stays
 faithful. **When you change `localClient`, change the mock** — divergence between them is a defect
-in its own right, not a test-only inconvenience.
+in its own right, not a test-only inconvenience. This is enforced: `test/governance.test.js`
+asserts the mock implements every `window.shoresh` method the renderer calls, and fails the build on
+any new divergence.
+
+Mock data must be **visibly fake** (names suffixed "(sample)"). A dev screen showing plausible
+invented data is worse than one showing none — it invites a conclusion the environment cannot
+support. The sidebar's DEV badge is the other half of that signal.
 
 ## 3. Native module rebuild
 

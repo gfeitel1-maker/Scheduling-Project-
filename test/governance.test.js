@@ -232,11 +232,10 @@ describe('dev mock fidelity', () => {
   // real data layer. When the mock and the real client diverge, the dev
   // environment silently lies — this already cost the project a blocking bug
   // where every write no-op'd. This test pins the divergence so it can only shrink.
-  const KNOWN_UNIMPLEMENTED = [
-    'approveDevice', 'denyDevice', 'getDevicePairingStatus', 'listDevices',
-    'listPendingPairingRequests', 'onPairingApproved', 'onPairingDenied',
-    'onPairingRequest', 'onTokenRenewed', 'revokeDevice',
-  ]
+  // Emptied by T11 — the mock now implements every method the renderer calls.
+  // Keep the list (not the check) if a future divergence is ever deliberately
+  // accepted; an empty array means "no divergence is tolerated".
+  const KNOWN_UNIMPLEMENTED = []
 
   const invoked = [...new Set(
     [...read(p('src', 'localClient.js')).matchAll(/shoresh\??\.([a-zA-Z]+)\s*\(/g)].map((m) => m[1])
