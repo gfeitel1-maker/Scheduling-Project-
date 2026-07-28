@@ -12,6 +12,7 @@ import VersionsDropdown from '../components/schedule/VersionsDropdown'
 import FieldTripDrawer from '../components/schedule/FieldTripDrawer'
 import { exportToExcel } from '../utils/exportSchedule'
 import { normalizeSlots } from '../utils/normalizeSlots'
+import { resolveSelection } from './resolveSelection'
 import { normalizeActivityEligibility } from '../utils/normalizeActivityEligibility'
 import ScheduleGroupView from '../components/schedule/ScheduleGroupView'
 import ScheduleDayView from '../components/schedule/ScheduleDayView'
@@ -204,8 +205,12 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
         return ox !== oy ? ox - oy : x.name.localeCompare(y.name)
       })
       setGroups(sortedG); setDays(d); setTimeBlocks(b); setActivities(a); setAnchors(anc); setTiers(t)
-      if (sortedG.length > 0) setSelectedGroup(sortedG[0].id)
-      if (d.length > 0) setSelectedDay(d[0].id)
+      // loadAll() re-runs on every op-applied event. Defaulting the selection
+      // unconditionally here is right on first load and wrong on every reload
+      // after it — it threw the user back to Monday after each drop (T10).
+      // Functional updates so this reads the live value, not a stale closure.
+      setSelectedGroup(prev => resolveSelection(prev, sortedG))
+      setSelectedDay(prev => resolveSelection(prev, d))
     } catch {
       setLoadError('Failed to load schedule data — check your connection and refresh')
       setLoading(false)
