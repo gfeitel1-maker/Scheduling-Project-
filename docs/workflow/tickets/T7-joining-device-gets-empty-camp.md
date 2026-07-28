@@ -1,3 +1,16 @@
+---
+title: T7-joining-device-gets-empty-camp
+document_type: ticket
+status: completed
+created: 2026-07-26
+governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
+related_adrs: []
+resolved_by: 0a147ce
+archive_when: next archive sweep — resolved 0a147ce
+---
+
+> **RESOLVED** in `0a147ce`. Joining device receives camp domain data on first pairing. ADR filed: docs/adr/2026-07-28-first-pairing-domain-sync-and-template-identity.md
+
 # T7 — A second device joins successfully and shows an empty camp
 
 **Risk:** HIGH — this is the blocker for installing the app on other camp computers.

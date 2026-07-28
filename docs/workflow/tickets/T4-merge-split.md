@@ -1,3 +1,13 @@
+---
+title: T4-merge-split
+document_type: ticket
+status: open
+created: 2026-07-26
+governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
+related_adrs: []
+archive_when: fix merged and Verifier PASS recorded
+---
+
 # T4 — Surface Merge-Down and Split in Grid
 
 **Spec:** `docs/workflow/specs/2026-07-26-manual-grid-editing.md`  

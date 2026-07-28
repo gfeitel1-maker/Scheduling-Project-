@@ -1,3 +1,14 @@
+---
+title: "Device trust, pairing, and revocation"
+document_type: adr
+authority: normative
+status: accepted
+date: 2026-07-25
+supersedes: []
+implementation_state: shipped
+affects: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
+---
+
 # Device trust, pairing, and revocation
 
 **Status:** proposed

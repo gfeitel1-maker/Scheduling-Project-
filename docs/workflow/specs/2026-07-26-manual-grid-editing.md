@@ -1,3 +1,13 @@
+---
+title: Manual Grid Editing
+document_type: spec
+status: active
+created: 2026-07-26
+governing_docs: [docs/governance/standards/DESIGN_STANDARD.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
+related_adrs: []
+archive_when: all child tickets closed and Verifier PASS recorded
+---
+
 # Specification — Manual Grid Editing (Excel-Style Schedule Builder)
 
 **Date:** 2026-07-26  

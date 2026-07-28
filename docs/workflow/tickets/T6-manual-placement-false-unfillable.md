@@ -1,3 +1,16 @@
+---
+title: T6-manual-placement-false-unfillable
+document_type: ticket
+status: completed
+created: 2026-07-26
+governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
+related_adrs: []
+resolved_by: 5e2c007
+archive_when: next archive sweep — resolved 5e2c007
+---
+
+> **RESOLVED** in `5e2c007`. Manual placement no longer false-flags UNFILLABLE.
+
 # T6 — Manual placement falsely flags every slot UNFILLABLE
 
 **Risk:** Moderate — no data loss, but the flag system becomes noise, which is worse than no flags.

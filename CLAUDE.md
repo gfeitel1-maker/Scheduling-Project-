@@ -12,7 +12,7 @@ Three things worth knowing before you read anything else here:
 
 - **This file and [PLATFORM_STATE.md](PLATFORM_STATE.md) are descriptive, not authoritative.** They record what exists. Where they disagree with the code, the code is right and the document is stale — say so rather than reasoning from the stale text.
 - **A standard is not overridden by code.** If the implementation contradicts a standard, that is a gap to report, not a licence to amend either one.
-- **`docs/superpowers/**` and `legacy/**` are historical.** Several documents there describe the retired Supabase architecture accurately as of their date. They are never current instruction, however detailed they look.
+- **`docs/archive/**` and `legacy/**` are historical.** Several documents there describe the retired Supabase architecture accurately as of their date. They are never current instruction, however detailed they look.
 
 ## Commands
 
@@ -41,7 +41,7 @@ npm rebuild better-sqlite3                   # before npm run test
 
 **Renderer ↔ Electron IPC** — the renderer never touches SQLite directly. All calls go through `window.shoresh.*` (exposed via `contextBridge` in `electron/preload.js`), handled in `electron/main.js`: `chooseMode`, `discoverHosts`, `login`, `createUser`, `bootstrapCamp`, `write`, `verifySession`, `getCamp`, `listUsers`, `getDeviceId`, `resolveConflict`, `listPendingConflicts`, plus push events `onOpApplied`/`onOpConflict`.
 
-**Auth** — local, PIN-based, per-camp. `electron/auth/localAuth.js`'s `attemptLogin(db, {name, pin, deviceId})` does the PIN check (`scryptSync`) and lockout tracking; `issueSessionToken`/`verifySessionToken(db, ...)` sign/verify tokens using a shared per-camp HMAC secret (`camps.signing_secret`, generated at bootstrap, distributed to every device via full-sync). Two login paths — local IPC (Host, or a Client's offline fallback) and an unauthenticated WebSocket `login` message (lets a genuinely fresh Client verify its PIN against the Host and get its first token) — both route through `attemptLogin` so behavior can't drift.
+**Auth** — local, PIN-based, per-camp. `electron/auth/localAuth.js`'s `attemptLogin(db, {name, pin, deviceId})` does the PIN check (`scryptSync` + `timingSafeEqual`) and lockout tracking (5 attempts, 30s). Two token types: `camp` tokens are signed with the Host's Ed25519 private key, which lives only in `host_signing_key` on the Host and never replicates — Clients receive the public half via `camps.signing_public_key` and can verify but never mint. `local` tokens are HMAC-SHA256 keyed to that device's own `device_secret_identifier` (issued at pairing) and are accepted only for local IPC on that device; the Host's WebSocket server rejects them. Both expire in 24h. Two login paths — local IPC and an unauthenticated WebSocket `login` message (lets a fresh Client verify its PIN against the Host) — both route through `attemptLogin` so behavior can't drift. Every mutating IPC and WS handler goes through `authorize()` (`electron/auth/authorize.js`), which re-queries role and device trust on every call. See [SECURITY.md](SECURITY.md).
 
 **Op-log sync** — all mutations are appended as rows to the `operations` table (entity/field-level, with `client_write_id` for idempotent retries) and replayed across devices. Genuine conflicting writes are recorded in the `conflicts` table (not silently dropped) and require explicit resolution via `resolveConflict`, linked by `parent_op_id`.
 
