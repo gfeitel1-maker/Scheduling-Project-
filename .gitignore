@@ -1,6 +1,10 @@
 .env
 .env.*
-.claude
+# Local Claude state (settings.local.json, worktrees, caches) stays out of git,
+# but the agent team definitions are project assets and MUST be tracked — they
+# are the prompts the workflow runs on.
+.claude/*
+!.claude/agents/
 
 # Logs
 logs
