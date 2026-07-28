@@ -1,12 +1,18 @@
 ---
 title: T11-dev-mock-missing-device-methods
 document_type: ticket
-status: open
+status: completed
 created: 2026-07-28
 governing_docs: [docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: [docs/adr/2026-07-25-device-trust-revocation.md]
-archive_when: mock implements the ten methods and the pinned gap in test/governance.test.js is emptied
+archive_when: next archive sweep — resolved
 ---
+
+> **RESOLVED** — the mock implements all 26 methods the renderer calls; the pinned
+> gap in `test/governance.test.js` is now empty and the parity check enforces zero
+> divergence. Implemented statefully (approve/deny/revoke move a device between
+> states) rather than as stubs, so the Device Manager flow can actually be
+> evaluated in `npm run dev`. Sample devices are labelled "(sample)".
 
 # T11 — Device Manager cannot work under `npm run dev`
 
