@@ -95,7 +95,17 @@ reads, or unseeded randomness into it.
 - **Comments explain why, not what** — a hidden constraint, a workaround, an invariant. The code
   already says what it does.
 
-## 9. Native module ABI
+## 9. Application data location is explicit
+
+`app.setName()` and the userData path are set explicitly in `electron/db/userDataPath.js`, before
+any `app.getPath()` call and before `whenReady()`. Never read a path that Electron inferred from
+argv: the fallback is its own built-in constant, which put every development clone in one shared
+directory while the packaged app used another, with nothing on screen to distinguish them.
+
+Development and packaged builds resolve **different** directories, and the UI must always show which
+one is loaded. See [ADR 2026-07-28](../../adr/2026-07-28-explicit-userdata-directory.md).
+
+## 10. Native module ABI
 
 `better-sqlite3` is native and must be rebuilt when switching between Node (Vitest) and Electron.
 See [`TESTING_STANDARD.md`](TESTING_STANDARD.md). A mismatch presents as a module-load error or a
