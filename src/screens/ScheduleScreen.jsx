@@ -12,6 +12,7 @@ import VersionsDropdown from '../components/schedule/VersionsDropdown'
 import FieldTripDrawer from '../components/schedule/FieldTripDrawer'
 import { exportToExcel } from '../utils/exportSchedule'
 import { normalizeSlots } from '../utils/normalizeSlots'
+import { normalizeActivityEligibility } from '../utils/normalizeActivityEligibility'
 import ScheduleGroupView from '../components/schedule/ScheduleGroupView'
 import ScheduleDayView from '../components/schedule/ScheduleDayView'
 import ScheduleActivityView from '../components/schedule/ScheduleActivityView'
@@ -191,7 +192,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       ])
       const g = [...(gd || [])].filter(x => x.camp_id === campId).sort((x, y) => x.name.localeCompare(y.name))
       const b = [...(bd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
-      const a = (ad || []).filter(x => x.camp_id === campId)
+      const a = (ad || []).filter(x => x.camp_id === campId).map(normalizeActivityEligibility)
       const anc = (ancd || []).filter(x => x.camp_id === campId)
       const t = [...(tierd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
       const sortedTd = [...(td || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))

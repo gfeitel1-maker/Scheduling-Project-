@@ -454,3 +454,175 @@ describe('generate() aborts the destructive wipe when the pre-emptive snapshot f
     expect(localClient.bulkReplace).not.toHaveBeenCalled()
   })
 })
+
+// T6 — placeActivityManual (ScheduleScreen.jsx:683) computed eligibility off
+// activity.eligible_tier_ids / eligible_group_ids without parsing them.
+// activities.list() returns those columns as JSON strings ('[]' for "no
+// restriction"), so `tierIds.length === 0` was `'[]'.length === 0` (false)
+// and `.includes()` did a substring search — every manually-placed activity
+// came back ineligible and got flagged UNFILLABLE regardless of its actual
+// eligibility. placeActivityManual is module-private and only reachable
+// through drag-and-drop (@dnd-kit) or copy/paste; copy/paste is plain click +
+// keydown, so it's used here to exercise the real component instead of
+// simulating dnd-kit pointer drags. Fixtures are DB-shaped JSON strings for
+// eligible_tier_ids/eligible_group_ids, never JS arrays — an array fixture
+// would pass against the pre-fix code and prove nothing.
+describe('placeActivityManual eligibility (T6 — DB-shaped eligible_tier_ids/eligible_group_ids)', () => {
+  // Copies the "Swim" cell (slot-1, block b1) via Ctrl+C, then pastes it onto
+  // the "Soccer" cell (slot-2, block b2), which is what drives
+  // placeActivityManual('act-1', 'g1', 'd1', 'b2') without touching dnd-kit.
+  async function copySwimPasteOntoSoccer() {
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+    fireEvent.click(scheduleCell('Swim'))
+    fireEvent.keyDown(window, { key: 'c', ctrlKey: true })
+    fireEvent.click(scheduleCell('Soccer'))
+  }
+
+  function flagsWriteFor(slotId) {
+    const call = localClient.write.mock.calls.find(
+      c => c[1] === 'template_slots' && c[2] === slotId && c[3] === 'flags'
+    )
+    return call?.[4]
+  }
+
+  it('an activity with no eligibility restrictions ("[]" for both fields) is placed with no UNFILLABLE flag', async () => {
+    mockList({
+      time_blocks: [timeBlock(), timeBlock({ id: 'b2', name: 'Afternoon', sort_order: 2, start_time: '10:00:00', end_time: '11:00:00' })],
+      activities: [
+        activity({ id: 'act-1', name: 'Swim', eligible_tier_ids: '[]', eligible_group_ids: '[]' }),
+        activity({ id: 'act-2', name: 'Soccer' }),
+      ],
+      template_slots: [
+        slotRow({ id: 'slot-1', time_block_id: 'b1', activity_id: 'act-1' }),
+        slotRow({ id: 'slot-2', time_block_id: 'b2', activity_id: 'act-2' }),
+      ],
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+
+    await copySwimPasteOntoSoccer()
+
+    await waitFor(() => expect(flagsWriteFor('slot-2')).toBeDefined())
+    expect(flagsWriteFor('slot-2')).toEqual({})
+  })
+
+  it('an activity restricted by eligible_tier_ids that INCLUDES the target group\'s tier is placed with no UNFILLABLE flag', async () => {
+    // The positive-match branch — the only case in this block that exercises
+    // `.includes()` returning true.
+    //
+    // Verified: this test passes even with the fix reverted, and that is not a
+    // flaw in the test, it is the shape of the bug. Unparsed, `tierIds` was the
+    // STRING '["t1"]', and `'["t1"]'.includes('t1')` is a substring hit — so
+    // the broken code reached the right answer here by accident. Only the
+    // empty-list case ('[]'.length === 2, never 0) came out wrong, which is why
+    // exactly one test in this block is red-green sensitive.
+    //
+    // Keep this one anyway: it is the sole guard against a future change making
+    // eligibility over-restrictive for a NON-empty allow-list, which the four
+    // UNFILLABLE-asserting siblings cannot catch.
+    mockList({
+      time_blocks: [timeBlock(), timeBlock({ id: 'b2', name: 'Afternoon', sort_order: 2, start_time: '10:00:00', end_time: '11:00:00' })],
+      activities: [
+        // group() fixture's tier_id is 't1' — this list explicitly allows it.
+        activity({ id: 'act-1', name: 'Swim', eligible_tier_ids: '["t1"]', eligible_group_ids: '[]' }),
+        activity({ id: 'act-2', name: 'Soccer' }),
+      ],
+      template_slots: [
+        slotRow({ id: 'slot-1', time_block_id: 'b1', activity_id: 'act-1' }),
+        slotRow({ id: 'slot-2', time_block_id: 'b2', activity_id: 'act-2' }),
+      ],
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+
+    await copySwimPasteOntoSoccer()
+
+    await waitFor(() => expect(flagsWriteFor('slot-2')).toBeDefined())
+    expect(flagsWriteFor('slot-2')).toEqual({})
+  })
+
+  it('an activity restricted by eligible_group_ids that INCLUDES the target group is placed with no UNFILLABLE flag', async () => {
+    mockList({
+      time_blocks: [timeBlock(), timeBlock({ id: 'b2', name: 'Afternoon', sort_order: 2, start_time: '10:00:00', end_time: '11:00:00' })],
+      activities: [
+        // slot-2 is placed into group g1 — this list explicitly allows it.
+        activity({ id: 'act-1', name: 'Swim', eligible_tier_ids: '[]', eligible_group_ids: '["g1"]' }),
+        activity({ id: 'act-2', name: 'Soccer' }),
+      ],
+      template_slots: [
+        slotRow({ id: 'slot-1', time_block_id: 'b1', activity_id: 'act-1' }),
+        slotRow({ id: 'slot-2', time_block_id: 'b2', activity_id: 'act-2' }),
+      ],
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+
+    await copySwimPasteOntoSoccer()
+
+    await waitFor(() => expect(flagsWriteFor('slot-2')).toBeDefined())
+    expect(flagsWriteFor('slot-2')).toEqual({})
+  })
+
+  it('an activity genuinely restricted by eligible_tier_ids (excludes the target group\'s tier) is still flagged UNFILLABLE', async () => {
+    mockList({
+      time_blocks: [timeBlock(), timeBlock({ id: 'b2', name: 'Afternoon', sort_order: 2, start_time: '10:00:00', end_time: '11:00:00' })],
+      activities: [
+        // group() fixture's tier_id is 't1' — 't2' deliberately excludes it.
+        activity({ id: 'act-1', name: 'Swim', eligible_tier_ids: '["t2"]', eligible_group_ids: '[]' }),
+        activity({ id: 'act-2', name: 'Soccer' }),
+      ],
+      template_slots: [
+        slotRow({ id: 'slot-1', time_block_id: 'b1', activity_id: 'act-1' }),
+        slotRow({ id: 'slot-2', time_block_id: 'b2', activity_id: 'act-2' }),
+      ],
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+
+    await copySwimPasteOntoSoccer()
+
+    await waitFor(() => expect(flagsWriteFor('slot-2')).toBeDefined())
+    expect(flagsWriteFor('slot-2')).toEqual({ UNFILLABLE: true })
+  })
+
+  it('an activity genuinely restricted by eligible_group_ids (excludes the target group) is still flagged UNFILLABLE', async () => {
+    mockList({
+      time_blocks: [timeBlock(), timeBlock({ id: 'b2', name: 'Afternoon', sort_order: 2, start_time: '10:00:00', end_time: '11:00:00' })],
+      activities: [
+        // slot-2 is placed into group g1 — 'g2' deliberately excludes it.
+        activity({ id: 'act-1', name: 'Swim', eligible_tier_ids: '[]', eligible_group_ids: '["g2"]' }),
+        activity({ id: 'act-2', name: 'Soccer' }),
+      ],
+      template_slots: [
+        slotRow({ id: 'slot-1', time_block_id: 'b1', activity_id: 'act-1' }),
+        slotRow({ id: 'slot-2', time_block_id: 'b2', activity_id: 'act-2' }),
+      ],
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+
+    await copySwimPasteOntoSoccer()
+
+    await waitFor(() => expect(flagsWriteFor('slot-2')).toBeDefined())
+    expect(flagsWriteFor('slot-2')).toEqual({ UNFILLABLE: true })
+  })
+
+  it('locationFull (max_groups_per_slot reached) still flags UNFILLABLE independent of eligibility', async () => {
+    mockList({
+      time_blocks: [timeBlock(), timeBlock({ id: 'b2', name: 'Afternoon', sort_order: 2, start_time: '10:00:00', end_time: '11:00:00' })],
+      activities: [
+        activity({ id: 'act-1', name: 'Swim', eligible_tier_ids: '[]', eligible_group_ids: '[]', max_groups_per_slot: 1 }),
+        activity({ id: 'act-2', name: 'Soccer' }),
+      ],
+      template_slots: [
+        slotRow({ id: 'slot-1', time_block_id: 'b1', activity_id: 'act-1' }),
+        slotRow({ id: 'slot-2', time_block_id: 'b2', activity_id: 'act-2' }),
+        // Another group already has "Swim" (act-1) at the same day+block —
+        // pasting it into slot-2 too would put two groups in one activity
+        // slot whose cap is 1.
+        slotRow({ id: 'slot-3', group_id: 'g2', time_block_id: 'b2', activity_id: 'act-1' }),
+      ],
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+
+    await copySwimPasteOntoSoccer()
+
+    await waitFor(() => expect(flagsWriteFor('slot-2')).toBeDefined())
+    expect(flagsWriteFor('slot-2')).toEqual({ UNFILLABLE: true })
+  })
+})
