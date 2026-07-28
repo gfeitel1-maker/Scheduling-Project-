@@ -1,3 +1,13 @@
+---
+title: T8-snapshot-restore-silent-noop
+document_type: ticket
+status: open
+created: 2026-07-26
+governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
+related_adrs: []
+archive_when: fix merged and Verifier PASS recorded
+---
+
 # T8 — Restore snapshot silently does nothing, and existing snapshots are empty shells
 
 **Risk:** Moderate — no corruption, but a safety feature the director is relying on has never worked.

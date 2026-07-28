@@ -1,3 +1,14 @@
+---
+title: "A joining device must receive current camp domain data, and schedule template identity must be collision-proof"
+document_type: adr
+authority: normative
+status: accepted
+date: 2026-07-28
+supersedes: []
+implementation_state: shipped
+affects: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
+---
+
 # A joining device must receive current camp domain data, and schedule template identity must be collision-proof
 
 **Status:** accepted 2026-07-28 — implemented in two slices. Slice 1 (electron

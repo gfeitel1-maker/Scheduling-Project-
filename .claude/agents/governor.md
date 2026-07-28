@@ -193,26 +193,18 @@ Wait for score + justification.
   (`src/localClient.mock.js`), not the real stack. `npm run electron:dev` runs the real app.
   Anything involving persistence, auth, or sync must be verified under Electron.
 - **Key constraint:** ALL styles are inline React style objects. No CSS files. No className for styling.
-- **Design system (canonical):** `docs/superpowers/specs/design-system.md` — the durable token contract.
-  Attach it (or its relevant sections) to every UI-significant Maker/Designer brief. Personality:
-  Professional, grounded, warm, quiet, precise — **never playful**. Color = meaning, not decoration.
-- **CSS vars (semantic — full meaning in the spec):** `--primary` Deep Navy `#173B63`, `--primary-dark` `#0F2A47`,
-  `--secondary` Forest Green `#2F6B58`, `--accent` Warm Bronze `#B8833A`, `--danger` Muted Brick `#B44E48`
-  (`--warning` = same value, legacy alias), `--success` `#4C8A63`, `--anchor` `#5C6B7A` (fixed events),
-  `--bg` `#F4F3EF`, `--surface` `#FCFBF8`, `--surface-elevated` `#FFFFFF`, `--text` `#1E2A34`,
-  `--text-secondary` `#5C6670`, `--border` `#D8DBD9`. `--purple` / `--yellow-green`: DEPRECATED.
-- **Fonts:** `--font-sans` `'Inter'`, `--font-condensed` `'IBM Plex Sans'`, `--font-mono` `'IBM Plex Mono'`
-- **Activity colors:** `['#3F6690','#3C8C86','#5F8A5A','#8C6F26','#B26B47','#7C5E86']`
-  (muted: Slate Blue, Muted Teal, Sage Green, Ochre, Clay Terracotta, Dusty Plum)
-- **Motion:** Fade / Lift / Slide / Settle — no bounce. `--motion-fast` 140ms, `--motion-base` 220ms, `--motion-settle` 340ms, `--ease-out` `cubic-bezier(0.22,1,0.36,1)`.
-- **Retheme status:** the token *values* above are the contract, but `src/index.css` / `index.html` fonts /
-  `src/styles/shared.js` / schedule components still hold the OLD vivid values. Applying these tokens to
-  live code is a **separate future retheme task**, not assumed done.
+- **Design:** [`docs/governance/standards/DESIGN_STANDARD.md`](../../docs/governance/standards/DESIGN_STANDARD.md)
+  is the token contract — personality, every colour/type/motion value, and what each token *means*.
+  Attach it (or the relevant sections) to every UI-significant Maker/Designer brief. Do not restate
+  its values here or in a brief; link to it, so there is one copy to keep true.
+- **Architecture & testing:** [`ARCHITECTURE_STANDARD.md`](../../docs/governance/standards/ARCHITECTURE_STANDARD.md)
+  · [`TESTING_STANDARD.md`](../../docs/governance/standards/TESTING_STANDARD.md) — the latter owns the
+  gate list and says when the integration harness is mandatory.
 - **DnD:** `@dnd-kit/core`, PointerSensor, `distance: 8` activation constraint
 - **DB:** local SQLite, read/written only through `window.shoresh`/`localClient` IPC — never
   directly from the renderer. `template_slots` (not `schedule_slots`). Every mutation is appended
   to the `operations` op-log and replayed across devices; new entities must be registered in
   `PROJECTIONS` (`electron/ops/projections.js`) or writes silently never materialize.
   Isolation is one-camp-per-device-db (`SELECT ... FROM camps LIMIT 1`).
-- **Workflow spec:** `docs/superpowers/specs/2026-07-19-multi-agent-workflow-design.md`
-- **Design spec:** `docs/superpowers/specs/design-system.md`
+- **Workflow law:** [`docs/governance/constitution/CONSTITUTION.md`](../../docs/governance/constitution/CONSTITUTION.md) Art. VI–VII
+- **Design:** [`docs/governance/standards/DESIGN_STANDARD.md`](../../docs/governance/standards/DESIGN_STANDARD.md)

@@ -13,8 +13,8 @@ review_trigger: any document promoted, archived, moved, or added to the standard
 **Start here to find out what governs a piece of work.** This page resolves authority mechanically
 so no agent has to infer it.
 
-Every path below points at a document that exists today. Paths marked **→ moving** are scheduled to
-relocate when historical material is archived; the entry will be updated in that same commit.
+Every path below points at a document that exists today. If a link here is broken, that is a defect
+in this index — report it rather than guessing at the intended target.
 
 ---
 
@@ -36,17 +36,18 @@ Nothing else by default. Everything below is loaded because a task class calls f
 
 | Task class | Governing standards | Current-state reference | Deterministic checks | Human gate |
 |---|---|---|---|---|
-| **Architecture** | `CONSTITUTION.md` Art. I · relevant ADRs | `PLATFORM_STATE.md` | test · lint · build · integration | **ADR approval** |
-| **UI / UX / design** | `docs/superpowers/specs/design-system.md` **→ moving** | `PLATFORM_STATE.md` §screens | test · lint · build | changing a token *value* |
-| **Security / auth** | [`../../SECURITY.md`](../../SECURITY.md) · ADRs `2026-07-24-centralized-authorization-layer`, `2026-07-25-device-trust-revocation`, `2026-07-25-append-only-audit-event-log` | `SECURITY.md` "Known limitations" | test · lint · build · **integration (mandatory)** | **any change to an accepted tradeoff** |
-| **Scheduling engine** | `CONSTITUTION.md` Art. V (determinism, surface-don't-resolve) | `PLATFORM_STATE.md` §engine | **`buildSchedule.test.js` (mandatory)** · test · lint · build | flag taxonomy or placement priority |
+| **Architecture** | [`standards/ARCHITECTURE_STANDARD.md`](standards/ARCHITECTURE_STANDARD.md) · relevant ADRs | `PLATFORM_STATE.md` | test · lint · build · integration | **ADR approval** |
+| **UI / UX / design** | [`standards/DESIGN_STANDARD.md`](standards/DESIGN_STANDARD.md) | `PLATFORM_STATE.md` §screens | test · lint · build | changing a token *value* |
+| **Security / auth** | [`../../SECURITY.md`](../../SECURITY.md) · [`standards/ARCHITECTURE_STANDARD.md`](standards/ARCHITECTURE_STANDARD.md) · ADRs `2026-07-24-centralized-authorization-layer`, `2026-07-25-device-trust-revocation`, `2026-07-25-append-only-audit-event-log` | `SECURITY.md` "Known limitations" | test · lint · build · **integration (mandatory)** | **any change to an accepted tradeoff** |
+| **Scheduling engine** | [`standards/ARCHITECTURE_STANDARD.md`](standards/ARCHITECTURE_STANDARD.md) §7 · `CONSTITUTION.md` Art. V | `PLATFORM_STATE.md` §engine | **`buildSchedule.test.js` (mandatory)** · test · lint · build | flag taxonomy or placement priority |
 | **Database / sync** | relevant ADRs · `2026-07-24-bulk-replace-seq-fix`, `2026-07-28-first-pairing-domain-sync-and-template-identity` | `PLATFORM_STATE.md` §schema | **integration (mandatory)** · fresh-vs-migrated schema equivalence · test · lint · build | **ADR + migration/rollback plan** |
 | **Copy / terminology** | `CONSTITUTION.md` Art. V | — | lint | terminology is product judgement |
 | **Documentation / governance** | this index · `CONSTITUTION.md` | — | link + reference check | **any change to a constitution or standard** |
 
-Gate commands: `npm run test` · `npm run lint` · `npm run build` · `node test/integration/run.js`
-(the integration harness covers cross-process behaviour — pairing, revocation, token renewal,
-conflict detection, clock skew, role changes — that the unit suite structurally cannot).
+**[`standards/TESTING_STANDARD.md`](standards/TESTING_STANDARD.md) owns the gate list** and defines
+when the integration harness is mandatory (any change touching sync, auth, or schema) and which
+environment a completion claim requires (`electron:dev`, not the `:5200` dev mock, for anything
+involving persistence, auth, or sync).
 
 ---
 
@@ -61,18 +62,17 @@ drift; do not reason from the stale text.
 
 ## 10. Historical — never load as instruction
 
-`docs/superpowers/plans/**` · `docs/superpowers/specs/**` · `legacy/**` · `tester/REPORT_2026-06-28.md`
+`docs/archive/**` · `legacy/**`
 
-Two exceptions currently living in `docs/superpowers/specs/` that are **not** historical:
+Subdivided: `completed-plans/` · `completed-specs/` · `legacy-architecture/` (the retired Supabase
+architecture and its removal) · `workflow-runs/`. Every archived file carries a header saying so.
 
-- `design-system.md` — the authoritative design and token contract **→ moving**
-- `2026-07-19-multi-agent-workflow-design.md` — superseded as law by `CONSTITUTION.md` Art. VI–VII;
-  retained as the historical design record
+Several archived documents describe the retired Supabase architecture accurately as of their date.
+**`docs/archive/legacy-architecture/2026-05-24-security-design.md` in particular is a detailed,
+confident, fully-retired security architecture** — never read it as current guidance.
 
-Everything else under those two directories is a completed plan or design. Several describe the
-retired Supabase architecture accurately as of their date. **`docs/superpowers/specs/2026-05-24-security-design.md`
-in particular is a detailed, confident, fully-retired security architecture** — it is not current
-guidance and must not be read as such.
+`docs/archive/completed-specs/2026-07-19-multi-agent-workflow-design.md` is superseded as law by
+`CONSTITUTION.md` Art. VI–VII and retained only as the historical design record.
 
 ---
 
@@ -93,8 +93,10 @@ UNVERIFIED at round 2 · anything irreversible.
 
 ## 13. Conditionally loaded specialist references
 
-`tester/SCRIPT.md` (regression walkthrough) · `tester/DIRECTOR_BRIEF.md` (director persona) ·
-`tester/BRIEF.md` — all **→ moving**. Loaded by Tester; not authority for anyone else.
+[`references/regression-script.md`](references/regression-script.md) (regression walkthrough) ·
+[`references/director-persona.md`](references/director-persona.md) ·
+[`references/tester-standing-brief.md`](references/tester-standing-brief.md).
+Loaded by Tester; not authority for anyone else.
 
 ## 14. Never authority, however detailed
 
@@ -120,8 +122,8 @@ Every agent always loads `CONSTITUTION.md` and its own constitution. Beyond that
 | Maker | the brief, ADR if any, design system when UI | other agents' constitutions |
 | Code Reviewer | the brief, the diff | `SECURITY.md` (Security's jurisdiction) |
 | Verifier | the brief's success predicate, gate list | every standard — judgement is not its jurisdiction |
-| Tester | `tester/*.md`, Designer's spec if any | schema and architecture docs — **it must not know what `template_slots` is** |
-| Security | `SECURITY.md`, the three auth ADRs | **`docs/superpowers/specs/2026-05-24-security-design.md` and all archived security material** |
+| Tester | `references/*.md`, Designer's spec if any | schema and architecture docs — **it must not know what `template_slots` is** |
+| Security | `SECURITY.md`, the three auth ADRs | **`docs/archive/legacy-architecture/**` — especially `2026-05-24-security-design.md` — and all archived security material** |
 | Red Hat | `PLATFORM_STATE.md` §known-issues, accepted tradeoffs | design standard |
 | Grader | the four reports, its rubric | source code — it must form no independent opinion |
 

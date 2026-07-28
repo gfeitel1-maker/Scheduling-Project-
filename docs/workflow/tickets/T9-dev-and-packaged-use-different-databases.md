@@ -1,3 +1,13 @@
+---
+title: T9-dev-and-packaged-use-different-databases
+document_type: ticket
+status: open
+created: 2026-07-26
+governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
+related_adrs: []
+archive_when: fix merged and Verifier PASS recorded
+---
+
 # T9 — Dev and packaged builds read different databases
 
 **Risk:** Low for users, HIGH for trust in our own testing.

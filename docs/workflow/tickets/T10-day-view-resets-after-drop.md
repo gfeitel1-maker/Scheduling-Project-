@@ -1,3 +1,13 @@
+---
+title: T10-day-view-resets-after-drop
+document_type: ticket
+status: open
+created: 2026-07-26
+governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
+related_adrs: []
+archive_when: fix merged and Verifier PASS recorded
+---
+
 # T10 — Day View jumps back to Monday after every drop
 
 **Risk:** Low — cosmetic, but it lands on the most repetitive action in the app.

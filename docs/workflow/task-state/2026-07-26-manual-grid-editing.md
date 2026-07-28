@@ -1,3 +1,22 @@
+---
+task: manual-grid-editing
+document_type: task-state
+status: active
+risk: high
+task_class: navigation-ia
+created: 2026-07-26
+governing_docs: [docs/governance/standards/DESIGN_STANDARD.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
+selected_agents: [designer, maker, verifier, code-reviewer, tester, grader]
+omitted_agents:
+  architect: "no new data model; existing template_slots op-log path"
+  security: "no auth/trust-boundary change"
+  red_hat: "no persistence/sync model change"
+deterministic_checks: [npm run test, npm run lint, npm run build]
+human_gates: [approve revised information architecture]
+completion_evidence: [verifier_pass, grader_pass, screenshots_compared]
+archive_when: all tickets closed and Verifier PASS recorded
+---
+
 # Task State — Manual Grid Editing
 
 **Created:** 2026-07-26  
