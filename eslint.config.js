@@ -10,7 +10,12 @@ export default defineConfig([
   // build artifacts, not source. Same defect class as the vitest collection
   // bug fixed alongside this — packaging copies everything, and every tool
   // that walks the tree has to know that.
-  globalIgnores(['dist', 'release']),
+  // '.claude/worktrees' is the same defect class again, from a different
+  // direction: an agent worktree is a full checkout of the project living
+  // inside the project, so linting it reports another branch's in-progress
+  // code as errors on this one. Observed 2026-07-28 — 16 errors, none of
+  // them in the working tree.
+  globalIgnores(['dist', 'release', '.claude/worktrees']),
   {
     files: ['**/*.{js,jsx}'],
     extends: [
