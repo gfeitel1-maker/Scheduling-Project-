@@ -1,7 +1,7 @@
 ---
 title: T15-manual-build-starts-from-generated-schedule
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-07-28
 governing_docs: [docs/governance/standards/DESIGN_STANDARD.md, docs/governance/constitution/CONSTITUTION.md]
 related_adrs: [docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md]
@@ -9,10 +9,11 @@ related_specs: [docs/work/specs/2026-07-28-separate-manual-and-generated-flows.m
 archive_when: resolved
 ---
 
-> **IN PROGRESS on branch `feat/separate-manual-and-generated-flows`.**
+> **RESOLVED 2026-07-29.** Manual and generated are now two coexisting routes, each with its
+> own week, reachable from the left sidebar. Neither is canonical.
 > The framing below was written before the product owner settled the design, and the
-> "decision this hangs on" section is now **superseded** — see *Resolution* at the end.
-> Authority order: the accepted ADR governs, then the spec, then this ticket.
+> "decision this hangs on" section is **superseded** — see *Resolution* and *Verification*
+> at the end. Authority order: the accepted ADR governs, then the spec, then this ticket.
 
 # T15 — "Manual Build" shows the generated schedule instead of a blank grid
 
@@ -142,3 +143,77 @@ Three of this ticket's and the spec's assumptions were contradicted by the code:
 
 See [the ADR](../../adr/2026-07-28-plural-candidate-schedules-per-camp.md) for the verified
 evidence behind each.
+
+---
+
+## Verification — 2026-07-29
+
+**Gates, run on the branch:** 42 test files, 733 passed, 2 skipped. Lint 0 errors, 11
+pre-existing `react-hooks/exhaustive-deps` warnings. Build clean.
+
+**The blocking defect and how it was found.** The first implementation shipped a migration
+(v23) that left a real camp unable to generate a schedule at all — the button appeared to do
+nothing. It was found by the product owner *using the app*, not by any review or test, and it
+would have reached a real camp. Recorded here because the pattern is now four for four in this
+project: every significant defect this month came from running the thing.
+
+The failure was invisible by construction. `INSERT OR IGNORE` absorbed the `UNIQUE(camp_id,
+kind)` violation and reported no error; `template_slots` has no foreign key, so the orphaned
+slots were accepted; and the one constraint that *would* have thrown — the overlay foreign key
+— never fired, because the call that reaches it replaces an empty array and therefore writes
+nothing. Three independent guards, all bypassed. `electron/ops/projections.js` now throws a
+typed `SCHEDULE_TEMPLATE_KIND_CONFLICT` rather than silently returning.
+
+**A wrong diagnosis, recorded because the correction is the useful part.** The first analysis —
+including in the brief that dispatched the fix — held that migration v21 never re-keyed existing
+templates, so every camp predating this branch was broken. That is false. v21 *does* re-key, by
+insert-copy → repoint children → delete-old. The database proves it:
+
+| | |
+|---|---|
+| v21 applied | `2026-07-28T16:34:06Z` |
+| random-UUID template created (ops 83/84) | `2026-07-28T22:51:38Z` |
+
+Six hours *after*. The real cause is that **v21's re-key is a one-shot data fix and the writer
+was never fixed alongside it**, so any template minted afterwards by a pre-slice-2 renderer
+carries a random UUID no migration will ever normalise. The affected population is therefore
+camps whose template was created *after* v21 but before this branch — and nothing can determine
+which side of that line a given installation falls on. The fix had to be correct for both ids
+without inspecting either.
+
+**Why resolution, not a second re-key.** A re-key is not idempotent against a durable op log.
+Operations 83/84 carry `entity_id = '48485127-…'` permanently; replaying them on any peer, or on
+this device after re-pairing, faithfully recreates the old id — which then collides under
+`UNIQUE(camp_id, kind)` against the row the re-key just created. Re-keying also rewrites a
+primary key that `template_slots`, `template_overlays`, `schedule_snapshots` and the op log all
+reference, and would need a "rename entity" sync primitive that does not exist. Resolution by
+`(camp_id, kind)` touches no stored row.
+
+**Proven on the database that was actually broken.** After the fix, the dev camp:
+
+```
+schema v24
+48485127-57b0-42d9-…        kind=generated   50 slots, 20 activities   <- original row, preserved
+schedule-template:…:manual  kind=manual      50 slots,  2 activities
+```
+
+Generation resolves to and writes to the pre-existing row. Nothing was re-keyed or deleted. The
+orphaned slot set from the failed generate remains in place, unadopted — v24 adopts only where
+there is provably nothing to lose, and here the surviving row held a real week.
+
+**Director's-eye check.** Both routes are reachable from the sidebar, switching is navigation
+with no warning or confirmation, each keeps its own week across switches, and a clashing manual
+placement is accepted and marked rather than refused. Two independent checks — a tester in the
+running app and the source — confirm the manual route offers no generate control, so the
+product owner's report of one did not reproduce.
+
+## Follow-on, not part of this ticket
+
+- **The two routes do not yet share vocabulary.** Manual reports `STILL NEEDED` and `SPREAD
+  ACROSS THE WEEK`; generated reports `UNDERSERVED` and `DISTRIBUTION` for the same concepts.
+  A shared flag vocabulary exists so a director learns it once; today they would learn it twice.
+  Folded into [T18](T18-copy-pass-and-grid-card-colours.md).
+- On test data the generated route showed 21 of 40 slots unfillable. Likely an artifact of five
+  near-identical activities each capped at one group, but worth a look with a realistic camp
+  before judging how that route feels.
+- [T17](T17-dead-colorindex-encodes-wrong-convention.md) remains open and untouched by this work.
