@@ -99,8 +99,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // When the shell supplies a route (the sidebar destinations) it wins
   // outright — no effect, no local copy to drift out of step. `setRoute` still
   // exists for the neutral 'schedule' entry, which supplies nothing.
-  const [localRoute, setRoute] = useState('generated')
-  const route = initialRoute || localRoute
+  // null until the director picks. It stays null only on the neutral 'schedule'
+  // entry; the fallback below is a rendering necessity (every read is keyed by
+  // route), NOT a designation — when both candidates exist and nothing has been
+  // picked, the screen asks instead of showing this fallback. See the
+  // neutral-entry chooser further down.
+  const [localRoute, setRoute] = useState(null)
+  const route = initialRoute || localRoute || 'generated'
   // Which routes actually have a schedule_templates row today. The id itself is
   // derived, never minted — two devices that independently create a candidate
   // for the same camp and route must agree on its id or their work forks.
@@ -181,6 +186,36 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const setOverlays = routeSetter(setOverlaysByRoute, route)
   const setSnapshots = routeSetter(setSnapshotsByRoute, route)
 
+  // The two routes are separate candidates, but they are ONE mounted component
+  // (App.jsx maps both sidebar destinations to this screen), so anything held
+  // in state survives the switch. Undo/redo entries, the clipboard, the current
+  // selection and the direct-manipulation modes all captured the setters and
+  // slot ids of the route they were made on — carrying them across would let a
+  // paste or an undo write into the candidate the director is NOT looking at.
+  // Cross-candidate writes are precisely what the route separation exists to
+  // prevent, so switching routes drops all of it. Nothing persisted is touched:
+  // each route's week, findings, snapshots and stats stay exactly as they were.
+  //
+  // Done during render rather than in an effect (React's documented
+  // adjusting-state-on-prop-change pattern): the reset lands in the SAME commit
+  // as the route change, so there is never an intermediate paint in which the
+  // new route's grid is on screen while the old route's clipboard, selection or
+  // undo entry is still live and clickable.
+  const [transientRoute, setTransientRoute] = useState(route)
+  if (transientRoute !== route) {
+    setTransientRoute(route)
+    setUndoStack([])
+    setRedoStack([])
+    setClipboardItems([])
+    setPasteMode(false)
+    setPasteModeIndex(0)
+    setPasteError(null)
+    setSelectedSlotKeys(new Set())
+    setEditSlot(null)
+    setStampMode(null)
+    setFillState(null)
+    setDisplacedItems([])
+  }
 
   useEffect(() => { loadAll() }, [campId])
 
@@ -442,7 +477,19 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setGenFindings(result.findings || [])
     setGenDismissed(new Set())
 
-    const tid = await ensureTemplateRow('generated')
+    // ensureTemplateRow -> writeFields THROWS on any non-applied write (including
+    // the SCHEDULE_TEMPLATE_KIND_CONFLICT backstop in electron/ops/projections.js).
+    // generate() is invoked as a floating promise from the route offers, so an
+    // unguarded throw here would leave `generating` stuck true — a spinner that
+    // never resolves and no banner. Fail visibly instead.
+    let tid
+    try {
+      tid = await ensureTemplateRow('generated')
+    } catch {
+      setActionError('Could not open the generated schedule — nothing was changed. Try again, and tell support if it repeats.')
+      setGenerating(false)
+      return
+    }
 
     if (slotsByRoute.generated.length > 0) {
       try {
@@ -875,7 +922,16 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setManualFindings(result.findings || [])
     setManualDismissed(new Set())
 
-    const tid = await ensureTemplateRow('manual')
+    // Same guard as generate(): a throw from ensureTemplateRow would otherwise
+    // strand `generating` at true with no error on screen.
+    let tid
+    try {
+      tid = await ensureTemplateRow('manual')
+    } catch {
+      setActionError('Could not open the manual schedule — nothing was changed. Try again, and tell support if it repeats.')
+      setGenerating(false)
+      return
+    }
 
     if (slotsByRoute.manual.length > 0) {
       try {
@@ -1614,6 +1670,35 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       offerBody: 'The app fills the week from your activity targets. You then move things around by dragging.',
       offerAction: 'Generate a schedule',
     },
+  }
+
+  // The neutral 'schedule' entry (CampSetup / AnchorsScreen "Next: Schedule")
+  // supplies no route. With both candidates started, falling through to the
+  // 'generated' fallback would be the APP picking a week for the director,
+  // which the no-canonical-schedule rule forbids
+  // (docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md). So it asks.
+  // One started, or none: there is no choice to make and the normal screen
+  // (grid, or the first-run offers) is correct.
+  const startedRoutes = ROUTES.filter(r => slotsByRoute[r].length > 0)
+  if (!initialRoute && !localRoute && startedRoutes.length > 1) {
+    return (
+      <div style={{ padding: '60px 16px', textAlign: 'center' }}>
+        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>Which week do you want to open?</div>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6, marginBottom: 20 }}>You have both. Opening one changes nothing about the other, and you can switch any time from the left.</div>
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+          {ROUTES.map(r => (
+            <button
+              key={r}
+              onClick={() => { setRoute(r); onNavigate?.(`schedule:${r}`) }}
+              style={{ ...S.btnSecondary, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, padding: '12px 18px' }}
+            >
+              <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 14 }}>{ROUTE_COPY[r].label}</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)' }}>{routeSummary(r)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    )
   }
 
   function routeSummary(r) {

@@ -742,6 +742,32 @@ describe('separate manual and generated routes', () => {
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
   })
 
+  // Round 2. The neutral 'schedule' screen key (CampSetup / AnchorsScreen
+  // "Next: Schedule") supplies no route. Falling through to a default would be
+  // the app choosing a director's week for them.
+  it('asks which week to open when the neutral entry is used and both exist', async () => {
+    bothRoutes()
+    const navigated = []
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={(s) => navigated.push(s)} />)
+    await waitFor(() => expect(screen.getByText('Which week do you want to open?')).toBeTruthy())
+    // Nothing of either week is on screen until the director picks.
+    expect(screen.queryAllByText('Swim').some(el => el.closest('td'))).toBe(false)
+
+    fireEvent.click(screen.getByText('Manual'))
+    await waitFor(() => expect(screen.getByText('The week you’re building')).toBeTruthy())
+    expect(navigated).toContain('schedule:manual')
+  })
+
+  it('does not ask when only one week exists — there is no choice to make', async () => {
+    mockList({
+      schedule_templates: [{ id: GENERATED, camp_id: CAMP_ID, name: 'Master Template', kind: 'generated' }],
+      template_slots: [slotRow({ id: 'gen-1', template_id: GENERATED, activity_id: 'act-1' })],
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+    expect(screen.queryByText('Which week do you want to open?')).toBeFalsy()
+  })
+
   it('never labels either route as the real or current schedule', async () => {
     bothRoutes()
     const { rerender } = render(routeScreen('generated'))
@@ -761,7 +787,7 @@ describe('separate manual and generated routes', () => {
 
   it('writes Generate only to the generated schedule, leaving the manual one alone', async () => {
     bothRoutes()
-    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    render(routeScreen('generated'))
     await waitFor(() => expect(screen.getByText('Regenerate from Scratch')).toBeTruthy())
 
     fireEvent.click(screen.getByText('Regenerate from Scratch'))
@@ -928,5 +954,148 @@ describe('ScheduleScreen — generate() is route-explicit', () => {
     // setSlots/setStats/setFindings were the CURRENT route's, so the generated
     // week was painted onto the manual candidate's state.
     await waitFor(() => expect(screen.getByText('Start a blank week')).toBeTruthy())
+  })
+
+  // Round 2. The assertion above locks the WRITE scope but NOT the setters:
+  // with a static list mock, the post-write re-read returns nothing, so
+  // reverting generate()'s setters to the current route leaves it green
+  // (verified by mutating the source and watching it pass). This one makes the
+  // setter half observable — bulkReplace feeds the store the re-read reads, so
+  // a current-route setter paints the generated week onto the MANUAL grid.
+  it('never paints the generated week onto the manual grid it was launched from', async () => {
+    const store = {
+      groups: [group()],
+      days_of_operation: [day()],
+      time_blocks: [timeBlock()],
+      activities: [activity()],
+      anchor_activities: [],
+      tiers: [tier()],
+      schedule_templates: [],
+      template_slots: [],
+      template_overlays: [],
+      schedule_snapshots: [],
+    }
+    localClient.list.mockImplementation((entity) => Promise.resolve(store[entity] ?? []))
+    localClient.bulkReplace.mockImplementation((_t, entity, templateId, rows) => {
+      store[entity] = [
+        ...(store[entity] ?? []).filter(r => r.template_id !== templateId),
+        ...rows.map((r, i) => ({ ...r, id: `${templateId}-${i}`, is_anchor: r.is_anchor === '1' ? 1 : 0, is_span_head: r.is_span_head === '1' ? 1 : 0, is_released: 0, flags: {} })),
+      ]
+      return Promise.resolve({ status: 'applied' })
+    })
+
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="manual" />)
+    await waitFor(() => expect(screen.getByText('Generate a schedule')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Generate a schedule'))
+
+    await waitFor(() => {
+      expect(localClient.bulkReplace).toHaveBeenCalledWith('token-abc', 'template_slots', GENERATED, expect.any(Array))
+    })
+    // The generated week landed in generated state, so the manual route the
+    // director launched it from is still a blank offer, not a grid.
+    await waitFor(() => expect(screen.getByText('Start a blank week')).toBeTruthy())
+    expect(scheduleCell('Swim')).toBeFalsy()
+  })
+})
+
+// Round 2 — the two routes are two sidebar destinations but ONE mounted
+// component, so component state survives the switch unless it is cleared.
+describe('ScheduleScreen — switching routes cannot carry work across candidates', () => {
+  const GENERATED = 'schedule-template:camp-1'
+  const MANUAL = 'schedule-template:camp-1:manual'
+
+  const routeScreen = (initialRoute) => (
+    <ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute={initialRoute} />
+  )
+
+  it('drops the clipboard and the selection when the director navigates to the other route', async () => {
+    mockList({
+      schedule_templates: [
+        { id: GENERATED, camp_id: CAMP_ID, name: 'Master Template', kind: 'generated' },
+        { id: MANUAL, camp_id: CAMP_ID, name: 'Manual', kind: 'manual' },
+      ],
+      template_slots: [
+        slotRow({ id: 'gen-1', template_id: GENERATED, activity_id: 'act-1' }),
+        slotRow({ id: 'man-1', template_id: MANUAL, activity_id: null }),
+      ],
+    })
+    const { rerender } = render(routeScreen('generated'))
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+
+    // Select the generated week's cell and copy it (Ctrl+A then Ctrl+C is the
+    // documented shortcut pair).
+    // Re-fired inside waitFor on purpose: the shortcut listeners are attached
+    // in an effect, and under full-suite load a single early keydown can land
+    // before that effect runs (observed as a flake). Retrying the key press is
+    // deterministic; a longer timeout on a one-shot press is not.
+    await waitFor(() => {
+      fireEvent.keyDown(window, { key: 'a', ctrlKey: true })
+      fireEvent.keyDown(window, { key: 'c', ctrlKey: true })
+      expect(document.body.textContent).toMatch(/to paste/)
+    })
+
+    rerender(routeScreen('manual'))
+    // Paste mode carrying the OTHER candidate's cells is exactly the
+    // cross-candidate write the route separation exists to prevent.
+    await waitFor(() => expect(document.body.textContent).not.toMatch(/to paste/))
+  })
+
+  it('drops the undo stack when the director navigates to the other route', async () => {
+    mockList({
+      activities: [activity(), activity({ id: 'act-2', name: 'Art' })],
+      schedule_templates: [
+        { id: GENERATED, camp_id: CAMP_ID, name: 'Master Template', kind: 'generated' },
+        { id: MANUAL, camp_id: CAMP_ID, name: 'Manual', kind: 'manual' },
+      ],
+      template_slots: [
+        slotRow({ id: 'gen-1', template_id: GENERATED, activity_id: 'act-1' }),
+        slotRow({ id: 'man-1', template_id: MANUAL, activity_id: null }),
+      ],
+    })
+    const { rerender } = render(routeScreen('generated'))
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+
+    fireEvent.doubleClick(scheduleCell('Swim'))
+    await waitFor(() => expect(screen.getByText('Assign Activity')).toBeTruthy())
+    fireEvent.click(within(editModal()).getByText('Art'))
+    fireEvent.click(within(editModal()).getByText('Save'))
+    await waitFor(() => expect(screen.getByTitle(/^Undo: /)).toBeTruthy())
+
+    rerender(routeScreen('manual'))
+    // An undo entry made on the generated week closed over that route's
+    // setters and slot ids; replaying it from the manual grid would rewrite
+    // the candidate the director is not looking at.
+    await waitFor(() => expect(screen.getByTitle('Nothing to undo')).toBeTruthy())
+  })
+})
+
+// Round 2 — ensureTemplateRow throws on any non-applied write (including the
+// (camp_id, kind) backstop in electron/ops/projections.js). Unguarded, that
+// left `generating` true forever with no banner: a spinner that never ends.
+describe('ScheduleScreen — a rejected schedule_templates write is reported, not hung', () => {
+  it('generate(): surfaces an error and stops generating instead of spinning forever', async () => {
+    mockList({ schedule_templates: [], template_slots: [] })
+    localClient.write.mockResolvedValue({ status: 'rejected' })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="generated" />)
+    await waitFor(() => expect(screen.getByText('Generate a schedule')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Generate a schedule'))
+
+    await waitFor(() => expect(screen.getByText(/Could not open the generated schedule/i)).toBeTruthy())
+    // Nothing was written to any week.
+    expect(localClient.bulkReplace).not.toHaveBeenCalled()
+  })
+
+  it('placeAnchors(): surfaces an error and stops generating instead of spinning forever', async () => {
+    mockList({ schedule_templates: [], template_slots: [] })
+    localClient.write.mockResolvedValue({ status: 'rejected' })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="manual" />)
+    await waitFor(() => expect(screen.getByText('Start a blank week')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Start a blank week'))
+
+    await waitFor(() => expect(screen.getByText(/Could not open the manual schedule/i)).toBeTruthy())
+    expect(localClient.bulkReplace).not.toHaveBeenCalled()
   })
 })

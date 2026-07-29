@@ -846,3 +846,39 @@ journalled in `migration_v24_repoint_log` so the inverse
 normalises ids must not merge until the writer that mints them is normalised in
 the same change. v21 fixed the data and left the writer producing the old shape;
 that gap is the whole defect.
+
+## Addendum 2026-07-29: route selection lives in the left sidebar, and the neutral entry asks
+
+Settled by the product owner ("sidebar"). Route selection is no longer a tab
+switcher above the grid. `Manual Schedule` and `Generated Schedule` are two
+entries in the existing left sidebar, mapped in `src/App.jsx`'s `SCREENS` map
+to the same `ScheduleScreen` with an `initialRoute` prop. The in-grid control
+that remains is a **label** naming the week on screen, not a switch. The
+first-run choice screen ("How do you want to build this week?") is unchanged:
+choose once from one screen, then the two candidates live in the sidebar.
+
+Two consequences of that shape, both handled here rather than left implicit:
+
+1. **One mounted component, two candidates.** The sidebar entries do not
+   remount the screen, so undo/redo, the clipboard, the current selection and
+   the direct-manipulation modes would otherwise survive a route switch and let
+   a paste or an undo write into the candidate the director is *not* looking at
+   — the exact cross-candidate write this ADR exists to prevent. Switching
+   routes therefore drops all of that transient state. Nothing persisted is
+   touched: each route's week, findings, snapshots and stats are untouched.
+
+2. **The neutral `schedule` entry asks.** `CampSetup` and `AnchorsScreen`'s
+   "Next: Schedule" links supply no route. Falling through to a default would be
+   the app picking a director's week for them, which Decision §6 forbids and
+   which "defaults" do not carve out. With **both** candidates started, the
+   neutral entry now renders "Which week do you want to open?" and navigates to
+   whichever the director picks; the pick is not remembered. With one or none
+   there is no choice to make and the normal screen (grid, or the first-run
+   offers) is shown.
+
+**Residual, recorded not claimed away.** `v24_down.js` restores the rows it
+journalled, but `CURRENT_SCHEMA_VERSION` is 24 and `getSchemaVersion()` reads
+`MAX(version)`, so the same app build re-applies v24 on the next launch. A
+rollback only sticks if the binary is downgraded at the same time; the script
+says so and prints a warning. v24 is also purely local (it appends no op), so
+devices adopt independently as each upgrades.

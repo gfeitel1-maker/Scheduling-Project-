@@ -227,11 +227,24 @@ export const PROJECTIONS = {
       // invisibility is what shipped a camp that could not generate. Fail
       // loudly instead.
       //
-      // Consequences are correct in both directions: a local IPC write surfaces
-      // the error to the director rather than doing nothing, and a remote
-      // replay is swallowed by applyRemoteOp's existing by-design catch — the
-      // op stays durable in the log and repairMissingScheduleTemplates can
-      // rebuild at upgrade time.
+      // Consequences differ by path, and only one of them keeps the op:
+      //   - Client broadcast replay (syncClient.applyRemoteOp): the operations
+      //     row is inserted first and applyProjection runs inside that
+      //     function's by-design catch, so the op STAYS DURABLE in the log and
+      //     repairMissingScheduleTemplates can rebuild at upgrade time.
+      //   - appendOp (electron/ops/operations.js): the INSERT and
+      //     applyProjection share ONE transaction, so this throw rolls the
+      //     op-log INSERT back — the op is DISCARDED, not stored. That also
+      //     applies on the Host's path for a Client-submitted op
+      //     (syncServer.handleSubmitOp), where the throw unwinds to the generic
+      //     message-handler catch and the Client gets an error reply, against
+      //     appendOp's own stated non-throwing contract.
+      // That is accepted deliberately: discarding a write that cannot be
+      // projected is better than the silent no-op that shipped a camp which
+      // could not generate, and the renderer now reports the failure rather
+      // than hanging (ScheduleScreen generate()/placeAnchors() guard their
+      // ensureTemplateRow calls). It is recorded as a residual, not a claim
+      // that the op survives.
       //
       // After the renderer's resolve-by-(camp_id, kind) fix nothing should ever
       // reach this throw; it exists so a future regression cannot be silent.

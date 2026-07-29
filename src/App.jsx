@@ -38,8 +38,8 @@ const SCREENS = {
   // camp's "real" schedule — the director makes that call, never the app
   // (docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md). 'schedule' is
   // a neutral entry point kept for the setup flow's "Next: Schedule" links; it
-  // designates nothing and lands on the first-run choice screen while neither
-  // route has been started.
+  // designates nothing — it lands on the first-run choice screen while neither
+  // route has been started, and asks which week to open once both exist.
   schedule:               ScheduleScreen,
   'schedule:manual':      ScheduleScreen,
   'schedule:generated':   ScheduleScreen,
@@ -47,7 +47,8 @@ const SCREENS = {
 }
 
 // Which schedule route a sidebar destination stands for. Absent for the
-// neutral 'schedule' entry, which forces nothing.
+// neutral 'schedule' entry, which forces nothing: with both weeks started the
+// screen asks the director which one to open rather than defaulting to either.
 const SCHEDULE_ROUTE_BY_SCREEN = {
   'schedule:manual': 'manual',
   'schedule:generated': 'generated',

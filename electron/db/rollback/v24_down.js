@@ -6,6 +6,13 @@
 // the row still sitting where v24 put it — so it is idempotent and a no-op for
 // any row the director has since moved themselves.
 //
+// NOT DURABLE ON ITS OWN. CURRENT_SCHEMA_VERSION in electron/db/localDb.js is
+// 24 and getSchemaVersion() reads MAX(version), so deleting the version row
+// makes the SAME app build re-run v24 on the next launch and re-adopt whatever
+// this script just reverted. A rollback only sticks if the app binary is
+// downgraded to a pre-v24 build (or the app is kept closed) at the same time.
+// Run this with the app quit, and downgrade before reopening.
+//
 // Usage:  node electron/db/rollback/v24_down.js <path-to-shoresh.sqlite> [--purge-journal]
 // The journal is KEPT by default, so a rollback can itself be rolled forward
 // again and so support can see exactly what moved.
@@ -58,4 +65,8 @@ if (process.argv[1] && process.argv[1].endsWith('v24_down.js')) {
   const result = rollbackV24(db, { purgeJournal: process.argv.includes('--purge-journal') })
   db.close()
   console.log(`v24 rolled back: ${result.reverted} row(s) restored`)
+  console.log(
+    'WARNING: this app build still declares schema version 24 — reopening it re-applies v24 ' +
+    'and re-adopts these rows. Downgrade to a pre-v24 build before launching the app again.'
+  )
 }

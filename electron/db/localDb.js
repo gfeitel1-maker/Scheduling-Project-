@@ -955,6 +955,16 @@ export function initSchema(db) {
   //          harmless, recoverable by hand indefinitely.
   // Every move is journalled so the inverse (electron/db/rollback/v24_down.js)
   // is computed from data rather than guessed.
+  //
+  // LOCAL ONLY, deliberately: this repoints rows directly and appends NO
+  // operation, so it does not replicate. An orphan set is a local artefact of a
+  // local failed generate, and inventing a "repoint" op would add a sync
+  // primitive whose replay semantics nobody has designed. Two consequences the
+  // next reader should not mistake for oversights: devices adopt independently
+  // as each upgrades (so a peer still on v23 keeps reading that route as not
+  // started until it upgrades), and an orphan set that arrives on a peer AFTER
+  // that peer has run v24 is never adopted there. Both are recoverable by hand
+  // and neither loses data.
   if (getSchemaVersion(db) < 24) {
     db.transaction(() => {
       db.exec(`CREATE TABLE IF NOT EXISTS migration_v24_repoint_log (
