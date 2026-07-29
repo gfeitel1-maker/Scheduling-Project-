@@ -13,7 +13,7 @@ function EmptyDropCell({ groupId, dayId, blockId }) {
       ref={setNodeRef}
       style={{
         ...emptyTd,
-        background: isOver ? 'var(--primary)22' : 'transparent',
+        background: isOver ? 'color-mix(in srgb, var(--primary) 13%, transparent)' : 'transparent',
         border: isOver ? '2px dashed var(--primary)' : '1px dashed var(--border)',
         borderRadius: 6,
         minHeight: 40,
@@ -141,7 +141,7 @@ export default function ManualBuildView({
       )}
 
       <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>
-        Drag activities from the left panel onto open slots. Flags appear on cells where constraints are violated.
+        Drag activities from the left panel onto any open cell, or click a cell to pick one. An empty cell just isn’t filled yet.
       </div>
     </div>
   )

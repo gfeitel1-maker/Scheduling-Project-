@@ -376,8 +376,13 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
         if (!(eligibility.get(act.id) || new Set()).has(group.id)) continue
         const targetIdx = days.findIndex(d => d.day_of_week === act.prefer_before_day)
         if (targetIdx < 0) continue
+        // One SESSION, not one block: a 2-block swim is a single swim. The
+        // tail rows of a span carry the same activityId and would otherwise
+        // each count, which both overstates the week and disagreed with
+        // computeFindings() below (which has always counted heads only).
         const beforeCount = resultSlots.filter(s =>
           s.type === 'activity' && s.groupId === group.id && s.activityId === act.id &&
+          s.is_span_head !== false &&
           (dayOrder.get(s.dayId) ?? 99) < targetIdx
         ).length
         if (beforeCount < act.prefer_before_day_min) {

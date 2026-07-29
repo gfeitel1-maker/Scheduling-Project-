@@ -15,7 +15,12 @@ export default defineConfig({
     // collects two copies of the suite, and the duplicated syncServer tests
     // bind the same WebSocket ports concurrently and fail on contention. The
     // failures look like real sync regressions and are not.
-    exclude: ['**/node_modules/**', '**/dist/**', 'release/**'],
+    // '.claude/worktrees' is the same problem from a different direction: an
+    // agent worktree is a full checkout inside the project, so collection picks
+    // up another branch's suite alongside this one. Observed 2026-07-28 — the
+    // count went 678 -> 1367 and the duplicated sync tests contended for the
+    // same WebSocket ports, failing exactly as the release/ copies did.
+    exclude: ['**/node_modules/**', '**/dist/**', 'release/**', '**/.claude/worktrees/**'],
   },
   server: {
     port: 5200,

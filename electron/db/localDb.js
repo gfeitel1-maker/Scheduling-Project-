@@ -5,13 +5,15 @@ import { fileURLToPath } from 'node:url'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { writePreMigrationBackup } from './projectManager.js'
 import { deriveScheduleTemplateId } from '../ops/scheduleTemplateId.js'
+import { applyProjection } from '../ops/projections.js'
+import { isBulkReplaceOp, applyBulkReplaceProjection } from '../ops/operations.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 22
+export const CURRENT_SCHEMA_VERSION = 24
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -885,6 +887,197 @@ export function initSchema(db) {
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (22, ?)').run(
       new Date().toISOString()
     )
+  }
+
+  // Plural candidate schedules per camp
+  // (docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md). A camp may
+  // now hold two schedules — one per building route — instead of one. v21's
+  // UNIQUE(camp_id) made that impossible, so it is replaced by
+  // UNIQUE(camp_id, kind): the invariant v21 established (a route cannot fork
+  // into duplicate rows) is preserved, only its scope narrows.
+  //
+  // Nothing is deleted, re-keyed or rewritten here. The existing row keeps
+  // WHATEVER id it already has and acquires kind='generated'; the manual row is
+  // created lazily, on first use, through the ordinary op-log path.
+  //
+  // CORRECTION 2026-07-29: this comment previously claimed the existing row
+  // "keeps its byte-identical deterministic id". That is FALSE for any camp
+  // whose schedule_templates row was minted AFTER migration v21 ran by a
+  // renderer that still used crypto.randomUUID() (the renderer half of the T7
+  // deterministic-id work landed only on the plural-routes branch). v21's
+  // re-key is a one-shot data fix; it does not constrain rows created later.
+  // Such a camp's generated row has a RANDOM UUID id, so a renderer that
+  // resolved the route by deriving the id found no row, tried to insert one,
+  // and lost silently to UNIQUE(camp_id, 'generated') — generation appeared to
+  // do nothing. The renderer now resolves by (camp_id, kind) instead of by
+  // derived id; see the Correction 2026-07-29 block in
+  // docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md.
+  if (getSchemaVersion(db) < 23) {
+    db.transaction(() => {
+      const hasKind = db.pragma('table_info(schedule_templates)').some((c) => c.name === 'kind')
+      if (!hasKind) {
+        // NOT NULL is safe on ALTER because a non-null default is supplied, and
+        // it is REQUIRED: SQLite treats distinct NULLs as non-conflicting, so a
+        // nullable kind would let (camp_id, NULL) rows multiply — exactly the
+        // fork v21 exists to prevent.
+        db.exec("ALTER TABLE schedule_templates ADD COLUMN kind TEXT NOT NULL DEFAULT 'generated'")
+      }
+      // Belt-and-braces alongside the column default: idempotent, and correct
+      // even if a row somehow arrived with an empty kind.
+      db.exec("UPDATE schedule_templates SET kind = 'generated' WHERE kind IS NULL OR kind = ''")
+
+      db.exec('DROP INDEX IF EXISTS idx_schedule_templates_camp')
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_templates_camp_kind ON schedule_templates(camp_id, kind);'
+      )
+
+      repairMissingScheduleTemplates(db)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (23, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // Adopt the orphaned template_slots left behind by the resolution defect
+  // described in the v23 correction above. A generate() that lost its
+  // schedule_templates insert to UNIQUE(camp_id, kind) still wrote its slots —
+  // template_slots has no declared FK, so they were accepted — under the
+  // DERIVED id, which no schedule_templates row holds. loadAll() gates every
+  // route on the parent row existing, so those slots are invisible: work the
+  // director produced and never saw.
+  //
+  // DATA ONLY, no DDL on any existing table. Nothing is ever deleted, and
+  // nothing is merged where merging could lose a visible week:
+  //   adopt  only when the resolved row for (camp_id, kind) has ZERO rows in
+  //          that child table — there is provably no competing week.
+  //   leave  otherwise. The orphans stay exactly where they are, invisible and
+  //          harmless, recoverable by hand indefinitely.
+  // Every move is journalled so the inverse (electron/db/rollback/v24_down.js)
+  // is computed from data rather than guessed.
+  //
+  // LOCAL ONLY, deliberately: this repoints rows directly and appends NO
+  // operation, so it does not replicate. An orphan set is a local artefact of a
+  // local failed generate, and inventing a "repoint" op would add a sync
+  // primitive whose replay semantics nobody has designed. Two consequences the
+  // next reader should not mistake for oversights: devices adopt independently
+  // as each upgrades (so a peer still on v23 keeps reading that route as not
+  // started until it upgrades), and an orphan set that arrives on a peer AFTER
+  // that peer has run v24 is never adopted there. Both are recoverable by hand
+  // and neither loses data.
+  if (getSchemaVersion(db) < 24) {
+    db.transaction(() => {
+      db.exec(`CREATE TABLE IF NOT EXISTS migration_v24_repoint_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        table_name TEXT NOT NULL,
+        row_id TEXT NOT NULL,
+        old_template_id TEXT NOT NULL,
+        new_template_id TEXT NOT NULL,
+        applied_at TEXT NOT NULL
+      );`)
+
+      const now = new Date().toISOString()
+      const templates = db.prepare('SELECT id, camp_id, kind FROM schedule_templates').all()
+      const present = new Set(templates.map((t) => t.id))
+
+      for (const t of templates) {
+        // The derived id is used here ONLY to attribute an orphan to a route,
+        // once, inside a migration, because no other evidence of an orphan's
+        // route exists. This is NOT a precedent for parsing ids at runtime —
+        // schedule_templates.kind remains the sole route authority (ADR
+        // Decision §1). There is no runtime path through this code.
+        const orphanId = deriveScheduleTemplateId(t.camp_id, t.kind)
+        if (orphanId === t.id || present.has(orphanId)) continue
+
+        for (const table of ['template_slots', 'template_overlays', 'schedule_snapshots']) {
+          const mine = db.prepare(`SELECT COUNT(*) c FROM ${table} WHERE template_id = ?`).get(t.id).c
+          if (mine > 0) continue // a competing week exists — leave the orphans alone
+          const orphans = db.prepare(`SELECT id FROM ${table} WHERE template_id = ?`).all(orphanId)
+          if (orphans.length === 0) continue
+          for (const { id } of orphans) {
+            db.prepare(`UPDATE ${table} SET template_id = ? WHERE id = ?`).run(t.id, id)
+            db.prepare(
+              `INSERT INTO migration_v24_repoint_log
+                 (table_name, row_id, old_template_id, new_template_id, applied_at)
+               VALUES (?, ?, ?, ?, ?)`
+            ).run(table, id, orphanId, t.id, now)
+          }
+        }
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (24, ?)').run(
+      new Date().toISOString()
+    )
+  }
+}
+
+// A peer still on <=v22 rejects the manual candidate's schedule_templates row
+// (its UNIQUE(camp_id) absorbs the INSERT OR IGNORE) and then FK-violates on
+// every child op. applyRemoteOp swallows projection failures by design and
+// sendFullSyncIfFirstPairing never re-syncs a device that has synced once, so
+// nothing else would ever repair that device. The op-log rows themselves are
+// durable — they are inserted BEFORE projection is attempted — so the missing
+// tables can be rebuilt from the log at upgrade time.
+//
+// Deliberately BOUNDED to templates that are currently ABSENT, and to the
+// children of only those templates. An unbounded "replay everything" would
+// delete-then-reinsert correctly-projected rows, turning a repair into a
+// destructive operation.
+function repairMissingScheduleTemplates(db) {
+  const templateOps = db
+    .prepare(
+      `SELECT * FROM operations WHERE entity = 'schedule_templates' ORDER BY seq ASC`
+    )
+    .all()
+  if (templateOps.length === 0) return
+
+  const present = new Set(db.prepare('SELECT id FROM schedule_templates').all().map((r) => r.id))
+  const missing = [...new Set(templateOps.map((o) => o.entity_id))].filter((id) => !present.has(id))
+  if (missing.length === 0) return
+
+  const missingSet = new Set(missing)
+  for (const op of templateOps) {
+    if (!missingSet.has(op.entity_id)) continue
+    try { applyProjection(db, op) } catch { /* one unreplayable op must not abort the rest */ }
+  }
+
+  const recovered = new Set(
+    db.prepare('SELECT id FROM schedule_templates').all().map((r) => r.id)
+  )
+  const targets = missing.filter((id) => recovered.has(id))
+  if (targets.length === 0) return
+
+  const targetSet = new Set(targets)
+  const childOps = db
+    .prepare(
+      `SELECT * FROM operations
+        WHERE entity IN ('template_slots', 'template_overlays', 'schedule_snapshots')
+        ORDER BY seq ASC`
+    )
+    .all()
+
+  // `owned` grows as the pass discovers which child rows belong to a recovered
+  // template. A child op is replayed only once its row is known to be one of
+  // theirs — every other row in these tables projected correctly and must not
+  // be touched.
+  const owned = new Set()
+  for (const op of childOps) {
+    try {
+      if (isBulkReplaceOp(op)) {
+        if (!targetSet.has(op.entity_id)) continue
+        applyBulkReplaceProjection(db, op)
+        const table = op.entity
+        for (const r of db.prepare(`SELECT id FROM ${table} WHERE template_id = ?`).all(op.entity_id)) {
+          owned.add(r.id)
+        }
+      } else if (op.field === 'template_id' && targetSet.has(op.value)) {
+        applyProjection(db, op)
+        owned.add(op.entity_id)
+      } else if (owned.has(op.entity_id)) {
+        applyProjection(db, op)
+      }
+    } catch { /* best-effort repair — see above */ }
   }
 }
 

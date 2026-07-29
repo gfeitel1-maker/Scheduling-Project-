@@ -34,8 +34,24 @@ const SCREENS = {
   activities:   ActivitiesScreen,
   anchors:      AnchorsScreen,
   dayoverrides: DayOverridesScreen,
-  schedule:     ScheduleScreen,
+  // Two routes to a week, two sidebar destinations, one screen. Neither is the
+  // camp's "real" schedule — the director makes that call, never the app
+  // (docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md). 'schedule' is
+  // a neutral entry point kept for the setup flow's "Next: Schedule" links; it
+  // designates nothing — it lands on the first-run choice screen while neither
+  // route has been started, and asks which week to open once both exist.
+  schedule:               ScheduleScreen,
+  'schedule:manual':      ScheduleScreen,
+  'schedule:generated':   ScheduleScreen,
   devices:      DeviceManagerScreen,
+}
+
+// Which schedule route a sidebar destination stands for. Absent for the
+// neutral 'schedule' entry, which forces nothing: with both weeks started the
+// screen asks the director which one to open rather than defaulting to either.
+const SCHEDULE_ROUTE_BY_SCREEN = {
+  'schedule:manual': 'manual',
+  'schedule:generated': 'generated',
 }
 
 function AppShell({ campId, role, onLogout }) {
@@ -61,9 +77,10 @@ function AppShell({ campId, role, onLogout }) {
   }, [campId])
 
   const Screen = SCREENS[screen] || CampSetup
+  const scheduleRoute = SCHEDULE_ROUTE_BY_SCREEN[screen]
   const screenProps = screen === 'conflicts'
     ? { campId, role, onNavigate: setScreen, pendingConflicts }
-    : { campId, role, onNavigate: setScreen }
+    : { campId, role, onNavigate: setScreen, ...(scheduleRoute ? { initialRoute: scheduleRoute } : {}) }
 
   return (
     <Shell

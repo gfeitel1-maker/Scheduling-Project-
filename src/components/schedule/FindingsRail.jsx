@@ -7,7 +7,7 @@ import { SEVERITY_BAR_COLOR } from './slotCellConstants'
 // UNFILLABLE cell icon for accessibility).
 // docs/superpowers/specs/2026-07-28-schedule-grid-decolorization-design.md
 // §"Reasons surface — Findings & Flags rail"
-export default function FindingsRail({ rows, onDismiss, onLocate, onClose }) {
+export default function FindingsRail({ rows, onDismiss, onLocate, onClose, intro, emptyText }) {
   const reduced = prefersReducedMotion()
 
   return (
@@ -23,9 +23,15 @@ export default function FindingsRail({ rows, onDismiss, onLocate, onClose }) {
         opacity: 1,
       }}
     >
+      {intro && (
+        <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{intro.title}</div>
+          {intro.sub && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>{intro.sub}</div>}
+        </div>
+      )}
       {rows.length === 0 ? (
         <div style={{ padding: '16px 14px', fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center' }}>
-          No issues found.
+          {emptyText || 'No issues found.'}
         </div>
       ) : (
         rows.map(row => (

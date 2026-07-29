@@ -4,15 +4,18 @@ import { localClient } from '../localClient'
 import buildSchedule, { computeFindings } from '../engine/buildSchedule'
 import { S } from '../styles/shared'
 import StatBadge from '../components/schedule/StatBadge'
-import { FLAG_COLORS, FLAG_SEVERITY } from '../components/schedule/slotCellConstants'
+import { legendEntriesFor, FLAG_SEVERITY } from '../components/schedule/slotCellConstants'
 import FindingsRail from '../components/schedule/FindingsRail'
 import EditModal from '../components/schedule/EditModal'
 import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
+import ExportChooserModal from '../components/schedule/ExportChooserModal'
 import VersionsDropdown from '../components/schedule/VersionsDropdown'
 import { isRestorable, parseSnapshotPayload, unrestorableMessage } from './snapshotRestore'
 import FieldTripDrawer from '../components/schedule/FieldTripDrawer'
 import { exportToExcel } from '../utils/exportSchedule'
 import { normalizeSlots } from '../utils/normalizeSlots'
+import { withOverlapFlags } from '../utils/computeOverlaps'
+import { deriveScheduleTemplateId } from '../../electron/ops/scheduleTemplateId'
 import { resolveSelection } from './resolveSelection'
 import { normalizeActivityEligibility } from '../utils/normalizeActivityEligibility'
 import ScheduleGroupView from '../components/schedule/ScheduleGroupView'
@@ -35,21 +38,89 @@ async function writeFields(entity, id, fields) {
   }
 }
 
-export default function ScheduleScreen({ campId, role, onNavigate }) {
+// Two routes to a schedule, each with its own candidate: the director builds
+// one themselves (the spreadsheet replacement) or the app proposes one and they
+// edit it. NEITHER is the real schedule — that call is the director's, and the
+// app must never make it for them (CONSTITUTION.md Art. V, and the ADR on
+// plural candidate schedules). Route selection is local UI state and does not
+// replicate.
+const ROUTES = ['generated', 'manual']
+const EMPTY_BY_ROUTE = (value) => ({ generated: value(), manual: value() })
+
+// Keeps the ~20 existing call sites writing `setSlots(prev => ...)` exactly as
+// they were, while the value they touch is the current route's.
+// Which row IS this camp's candidate for this route? Ask the database by
+// (camp_id, kind) — do not assume the derived id is the one on disk.
+//
+// A camp whose schedule_templates row was minted after migration v21 by a
+// renderer that still used crypto.randomUUID() carries a RANDOM UUID id that no
+// migration will ever normalise. Deriving the id and hoping a row is there
+// found nothing on such a camp, so the app tried to insert one, lost silently
+// to UNIQUE(camp_id, kind), and generation did nothing at all. `kind` is the
+// route authority (ADR Decision §1), so resolve by it.
+//
+// The derived id is still what gets MINTED when no row exists — that is the
+// invariant deterministic ids exist for (two devices independently creating a
+// candidate must agree on its id). Determinism was only ever needed at mint
+// time; once a row exists it has replicated, and both devices resolve to it.
+function templateRowFor(templates, campId, kind) {
+  // A row with no kind at all is 'generated': that is the column default and
+  // what migration v23 backfilled, so a row that predates the column (or
+  // arrives from a peer that has not projected kind yet) must not read as
+  // belonging to no route.
+  return (templates || []).find(t => t.camp_id === campId && (t.kind || 'generated') === kind)
+}
+
+function resolveTemplateId(templates, campId, kind) {
+  const row = templateRowFor(templates, campId, kind)
+  return row ? row.id : deriveScheduleTemplateId(campId, kind)
+}
+
+function routeSetter(setState, route) {
+  return updater =>
+    setState(prev => ({
+      ...prev,
+      [route]: typeof updater === 'function' ? updater(prev[route]) : updater,
+    }))
+}
+
+export default function ScheduleScreen({ campId, role, onNavigate, initialRoute }) {
   const [groups, setGroups] = useState([])
   const [days, setDays] = useState([])
   const [timeBlocks, setTimeBlocks] = useState([])
   const [activities, setActivities] = useState([])
   const [anchors, setAnchors] = useState([])
   const [tiers, setTiers] = useState([])
-  const [templateId, setTemplateId] = useState(null)
-  const [slots, setSlots] = useState([]) // saved template_slots from DB
-  const [stats, setStats] = useState(null)
+  // Which route is on screen is driven by the sidebar entry the director
+  // clicked (App.jsx SCREENS -> 'schedule:manual' / 'schedule:generated'). The
+  // neutral 'schedule' entry passes nothing and lands on the first-run choice
+  // screen when neither route has been started. Nothing here designates a
+  // canonical schedule.
+  // When the shell supplies a route (the sidebar destinations) it wins
+  // outright — no effect, no local copy to drift out of step. `setRoute` still
+  // exists for the neutral 'schedule' entry, which supplies nothing.
+  // null until the director picks. It stays null only on the neutral 'schedule'
+  // entry; the fallback below is a rendering necessity (every read is keyed by
+  // route), NOT a designation — when both candidates exist and nothing has been
+  // picked, the screen asks instead of showing this fallback. See the
+  // neutral-entry chooser further down.
+  const [localRoute, setRoute] = useState(null)
+  const route = initialRoute || localRoute || 'generated'
+  // Which routes actually have a schedule_templates row today. The id itself is
+  // derived, never minted — two devices that independently create a candidate
+  // for the same camp and route must agree on its id or their work forks.
+  const [existingTemplates, setExistingTemplates] = useState(() => EMPTY_BY_ROUTE(() => false))
+  // The id a route's schedule_templates row ACTUALLY has. Resolved from the
+  // database by (camp_id, kind); the derived id is only a fallback used when
+  // minting a row that does not exist yet. See resolveTemplateId below.
+  const [templateIdByRoute, setTemplateIdByRoute] = useState(() => ({ generated: null, manual: null }))
+  const [slotsByRoute, setSlotsByRoute] = useState(() => EMPTY_BY_ROUTE(() => []))
+  const [statsByRoute, setStatsByRoute] = useState(() => EMPTY_BY_ROUTE(() => null))
   // Aggregate UNDERSERVED/DISTRIBUTION findings from the last buildSchedule()
   // call — never persisted, recomputed fresh on every generate()/placeAnchors()
   // (docs/adr/2026-07-28-schedule-flag-findings-reshape.md §"findings never persisted").
-  const [findings, setFindings] = useState([])
-  const [dismissedFindingKeys, setDismissedFindingKeys] = useState(new Set())
+  const [findingsByRoute, setFindingsByRoute] = useState(() => EMPTY_BY_ROUTE(() => []))
+  const [dismissedByRoute, setDismissedByRoute] = useState(() => EMPTY_BY_ROUTE(() => new Set()))
   // null = rail closed; otherwise the kind ('UNFILLABLE'|'UNDERSERVED'|'DISTRIBUTION') filtered to
   // Deviation from design spec: spec called for one aggregate header badge
   // opening one rail. We kept three per-kind badges (director-legible counts
@@ -70,13 +141,13 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
   const [loadError, setLoadError] = useState(null)
   const [templateError, setTemplateError] = useState(null)
   const [actionError, setActionError] = useState(null)
-  const [snapshots, setSnapshots] = useState([])
-  const [overlays, setOverlays] = useState([])
+  const [snapshotsByRoute, setSnapshotsByRoute] = useState(() => EMPTY_BY_ROUTE(() => []))
+  const [overlaysByRoute, setOverlaysByRoute] = useState(() => EMPTY_BY_ROUTE(() => []))
+  const [exportChoosing, setExportChoosing] = useState(false)
   const [showVersions, setShowVersions] = useState(false)
   const [stampMode, setStampMode] = useState(null) // null | string (label of active stamp)
   const [showFieldTripDrawer, setShowFieldTripDrawer] = useState(false)
   const [fillState, setFillState] = useState(null)  // null | { overlayId, previewToOrder }
-  const [_manualMode, setManualMode] = useState(false)
   const [displacedItems, setDisplacedItems] = useState([])
   const [isDayExpandDragActive, setIsDayExpandDragActive] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
@@ -93,6 +164,58 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
+  // Everything below reads and writes the CURRENT route's candidate. Names and
+  // shapes are unchanged from the single-schedule version on purpose.
+  const templateIdFor = (r) => templateIdByRoute[r] || deriveScheduleTemplateId(campId, r)
+  const templateId = templateIdFor(route)
+  const rawSlots = slotsByRoute[route]
+  // OVERLAP is derived, never persisted — so it clears from every participating
+  // cell the moment any one of them moves, and only on the manual route, where
+  // a clashing placement is accepted rather than refused.
+  const slots = route === 'manual' ? withOverlapFlags(rawSlots, activities) : rawSlots
+  const stats = statsByRoute[route]
+  const findings = findingsByRoute[route]
+  const dismissedFindingKeys = dismissedByRoute[route]
+  const overlays = overlaysByRoute[route]
+  const snapshots = snapshotsByRoute[route]
+
+  const setSlots = routeSetter(setSlotsByRoute, route)
+  const setStats = routeSetter(setStatsByRoute, route)
+  const setFindings = routeSetter(setFindingsByRoute, route)
+  const setDismissedFindingKeys = routeSetter(setDismissedByRoute, route)
+  const setOverlays = routeSetter(setOverlaysByRoute, route)
+  const setSnapshots = routeSetter(setSnapshotsByRoute, route)
+
+  // The two routes are separate candidates, but they are ONE mounted component
+  // (App.jsx maps both sidebar destinations to this screen), so anything held
+  // in state survives the switch. Undo/redo entries, the clipboard, the current
+  // selection and the direct-manipulation modes all captured the setters and
+  // slot ids of the route they were made on — carrying them across would let a
+  // paste or an undo write into the candidate the director is NOT looking at.
+  // Cross-candidate writes are precisely what the route separation exists to
+  // prevent, so switching routes drops all of it. Nothing persisted is touched:
+  // each route's week, findings, snapshots and stats stay exactly as they were.
+  //
+  // Done during render rather than in an effect (React's documented
+  // adjusting-state-on-prop-change pattern): the reset lands in the SAME commit
+  // as the route change, so there is never an intermediate paint in which the
+  // new route's grid is on screen while the old route's clipboard, selection or
+  // undo entry is still live and clickable.
+  const [transientRoute, setTransientRoute] = useState(route)
+  if (transientRoute !== route) {
+    setTransientRoute(route)
+    setUndoStack([])
+    setRedoStack([])
+    setClipboardItems([])
+    setPasteMode(false)
+    setPasteModeIndex(0)
+    setPasteError(null)
+    setSelectedSlotKeys(new Set())
+    setEditSlot(null)
+    setStampMode(null)
+    setFillState(null)
+    setDisplacedItems([])
+  }
 
   useEffect(() => { loadAll() }, [campId])
 
@@ -189,6 +312,10 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     }
     window.addEventListener('pointerup', onPointerUp)
     return () => window.removeEventListener('pointerup', onPointerUp)
+  // updateOverlayRange is redefined every render now that `overlays` is a
+  // derived, route-scoped value; listing it would re-bind the listener on
+  // every render for no behavioural gain. The values it reads are in the deps.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fillState, overlays])
 
   async function loadAll() {
@@ -230,71 +357,143 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       setLoading(false)
       return
     }
+    // Both routes are refreshed on every load. loadAll() re-runs on every
+    // applied op, and a load that only refreshed the route on screen would
+    // leave the other one showing whatever it held before the op arrived.
     try {
-      const templates = await localClient.list('schedule_templates')
-      const tmpl = (templates || []).find(x => x.camp_id === campId)
-      if (tmpl) {
-        setTemplateId(tmpl.id)
-        const [slotData, overlayData, snapData] = await Promise.all([
-          localClient.list('template_slots'),
-          localClient.list('template_overlays'),
-          localClient.list('schedule_snapshots'),
-        ])
-        const saved = normalizeSlots(slotData).filter(s => s.template_id === tmpl.id)
-        setSlots(saved)
-        setOverlays((overlayData || []).filter(o => o.template_id === tmpl.id))
-        recalcStats(saved)
-        setFindings(computeFindings({ slots: saved, groups: g, activities: a, days: d }))
-        setDismissedFindingKeys(new Set())
-        const snaps = (snapData || [])
-          .filter(s => s.template_id === tmpl.id)
+      const templates = (await localClient.list('schedule_templates')) || []
+      const [slotData, overlayData, snapData] = await Promise.all([
+        localClient.list('template_slots'),
+        localClient.list('template_overlays'),
+        localClient.list('schedule_snapshots'),
+      ])
+      const allSlots = normalizeSlots(slotData)
+
+      const exists = {}
+      const nextTids = {}
+      const nextSlots = {}
+      const nextOverlays = {}
+      const nextSnaps = {}
+      const nextStats = {}
+      const nextFindings = {}
+
+      for (const r of ROUTES) {
+        // Resolution is by (camp_id, kind), never by camp_id alone: a camp now
+        // has one row per route, and first-match-wins would silently elect one
+        // of them as "the" schedule. It is NOT by derived id either — see
+        // resolveTemplateId.
+        const tid = resolveTemplateId(templates, campId, r)
+        nextTids[r] = tid
+        exists[r] = Boolean(templateRowFor(templates, campId, r))
+        // Gated on the parent row existing: a route with no schedule_templates
+        // row has not been started, whatever orphan child rows may be lying
+        // around.
+        const saved = exists[r] ? allSlots.filter(x => x.template_id === tid) : []
+        nextSlots[r] = saved
+        nextOverlays[r] = (overlayData || []).filter(o => o.template_id === tid)
+        nextStats[r] = statsFor(saved)
+        nextFindings[r] = computeFindings({ slots: saved, groups: g, activities: a, days: d })
+        nextSnaps[r] = (snapData || [])
+          .filter(x => x.template_id === tid)
           .sort((x, y) => new Date(y.created_at) - new Date(x.created_at))
           // `restorable` is carried so the Versions list and the restore action
           // agree — offering a version restore will refuse is the T8 defect.
-          .map(s => ({
-            id: s.id, template_id: s.template_id, name: s.name,
-            is_auto: s.is_auto, created_at: s.created_at,
-            restorable: isRestorable(s),
+          .map(x => ({
+            id: x.id, template_id: x.template_id, name: x.name,
+            is_auto: x.is_auto, created_at: x.created_at,
+            restorable: isRestorable(x),
           }))
-        setSnapshots(snaps)
       }
+
+      setExistingTemplates(exists)
+      setTemplateIdByRoute(nextTids)
+      setSlotsByRoute(nextSlots)
+      setOverlaysByRoute(nextOverlays)
+      setSnapshotsByRoute(nextSnaps)
+      setStatsByRoute(nextStats)
+      setFindingsByRoute(nextFindings)
+      setDismissedByRoute(EMPTY_BY_ROUTE(() => new Set()))
     } catch {
       setTemplateError('Failed to load saved schedule — check your connection and refresh')
     }
     setLoading(false)
   }
 
-  function recalcStats(slotList) {
-    const open = slotList.filter(s => s.is_anchor === false).length
-    const filled = slotList.filter(s => s.is_anchor === false && s.activity_id).length
-    setStats({ open, filled })
+  function statsFor(slotList) {
+    return {
+      open: slotList.filter(s => s.is_anchor === false).length,
+      filled: slotList.filter(s => s.is_anchor === false && s.activity_id).length,
+    }
   }
 
+  function recalcStats(slotList) {
+    setStats(statsFor(slotList))
+  }
+
+  // The schedule_templates row for a route is created lazily, on first use.
+  // `kind` is written FIRST and that ordering is load-bearing — see the
+  // write-ordering contract on schedule_templates in electron/ops/projections.js.
+  //
+  // If a row of this kind already exists it is RETURNED AS-IS — whatever its
+  // id — and nothing is written. Only a route that has no row at all mints one,
+  // and only then is the derived id used.
+  async function ensureTemplateRow(routeName) {
+    if (existingTemplates[routeName]) return templateIdFor(routeName)
+    const tid = deriveScheduleTemplateId(campId, routeName)
+    await writeFields('schedule_templates', tid, {
+      kind: routeName,
+      camp_id: campId,
+      name: routeName === 'manual' ? 'Manual' : 'Master Template',
+    })
+    setExistingTemplates(prev => ({ ...prev, [routeName]: true }))
+    setTemplateIdByRoute(prev => ({ ...prev, [routeName]: tid }))
+    return tid
+  }
+
+  // Writes ONLY to the generated candidate — the manual one is never read,
+  // moved or cleared here.
   async function generate() {
     setGenerating(true)
     setUndoStack([])
     setRedoStack([])
 
+    // Explicitly generated-route setters and generated-route DATA, not the
+    // current-route ones: this can be invoked from the first-run choice screen,
+    // and from a route offer whose onClick calls setRoute(r) immediately before
+    // — setRoute does not apply inside that handler, so `route` in closure is
+    // still the previous one. placeAnchors() is written the same way.
+    const setGenSlots = routeSetter(setSlotsByRoute, 'generated')
+    const setGenFindings = routeSetter(setFindingsByRoute, 'generated')
+    const setGenDismissed = routeSetter(setDismissedByRoute, 'generated')
+    const setGenOverlays = routeSetter(setOverlaysByRoute, 'generated')
+    const setGenStats = routeSetter(setStatsByRoute, 'generated')
+
     const lockedActIds = new Set(activities.filter(a => a.is_locked).map(a => a.id))
-    const preplacedSlots = slots
+    const preplacedSlots = slotsByRoute.generated
       .filter(s => s.activity_id && lockedActIds.has(s.activity_id) && !s.is_released && !s.is_anchor)
       .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, activityId: s.activity_id }))
 
     const result = buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId, preplacedSlots })
-    setFindings(result.findings || [])
-    setDismissedFindingKeys(new Set())
+    setGenFindings(result.findings || [])
+    setGenDismissed(new Set())
 
-    // Upsert template
-    let tid = templateId
-    if (!tid) {
-      tid = crypto.randomUUID()
-      await writeFields('schedule_templates', tid, { camp_id: campId, name: 'Master Template' })
-      setTemplateId(tid)
+    // ensureTemplateRow -> writeFields THROWS on any non-applied write (including
+    // the SCHEDULE_TEMPLATE_KIND_CONFLICT backstop in electron/ops/projections.js).
+    // generate() is invoked as a floating promise from the route offers, so an
+    // unguarded throw here would leave `generating` stuck true — a spinner that
+    // never resolves and no banner. Fail visibly instead.
+    let tid
+    try {
+      tid = await ensureTemplateRow('generated')
+    } catch {
+      setActionError('Could not open the generated schedule — nothing was changed. Try again, and tell support if it repeats.')
+      setGenerating(false)
+      return
     }
 
-    if (slots.length > 0) {
+    if (slotsByRoute.generated.length > 0) {
       try {
-        await saveSnapshot(null, true)
+        await saveSnapshot(null, true, 'generated')
       } catch {
         setActionError('Could not save undo point — regeneration cancelled')
         setGenerating(false)
@@ -332,11 +531,11 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       setGenerating(false)
       return
     }
-    setOverlays([])
+    setGenOverlays([])
 
     const freshSlots = normalizeSlots(await localClient.list('template_slots')).filter(s => s.template_id === tid)
-    setSlots(freshSlots)
-    recalcStats(freshSlots)
+    setGenSlots(freshSlots)
+    setGenStats(statsFor(freshSlots))
     setGenerating(false)
   }
 
@@ -390,7 +589,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
 
   async function swapSlots(slotA, slotB) {
     // slotA and slotB are { groupId, dayId, blockId, activityId }
-    if (!templateId) return
+    if (!existingTemplates[route]) return
     const rowA = slots.find(s => s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
     const rowB = slots.find(s => s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
     if (!rowA || !rowB) return
@@ -506,7 +705,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
   }
 
   async function addOverlay({ unitId, dayId, fromBlockOrder, toBlockOrder, label }) {
-    if (!templateId) return
+    if (!existingTemplates[route]) return
     if (!unitId) {
       console.warn('addOverlay: group has no tier_id — cannot create overlay')
       return
@@ -549,9 +748,14 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     setOverlays(prev => prev.map(o => o.id === overlayId ? { ...o, to_block_order: toBlockOrder } : o))
   }
 
-  async function saveSnapshot(name, isAuto) {
-    if (!templateId) return
-    const snapSlots = slots.map(s => ({
+  // routeName is explicit so generate()/placeAnchors() can snapshot the route
+  // they are building rather than whichever one happens to be on screen; every
+  // other caller is a user action on the visible route and defaults to it.
+  async function saveSnapshot(name, isAuto, routeName = route) {
+    if (!existingTemplates[routeName]) return
+    const tid = templateIdFor(routeName)
+    const setRouteSnapshots = routeSetter(setSnapshotsByRoute, routeName)
+    const snapSlots = slotsByRoute[routeName].map(s => ({
       group_id: s.group_id,
       day_id: s.day_id,
       time_block_id: s.time_block_id,
@@ -562,11 +766,11 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     }))
     const id = crypto.randomUUID()
     const createdAt = new Date().toISOString()
-    const snapOverlays = overlays.map(o => ({ unit_id: o.unit_id, day_id: o.day_id, from_block_order: o.from_block_order, to_block_order: o.to_block_order, label: o.label }))
+    const snapOverlays = overlaysByRoute[routeName].map(o => ({ unit_id: o.unit_id, day_id: o.day_id, from_block_order: o.from_block_order, to_block_order: o.to_block_order, label: o.label }))
     setActionError(null)
     try {
       await writeFields('schedule_snapshots', id, {
-        template_id: templateId,
+        template_id: tid,
         name: name || null,
         is_auto: isAuto,
         created_at: createdAt,
@@ -577,7 +781,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       setActionError('Failed to save snapshot — check your connection and try again')
       throw err
     }
-    setSnapshots(prev => [{ id, template_id: templateId, name: name || null, is_auto: isAuto, created_at: createdAt, restorable: true }, ...prev])
+    setRouteSnapshots(prev => [{ id, template_id: tid, name: name || null, is_auto: isAuto, created_at: createdAt, restorable: true }, ...prev])
   }
 
   // Deleting a version is the director's call, never an automatic cleanup.
@@ -610,7 +814,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
   }
 
   async function restoreSnapshot(snapshot) {
-    if (!templateId) return
+    if (!existingTemplates[route]) return
     setUndoStack([])
     setRedoStack([])
     const fullSnap = (await localClient.list('schedule_snapshots')).find(s => s.id === snapshot.id)
@@ -622,6 +826,15 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       setSnapshots(prev => prev.map(s => s.id === snapshot.id ? { ...s, restorable: false } : s))
       return
     }
+    // restoreSnapshot re-stamps template_id from component state onto every
+    // row below. With two candidates per camp, restoring a version that belongs
+    // to the OTHER route would silently overwrite this route's entire week —
+    // so the version must be one of this route's before anything is written.
+    if (fullSnap.template_id !== templateId) {
+      setActionError('That saved version belongs to the other schedule. Switch to it to restore this version.')
+      return
+    }
+
     fullSnap.slots = parsed.slots
     fullSnap.overlays = parsed.overlays
 
@@ -688,26 +901,41 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
 
   async function regenFromScratch() {
     setConfirmRegen(false)
-    setManualMode(false)
     await generate()
   }
 
+  // Starts the manual route's blank week: meals and fixed events already in
+  // place, every other cell empty. It writes ONLY to the manual candidate — the
+  // generated one is never read, moved or cleared here.
   async function placeAnchors() {
     setGenerating(true)
-    const result = buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId, anchorsOnly: true })
-    setFindings(result.findings || [])
-    setDismissedFindingKeys(new Set())
+    // Explicitly manual-route setters, not the current-route ones: this can be
+    // invoked from the first-run choice screen, where the route on screen is
+    // still whatever it defaulted to.
+    const setManualSlots = routeSetter(setSlotsByRoute, 'manual')
+    const setManualFindings = routeSetter(setFindingsByRoute, 'manual')
+    const setManualDismissed = routeSetter(setDismissedByRoute, 'manual')
+    const setManualOverlays = routeSetter(setOverlaysByRoute, 'manual')
+    const setManualStats = routeSetter(setStatsByRoute, 'manual')
 
-    let tid = templateId
-    if (!tid) {
-      tid = crypto.randomUUID()
-      await writeFields('schedule_templates', tid, { camp_id: campId, name: 'Master Template' })
-      setTemplateId(tid)
+    const result = buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId, anchorsOnly: true })
+    setManualFindings(result.findings || [])
+    setManualDismissed(new Set())
+
+    // Same guard as generate(): a throw from ensureTemplateRow would otherwise
+    // strand `generating` at true with no error on screen.
+    let tid
+    try {
+      tid = await ensureTemplateRow('manual')
+    } catch {
+      setActionError('Could not open the manual schedule — nothing was changed. Try again, and tell support if it repeats.')
+      setGenerating(false)
+      return
     }
 
-    if (slots.length > 0) {
+    if (slotsByRoute.manual.length > 0) {
       try {
-        await saveSnapshot(null, true)
+        await saveSnapshot(null, true, 'manual')
       } catch {
         setActionError('Could not save undo point — regeneration cancelled')
         setGenerating(false)
@@ -743,19 +971,21 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       setGenerating(false)
       return
     }
-    setOverlays([])
+    setManualOverlays([])
 
     const freshSlots = normalizeSlots(await localClient.list('template_slots')).filter(s => s.template_id === tid)
-    setSlots(freshSlots)
-    recalcStats(freshSlots)
-    setManualMode(true)
-    setView('manual')
-    if (groups.length > 0) setSelectedGroup(groups[0].id)
+    setManualSlots(freshSlots)
+    setManualStats(statsFor(freshSlots))
+    // Findings are shown the moment the blank week opens — every activity still
+    // under its weekly target, as an honest list of what the week owes you.
+    setManualFindings(computeFindings({ slots: freshSlots, groups, activities, days }))
+    setManualDismissed(new Set())
+    if (groups.length > 0) setSelectedGroup(prev => prev ?? groups[0].id)
     setGenerating(false)
   }
 
   async function placeActivityManual(activityId, groupId, dayId, blockId) {
-    if (!templateId) return
+    if (!existingTemplates[route]) return
     const slot = getSlot(groupId, dayId, blockId)
     if (!slot || slot.is_anchor) return
 
@@ -775,8 +1005,15 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     // Weekly-max enforcement is ActivityPalette disabling the drag source —
     // it's not a per-slot flag kind anymore (UNDERSERVED moved to
     // buildSchedule()'s aggregate findings).
+    //
+    // On the MANUAL route the placement is always accepted: a director building
+    // their own week is never blocked and never has a placement silently
+    // corrected. An over-booking is surfaced instead, as a derived OVERLAP
+    // marker computed from the week on screen (src/utils/computeOverlaps.js),
+    // and there is no UNFILLABLE here at all — an empty cell is simply not
+    // filled yet. On the generated route the existing behaviour is unchanged.
     const flags = {}
-    if (!eligible || locationFull) flags.UNFILLABLE = true
+    if (route !== 'manual' && (!eligible || locationFull)) flags.UNFILLABLE = true
 
     const prevActivityId = slot.activity_id ?? null
     const prevFlags = slot.flags ?? {}
@@ -819,17 +1056,6 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
   }
 
 
-  function handleManualDragEnd({ active, over }) {
-    if (!over) return
-    const paletteAct = active.data.current?.paletteActivity
-    if (!paletteAct) return
-    const d = over.data.current || {}
-    const groupId = d.groupId ?? d.slot?.groupId
-    const dayId = d.dayId ?? d.slot?.dayId
-    const blockId = d.blockId ?? d.slot?.blockId
-    if (!groupId || !dayId || !blockId) return
-    placeActivityManual(paletteAct.id, groupId, dayId, blockId)
-  }
 
   // Group-view DnD: covers both expand-drag (ExpandHandle) and palette drops.
   // DndContext for group view lives in ScheduleScreen so the sidebar palette chips
@@ -942,7 +1168,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
   }
 
   async function expandSlot(groupId, dayId, headBlockId, tailBlockId, tailActivityId, tailActivityName, tailBlockName, dayLabel) {
-    if (!templateId) return
+    if (!existingTemplates[route]) return
     const headSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
     const tailSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
     if (!headSlot || !tailSlot) return
@@ -1070,7 +1296,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
 
   // T4 — split a merged span back into two independent slots
   async function splitSlot(groupId, dayId, headBlockId) {
-    if (!templateId) return
+    if (!existingTemplates[route]) return
     const headSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
     if (!headSlot || !headSlot.flags?.expanded) return
 
@@ -1198,24 +1424,65 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
   // Findings rail rows: UNFILLABLE (per-slot, unchanged) + UNDERSERVED/
   // DISTRIBUTION (aggregate findings from the last buildSchedule() run) —
   // the header badge counts distinct problems, not flagged slots.
-  const unfillableSlots = flagSlots.filter(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed)
+  const isManual = route === 'manual'
+
+  // Flag SET differs by route; flag VOCABULARY does not. The manual route has
+  // no UNFILLABLE (an empty cell there is simply not filled yet) and gains
+  // OVERLAP; the generated route is unchanged.
+  const unfillableSlots = isManual
+    ? []
+    : flagSlots.filter(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed)
+  const overlapSlots = isManual ? flagSlots.filter(s => s.flags?.OVERLAP) : []
   const activeFindings = findings.filter(f => !dismissedFindingKeys.has(`${f.groupId}|${f.activityId}|${f.kind}`))
   const SEVERITY_ORDER = { danger: 0, caution: 1, info: 2 }
+
+  function slotLocator(s) {
+    return [
+      groups.find(g => g.id === s.group_id)?.name,
+      days.find(d => d.id === s.day_id)?.label,
+      timeBlocks.find(b => b.id === s.time_block_id)?.name,
+    ].filter(Boolean).join(' · ')
+  }
+
+  // Manual-route copy is future-facing: what the week still needs, never what
+  // the director got wrong.
+  function findingReason(f) {
+    if (!isManual) return f.reason
+    const groupName = groups.find(g => g.id === f.groupId)?.name ?? ''
+    const actName = activities.find(a => a.id === f.activityId)?.name ?? ''
+    if (f.kind === 'UNDERSERVED') {
+      return `Needs ${f.needed - f.got} more this week — ${actName}, ${groupName}`
+    }
+    if (f.kind === 'DISTRIBUTION') {
+      const byDay = days.find(d => d.day_of_week === f.byDay)?.label ?? 'later in the week'
+      return `Try to fit ${f.requiredBefore} in before ${byDay} — ${f.beforeCount} so far. Spread them out if you can.`
+    }
+    return f.reason
+  }
+
   const findingsRows = [
     ...unfillableSlots.map(s => ({
       key: s.id,
       kind: 'UNFILLABLE',
       severity: FLAG_SEVERITY.UNFILLABLE,
       reason: s.flags?.UNFILLABLE_reason || 'No eligible activity could be placed in this slot',
-      locator: [groups.find(g => g.id === s.group_id)?.name, days.find(d => d.id === s.day_id)?.label, timeBlocks.find(b => b.id === s.time_block_id)?.name].filter(Boolean).join(' · '),
+      locator: slotLocator(s),
       slotIds: [s.id],
+      groupId: s.group_id,
+    })),
+    ...overlapSlots.map(s => ({
+      key: `overlap-${s.id}`,
+      kind: 'OVERLAP',
+      severity: FLAG_SEVERITY.OVERLAP,
+      reason: s.flags?.OVERLAP_reason || 'More groups are booked into this than it holds',
+      locator: slotLocator(s),
       groupId: s.group_id,
     })),
     ...activeFindings.map(f => ({
       key: `${f.groupId}|${f.activityId}|${f.kind}`,
       kind: f.kind,
       severity: f.severity,
-      reason: f.reason,
+      reason: findingReason(f),
       locator: [groups.find(g => g.id === f.groupId)?.name, activities.find(a => a.id === f.activityId)?.name].filter(Boolean).join(' · '),
       groupId: f.groupId,
       activityId: f.activityId,
@@ -1224,7 +1491,10 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
 
   function dismissFindingsRow(row) {
     if (row.kind === 'UNFILLABLE') dismissFlag(row.slotIds, 'UNFILLABLE')
-    else dismissFinding(row.groupId, row.activityId, row.kind)
+    // OVERLAP is derived from the week on screen, so there is nothing to
+    // dismiss — it clears when the director moves one of the clashing
+    // placements, which is the only honest way for it to go away.
+    else if (row.kind !== 'OVERLAP') dismissFinding(row.groupId, row.activityId, row.kind)
   }
 
   function locateFindingsRow(row) {
@@ -1381,6 +1651,104 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
   }
 
   const hasSchedule = slots.length > 0
+  const anyRouteStarted = ROUTES.some(r => slotsByRoute[r].length > 0)
+
+  const ROUTE_COPY = {
+    manual: {
+      label: 'Manual',
+      caption: 'The week you\u2019re building',
+      captionSub: 'You place everything. The app just watches for clashes.',
+      offerTitle: 'Build it myself',
+      offerBody: 'Start from a blank week with your meals and fixed events already in place. You place every activity yourself \u2014 the way you would in a spreadsheet, but it watches for clashes and tells you what each group still needs.',
+      offerAction: 'Start a blank week',
+    },
+    generated: {
+      label: 'Generated',
+      caption: 'The week the app proposed',
+      captionSub: 'Drag anything to move it.',
+      offerTitle: 'Let the app propose one',
+      offerBody: 'The app fills the week from your activity targets. You then move things around by dragging.',
+      offerAction: 'Generate a schedule',
+    },
+  }
+
+  // The neutral 'schedule' entry (CampSetup / AnchorsScreen "Next: Schedule")
+  // supplies no route. With both candidates started, falling through to the
+  // 'generated' fallback would be the APP picking a week for the director,
+  // which the no-canonical-schedule rule forbids
+  // (docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md). So it asks.
+  // One started, or none: there is no choice to make and the normal screen
+  // (grid, or the first-run offers) is correct.
+  const startedRoutes = ROUTES.filter(r => slotsByRoute[r].length > 0)
+  if (!initialRoute && !localRoute && startedRoutes.length > 1) {
+    return (
+      <div style={{ padding: '60px 16px', textAlign: 'center' }}>
+        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>Which week do you want to open?</div>
+        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6, marginBottom: 20 }}>You have both. Opening one changes nothing about the other, and you can switch any time from the left.</div>
+        <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+          {ROUTES.map(r => (
+            <button
+              key={r}
+              onClick={() => { setRoute(r); onNavigate?.(`schedule:${r}`) }}
+              style={{ ...S.btnSecondary, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, padding: '12px 18px' }}
+            >
+              <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 14 }}>{ROUTE_COPY[r].label}</span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)' }}>{routeSummary(r)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  function routeSummary(r) {
+    const rows = slotsByRoute[r]
+    if (rows.length === 0) return 'not started'
+    const open = rows.filter(x => x.is_anchor === false).length
+    const filled = rows.filter(x => x.is_anchor === false && x.activity_id).length
+    return `${filled} of ${open} placed`
+  }
+
+  const startRoute = { manual: placeAnchors, generated: generate }
+
+  function exportRoute(r) {
+    exportToExcel({ slots: slotsByRoute[r], activities, anchors, groups, days, timeBlocks })
+  }
+
+  // If only one route has been started there is no choice to make and nothing
+  // is being elected. As soon as both exist, the director picks — every time.
+  function handleExportClick() {
+    const started = ROUTES.filter(r => slotsByRoute[r].length > 0)
+    if (started.length <= 1) {
+      exportRoute(started[0] ?? route)
+      return
+    }
+    setExportChoosing(true)
+  }
+
+  function routeOffer(r) {
+    const copy = ROUTE_COPY[r]
+    return (
+      <div key={r} style={{
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+        padding: '18px 20px', width: 280, display: 'flex', flexDirection: 'column', gap: 8,
+      }}>
+        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>{copy.offerTitle}</div>
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{copy.offerBody}</div>
+        <button
+          onClick={() => { setRoute(r); onNavigate?.(`schedule:${r}`); startRoute[r]() }}
+          disabled={generating || role !== 'admin'}
+          title={role !== 'admin' ? 'Admin only' : undefined}
+          style={{
+            ...(r === 'generated' ? S.btnPrimary : S.btnSecondary),
+            marginTop: 6, alignSelf: 'flex-start',
+            ...(generating || role !== 'admin' ? S.buttonDisabled : {}),
+          }}
+        >{copy.offerAction}</button>
+      </div>
+    )
+  }
+
 
   return (
     <div style={{ maxWidth: '100%' }}>
@@ -1401,14 +1769,26 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       )}
       {/* Controls bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
-        {hasSchedule && (
+        {anyRouteStarted && (
           <>
-            {/* View toggle */}
+            {/* Which route this week belongs to. Route SELECTION lives in the
+                left sidebar (src/components/layout/Sidebar.jsx) — Manual and
+                Generated are two places a director navigates between, not a
+                mode toggle sitting on top of one grid. This is a label, not a
+                switch, and it designates nothing as "the" schedule. */}
+            <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+              <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 14, color: 'var(--text)' }}>
+                {ROUTE_COPY[route].label}
+              </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)' }}>
+                {routeSummary(route)}
+              </span>
+            </div>
+
+            {/* View toggle — how to LOOK at this route's week. "Manual Build"
+                is gone from here: it was never a view, it was a route. */}
             <div style={{ display: 'flex', gap: 2, background: 'var(--border)', borderRadius: 8, padding: 3 }}>
-              {[
-                ...(hasSchedule ? [['manual', 'Manual Build']] : []),
-                ['group','Group View'],['day','Daily View'],['activity','Activity View'],
-              ].map(([v, label]) => (
+              {[['group','Group View'],['day','Daily View'],['activity','Activity View']].map(([v, label]) => (
                 <button key={v} onClick={() => { setView(v); if (v !== 'activity') setSelectedActivity(null) }} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', borderBottom: view === v ? '2px solid var(--primary)' : '2px solid transparent', cursor: 'pointer', fontSize: 12, fontWeight: view === v ? 700 : 600, fontFamily: 'var(--font-sans)', background: view === v ? 'var(--surface)' : 'none', color: view === v ? 'var(--primary)' : 'var(--text-secondary)', boxShadow: view === v ? '0 1px 4px rgba(0,0,0,0.12)' : 'none', transition: 'color 0.12s, background 0.12s' }}>{label}</button>
               ))}
             </div>
@@ -1473,59 +1853,56 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
               {stampMode ? `✕ ${stampMode}` : showFieldTripDrawer ? '✕ Field Trip' : 'Field Trips'}
             </button>
 
-            <button onClick={() => exportToExcel({ slots, activities, anchors, groups, days, timeBlocks })} style={S.btnSecondary}>Export to Excel</button>
-            <button
-              onClick={() => setConfirmRegen(true)}
-              disabled={role !== 'admin'}
-              title={role !== 'admin' ? 'Admin only' : undefined}
-              style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-            >Regenerate from Scratch</button>
+            {/* Export must act on exactly ONE schedule, and the app does not get
+                to pick. With both routes started it asks, every time, and never
+                remembers the answer. */}
+            <button onClick={handleExportClick} style={S.btnSecondary}>Export to Excel</button>
+            {!isManual && (
+              <button
+                onClick={() => setConfirmRegen(true)}
+                disabled={role !== 'admin'}
+                title={role !== 'admin' ? 'Admin only' : undefined}
+                style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
+              >Regenerate from Scratch</button>
+            )}
           </>
         )}
 
-        {!hasSchedule && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <button
-              onClick={generate}
-              disabled={generating || role !== 'admin'}
-              title={role !== 'admin' ? 'Admin only' : undefined}
-              style={role !== 'admin' ? { ...S.btnPrimary, padding: '10px 24px', fontSize: 14, ...S.buttonDisabled } : { ...S.btnPrimary, padding: '10px 24px', fontSize: 14 }}
-            >
-              {generating ? 'Generating…' : 'Generate Schedule'}
-            </button>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>or</span>
-            <button
-              onClick={placeAnchors}
-              disabled={generating || role !== 'admin'}
-              title={role !== 'admin' ? 'Admin only' : undefined}
-              style={role !== 'admin' ? { ...S.btnSecondary, padding: '10px 24px', fontSize: 14, ...S.buttonDisabled } : { ...S.btnSecondary, padding: '10px 24px', fontSize: 14 }}
-            >
-              Build Manually
-            </button>
-          </div>
-        )}
-
-        {hasSchedule && generating && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>Generating…</span>}
+        {anyRouteStarted && generating && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>Generating…</span>}
       </div>
 
-      {/* Stats bar */}
+      {/* Stats bar — its SHAPE differs by route, which is itself an orientation
+          cue: a director who glances at the tiles knows where they are. */}
       {hasSchedule && stats && (
         <div style={{ position: 'relative', display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-          <StatBadge label="Filled" value={`${stats.filled}/${stats.open}`} color="var(--success)" />
           <StatBadge
-            label="Unfillable"
-            value={unfillableSlots.length}
-            color={unfillableSlots.length > 0 ? 'var(--danger)' : 'var(--text-secondary)'}
-            onClick={() => setFindingsRailOpen(o => !o)}
+            label={isManual ? 'Placed' : 'Filled'}
+            value={isManual ? `${stats.filled} of ${stats.open}` : `${stats.filled}/${stats.open}`}
+            color={isManual ? 'var(--text-secondary)' : 'var(--success)'}
           />
+          {isManual ? (
+            <StatBadge
+              label="Overlapping"
+              value={overlapSlots.length}
+              color={overlapSlots.length > 0 ? 'var(--accent)' : 'var(--text-secondary)'}
+              onClick={() => setFindingsRailOpen(o => !o)}
+            />
+          ) : (
+            <StatBadge
+              label="Unfillable"
+              value={unfillableSlots.length}
+              color={unfillableSlots.length > 0 ? 'var(--danger)' : 'var(--text-secondary)'}
+              onClick={() => setFindingsRailOpen(o => !o)}
+            />
+          )}
           <StatBadge
-            label="Underserved"
+            label={isManual ? 'Still needed' : 'Underserved'}
             value={activeFindings.filter(f => f.kind === 'UNDERSERVED').length}
             color={activeFindings.some(f => f.kind === 'UNDERSERVED') ? 'var(--accent)' : 'var(--text-secondary)'}
             onClick={() => setFindingsRailOpen(o => !o)}
           />
           <StatBadge
-            label="Distribution"
+            label={isManual ? 'Spread across the week' : 'Distribution'}
             value={activeFindings.filter(f => f.kind === 'DISTRIBUTION').length}
             color={activeFindings.some(f => f.kind === 'DISTRIBUTION') ? 'var(--secondary)' : 'var(--text-secondary)'}
             onClick={() => setFindingsRailOpen(o => !o)}
@@ -1536,6 +1913,8 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
               onDismiss={dismissFindingsRow}
               onLocate={locateFindingsRow}
               onClose={() => setFindingsRailOpen(false)}
+              intro={isManual ? { title: 'What this week still needs', sub: "Nothing here is a mistake. It's what's left to place." } : undefined}
+              emptyText={isManual ? 'Everything on your list is placed.' : undefined}
             />
           )}
         </div>
@@ -1567,7 +1946,8 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
           <ActivityPalette
             activities={activities}
             slots={paletteSlots}
-            draggable={view === 'manual' || view === 'group' || view === 'day'}
+            showTargets={isManual}
+            draggable={view === 'group' || view === 'day'}
             collapsed={sidebarCollapsed}
             onToggleCollapse={() => setSidebarCollapsed(c => !c)}
           />
@@ -1575,17 +1955,57 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
 
         const gridContent = (
           <div style={{ flex: 1, minWidth: 0 }}>
-            {/* No schedule state */}
-            {!hasSchedule && !generating && (
-              <div style={{ ...S.emptyStateTall, padding: '60px 24px' }}>
-                <div style={S.emptyStateTitleLarge}>No schedule yet</div>
-                {/* fontSize 13 override intentional — larger than the default emptyStateBody (12) */}
-                <div style={{ ...S.emptyStateBody, fontSize: 13 }}>Click "Generate Schedule" to build one from your current setup.</div>
+            {/* Neither route started: a genuine choice, presented as one. */}
+            {!anyRouteStarted && !generating && (
+              <div style={{ padding: '60px 16px', textAlign: 'center' }}>
+                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>How do you want to build this week?</div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6, marginBottom: 20 }}>You can do both. Nothing you build one way affects the other.</div>
+                <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap', textAlign: 'left' }}>
+                  {routeOffer('manual')}
+                  {routeOffer('generated')}
+                </div>
               </div>
             )}
 
-            {/* Group view */}
-            {hasSchedule && view === 'group' && (
+            {/* The other route has work, this one does not: the same offer,
+                inline. No warning, no confirmation — nothing is at risk. */}
+            {anyRouteStarted && !hasSchedule && !generating && (
+              <div style={{ display: 'flex', marginBottom: 8 }}>{routeOffer(route)}</div>
+            )}
+
+            {/* Which week am I looking at — in plain language, always present. */}
+            {hasSchedule && (
+              <div style={{ marginBottom: 12 }}>
+                <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{ROUTE_COPY[route].caption}</span>
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 8 }}>{ROUTE_COPY[route].captionSub}</span>
+              </div>
+            )}
+
+            {/* Group view — the manual route draws its own grid, whose empty
+                cells are drop targets rather than engine output. */}
+            {hasSchedule && view === 'group' && isManual && (
+              <ManualBuildView
+                groups={groups}
+                days={days}
+                timeBlocks={timeBlocks}
+                activities={activities}
+                selectedGroup={selectedGroup}
+                onSelectGroup={handleSelectGroup}
+                actMap={actMap}
+                anchorMap={anchorMap}
+                isAnchorTail={isAnchorTail}
+                getAnchorRowSpan={getAnchorRowSpan}
+                getSlot={getSlot}
+                onEditSlot={setEditSlot}
+                onExpandSlot={expandSlot}
+                onSplitSlot={splitSlot}
+                selectedSlotKeys={selectedSlotKeys}
+                pasteMode={pasteMode}
+                onCellSelect={handleCellSelect}
+              />
+            )}
+
+            {hasSchedule && view === 'group' && !isManual && (
               <ScheduleGroupView
                 groups={groups}
                 days={days}
@@ -1665,28 +2085,6 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
               />
             )}
 
-            {/* Manual build view — grid only; DndContext wraps sidebar+grid below */}
-            {hasSchedule && view === 'manual' && (
-              <ManualBuildView
-                groups={groups}
-                days={days}
-                timeBlocks={timeBlocks}
-                activities={activities}
-                selectedGroup={selectedGroup}
-                onSelectGroup={handleSelectGroup}
-                actMap={actMap}
-                anchorMap={anchorMap}
-                isAnchorTail={isAnchorTail}
-                getAnchorRowSpan={getAnchorRowSpan}
-                getSlot={getSlot}
-                onEditSlot={setEditSlot}
-                onExpandSlot={expandSlot}
-                onSplitSlot={splitSlot}
-                selectedSlotKeys={selectedSlotKeys}
-                pasteMode={pasteMode}
-                onCellSelect={handleCellSelect}
-              />
-            )}
           </div>
         )
 
@@ -1720,19 +2118,6 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
               onDragStart={handleDayDragStart}
               onDragEnd={handleDayDragEnd}
               onDragCancel={() => setIsDayExpandDragActive(false)}
-            >
-              {twoCol}
-            </DndContext>
-          )
-        }
-        if (view === 'manual') {
-          return (
-            <DndContext
-              key="manual"
-              sensors={sensors}
-              onDragStart={() => {}}
-              onDragEnd={handleManualDragEnd}
-              onDragCancel={() => {}}
             >
               {twoCol}
             </DndContext>
@@ -1778,6 +2163,19 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       )}
 
 
+      {exportChoosing && (
+        <ExportChooserModal
+          options={ROUTES.map(r => ({
+            key: r,
+            title: ROUTE_COPY[r].caption,
+            filled: slotsByRoute[r].filter(x => x.is_anchor === false && x.activity_id).length,
+            total: slotsByRoute[r].filter(x => x.is_anchor === false).length,
+          }))}
+          onChoose={r => { setExportChoosing(false); exportRoute(r) }}
+          onCancel={() => setExportChoosing(false)}
+        />
+      )}
+
       {/* Regen confirm */}
       {confirmRegen && (
         <ConfirmRegenModal
@@ -1787,12 +2185,25 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
         />
       )}
 
-      {/* Flag legend */}
+      {/* Grid legend — every treatment the grid can show, from one source
+          (LEGEND_ENTRIES) so a new flag cannot ship undocumented. */}
       {hasSchedule && (
         <div style={{ display: 'flex', gap: 16, marginTop: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-secondary)' }}>
-          {Object.entries(FLAG_COLORS).map(([f, c]) => (
-            <span key={f} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: c, display: 'inline-block' }} />{f}
+          {legendEntriesFor(route).map(entry => (
+            <span key={entry.label} title={entry.description} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'default' }}>
+              <span
+                aria-hidden="true"
+                style={
+                  entry.shape === 'dot'
+                    ? { width: 8, height: 8, borderRadius: '50%', background: entry.color, display: 'inline-block', flexShrink: 0 }
+                    : entry.shape === 'bar'
+                      // Matches cellStructuralBar's left border, so the swatch is
+                      // the same mark the director sees on the cell.
+                      ? { width: 3, height: 12, borderRadius: 1, background: entry.color, display: 'inline-block', flexShrink: 0 }
+                      : { width: 10, height: 10, borderRadius: 2, background: entry.color, border: '1px solid var(--border)', display: 'inline-block', flexShrink: 0 }
+                }
+              />
+              {entry.label}
             </span>
           ))}
         </div>

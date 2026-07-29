@@ -579,3 +579,64 @@ describe('anchor scope edge cases', () => {
     expect(g1Tail?.is_span_head).toBe(false)
   })
 })
+
+// ── session counting: a span is ONE session ──────────────────────────────────
+//
+// Product decision (docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md):
+// a double-length swim is one swim. min_per_week and "twice before Wednesday"
+// count SESSIONS, not blocks occupied. buildSchedule()'s DISTRIBUTION pass
+// counted every block of a span, while computeFindings() has always counted
+// heads only — so the same week read differently immediately after generating
+// than it did after quit-and-reopen. These pin the agreed answer on both.
+
+describe('session counting (span = one session)', () => {
+  const spanAct = {
+    ...baseAct, id: 'swim', name: 'Swim', span_blocks: 2, priority: 'high',
+    prefer_before_day: 2, prefer_before_day_min: 2,
+  }
+  const dayMon = { id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }
+  const dayTue = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
+  const group = { id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }
+
+  function build() {
+    return buildSchedule({
+      groups: [group],
+      tiers: [{ id: 't1', name: 'Junior' }],
+      days: [dayMon, dayTue],
+      timeBlocks: [blockA, blockB],
+      activities: [spanAct],
+      anchors: [],
+      campId: 'test',
+    })
+  }
+
+  it('counts a 2-block placement once towards a prefer_before_day goal', () => {
+    const { slots, findings } = build()
+
+    const monday = slots.filter(s => s.dayId === 'd1' && s.activityId === 'swim')
+    expect(monday).toHaveLength(2)
+    expect(monday.filter(s => s.is_span_head !== false)).toHaveLength(1)
+
+    // One session before Tuesday, goal is two → the week owes one more.
+    const dist = findings.filter(f => f.kind === 'DISTRIBUTION')
+    expect(dist).toHaveLength(1)
+    expect(dist[0].beforeCount).toBe(1)
+  })
+
+  it('reads the same from the persisted rows as it did from the build', () => {
+    const { slots, findings } = build()
+    const persisted = slots
+      .filter(s => s.type === 'activity')
+      .map(s => ({
+        group_id: s.groupId, day_id: s.dayId, time_block_id: s.blockId,
+        activity_id: s.activityId, is_anchor: false, is_span_head: s.is_span_head,
+      }))
+
+    const recomputed = computeFindings({
+      slots: persisted, groups: [group], activities: [spanAct], days: [dayMon, dayTue],
+    })
+
+    expect(recomputed.filter(f => f.kind === 'DISTRIBUTION').map(f => f.beforeCount))
+      .toEqual(findings.filter(f => f.kind === 'DISTRIBUTION').map(f => f.beforeCount))
+  })
+})

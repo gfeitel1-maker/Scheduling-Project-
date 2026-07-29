@@ -307,11 +307,25 @@ CREATE TABLE IF NOT EXISTS anchor_activities (
   notes TEXT
 );
 
+-- `kind` names which of the two schedule-building routes a row belongs to
+-- ('generated' | 'manual'). It is load-bearing: the unique index below is what
+-- keeps a camp to exactly one candidate per route, and NOT NULL is required —
+-- distinct NULLs do not conflict in SQLite, so a nullable kind would let the
+-- duplicate-row fork that migration v21 exists to prevent back in.
+--
+-- Column ORDER matters: migration v23 adds `kind` via ALTER TABLE, which always
+-- appends, so it must be last here for a fresh db to match a migrated one.
 CREATE TABLE IF NOT EXISTS schedule_templates (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
-  name TEXT NOT NULL
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'generated'
 );
+
+-- idx_schedule_templates_camp_kind is created by migration v23, not here:
+-- schema.sql is re-executed on every open, and a CREATE INDEX naming `kind`
+-- would fail on a not-yet-migrated v22 file whose table has no such column.
+-- v23 runs on fresh databases too, so both paths end up identical.
 
 CREATE TABLE IF NOT EXISTS template_overlays (
   id TEXT PRIMARY KEY,

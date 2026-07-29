@@ -203,13 +203,67 @@ export const PROJECTIONS = {
   schedule_templates: {
     table: 'schedule_templates',
     key: 'id',
-    fields: ['camp_id', 'name'],
-    ensureExists: (db, id) => {
+    // WRITE-ORDERING CONTRACT: `kind` must be the FIRST field written for a new
+    // row. The row is created by whichever field arrives first, and kind is NOT
+    // NULL DEFAULT 'generated' — so a manual candidate whose kind arrived
+    // second would first materialise as 'generated', collide with the real
+    // generated row under UNIQUE(camp_id, kind), be absorbed by INSERT OR
+    // IGNORE, and vanish silently on that device. Op replay is seq-ordered, so
+    // the write-site order is the replica order. Recovering the route by
+    // parsing the id suffix is deliberately NOT done: the id format is not a
+    // parsing contract (ADR Decision §1).
+    fields: ['kind', 'camp_id', 'name'],
+    ensureExists: (db, id, field, value) => {
       const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
-      db.prepare("INSERT OR IGNORE INTO schedule_templates (id, camp_id, name) VALUES (?, ?, '')").run(
+      db.prepare("INSERT OR IGNORE INTO schedule_templates (id, camp_id, name, kind) VALUES (?, ?, '', ?)").run(
         id,
-        camp?.id ?? null
+        camp?.id ?? null,
+        field === 'kind' && value ? value : 'generated'
       )
+      // BACKSTOP. INSERT OR IGNORE absorbs a UNIQUE(camp_id, kind) violation
+      // just as silently as a primary-key clash: if a row of this kind already
+      // exists under a DIFFERENT id, nothing is inserted, every following field
+      // UPDATE matches zero rows, and the caller believes it succeeded. That
+      // invisibility is what shipped a camp that could not generate. Fail
+      // loudly instead.
+      //
+      // Consequences differ by path, and only one of them keeps the op:
+      //   - Client broadcast replay (syncClient.applyRemoteOp): the operations
+      //     row is inserted first and applyProjection runs inside that
+      //     function's by-design catch, so the op STAYS DURABLE in the log and
+      //     repairMissingScheduleTemplates can rebuild at upgrade time.
+      //   - appendOp (electron/ops/operations.js): the INSERT and
+      //     applyProjection share ONE transaction, so this throw rolls the
+      //     op-log INSERT back — the op is DISCARDED, not stored. That also
+      //     applies on the Host's path for a Client-submitted op
+      //     (syncServer.handleSubmitOp), where the throw unwinds to the generic
+      //     message-handler catch and the Client gets an error reply, against
+      //     appendOp's own stated non-throwing contract.
+      // That is accepted deliberately: discarding a write that cannot be
+      // projected is better than the silent no-op that shipped a camp which
+      // could not generate, and the renderer now reports the failure rather
+      // than hanging (ScheduleScreen generate()/placeAnchors() guard their
+      // ensureTemplateRow calls). It is recorded as a residual, not a claim
+      // that the op survives.
+      //
+      // After the renderer's resolve-by-(camp_id, kind) fix nothing should ever
+      // reach this throw; it exists so a future regression cannot be silent.
+      // Narrowed deliberately to the (camp_id, kind) collision. An INSERT OR
+      // IGNORE can also be absorbed for unrelated reasons (e.g. no camps row
+      // yet, mid first-pairing sync), and those must keep their existing
+      // tolerant behaviour rather than becoming a new hard failure.
+      const exists = db.prepare('SELECT 1 FROM schedule_templates WHERE id = ?').get(id)
+      const kind = field === 'kind' && value ? value : 'generated'
+      const holder = camp?.id
+        ? db.prepare('SELECT id FROM schedule_templates WHERE camp_id = ? AND kind = ?').get(camp.id, kind)
+        : null
+      if (!exists && holder) {
+        const err = new Error(
+          `SCHEDULE_TEMPLATE_KIND_CONFLICT: a schedule_templates row for this camp and kind already exists under a different id (attempted id: ${id}, existing id: ${holder.id})`
+        )
+        err.code = 'SCHEDULE_TEMPLATE_KIND_CONFLICT'
+        throw err
+      }
     },
   },
   // Never previously registered here (see the day_override_template_slots
