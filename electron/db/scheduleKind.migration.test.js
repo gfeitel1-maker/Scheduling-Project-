@@ -78,7 +78,7 @@ describe('migration v23: schedule_templates.kind', () => {
     expect(row.kind).toBe('generated')
     expect(db.prepare('SELECT template_id FROM template_slots WHERE id = ?').get('slot1').template_id)
       .toBe('schedule-template:camp1')
-    expect(getSchemaVersion(db)).toBe(23)
+    expect(getSchemaVersion(db)).toBe(24)
     db.close()
   })
 
@@ -197,8 +197,237 @@ describe('migration v23: schedule_templates.kind', () => {
     expect(names).toContain('idx_schedule_templates_camp_kind')
     expect(names).not.toContain('idx_schedule_templates_camp')
 
-    expect(getSchemaVersion(migrated)).toBe(23)
-    expect(getSchemaVersion(fresh)).toBe(23)
+    expect(getSchemaVersion(migrated)).toBe(24)
+    expect(getSchemaVersion(fresh)).toBe(24)
+    fresh.close()
+    migrated.close()
+  })
+})
+
+// =============================================================================
+// The starting state nobody exercised: a MIGRATED database whose pre-v23
+// schedule_templates row has a RANDOM UUID id.
+//
+// Migration v21 re-keys every row present AT THAT MOMENT to the deterministic
+// id — but it is a one-shot data fix, and the renderer kept minting
+// crypto.randomUUID() until the deterministic-id work landed in the renderer.
+// Any row created in between carries a random UUID that no migration will ever
+// normalise. A fresh database derives its ids correctly, so this whole class of
+// defect is structurally invisible to a fresh-db-only test: a derived id can
+// never collide with itself.
+// =============================================================================
+
+const UUID_TEMPLATE_ID = '48485127-57b0-42d9-b889-61d05d639ae7'
+
+// Rebuilds the pre-v23 schedule_templates shape and seeds a row whose id is a
+// random UUID, then re-runs the migrations over it. Asserts the fixture is not
+// silently rotting back into a derived id.
+function migratedDbWithRandomUuidTemplate(campId = 'camp1', { seed } = {}) {
+  const file = path.join(os.tmpdir(), `shoresh-uuid-${Date.now()}-${Math.random()}.sqlite`)
+  files.push(file)
+  const db = new Database(file)
+  db.pragma('foreign_keys = ON')
+  initSchema(db)
+  seedCamp(db, campId)
+
+  db.exec('PRAGMA foreign_keys = OFF')
+  db.exec(`
+    ALTER TABLE schedule_templates RENAME TO schedule_templates_old;
+    CREATE TABLE schedule_templates (
+      id TEXT PRIMARY KEY,
+      camp_id TEXT NOT NULL REFERENCES camps(id),
+      name TEXT NOT NULL
+    );
+    DROP TABLE schedule_templates_old;
+    DROP INDEX IF EXISTS idx_schedule_templates_camp_kind;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_templates_camp ON schedule_templates(camp_id);
+  `)
+  db.exec('PRAGMA foreign_keys = ON')
+  db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)')
+    .run(UUID_TEMPLATE_ID, campId, 'Master Template')
+
+  expect(UUID_TEMPLATE_ID).not.toBe(deriveScheduleTemplateId(campId))
+
+  if (seed) seed(db)
+
+  db.prepare('DELETE FROM schema_migrations WHERE version >= 23').run()
+  initSchema(db)
+  return db
+}
+
+function insertSlots(db, templateId, n, prefix) {
+  for (let i = 0; i < n; i++) {
+    db.prepare('INSERT INTO template_slots (id, template_id) VALUES (?, ?)').run(`${prefix}-${i}`, templateId)
+  }
+}
+
+describe('migrated database whose generated template has a RANDOM UUID id', () => {
+  it('A1: v23 leaves the UUID id in place and stamps kind=generated', () => {
+    const db = migratedDbWithRandomUuidTemplate()
+    const rows = db.prepare('SELECT id, kind FROM schedule_templates').all()
+    expect(rows).toEqual([{ id: UUID_TEMPLATE_ID, kind: 'generated' }])
+    db.close()
+  })
+
+  it('A2: an ensureTemplateRow write using the DERIVED id now fails loudly instead of silently', () => {
+    const db = migratedDbWithRandomUuidTemplate()
+    const derived = deriveScheduleTemplateId('camp1')
+
+    // Exactly the ops the shipped renderer wrote: kind first, then camp_id,
+    // then name, against the DERIVED id.
+    expect(() =>
+      applyProjection(db, {
+        entity: 'schedule_templates', entity_id: derived, field: 'kind', value: 'generated',
+      })
+    ).toThrow(/SCHEDULE_TEMPLATE_KIND_CONFLICT/)
+
+    // Pre-fix behaviour, reproduced: the row is still not there. Before the
+    // backstop this state was reached with NO error at all, which is why
+    // generation silently did nothing.
+    expect(db.prepare('SELECT COUNT(*) c FROM schedule_templates WHERE id = ?').get(derived).c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM schedule_templates').get().c).toBe(1)
+    db.close()
+  })
+
+  it('A3: the manual route still mints its own row alongside the UUID generated row', () => {
+    const db = migratedDbWithRandomUuidTemplate()
+    for (const op of manualTemplateOps('camp1')) applyProjection(db, op)
+
+    const rows = db.prepare('SELECT id, kind FROM schedule_templates ORDER BY kind').all()
+    expect(rows).toEqual([
+      { id: UUID_TEMPLATE_ID, kind: 'generated' },
+      { id: deriveScheduleTemplateId('camp1', 'manual'), kind: 'manual' },
+    ])
+    db.close()
+  })
+
+  it('A4: v24 ADOPTS orphan slots when the resolved row has none of its own', () => {
+    const derived = deriveScheduleTemplateId('camp1')
+    const db = migratedDbWithRandomUuidTemplate('camp1', {
+      seed: (d) => insertSlots(d, derived, 50, 'orphan'),
+    })
+
+    expect(db.prepare('SELECT COUNT(*) c FROM template_slots WHERE template_id = ?').get(UUID_TEMPLATE_ID).c).toBe(50)
+    expect(db.prepare('SELECT COUNT(*) c FROM template_slots WHERE template_id = ?').get(derived).c).toBe(0)
+    const journal = db.prepare('SELECT * FROM migration_v24_repoint_log').all()
+    expect(journal).toHaveLength(50)
+    expect([...new Set(journal.map((j) => j.table_name))]).toEqual(['template_slots'])
+    db.close()
+  })
+
+  it('A5: v24 LEAVES orphan slots alone when the resolved row already has a week (the reproduction database’s own shape)', () => {
+    const derived = deriveScheduleTemplateId('camp1')
+    const manual = deriveScheduleTemplateId('camp1', 'manual')
+    const db = migratedDbWithRandomUuidTemplate('camp1', {
+      seed: (d) => {
+        insertSlots(d, UUID_TEMPLATE_ID, 50, 'visible')
+        insertSlots(d, derived, 50, 'orphan')
+        insertSlots(d, manual, 50, 'man')
+      },
+    })
+
+    const visible = db.prepare('SELECT id FROM template_slots WHERE template_id = ? ORDER BY id')
+      .all(UUID_TEMPLATE_ID).map((r) => r.id)
+    expect(visible).toEqual(Array.from({ length: 50 }, (_, i) => `visible-${i}`).sort())
+    expect(db.prepare('SELECT COUNT(*) c FROM template_slots WHERE template_id = ?').get(derived).c).toBe(50)
+    expect(db.prepare('SELECT COUNT(*) c FROM template_slots').get().c).toBe(150)
+    expect(db.prepare('SELECT COUNT(*) c FROM migration_v24_repoint_log').get().c).toBe(0)
+    db.close()
+  })
+
+  it('A6: v24 is idempotent — a second initSchema moves nothing and does not grow the journal', () => {
+    const derived = deriveScheduleTemplateId('camp1')
+    const db = migratedDbWithRandomUuidTemplate('camp1', {
+      seed: (d) => insertSlots(d, derived, 5, 'orphan'),
+    })
+    const before = db.prepare('SELECT COUNT(*) c FROM migration_v24_repoint_log').get().c
+    initSchema(db)
+    expect(db.prepare('SELECT COUNT(*) c FROM migration_v24_repoint_log').get().c).toBe(before)
+    expect(db.prepare('SELECT COUNT(*) c FROM template_slots WHERE template_id = ?').get(UUID_TEMPLATE_ID).c).toBe(5)
+    db.close()
+  })
+
+  it('A7: v24 observes the POST-repair world — a template materialised from the op log counts as having a week', () => {
+    // The manual template row exists only in the op log. v23's
+    // repairMissingScheduleTemplates must materialise it BEFORE v24 decides
+    // whether the route has a competing week.
+    const db = migratedDbWithRandomUuidTemplate('camp1', {
+      seed: (d) => {
+        let seq = 1
+        for (const op of manualTemplateOps('camp1')) {
+          d.prepare(
+            `INSERT INTO operations (id, seq, entity, entity_id, field, value, device_id, timestamp)
+             VALUES (?, ?, ?, ?, ?, ?, 'device1', ?)`
+          ).run(`op-${seq}`, seq, op.entity, op.entity_id, op.field, op.value, new Date().toISOString())
+          seq++
+        }
+      },
+    })
+
+    const manual = deriveScheduleTemplateId('camp1', 'manual')
+    expect(db.prepare('SELECT kind FROM schedule_templates WHERE id = ?').get(manual)).toEqual({ kind: 'manual' })
+    db.close()
+  })
+
+  it('A8: the v24 down script restores the exact pre-migration slot grouping', async () => {
+    const { rollbackV24 } = await import('./rollback/v24_down.js')
+    const derived = deriveScheduleTemplateId('camp1')
+    const db = migratedDbWithRandomUuidTemplate('camp1', {
+      seed: (d) => insertSlots(d, derived, 12, 'orphan'),
+    })
+
+    const grouping = () =>
+      db.prepare('SELECT template_id, id FROM template_slots ORDER BY template_id, id').all()
+    expect(grouping().every((r) => r.template_id === UUID_TEMPLATE_ID)).toBe(true)
+
+    rollbackV24(db)
+
+    expect(grouping().every((r) => r.template_id === derived)).toBe(true)
+    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 24').get().c).toBe(0)
+    // Journal is kept by default so the rollback can itself be rolled forward.
+    expect(db.prepare('SELECT COUNT(*) c FROM migration_v24_repoint_log').get().c).toBe(12)
+    db.close()
+  })
+
+  it('B2/B3: fresh and migrated databases hold the same TABLES, and the same schedule data up to id', () => {
+    const fresh = freshDb()
+    seedCamp(fresh, 'camp1')
+    // Fresh camp, real write path, generated then manual.
+    for (const op of [
+      { entity: 'schedule_templates', entity_id: deriveScheduleTemplateId('camp1'), field: 'kind', value: 'generated' },
+      { entity: 'schedule_templates', entity_id: deriveScheduleTemplateId('camp1'), field: 'camp_id', value: 'camp1' },
+      { entity: 'schedule_templates', entity_id: deriveScheduleTemplateId('camp1'), field: 'name', value: 'Master Template' },
+      ...manualTemplateOps('camp1'),
+    ]) applyProjection(fresh, op)
+    insertSlots(fresh, deriveScheduleTemplateId('camp1'), 4, 'g')
+    insertSlots(fresh, deriveScheduleTemplateId('camp1', 'manual'), 3, 'm')
+
+    // Migrated camp, SAME sequence — except its generated row already exists
+    // under a random UUID, so the renderer resolves to it and writes nothing.
+    const migrated = migratedDbWithRandomUuidTemplate('camp1')
+    for (const op of manualTemplateOps('camp1')) applyProjection(migrated, op)
+    insertSlots(migrated, UUID_TEMPLATE_ID, 4, 'g')
+    insertSlots(migrated, deriveScheduleTemplateId('camp1', 'manual'), 3, 'm')
+
+    const tables = (db) =>
+      db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        .all().map((r) => r.name)
+    expect(tables(migrated)).toEqual(tables(fresh))
+
+    // Equivalent UP TO ID, and deliberately so: the ids differ by design —
+    // that is the whole point of resolving by (camp_id, kind) rather than by a
+    // derived id. What must match is the SHAPE: one row per kind, each route's
+    // slots hanging off the row whose kind matches.
+    const shape = (db) =>
+      db.prepare(
+        `SELECT t.kind, COUNT(s.id) AS slots
+           FROM schedule_templates t
+           LEFT JOIN template_slots s ON s.template_id = t.id
+          GROUP BY t.kind ORDER BY t.kind`
+      ).all()
+    expect(shape(migrated)).toEqual(shape(fresh))
+    expect(shape(fresh)).toEqual([{ kind: 'generated', slots: 4 }, { kind: 'manual', slots: 3 }])
+
     fresh.close()
     migrated.close()
   })

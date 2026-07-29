@@ -49,6 +49,33 @@ const EMPTY_BY_ROUTE = (value) => ({ generated: value(), manual: value() })
 
 // Keeps the ~20 existing call sites writing `setSlots(prev => ...)` exactly as
 // they were, while the value they touch is the current route's.
+// Which row IS this camp's candidate for this route? Ask the database by
+// (camp_id, kind) — do not assume the derived id is the one on disk.
+//
+// A camp whose schedule_templates row was minted after migration v21 by a
+// renderer that still used crypto.randomUUID() carries a RANDOM UUID id that no
+// migration will ever normalise. Deriving the id and hoping a row is there
+// found nothing on such a camp, so the app tried to insert one, lost silently
+// to UNIQUE(camp_id, kind), and generation did nothing at all. `kind` is the
+// route authority (ADR Decision §1), so resolve by it.
+//
+// The derived id is still what gets MINTED when no row exists — that is the
+// invariant deterministic ids exist for (two devices independently creating a
+// candidate must agree on its id). Determinism was only ever needed at mint
+// time; once a row exists it has replicated, and both devices resolve to it.
+function templateRowFor(templates, campId, kind) {
+  // A row with no kind at all is 'generated': that is the column default and
+  // what migration v23 backfilled, so a row that predates the column (or
+  // arrives from a peer that has not projected kind yet) must not read as
+  // belonging to no route.
+  return (templates || []).find(t => t.camp_id === campId && (t.kind || 'generated') === kind)
+}
+
+function resolveTemplateId(templates, campId, kind) {
+  const row = templateRowFor(templates, campId, kind)
+  return row ? row.id : deriveScheduleTemplateId(campId, kind)
+}
+
 function routeSetter(setState, route) {
   return updater =>
     setState(prev => ({
@@ -57,18 +84,31 @@ function routeSetter(setState, route) {
     }))
 }
 
-export default function ScheduleScreen({ campId, role, onNavigate }) {
+export default function ScheduleScreen({ campId, role, onNavigate, initialRoute }) {
   const [groups, setGroups] = useState([])
   const [days, setDays] = useState([])
   const [timeBlocks, setTimeBlocks] = useState([])
   const [activities, setActivities] = useState([])
   const [anchors, setAnchors] = useState([])
   const [tiers, setTiers] = useState([])
-  const [route, setRoute] = useState('generated')
+  // Which route is on screen is driven by the sidebar entry the director
+  // clicked (App.jsx SCREENS -> 'schedule:manual' / 'schedule:generated'). The
+  // neutral 'schedule' entry passes nothing and lands on the first-run choice
+  // screen when neither route has been started. Nothing here designates a
+  // canonical schedule.
+  // When the shell supplies a route (the sidebar destinations) it wins
+  // outright — no effect, no local copy to drift out of step. `setRoute` still
+  // exists for the neutral 'schedule' entry, which supplies nothing.
+  const [localRoute, setRoute] = useState('generated')
+  const route = initialRoute || localRoute
   // Which routes actually have a schedule_templates row today. The id itself is
   // derived, never minted — two devices that independently create a candidate
   // for the same camp and route must agree on its id or their work forks.
   const [existingTemplates, setExistingTemplates] = useState(() => EMPTY_BY_ROUTE(() => false))
+  // The id a route's schedule_templates row ACTUALLY has. Resolved from the
+  // database by (camp_id, kind); the derived id is only a fallback used when
+  // minting a row that does not exist yet. See resolveTemplateId below.
+  const [templateIdByRoute, setTemplateIdByRoute] = useState(() => ({ generated: null, manual: null }))
   const [slotsByRoute, setSlotsByRoute] = useState(() => EMPTY_BY_ROUTE(() => []))
   const [statsByRoute, setStatsByRoute] = useState(() => EMPTY_BY_ROUTE(() => null))
   // Aggregate UNDERSERVED/DISTRIBUTION findings from the last buildSchedule()
@@ -121,7 +161,8 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
 
   // Everything below reads and writes the CURRENT route's candidate. Names and
   // shapes are unchanged from the single-schedule version on purpose.
-  const templateId = deriveScheduleTemplateId(campId, route)
+  const templateIdFor = (r) => templateIdByRoute[r] || deriveScheduleTemplateId(campId, r)
+  const templateId = templateIdFor(route)
   const rawSlots = slotsByRoute[route]
   // OVERLAP is derived, never persisted — so it clears from every participating
   // cell the moment any one of them moves, and only on the manual route, where
@@ -294,6 +335,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       const allSlots = normalizeSlots(slotData)
 
       const exists = {}
+      const nextTids = {}
       const nextSlots = {}
       const nextOverlays = {}
       const nextSnaps = {}
@@ -301,11 +343,13 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       const nextFindings = {}
 
       for (const r of ROUTES) {
-        // Resolution is by DERIVED id, never by camp_id alone: a camp now has
-        // one row per route, and first-match-wins would silently elect one of
-        // them as "the" schedule.
-        const tid = deriveScheduleTemplateId(campId, r)
-        exists[r] = templates.some(t => t.id === tid && t.camp_id === campId)
+        // Resolution is by (camp_id, kind), never by camp_id alone: a camp now
+        // has one row per route, and first-match-wins would silently elect one
+        // of them as "the" schedule. It is NOT by derived id either — see
+        // resolveTemplateId.
+        const tid = resolveTemplateId(templates, campId, r)
+        nextTids[r] = tid
+        exists[r] = Boolean(templateRowFor(templates, campId, r))
         // Gated on the parent row existing: a route with no schedule_templates
         // row has not been started, whatever orphan child rows may be lying
         // around.
@@ -327,6 +371,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       }
 
       setExistingTemplates(exists)
+      setTemplateIdByRoute(nextTids)
       setSlotsByRoute(nextSlots)
       setOverlaysByRoute(nextOverlays)
       setSnapshotsByRoute(nextSnaps)
@@ -353,37 +398,55 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
   // The schedule_templates row for a route is created lazily, on first use.
   // `kind` is written FIRST and that ordering is load-bearing — see the
   // write-ordering contract on schedule_templates in electron/ops/projections.js.
+  //
+  // If a row of this kind already exists it is RETURNED AS-IS — whatever its
+  // id — and nothing is written. Only a route that has no row at all mints one,
+  // and only then is the derived id used.
   async function ensureTemplateRow(routeName) {
+    if (existingTemplates[routeName]) return templateIdFor(routeName)
     const tid = deriveScheduleTemplateId(campId, routeName)
-    if (existingTemplates[routeName]) return tid
     await writeFields('schedule_templates', tid, {
       kind: routeName,
       camp_id: campId,
       name: routeName === 'manual' ? 'Manual' : 'Master Template',
     })
     setExistingTemplates(prev => ({ ...prev, [routeName]: true }))
+    setTemplateIdByRoute(prev => ({ ...prev, [routeName]: tid }))
     return tid
   }
 
+  // Writes ONLY to the generated candidate — the manual one is never read,
+  // moved or cleared here.
   async function generate() {
     setGenerating(true)
     setUndoStack([])
     setRedoStack([])
 
+    // Explicitly generated-route setters and generated-route DATA, not the
+    // current-route ones: this can be invoked from the first-run choice screen,
+    // and from a route offer whose onClick calls setRoute(r) immediately before
+    // — setRoute does not apply inside that handler, so `route` in closure is
+    // still the previous one. placeAnchors() is written the same way.
+    const setGenSlots = routeSetter(setSlotsByRoute, 'generated')
+    const setGenFindings = routeSetter(setFindingsByRoute, 'generated')
+    const setGenDismissed = routeSetter(setDismissedByRoute, 'generated')
+    const setGenOverlays = routeSetter(setOverlaysByRoute, 'generated')
+    const setGenStats = routeSetter(setStatsByRoute, 'generated')
+
     const lockedActIds = new Set(activities.filter(a => a.is_locked).map(a => a.id))
-    const preplacedSlots = slots
+    const preplacedSlots = slotsByRoute.generated
       .filter(s => s.activity_id && lockedActIds.has(s.activity_id) && !s.is_released && !s.is_anchor)
       .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, activityId: s.activity_id }))
 
     const result = buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId, preplacedSlots })
-    setFindings(result.findings || [])
-    setDismissedFindingKeys(new Set())
+    setGenFindings(result.findings || [])
+    setGenDismissed(new Set())
 
     const tid = await ensureTemplateRow('generated')
 
-    if (slots.length > 0) {
+    if (slotsByRoute.generated.length > 0) {
       try {
-        await saveSnapshot(null, true)
+        await saveSnapshot(null, true, 'generated')
       } catch {
         setActionError('Could not save undo point — regeneration cancelled')
         setGenerating(false)
@@ -421,11 +484,11 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       setGenerating(false)
       return
     }
-    setOverlays([])
+    setGenOverlays([])
 
     const freshSlots = normalizeSlots(await localClient.list('template_slots')).filter(s => s.template_id === tid)
-    setSlots(freshSlots)
-    recalcStats(freshSlots)
+    setGenSlots(freshSlots)
+    setGenStats(statsFor(freshSlots))
     setGenerating(false)
   }
 
@@ -638,9 +701,14 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     setOverlays(prev => prev.map(o => o.id === overlayId ? { ...o, to_block_order: toBlockOrder } : o))
   }
 
-  async function saveSnapshot(name, isAuto) {
-    if (!existingTemplates[route]) return
-    const snapSlots = slots.map(s => ({
+  // routeName is explicit so generate()/placeAnchors() can snapshot the route
+  // they are building rather than whichever one happens to be on screen; every
+  // other caller is a user action on the visible route and defaults to it.
+  async function saveSnapshot(name, isAuto, routeName = route) {
+    if (!existingTemplates[routeName]) return
+    const tid = templateIdFor(routeName)
+    const setRouteSnapshots = routeSetter(setSnapshotsByRoute, routeName)
+    const snapSlots = slotsByRoute[routeName].map(s => ({
       group_id: s.group_id,
       day_id: s.day_id,
       time_block_id: s.time_block_id,
@@ -651,11 +719,11 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
     }))
     const id = crypto.randomUUID()
     const createdAt = new Date().toISOString()
-    const snapOverlays = overlays.map(o => ({ unit_id: o.unit_id, day_id: o.day_id, from_block_order: o.from_block_order, to_block_order: o.to_block_order, label: o.label }))
+    const snapOverlays = overlaysByRoute[routeName].map(o => ({ unit_id: o.unit_id, day_id: o.day_id, from_block_order: o.from_block_order, to_block_order: o.to_block_order, label: o.label }))
     setActionError(null)
     try {
       await writeFields('schedule_snapshots', id, {
-        template_id: templateId,
+        template_id: tid,
         name: name || null,
         is_auto: isAuto,
         created_at: createdAt,
@@ -666,7 +734,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       setActionError('Failed to save snapshot — check your connection and try again')
       throw err
     }
-    setSnapshots(prev => [{ id, template_id: templateId, name: name || null, is_auto: isAuto, created_at: createdAt, restorable: true }, ...prev])
+    setRouteSnapshots(prev => [{ id, template_id: tid, name: name || null, is_auto: isAuto, created_at: createdAt, restorable: true }, ...prev])
   }
 
   // Deleting a version is the director's call, never an automatic cleanup.
@@ -811,7 +879,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
 
     if (slotsByRoute.manual.length > 0) {
       try {
-        await saveSnapshot(null, true)
+        await saveSnapshot(null, true, 'manual')
       } catch {
         setActionError('Could not save undo point — regeneration cancelled')
         setGenerating(false)
@@ -1583,7 +1651,7 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>{copy.offerTitle}</div>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{copy.offerBody}</div>
         <button
-          onClick={() => { setRoute(r); startRoute[r]() }}
+          onClick={() => { setRoute(r); onNavigate?.(`schedule:${r}`); startRoute[r]() }}
           disabled={generating || role !== 'admin'}
           title={role !== 'admin' ? 'Admin only' : undefined}
           style={{
@@ -1618,28 +1686,18 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         {anyRouteStarted && (
           <>
-            {/* Route switch — two coexisting ways to build a week, not a mode.
-                Always present, never gated, never confirmed: switching is
-                navigation, and each route keeps its own work. */}
-            <div style={{ display: 'flex', gap: 2, background: 'var(--border)', borderRadius: 8, padding: 3 }}>
-              {ROUTES.map(r => (
-                <button
-                  key={r}
-                  onClick={() => setRoute(r)}
-                  style={{
-                    padding: '5px 14px', borderRadius: 6, border: 'none',
-                    borderBottom: route === r ? '2px solid var(--primary)' : '2px solid transparent',
-                    cursor: 'pointer', fontFamily: 'var(--font-sans)', textAlign: 'center',
-                    background: route === r ? 'var(--surface)' : 'none',
-                    color: route === r ? 'var(--primary)' : 'var(--text-secondary)',
-                    boxShadow: route === r ? '0 1px 4px color-mix(in srgb, var(--text) 12%, transparent)' : 'none',
-                    transition: 'color 0.12s, background 0.12s',
-                  }}
-                >
-                  <span style={{ display: 'block', fontSize: 12, fontWeight: route === r ? 700 : 600 }}>{ROUTE_COPY[r].label}</span>
-                  <span style={{ display: 'block', fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)' }}>{routeSummary(r)}</span>
-                </button>
-              ))}
+            {/* Which route this week belongs to. Route SELECTION lives in the
+                left sidebar (src/components/layout/Sidebar.jsx) — Manual and
+                Generated are two places a director navigates between, not a
+                mode toggle sitting on top of one grid. This is a label, not a
+                switch, and it designates nothing as "the" schedule. */}
+            <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.25 }}>
+              <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 14, color: 'var(--text)' }}>
+                {ROUTE_COPY[route].label}
+              </span>
+              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)' }}>
+                {routeSummary(route)}
+              </span>
             </div>
 
             {/* View toggle — how to LOOK at this route's week. "Manual Build"

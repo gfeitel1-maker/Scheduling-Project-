@@ -24,7 +24,12 @@ const NAV_SECTIONS = [
   {
     title: 'Operations',
     items: [
-      { key: 'schedule',  label: 'Schedule' },
+      // Two ways to build a week, side by side. Order is alphabetical and
+      // carries no meaning: neither is the camp's real schedule, and the app
+      // must never pick one for the director (ADR: plural candidate
+      // schedules per camp). Switching between them is plain navigation.
+      { key: 'schedule:generated', label: 'Generated Schedule' },
+      { key: 'schedule:manual',    label: 'Manual Schedule' },
       { key: 'conflicts', label: 'Conflicts' },
     ],
     // Appended only for admins (Device Manager is admin-only).

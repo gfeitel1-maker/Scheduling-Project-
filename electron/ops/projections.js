@@ -220,6 +220,37 @@ export const PROJECTIONS = {
         camp?.id ?? null,
         field === 'kind' && value ? value : 'generated'
       )
+      // BACKSTOP. INSERT OR IGNORE absorbs a UNIQUE(camp_id, kind) violation
+      // just as silently as a primary-key clash: if a row of this kind already
+      // exists under a DIFFERENT id, nothing is inserted, every following field
+      // UPDATE matches zero rows, and the caller believes it succeeded. That
+      // invisibility is what shipped a camp that could not generate. Fail
+      // loudly instead.
+      //
+      // Consequences are correct in both directions: a local IPC write surfaces
+      // the error to the director rather than doing nothing, and a remote
+      // replay is swallowed by applyRemoteOp's existing by-design catch — the
+      // op stays durable in the log and repairMissingScheduleTemplates can
+      // rebuild at upgrade time.
+      //
+      // After the renderer's resolve-by-(camp_id, kind) fix nothing should ever
+      // reach this throw; it exists so a future regression cannot be silent.
+      // Narrowed deliberately to the (camp_id, kind) collision. An INSERT OR
+      // IGNORE can also be absorbed for unrelated reasons (e.g. no camps row
+      // yet, mid first-pairing sync), and those must keep their existing
+      // tolerant behaviour rather than becoming a new hard failure.
+      const exists = db.prepare('SELECT 1 FROM schedule_templates WHERE id = ?').get(id)
+      const kind = field === 'kind' && value ? value : 'generated'
+      const holder = camp?.id
+        ? db.prepare('SELECT id FROM schedule_templates WHERE camp_id = ? AND kind = ?').get(camp.id, kind)
+        : null
+      if (!exists && holder) {
+        const err = new Error(
+          `SCHEDULE_TEMPLATE_KIND_CONFLICT: a schedule_templates row for this camp and kind already exists under a different id (attempted id: ${id}, existing id: ${holder.id})`
+        )
+        err.code = 'SCHEDULE_TEMPLATE_KIND_CONFLICT'
+        throw err
+      }
     },
   },
   // Never previously registered here (see the day_override_template_slots

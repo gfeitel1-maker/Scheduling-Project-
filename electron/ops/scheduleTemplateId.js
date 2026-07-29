@@ -16,6 +16,13 @@
 // crypto.randomUUID()) is required: two devices that independently mint a
 // "Master Template" row for the same camp must always agree on its id, or
 // their schedules silently fork.
+// CORRECTION 2026-07-29: nothing here guarantees that an EXISTING row's id is
+// this derived value. v21's re-key is a one-shot data fix and the renderer kept
+// minting crypto.randomUUID() afterwards, so a camp's row may carry a random
+// UUID forever. Derive an id only when MINTING a row that does not exist;
+// resolve an existing one by (camp_id, kind). See the Correction 2026-07-29
+// block in docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md.
+//
 // The second argument is ADDITIVE and must stay so: this module is imported by
 // the version-21 migration (electron/db/localDb.js), which calls it with one
 // argument against real, existing databases. `generated` — the only kind that

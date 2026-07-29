@@ -13,7 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 23
+export const CURRENT_SCHEMA_VERSION = 24
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -896,9 +896,22 @@ export function initSchema(db) {
   // UNIQUE(camp_id, kind): the invariant v21 established (a route cannot fork
   // into duplicate rows) is preserved, only its scope narrows.
   //
-  // Nothing is deleted, re-keyed or rewritten here. The existing row keeps its
-  // byte-identical deterministic id and acquires kind='generated'; the manual
-  // row is created lazily, on first use, through the ordinary op-log path.
+  // Nothing is deleted, re-keyed or rewritten here. The existing row keeps
+  // WHATEVER id it already has and acquires kind='generated'; the manual row is
+  // created lazily, on first use, through the ordinary op-log path.
+  //
+  // CORRECTION 2026-07-29: this comment previously claimed the existing row
+  // "keeps its byte-identical deterministic id". That is FALSE for any camp
+  // whose schedule_templates row was minted AFTER migration v21 ran by a
+  // renderer that still used crypto.randomUUID() (the renderer half of the T7
+  // deterministic-id work landed only on the plural-routes branch). v21's
+  // re-key is a one-shot data fix; it does not constrain rows created later.
+  // Such a camp's generated row has a RANDOM UUID id, so a renderer that
+  // resolved the route by deriving the id found no row, tried to insert one,
+  // and lost silently to UNIQUE(camp_id, 'generated') — generation appeared to
+  // do nothing. The renderer now resolves by (camp_id, kind) instead of by
+  // derived id; see the Correction 2026-07-29 block in
+  // docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md.
   if (getSchemaVersion(db) < 23) {
     db.transaction(() => {
       const hasKind = db.pragma('table_info(schedule_templates)').some((c) => c.name === 'kind')
@@ -922,6 +935,68 @@ export function initSchema(db) {
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (23, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // Adopt the orphaned template_slots left behind by the resolution defect
+  // described in the v23 correction above. A generate() that lost its
+  // schedule_templates insert to UNIQUE(camp_id, kind) still wrote its slots —
+  // template_slots has no declared FK, so they were accepted — under the
+  // DERIVED id, which no schedule_templates row holds. loadAll() gates every
+  // route on the parent row existing, so those slots are invisible: work the
+  // director produced and never saw.
+  //
+  // DATA ONLY, no DDL on any existing table. Nothing is ever deleted, and
+  // nothing is merged where merging could lose a visible week:
+  //   adopt  only when the resolved row for (camp_id, kind) has ZERO rows in
+  //          that child table — there is provably no competing week.
+  //   leave  otherwise. The orphans stay exactly where they are, invisible and
+  //          harmless, recoverable by hand indefinitely.
+  // Every move is journalled so the inverse (electron/db/rollback/v24_down.js)
+  // is computed from data rather than guessed.
+  if (getSchemaVersion(db) < 24) {
+    db.transaction(() => {
+      db.exec(`CREATE TABLE IF NOT EXISTS migration_v24_repoint_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        table_name TEXT NOT NULL,
+        row_id TEXT NOT NULL,
+        old_template_id TEXT NOT NULL,
+        new_template_id TEXT NOT NULL,
+        applied_at TEXT NOT NULL
+      );`)
+
+      const now = new Date().toISOString()
+      const templates = db.prepare('SELECT id, camp_id, kind FROM schedule_templates').all()
+      const present = new Set(templates.map((t) => t.id))
+
+      for (const t of templates) {
+        // The derived id is used here ONLY to attribute an orphan to a route,
+        // once, inside a migration, because no other evidence of an orphan's
+        // route exists. This is NOT a precedent for parsing ids at runtime —
+        // schedule_templates.kind remains the sole route authority (ADR
+        // Decision §1). There is no runtime path through this code.
+        const orphanId = deriveScheduleTemplateId(t.camp_id, t.kind)
+        if (orphanId === t.id || present.has(orphanId)) continue
+
+        for (const table of ['template_slots', 'template_overlays', 'schedule_snapshots']) {
+          const mine = db.prepare(`SELECT COUNT(*) c FROM ${table} WHERE template_id = ?`).get(t.id).c
+          if (mine > 0) continue // a competing week exists — leave the orphans alone
+          const orphans = db.prepare(`SELECT id FROM ${table} WHERE template_id = ?`).all(orphanId)
+          if (orphans.length === 0) continue
+          for (const { id } of orphans) {
+            db.prepare(`UPDATE ${table} SET template_id = ? WHERE id = ?`).run(t.id, id)
+            db.prepare(
+              `INSERT INTO migration_v24_repoint_log
+                 (table_name, row_id, old_template_id, new_template_id, applied_at)
+               VALUES (?, ?, ?, ?, ?)`
+            ).run(table, id, orphanId, t.id, now)
+          }
+        }
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (24, ?)').run(
       new Date().toISOString()
     )
   }

@@ -14,6 +14,15 @@ affects:
 
 # Plural candidate schedules per camp: the manual and generated routes are separate outputs
 
+> **CORRECTION 2026-07-29 — read this before trusting any statement in this
+> document about the generated template's id.** Every claim below that the
+> pre-existing generated `schedule_templates` row keeps a "byte-identical"
+> deterministic id is **FALSE for a real population of camps**. The affected
+> sentences are left in place unaltered, as a recorded gap rather than a silent
+> amendment (Constitution Art. I); the full correction is at the end of this
+> document under [Correction 2026-07-29](#correction-2026-07-29-the-generated-templates-id-is-not-byte-identical).
+
+
 **Status: ACCEPTED by the product owner, 2026-07-28.** Article IV's requirement of
 explicit acceptance before Maker is dispatched is satisfied. All four questions
 this ADR refused to settle have been answered by the product owner and are
@@ -779,3 +788,61 @@ observability on swallowed projection failures, are the real fixes and are alrea
 filed as follow-up (c) in the spec's §12. Directors upgrading mid-season should be
 told to upgrade every device together — an operational instruction, not a code
 change, and one this design does not remove the need for.
+
+
+## Correction 2026-07-29: the generated template's id is not byte-identical
+
+**What this document got wrong.** In at least six places (the `kind` table, and
+the discussions of migration v23, of what v23 does not touch, and of the manual
+row's lazy creation) this ADR asserts that a camp's pre-existing generated
+`schedule_templates` row "keeps its byte-identical deterministic id", and
+therefore that resolving a route by *deriving* that id is safe. Two code
+comments repeated the same premise: `electron/db/localDb.js` (migration v23) and
+`electron/ops/scheduleTemplateId.js`.
+
+**Why it is false.** Migration v21 re-keys every `schedule_templates` row present
+*at the moment it runs* to `deriveScheduleTemplateId(camp_id)`. It is a one-shot
+data fix, and the *writer* was not fixed at the same time: the renderer went on
+minting `crypto.randomUUID()` ids until the renderer half of the T7
+deterministic-id work landed, which happened only on the plural-routes branch.
+Any row created in that window carries a random UUID that no migration will ever
+normalise.
+
+**Evidence** (product owner's dev database, captured at
+`scratchpad/repro.sqlite`): `schema_migrations` records v21 applied at
+`2026-07-28T16:34:06.838Z`, while the `operations` rows that created
+`schedule_templates` id `48485127-57b0-42d9-b889-61d05d639ae7` are timestamped
+`2026-07-28T22:51:38Z` — six hours later. v21 had nothing to re-key; the table
+was empty when it ran.
+
+**The consequence this caused.** On such a camp the renderer derived
+`schedule-template:<campId>`, found no row, and tried to insert one.
+`UNIQUE(camp_id, 'generated')` was already held by the random-UUID row, the
+`INSERT OR IGNORE` in `schedule_templates.ensureExists` absorbed the violation,
+every subsequent field `UPDATE` matched zero rows — and `generate()` went on to
+write 50 `template_slots` under the derived id (that table has no declared FK,
+so they were accepted). Result: a director whose app would not generate, and an
+invisible orphan week on disk.
+
+**What supersedes the assumption.** Route resolution is now by
+`(camp_id, kind)`, not by derived id — `resolveTemplateId` in
+`src/screens/ScheduleScreen.jsx`. The derived id is still what gets **minted**
+when a route has no row at all, which preserves the invariant deterministic ids
+exist for (two devices independently creating a candidate must agree on its id);
+determinism was only ever needed at mint time. `schedule_templates.kind` remains
+the sole authority on which route a row belongs to (Decision §1) — nothing
+recovers a route by parsing an id at runtime.
+
+**Supporting changes.** `schedule_templates.ensureExists` now throws
+`SCHEDULE_TEMPLATE_KIND_CONFLICT` when an insert is absorbed by a
+`(camp_id, kind)` collision, so a future regression cannot be silent. Migration
+**v24** adopts orphaned children onto the resolved row *only* where that row has
+no rows of its own in that table — otherwise it leaves them exactly where they
+are. It deletes nothing and re-keys nothing, and every move it makes is
+journalled in `migration_v24_repoint_log` so the inverse
+(`electron/db/rollback/v24_down.js`) is computed from data rather than guessed.
+
+**Governance note for the next migration of this shape.** A migration that
+normalises ids must not merge until the writer that mints them is normalised in
+the same change. v21 fixed the data and left the writer producing the old shape;
+that gap is the whole defect.
