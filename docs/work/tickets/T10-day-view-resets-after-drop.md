@@ -1,12 +1,17 @@
 ---
 title: T10-day-view-resets-after-drop
 document_type: ticket
-status: open
+status: completed
 created: 2026-07-26
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: []
-archive_when: fix merged and Verifier PASS recorded
+archive_when: next archive sweep — resolved
 ---
+
+> **RESOLVED.** **Visually confirmed 2026-07-29** under `npm run electron:dev`: in Day View,
+> dropping an activity onto Tuesday left the day tab on Tuesday rather than snapping back to
+> Monday. Stats updated with the drop (5/10 → 6/10 filled, unfillable 5 → 4) and undo became
+> available, so the placement persisted rather than merely appearing to.
 
 # T10 — Day View jumps back to Monday after every drop
 

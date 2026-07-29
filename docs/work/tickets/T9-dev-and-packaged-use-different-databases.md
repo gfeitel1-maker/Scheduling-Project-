@@ -1,12 +1,22 @@
 ---
 title: T9-dev-and-packaged-use-different-databases
 document_type: ticket
-status: open
+status: completed
 created: 2026-07-26
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: []
-archive_when: fix merged and Verifier PASS recorded
+archive_when: next archive sweep — resolved
 ---
+
+> **RESOLVED.** Dev and packaged builds use separate databases by explicit decision
+> (ADR 2026-07-28-explicit-userdata-directory), deliberately *against* this ticket's own
+> suggestion to unify them: this app runs a real camp, and a dev session against operational
+> data is unrecoverable where a testing gap costs a re-test.
+>
+> **Visually confirmed 2026-07-29** under `npm run electron:dev`: the sidebar footer shows the
+> orange **DEV** badge beside the database name. Confirmed again from the other direction the
+> same day — the packaged app opened `~/Library/Application Support/shoresh` while the dev app
+> opened `shoresh-dev`, and the two were observed holding different data.
 
 # T9 — Dev and packaged builds read different databases
 

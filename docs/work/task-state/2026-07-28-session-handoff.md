@@ -23,7 +23,7 @@ The installed app at `/Applications/Shoresh.app` is commit `655e57a` — identic
 Its sidebar footer shows `v0.1.0 · 655e57a · 2026-07-28`, so this is checkable at a glance
 rather than by extracting files from the bundle.
 
-## The one real gap — CLOSED 2026-07-28, and it found a defect
+## The one real gap — FULLY CLOSED 2026-07-29, and it found a defect
 
 Screen access was granted in a later session on the same day and all five were looked at
 under `npm run electron:dev`:
@@ -34,15 +34,19 @@ under `npm run electron:dev`:
 | DEV badge (T9) | **Confirmed** — orange pill beside the database name |
 | Day tab holds after a drop (T10) | **Confirmed** — dropped on Tuesday, stayed on Tuesday |
 | Device Manager list (T11) | **Confirmed** — real IPC path, not the `:5200` mock |
-| Build stamp (T13) | **Renders, but wrong in dev** — see T14 |
+| Build stamp (T13) | **Confirmed on the packaged app** 2026-07-29. Misreports a *dev* run — see T14 |
 
 Two things came free: drag-and-drop works (T12 again), and new snapshots write a real
 payload, so the `af6a9d8` fix holds.
 
-**T13 was not verified on the packaged app.** Its footer only renders in-session, which needs
-a PIN. What is verified read-only: the bundle carries commit `655e57a`, `builtAt`
-`2026-07-28`, `CFBundleShortVersionString 0.1.0`. That is data plus an observed render path,
-not an eyeball on the packaged build. It is a one-glance check for whoever can sign in.
+**T13 is now verified on the packaged app — 2026-07-29, by the product owner.** The footer
+renders the build stamp in the installed build. With that, **every item in this gap is closed**:
+T8, T9, T10 and T11 were confirmed under `electron:dev` on 2026-07-29 (and their tickets marked
+completed the same day), and T13 on the packaged build.
+
+The stamp does still misreport a *development* run as a packaged one — that is
+[T14](../tickets/T14-dev-run-reports-as-packaged-build.md), a separate open defect, not part of
+this gap.
 
 **The estimate in the previous version of this file was wrong,** and the reason is worth
 keeping. "Roughly a minute of looking" holds only for a dev database that already has data.

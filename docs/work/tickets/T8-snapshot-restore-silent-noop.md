@@ -1,12 +1,22 @@
 ---
 title: T8-snapshot-restore-silent-noop
 document_type: ticket
-status: open
+status: completed
 created: 2026-07-26
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: []
-archive_when: fix merged and Verifier PASS recorded
+archive_when: next archive sweep — resolved
 ---
+
+> **RESOLVED.** Fixed in the T8 work (`snapshotRestore.js` — a snapshot with no payload is
+> now identified and labelled rather than silently no-opping). **Visually confirmed 2026-07-29**
+> under `npm run electron:dev`: a snapshot whose `slots` payload is NULL renders a greyed,
+> disabled **Empty** in the Versions dropdown instead of an active Restore, with the delete
+> affordance retained. Newly saved snapshots were also confirmed to write a real payload
+> (2816 bytes), so the `af6a9d8` write bug is genuinely closed.
+>
+> Note the condition cannot occur naturally in a fresh camp — only legacy pre-`af6a9d8` rows
+> have a NULL payload — so verification required staging that state in the dev database.
 
 # T8 — Restore snapshot silently does nothing, and existing snapshots are empty shells
 
