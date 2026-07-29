@@ -38,9 +38,52 @@ Known instances, as starting evidence rather than a complete list:
 - The T15 work introduced substantial new copy (route offers, captions, export choice,
   confirmations). It should be reviewed in this pass rather than grandfathered.
 
+### The strongest single case: the two routes name the same thing differently
+
+Found 2026-07-29, after the T15 route separation landed. This is the best argument for doing
+the pass, because it defeats a design intention that was deliberately paid for.
+
+The whole point of a **shared flag vocabulary** across the manual and generated routes was that
+a director learns it once. Today they would learn it twice. From the stat tiles
+([`ScheduleScreen.jsx:1878-1908`](../../../src/screens/ScheduleScreen.jsx)), where every label
+is a ternary on `isManual`:
+
+| Manual route | Generated route | Same underlying data? |
+|---|---|---|
+| `Placed` | `Filled` | **Yes** — both `stats.filled` |
+| `Still needed` | `Underserved` | **Yes** — both `f.kind === 'UNDERSERVED'` |
+| `Spread across the week` | `Distribution` | **Yes** — both `f.kind === 'DISTRIBUTION'` |
+| `Overlapping` | `Unfillable` | **No** — genuinely different flags per route |
+
+The last row is correct and must stay: those are different concepts, and the routes share a flag
+*vocabulary*, not an identical flag *set*. The first three rows are the defect — identical data
+wearing two names.
+
+**Direction, for confirmation:** adopt the manual route's wording everywhere. `Still needed` and
+`Spread across the week` are what a director would say; `Underserved` and `Distribution` are
+engine vocabulary that leaked into the interface, and Article V is unambiguous about which wins.
+This is the rare copy fix that makes the app both plainer and more consistent at once.
+
+Note the stat tiles differ by *shape* between routes on purpose — a comment at
+`ScheduleScreen.jsx:1874` calls that "itself an orientation cue", and it is a reasonable one.
+Which tiles appear may keep differing. What must not differ is the name of one concept.
+
+### Two mechanical notes that will otherwise surprise the copy pass
+
+- **The shouting is not in the strings.** Labels are written in sentence case and rendered
+  uppercase by `textTransform: 'uppercase'` in
+  [`StatBadge.jsx:17`](../../../src/components/schedule/StatBadge.jsx). Rewriting the words will
+  not stop `SPREAD ACROSS THE WEEK` from shouting — that is a styling decision to make
+  deliberately, and a long label in caps is markedly harder to scan than a short one.
+- The `↗` affordance on clickable tiles is unexplained; a director does not necessarily read it
+  as "open the details".
+
+### How to work it
+
 The useful unit of work is probably a **copy inventory first** — enumerate every user-facing
 string with its screen and state — then a pass over it. Judging strings one screen at a time is
-what produces the inconsistency in the first place.
+what produces the inconsistency in the first place, and the table above is exactly what a
+screen-at-a-time review fails to notice.
 
 Tone question for the product owner, since it governs every rewrite: findings should read as
 *what the week still owes you* rather than *errors you have made*. That framing was settled for
