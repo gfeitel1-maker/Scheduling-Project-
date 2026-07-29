@@ -4,7 +4,7 @@ import { localClient } from '../localClient'
 import buildSchedule, { computeFindings } from '../engine/buildSchedule'
 import { S } from '../styles/shared'
 import StatBadge from '../components/schedule/StatBadge'
-import { FLAG_COLORS, FLAG_SEVERITY } from '../components/schedule/slotCellConstants'
+import { LEGEND_ENTRIES, FLAG_SEVERITY } from '../components/schedule/slotCellConstants'
 import FindingsRail from '../components/schedule/FindingsRail'
 import EditModal from '../components/schedule/EditModal'
 import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
@@ -1787,12 +1787,25 @@ export default function ScheduleScreen({ campId, role, onNavigate }) {
         />
       )}
 
-      {/* Flag legend */}
+      {/* Grid legend — every treatment the grid can show, from one source
+          (LEGEND_ENTRIES) so a new flag cannot ship undocumented. */}
       {hasSchedule && (
         <div style={{ display: 'flex', gap: 16, marginTop: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-secondary)' }}>
-          {Object.entries(FLAG_COLORS).map(([f, c]) => (
-            <span key={f} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: c, display: 'inline-block' }} />{f}
+          {LEGEND_ENTRIES.map(entry => (
+            <span key={entry.label} title={entry.description} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'default' }}>
+              <span
+                aria-hidden="true"
+                style={
+                  entry.shape === 'dot'
+                    ? { width: 8, height: 8, borderRadius: '50%', background: entry.color, display: 'inline-block', flexShrink: 0 }
+                    : entry.shape === 'bar'
+                      // Matches cellStructuralBar's left border, so the swatch is
+                      // the same mark the director sees on the cell.
+                      ? { width: 3, height: 12, borderRadius: 1, background: entry.color, display: 'inline-block', flexShrink: 0 }
+                      : { width: 10, height: 10, borderRadius: 2, background: entry.color, border: '1px solid var(--border)', display: 'inline-block', flexShrink: 0 }
+                }
+              />
+              {entry.label}
             </span>
           ))}
         </div>

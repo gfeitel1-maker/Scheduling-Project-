@@ -112,10 +112,17 @@ describe('flags round-trips through bulk_replace as a parsed object (Round 2 Fix
     // shows "1" if flags came back as a real object, not the raw
     // '{"UNFILLABLE":true}' string (whose truthy-but-un-indexable .UNFILLABLE
     // access would silently read undefined instead).
+    // Scoped to the stat badge specifically. The grid legend also documents an
+    // "Unfillable" treatment, so a bare getByText(/Unfillable/) matches two
+    // elements and throws — and matching the legend would prove nothing here,
+    // since the legend is static and renders whether or not any slot is flagged.
+    const statBadgeLabel = () => screen.getAllByText(/Unfillable/)
+      .find(el => el.parentElement?.getAttribute('title') === 'Click to see details')
+
     await waitFor(() => {
-      expect(screen.getByText(/Unfillable/)).toBeTruthy()
+      expect(statBadgeLabel()).toBeTruthy()
     })
-    const unfillableBadge = screen.getByText(/Unfillable/).parentElement
+    const unfillableBadge = statBadgeLabel().parentElement
     expect(unfillableBadge.textContent).toContain('1')
   })
 })
