@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { parseBuildInfo, formatBuildLabel, readBuildInfo } from './buildInfo.js'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { parseBuildInfo, formatBuildLabel, readBuildInfo, readAppVersion } from './buildInfo.js'
 
 // T13 — a stale packaged build was indistinguishable from a current one, which
 // cost a diagnosis cycle on T12.
@@ -61,5 +64,54 @@ describe('formatBuildLabel', () => {
 describe('readBuildInfo', () => {
   it('returns a dev build when no stamp file exists', () => {
     expect(readBuildInfo('/tmp/definitely-not-a-build-dir-xyz').isDev).toBe(true)
+  })
+})
+
+// T14. Both causes lived OUTSIDE the pure functions this file already covered,
+// which is why a green suite shipped them. These tests target the two seams
+// that were actually broken: which file readBuildInfo is allowed to read, and
+// where the version number comes from.
+describe('T14: a development run must not claim to be a packaged build', () => {
+  function withStampDir(fn) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'shoresh-stamp-'))
+    fs.writeFileSync(
+      path.join(dir, 'build-info.json'),
+      JSON.stringify({ commit: 'deadbee1234567', builtAt: '2026-07-29T12:00:00.000Z' }),
+    )
+    try { return fn(dir) } finally { fs.rmSync(dir, { recursive: true, force: true }) }
+  }
+
+  it('ignores a real build-info.json entirely when the run is not packaged', () => {
+    // The regression: write-build-info.js leaves this file in the working tree
+    // after packaging, it is gitignored rather than cleaned up, and every later
+    // dev run read it and reported a stale commit as if it were this build.
+    withStampDir((dir) => {
+      const info = readBuildInfo(dir, false)
+      expect(info.isDev).toBe(true)
+      expect(info.commit).toBe(null)
+      expect(formatBuildLabel(info, '0.1.0')).toBe('v0.1.0 · dev')
+    })
+  })
+
+  it('still reads the stamp when the run IS packaged', () => {
+    withStampDir((dir) => {
+      const info = readBuildInfo(dir, true)
+      expect(info.isDev).toBe(false)
+      expect(info.commit).toBe('deadbee1234567')
+      expect(formatBuildLabel(info, '0.1.0')).toBe('v0.1.0 · deadbee · 2026-07-29')
+    })
+  })
+
+  it('reads the app version from package.json, not Electron’s', () => {
+    // app.getVersion() returns Electron's own version (e.g. 43.1.1) in an
+    // unpackaged run, which is how "v43.1.1" reached the sidebar footer.
+    const version = readAppVersion(path.join(process.cwd(), 'electron'))
+    const expected = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'package.json'), 'utf8')).version
+    expect(version).toBe(expected)
+    expect(version).not.toMatch(/^4[0-9]\./)
+  })
+
+  it('returns null rather than guessing when package.json cannot be read', () => {
+    expect(readAppVersion('/tmp/definitely-not-a-project-dir-xyz')).toBe(null)
   })
 })

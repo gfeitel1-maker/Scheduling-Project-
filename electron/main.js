@@ -12,7 +12,8 @@ import { advertiseHost, discoverHosts } from './sync/discovery.js'
 import { listPendingConflicts } from './ops/operations.js'
 import { authorize } from './auth/authorize.js'
 import { applyUserDataPath } from './db/userDataPath.js'
-import { readBuildInfo, formatBuildLabel } from './buildInfo.js'
+import { readBuildInfo, formatBuildLabel, readAppVersion } from './buildInfo.js'
+import { describeStartupFailure, formatStartupFailureLog } from './startupFailure.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from './auth/deriveWriteAction.js'
 import { recordAuditEvent } from './audit/auditLog.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from './ops/campScopedEntities.js'
@@ -675,6 +676,11 @@ function isElectronEntryPoint() {
 
 if (isElectronEntryPoint()) {
   const __dirname = path.dirname(fileURLToPath(import.meta.url))
+  // T19: everything below runs at module top level, before whenReady. A throw
+  // here used to abort the module body, leaving an app with no window and no
+  // message anywhere. Wrapped so a fatal startup error is SHOWN rather than
+  // swallowed — see electron/startupFailure.js.
+  try {
   // MUST run before any app.getPath() call and before whenReady(), or setName
   // silently has no effect — see electron/db/userDataPath.js and
   // docs/adr/2026-07-28-explicit-userdata-directory.md. Without it Electron
@@ -796,7 +802,11 @@ if (isElectronEntryPoint()) {
       // ...and which BUILD it is running (T13). A stale packaged build was
       // previously indistinguishable from a current one, which cost a whole
       // diagnosis cycle on T12.
-      build: formatBuildLabel(readBuildInfo(), app.getVersion()),
+      // T14: both arguments are deliberate. readBuildInfo is told whether this
+      // is a packaged run rather than inferring it from a file that survives
+      // packaging, and the version comes from package.json because
+      // app.getVersion() returns Electron's own version when unpackaged.
+      build: formatBuildLabel(readBuildInfo(undefined, app.isPackaged), readAppVersion()),
       schemaVersion: getSchemaVersion(db),
       openedAt: new Date().toISOString(),
     }
@@ -1058,4 +1068,28 @@ if (isElectronEntryPoint()) {
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
   })
+  } catch (err) {
+    // Never leave the process alive with no window and no explanation. Three
+    // audiences, three channels: the director gets a dialog, whoever is helping
+    // them gets a file, and a terminal launch gets stderr plus a non-zero exit.
+    const when = new Date().toISOString()
+    let logPath = null
+    try {
+      const dir = app.getPath('userData')
+      fs.mkdirSync(dir, { recursive: true })
+      logPath = path.join(dir, 'startup-error.log')
+      fs.writeFileSync(logPath, formatStartupFailureLog(err, when))
+    } catch {
+      logPath = null // a logging failure must not replace the real error
+    }
+
+    const { title, message } = describeStartupFailure(err, logPath)
+    process.stderr.write(`\n${title}\n${message}\n`)
+
+    // showErrorBox is safe before 'ready' and is the only way to say anything
+    // when the failure happened before a window could exist.
+    try { dialog.showErrorBox(title, message) } catch { /* headless */ }
+
+    app.exit(1)
+  }
 }

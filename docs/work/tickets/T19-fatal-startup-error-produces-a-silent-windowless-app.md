@@ -1,12 +1,27 @@
 ---
 title: T19-fatal-startup-error-produces-a-silent-windowless-app
 document_type: ticket
-status: open
+status: completed
 created: 2026-07-29
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/constitution/CONSTITUTION.md]
 related_tickets: [docs/work/tickets/T20-install-reports-success-for-an-app-that-cannot-start.md, docs/work/tickets/T12-drag-and-drop-dead.md]
 archive_when: resolved
 ---
+
+> **RESOLVED 2026-07-29.** The startup block in `main.js` is wrapped; a fatal error is now
+> reported on three channels — a modal dialog for the director, `startup-error.log` in the
+> userData directory for whoever helps them, and stderr plus `app.exit(1)` for a terminal
+> launch. Wording lives in `electron/startupFailure.js` so it is testable without Electron.
+>
+> **Verified against a deliberately broken packaged build**, as this ticket's evidence required:
+> the installed app's native module was replaced with garbage, and the app showed
+> "Shoresh could not start — Shoresh could not open this camp's schedule file", named the log
+> path, and kept the technical detail last. Restoring the module returned it to a clean launch
+> with no error log written. Ten unit tests cover the wording and the malformed-error paths.
+>
+> One behaviour worth knowing: `dialog.showErrorBox` is modal, so a terminal launch now blocks
+> until the dialog is dismissed rather than exiting immediately. That is correct for the
+> director and surprising for a script.
 
 # T19 — A fatal startup error produces a silent, windowless app
 

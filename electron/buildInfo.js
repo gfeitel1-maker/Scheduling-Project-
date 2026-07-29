@@ -14,9 +14,18 @@ import { fileURLToPath } from 'node:url'
 // and is deliberately NOT committed: it would churn on every build and its
 // value is only ever "what did THIS artifact come from".
 //
-// A development run has no such file, and that is a meaningful answer rather
-// than a missing one — an unpackaged build is identified by its DEV badge
-// (ADR 2026-07-28), not by a commit.
+// A development run must report itself as a development run, and that is a
+// meaningful answer rather than a missing one — an unpackaged build is
+// identified by its DEV badge (ADR 2026-07-28), not by a commit.
+//
+// T14: this used to rely on the file's ABSENCE to detect a dev run, with the
+// stated assumption that "a development run has no such file". That assumption
+// is false on any machine that has ever packaged: write-build-info.js leaves
+// build-info.json in the working tree, it is gitignored rather than cleaned up,
+// and every later dev run then read it and claimed to be a packaged build from
+// whatever commit was last shipped. A stale, plausible-looking commit is exactly
+// the confusion T13 was filed to eliminate, so the packaged state is now stated
+// explicitly by the caller instead of inferred from the filesystem.
 
 const DEV_BUILD = { commit: null, builtAt: null, isDev: true }
 
@@ -49,11 +58,34 @@ export function formatBuildLabel(info, version) {
   return parts.join(' · ')
 }
 
-export function readBuildInfo(dir) {
+// `isPackaged` is required in spirit and defaulted to true only so the existing
+// signature keeps working; callers inside the app MUST pass app.isPackaged.
+// An unpackaged run never reads the stamp at all — not "reads it and ignores
+// it", but never reads it — so a stale file on disk cannot influence the answer.
+export function readBuildInfo(dir, isPackaged = true) {
+  if (!isPackaged) return DEV_BUILD
   const base = dir ?? path.dirname(fileURLToPath(import.meta.url))
   try {
     return parseBuildInfo(fs.readFileSync(path.join(base, 'build-info.json'), 'utf8'))
   } catch {
     return DEV_BUILD
+  }
+}
+
+// The app's own version, read from package.json rather than app.getVersion().
+//
+// T14, second cause: app.getVersion() returns ELECTRON's version (e.g. 43.1.1)
+// in an unpackaged run, because there is no packaged Info.plist to read. Only a
+// packaged build returns the app's real 0.1.0, so the footer read
+// "v43.1.1 · …" in development — a version number belonging to a different
+// piece of software entirely.
+export function readAppVersion(dir) {
+  const base = dir ?? path.dirname(fileURLToPath(import.meta.url))
+  try {
+    const raw = fs.readFileSync(path.join(base, '..', 'package.json'), 'utf8')
+    const v = JSON.parse(raw).version
+    return typeof v === 'string' && v.length > 0 ? v : null
+  } catch {
+    return null
   }
 }

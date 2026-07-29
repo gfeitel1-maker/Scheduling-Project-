@@ -1,13 +1,25 @@
 ---
 title: T14-dev-run-reports-as-packaged-build
 document_type: ticket
-status: open
+status: completed
 created: 2026-07-28
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_adrs: [docs/adr/2026-07-28-explicit-userdata-directory.md]
 related_tickets: [docs/work/tickets/T13-stamp-build-provenance.md]
 archive_when: resolved
 ---
+
+> **RESOLVED 2026-07-29.** Both causes fixed and covered by tests that target the seams the
+> original suite structurally could not reach.
+>
+> - `readBuildInfo(dir, isPackaged)` now takes the packaged state from the caller
+>   (`app.isPackaged`) instead of inferring it from the absence of `build-info.json`. An
+>   unpackaged run never reads the stamp at all, so a stale file cannot influence it.
+> - `readAppVersion()` reads `package.json`, replacing `app.getVersion()`, which returns
+>   **Electron's** version (43.1.1) in an unpackaged run.
+>
+> Demonstrated with `electron/build-info.json` present in the working tree — the exact trap
+> condition: dev now yields `v0.1.0 · dev`, packaged still yields `v0.1.0 · <commit> · <date>`.
 
 # T14 — A development run reports itself as a packaged build
 
