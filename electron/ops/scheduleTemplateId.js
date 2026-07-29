@@ -16,6 +16,17 @@
 // crypto.randomUUID()) is required: two devices that independently mint a
 // "Master Template" row for the same camp must always agree on its id, or
 // their schedules silently fork.
-export function deriveScheduleTemplateId(campId) {
-  return `schedule-template:${campId}`
+// The second argument is ADDITIVE and must stay so: this module is imported by
+// the version-21 migration (electron/db/localDb.js), which calls it with one
+// argument against real, existing databases. `generated` — the only kind that
+// existed before v23 — must therefore keep returning the byte-identical
+// one-argument value, or v21 would re-key every director's schedule to a
+// different id on the next launch.
+//
+// The ':manual' suffix is an id, not a parsing contract. Nothing may recover a
+// route by inspecting the string; `schedule_templates.kind` is the only
+// authority on which route a row belongs to (see
+// docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md, Decision §1).
+export function deriveScheduleTemplateId(campId, kind = 'generated') {
+  return kind === 'generated' ? `schedule-template:${campId}` : `schedule-template:${campId}:${kind}`
 }

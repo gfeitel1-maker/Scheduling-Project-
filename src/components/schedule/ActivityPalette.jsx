@@ -1,7 +1,7 @@
 import { useDraggable } from '@dnd-kit/core'
 import { activityColor } from './slotCellConstants'
 
-function DraggablePaletteItem({ activity, scheduledCount, atMax, draggable }) {
+function DraggablePaletteItem({ activity, scheduledCount, atMax, draggable, showTarget }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `palette-${activity.id}`,
     data: { paletteActivity: { id: activity.id } },
@@ -9,6 +9,8 @@ function DraggablePaletteItem({ activity, scheduledCount, atMax, draggable }) {
   })
 
   const color = activityColor(activity.id)
+  const target = activity.min_per_week ?? 0
+  const met = scheduledCount >= target
 
   return (
     <div
@@ -37,16 +39,27 @@ function DraggablePaletteItem({ activity, scheduledCount, atMax, draggable }) {
         background: color,
         flexShrink: 0,
       }} />
-      <span style={{
-        fontFamily: 'var(--font-sans)',
-        fontSize: 12,
-        fontWeight: 600,
-        color: 'var(--text)',
-        flex: 1,
-        overflow: 'hidden',
-        textOverflow: 'ellipsis',
-        whiteSpace: 'nowrap',
-      }}>{activity.name}</span>
+      <span style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        <span style={{
+          fontFamily: 'var(--font-sans)',
+          fontSize: 12,
+          fontWeight: 600,
+          color: 'var(--text)',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+        }}>{activity.name}</span>
+        {/* On a blank week the palette IS the to-do list. Met reads quiet, not
+            celebrated — nothing here is an error, so nothing here is red. */}
+        {showTarget && target > 0 && (
+          <span style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 10,
+            color: met ? 'color-mix(in srgb, var(--text-secondary) 55%, transparent)' : 'var(--text-secondary)',
+            marginTop: 1,
+          }}>{scheduledCount} of {target} this week</span>
+        )}
+      </span>
       <span style={{
         fontFamily: 'var(--font-mono)',
         fontSize: 10,
@@ -65,6 +78,7 @@ function DraggablePaletteItem({ activity, scheduledCount, atMax, draggable }) {
 export default function ActivityPalette({
   activities,
   slots,
+  showTargets = false,
   draggable = true,
   collapsed = false,
   onToggleCollapse,
@@ -169,6 +183,7 @@ export default function ActivityPalette({
               scheduledCount={scheduledCount}
               atMax={atMax}
               draggable={draggable}
+              showTarget={showTargets}
             />
           )
         })

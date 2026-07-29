@@ -5,11 +5,17 @@
 export const ACTIVITY_COLORS = ['#3F6690','#3C8C86','#5F8A5A','#8C6F26','#B26B47','#7C5E86']
 export const ANCHOR_COLOR = 'var(--anchor)'
 
-// UNFILLABLE is the only kind left in per-slot flags — UNDERSERVED/DISTRIBUTION
-// moved to buildSchedule()'s aggregate `findings` array and WEATHER_RISK was
-// removed from the engine entirely (see docs/adr/2026-07-28-schedule-flag-findings-reshape.md).
+// Per-slot flags are UNFILLABLE (generated route) and OVERLAP (manual route).
+// UNDERSERVED/DISTRIBUTION are aggregate findings, not slot states, and
+// WEATHER_RISK was removed from the engine entirely
+// (docs/adr/2026-07-28-schedule-flag-findings-reshape.md).
+//
+// OVERLAP is bronze (caution), not red: on the manual route a clash is a
+// consequence the director chose to accept and can resolve, not a failure.
+// Red stays reserved so it stays loud (DESIGN_STANDARD.md §4).
 export const FLAG_COLORS = {
   UNFILLABLE: 'var(--danger)',
+  OVERLAP: 'var(--accent)',
 }
 
 export const REAL_FLAG_NAMES = new Set(Object.keys(FLAG_COLORS))
@@ -19,6 +25,7 @@ export const REAL_FLAG_NAMES = new Set(Object.keys(FLAG_COLORS))
 // "similar enough" color. Consumed by both slot flags and findings.
 export const FLAG_SEVERITY = {
   UNFILLABLE: 'danger',
+  OVERLAP: 'caution',
   UNDERSERVED: 'caution',
   DISTRIBUTION: 'info',
 }
@@ -52,14 +59,25 @@ export const SEVERITY_BAR_COLOR = {
 // UNDERSERVED and DISTRIBUTION are deliberately absent: they are aggregate
 // findings, not per-slot states, and are surfaced in the stat tiles instead
 // (ADR 2026-07-28-schedule-flag-findings-reshape).
+const OVERLAP_ENTRY = {
+  flagKey: 'OVERLAP',
+  label: 'Overlapping',
+  shape: 'dot',
+  color: FLAG_COLORS.OVERLAP,
+  description: 'More groups booked in than this activity holds',
+}
+
+const UNFILLABLE_ENTRY = {
+  flagKey: 'UNFILLABLE',
+  label: 'Unfillable',
+  shape: 'dot',
+  color: FLAG_COLORS.UNFILLABLE,
+  description: 'No eligible activity could be placed here',
+}
+
 export const LEGEND_ENTRIES = [
-  {
-    flagKey: 'UNFILLABLE',
-    label: 'Unfillable',
-    shape: 'dot',
-    color: FLAG_COLORS.UNFILLABLE,
-    description: 'No eligible activity could be placed here',
-  },
+  UNFILLABLE_ENTRY,
+  OVERLAP_ENTRY,
   {
     flagKey: null,
     label: 'Locked',
@@ -105,3 +123,13 @@ export function activityColor(activityId) {
 
 export const cellTd = { padding: '8px 6px', verticalAlign: 'top', cursor: 'pointer' }
 export const emptyTd = { padding: '8px 6px', verticalAlign: 'top' }
+
+// The two routes share a flag VOCABULARY, not an identical flag SET: a word
+// used on both means the same thing on both, but 'Unfillable' does not exist
+// on the manual route at all — an empty cell there is simply not filled yet —
+// and 'Overlapping' does not exist on the generated route, where the engine
+// refuses a clashing placement rather than making one.
+export function legendEntriesFor(route) {
+  const omit = route === 'manual' ? 'UNFILLABLE' : 'OVERLAP'
+  return LEGEND_ENTRIES.filter(e => e.flagKey !== omit)
+}

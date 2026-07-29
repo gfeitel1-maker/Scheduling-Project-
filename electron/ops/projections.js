@@ -203,12 +203,22 @@ export const PROJECTIONS = {
   schedule_templates: {
     table: 'schedule_templates',
     key: 'id',
-    fields: ['camp_id', 'name'],
-    ensureExists: (db, id) => {
+    // WRITE-ORDERING CONTRACT: `kind` must be the FIRST field written for a new
+    // row. The row is created by whichever field arrives first, and kind is NOT
+    // NULL DEFAULT 'generated' — so a manual candidate whose kind arrived
+    // second would first materialise as 'generated', collide with the real
+    // generated row under UNIQUE(camp_id, kind), be absorbed by INSERT OR
+    // IGNORE, and vanish silently on that device. Op replay is seq-ordered, so
+    // the write-site order is the replica order. Recovering the route by
+    // parsing the id suffix is deliberately NOT done: the id format is not a
+    // parsing contract (ADR Decision §1).
+    fields: ['kind', 'camp_id', 'name'],
+    ensureExists: (db, id, field, value) => {
       const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
-      db.prepare("INSERT OR IGNORE INTO schedule_templates (id, camp_id, name) VALUES (?, ?, '')").run(
+      db.prepare("INSERT OR IGNORE INTO schedule_templates (id, camp_id, name, kind) VALUES (?, ?, '', ?)").run(
         id,
-        camp?.id ?? null
+        camp?.id ?? null,
+        field === 'kind' && value ? value : 'generated'
       )
     },
   },

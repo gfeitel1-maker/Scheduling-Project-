@@ -5,13 +5,15 @@ import { fileURLToPath } from 'node:url'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { writePreMigrationBackup } from './projectManager.js'
 import { deriveScheduleTemplateId } from '../ops/scheduleTemplateId.js'
+import { applyProjection } from '../ops/projections.js'
+import { isBulkReplaceOp, applyBulkReplaceProjection } from '../ops/operations.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 22
+export const CURRENT_SCHEMA_VERSION = 23
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -885,6 +887,112 @@ export function initSchema(db) {
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (22, ?)').run(
       new Date().toISOString()
     )
+  }
+
+  // Plural candidate schedules per camp
+  // (docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md). A camp may
+  // now hold two schedules — one per building route — instead of one. v21's
+  // UNIQUE(camp_id) made that impossible, so it is replaced by
+  // UNIQUE(camp_id, kind): the invariant v21 established (a route cannot fork
+  // into duplicate rows) is preserved, only its scope narrows.
+  //
+  // Nothing is deleted, re-keyed or rewritten here. The existing row keeps its
+  // byte-identical deterministic id and acquires kind='generated'; the manual
+  // row is created lazily, on first use, through the ordinary op-log path.
+  if (getSchemaVersion(db) < 23) {
+    db.transaction(() => {
+      const hasKind = db.pragma('table_info(schedule_templates)').some((c) => c.name === 'kind')
+      if (!hasKind) {
+        // NOT NULL is safe on ALTER because a non-null default is supplied, and
+        // it is REQUIRED: SQLite treats distinct NULLs as non-conflicting, so a
+        // nullable kind would let (camp_id, NULL) rows multiply — exactly the
+        // fork v21 exists to prevent.
+        db.exec("ALTER TABLE schedule_templates ADD COLUMN kind TEXT NOT NULL DEFAULT 'generated'")
+      }
+      // Belt-and-braces alongside the column default: idempotent, and correct
+      // even if a row somehow arrived with an empty kind.
+      db.exec("UPDATE schedule_templates SET kind = 'generated' WHERE kind IS NULL OR kind = ''")
+
+      db.exec('DROP INDEX IF EXISTS idx_schedule_templates_camp')
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_templates_camp_kind ON schedule_templates(camp_id, kind);'
+      )
+
+      repairMissingScheduleTemplates(db)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (23, ?)').run(
+      new Date().toISOString()
+    )
+  }
+}
+
+// A peer still on <=v22 rejects the manual candidate's schedule_templates row
+// (its UNIQUE(camp_id) absorbs the INSERT OR IGNORE) and then FK-violates on
+// every child op. applyRemoteOp swallows projection failures by design and
+// sendFullSyncIfFirstPairing never re-syncs a device that has synced once, so
+// nothing else would ever repair that device. The op-log rows themselves are
+// durable — they are inserted BEFORE projection is attempted — so the missing
+// tables can be rebuilt from the log at upgrade time.
+//
+// Deliberately BOUNDED to templates that are currently ABSENT, and to the
+// children of only those templates. An unbounded "replay everything" would
+// delete-then-reinsert correctly-projected rows, turning a repair into a
+// destructive operation.
+function repairMissingScheduleTemplates(db) {
+  const templateOps = db
+    .prepare(
+      `SELECT * FROM operations WHERE entity = 'schedule_templates' ORDER BY seq ASC`
+    )
+    .all()
+  if (templateOps.length === 0) return
+
+  const present = new Set(db.prepare('SELECT id FROM schedule_templates').all().map((r) => r.id))
+  const missing = [...new Set(templateOps.map((o) => o.entity_id))].filter((id) => !present.has(id))
+  if (missing.length === 0) return
+
+  const missingSet = new Set(missing)
+  for (const op of templateOps) {
+    if (!missingSet.has(op.entity_id)) continue
+    try { applyProjection(db, op) } catch { /* one unreplayable op must not abort the rest */ }
+  }
+
+  const recovered = new Set(
+    db.prepare('SELECT id FROM schedule_templates').all().map((r) => r.id)
+  )
+  const targets = missing.filter((id) => recovered.has(id))
+  if (targets.length === 0) return
+
+  const targetSet = new Set(targets)
+  const childOps = db
+    .prepare(
+      `SELECT * FROM operations
+        WHERE entity IN ('template_slots', 'template_overlays', 'schedule_snapshots')
+        ORDER BY seq ASC`
+    )
+    .all()
+
+  // `owned` grows as the pass discovers which child rows belong to a recovered
+  // template. A child op is replayed only once its row is known to be one of
+  // theirs — every other row in these tables projected correctly and must not
+  // be touched.
+  const owned = new Set()
+  for (const op of childOps) {
+    try {
+      if (isBulkReplaceOp(op)) {
+        if (!targetSet.has(op.entity_id)) continue
+        applyBulkReplaceProjection(db, op)
+        const table = op.entity
+        for (const r of db.prepare(`SELECT id FROM ${table} WHERE template_id = ?`).all(op.entity_id)) {
+          owned.add(r.id)
+        }
+      } else if (op.field === 'template_id' && targetSet.has(op.value)) {
+        applyProjection(db, op)
+        owned.add(op.entity_id)
+      } else if (owned.has(op.entity_id)) {
+        applyProjection(db, op)
+      }
+    } catch { /* best-effort repair — see above */ }
   }
 }
 

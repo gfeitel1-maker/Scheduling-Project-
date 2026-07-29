@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { LEGEND_ENTRIES, FLAG_COLORS, FLAG_SEVERITY, ANCHOR_COLOR } from './slotCellConstants'
+import { LEGEND_ENTRIES, FLAG_COLORS, FLAG_SEVERITY, ANCHOR_COLOR, legendEntriesFor } from './slotCellConstants'
 
 // The legend's job is to leave nothing on the grid unexplained. The original
 // defect was structural, not cosmetic: the legend was rendered by iterating
@@ -62,5 +62,44 @@ describe('grid legend', () => {
     expect(FLAG_SEVERITY.UNDERSERVED).toBeDefined()
     expect(labels).not.toContain('underserved')
     expect(labels).not.toContain('distribution')
+  })
+})
+
+// The routes share a flag VOCABULARY, not an identical flag SET. A director
+// learns "Overlapping" once and it means the same thing wherever it appears —
+// but "Unfillable" must never appear on the manual grid, where an empty cell
+// is simply not filled yet, and "Overlapping" must not appear on the
+// generated grid, where the engine never makes a clashing placement.
+describe('route-aware legend', () => {
+  it('omits Unfillable on the manual route', () => {
+    const labels = legendEntriesFor('manual').map(e => e.label)
+    expect(labels).not.toContain('Unfillable')
+    expect(labels).toContain('Overlapping')
+  })
+
+  it('omits Overlapping on the generated route', () => {
+    const labels = legendEntriesFor('generated').map(e => e.label)
+    expect(labels).toContain('Unfillable')
+    expect(labels).not.toContain('Overlapping')
+  })
+
+  it('documents every structural treatment on both routes', () => {
+    for (const route of ['manual', 'generated']) {
+      const labels = legendEntriesFor(route).map(e => e.label)
+      expect(labels).toContain('Locked')
+      expect(labels).toContain('Fixed event')
+      expect(labels).toContain('Unavailable')
+    }
+  })
+
+  it('uses the same word for the same meaning in both directions', () => {
+    const manual = legendEntriesFor('manual')
+    const generated = legendEntriesFor('generated')
+    const shared = manual.filter(m => generated.some(g => g.label === m.label))
+    for (const entry of shared) {
+      const twin = generated.find(g => g.label === entry.label)
+      expect(twin.description).toBe(entry.description)
+      expect(twin.color).toBe(entry.color)
+    }
   })
 })

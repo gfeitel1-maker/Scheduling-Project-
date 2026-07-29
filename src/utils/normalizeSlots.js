@@ -40,6 +40,11 @@ const STALE_FLAG_KEYS = new Set([
   'UNDERSERVED', 'UNDERSERVED_reason', 'UNDERSERVED_dismissed',
   'DISTRIBUTION', 'DISTRIBUTION_reason', 'DISTRIBUTION_dismissed',
   'WEATHER_RISK', 'WEATHER_RISK_reason', 'WEATHER_RISK_dismissed',
+  // OVERLAP is derived at render time from the slots on screen
+  // (src/utils/computeOverlaps.js) so it clears from every participating cell
+  // the instant any one of them moves. A persisted copy could only ever go
+  // stale, so any that reaches the db is dropped on read.
+  'OVERLAP', 'OVERLAP_reason', 'OVERLAP_dismissed',
 ])
 
 // `flags` crosses the LAN op-log sync boundary as JSON.parse'd input, so a

@@ -45,7 +45,7 @@ function tier(overrides = {}) { return { id: 't1', camp_id: CAMP_ID, name: 'Tier
 // ever receives 0/1 here — never false/true. Fixturing JS booleans hid every
 // `=== false` comparison bug in the component.
 function slotRow(overrides = {}) {
-  return { id: 'slot-1', template_id: 'tmpl-1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: 0, is_span_head: 1, is_released: 0, flags: {}, ...overrides }
+  return { id: 'slot-1', template_id: 'schedule-template:camp-1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', anchor_id: null, is_anchor: 0, is_span_head: 1, is_released: 0, flags: {}, ...overrides }
 }
 
 function mockList(overridesByEntity = {}) {
@@ -56,7 +56,7 @@ function mockList(overridesByEntity = {}) {
     activities: [activity()],
     anchor_activities: [],
     tiers: [tier()],
-    schedule_templates: [{ id: 'tmpl-1', camp_id: CAMP_ID, name: 'Master Template' }],
+    schedule_templates: [{ id: 'schedule-template:camp-1', camp_id: CAMP_ID, name: 'Master Template' }],
     template_slots: [slotRow()],
     template_overlays: [],
     schedule_snapshots: [],
@@ -96,13 +96,13 @@ describe('flags round-trips through bulk_replace as a parsed object (Round 2 Fix
     mockList({
       schedule_templates: [],
       template_slots: [
-        slotRow({ template_id: 'new-id-1', flags: '{"UNFILLABLE":true}' }),
+        slotRow({ template_id: 'schedule-template:camp-1', flags: '{"UNFILLABLE":true}' }),
       ],
     })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
-    await waitFor(() => expect(screen.getByText('Generate Schedule')).toBeTruthy())
-    fireEvent.click(screen.getByText('Generate Schedule'))
+    await waitFor(() => expect(screen.getByText('Generate a schedule')).toBeTruthy())
+    fireEvent.click(screen.getByText('Generate a schedule'))
 
     await waitFor(() => {
       expect(localClient.bulkReplace).toHaveBeenCalledWith('token-abc', 'template_slots', expect.any(String), expect.any(Array))
@@ -290,20 +290,20 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
     localClient.bulkReplace.mockRejectedValue(new Error('admin role required'))
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
-    await waitFor(() => expect(screen.getByText('Generate Schedule')).toBeTruthy())
-    fireEvent.click(screen.getByText('Generate Schedule'))
+    await waitFor(() => expect(screen.getByText('Generate a schedule')).toBeTruthy())
+    fireEvent.click(screen.getByText('Generate a schedule'))
 
     await waitFor(() => {
       expect(screen.getByText(/Only an admin can regenerate the schedule/i)).toBeTruthy()
     })
     // Still on the "no schedule" empty state — the rejection did not leave
     // the screen stuck on a spinner or throw past the click handler.
-    expect(screen.getByText('Generate Schedule')).toBeTruthy()
+    expect(screen.getByText('Generate a schedule')).toBeTruthy()
   })
 
   it('removeOverlay: clicking the remove button on a stamped overlay deletes it via localClient.deleteEntity', async () => {
     mockList({
-      template_overlays: [{ id: 'ov-1', template_id: 'tmpl-1', unit_id: 't1', day_id: 'd1', from_block_order: 1, to_block_order: 1, label: 'Field Trip' }],
+      template_overlays: [{ id: 'ov-1', template_id: 'schedule-template:camp-1', unit_id: 't1', day_id: 'd1', from_block_order: 1, to_block_order: 1, label: 'Field Trip' }],
     })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
@@ -340,7 +340,7 @@ describe('snapshot CRUD ported to localClient', () => {
     await waitFor(() => {
       expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'new-id-1', 'name', 'My Version')
     })
-    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'new-id-1', 'template_id', 'tmpl-1')
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'new-id-1', 'template_id', 'schedule-template:camp-1')
     expect(localClient.write).toHaveBeenCalledWith('token-abc', 'schedule_snapshots', 'new-id-1', 'is_auto', false)
     expect(localClient.write).toHaveBeenCalledWith(
       'token-abc', 'schedule_snapshots', 'new-id-1', 'slots',
@@ -355,8 +355,8 @@ describe('snapshot CRUD ported to localClient', () => {
   it('renameSnapshot: writes name and is_auto:false via writeFields', async () => {
     mockList({
       schedule_snapshots: [
-        { id: 'snap-2', template_id: 'tmpl-1', name: 'Newest', is_auto: false, created_at: '2026-01-01T00:00:00.000Z' },
-        { id: 'snap-1', template_id: 'tmpl-1', name: null, is_auto: true, created_at: '2025-12-31T00:00:00.000Z' },
+        { id: 'snap-2', template_id: 'schedule-template:camp-1', name: 'Newest', is_auto: false, created_at: '2026-01-01T00:00:00.000Z' },
+        { id: 'snap-1', template_id: 'schedule-template:camp-1', name: null, is_auto: true, created_at: '2025-12-31T00:00:00.000Z' },
       ],
     })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
@@ -382,8 +382,8 @@ describe('snapshot CRUD ported to localClient', () => {
     ])
     mockList({
       schedule_snapshots: [
-        { id: 'snap-1', template_id: 'tmpl-1', name: null, is_auto: true, created_at: '2026-01-01T00:00:00.000Z' },
-        { id: 'snap-2', template_id: 'tmpl-1', name: 'Older', is_auto: false, created_at: '2025-12-31T00:00:00.000Z', slots: storedSlots, overlays: '' },
+        { id: 'snap-1', template_id: 'schedule-template:camp-1', name: null, is_auto: true, created_at: '2026-01-01T00:00:00.000Z' },
+        { id: 'snap-2', template_id: 'schedule-template:camp-1', name: 'Older', is_auto: false, created_at: '2025-12-31T00:00:00.000Z', slots: storedSlots, overlays: '' },
       ],
       activities: [activity(), activity({ id: 'act-restored', name: 'Arts & Crafts' })],
     })
@@ -400,7 +400,7 @@ describe('snapshot CRUD ported to localClient', () => {
 
     await waitFor(() => {
       expect(localClient.bulkReplace).toHaveBeenCalledWith(
-        'token-abc', 'template_slots', 'tmpl-1',
+        'token-abc', 'template_slots', 'schedule-template:camp-1',
         expect.arrayContaining([expect.objectContaining({ activity_id: 'act-restored' })])
       )
     })
@@ -409,8 +409,8 @@ describe('snapshot CRUD ported to localClient', () => {
   it('restoreSnapshot: a malformed slots JSON string surfaces a corruption error instead of throwing, and does not call bulkReplace', async () => {
     mockList({
       schedule_snapshots: [
-        { id: 'snap-1', template_id: 'tmpl-1', name: null, is_auto: true, created_at: '2026-01-01T00:00:00.000Z' },
-        { id: 'snap-2', template_id: 'tmpl-1', name: 'Corrupt', is_auto: false, created_at: '2025-12-31T00:00:00.000Z', slots: '{not valid json', overlays: '' },
+        { id: 'snap-1', template_id: 'schedule-template:camp-1', name: null, is_auto: true, created_at: '2026-01-01T00:00:00.000Z' },
+        { id: 'snap-2', template_id: 'schedule-template:camp-1', name: 'Corrupt', is_auto: false, created_at: '2025-12-31T00:00:00.000Z', slots: '{not valid json', overlays: '' },
       ],
     })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
@@ -430,8 +430,8 @@ describe('snapshot CRUD ported to localClient', () => {
   it('renameSnapshot failure: a rejected write surfaces an error banner instead of throwing unhandled', async () => {
     mockList({
       schedule_snapshots: [
-        { id: 'snap-2', template_id: 'tmpl-1', name: 'Newest', is_auto: false, created_at: '2026-01-01T00:00:00.000Z' },
-        { id: 'snap-1', template_id: 'tmpl-1', name: null, is_auto: true, created_at: '2025-12-31T00:00:00.000Z' },
+        { id: 'snap-2', template_id: 'schedule-template:camp-1', name: 'Newest', is_auto: false, created_at: '2026-01-01T00:00:00.000Z' },
+        { id: 'snap-1', template_id: 'schedule-template:camp-1', name: null, is_auto: true, created_at: '2025-12-31T00:00:00.000Z' },
       ],
     })
     localClient.write.mockRejectedValue(new Error('network down'))
@@ -495,8 +495,8 @@ describe('generate() aborts the destructive wipe when the pre-emptive snapshot f
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
     fireEvent.click(screen.getByText('Regenerate from Scratch'))
-    await waitFor(() => expect(screen.getByText('Yes, Regenerate')).toBeTruthy())
-    fireEvent.click(screen.getByText('Yes, Regenerate'))
+    await waitFor(() => expect(screen.getByText('Build a new one')).toBeTruthy())
+    fireEvent.click(screen.getByText('Build a new one'))
 
     await waitFor(() => {
       expect(screen.getByText(/undo point/i)).toBeTruthy()
@@ -674,5 +674,130 @@ describe('placeActivityManual eligibility (T6 — DB-shaped eligible_tier_ids/el
 
     await waitFor(() => expect(flagsWriteFor('slot-2')).toBeDefined())
     expect(flagsWriteFor('slot-2')).toEqual({ UNFILLABLE: true })
+  })
+})
+
+// ── Two routes, two candidate schedules ─────────────────────────────────────
+//
+// The manual route is not a third way of looking at the generated schedule —
+// it is a separate week the director builds themselves. Neither is "the"
+// schedule; moving between them is navigation and must never cost either one
+// its work.
+describe('separate manual and generated routes', () => {
+  const GENERATED = 'schedule-template:camp-1'
+  const MANUAL = 'schedule-template:camp-1:manual'
+
+  function bothRoutes(extra = {}) {
+    mockList({
+      activities: [activity(), activity({ id: 'act-2', name: 'Archery', min_per_week: 3 })],
+      schedule_templates: [
+        { id: GENERATED, camp_id: CAMP_ID, name: 'Master Template', kind: 'generated' },
+        { id: MANUAL, camp_id: CAMP_ID, name: 'Manual', kind: 'manual' },
+      ],
+      template_slots: [
+        slotRow({ id: 'gen-1', template_id: GENERATED, activity_id: 'act-1' }),
+        slotRow({ id: 'man-1', template_id: MANUAL, activity_id: null }),
+      ],
+      ...extra,
+    })
+  }
+
+  it('keeps the Manual route always reachable, with no confirmation on switching', async () => {
+    bothRoutes()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Manual')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Manual'))
+    // No "are you sure" of any kind stands between the two routes.
+    expect(screen.queryByText(/are you sure/i)).toBeNull()
+    expect(screen.queryByText(/Build a new one/)).toBeNull()
+  })
+
+  it('does not show the generated schedule’s placements on the manual grid', async () => {
+    bothRoutes()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Manual'))
+    await waitFor(() => expect(screen.getByText('The week you’re building')).toBeTruthy())
+    expect(scheduleCell('Swim')).toBeFalsy()
+  })
+
+  it('returns each route’s week exactly as it was, in both directions', async () => {
+    bothRoutes()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Manual'))
+    await waitFor(() => expect(scheduleCell('Swim')).toBeFalsy())
+    fireEvent.click(screen.getByText('Generated'))
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+  })
+
+  it('never labels either route as the real or current schedule', async () => {
+    bothRoutes()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Manual')).toBeTruthy())
+
+    const body = document.body.textContent
+    for (const forbidden of ['active schedule', 'current schedule', 'the real schedule', 'Master Template', 'template', 'candidate', 'UNFILLABLE', 'OVERLAP', 'UNDERSERVED']) {
+      expect(body).not.toContain(forbidden)
+    }
+  })
+
+  it('writes Generate only to the generated schedule, leaving the manual one alone', async () => {
+    bothRoutes()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Regenerate from Scratch')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Regenerate from Scratch'))
+    await waitFor(() => expect(screen.getByText('Build a new one')).toBeTruthy())
+    fireEvent.click(screen.getByText('Build a new one'))
+
+    await waitFor(() => {
+      expect(localClient.bulkReplace).toHaveBeenCalledWith('token-abc', 'template_slots', GENERATED, expect.any(Array))
+    })
+    const scopes = localClient.bulkReplace.mock.calls.map(c => c[2])
+    expect(scopes).not.toContain(MANUAL)
+  })
+
+  it('offers a blank week — not the generated one — when the manual route has not been started', async () => {
+    mockList({
+      schedule_templates: [{ id: GENERATED, camp_id: CAMP_ID, name: 'Master Template', kind: 'generated' }],
+      template_slots: [slotRow({ id: 'gen-1', template_id: GENERATED, activity_id: 'act-1' })],
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Manual')).toBeTruthy())
+    expect(screen.getByText('not started')).toBeTruthy()
+
+    fireEvent.click(screen.getByText('Manual'))
+    await waitFor(() => expect(screen.getByText('Start a blank week')).toBeTruthy())
+    expect(scheduleCell('Swim')).toBeFalsy()
+
+    fireEvent.click(screen.getByText('Start a blank week'))
+    await waitFor(() => {
+      expect(localClient.bulkReplace).toHaveBeenCalledWith('token-abc', 'template_slots', MANUAL, expect.any(Array))
+    })
+    // kind is written FIRST, or the manual row materialises as a second
+    // 'generated' row and is absorbed by the unique index.
+    const templateWrites = localClient.write.mock.calls.filter(c => c[1] === 'schedule_templates')
+    expect(templateWrites[0][3]).toBe('kind')
+    expect(templateWrites[0][4]).toBe('manual')
+  })
+
+  it('reports what the week still needs the moment the manual grid opens', async () => {
+    bothRoutes()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Manual')).toBeTruthy())
+    fireEvent.click(screen.getByText('Manual'))
+
+    const stillNeeded = () => screen.getAllByText((_, el) => el?.textContent?.trim().startsWith('Still needed'))
+      .find(el => el.parentElement?.getAttribute('title') === 'Click to see details')
+    await waitFor(() => expect(stillNeeded()).toBeTruthy())
+    // Archery needs 3 a week and nothing is placed on the blank grid.
+    const tile = stillNeeded().parentElement
+    expect(tile.textContent).toContain('1')
+    // No "unfillable" anywhere on this route — not in the tiles, not in the legend.
+    expect(document.body.textContent).not.toMatch(/nfillable/)
   })
 })

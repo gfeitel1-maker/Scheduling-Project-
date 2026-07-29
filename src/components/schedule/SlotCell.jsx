@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { S, prefersReducedMotion } from '../../styles/shared'
-import { ANCHOR_COLOR, activityColor, cellTd, emptyTd } from './slotCellConstants'
+import { ANCHOR_COLOR, FLAG_COLORS, activityColor, cellTd, emptyTd } from './slotCellConstants'
 
 function ExpandHandle({ groupId, dayId, blockId, activityId, cellHovered }) {
   const [hovered, setHovered] = useState(false)
@@ -151,6 +151,11 @@ export default function SlotCell({
 
   const flags = slot.flags || {}
   const isUnfillable = Boolean(flags.UNFILLABLE) && !flags.UNFILLABLE_dismissed
+  // Manual route only. The cell keeps its own activity colour — the marker
+  // must not destroy the activity's identity — and carries a bronze dot in
+  // the same corner UNFILLABLE's glyph occupies. Dot vs glyph is the
+  // non-colour channel that keeps the two from reading alike.
+  const isOverlapping = Boolean(flags.OVERLAP)
   const isOutdoor = Boolean(activity?.is_outdoor)
   const showOutdoorIcon = isOutdoor && !isUnfillable
   const isWeatherHighlight = weatherMode && showOutdoorIcon
@@ -269,6 +274,17 @@ export default function SlotCell({
           {activity && <span style={{ ...S.cellIdentityChip, background: color }} />}
           {activity?.name || <span style={{ fontSize: 11 }}>{isUnfillable ? 'Unfillable' : 'Unassigned'}</span>}
         </div>
+        {isOverlapping && (
+          <div
+            style={{
+              position: 'absolute', top: 6, right: 6,
+              width: 7, height: 7, borderRadius: '50%',
+              background: FLAG_COLORS.OVERLAP,
+              boxShadow: '0 0 0 1.5px var(--surface)',
+            }}
+            title={flags.OVERLAP_reason || 'More groups booked in than this holds'}
+          />
+        )}
         {isUnfillable && (
           <div style={S.cellUnfillableIconStyle} title="Unfillable">
             <UnfillableIcon />
