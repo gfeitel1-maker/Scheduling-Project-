@@ -2,7 +2,7 @@
 title: "Deleting a setup record that a schedule uses"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-07-30
 supersedes: []
 implementation_state: not-started
@@ -13,9 +13,9 @@ affects:
 
 # Deleting a setup record that a schedule uses
 
-**Status: PROPOSED.** The product decision is made — *offer to clear the slots* — but the
-mechanism differs by entity in a way that changes what is recoverable afterwards, and §4 asks
-one question before this is implementable.
+**Status: ACCEPTED by the product owner, 2026-07-30.** Both decisions are made: *offer to clear
+the slots*, and *two-step recovery* — Trash restores the record, Versions restores the week. The
+mechanism still differs by entity (§2), which is the substance of this ADR.
 
 Resolves [T21](../work/tickets/T21-cannot-delete-a-record-a-schedule-uses.md).
 
@@ -102,11 +102,17 @@ So before deleting a group, auto-save a version of each route that holds its slo
 comes back from Trash; its week comes back from Versions. Neither mechanism is stretched beyond
 what it already does.
 
-**Question for the product owner before implementing:** is that acceptable as a two-step
-recovery — Trash for the bunk, Versions for the week — or should deleting a group be refused
-outright when it would destroy a week that has real placements in it? The first is more
-capable; the second is harder to regret. Recommend the first, because the snapshot makes it
-reversible and the director asked for the delete.
+**Decided 2026-07-30: two-step recovery.** Trash restores the bunk, Versions restores the week.
+Deleting a group is not refused, because the snapshot makes it reversible and the director asked
+for the delete.
+
+Two things this obliges the implementation to get right, since recovery now depends on them:
+
+- The snapshot must be saved **before** any slot is removed, and a failure to save it must
+  **abort the delete** rather than proceeding unprotected. A half-done version is worse than no
+  feature.
+- The confirmation must tell the director where the week went, in their words — not "a snapshot
+  was taken". Something they could act on months later without knowing what a snapshot is.
 
 ### 5. The error message is a separate fix and must land regardless
 
