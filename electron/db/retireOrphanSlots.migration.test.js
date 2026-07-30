@@ -265,6 +265,81 @@ describe('migration v26: retiring orphaned schedule slots', () => {
     expect(rows[0].outcome).toBe('skipped')
     expect(rows[0].orphan_template_id).toBe(strayId)
     expect(rows[0].reason).toMatch(/no owning template/)
+    // Not attributed to a guessed camp: there is no template row to read one
+    // from, and this is the row support reads when T21 is still blocked.
+    expect(rows[0].camp_id).toBeNull()
+    expect(rows[0].kind).toBeNull()
+
+    // The condition is permanent, so a second pass must not re-append it.
+    rerunV26(db)
+    expect(journal(db)).toHaveLength(1)
+    db.close()
+  })
+
+  // Round-2 finding (Red Hat HIGH-2): skipping a camp is only safe if the camp
+  // is retried. The stamp is withheld so the next launch tries again.
+  it('retries a camp whose snapshot failed, and completes once the failure is gone', () => {
+    const db = freshDb()
+    const orphan1 = seedOrphanedCamp(db, 'camp1', 'random-uuid-1')
+    db.exec(`CREATE TRIGGER v26_block BEFORE INSERT ON schedule_snapshots
+             BEGIN SELECT RAISE(ABORT, 'blocked for test'); END;`)
+
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 26').run()
+    initSchema(db)
+
+    // Not stamped — otherwise the camp would never be looked at again.
+    expect(getSchemaVersion(db)).toBeLessThan(26)
+    expect(db.prepare('SELECT COUNT(*) c FROM template_slots WHERE template_id = ?').get(orphan1).c).toBe(3)
+
+    db.exec('DROP TRIGGER v26_block')
+    initSchema(db) // the next launch, with no re-priming
+
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
+    expect(orphanSlotCount(db)).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM schedule_snapshots').get().c).toBe(1)
+    db.close()
+  })
+
+  // Round-2 finding (Red Hat HIGH-1): camp_id and kind both replicate, so an id
+  // derived from them alone would be identical on two devices holding
+  // DIFFERENT recovered weeks — and deleting a Version emits a replicating op
+  // keyed by that id.
+  it('scopes the Version id to this device', () => {
+    const dbA = freshDb('v26-devA')
+    const dbB = freshDb('v26-devB')
+    seedOrphanedCamp(dbA, 'camp1', 'random-uuid-1')
+    seedOrphanedCamp(dbB, 'camp1', 'random-uuid-1')
+    rerunV26(dbA)
+    rerunV26(dbB)
+
+    const idA = dbA.prepare('SELECT id FROM schedule_snapshots').get().id
+    const idB = dbB.prepare('SELECT id FROM schedule_snapshots').get().id
+    const deviceA = dbA.prepare('SELECT id FROM device_identity').get().id
+    expect(idA).toContain(deviceA)
+    expect(idA).not.toBe(idB)
+    dbA.close()
+    dbB.close()
+  })
+
+  // Round-2 finding (Red Hat MEDIUM): a rollback followed by a roll-forward
+  // must not discard the name the director gave the Version.
+  it('keeps a director-supplied name when the Version is rewritten', () => {
+    const db = freshDb()
+    seedOrphanedCamp(db, 'camp1', 'random-uuid-1')
+    rerunV26(db)
+    const snapId = db.prepare('SELECT id FROM schedule_snapshots').get().id
+    db.prepare('UPDATE schedule_snapshots SET name = ? WHERE id = ?').run('Week 3 as it was', snapId)
+
+    rollbackV26(db)
+    rerunV26(db)
+
+    const snap = db.prepare('SELECT * FROM schedule_snapshots WHERE id = ?').get(snapId)
+    expect(snap.name).toBe('Week 3 as it was')
+    // The rewrite is inspectable: the prior row is journalled in full.
+    const replaced = journal(db).filter((r) => r.outcome === 'replaced')
+    expect(replaced).toHaveLength(1)
+    expect(replaced[0].table_name).toBe('schedule_snapshots')
+    expect(JSON.parse(replaced[0].row_json).name).toBe('Week 3 as it was')
     db.close()
   })
 

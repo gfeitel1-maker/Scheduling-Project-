@@ -1068,11 +1068,20 @@ export function initSchema(db) {
   // parent, unlike the orphan slots it was made from. That is the ordinary
   // behaviour of any Version and needs no special handling.)
   if (getSchemaVersion(db) < 26) {
+    // Set only when a snapshot INSERT failed. The v26 stamp is withheld in
+    // that case so the camp is retried on the next launch: skipping is the
+    // safe outcome for one run, but without a retry the camp's orphans — and
+    // the T21 block they cause — would be permanent.
+    let retryNeeded = false
     db.transaction(() => {
       db.exec(`CREATE TABLE IF NOT EXISTS migration_v26_retired_orphan_log (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        camp_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
+        -- camp_id/kind are NULLABLE on purpose: an orphan set with no owning
+        -- template row cannot be attributed to either, and a guessed camp_id
+        -- is worse than none on the row support reads when T21 is still
+        -- blocked for a camp.
+        camp_id TEXT,
+        kind TEXT,
         orphan_template_id TEXT NOT NULL,
         real_template_id TEXT,
         snapshot_id TEXT,
@@ -1095,6 +1104,15 @@ export function initSchema(db) {
       const templates = db.prepare('SELECT id, camp_id, kind FROM schedule_templates').all()
       const present = new Set(templates.map((t) => t.id))
       const handled = new Set()
+      // Scoped to THIS device. The orphan id is derived from camp_id + kind,
+      // both of which replicate, so an id built from it alone would be the
+      // SAME on two devices holding DIFFERENT recovered weeks. The Version row
+      // has a real parent and so does travel on a first-pairing full sync, and
+      // deleting a Version emits a replicating DELETE_FIELD op keyed by id —
+      // so a shared id means deleting the unfamiliar week here deletes a
+      // different week there, undetectably (the names are identical too).
+      // device_identity is local and never replicates.
+      const deviceId = getOrCreateDeviceId(db)
 
       for (const t of templates) {
         // Same use, same limit, as v24: the derived id attributes an orphan to
@@ -1137,18 +1155,35 @@ export function initSchema(db) {
           label: o.label,
         }))
 
-        // Deterministic, so a rollback followed by a roll-forward cannot mint a
-        // SECOND Version in the director's list. Internal; never displayed.
-        const snapshotId = `v26-recovered:${orphanId}`
+        // Deterministic per device, so a rollback followed by a roll-forward
+        // cannot mint a SECOND Version in the director's list. Internal; never
+        // displayed.
+        const snapshotId = `v26-recovered:${deviceId}:${orphanId}`
+
+        // A roll-forward after a rollback re-writes this row. If the director
+        // renamed the Version in between, their name is what the list showed
+        // them and it is kept — the migration only supplies a name when there
+        // is none. The prior row is journalled below either way.
+        const priorSnap = db
+          .prepare('SELECT * FROM schedule_snapshots WHERE id = ?')
+          .get(snapshotId)
+        const snapName = priorSnap && priorSnap.name ? priorSnap.name : V26_RECOVERED_WEEK_NAME
 
         try {
           db.transaction(() => {
+            if (priorSnap) {
+              journal.run(
+                t.camp_id, t.kind, orphanId, t.id, snapshotId,
+                'replaced', 'a recovered Version already existed and was rewritten',
+                'schedule_snapshots', snapshotId, JSON.stringify(priorSnap), now
+              )
+            }
             db.prepare(
               `INSERT OR REPLACE INTO schedule_snapshots
                  (id, template_id, name, is_auto, created_at, slots, overlays)
                VALUES (?, ?, ?, 0, ?, ?, ?)`
             ).run(
-              snapshotId, t.id, V26_RECOVERED_WEEK_NAME, now,
+              snapshotId, t.id, snapName, now,
               JSON.stringify(snapSlots), JSON.stringify(snapOverlays)
             )
 
@@ -1163,6 +1198,7 @@ export function initSchema(db) {
             }
           })()
         } catch (err) {
+          retryNeeded = true
           journal.run(
             t.camp_id, t.kind, orphanId, t.id, null,
             'skipped', `snapshot failed: ${err?.message || String(err)}`,
@@ -1182,20 +1218,41 @@ export function initSchema(db) {
           WHERE NOT EXISTS (SELECT 1 FROM schedule_templates t WHERE t.id = s.template_id)
           ORDER BY s.template_id`
       ).all()
+      // Already journalled on an earlier attempt — the stamp is withheld when a
+      // snapshot fails, so this block can run on several launches and must not
+      // re-append the same permanent condition each time.
+      const alreadyStranded = db.prepare(
+        `SELECT DISTINCT orphan_template_id AS tid FROM migration_v26_retired_orphan_log
+          WHERE outcome = 'skipped' AND real_template_id IS NULL`
+      ).all().map((r) => r.tid)
+      const strandedSeen = new Set(alreadyStranded)
       for (const { tid } of stranded) {
-        if (handled.has(tid)) continue
-        const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+        if (handled.has(tid) || strandedSeen.has(tid)) continue
+        strandedSeen.add(tid)
+        // camp_id/kind stay NULL: there is no template row to attribute this
+        // set to, and `SELECT id FROM camps LIMIT 1` would be a guess — right
+        // only under the single-camp-per-device invariant, wrong and
+        // misleading anywhere else.
         journal.run(
-          camp ? camp.id : 'unknown', 'unknown', tid, null, null,
+          null, null, tid, null, null,
           'skipped', 'no owning template — nothing legal to attach a Version to',
           null, null, null, now
         )
       }
     })()
 
-    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (26, ?)').run(
-      new Date().toISOString()
-    )
+    // Withheld when a camp's snapshot failed, so the next launch retries that
+    // camp. Everything already retired is a no-op on the retry (its orphan set
+    // is empty and the loop `continue`s), and the recovered Version is written
+    // under a stable per-device id, so a retry cannot duplicate work. A camp
+    // whose orphans are STRANDED does not withhold the stamp: that condition
+    // is permanent, and blocking the version forever would re-run the whole
+    // migration on every launch to no effect.
+    if (!retryNeeded) {
+      db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (26, ?)').run(
+        new Date().toISOString()
+      )
+    }
   }
 }
 
@@ -1207,9 +1264,12 @@ export const V26_RECOVERED_WEEK_NAME = 'Recovered week — found during an updat
 
 // The `flags` coercion normalizeSlots performs on read, re-implemented for the
 // v26 migration. See the note at its call site for why it is not imported.
-// stripStaleFlags is deliberately NOT replicated: stripping here would be
-// strictly less preserving, and normalizeSlots strips on every read anyway, so
-// the observable result is identical.
+// stripStaleFlags is deliberately NOT replicated — and that omission covers
+// BOTH of the things it does: the stale-flag families, and its filter on
+// __proto__/constructor/prototype keys (its defence against a peer planting
+// them over LAN sync). Stripping here would be strictly less preserving, and
+// normalizeSlots strips on every read anyway, so nothing copied verbatim into
+// this payload can reach a consumer unsanitized.
 function parseSlotFlags(flags) {
   if (flags && typeof flags === 'object') return flags
   if (typeof flags !== 'string' || flags === '') return {}

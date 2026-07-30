@@ -21,7 +21,10 @@
 // re-run v26 on the next launch and re-delete what this just restored. Run with
 // the app quit, and downgrade to a pre-v26 build before reopening. (v26's
 // snapshot id is deterministic, so a rollback/roll-forward cycle at least
-// cannot accumulate duplicate Versions in the director's list.)
+// snapshot id is deterministic PER DEVICE, so a rollback/roll-forward cycle at
+// least cannot accumulate duplicate Versions in the director's list, and the
+// re-run keeps any name the director gave the Version rather than resetting it
+// — the prior row is journalled as outcome 'replaced' either way.)
 //
 // Usage:
 //   node electron/db/rollback/v26_down.js <path-to-shoresh.sqlite> [--purge-journal] [--purge-snapshots]
