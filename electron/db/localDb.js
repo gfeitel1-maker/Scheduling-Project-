@@ -13,7 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 24
+export const CURRENT_SCHEMA_VERSION = 25
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1010,7 +1010,41 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v25 — pending_restores, the durable queue of restore requests a Client
+  // could not deliver while the Host was unreachable
+  // (docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md).
+  //
+  // DDL only, no data movement, so unlike v24 there is no journal table and
+  // re-applying this migration is harmless (it recreates an empty table).
+  // See electron/db/rollback/v25_down.js.
+  //
+  // The statement text must stay byte-identical to schema.sql's copy —
+  // sqlite_master stores the original CREATE TABLE text, so a fresh database
+  // and a migrated one would otherwise differ in a way no column check
+  // catches. pendingRestores.migration.test.js asserts exactly that.
+  if (getSchemaVersion(db) < 25) {
+    db.transaction(() => {
+      db.exec(PENDING_RESTORES_DDL)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (25, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
+
+// Byte-identical duplicate of the pending_restores block in schema.sql. Kept
+// as a constant so the v25 migration cannot drift from it by a stray space.
+export const PENDING_RESTORES_DDL = `CREATE TABLE IF NOT EXISTS pending_restores (
+  pending_id TEXT PRIMARY KEY,
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  requested_by TEXT NOT NULL,
+  requested_at TEXT NOT NULL,
+  last_error TEXT,
+  UNIQUE (entity, entity_id)
+)`
 
 // A peer still on <=v22 rejects the manual candidate's schedule_templates row
 // (its UNIQUE(camp_id) absorbs the INSERT OR IGNORE) and then FK-violates on

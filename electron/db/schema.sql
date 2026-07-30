@@ -231,6 +231,39 @@ CREATE TABLE IF NOT EXISTS pending_writes (
   created_at TEXT NOT NULL
 );
 
+-- Durable queue of restore REQUESTS a Client could not deliver because the
+-- Host was unreachable (schema version 25,
+-- docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md). A restore
+-- executes on the Host — a Client does not hold the op history for records
+-- created before it paired — so a Client with no Host records the intent here
+-- and sends it when the Host returns. In-memory would not do: a queue that
+-- does not survive an app restart is not a queue, and a restart is exactly
+-- when a director expects a pending action to persist.
+--
+-- LOCAL ONLY. This holds intent, not data, and it must never replicate:
+-- it is written by direct INSERT (never through appendOp, so no operations
+-- row exists for it), it is absent from PROJECTIONS (so even a forged op
+-- naming it is a no-op on every device), and it is absent from
+-- DIRECT_CAMP_ENTITIES/PARENT_SCOPED_ENTITIES (so it can be neither
+-- full-synced nor read through the renderer's generic list() path).
+--
+-- UNIQUE(entity, entity_id) so three offline presses of Restore produce one
+-- intent rather than three. last_error holds a terminal drain failure so it
+-- is visible to the director rather than disappearing (ADR: a queued restore
+-- whose target is no longer restorable must fail visibly).
+--
+-- The DDL below is duplicated verbatim in localDb.js's v25 block; the two
+-- copies are asserted byte-identical by pendingRestores.migration.test.js.
+CREATE TABLE IF NOT EXISTS pending_restores (
+  pending_id TEXT PRIMARY KEY,
+  entity TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  requested_by TEXT NOT NULL,
+  requested_at TEXT NOT NULL,
+  last_error TEXT,
+  UNIQUE (entity, entity_id)
+);
+
 -- Renderer Supabase->local-first migration, Sub-plan A (schema version 10).
 -- New tables required by cohorts/time-blocks/anchors/schedule-template
 -- screens that previously had no local-schema equivalent. See
