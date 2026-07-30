@@ -1059,11 +1059,14 @@ export function initSchema(db) {
   // row has no parent, and sendFullSyncIfFirstPairing ships child rows joined
   // THROUGH schedule_templates, so orphans have never been able to reach a
   // peer. They are a per-device artefact; nothing here changes that. The
-  // recovered Version is written without an op too, so it appears only on the
-  // device that ran v26 — deliberate, not an oversight. The week only ever
+  // recovered Version is written without an op too, so an ALREADY-PAIRED peer
+  // never learns of it — deliberate, not an oversight. The week only ever
   // existed on this device, and emitting an op would make a local repair into a
   // sync event whose deterministic id would collide across devices holding
-  // DIFFERENT orphan sets.
+  // DIFFERENT orphan sets. (A device pairing for the FIRST time does receive
+  // it: schedule_snapshots is parent-scoped and the recovered row has a real
+  // parent, unlike the orphan slots it was made from. That is the ordinary
+  // behaviour of any Version and needs no special handling.)
   if (getSchemaVersion(db) < 26) {
     db.transaction(() => {
       db.exec(`CREATE TABLE IF NOT EXISTS migration_v26_retired_orphan_log (
