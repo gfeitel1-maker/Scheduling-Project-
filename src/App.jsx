@@ -15,6 +15,7 @@ import CohortsScreen from './screens/CohortsScreen'
 import DayOverridesScreen from './screens/DayOverridesScreen'
 import ScheduleScreen from './screens/ScheduleScreen'
 import ConflictsScreen from './screens/ConflictsScreen'
+import TrashScreen from './screens/TrashScreen'
 import DeviceManagerScreen from './screens/DeviceManagerScreen'
 import PairingPendingScreen from './screens/PairingPendingScreen'
 import { useDeviceMode } from './hooks/useDeviceMode'
@@ -26,6 +27,7 @@ import { S } from './styles/shared'
 const SCREENS = {
   setup:        CampSetup,
   conflicts:    ConflictsScreen,
+  trash:        TrashScreen,
   cohorts:      CohortsScreen,
   tiers:        TiersScreen,
   groups:       GroupsScreen,

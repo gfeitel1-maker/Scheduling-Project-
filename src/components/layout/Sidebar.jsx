@@ -31,6 +31,10 @@ const NAV_SECTIONS = [
       { key: 'schedule:generated', label: 'Generated Schedule' },
       { key: 'schedule:manual',    label: 'Manual Schedule' },
       { key: 'conflicts', label: 'Conflicts' },
+      // Deleted records and their history are day-to-day operations, not a
+      // setup step — and they sit next to Conflicts because both are places
+      // the director goes to put something right.
+      { key: 'trash', label: 'Trash' },
     ],
     // Appended only for admins (Device Manager is admin-only).
     adminItems: [

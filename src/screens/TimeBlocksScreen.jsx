@@ -243,7 +243,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       setError('No program selected — add a program before deleting time blocks.')
       return
     }
-    if (!window.confirm('Delete all time blocks? This cannot be undone.')) return
+    if (!window.confirm('Delete all time blocks? They can be restored from Trash.')) return
     const token = localStorage.getItem('shoresh-token')
     // Re-fetch immediately before building the id list rather than using the
     // closed-over `blocks` state — if another device synced in new blocks

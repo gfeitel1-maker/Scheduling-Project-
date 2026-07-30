@@ -356,7 +356,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
   }
 
   async function deleteAll() {
-    if (!window.confirm('Delete all fixed events? This cannot be undone.')) return
+    if (!window.confirm('Delete all fixed events? They can be restored from Trash.')) return
     try {
       const token = localStorage.getItem('shoresh-token')
       // Re-fetch immediately rather than using the closed-over `anchors`

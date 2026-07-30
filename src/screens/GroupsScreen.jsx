@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
+import RecordHistory from '../components/RecordHistory'
 
 const AVAIL_OPTIONS = [
   { value: 'all', label: 'All Day' },
@@ -9,7 +10,7 @@ const AVAIL_OPTIONS = [
   { value: 'afternoon', label: 'Afternoon Only' },
 ]
 
-function GroupRow({ group, tiers, role, onSave, onDelete }) {
+function GroupRow({ group, tiers, role, onSave, onDelete, onHistory }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(group.name)
   const [tierId, setTierId] = useState(group.tier_id || '')
@@ -59,6 +60,7 @@ function GroupRow({ group, tiers, role, onSave, onDelete }) {
       <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{AVAIL_OPTIONS.find(o => o.value === group.availability)?.label || group.availability}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
+        <button onClick={() => onHistory(group)} style={{ ...S.btnSecondary, marginLeft: 6 }}>History</button>
         <button
           onClick={() => onDelete(group.id)}
           disabled={role !== 'admin'}
@@ -83,6 +85,7 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
+  const [historyFor, setHistoryFor] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
@@ -198,7 +201,7 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
   }
 
   async function deleteAll() {
-    if (!window.confirm('Delete all groups? This cannot be undone.')) return
+    if (!window.confirm('Delete all groups? They can be restored from Trash.')) return
     const token = localStorage.getItem('shoresh-token')
     // Re-fetch immediately before building the id list rather than using the
     // closed-over `groups` state — if another device synced in new groups
@@ -380,7 +383,7 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
                           </td>
                         </tr>
                         {tierGroups.map(g => (
-                          <GroupRow key={g.id} group={g} tiers={tiers} role={role} onSave={saveGroup} onDelete={deleteGroup} />
+                          <GroupRow key={g.id} group={g} tiers={tiers} role={role} onSave={saveGroup} onDelete={deleteGroup} onHistory={setHistoryFor} />
                         ))}
                       </React.Fragment>
                     )
@@ -393,7 +396,7 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
                         </td>
                       </tr>
                       {noTier.map(g => (
-                        <GroupRow key={g.id} group={g} tiers={tiers} role={role} onSave={saveGroup} onDelete={deleteGroup} />
+                        <GroupRow key={g.id} group={g} tiers={tiers} role={role} onSave={saveGroup} onDelete={deleteGroup} onHistory={setHistoryFor} />
                       ))}
                     </>
                   )}
@@ -468,6 +471,15 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
         <button onClick={() => onNavigate('timeblocks')} style={S.btnPrimary}>Next: Time Blocks →</button>
       </div>
+
+      {historyFor && (
+        <RecordHistory
+          entity="groups"
+          entityId={historyFor.id}
+          name={historyFor.name}
+          onClose={() => setHistoryFor(null)}
+        />
+      )}
     </div>
   )
 }

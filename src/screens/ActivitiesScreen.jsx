@@ -400,7 +400,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
   }
 
   async function deleteAll() {
-    if (!window.confirm('Delete all activities? This cannot be undone.')) return
+    if (!window.confirm('Delete all activities? They can be restored from Trash.')) return
     const token = localStorage.getItem('shoresh-token')
     // Re-fetch immediately before building the id list rather than using the
     // closed-over `activities` state — if another device synced in new

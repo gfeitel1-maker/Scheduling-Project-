@@ -10,6 +10,7 @@ const TITLES = {
   dayoverrides: 'Day Overrides',
   schedule:     'Schedule',
   conflicts:    'Conflicts',
+  trash:        'Trash',
 }
 
 export default function TopBar({ screen, onLogout }) {

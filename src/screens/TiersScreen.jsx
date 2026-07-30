@@ -238,7 +238,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       setError('No program selected — add a program before deleting units.')
       return
     }
-    if (!window.confirm('Delete all units? This cannot be undone.')) return
+    if (!window.confirm('Delete all units? They can be restored from Trash.')) return
     const token = localStorage.getItem('shoresh-token')
     // Re-fetch immediately before building the id list rather than using the
     // closed-over `tiers` state — if another device synced in new units
