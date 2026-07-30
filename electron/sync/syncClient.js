@@ -137,25 +137,34 @@ export function createSyncClient(
 
   if (!serverUrl) {
     return {
-      async write({ entity, entity_id, field, value, parent_op_id = null }) {
+      // T22: `author_user_id` MUST be a parameter. It used to be absent here,
+      // so the value main.js supplies per call (`:509`, the signed-in user)
+      // was silently discarded and the closure's value — `null`, fixed at
+      // construction before anyone has logged in (`main.js:228`) — was written
+      // instead. Every op through this path recorded no author, which is why
+      // Trash and record history said "Unknown" for almost everything.
+      // The closure value remains the fallback for callers with no user, such
+      // as bootstrap and pairing, which are honestly unattributed.
+      async write({ entity, entity_id, field, value, parent_op_id = null, author_user_id: opAuthor }) {
         const op = appendOp(db, {
           entity,
           entity_id,
           field,
           value,
-          author_user_id,
+          author_user_id: opAuthor ?? author_user_id,
           device_id,
           parent_op_id,
         })
         notifyOpApplied(op)
         return { status: 'applied', op }
       },
-      async writeBulkReplace({ entity, scope_id, rows }) {
+      // Same omission as write() above, same consequence.
+      async writeBulkReplace({ entity, scope_id, rows, author_user_id: opAuthor }) {
         const op = appendBulkReplaceOp(db, {
           entity,
           scope_id,
           rows,
-          author_user_id,
+          author_user_id: opAuthor ?? author_user_id,
           device_id,
           client_write_id: randomUUID(),
         })
@@ -706,7 +715,9 @@ export function createSyncClient(
     })
   }
 
-  async function performWrite({ entity, entity_id, field, value, parent_op_id = null, client_write_id = null }) {
+  // T22: the remote path dropped the caller's author for the same reason the
+  // local one did — it was never a parameter.
+  async function performWrite({ entity, entity_id, field, value, parent_op_id = null, client_write_id = null, author_user_id: opAuthor }) {
     const lockResult = await acquireLockRemote(entity, entity_id, field)
     if (lockResult.status === 'disconnected' || lockResult.status === 'timeout') {
       return { status: lockResult.status }
@@ -723,7 +734,7 @@ export function createSyncClient(
       return { status: 'lock_contention', holder_device_id: lockResult.holder_device_id }
     }
 
-    const op = { entity, entity_id, field, value, author_user_id, parent_op_id, client_write_id }
+    const op = { entity, entity_id, field, value, author_user_id: opAuthor ?? author_user_id, parent_op_id, client_write_id }
     const submitResult = await submitOpRemote(op)
     if (submitResult.status === 'disconnected' || submitResult.status === 'timeout' || submitResult.status === 'error') {
       return submitResult
