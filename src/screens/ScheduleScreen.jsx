@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { localClient } from '../localClient'
 import buildSchedule, { computeFindings } from '../engine/buildSchedule'
 import { S } from '../styles/shared'
 import StatBadge from '../components/schedule/StatBadge'
-import { legendEntriesFor, FLAG_SEVERITY } from '../components/schedule/slotCellConstants'
+import { legendEntriesFor, FLAG_SEVERITY, setActivityPalette } from '../components/schedule/slotCellConstants'
 import FindingsRail from '../components/schedule/FindingsRail'
 import EditModal from '../components/schedule/EditModal'
 import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
@@ -1498,9 +1498,15 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setFindingsRailOpen(false)
   }
 
-  // Build lookup maps for rendering. colorIdx carries the activity's stable
-  // id (not array position) so activityColor() can derive a djb2-stable hue
-  // that survives reordering/additions — see slotCellConstants.js.
+  // Register the colour assignment for this camp's activity set before anything
+  // renders a dot. The hash alone collided badly on real data — three of one
+  // camp's four activities shared an entry — so the set has to be resolved as a
+  // whole rather than each id independently. useMemo, not an effect: the first
+  // paint must already have the right colours, and it is idempotent.
+  useMemo(() => setActivityPalette(activities), [activities])
+
+  // colorIdx carries the activity's stable id, which activityColor() looks up in
+  // that assignment (falling back to the bare hash if none is registered).
   const actMap = new Map(activities.map(a => [a.id, { ...a, colorIdx: a.id }]))
   const anchorMap = new Map(anchors.map(a => [a.id, a]))
 

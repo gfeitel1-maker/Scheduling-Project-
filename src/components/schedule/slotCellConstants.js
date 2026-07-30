@@ -113,11 +113,73 @@ function djb2(str) {
   return Math.abs(hash)
 }
 
-// Stable across reorders/additions — keyed by the activity's persisted id,
-// never by array position. With 6 colors and 15-30 typical activities,
-// collisions are unavoidable by pigeonhole; activity name remains the
-// identifying signal, color is supplementary (see Architect's ADR §6).
+// Which colour each activity gets.
+//
+// The hash alone was not enough. djb2 % 6 is a preference, not an assignment,
+// and on a real camp it collided badly: with only FOUR activities
+// (basketball, flag football, soccer, swim) three of them landed on the same
+// entry, so the dot distinguished exactly one activity out of four. Colour
+// exists to tell activities apart at a glance; that failed at the smallest
+// scale anyone would ever run.
+//
+// So the hash still chooses, and a collision walks to the next free entry.
+// Order is by sorted id, not array position, so the result does not depend on
+// how the caller happened to order the list.
+//
+// The cost, stated plainly: absolute per-activity stability is gone. Adding a
+// fifth activity can shift a later one's colour, where the pure hash never
+// would. That trade was made deliberately — a stable colour identical to two
+// other activities is not doing the job the colour exists for.
+//
+// Past six activities collisions are unavoidable by pigeonhole, and the
+// assignment degrades to the old behaviour: everyone keeps their preferred
+// entry. The activity NAME remains the identifying signal; colour is
+// supplementary (DESIGN_STANDARD §3).
+export function assignActivityColors(activities) {
+  const ids = (activities || []).map((a) => a && a.id).filter(Boolean).sort()
+  const out = new Map()
+  const used = new Set()
+  for (const id of ids) {
+    const want = djb2(String(id)) % ACTIVITY_COLORS.length
+    let i = want
+    // Only resolve while a free entry exists; once the palette is exhausted
+    // every activity simply keeps its preference.
+    if (used.size < ACTIVITY_COLORS.length) {
+      let steps = 0
+      while (used.has(i) && steps < ACTIVITY_COLORS.length) {
+        i = (i + 1) % ACTIVITY_COLORS.length
+        steps += 1
+      }
+    }
+    used.add(i)
+    out.set(id, ACTIVITY_COLORS[i])
+  }
+  return out
+}
+
+// The resolved assignment for the camp currently on screen.
+//
+// Module-level state, deliberately, and the reason is worth recording: six
+// separate components call activityColor(id) — the grid cell, both palettes,
+// the edit modal, the activity view, the displaced chips — and most of them
+// hold one activity, not the list. Threading a map through all of them would
+// mean prop changes in every one, and any component that missed the prop would
+// silently fall back to the raw hash and disagree with the grid. That
+// divergence is precisely the defect T17 was filed about. One registry means
+// every surface agrees by construction.
+const assignedColors = new Map()
+
+export function setActivityPalette(activities) {
+  const next = assignActivityColors(activities)
+  assignedColors.clear()
+  for (const [id, colour] of next) assignedColors.set(id, colour)
+}
+
+// Falls back to the bare hash when no assignment has been registered, so any
+// caller outside the schedule screen still gets a sensible, stable colour.
 export function activityColor(activityId) {
+  const assigned = assignedColors.get(activityId)
+  if (assigned) return assigned
   return ACTIVITY_COLORS[djb2(String(activityId)) % ACTIVITY_COLORS.length]
 }
 
