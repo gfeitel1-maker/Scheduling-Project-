@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { LEGEND_ENTRIES, FLAG_COLORS, FLAG_SEVERITY, ANCHOR_COLOR, legendEntriesFor } from './slotCellConstants'
+import { LEGEND_ENTRIES, FLAG_COLORS, FLAG_SEVERITY, ANCHOR_COLOR, legendEntriesFor, activityColor, ACTIVITY_COLORS } from './slotCellConstants'
 
 // The legend's job is to leave nothing on the grid unexplained. The original
 // defect was structural, not cosmetic: the legend was rendered by iterating
@@ -100,6 +100,29 @@ describe('route-aware legend', () => {
       const twin = generated.find(g => g.label === entry.label)
       expect(twin.description).toBe(entry.description)
       expect(twin.color).toBe(entry.color)
+    }
+  })
+})
+
+// T17. `activityColor()` hashes whatever it is handed, so the SEED matters:
+// feeding it an array index gives a different colour from feeding it the
+// activity's id. The grid keys off the stable id (ScheduleScreen's actMap), and
+// three displaced-item construction sites used to attach a `colorIdx` derived
+// from activities.findIndex(...) instead. Nothing read it — DisplacedPalette
+// colours from activityId — so no colours actually diverged, but the field sat
+// one destructure away from the component that would have rendered it, encoding
+// the wrong convention and waiting for someone to "wire it up".
+describe('T17: one colour convention, keyed on the activity id', () => {
+  it('gives the same colour for the same activity id, and a different one for an index', () => {
+    const id = 'a1b2c3d4-5e6f-7890-abcd-ef1234567890'
+    expect(activityColor(id)).toBe(activityColor(id))
+    // The bug's shape: index 3 and the id of the 4th activity are unrelated seeds.
+    expect(activityColor(id)).not.toBe(activityColor(3))
+  })
+
+  it('always returns a colour from the published palette', () => {
+    for (const seed of ['x', 0, 3, 'a1b2c3d4-5e6f', 'Copy of Archery']) {
+      expect(ACTIVITY_COLORS).toContain(activityColor(seed))
     }
   })
 })

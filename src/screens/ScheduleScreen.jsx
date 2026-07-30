@@ -258,9 +258,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           const [gId, dId, bId] = key.split('|')
           const s = slots.find(sl => sl.group_id === gId && sl.day_id === dId && sl.time_block_id === bId)
           if (!s || !s.activity_id) continue
-          const actIdx = activities.findIndex(a => a.id === s.activity_id)
           const act = activities.find(a => a.id === s.activity_id)
-          items.push({ activityId: s.activity_id, activityName: act?.name || '', colorIdx: actIdx >= 0 ? actIdx : 0 })
+          items.push({ activityId: s.activity_id, activityName: act?.name || '' })
         }
         if (items.length === 0) return
         setClipboardItems(items)
@@ -1208,7 +1207,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     }))
 
     // Add displaced activity to palette
-    const colorIdx = activities.findIndex(a => a.id === tailActivityId)
     if (tailActivityId) {
       setDisplacedItems(prev => [
         ...prev,
@@ -1217,7 +1215,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           activityName: tailActivityName,
           fromBlockName: tailBlockName,
           dayLabel,
-          colorIdx: colorIdx >= 0 ? colorIdx : 0,
         },
       ])
     }
@@ -1249,7 +1246,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           return s
         }))
         if (tailActivityId) {
-          setDisplacedItems(prev => [...prev, { activityId: tailActivityId, activityName: tailActivityName, fromBlockName: tailBlockName, dayLabel, colorIdx: colorIdx >= 0 ? colorIdx : 0 }])
+          setDisplacedItems(prev => [...prev, { activityId: tailActivityId, activityName: tailActivityName, fromBlockName: tailBlockName, dayLabel }])
         }
       },
     })
@@ -1329,7 +1326,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     const prevTailIsSpanHead = tailSlot.is_span_head
 
     if (displacedActivityId && displacedActivityName) {
-      const colorIdx = activities.findIndex(a => a.id === displacedActivityId)
       const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
       const day = days.find(d => d.id === dayId)
       setDisplacedItems(prev => [
@@ -1339,7 +1335,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           activityName: displacedActivityName,
           fromBlockName: tailBlock?.name ?? '',
           dayLabel: day?.label ?? '',
-          colorIdx: colorIdx >= 0 ? colorIdx : 0,
         },
       ])
     }
@@ -1875,9 +1870,19 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           cue: a director who glances at the tiles knows where they are. */}
       {hasSchedule && stats && (
         <div style={{ position: 'relative', display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
+          {/* T18: one concept, one name, on both routes. These labels used to be
+              ternaries on isManual — the manual route said "Placed" / "Still
+              needed" / "Spread across the week" while the generated route said
+              "Filled" / "Underserved" / "Distribution" for the SAME numbers.
+              The routes were deliberately given a shared flag vocabulary so a
+              director learns it once; two names for one concept defeated that.
+              The director's words win over the engine's (Art. V).
+
+              Unfillable vs Overlapping below is NOT this — those are genuinely
+              different flags, and the routes share a vocabulary, not a flag set. */}
           <StatBadge
-            label={isManual ? 'Placed' : 'Filled'}
-            value={isManual ? `${stats.filled} of ${stats.open}` : `${stats.filled}/${stats.open}`}
+            label="Placed"
+            value={`${stats.filled} of ${stats.open}`}
             color={isManual ? 'var(--text-secondary)' : 'var(--success)'}
           />
           {isManual ? (
@@ -1896,25 +1901,29 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             />
           )}
           <StatBadge
-            label={isManual ? 'Still needed' : 'Underserved'}
+            label="Still needed"
             value={activeFindings.filter(f => f.kind === 'UNDERSERVED').length}
             color={activeFindings.some(f => f.kind === 'UNDERSERVED') ? 'var(--accent)' : 'var(--text-secondary)'}
             onClick={() => setFindingsRailOpen(o => !o)}
           />
           <StatBadge
-            label={isManual ? 'Spread across the week' : 'Distribution'}
+            label="Spread across the week"
             value={activeFindings.filter(f => f.kind === 'DISTRIBUTION').length}
             color={activeFindings.some(f => f.kind === 'DISTRIBUTION') ? 'var(--secondary)' : 'var(--text-secondary)'}
             onClick={() => setFindingsRailOpen(o => !o)}
           />
+          {/* Same framing on both routes. An under-target activity means the
+              same thing however the week was built: work remaining, not a
+              mistake made. The generated route previously got no intro at all,
+              so identical findings read as bare failures there. */}
           {findingsRailOpen && (
             <FindingsRail
               rows={findingsRows}
               onDismiss={dismissFindingsRow}
               onLocate={locateFindingsRow}
               onClose={() => setFindingsRailOpen(false)}
-              intro={isManual ? { title: 'What this week still needs', sub: "Nothing here is a mistake. It's what's left to place." } : undefined}
-              emptyText={isManual ? 'Everything on your list is placed.' : undefined}
+              intro={{ title: 'What this week still needs', sub: "Nothing here is a mistake. It's what's left to place." }}
+              emptyText="Everything on your list is placed."
             />
           )}
         </div>

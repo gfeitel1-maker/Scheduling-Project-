@@ -154,8 +154,10 @@ describe('DB-shaped slots (integers, as list() actually returns) drive the span/
     mockList()
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
-    await waitFor(() => expect(screen.getByText('Filled')).toBeTruthy())
-    expect(screen.getByText('Filled').parentElement.textContent).toContain('1/1')
+    // Label is "Placed" on both routes since T18; the value reads "1 of 1"
+    // rather than "1/1" for the same reason — a director reads words, not ratios.
+    await waitFor(() => expect(screen.getByText('Placed')).toBeTruthy())
+    expect(screen.getByText('Placed').parentElement.textContent).toContain('1 of 1')
   })
 })
 
@@ -165,15 +167,16 @@ describe('DB-shaped slots (integers, as list() actually returns) drive the span/
 // simply opened, never regenerated in this session. This is the ordinary
 // director path — nobody regenerates just to look.
 describe('findings recompute on load without regenerating (Round 2 B2)', () => {
-  it('loadAll(): the Underserved badge reflects persisted slot counts on initial render, before Generate is ever clicked', async () => {
+  it('loadAll(): the still-needed badge reflects persisted slot counts on initial render, before Generate is ever clicked', async () => {
     mockList({
       activities: [activity({ id: 'act-1', name: 'Swim', min_per_week: 3, eligible_tier_ids: [], eligible_group_ids: [] })],
       template_slots: [slotRow({ activity_id: 'act-1' })], // only 1 placement, needs 3
     })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
-    await waitFor(() => expect(screen.getByText(/Underserved/)).toBeTruthy())
-    const badge = screen.getByText(/Underserved/).parentElement
+    // "Underserved" is the engine's word; the tile says "Still needed" since T18.
+    await waitFor(() => expect(screen.getByText(/Still needed/)).toBeTruthy())
+    const badge = screen.getByText(/Still needed/).parentElement
     expect(badge.textContent).toContain('1')
     // The Generate button must never have been clicked — proves this is
     // loadAll(), not a leftover buildSchedule() call from generate().
@@ -1097,5 +1100,44 @@ describe('ScheduleScreen — a rejected schedule_templates write is reported, no
 
     await waitFor(() => expect(screen.getByText(/Could not open the manual schedule/i)).toBeTruthy())
     expect(localClient.bulkReplace).not.toHaveBeenCalled()
+  })
+})
+
+// T18. The two routes were deliberately given a shared flag vocabulary so a
+// director learns it once. The stat tiles quietly broke that: every label was a
+// ternary on isManual, so the SAME finding was called "Still needed" on one
+// route and "Underserved" on the other. This locks the rule that survived the
+// fix — one concept, one name; different concepts keep different names.
+describe('T18: one concept has one name on both routes', () => {
+  it('shows the director-facing name and never the engine word', async () => {
+    // "Underserved" and "Distribution" are the engine's own vocabulary. They
+    // leaked into the interface; Article V says the director's words win. The
+    // defect was that the SAME finding was called one thing on the manual route
+    // and another on the generated one, so a director learned it twice.
+    mockList({ template_slots: [slotRow()] })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+
+    expect(screen.getByText('Still needed')).toBeTruthy()
+    expect(screen.getByText('Spread across the week')).toBeTruthy()
+    expect(screen.getByText('Placed')).toBeTruthy()
+    expect(screen.queryByText('Underserved')).toBeNull()
+    expect(screen.queryByText('Distribution')).toBeNull()
+    expect(screen.queryByText('Filled')).toBeNull()
+  })
+
+  it('keeps Unfillable distinct — it is a different concept, not a synonym', async () => {
+    // The routes share a flag VOCABULARY, not an identical flag SET. Collapsing
+    // Unfillable and Overlapping would be the opposite error to the one fixed.
+    mockList({ template_slots: [slotRow()] })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+
+    // On the generated route Unfillable is present and Overlapping is not —
+    // the engine never makes a clashing placement, and an empty manual cell is
+    // "not filled yet" rather than unfillable. Note the stat badge carries a
+    // title only when it is clickable (count > 0), so do not key off that.
+    expect(screen.getAllByText(/Unfillable/).length).toBeGreaterThan(0)
+    expect(screen.queryByText('Overlapping')).toBeNull()
   })
 })
