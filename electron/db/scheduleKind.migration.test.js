@@ -78,7 +78,7 @@ describe('migration v23: schedule_templates.kind', () => {
     expect(row.kind).toBe('generated')
     expect(db.prepare('SELECT template_id FROM template_slots WHERE id = ?').get('slot1').template_id)
       .toBe('schedule-template:camp1')
-    expect(getSchemaVersion(db)).toBe(24)
+    expect(getSchemaVersion(db)).toBe(25)
     db.close()
   })
 
@@ -197,8 +197,8 @@ describe('migration v23: schedule_templates.kind', () => {
     expect(names).toContain('idx_schedule_templates_camp_kind')
     expect(names).not.toContain('idx_schedule_templates_camp')
 
-    expect(getSchemaVersion(migrated)).toBe(24)
-    expect(getSchemaVersion(fresh)).toBe(24)
+    expect(getSchemaVersion(migrated)).toBe(25)
+    expect(getSchemaVersion(fresh)).toBe(25)
     fresh.close()
     migrated.close()
   })

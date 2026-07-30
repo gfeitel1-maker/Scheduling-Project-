@@ -300,6 +300,23 @@ export const mockShoresh = {
   async listPendingConflicts() {
     return loadState().conflicts
   },
+
+  // Trash and record history have no meaningful stand-in outside Electron:
+  // the mock has no op log, which is the only place a deleted record lives.
+  // Empty results keep the screens renderable for layout work at :5200 and
+  // make it obvious that persistence checks belong under electron:dev.
+  async listDeleted() {
+    return []
+  },
+  async listPendingRestores() {
+    return []
+  },
+  async getEntityHistory() {
+    return []
+  },
+  async restoreEntity() {
+    return { error: 'no-history' }
+  },
 }
 
 // Dev-only: expose the mock on window so a manual/automated browser session

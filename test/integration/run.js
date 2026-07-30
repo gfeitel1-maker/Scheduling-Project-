@@ -24,6 +24,7 @@ import { run as scenario14 } from './scenarios/14-corrupt-payload.js'
 import { run as scenario15 } from './scenarios/15-clock-skew.js'
 import { run as scenario16 } from './scenarios/16-role-change.js'
 import { run as scenario17 } from './scenarios/17-second-device-domain-sync.js'
+import { run as scenario18 } from './scenarios/18-restore-queue.js'
 
 const SCENARIOS = [
   { name: '01 bootstrap + first sync', fn: scenario01 },
@@ -43,6 +44,7 @@ const SCENARIOS = [
   { name: '15 clock-skew on created_at does not reject op', fn: scenario15 },
   { name: '16 mid-session role change takes effect (same token)', fn: scenario16 },
   { name: '17 second device receives domain data on first pairing', fn: scenario17 },
+  { name: '18 restore queues, survives restart, and drains once', fn: scenario18 },
 ]
 
 const PASS = '\x1b[32mPASS\x1b[0m'

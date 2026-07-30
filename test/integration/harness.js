@@ -24,6 +24,7 @@ import {
   ensureHostSigningKey,
 } from '../../electron/auth/localAuth.js'
 import { insertPendingWrite } from '../../electron/sync/pendingWrites.js'
+import { listPendingRestores } from '../../electron/sync/pendingRestores.js'
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -329,6 +330,12 @@ export class Client {
 
   /** Flush the durable pending-write queue. */
   flushQueue() { return this.syncClient.flushQueue() }
+
+  /** Ask the Host to restore a deleted record (or queue the request). */
+  requestRestore(args) { return this.syncClient.requestRestore(args) }
+
+  /** Restore requests recorded on this device but not yet delivered. */
+  getPendingRestores() { return listPendingRestores(this.db) }
 
   /** Read all operations from the client DB, ordered by seq. */
   getOps() {

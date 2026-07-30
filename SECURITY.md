@@ -71,6 +71,25 @@ logged), and device pairing and revocation events.
 After 5 consecutive failed PIN attempts for a username, further attempts are blocked for
 30 seconds (`LOGIN_MAX_ATTEMPTS = 5`, `LOGIN_LOCKOUT_MS = 30_000` in `localAuth.js`).
 
+### Restore is bounded by an entity allowlist, and never touches accounts
+
+Restoring a deleted record re-emits its last-known field values as ordinary ops
+(`electron/ops/restore.js`, per
+`docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md`). Because `users` is a
+writable projection, an unbounded restore would re-emit `pin_hash` and `pin_salt` as ops
+that **replicate**, resurrecting a deliberately-removed account with its old PIN. The
+existing `IPC_PIN_FIELDS` guard does not cover that: it filters what reaches the renderer,
+not what is written to the log.
+
+So `restoreEntity` accepts only the eight setup entities and refuses everything else —
+`users`, `camps`, `devices`, `schedule_templates`, `template_slots` — in the handler, on
+both the IPC and the WebSocket path, before anything reads the op log. The decision for
+every projected entity is recorded in `RESTORE_DECISIONS`, and a test fails if a new
+projection arrives without one. Restore requires `admin`; `listDeleted` and
+`getEntityHistory` are read-only and open to any authenticated role, and
+`getEntityHistory` withholds PIN values against the same shared list
+(`electron/ops/pinFields.js`).
+
 ---
 
 ## Known limitations
