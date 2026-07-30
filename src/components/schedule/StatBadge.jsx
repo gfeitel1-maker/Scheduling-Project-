@@ -14,7 +14,12 @@ export default function StatBadge({ label, value, color, onClick }) {
       title={clickable ? `Click to see details` : undefined}
     >
       <div style={{ fontFamily: 'var(--font-condensed)', fontSize: 20, fontWeight: 600, color: color || 'var(--text)' }}>{value}</div>
-      <div style={{ fontSize: 11, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 2 }}>
+      {/* T18: no textTransform. The labels are director-facing sentences now
+          ("Spread across the week", not "DISTRIBUTION"), and a long label in
+          caps is markedly harder to scan than a short one — the uppercase
+          treatment was carrying visual weight that the words should carry.
+          Letter-spacing goes with it: it exists to make caps legible. */}
+      <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
         {label}{clickable ? ' ↗' : ''}
       </div>
     </div>
