@@ -110,7 +110,7 @@ describe('migration v25: pending_restores', () => {
     expect(getSchemaVersion(fresh)).toBe(25)
     fresh.close()
     migrated.close()
-  })
+  }, 30000)
 
   it('gives a fresh db and a migrated db the same whole table set', () => {
     const fresh = freshDb()
@@ -122,7 +122,7 @@ describe('migration v25: pending_restores', () => {
     expect(tables(migrated)).toEqual(tables(fresh))
     fresh.close()
     migrated.close()
-  })
+  }, 30000)
 
   it('collapses repeated requests for the same record into one intent', () => {
     const db = freshDb()

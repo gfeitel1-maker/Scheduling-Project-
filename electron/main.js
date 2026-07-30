@@ -17,6 +17,11 @@ import { describeStartupFailure, formatStartupFailureLog } from './startupFailur
 import { deriveWriteAction, deriveBulkReplaceAction } from './auth/deriveWriteAction.js'
 import { recordAuditEvent } from './audit/auditLog.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from './ops/campScopedEntities.js'
+import { IPC_PIN_FIELDS } from './ops/pinFields.js'
+import { listDeleted, getEntityHistory } from './ops/trash.js'
+import { RESTORABLE_ENTITIES, restoreEntity } from './ops/restore.js'
+import { listPendingRestores } from './sync/pendingRestores.js'
+import { PROJECTIONS } from './ops/projections.js'
 import {
   getCurrentProjectPath,
   setCurrentProjectPath,
@@ -28,13 +33,13 @@ import {
 
 const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 
-// Fields whose raw op.value must never cross the IPC boundary into the
-// renderer — this is the actual security boundary. The renderer's own
-// sanitizeSide (usePendingConflicts.js) is defense-in-depth only; by the
-// time it runs, an unfiltered value would already be sitting in the
-// renderer's JS heap as the IPC event argument, readable by any
+// IPC_PIN_FIELDS lives in ./ops/pinFields.js so this push boundary and the
+// per-record history read (ops/trash.js) filter against one list rather than
+// two copies that can drift. This is the actual security boundary: the
+// renderer's own sanitizeSide (usePendingConflicts.js) is defense-in-depth
+// only; by the time it runs, an unfiltered value would already be sitting in
+// the renderer's JS heap as the IPC event argument, readable by any
 // renderer-side code (devtools, extensions, a compromised dependency).
-const IPC_PIN_FIELDS = new Set(['pin_hash', 'pin_salt'])
 
 // Fixed allowlist for `shoresh:list` — mirrors how ops/projections.js's
 // PROJECTIONS registry validates writable entities before ever touching the
@@ -646,9 +651,71 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return listPendingConflicts(db).map(sanitizeConflictForIpc)
   }
 
+  // --- Trash and record history ------------------------------------------
+  // docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md
+
+  function listDeletedHandler(token) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'trash.read' })
+    return listDeleted(db)
+  }
+
+  // Restore requests this device has recorded but not yet delivered. Read
+  // straight from the local table rather than from syncClient, so it answers
+  // correctly before a mode is chosen and on a Host (where it is always
+  // empty — a Host performs a restore directly, there is no hop to fail).
+  function listPendingRestoresHandler(token) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'trash.read' })
+    return listPendingRestores(db)
+  }
+
+  function getEntityHistoryHandler({ token, entity, entity_id } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    if (!isNonEmptyString(entity) || !PROJECTIONS[entity]) throw new Error('Invalid entity')
+    if (!isNonEmptyString(entity_id)) throw new Error('entity_id is required')
+    requireAuthorized(db, { token, action: `${entity}.read` })
+    // Pin material is withheld inside getEntityHistory itself, against the
+    // same list this file's op-applied push filters on. Do not add a second,
+    // looser read path here.
+    return getEntityHistory(db, { entity, entity_id })
+  }
+
+  // Restore executes on the HOST. A Client does not hold the op history for
+  // records created before it paired (its first full_sync ships materialized
+  // rows and sets last_synced_seq to the then-current max), so restoring from
+  // its own log would produce an empty shell. A Client therefore asks the
+  // Host, and queues the request when the Host is unreachable.
+  async function restoreEntityHandler({ token, entity, entity_id } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    if (!isNonEmptyString(entity)) throw new Error('Invalid entity')
+    const { userId } = requireAuthorized(db, { token, action: `${entity}.restore` })
+    if (!isNonEmptyString(entity_id)) throw new Error('entity_id is required')
+    // Refused in the handler, not hidden in the UI — and refused on the Client
+    // too, so a request that could only ever be rejected is never queued.
+    if (!RESTORABLE_ENTITIES.has(entity)) return { error: 'not-restorable' }
+
+    if (mode === 'client') {
+      if (!syncClient) throw new Error('sync not initialized — choose a mode first')
+      return syncClient.requestRestore({ entity, entity_id, requested_by: userId })
+    }
+
+    const result = restoreEntity(db, { entity, entity_id, author_user_id: userId, device_id: deviceId })
+    if (result.error) return result
+    // The ops are not broadcast here, matching every other Host-local write:
+    // in host mode syncClient has no serverUrl, so an ordinary write() also
+    // reaches peers via sendMissedOps on their next authenticate rather than
+    // a live push. Restore must not invent a second convention.
+    return { ok: true, restored_fields: result.restored_fields, deleted_children: result.deleted_children }
+  }
+
   return {
     chooseMode,
     discoverHosts: discoverHostsHandler,
+    listDeleted: listDeletedHandler,
+    listPendingRestores: listPendingRestoresHandler,
+    getEntityHistory: getEntityHistoryHandler,
+    restoreEntity: restoreEntityHandler,
     login,
     createUser: createUserHandler,
     bootstrapCamp,
@@ -713,6 +780,10 @@ if (isElectronEntryPoint()) {
     'shoresh:get-device-id',
     'shoresh:resolve-conflict',
     'shoresh:list-conflicts',
+    'shoresh:list-deleted',
+    'shoresh:list-pending-restores',
+    'shoresh:get-entity-history',
+    'shoresh:restore-entity',
     'shoresh:get-device-pairing-status',
     'shoresh:list-pending-pairing-requests',
     'shoresh:list-devices',
@@ -745,6 +816,10 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:get-device-id', (_event, args) => handlers.getDeviceId(args && args.token))
     ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
     ipcMain.handle('shoresh:list-conflicts', (_event, args) => handlers.listPendingConflicts(args && args.token))
+    ipcMain.handle('shoresh:list-deleted', (_event, args) => handlers.listDeleted(args && args.token))
+    ipcMain.handle('shoresh:list-pending-restores', (_event, args) => handlers.listPendingRestores(args && args.token))
+    ipcMain.handle('shoresh:get-entity-history', (_event, args) => handlers.getEntityHistory(args))
+    ipcMain.handle('shoresh:restore-entity', (_event, args) => handlers.restoreEntity(args))
     ipcMain.handle('shoresh:get-device-pairing-status', () => handlers.getDevicePairingStatus())
     ipcMain.handle('shoresh:list-pending-pairing-requests', (_event, args) => handlers.listPendingPairingRequests(args))
     ipcMain.handle('shoresh:list-devices', (_event, args) => handlers.listDevices(args))

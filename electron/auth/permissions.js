@@ -38,6 +38,14 @@ export const PERMISSIONS = {
     'devices.read',
     'conflicts.read',
     'conflicts.resolve',
+    // Trash and per-record history are read-only and available to every
+    // authenticated role: hiding "who changed this" from staff serves nobody
+    // (docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md §6).
+    // The matching '<entity>.restore' is deliberately ABSENT from this array,
+    // which is what makes restore admin-only via admin: ['*'] — a restore is
+    // as consequential as the delete it undoes, and must never derive to
+    // '<entity>.write', which staff hold.
+    'trash.read',
   ],
   // devices.approve and devices.revoke are admin-only (via admin: ['*'])
   // devices.dev_authorize has been removed — superseded by devices.approve

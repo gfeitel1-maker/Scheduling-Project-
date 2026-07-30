@@ -15,6 +15,7 @@ import { authorize } from '../auth/authorize.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from '../auth/deriveWriteAction.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from '../ops/campScopedEntities.js'
+import { restoreEntity } from '../ops/restore.js'
 
 // The parent-scoped entities shipped in the first-pairing domain snapshot —
 // deliberately excludes `schedule_snapshots` (see design doc Consequences:
@@ -707,6 +708,71 @@ function handleSubmitBulkReplaceOp(db, wss, ws, msg) {
   }
 }
 
+function validateRestoreRequestMsg(msg) {
+  return (
+    isNonEmptyString(msg.request_id) && isNonEmptyString(msg.entity) && isNonEmptyString(msg.entity_id)
+  )
+}
+
+// Host-side handling of a Client's restore request
+// (docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md §5).
+//
+// The Host is the only device guaranteed to hold the record's op history: a
+// first-pairing Client receives materialized rows and a watermark, never the
+// prior log. So a Client asks; the Host reads and appends; the ops replicate
+// back through the ordinary broadcast.
+//
+// Order of checks is load-bearing:
+//   1. authorize as '<entity>.restore'. Admin-only by construction — the
+//      action is absent from PERMISSIONS.staff, and admin holds '*'.
+//      deriveWriteAction is deliberately NOT reused: a restore must never
+//      derive to '<entity>.write', which staff hold.
+//   2. the allowlist, checked inside restoreEntity BEFORE it reads the log,
+//      so no path reaches the history of a refused entity (`users` above all).
+//   3-5. still-deleted, creation op present, last value per field.
+//   6. append inside one transaction, then broadcast — never the reverse.
+//      Broadcasting from inside the transaction would announce ops that could
+//      still roll back.
+function handleRestoreRequest(db, wss, ws, msg) {
+  const { request_id, entity, entity_id } = msg
+
+  if (!authorizeWs(db, ws, `${entity}.restore`).allowed) {
+    send(ws, { type: 'restore_result', request_id, error: 'forbidden' })
+    return
+  }
+
+  const result = restoreEntity(db, {
+    entity,
+    entity_id,
+    author_user_id: ws.userId,
+    device_id: ws.deviceId,
+  })
+
+  if (result.error) {
+    send(ws, { type: 'restore_result', request_id, error: result.error })
+    return
+  }
+
+  for (const op of result.ops) {
+    for (const client of wss.clients) {
+      if (!client.deviceId) continue
+      try {
+        if (client.readyState === client.OPEN) send(client, { type: 'op_applied', op })
+      } catch {
+        // never let one dead client stop the broadcast to others
+      }
+    }
+  }
+
+  send(ws, {
+    type: 'restore_result',
+    request_id,
+    ok: true,
+    restored_fields: result.restored_fields,
+    deleted_children: result.deleted_children,
+  })
+}
+
 // Max pending pairing connections at once (Security: prevents Map/WS handle
 // exhaustion via LAN flood of pairing_request messages).
 const MAX_PENDING_PAIRING = 50
@@ -840,6 +906,12 @@ export function startSyncServer(db, { port, onPairingRequest } = {}) {
             return
           }
           handleSubmitOp(db, wss, ws, msg)
+        } else if (msg.type === 'restore_request') {
+          if (!validateRestoreRequestMsg(msg)) {
+            sendError(ws)
+            return
+          }
+          handleRestoreRequest(db, wss, ws, msg)
         } else if (msg.type === 'submit_bulk_replace_op') {
           if (!validateSubmitBulkReplaceMsg(msg)) {
             sendError(ws)

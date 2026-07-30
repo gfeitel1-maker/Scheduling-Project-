@@ -43,6 +43,12 @@ export const localClient = {
   resolveConflict: (token, { entity, entity_id, field, chosen_op_id, parent_op_id }) =>
     shoresh.resolveConflict({ token, entity, entity_id, field, chosen_op_id, parent_op_id }),
   listPendingConflicts: () => shoresh.listPendingConflicts(currentToken()),
+  listDeleted: () => shoresh.listDeleted(currentToken()),
+  listPendingRestores: () => shoresh.listPendingRestores(currentToken()),
+  getEntityHistory: (entity, entity_id) =>
+    shoresh.getEntityHistory({ token: currentToken(), entity, entity_id }),
+  restoreEntity: (entity, entity_id) =>
+    shoresh.restoreEntity({ token: currentToken(), entity, entity_id }),
   getDevicePairingStatus: () => shoresh.getDevicePairingStatus(),
   listPendingPairingRequests: () => shoresh.listPendingPairingRequests(currentToken()),
   approveDevice: (deviceId) => shoresh.approveDevice({ token: currentToken(), deviceId }),

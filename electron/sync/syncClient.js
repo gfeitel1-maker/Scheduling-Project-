@@ -12,6 +12,13 @@ import {
 } from '../ops/operations.js'
 import { PROJECTIONS, applyProjection } from '../ops/projections.js'
 import { insertPendingWrite, deletePendingWrite, listPendingWrites } from './pendingWrites.js'
+import {
+  insertPendingRestore,
+  deletePendingRestore,
+  listPendingRestores,
+  recordRestoreError,
+} from './pendingRestores.js'
+import { RESTORABLE_ENTITIES } from '../ops/restore.js'
 
 const DEFAULT_RESOLVER_TIMEOUT_MS = 10000
 
@@ -167,6 +174,13 @@ export function createSyncClient(
       getQueuedOps() {
         return []
       },
+      // A Host never queues a restore: it performs one directly (main.js's
+      // restoreEntity handler), so there is no hop to fail. The table exists
+      // on every device and stays empty here.
+      getPendingRestores() {
+        return []
+      },
+      async drainPendingRestores() {},
       async flushQueue() {},
       async waitUntilConnected() {},
       close() {},
@@ -203,6 +217,16 @@ export function createSyncClient(
   const lockResolvers = []
   const submitResolvers = []
   const loginResolvers = []
+  // Keyed by request_id rather than FIFO like the resolver arrays above: a
+  // restore's reply may overtake another's (they are independent Host-side
+  // reads), and mis-pairing two replies would report one restore's outcome
+  // for the other.
+  const restoreResolvers = new Map()
+  // Holds the in-flight drain rather than a bare boolean, so a second caller
+  // awaits the pass already running instead of returning as if the queue had
+  // been dealt with. The reconnect trigger and an explicit call routinely
+  // overlap.
+  let drainingPromise = null
 
   function isNonEmptyString(v) {
     return typeof v === 'string' && v.length > 0
@@ -385,6 +409,12 @@ export function createSyncClient(
       if (token) {
         ws.send(JSON.stringify({ type: 'authenticate', token, device_id }))
         authenticated = true
+        // Trigger 1 of 3 for the restore queue, and the one that makes
+        // "queued while the main computer was off, delivered when it came
+        // back" actually true. App start is deliberately NOT a separate
+        // trigger — startup goes through this same open/authenticate path, so
+        // a second call would only duplicate this one.
+        drainPendingRestores()
       } else if (device_name) {
         ws.send(JSON.stringify({ type: 'pairing_request', device_id, device_name }))
       }
@@ -460,6 +490,15 @@ export function createSyncClient(
         }
 
         if (msg.type === 'token_renewal_failed') {
+          return
+        }
+
+        if (msg.type === 'restore_result') {
+          const resolve = restoreResolvers.get(msg.request_id)
+          if (resolve) {
+            restoreResolvers.delete(msg.request_id)
+            resolve(msg)
+          }
           return
         }
 
@@ -557,6 +596,10 @@ export function createSyncClient(
       while (loginResolvers.length) {
         const resolve = loginResolvers.shift()
         if (resolve) resolve({ status: 'disconnected' })
+      }
+      for (const [requestId, resolve] of [...restoreResolvers]) {
+        restoreResolvers.delete(requestId)
+        resolve({ status: 'disconnected' })
       }
     }
 
@@ -715,6 +758,121 @@ export function createSyncClient(
     return { status: 'applied', op: submitResult.op }
   }
 
+  // --- Restore requests ----------------------------------------------------
+  // docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md §5.
+  //
+  // There is no protocol-version or capability handshake anywhere in this
+  // file or syncServer.js, so a pre-v25 Host receiving restore_request falls
+  // off the end of its dispatch chain and replies with NOTHING — silence, not
+  // an error. The resolver timeout below is what turns that indefinite wait
+  // into a bounded { status: 'timeout' }, and a timeout is indistinguishable
+  // from a slow link, so it is treated as not-yet-delivered: the request stays
+  // queued. Nothing was performed, so that is safe, and it matches the ADR's
+  // "delayed is the worst case".
+  function sendRestoreRequest({ entity, entity_id }) {
+    const request_id = randomUUID()
+    return new Promise((resolve) => {
+      let settled = false
+      let timer = null
+      const wrapped = (result) => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        restoreResolvers.delete(request_id)
+        resolve(result)
+      }
+      timer = setTimeout(() => wrapped({ status: 'timeout' }), submitTimeoutMs)
+      restoreResolvers.set(request_id, wrapped)
+      try {
+        ws.send(JSON.stringify({ type: 'restore_request', request_id, entity, entity_id }))
+      } catch {
+        wrapped({ status: 'disconnected' })
+      }
+    })
+  }
+
+  // Trigger 2 (app start) is subsumed by trigger 1: startup goes through the
+  // same open/authenticate path. A third "drain immediately after insert"
+  // trigger is deliberately NOT wired here: this function is only ever
+  // reached when the socket is closed or a send has just failed, so an
+  // immediate re-drain would either no-op or re-time-out against the same
+  // dead link. Reconnect is the honest moment to retry.
+  function queueRestore({ entity, entity_id, requested_by }) {
+    insertPendingRestore(db, { entity, entity_id, requested_by })
+    return { queued: true }
+  }
+
+  // Does this device still believe the record is deleted? Answered from the
+  // MATERIALIZED row, not the op log, precisely because a Client may not hold
+  // the history. If the row is back, another device already restored it and
+  // the ops replicated here.
+  function stillDeletedLocally(entity, entity_id) {
+    const projection = PROJECTIONS[entity]
+    if (!projection) return false
+    const row = db
+      .prepare(`SELECT 1 AS present FROM ${projection.table} WHERE ${projection.key} = ?`)
+      .get(entity_id)
+    return !row
+  }
+
+  // Trigger 3: fire-and-forget straight after an insert, so a momentary blip
+  // resolves in seconds rather than at the next reconnect. Must never block
+  // the IPC response — the director is told it is waiting, and the screen
+  // updates when the result lands.
+  function drainPendingRestores() {
+    if (!drainingPromise) {
+      drainingPromise = runDrainPass().finally(() => {
+        drainingPromise = null
+      })
+    }
+    return drainingPromise
+  }
+
+  async function runDrainPass() {
+    for (const item of listPendingRestores(db)) {
+      if (!authenticated || !ws || ws.readyState !== WebSocket.OPEN) break
+
+      // Already done by another device (or by an earlier attempt of this
+      // one): the outcome the director asked for has happened. Answered from
+      // the materialized row, not the op log, precisely because a Client may
+      // not hold the history.
+      if (!stillDeletedLocally(item.entity, item.entity_id)) {
+        deletePendingRestore(db, item.pendingId)
+        continue
+      }
+
+      // An upgrade narrowed the allowlist under a queued request. Do not send
+      // it, and do NOT delete it either — a queued restore that can no longer
+      // succeed must fail visibly, not vanish.
+      if (!RESTORABLE_ENTITIES.has(item.entity)) {
+        recordRestoreError(db, item.pendingId, 'not-restorable')
+        continue
+      }
+
+      const reply = await sendRestoreRequest(item)
+
+      if (reply.ok) {
+        deletePendingRestore(db, item.pendingId)
+        continue
+      }
+      if (reply.error === 'not-deleted') {
+        // Success, not an error: the record is back. Treating this as a
+        // failure would leave a permanent row for work already done.
+        deletePendingRestore(db, item.pendingId)
+        continue
+      }
+      if (reply.error) {
+        // 'not-restorable' | 'no-history' | 'forbidden' — terminal, and the
+        // director has to see it. Keep the row.
+        recordRestoreError(db, item.pendingId, reply.error)
+        continue
+      }
+      // timeout / disconnected: nothing was performed. Leave the row
+      // untouched and stop the pass; the next trigger retries it.
+      break
+    }
+  }
+
   function waitForReconnect(timeoutMs = 2000) {
     return new Promise((resolve) => {
       let settled = false
@@ -780,6 +938,36 @@ export function createSyncClient(
     getQueuedOps() {
       return queue.slice()
     },
+    // Ask the Host to restore a record. Never falls back to this device's own
+    // history: a Client that paired after the record was created holds the
+    // row but not the ops that made it, and would restore an empty shell.
+    async requestRestore({ entity, entity_id, requested_by }) {
+      if (!authenticated || !ws || ws.readyState !== WebSocket.OPEN) {
+        return queueRestore({ entity, entity_id, requested_by })
+      }
+
+      const reply = await sendRestoreRequest({ entity, entity_id })
+      if (reply.ok) {
+        return {
+          ok: true,
+          restored_fields: reply.restored_fields,
+          deleted_children: reply.deleted_children ?? [],
+        }
+      }
+      // A terminal refusal is the Host's answer and is reported as-is —
+      // including 'not-deleted', which on this path means the director asked
+      // to restore something that is not deleted, not that a queued request
+      // has already been satisfied.
+      if (reply.error) return { error: reply.error }
+
+      // timeout / disconnected: undelivered, so record the intent and say it
+      // is waiting rather than that it failed.
+      return queueRestore({ entity, entity_id, requested_by })
+    },
+    getPendingRestores() {
+      return listPendingRestores(db)
+    },
+    drainPendingRestores,
     async flushQueue() {
       if (!authenticated) {
         if (!ws || (ws.readyState !== WebSocket.OPEN && ws.readyState !== WebSocket.CONNECTING)) {
