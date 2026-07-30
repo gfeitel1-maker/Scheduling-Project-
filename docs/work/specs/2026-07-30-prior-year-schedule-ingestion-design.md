@@ -136,20 +136,67 @@ and nothing can be validated, against an imagined input. Specifically needed:
 
 Until those exist, B can be specified precisely and C cannot.
 
-## 8. Open questions for the product owner
+## 8. Product-owner decisions, 2026-07-30
 
-1. **Entities only, or placements too?** (§6 — recommend entities only.)
-2. **What happens when setup is already populated?** Skip duplicates as the current imports do,
-   overwrite, or refuse and require an empty camp? The current per-screen behaviour is
-   skip-by-name, which is safe but silently partial.
-3. **Is a single "import my old schedule" entry point wanted**, or does mapping live on each
-   setup screen as today? One entry point is friendlier and is more work.
+1. **Entities only.** Not placements. Scope confirmed as §6 recommended.
+2. **Skip duplicates**, matching what the per-screen imports already do. Note the consequence:
+   a skip is silently partial, so the preview must *say* which rows will be skipped and why,
+   before the director confirms — not report it afterwards.
+3. **One entry point** — a single "import my old schedule", not mapping bolted onto each setup
+   screen.
+4. **Read any document — Excel, PDF, Word, "etc."** This reverses this spec's own non-goal and
+   is the largest of the four decisions. §9 replaces it.
 
-## 9. Non-goals
+## 9. File formats — decided, with the cost of each stated
+
+The product owner asked for **any document**: Excel, PDF, Word, and more. This spec previously
+listed PDF and OCR as non-goals; that is withdrawn. What follows is not a hedge against the
+decision — it is the order to build in, because the formats differ enormously in how reliably
+they can be read, and the difference is invisible from the outside.
+
+**One constraint shapes all of it: this app is local-first and offline.** There is no cloud
+document service available and there should not be — a camp's schedule should not need to leave
+the building. Every reader has to run on the director's machine and ship inside the bundle.
+Today the app bundles exactly one document library (`xlsx`); each tier below adds weight.
+
+| Tier | Format | What the file actually gives us | Reliability |
+|---|---|---|---|
+| 1 | `.xlsx` `.xls` `.csv` | A real cell grid, already parsed by the bundled `xlsx` | High |
+| 2 | `.docx` | Tables are structured XML — rows and cells genuinely exist | High *if* it is a table |
+| 3 | Digital PDF | Positioned text runs. No cells: a "table" must be reconstructed from coordinates | Fragile |
+| 4 | Scanned PDF, images | Pixels. Nothing until OCR runs | Poor, and silently so |
+
+The distinctions that matter, stated plainly:
+
+- **A Word schedule laid out as a real table is close to Excel in tractability.** One laid out
+  with tabs and spaces to *look* like a table is closer to Tier 3, and the director cannot tell
+  those apart by looking. The reader must detect which it has and say so.
+- **A digital PDF has no rows.** It has text with x/y positions, and rows must be inferred by
+  grouping on vertical alignment. This works acceptably for clean, ruled tables and degrades
+  badly on merged cells, wrapped text and multi-column layouts.
+- **Tier 4 is different in kind, not degree.** OCR misreads are *silent*: `9:00` becomes `900`,
+  `Swim` becomes `Swrm`, and nothing in the file signals low confidence. It also means bundling
+  an OCR engine (Tesseract and its language data) into an app that currently ships one small
+  library.
+
+**This is why the preview is load-bearing rather than a courtesy.** As fidelity drops, the
+preview stops being a confirmation step and becomes the actual mechanism of correctness. So:
+
+- Every tier ends in the **same** mapping-and-preview surface. No format writes directly.
+- The preview **names the source fidelity** — "read from a scanned PDF; check every row" is
+  different advice from "read from a spreadsheet".
+- Low-confidence cells are marked as such rather than presented as facts.
+
+**Build order: 1 → 2 → 3, and decide on 4 separately once there is a real scanned example.**
+Tiers 1 and 2 are the same pipeline with a different reader in front. Tier 3 is a genuine
+inference problem. Tier 4 is a dependency and support decision as much as an engineering one,
+and should not be committed to sight-unseen.
+
+## 10. Non-goals
 
 - No inference of a camp's *rules* — min/max per week, eligibility, priorities. Those are
   judgements the director makes; a spreadsheet does not record them and guessing them would
   silently shape the engine's output.
 - No import of another Shoresh camp's database. That is backup/restore, not ingestion.
 - No ongoing sync with an external spreadsheet. One-time seeding only.
-- No OCR, no PDF, no Google Sheets API. Files the director already has, in Excel or CSV.
+- No cloud document service, at any tier. Local-first is not negotiable for a camp's data.
