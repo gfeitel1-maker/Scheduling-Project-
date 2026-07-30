@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 
@@ -203,7 +204,7 @@ export default function CohortsScreen({ campId }) {
       setError(
         /UNIQUE/i.test(err?.message ?? '')
           ? 'A program with this name already exists — choose a different name.'
-          : 'Failed to add program — check your connection and try again'
+          : describeWriteFailure(err, 'That program could not be added.')
       )
     } finally {
       setAdding(false)
@@ -218,7 +219,7 @@ export default function CohortsScreen({ campId }) {
       setError(
         /UNIQUE/i.test(err?.message ?? '')
           ? 'A program with this name already exists — choose a different name.'
-          : 'Failed to save program — check your connection and try again'
+          : describeWriteFailure(err, 'That program could not be saved.')
       )
       throw err
     }
@@ -241,7 +242,7 @@ export default function CohortsScreen({ campId }) {
       setError(
         /FOREIGN KEY/i.test(err?.message ?? '')
           ? "Can't delete — other data (time blocks or fixed events) still references this program. Remove those first."
-          : 'Failed to delete program — check your connection and try again'
+          : describeWriteFailure(err, 'That program could not be deleted.')
       )
     }
   }

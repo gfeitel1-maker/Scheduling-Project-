@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld('shoresh', {
   listPendingRestores: (token) => ipcRenderer.invoke('shoresh:list-pending-restores', { token }),
   getEntityHistory: (args) => ipcRenderer.invoke('shoresh:get-entity-history', args),
   restoreEntity: (args) => ipcRenderer.invoke('shoresh:restore-entity', args),
+  previewDelete: (args) => ipcRenderer.invoke('shoresh:preview-delete', args),
+  deleteRecord: (args) => ipcRenderer.invoke('shoresh:delete-record', args),
   getDevicePairingStatus: () => ipcRenderer.invoke('shoresh:get-device-pairing-status'),
   listPendingPairingRequests: (token) => ipcRenderer.invoke('shoresh:list-pending-pairing-requests', { token }),
   approveDevice: (args) => ipcRenderer.invoke('shoresh:approve-device', args),

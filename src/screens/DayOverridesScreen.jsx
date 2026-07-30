@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
@@ -186,7 +187,7 @@ function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
       } else if (deletePhaseDone && createPhaseFailed && existingSlotIds.length > 0) {
         message = 'Save failed after removing your previous block overrides — this template currently has NO block overrides set. Please try again.'
       } else {
-        message = "Couldn't save your changes — check your connection and try again."
+        message = describeWriteFailure(err, 'Your changes could not be saved.')
       }
       setSaveError(message)
       console.error('Save failed:', err)
@@ -341,7 +342,7 @@ export default function DayOverridesScreen({ campId, role }) {
       } else if (!childDeleteFailed && totalChildCount > 0) {
         setError("This template's block overrides were removed, but the template itself could not be deleted. Please try again.")
       } else {
-        setError('Failed to delete template — check your connection and try again')
+        setError(describeWriteFailure(err, 'That template could not be deleted.'))
       }
       await load()
     }

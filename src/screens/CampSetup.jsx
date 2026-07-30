@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 
@@ -113,14 +114,14 @@ export default function CampSetup({ campId, onNavigate }) {
       const token = localStorage.getItem('shoresh-token')
       const result = await localClient.write(token, 'camps', campId, 'name', campName.trim())
       if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        setError('Failed to save camp name — check your connection and try again')
+        setError('That camp name could not be saved. It is unchanged.')
         return
       }
       setSavedName(campName.trim())
       setNameSaved(true)
       setTimeout(() => setNameSaved(false), 4000)
-    } catch {
-      setError('Failed to save camp name — check your connection and try again')
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That camp name could not be saved.'))
     } finally {
       setSaving(false)
     }

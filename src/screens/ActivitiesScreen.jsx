@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
@@ -87,8 +88,8 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
       // onSave must re-throw on failure — that's what keeps saveError
       // (rather than a silent modal close) visible to the user.
       await onSave(activity?.id || null, record)
-    } catch {
-      setSaveError('Failed to save — check your connection and try again')
+    } catch (err) {
+      setSaveError(describeWriteFailure(err, 'Your changes could not be saved.'))
       setSaving(false)
       return
     }
@@ -331,7 +332,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
       setError(
         /UNIQUE/i.test(err?.message ?? '')
           ? 'An activity with this name already exists — choose a different name.'
-          : 'Failed to save activity — check your connection and try again'
+          : describeWriteFailure(err, 'That activity could not be saved.')
       )
       throw err
     }
@@ -350,7 +351,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
       setError(
         /admin role required/i.test(err?.message ?? '')
           ? "You don't have permission to do this."
-          : 'Failed to delete activity — check your connection and try again'
+          : describeWriteFailure(err, 'That activity could not be deleted.')
       )
     }
   }
@@ -394,7 +395,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
       setError(
         /UNIQUE/i.test(err?.message ?? '')
           ? `An activity named "${copyName}" already exists — rename it before duplicating again.`
-          : 'Failed to duplicate activity — check your connection and try again'
+          : describeWriteFailure(err, 'That activity could not be duplicated.')
       )
     }
   }
@@ -537,8 +538,8 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
       }
       setImportResult({ added, skipped })
       setImportStep('done')
-    } catch {
-      setError('Import failed — check your connection and try again')
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That import could not be completed.'))
       setImportStep(null); setImportRows([])
     } finally {
       setImporting(false); await load()

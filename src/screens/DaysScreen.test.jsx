@@ -87,7 +87,7 @@ describe('DaysScreen', () => {
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'new-day-id'))
-    await waitFor(() => expect(screen.queryByText(/Failed to add day/)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText(/That day could not be added/)).not.toBeNull())
   })
 
   it('deletes a day via localClient.deleteEntity after confirm', async () => {

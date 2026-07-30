@@ -16,6 +16,7 @@ import { deriveWriteAction, deriveBulkReplaceAction } from '../auth/deriveWriteA
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from '../ops/campScopedEntities.js'
 import { restoreEntity } from '../ops/restore.js'
+import { CLEARABLE_ENTITIES, deleteRecord } from '../ops/deleteRecord.js'
 
 // The parent-scoped entities shipped in the first-pairing domain snapshot —
 // deliberately excludes `schedule_snapshots` (see design doc Consequences:
@@ -773,6 +774,73 @@ function handleRestoreRequest(db, wss, ws, msg) {
   })
 }
 
+function validateDeleteRecordRequestMsg(msg) {
+  return (
+    isNonEmptyString(msg.request_id) &&
+    isNonEmptyString(msg.entity) &&
+    isNonEmptyString(msg.entity_id) &&
+    (msg.expected_slot_count === undefined || Number.isInteger(msg.expected_slot_count))
+  )
+}
+
+// Host-side handling of a Client's delete of a record a schedule uses
+// (docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md).
+//
+// Mirrors handleRestoreRequest, and for the same reason: the whole operation is
+// one transaction over many ops, which `submit_op` cannot express. Gated as
+// '<entity>.delete' — the same action deriveWriteAction already derives for a
+// DELETE_FIELD write, so this adds no new authorization surface.
+//
+// Unlike a restore, a delete is never queued when the Host is away: see
+// deleteRecord.js on why a delete executed against a stale count is not a
+// delete the director agreed to.
+function handleDeleteRecordRequest(db, wss, ws, msg) {
+  const { request_id, entity, entity_id, expected_slot_count } = msg
+
+  if (!authorizeWs(db, ws, `${entity}.delete`).allowed) {
+    send(ws, { type: 'delete_record_result', request_id, error: 'forbidden' })
+    return
+  }
+  if (!CLEARABLE_ENTITIES.has(entity)) {
+    send(ws, { type: 'delete_record_result', request_id, error: 'not-clearable' })
+    return
+  }
+
+  let result
+  try {
+    result = deleteRecord(db, {
+      entity,
+      entity_id,
+      expected_slot_count,
+      author_user_id: ws.userId,
+      device_id: ws.deviceId,
+    })
+  } catch {
+    send(ws, { type: 'delete_record_result', request_id, error: 'delete-failed' })
+    return
+  }
+
+  if (result.error) {
+    send(ws, { type: 'delete_record_result', request_id, ...result })
+    return
+  }
+
+  // Broadcast AFTER the transaction committed, never from inside it.
+  for (const op of result.ops) {
+    for (const client of wss.clients) {
+      if (!client.deviceId) continue
+      try {
+        if (client.readyState === client.OPEN) send(client, { type: 'op_applied', op })
+      } catch {
+        // never let one dead client stop the broadcast to others
+      }
+    }
+  }
+
+  const { ops, ...reportable } = result
+  send(ws, { type: 'delete_record_result', request_id, ...reportable, ops_written: ops.length })
+}
+
 // Max pending pairing connections at once (Security: prevents Map/WS handle
 // exhaustion via LAN flood of pairing_request messages).
 const MAX_PENDING_PAIRING = 50
@@ -912,6 +980,12 @@ export function startSyncServer(db, { port, onPairingRequest } = {}) {
             return
           }
           handleRestoreRequest(db, wss, ws, msg)
+        } else if (msg.type === 'delete_record_request') {
+          if (!validateDeleteRecordRequestMsg(msg)) {
+            sendError(ws)
+            return
+          }
+          handleDeleteRecordRequest(db, wss, ws, msg)
         } else if (msg.type === 'submit_bulk_replace_op') {
           if (!validateSubmitBulkReplaceMsg(msg)) {
             sendError(ws)

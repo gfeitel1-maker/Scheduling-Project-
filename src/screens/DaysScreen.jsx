@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
@@ -131,8 +132,8 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       }
       setNewLabel(''); setNewSort('')
       await load()
-    } catch {
-      setError('Failed to add day — check your connection and try again')
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That day could not be added.'))
     } finally {
       setAdding(false)
     }
@@ -143,7 +144,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       await writeFields(id, fields)
       await load()
     } catch (err) {
-      setError('Failed to save day — check your connection and try again')
+      setError(describeWriteFailure(err, 'That day could not be saved.'))
       throw err
     }
   }
@@ -161,7 +162,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       setError(
         /admin role required/i.test(err?.message ?? '')
           ? 'Only an admin can delete days.'
-          : 'Failed to delete day — check your connection and try again'
+          : describeWriteFailure(err, 'That day could not be deleted.')
       )
     }
   }
@@ -234,7 +235,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       setImportResult({ added, skipped }); setImportStep('done')
     } catch (err) {
       console.error('Import failed', err)
-      setError('Import failed — check your connection and try again')
+      setError(describeWriteFailure(err, 'That import could not be completed.'))
       setImportStep(null); setImportRows([])
     } finally {
       setImporting(false); await load()

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
@@ -165,7 +166,7 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
       setError(
         /UNIQUE/i.test(err?.message ?? '')
           ? 'A group with this name already exists — choose a different name.'
-          : 'Failed to add group — check your connection and try again'
+          : describeWriteFailure(err, 'That group could not be added.')
       )
     } finally {
       setAdding(false)
@@ -177,7 +178,7 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
       await writeFields(id, fields)
       await load()
     } catch (err) {
-      setError('Failed to save group — check your connection and try again')
+      setError(describeWriteFailure(err, 'That group could not be saved.'))
       throw err
     }
   }
@@ -195,7 +196,7 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
       setError(
         /admin role required/i.test(err?.message ?? '')
           ? 'Only an admin can delete groups.'
-          : 'Failed to delete group — check your connection and try again'
+          : describeWriteFailure(err, 'That group could not be deleted.')
       )
     }
   }

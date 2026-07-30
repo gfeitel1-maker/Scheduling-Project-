@@ -222,6 +222,8 @@ export function createSyncClient(
   // reads), and mis-pairing two replies would report one restore's outcome
   // for the other.
   const restoreResolvers = new Map()
+  // Same keyed-by-request_id reasoning as restoreResolvers above.
+  const deleteResolvers = new Map()
   // Holds the in-flight drain rather than a bare boolean, so a second caller
   // awaits the pass already running instead of returning as if the queue had
   // been dealt with. The reconnect trigger and an explicit call routinely
@@ -502,6 +504,15 @@ export function createSyncClient(
           return
         }
 
+        if (msg.type === 'delete_record_result') {
+          const resolve = deleteResolvers.get(msg.request_id)
+          if (resolve) {
+            deleteResolvers.delete(msg.request_id)
+            resolve(msg)
+          }
+          return
+        }
+
         if (msg.type === 'lock_result') {
           const resolve = lockResolvers.shift()
           if (resolve) resolve(msg)
@@ -599,6 +610,10 @@ export function createSyncClient(
       }
       for (const [requestId, resolve] of [...restoreResolvers]) {
         restoreResolvers.delete(requestId)
+        resolve({ status: 'disconnected' })
+      }
+      for (const [requestId, resolve] of [...deleteResolvers]) {
+        deleteResolvers.delete(requestId)
         resolve({ status: 'disconnected' })
       }
     }
@@ -791,6 +806,30 @@ export function createSyncClient(
     })
   }
 
+  function sendDeleteRecordRequest({ entity, entity_id, expected_slot_count }) {
+    const request_id = randomUUID()
+    return new Promise((resolve) => {
+      let settled = false
+      let timer = null
+      const wrapped = (result) => {
+        if (settled) return
+        settled = true
+        if (timer) clearTimeout(timer)
+        deleteResolvers.delete(request_id)
+        resolve(result)
+      }
+      timer = setTimeout(() => wrapped({ status: 'timeout' }), submitTimeoutMs)
+      deleteResolvers.set(request_id, wrapped)
+      try {
+        ws.send(
+          JSON.stringify({ type: 'delete_record_request', request_id, entity, entity_id, expected_slot_count })
+        )
+      } catch {
+        wrapped({ status: 'disconnected' })
+      }
+    })
+  }
+
   // Trigger 2 (app start) is subsumed by trigger 1: startup goes through the
   // same open/authenticate path. A third "drain immediately after insert"
   // trigger is deliberately NOT wired here: this function is only ever
@@ -963,6 +1002,24 @@ export function createSyncClient(
       // timeout / disconnected: undelivered, so record the intent and say it
       // is waiting rather than that it failed.
       return queueRestore({ entity, entity_id, requested_by })
+    },
+    // Ask the Host to delete a record a schedule uses. DELIBERATELY NOT QUEUED,
+    // unlike requestRestore: the director agreed to a specific count, and a
+    // request executed hours later would run against a different one.
+    // docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md
+    async requestDelete({ entity, entity_id, expected_slot_count }) {
+      if (!authenticated || !ws || ws.readyState !== WebSocket.OPEN) {
+        return { error: 'host-unreachable' }
+      }
+      const reply = await sendDeleteRecordRequest({ entity, entity_id, expected_slot_count })
+      if (reply.ok) {
+        const { type: _type, request_id: _request_id, ...result } = reply
+        return result
+      }
+      if (reply.error) return reply
+      // timeout / disconnected: undelivered. Say so rather than implying the
+      // delete happened, and never retry it silently against a stale count.
+      return { error: 'host-unreachable' }
     },
     getPendingRestores() {
       return listPendingRestores(db)

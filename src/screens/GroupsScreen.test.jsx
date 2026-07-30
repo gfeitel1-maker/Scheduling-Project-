@@ -143,7 +143,7 @@ describe('GroupsScreen', () => {
     )
   })
 
-  it('shows the generic connectivity message for a non-role delete failure', async () => {
+  it('names the network only when the failure really was the network', async () => {
     localClient.list.mockImplementation((entity) =>
       Promise.resolve(entity === 'groups' ? [group()] : [])
     )
@@ -155,7 +155,7 @@ describe('GroupsScreen', () => {
 
     await waitFor(() =>
       expect(
-        screen.queryByText('Failed to delete group — check your connection and try again')
+        screen.queryByText(/That group could not be deleted\. Your devices could not reach each other/)
       ).not.toBeNull()
     )
   })
@@ -218,7 +218,7 @@ describe('GroupsScreen', () => {
     )
     await waitFor(() =>
       expect(
-        screen.queryByText('Failed to add group — check your connection and try again')
+        screen.queryByText(/That group could not be added\./)
       ).not.toBeNull()
     )
   })
