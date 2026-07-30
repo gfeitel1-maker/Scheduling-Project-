@@ -1,7 +1,7 @@
 ---
 title: T16-ingest-prior-year-schedule
 document_type: ticket
-status: parked
+status: open
 created: 2026-07-28
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 archive_when: superseded by an approved specification
@@ -9,7 +9,14 @@ archive_when: superseded by an approved specification
 
 # T16 — Ingest last year's schedule to populate setup
 
-**Status: parked placeholder.** Sequenced explicitly after T14, T15, and the grid colour work.
+> **Design drafted 2026-07-30** —
+> [`docs/work/specs/2026-07-30-prior-year-schedule-ingestion-design.md`](../specs/2026-07-30-prior-year-schedule-ingestion-design.md).
+> Recommends column mapping as the spine with grid inference as an optional detector in front of
+> it, and entities only rather than placements. Still blocked on the same thing this ticket
+> named: real prior-year spreadsheets from two or three camps. Three questions await the
+> product owner.
+
+**Status: was a parked placeholder; now has a drafted design.** Sequenced explicitly after T14, T15, and the grid colour work.
 This records the intent and the questions so it is not lost. **It is not a design, and no
 approach has been chosen.** Do not implement from this file — it needs a brainstorm and a
 specification first.
