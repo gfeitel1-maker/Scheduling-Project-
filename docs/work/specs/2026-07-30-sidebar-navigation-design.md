@@ -266,6 +266,42 @@ be able to.
 - D6's recession applies to the **Setup** section only. The Operations pair never
   folds, never recedes, and is never reordered by state.
 
+## 7a. Coordination with the trash/record-history stream
+
+A concurrent stream (`feat/trash-and-record-history`) is building the trash and
+record-history work. As of 2026-07-30 it has already landed, unmerged:
+
+- a `{ key: 'trash', label: 'Trash' }` entry in `NAV_SECTIONS`' Operations
+  section, below Conflicts (`Sidebar.jsx`), plus the `SCREENS` entry in `App.jsx`
+- `src/components/RecordHistory.jsx`, `src/screens/TrashScreen.jsx`
+- `src/screens/recordLabels.js`
+- History-panel wiring inside `GroupsScreen`, `TiersScreen`, `ActivitiesScreen`,
+  `AnchorsScreen`, `TimeBlocksScreen`
+
+Consequences for this spec:
+
+1. **Trash is an Operations row and must survive the restructure.** It is
+   subject to §7's recession rule the same way Conflicts is: the Operations
+   section never folds. Its count follows D5 — an empty trash renders no
+   suffix, not `0`.
+2. **`recordLabels.js` is the shared string home. Do not build a second one.**
+   It already provides `entityLabel()` and field labels in camp language
+   (`tier_id` → "Unit") and was written to be shared so two surfaces cannot
+   describe the same record differently. D4's prerequisite sentences and the
+   destination screens' empty-state strings belong there, extending it rather
+   than paralleling it.
+3. **Merge order: trash first.** It sits lower in the stack (schema → IPC →
+   screens) and its footprint on `Sidebar.jsx`/`App.jsx` is six additive lines,
+   which rebases cleanly under this restructure.
+4. **The entity-table and structure-tree specs must not run in parallel with
+   it.** `2026-07-29-shared-entity-table-design.md` rewrites five of the screens
+   that stream is editing, and a wholesale table rewrite would silently drop the
+   History wiring without failing loudly. Sequence those specs after trash
+   merges.
+
+Phase 1 of this spec touches only `Sidebar.jsx` and `App.jsx` and is safe to
+build in parallel.
+
 ## 8. Phasing
 
 **Phase 1 — recession and row state.** D4, D5, D6, plus Designer's density,
