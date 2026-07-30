@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { describeWriteFailure } from '../utils/writeErrorMessage'
+import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
+import DeleteRecordDialog from '../components/DeleteRecordDialog'
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
@@ -71,6 +72,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
+  const [pendingDelete, setPendingDelete] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
@@ -149,22 +151,27 @@ export default function DaysScreen({ campId, role, onNavigate }) {
     }
   }
 
+  // Deleting a record a schedule uses: count first, confirm with the count
+  // shown, then clear and delete in one Host-side transaction.
+  // docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md
   async function deleteDay(id) {
-    if (!window.confirm('Delete this day?')) return
+    setError(null)
+    let preview
     try {
-      const token = localStorage.getItem('shoresh-token')
-      const result = await localClient.deleteEntity(token, 'days_of_operation', id)
-      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error('delete failed')
-      }
-      await load()
+      preview = await localClient.previewDelete('days_of_operation', id)
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
           ? 'Only an admin can delete days.'
-          : describeWriteFailure(err, 'That day could not be deleted.')
+          : describeWriteFailure(err, 'That could not be checked before deleting.')
       )
+      return
     }
+    if (!preview || preview.error) {
+      setError(deleteRefusalMessage(preview?.error ?? 'unknown', preview || {}))
+      return
+    }
+    setPendingDelete(preview)
   }
 
   function downloadTemplate() {
@@ -343,6 +350,13 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
         <button onClick={() => onNavigate('timeblocks')} style={S.btnPrimary}>Next: Time Blocks →</button>
       </div>
+      {pendingDelete && (
+        <DeleteRecordDialog
+          preview={pendingDelete}
+          onCancel={() => setPendingDelete(null)}
+          onDeleted={() => { setPendingDelete(null); load() }}
+        />
+      )}
     </div>
   )
 }

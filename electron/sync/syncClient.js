@@ -9,6 +9,7 @@ import {
   isBulkReplaceOp,
   latestScopeOpSeq,
   coerceOpValue,
+  DELETE_FIELD,
 } from '../ops/operations.js'
 import { PROJECTIONS, applyProjection } from '../ops/projections.js'
 import { insertPendingWrite, deletePendingWrite, listPendingWrites } from './pendingWrites.js'
@@ -397,10 +398,30 @@ export function createSyncClient(
       } else {
         applyProjection(db, op)
       }
-    } catch {
-      // Projection failure on an already-logged, already-canonical op is
-      // swallowed here: there's no logging/observability infra yet to
-      // surface it further. The op-log entry above remains authoritative.
+    } catch (err) {
+      // A failed DELETE is the one swallow that leaves this device visibly
+      // wrong forever: the row stays alive here while every other device has
+      // removed it, with nothing anywhere to say so. It happens when this
+      // device holds a child row the Host never knew about — a write queued
+      // while offline, or a row created here and not yet submitted — so its
+      // own foreign_keys = ON refuses the parent delete.
+      //
+      // Pre-existing for every delete, but deleting a record a schedule USES
+      // is what makes peers likely to disagree about the row set
+      // (docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md), so it moves
+      // from theoretical to reachable. Logged rather than swallowed, so the
+      // divergence is at least discoverable. Deliberately NOT "fixed" by
+      // cascading locally: re-deriving child effects on each peer is exactly
+      // the property the op-log design rejects. The log stays authoritative.
+      if (op.field === DELETE_FIELD && err?.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') {
+        console.error(
+          `applyRemoteOp: this device could not delete ${op.entity}/${op.entity_id} — something here still refers to it, and every other device has removed it. This device is now out of step for that record.`
+        )
+        return
+      }
+      // Every other projection failure on an already-logged, already-canonical
+      // op is still swallowed: there's no observability infra yet to surface it
+      // further. The op-log entry above remains authoritative.
     }
   }
 

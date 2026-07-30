@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { describeWriteFailure } from '../utils/writeErrorMessage'
+import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
+import DeleteRecordDialog from '../components/DeleteRecordDialog'
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
@@ -249,6 +250,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
+  const [pendingDelete, setPendingDelete] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
@@ -338,22 +340,27 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
     }
   }
 
+  // Deleting a record a schedule uses: count first, confirm with the count
+  // shown, then clear and delete in one Host-side transaction.
+  // docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md
   async function deleteActivity(id) {
-    if (!window.confirm('Delete this activity?')) return
+    setError(null)
+    let preview
     try {
-      const token = localStorage.getItem('shoresh-token')
-      const result = await localClient.deleteEntity(token, 'activities', id)
-      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error('delete failed')
-      }
-      await load()
+      preview = await localClient.previewDelete('activities', id)
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
           ? "You don't have permission to do this."
-          : describeWriteFailure(err, 'That activity could not be deleted.')
+          : describeWriteFailure(err, 'That could not be checked before deleting.')
       )
+      return
     }
+    if (!preview || preview.error) {
+      setError(deleteRefusalMessage(preview?.error ?? 'unknown', preview || {}))
+      return
+    }
+    setPendingDelete(preview)
   }
 
   // Ported to the same writeFields-based pattern as addActivity/confirmImport
@@ -693,6 +700,13 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
         <button onClick={() => onNavigate('anchors')} style={S.btnPrimary}>Next: Fixed Events →</button>
       </div>
+      {pendingDelete && (
+        <DeleteRecordDialog
+          preview={pendingDelete}
+          onCancel={() => setPendingDelete(null)}
+          onDeleted={() => { setPendingDelete(null); load() }}
+        />
+      )}
     </div>
   )
 }
