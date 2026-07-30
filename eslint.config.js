@@ -37,10 +37,11 @@ export default defineConfig([
     },
   },
   {
-    // Electron main-process files and all test files run under Node, not the
-    // browser — so Node globals (Buffer, process, require, setImmediate, …)
-    // are legitimately defined. Merge them on top of the browser globals.
-    files: ['electron/**/*.js', '**/*.test.{js,jsx}'],
+    // Electron main-process files, build/install scripts, and all test files
+    // run under Node, not the browser — so Node globals (Buffer, process,
+    // require, setImmediate, …) are legitimately defined. Merge them on top of
+    // the browser globals.
+    files: ['electron/**/*.js', 'scripts/**/*.js', '**/*.test.{js,jsx}'],
     languageOptions: {
       globals: globals.node,
     },
