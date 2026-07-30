@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Sidebar hierarchy prototype</title>
+<style>
+  :root {
+    --bg: #F4F3EF; --surface: #FCFBF8; --surface-elevated: #FFFFFF;
+    --primary: #173B63; --primary-dark: #0F2A47;
+    --secondary: #2F6B58; --accent: #B8833A;
+    --success: #4C8A63; --danger: #B44E48; --warning: #B44E48;
+    --anchor: #5C6B7A; --text: #1E2A34; --text-secondary: #5C6670; --border: #D8DBD9;
+    --font-sans: 'Inter', system-ui, sans-serif;
+    --font-condensed: 'IBM Plex Sans', system-ui, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --motion-fast: 140ms; --motion-base: 220ms; --motion-settle: 340ms;
+    --ease-out: cubic-bezier(0.22,1,0.36,1);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: var(--font-sans); background: #e5e3dc;
+    display: flex; height: 100vh; overflow: hidden;
+  }
+  .stage { display: flex; gap: 24px; padding: 24px; }
+  .frame-label {
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary);
+    text-align: center; margin-bottom: 8px;
+  }
+  .frame-col { display: flex; flex-direction: column; }
+
+  aside {
+    width: 232px; min-width: 232px; background: var(--surface);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column;
+    height: 680px; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 24px rgba(30,42,52,0.06);
+  }
+
+  .header {
+    padding: 16px 16px 12px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .logo { font-family: var(--font-condensed); font-weight: 700; font-size: 19px; color: var(--primary); letter-spacing: -0.3px; }
+  .camp-row { display: flex; align-items: center; gap: 6px; margin-top: 3px; }
+  .camp-name { font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary); }
+  .dev-badge {
+    font-size: 9px; font-weight: 700; letter-spacing: 0.04em; color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    padding: 1px 5px; border-radius: 4px; flex-shrink: 0;
+  }
+
+  nav { flex: 1; padding: 6px 0; overflow-y: auto; }
+
+  .section-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px 5px; margin-top: 4px;
+    font-family: var(--font-condensed); font-size: 10px; font-weight: 700;
+    letter-spacing: 0.11em; text-transform: uppercase; color: var(--text-secondary);
+    cursor: pointer; user-select: none;
+  }
+  .section-header .chevron { font-size: 9px; transition: transform var(--motion-fast) var(--ease-out); }
+  .section-header.collapsed .chevron { transform: rotate(-90deg); }
+  .section-check { color: var(--success); font-size: 11px; }
+
+  .item {
+    display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+    padding: 7px 16px 7px 16px; border: none; background: none; cursor: pointer;
+    font-size: 13px; font-weight: 400; color: var(--text);
+    border-left: 3px solid transparent; position: relative;
+    transition: background var(--motion-fast) ease;
+  }
+  .item:hover { background: var(--bg); }
+  .item.active { color: var(--primary); font-weight: 600; border-left-color: var(--primary); background: color-mix(in srgb, var(--primary) 5%, transparent); }
+  .item.disabled { color: var(--text-secondary); opacity: 0.55; cursor: not-allowed; }
+  .item.disabled:hover { background: none; }
+  .item .icon { width: 15px; height: 15px; flex-shrink: 0; color: var(--text-secondary); }
+  .item.active .icon { color: var(--primary); }
+  .item .label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .lock { width: 11px; height: 11px; color: var(--text-secondary); flex-shrink: 0; }
+
+  /* indentation levels for the Programs > Units > Groups tree */
+  .lvl-0 { padding-left: 16px; }
+  .lvl-1 { padding-left: 30px; }
+  .lvl-2 { padding-left: 44px; }
+  .guide { position: absolute; left: 22px; top: 0; bottom: 0; width: 1px; background: var(--border); }
+  .guide.l2 { left: 36px; }
+
+  .badge {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 16px; height: 16px; padding: 0 5px; border-radius: 99px;
+    background: var(--danger); color: #fff; font-size: 10px; font-weight: 700;
+    font-family: var(--font-mono); line-height: 16px; flex-shrink: 0;
+  }
+
+  .pair-wrap { margin: 2px 16px 4px; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .pair-wrap .item { border-left: none; border-radius: 0; padding-left: 14px; }
+  .pair-wrap .item + .item { border-top: 1px solid var(--border); }
+  .pair-hint {
+    font-size: 10px; color: var(--text-secondary); padding: 4px 16px 2px;
+    font-style: italic;
+  }
+
+  footer {
+    border-top: 1px solid var(--border); padding: 10px 16px;
+    font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary);
+  }
+  .backup-btn {
+    display: block; width: 100%; text-align: left; padding: 5px 0;
+    border: none; background: none; font-size: 11px; font-family: var(--font-mono);
+    color: var(--text-secondary); cursor: pointer;
+  }
+  .diag-toggle {
+    display: flex; align-items: center; gap: 4px; cursor: pointer; margin-top: 6px;
+    color: var(--text-secondary); opacity: 0.8;
+  }
+  .diag-body {
+    max-height: 0; overflow: hidden; transition: max-height var(--motion-settle) var(--ease-out);
+    font-size: 10px; opacity: 0.75;
+  }
+  .diag-toggle.open + .diag-body { max-height: 60px; margin-top: 4px; }
+  .version { margin-top: 6px; opacity: 0.6; }
+
+  .caption { max-width: 232px; font-size: 12px; color: #555; margin-top: 10px; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="stage">
+
+  <div class="frame-col">
+    <div class="frame-label">1 — default (setup incomplete, mid-onboarding)</div>
+    <aside>
+      <div class="header">
+        <div>
+          <div class="logo">Shoresh</div>
+          <div class="camp-row">
+            <span class="dev-badge">DEV</span>
+            <span class="camp-name">Camp Winnepesaukee</span>
+          </div>
+        </div>
+      </div>
+      <nav>
+        <div class="section-header"><span>Setup</span><span class="chevron">▾</span></div>
+
+        <button class="item lvl-0"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span class="label">Camp Setup</span></button>
+
+        <div style="position:relative">
+          <div class="guide"></div>
+          <button class="item lvl-0"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class="label">Programs</span></button>
+
+          <button class="item active lvl-1"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M4 10h16M10 4v16"/></svg><span class="label">Units</span></button>
+
+          <div style="position:relative">
+            <div class="guide l2"></div>
+            <button class="item lvl-2"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg><span class="label">Groups</span></button>
+          </div>
+        </div>
+
+        <button class="item lvl-0"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg><span class="label">Days</span></button>
+
+        <button class="item lvl-0"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg><span class="label">Time Blocks</span></button>
+
+        <button class="item disabled lvl-0" title="Add groups and time blocks first">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l2.6 6.6L21 9.3l-5 4.4 1.5 6.8L12 17l-5.5 3.5L8 13.7l-5-4.4 6.4-.7z"/></svg>
+          <span class="label">Activities</span>
+          <svg class="lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+        </button>
+
+        <button class="item lvl-0"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 21s-7-5.7-9.3-10A5.4 5.4 0 0 1 12 5.4 5.4 5.4 0 0 1 21.3 11c-2.3 4.3-9.3 10-9.3 10z"/><circle cx="12" cy="10.5" r="2"/></svg><span class="label">Fixed Events</span></button>
+
+        <button class="item lvl-0"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18M9 15l3 3 5-6"/></svg><span class="label">Day Overrides</span></button>
+
+        <div class="section-header" style="margin-top:10px; border-top:1px solid var(--border); padding-top:14px;"><span>Operations</span></div>
+
+        <div class="pair-wrap">
+          <button class="item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4M8 15h.01M12 15h.01M16 15h.01"/></svg><span class="label">Generated Schedule</span></button>
+          <button class="item"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4M8 15h.01M12 15h.01M16 15h.01"/></svg><span class="label">Manual Schedule</span></button>
+        </div>
+        <div class="pair-hint">two candidate schedules — neither is final</div>
+
+        <button class="item lvl-0">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.3 3.9L2.5 18a1.7 1.7 0 0 0 1.5 2.5h16a1.7 1.7 0 0 0 1.5-2.5L13.7 3.9a1.7 1.7 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+          <span class="label">Conflicts</span>
+          <span class="badge">2</span>
+        </button>
+      </nav>
+      <footer>
+        <button class="backup-btn">Backup now</button>
+        <div class="diag-toggle" onclick="this.classList.toggle('open')">Diagnostics <span style="font-size:8px">▾</span></div>
+        <div class="diag-body">shoresh-dev · build 240b1a2</div>
+        <div class="version">v0.1.0</div>
+      </footer>
+    </aside>
+    <div class="caption">Setup section expanded (mid-onboarding). Units active — three-level indent + connecting guide line render Programs→Units→Groups as one tree, not siblings. Activities is dimmed with a lock glyph and a tooltip because Groups/Time Blocks aren't done. Generated and Manual Schedule sit in one bordered pair, same icon, alphabetical, with an explicit "neither is final" caption underneath.</div>
+  </div>
+
+  <div class="frame-col">
+    <div class="frame-label">2 — setup complete (collapsed), Conflicts badge, hover state</div>
+    <aside>
+      <div class="header">
+        <div>
+          <div class="logo">Shoresh</div>
+          <div class="camp-row">
+            <span class="camp-name">Camp Winnepesaukee</span>
+          </div>
+        </div>
+      </div>
+      <nav>
+        <div class="section-header collapsed"><span>Setup <span class="section-check">✓</span></span><span class="chevron">▾</span></div>
+
+        <div class="section-header" style="margin-top:4px; border-top:1px solid var(--border); padding-top:14px;"><span>Operations</span></div>
+
+        <div class="pair-wrap">
+          <button class="item active"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4M8 15h.01M12 15h.01M16 15h.01"/></svg><span class="label">Generated Schedule</span></button>
+          <button class="item" style="background:var(--bg)"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4M8 15h.01M12 15h.01M16 15h.01"/></svg><span class="label">Manual Schedule</span></button>
+        </div>
+        <div class="pair-hint">two candidate schedules — neither is final</div>
+
+        <button class="item lvl-0">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10.3 3.9L2.5 18a1.7 1.7 0 0 0 1.5 2.5h16a1.7 1.7 0 0 0 1.5-2.5L13.7 3.9a1.7 1.7 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+          <span class="label">Conflicts</span>
+          <span class="badge">3</span>
+        </button>
+
+        <button class="item lvl-0"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8M12 18v3"/></svg><span class="label">Device Manager</span></button>
+      </nav>
+      <footer>
+        <button class="backup-btn">Backup now</button>
+        <div class="diag-toggle" onclick="this.classList.toggle('open')">Diagnostics <span style="font-size:8px">▾</span></div>
+        <div class="diag-body">shoresh · build 240b1a2</div>
+        <div class="version">v0.1.0</div>
+      </footer>
+    </aside>
+    <div class="caption">Once every Setup item has data, the whole section collapses to one disclosure row with a checkmark — click to re-expand. Operations rises to the top of the visible list, which is where daily attention belongs. No DEV badge here (this is the installed build) — note it disappears entirely rather than showing a "PROD" badge, since silence is the normal state.</div>
+  </div>
+
+</div>
+</body>
+</html>
