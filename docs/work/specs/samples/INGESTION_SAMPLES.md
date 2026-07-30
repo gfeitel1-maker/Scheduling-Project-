@@ -1,3 +1,12 @@
+---
+title: "Ingestion samples — two real camp schedules"
+document_type: reference
+status: active
+created: 2026-07-30
+governing_docs: [docs/work/specs/2026-07-30-prior-year-schedule-ingestion-design.md]
+archive_when: the ingestion work is merged and these become test fixtures
+---
+
 # Ingestion samples
 
 Layout-preserved text extractions (`pdftotext -layout`) of two real camp schedules, supplied by
