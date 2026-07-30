@@ -317,6 +317,30 @@ export const mockShoresh = {
   async restoreEntity() {
     return { error: 'no-history' }
   },
+
+  // Deleting a record a schedule uses. The mock has no schedule to count, so
+  // the preview reports a real zero rather than an invented number — the count
+  // is the whole basis on which a director decides, and a made-up one at :5200
+  // would make the dialog look verified when it is not. Persistence checks for
+  // this belong under electron:dev.
+  async previewDelete({ entity, entity_id }) {
+    return {
+      ok: true,
+      entity,
+      entity_id,
+      name: null,
+      destructive: entity === 'groups' || entity === 'days_of_operation',
+      slot_count: 0,
+      routes: [],
+      unprotected_count: 0,
+      anchor_count: 0,
+      overlay_count: 0,
+      weather_dependent_count: 0,
+    }
+  },
+  async deleteRecord() {
+    return { error: 'no-record' }
+  },
 }
 
 // Dev-only: expose the mock on window so a manual/automated browser session
