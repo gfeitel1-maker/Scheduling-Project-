@@ -1,11 +1,20 @@
 ---
 title: T17-dead-colorindex-encodes-wrong-convention
 document_type: ticket
-status: open
+status: completed
 created: 2026-07-28
 governing_docs: [docs/governance/standards/DESIGN_STANDARD.md]
 archive_when: resolved
 ---
+
+> **RESOLVED 2026-07-29.** The three `findIndex`-derived `colorIdx` values were deleted; the
+> only remaining uses are `actMap`'s, which carry the activity's stable id as the seed. A test
+> pins that an id and an array index are different seeds, so the wrong convention cannot be
+> reintroduced quietly.
+>
+> Superseded in part by the T18 colour work: `activityColor()` now consults an assignment
+> registered from the whole activity set rather than hashing each id independently, which also
+> removes the divergence risk this ticket described — every surface reads one assignment.
 
 # T17 — A dead `colorIdx` field encodes the wrong colour convention
 
