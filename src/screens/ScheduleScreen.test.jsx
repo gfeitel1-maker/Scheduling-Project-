@@ -1141,3 +1141,99 @@ describe('T18: one concept has one name on both routes', () => {
     expect(screen.queryByText('Overlapping')).toBeNull()
   })
 })
+
+// T3 / T4 / T5 — merge, split, copy/paste and the displaced tray were all
+// marked completed with ZERO dedicated test coverage. The product owner
+// reported all three as broken on 2026-07-29; driving the real app showed they
+// work in Group View, so the report was about discoverability, not function.
+// These tests exist so the next such report can be answered by the suite rather
+// than by an hour of clicking.
+describe('T4: merging a cell down', () => {
+  function twoBlocks() {
+    mockList({
+      time_blocks: [timeBlock(), timeBlock({ id: 'b2', name: 'Afternoon', sort_order: 2, start_time: '10:00:00', end_time: '11:00:00' })],
+      activities: [activity(), activity({ id: 'act-2', name: 'Archery' })],
+      template_slots: [
+        slotRow({ id: 'slot-1', time_block_id: 'b1', activity_id: 'act-1' }),
+        slotRow({ id: 'slot-2', time_block_id: 'b2', activity_id: 'act-2' }),
+      ],
+    })
+  }
+
+  it('marks the tail as part of the span rather than deleting it', async () => {
+    // The merge must not destroy the tail row — undo has to be able to put it
+    // back, and the op log records a field change, not a removal.
+    twoBlocks()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+
+    const headCell = scheduleCell('Swim').closest('td')
+    fireEvent.pointerEnter(headCell)
+    const mergeBtn = within(headCell).queryByTitle(/merge/i)
+    expect(mergeBtn, 'merge affordance should exist on a cell with a block below it').toBeTruthy()
+    fireEvent.click(mergeBtn)
+
+    await waitFor(() => {
+      // write(token, entity, id, field, value) — one call per field.
+      const spanHeadWrites = localClient.write.mock.calls
+        .filter(c => c[1] === 'template_slots' && c[3] === 'is_span_head')
+      expect(spanHeadWrites.length).toBeGreaterThan(0)
+    })
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+  })
+
+  it('sends the displaced activity to the tray instead of dropping it', async () => {
+    // This is what the Displaced Activities panel is FOR: the activity that was
+    // in the lower block has nowhere to go once the block above swallows it.
+    twoBlocks()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+
+    const headCell = scheduleCell('Swim').closest('td')
+    fireEvent.pointerEnter(headCell)
+    fireEvent.click(within(headCell).getByTitle(/merge/i))
+
+    await waitFor(() => expect(screen.getByText(/Displaced Activities/i)).toBeTruthy())
+    expect(screen.getByText(/displaced from/i)).toBeTruthy()
+  })
+})
+
+describe('T3: selecting, copying and pasting cells', () => {
+  it('selects a cell on cmd/ctrl-click rather than opening the editor', async () => {
+    mockList({ template_slots: [slotRow()] })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+
+    fireEvent.click(scheduleCell('Swim').closest('td'), { metaKey: true })
+    // A plain click opens "Assign Activity"; a modified click must not.
+    expect(screen.queryByText('Assign Activity')).toBeNull()
+  })
+
+  it('cmd+C on a selection offers the copy to be placed', async () => {
+    mockList({ template_slots: [slotRow()] })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+
+    fireEvent.click(scheduleCell('Swim').closest('td'), { metaKey: true })
+    fireEvent.keyDown(window, { key: 'c', metaKey: true })
+
+    await waitFor(() => expect(screen.getByText(/to paste/i)).toBeTruthy())
+    // The banner has to say how to get out again — paste mode swallows clicks.
+    expect(screen.getByText(/Esc to cancel/i)).toBeTruthy()
+  })
+
+  it('Escape leaves paste mode without writing anything', async () => {
+    mockList({ template_slots: [slotRow()] })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+
+    fireEvent.click(scheduleCell('Swim').closest('td'), { metaKey: true })
+    fireEvent.keyDown(window, { key: 'c', metaKey: true })
+    await waitFor(() => expect(screen.getByText(/to paste/i)).toBeTruthy())
+
+    const writesBefore = localClient.write.mock.calls.length
+    fireEvent.keyDown(window, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByText(/to paste/i)).toBeNull())
+    expect(localClient.write.mock.calls.length).toBe(writesBefore)
+  })
+})
