@@ -27,7 +27,7 @@ import { listPendingRestores } from './pendingRestores.js'
 
 const PORT = 8341
 
-let hostDb, hostFile, clientDb, clientFile, server, client
+let hostDb, clientDb, server, client
 let campId, adminId, staffId, deviceId, adminToken, staffToken
 
 const files = []
@@ -35,7 +35,7 @@ const files = []
 function newDb(tag) {
   const file = path.join(os.tmpdir(), `shoresh-restore-sync-${tag}-${Date.now()}-${Math.random()}.sqlite`)
   files.push(file)
-  return [openLocalDb(file), file]
+  return openLocalDb(file)
 }
 
 function hostWrite(entity, entity_id, field, value, author = adminId) {
@@ -69,8 +69,8 @@ function connectClient() {
 }
 
 beforeEach(async () => {
-  ;[hostDb, hostFile] = newDb('host')
-  ;[clientDb, clientFile] = newDb('client')
+  hostDb = newDb('host')
+  clientDb = newDb('client')
 
   campId = randomUUID()
   for (const db of [hostDb, clientDb]) {
