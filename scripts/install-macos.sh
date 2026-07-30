@@ -31,6 +31,21 @@ LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchS
 
 cd "$PROJECT_DIR"
 
+# T20. electron-builder does not build its own copy of better-sqlite3 — it
+# copies whatever is in node_modules. So the ABI state RIGHT NOW is what ships,
+# and `npm rebuild better-sqlite3` (needed to run the tests under Node) silently
+# decides it. Check before packaging, and repair rather than just complaining:
+# the rebuild is exactly what the operator would do next anyway.
+echo "==> Checking better-sqlite3 is built for Electron"
+if ! node scripts/verifyNativeAbi.js project; then
+  echo "==> Rebuilding better-sqlite3 for Electron"
+  npx electron-rebuild -f -w better-sqlite3
+  node scripts/verifyNativeAbi.js project || {
+    echo "ERROR: better-sqlite3 is still not built for Electron after a rebuild." >&2
+    exit 1
+  }
+fi
+
 echo "==> Building (vite build + electron-builder)"
 npm run electron:build
 
@@ -54,6 +69,15 @@ if [ -x "$LSREGISTER" ]; then
 else
   echo "WARNING: lsregister not found; skipping LaunchServices fixup." >&2
 fi
+
+# The second link of the T20 check: prove the module that actually shipped is
+# the one verified above. An ABI check on node_modules says nothing about the
+# bundle unless the two are the same bytes.
+echo "==> Verifying the installed bundle carries that module"
+node scripts/verifyNativeAbi.js bundle "$INSTALL_PATH" || {
+  echo "ERROR: refusing to report success — the installed app would not start." >&2
+  exit 1
+}
 
 echo
 echo "Installed: $INSTALL_PATH"

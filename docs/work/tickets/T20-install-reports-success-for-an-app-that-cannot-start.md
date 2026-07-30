@@ -1,12 +1,34 @@
 ---
 title: T20-install-reports-success-for-an-app-that-cannot-start
 document_type: ticket
-status: open
+status: completed
 created: 2026-07-29
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_tickets: [docs/work/tickets/T19-fatal-startup-error-produces-a-silent-windowless-app.md]
 archive_when: resolved
 ---
+
+> **RESOLVED 2026-07-30.** `scripts/verifyNativeAbi.js`, wired into
+> `install-macos.sh` on both sides of packaging: before, it checks the project's module and
+> **rebuilds it** rather than only complaining; after, it proves the module inside the bundle is
+> byte-identical to the one it verified.
+>
+> **The root cause was not what this ticket assumed.** electron-builder does not produce its own
+> copy — the bundled `.node` is byte-identical to the project's, so its rebuild step decided the
+> existing build was current and skipped it. The project's ABI state at package time *is* the
+> shipped ABI, and `npm rebuild better-sqlite3` (needed to run the tests under Node) silently
+> decides it. That is why the guard belongs at the install script, not inside electron-builder.
+>
+> **The first implementation was wrong, and only running it revealed why.** It read `nodedir`
+> from `build/config.gypi`, on the reasoning that Electron's headers live under `.electron-gyp`.
+> But `npm rebuild` leaves a Node-ABI binary behind a config.gypi that still names Electron —
+> so the guard approved shipping the exact module it existed to stop. It now probes the artifact
+> instead: the script runs under Node, so a module that *loads* is the Node build, and a
+> `NODE_MODULE_VERSION` mismatch is the Electron one.
+>
+> Verified end to end from a deliberately poisoned tree: `npm rebuild better-sqlite3`, then
+> `npm run install:mac` — it detected, rebuilt, packaged, verified the bundle, and the installed
+> app launched with no `startup-error.log`.
 
 # T20 — `install:mac` reports success for an app that cannot start
 
