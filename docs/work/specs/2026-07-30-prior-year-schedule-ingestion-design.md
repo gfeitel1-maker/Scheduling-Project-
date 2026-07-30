@@ -124,17 +124,64 @@ op log, raising the task class.
 **Recommendation: entities only.** Confirm before scoping — this is the single largest lever on
 the size of the work.
 
-## 7. What must be obtained before this is implementable
+## 7. Real samples — obtained 2026-07-30, and what they change
 
-**Two or three real prior-year schedules from actual camps.** Nothing in §4C can be designed,
-and nothing can be validated, against an imagined input. Specifically needed:
+Two real schedules from two different camps. **Both are PDFs**, which is itself the most
+important finding. Everything below is measured from the actual files, not assumed.
 
-- the raw files as camps actually keep them, not cleaned up;
-- at least two from *different* camps, since the whole difficulty is that they differ;
-- ideally one that is messy — merged cells, a title row, colour-as-meaning, a legend off to one
-  side. The messy one is the design input that matters.
+| | Camp A — "ALL 2025 Bunk Schedules" | Camp B — "Camp Achva, by day" |
+|---|---|---|
+| Pages | 33 — **one per group** | 5 — **one per day** |
+| Rows | time blocks | time blocks |
+| Columns | **days** (Mon–Fri) | **groups** (14, Yeladim 1 … CIT) |
+| Unit and group | both in the page title | unit encoded in the group-name stem |
+| Fixed events | full-width **merged rows** | **same value repeated** across every column |
+| Text | vector, extracts cleanly | vector, extracts cleanly |
 
-Until those exist, B can be specified precisely and C cannot.
+### The headline: the two layouts are transposes of each other
+
+Camp A puts days across the top and gives each group its own page. Camp B puts groups across the
+top and gives each day its own page. Both are "last year's schedule". **Neither axis can be
+assumed.** Day names are the one reliable anchor — a closed vocabulary that can be recognised
+wherever it appears — so detection should key on finding the day axis and deriving everything
+else relative to it.
+
+### Both are digital PDFs, so Tier 4 is not needed for these
+
+`pdftotext -layout` returns correctly aligned text for both. No OCR, no image processing. This
+is a substantial de-risking of the format decision: the two real inputs sit in **Tier 3**, and
+Tier 4 can wait for a scan that may never arrive.
+
+### Concrete hazards, each observed in these files
+
+- **Three title conventions in ONE file.** Camp A uses `Adom 4's - Matzo Balls Schedule` (26
+  pages), `Zahav Schedule` with no separator at all (4 pages), and `Kesef 3- Cooking/ Baking/
+  Dance` with no `Schedule` suffix and slash-separated specialties (3 pages). Spacing around the
+  hyphen also varies — `Omanut- Chagalls` against `Adom 4's - Matzo Balls`. A parser keyed on
+  one pattern silently mis-handles roughly a quarter of the file.
+- **12-hour times with no meridiem.** Both camps write `01:40–02:20` meaning 1:40 pm. Parsed
+  naively that is 1:40 am and the day sorts wrongly. Camp B uses an en-dash, Camp A a hyphen.
+- **A rotated spine column interleaves with the time column.** Camp A's `Block 1…8` labels
+  extract inline with the two-line time ranges: `9:50- Block` / `10:25  1`. Rows must be
+  reconstructed by position, not by line.
+- **Wrapped cell text splits across lines** — `Little` / `Playground`, `Arts and` / `Crafts` —
+  and must be rejoined per column.
+- **Staggered lunch defeats "a fixed event happens at one time".** Camp B has `Lunch 1`,
+  `Lunch 2`, `Lunch 3` at different blocks for different groups. Whether those are one fixed
+  event with variants or three activities is a judgement the app cannot make.
+- **Colour carries meaning.** Camp A marks swim red and lunch black. Text extraction loses it
+  entirely; recovering it means reading cell fills.
+- **The title pattern collides with cell content.** Searching Camp B for `All Camp` matches both
+  the page title `Monday — All Camp` and the `All Camp Activity` row.
+- **Activity names are not in any dictionary** — `Mifkad`, `Teva`, `Mercaz`, `Shalomaste`,
+  `Avodom`, `Ruach Prep`, `FBBG`, `A/C`. They must be taken literally as names. No
+  normalisation, no spell-correction, no matching against a known list.
+
+### Spans are real, and the app already models them
+
+Camp A merges swim across Blocks 3–4 and Friday's special event across Blocks 6–8. The engine
+already has `span_blocks` / `is_span_head` for exactly this, and a span counts as one session.
+If placements are ever imported (§6 says not now), the concept is already there.
 
 ## 8. Product-owner decisions, 2026-07-30
 
@@ -187,10 +234,21 @@ preview stops being a confirmation step and becomes the actual mechanism of corr
   different advice from "read from a spreadsheet".
 - Low-confidence cells are marked as such rather than presented as facts.
 
-**Build order: 1 → 2 → 3, and decide on 4 separately once there is a real scanned example.**
-Tiers 1 and 2 are the same pipeline with a different reader in front. Tier 3 is a genuine
-inference problem. Tier 4 is a dependency and support decision as much as an engineering one,
-and should not be committed to sight-unseen.
+**Build order — corrected 2026-07-30 by the real samples.** This spec originally recommended
+1 → 2 → 3: spreadsheets first, PDF last as the risky tail. **That was wrong.** Both real camps
+handed over PDFs. Building Excel-first would deliver nothing usable to either of the only two
+camps whose schedules we have actually seen, and would postpone the one format that is
+demonstrably in use.
+
+Revised: **build Tier 3 first, against these two files.** Tier 1 remains trivial to add — the
+`xlsx` library is already bundled and the grid arrives pre-parsed — so it costs little and can
+follow. Tier 2 follows Tier 1. Tier 4 is deferred indefinitely: neither real sample needs it,
+and it should not be committed to until a scan actually appears.
+
+One question this raises for the product owner: **do these camps also have the source
+spreadsheets?** A PDF is usually an export. If the underlying Excel is available, Tier 1 becomes
+the better path for those camps and the correction above softens. Worth asking before building
+a PDF table reconstructor.
 
 ## 10. Non-goals
 
