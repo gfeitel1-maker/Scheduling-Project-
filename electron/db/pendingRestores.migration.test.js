@@ -67,8 +67,9 @@ const tableSql = (db) =>
 describe('migration v25: pending_restores', () => {
   it('creates the table on a fresh database and declares schema version 25', () => {
     const db = freshDb()
-    expect(CURRENT_SCHEMA_VERSION).toBe(25)
-    expect(getSchemaVersion(db)).toBe(25)
+    // v25 is applied, whatever the current version has since moved on to.
+    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 25').get().c).toBe(1)
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     expect(db.prepare('SELECT COUNT(*) c FROM pending_restores').get().c).toBe(0)
     db.close()
   })
@@ -80,7 +81,7 @@ describe('migration v25: pending_restores', () => {
 
     initSchema(db)
 
-    expect(getSchemaVersion(db)).toBe(25)
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     expect(db.prepare('SELECT COUNT(*) c FROM pending_restores').get().c).toBe(0)
     db.close()
   })
@@ -106,8 +107,8 @@ describe('migration v25: pending_restores', () => {
       'sqlite_autoindex_pending_restores_2',
     ])
 
-    expect(getSchemaVersion(migrated)).toBe(25)
-    expect(getSchemaVersion(fresh)).toBe(25)
+    expect(getSchemaVersion(migrated)).toBe(CURRENT_SCHEMA_VERSION)
+    expect(getSchemaVersion(fresh)).toBe(CURRENT_SCHEMA_VERSION)
     fresh.close()
     migrated.close()
   }, 30000)
@@ -174,7 +175,11 @@ describe('rollback v25', () => {
     expect(result.discardedRequests).toBe(1)
     expect(tableSql(db)).toBeUndefined()
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 25').get().c).toBe(0)
-    expect(getSchemaVersion(db)).toBe(24)
+    // Rolling back v25 leaves later migrations' rows alone, so MAX(version) is
+    // not 24 — what this asserts is that nothing at or below 25 survived it.
+    expect(
+      db.prepare('SELECT MAX(version) v FROM schema_migrations WHERE version <= 25').get().v
+    ).toBe(24)
     db.close()
   })
 
@@ -187,7 +192,7 @@ describe('rollback v25', () => {
     initSchema(db)
 
     expect(tableSql(db)).toBe(before)
-    expect(getSchemaVersion(db)).toBe(25)
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     db.close()
   })
 

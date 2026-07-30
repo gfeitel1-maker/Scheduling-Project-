@@ -14,7 +14,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import Database from 'better-sqlite3'
-import { openLocalDb, initSchema, getSchemaVersion } from './localDb.js'
+import { openLocalDb, initSchema, getSchemaVersion, CURRENT_SCHEMA_VERSION } from './localDb.js'
 import { applyProjection } from '../ops/projections.js'
 import { deriveScheduleTemplateId } from '../ops/scheduleTemplateId.js'
 
@@ -78,7 +78,7 @@ describe('migration v23: schedule_templates.kind', () => {
     expect(row.kind).toBe('generated')
     expect(db.prepare('SELECT template_id FROM template_slots WHERE id = ?').get('slot1').template_id)
       .toBe('schedule-template:camp1')
-    expect(getSchemaVersion(db)).toBe(25)
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     db.close()
   })
 
@@ -197,8 +197,8 @@ describe('migration v23: schedule_templates.kind', () => {
     expect(names).toContain('idx_schedule_templates_camp_kind')
     expect(names).not.toContain('idx_schedule_templates_camp')
 
-    expect(getSchemaVersion(migrated)).toBe(25)
-    expect(getSchemaVersion(fresh)).toBe(25)
+    expect(getSchemaVersion(migrated)).toBe(CURRENT_SCHEMA_VERSION)
+    expect(getSchemaVersion(fresh)).toBe(CURRENT_SCHEMA_VERSION)
     fresh.close()
     migrated.close()
   })
