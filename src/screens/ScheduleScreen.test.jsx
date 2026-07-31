@@ -224,7 +224,7 @@ describe('editSlotSave (exercises the shared writeFields primitive)', () => {
     fireEvent.click(within(editModal()).getByText('Save'))
 
     await waitFor(() => {
-      expect(screen.getByText(/Failed to save slot/i)).toBeTruthy()
+      expect(screen.getByText(/That slot could not be saved/i)).toBeTruthy()
     })
     // Modal stays open — editSlotSave returned early instead of clearing editSlot.
     expect(screen.getByText('Assign Activity')).toBeTruthy()
@@ -263,7 +263,7 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
     fireEvent.click(scheduleCell('Swim'))
 
     await waitFor(() => {
-      expect(screen.getByText(/Failed to release cell/i)).toBeTruthy()
+      expect(screen.getByText(/That cell could not be released/i)).toBeTruthy()
     })
   })
 
@@ -450,7 +450,7 @@ describe('snapshot CRUD ported to localClient', () => {
     fireEvent.click(screen.getByText('Save'))
 
     await waitFor(() => {
-      expect(screen.getByText(/Failed to rename snapshot/i)).toBeTruthy()
+      expect(screen.getByText(/That snapshot could not be renamed/i)).toBeTruthy()
     })
   })
 })

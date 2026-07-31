@@ -20,6 +20,7 @@ import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from './ops/campScopedEn
 import { IPC_PIN_FIELDS } from './ops/pinFields.js'
 import { listDeleted, getEntityHistory } from './ops/trash.js'
 import { RESTORABLE_ENTITIES, restoreEntity } from './ops/restore.js'
+import { CLEARABLE_ENTITIES, previewDelete, deleteRecord } from './ops/deleteRecord.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
 import {
@@ -709,9 +710,58 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ok: true, restored_fields: result.restored_fields, deleted_children: result.deleted_children }
   }
 
+  // --- Deleting a record a schedule uses ----------------------------------
+  // docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md
+  //
+  // Both handlers carry the SAME gate, '<entity>.delete'. previewDelete only
+  // reads, but what it reads is the shape of the schedule — an ungated preview
+  // would be a way for a staff user to enumerate it.
+
+  function previewDeleteHandler({ token, entity, entity_id } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    if (!isNonEmptyString(entity)) throw new Error('Invalid entity')
+    requireAuthorized(db, { token, action: `${entity}.delete` })
+    if (!isNonEmptyString(entity_id)) throw new Error('entity_id is required')
+    if (!CLEARABLE_ENTITIES.has(entity)) return { error: 'not-clearable' }
+    return previewDelete(db, { entity, entity_id })
+  }
+
+  // Executes on the HOST, like a restore — a Client cannot express this as one
+  // atomic transaction over submit_op. Unlike a restore it is NEVER QUEUED: a
+  // queued delete would run against a count the director was shown hours
+  // earlier, and a count nobody agreed to is not a count. With no Host, refuse
+  // and say so.
+  async function deleteRecordHandler({ token, entity, entity_id, expected_slot_count } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    if (!isNonEmptyString(entity)) throw new Error('Invalid entity')
+    const { userId } = requireAuthorized(db, { token, action: `${entity}.delete` })
+    if (!isNonEmptyString(entity_id)) throw new Error('entity_id is required')
+    if (!CLEARABLE_ENTITIES.has(entity)) return { error: 'not-clearable' }
+
+    if (mode === 'client') {
+      if (!syncClient) throw new Error('sync not initialized — choose a mode first')
+      return syncClient.requestDelete({ entity, entity_id, expected_slot_count })
+    }
+
+    const result = deleteRecord(db, {
+      entity,
+      entity_id,
+      expected_slot_count,
+      author_user_id: userId,
+      device_id: deviceId,
+    })
+    if (result.error) return result
+    // Ops are not broadcast here, matching every other Host-local write — peers
+    // pick them up via sendMissedOps on their next authenticate.
+    const { ops, ...reportable } = result
+    return { ...reportable, ops_written: ops.length }
+  }
+
   return {
     chooseMode,
     discoverHosts: discoverHostsHandler,
+    previewDelete: previewDeleteHandler,
+    deleteRecord: deleteRecordHandler,
     listDeleted: listDeletedHandler,
     listPendingRestores: listPendingRestoresHandler,
     getEntityHistory: getEntityHistoryHandler,
@@ -784,6 +834,8 @@ if (isElectronEntryPoint()) {
     'shoresh:list-pending-restores',
     'shoresh:get-entity-history',
     'shoresh:restore-entity',
+    'shoresh:preview-delete',
+    'shoresh:delete-record',
     'shoresh:get-device-pairing-status',
     'shoresh:list-pending-pairing-requests',
     'shoresh:list-devices',
@@ -820,6 +872,8 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:list-pending-restores', (_event, args) => handlers.listPendingRestores(args && args.token))
     ipcMain.handle('shoresh:get-entity-history', (_event, args) => handlers.getEntityHistory(args))
     ipcMain.handle('shoresh:restore-entity', (_event, args) => handlers.restoreEntity(args))
+    ipcMain.handle('shoresh:preview-delete', (_event, args) => handlers.previewDelete(args))
+    ipcMain.handle('shoresh:delete-record', (_event, args) => handlers.deleteRecord(args))
     ipcMain.handle('shoresh:get-device-pairing-status', () => handlers.getDevicePairingStatus())
     ipcMain.handle('shoresh:list-pending-pairing-requests', (_event, args) => handlers.listPendingPairingRequests(args))
     ipcMain.handle('shoresh:list-devices', (_event, args) => handlers.listDevices(args))

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { localClient } from '../localClient'
 import buildSchedule, { computeFindings } from '../engine/buildSchedule'
@@ -529,7 +530,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       setActionError(
         err?.message?.includes('admin role required')
           ? 'Only an admin can regenerate the schedule'
-          : 'Failed to regenerate schedule — check your connection and try again'
+          : describeWriteFailure(err, 'That schedule could not be regenerated.')
       )
       setGenerating(false)
       return
@@ -555,8 +556,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setActionError(null)
     try {
       await writeFields('template_slots', slot.id, { activity_id: nextActivityId, flags: {} })
-    } catch {
-      setActionError('Failed to save slot — check your connection and try again')
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That slot could not be saved.'))
       return
     }
     setSlots(prev => prev.map(s =>
@@ -602,8 +603,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         writeFields('template_slots', rowA.id, { activity_id: slotB.activityId || null, flags: {} }),
         writeFields('template_slots', rowB.id, { activity_id: slotA.activityId || null, flags: {} }),
       ])
-    } catch {
-      setActionError('Failed to swap slots — check your connection and try again')
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That slots could not be swapped.'))
       return
     }
     setSlots(prev => prev.map(s => {
@@ -658,8 +659,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setActionError(null)
     try {
       await Promise.all(updates.map(({ id, newFlags }) => writeFields('template_slots', id, { flags: newFlags })))
-    } catch {
-      setActionError('Failed to dismiss flag — check your connection and try again')
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That flag could not be dismissed.'))
       return
     }
 
@@ -689,8 +690,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setActionError(null)
     try {
       await writeFields('activities', activityId, { is_locked: true })
-    } catch {
-      setActionError('Failed to lock activity — check your connection and try again')
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That activity could not be locked.'))
       return
     }
     setActivities(prev => prev.map(a => a.id === activityId ? { ...a, is_locked: true } : a))
@@ -700,8 +701,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setActionError(null)
     try {
       await writeFields('template_slots', slotId, { is_released: true })
-    } catch {
-      setActionError('Failed to release cell — check your connection and try again')
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That cell could not be released.'))
       return
     }
     setSlots(prev => prev.map(s => s.id === slotId ? { ...s, is_released: true } : s))
@@ -718,8 +719,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setActionError(null)
     try {
       await writeFields('template_overlays', id, { template_id: templateId, unit_id: unitId, day_id: dayId, from_block_order: fromBlockOrder, to_block_order: toBlockOrder, label })
-    } catch {
-      setActionError('Failed to add overlay — check your connection and try again')
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That overlay could not be added.'))
       return
     }
     setOverlays(prev => [...prev, overlay])
@@ -733,8 +734,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
         throw new Error('delete failed')
       }
-    } catch {
-      setActionError('Failed to remove overlay — check your connection and try again')
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That overlay could not be removed.'))
       return
     }
     setOverlays(prev => prev.filter(o => o.id !== overlayId))
@@ -744,8 +745,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setActionError(null)
     try {
       await writeFields('template_overlays', overlayId, { to_block_order: toBlockOrder })
-    } catch {
-      setActionError('Failed to update overlay — check your connection and try again')
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That overlay could not be updated.'))
       return
     }
     setOverlays(prev => prev.map(o => o.id === overlayId ? { ...o, to_block_order: toBlockOrder } : o))
@@ -781,7 +782,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         overlays: JSON.stringify(snapOverlays),
       })
     } catch (err) {
-      setActionError('Failed to save snapshot — check your connection and try again')
+      setActionError(describeWriteFailure(err, 'That snapshot could not be saved.'))
       throw err
     }
     setRouteSnapshots(prev => [{ id, template_id: tid, name: name || null, is_auto: isAuto, created_at: createdAt, slots: JSON.stringify(snapSlots), overlays: JSON.stringify(snapOverlays), restorable: true }, ...prev])
@@ -805,7 +806,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       setActionError(
         err?.message?.includes('admin role required')
           ? 'Only an admin can delete a saved version'
-          : 'Failed to delete that version — check your connection and try again'
+          : describeWriteFailure(err, 'That that version could not be deleted.')
       )
       return
     }
@@ -875,7 +876,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       setActionError(
         err?.message?.includes('admin role required')
           ? 'Only an admin can restore a schedule snapshot'
-          : 'Failed to restore snapshot — check your connection and try again'
+          : describeWriteFailure(err, 'That snapshot could not be restored.')
       )
       return
     }
@@ -895,8 +896,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setActionError(null)
     try {
       await writeFields('schedule_snapshots', snapshotId, { name: newName, is_auto: false })
-    } catch {
-      setActionError('Failed to rename snapshot — check your connection and try again')
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That snapshot could not be renamed.'))
       return
     }
     setSnapshots(prev => prev.map(s => s.id === snapshotId ? { ...s, name: newName, is_auto: false } : s))
@@ -969,7 +970,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       setActionError(
         err?.message?.includes('admin role required')
           ? 'Only an admin can place anchors'
-          : 'Failed to place anchors — check your connection and try again'
+          : describeWriteFailure(err, 'That anchors could not be placed.')
       )
       setGenerating(false)
       return
@@ -1024,8 +1025,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setActionError(null)
     try {
       await writeFields('template_slots', slot.id, { activity_id: activityId, flags })
-    } catch {
-      setActionError('Failed to place activity — check your connection and try again')
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That activity could not be placed.'))
       return
     }
 
@@ -1194,8 +1195,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
 
       // Write flag to head slot
       await writeFields('template_slots', headSlot.id, { flags: newFlags })
-    } catch {
-      setActionError('Failed to expand slot — check your connection and try again')
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That slot could not be expanded.'))
       return
     }
 
@@ -1278,8 +1279,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       await entry.undo()
       setUndoStack(prev => prev.slice(0, -1))
       setRedoStack(prev => [...prev, entry])
-    } catch {
-      setActionError('Undo failed — check your connection and try again')
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That undo could not be applied.'))
     }
   }
 
@@ -1290,8 +1291,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       await entry.redo()
       setRedoStack(prev => prev.slice(0, -1))
       setUndoStack(prev => [...prev, entry])
-    } catch {
-      setActionError('Redo failed — check your connection and try again')
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That redo could not be applied.'))
     }
   }
 
@@ -1312,8 +1313,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     try {
       await writeFields('template_slots', tailSlot.id, { activity_id: null, is_span_head: true, flags: {} })
       await writeFields('template_slots', headSlot.id, { flags: cleanedFlags })
-    } catch {
-      setActionError('Failed to split slot — check your connection and try again')
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That slot could not be split.'))
       return
     }
 

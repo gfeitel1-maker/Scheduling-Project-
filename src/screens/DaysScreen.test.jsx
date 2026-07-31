@@ -7,6 +7,8 @@ vi.mock('../localClient', () => ({
     list: vi.fn(),
     write: vi.fn(),
     deleteEntity: vi.fn(),
+    previewDelete: vi.fn(),
+    deleteRecord: vi.fn(),
   },
 }))
 
@@ -38,6 +40,12 @@ beforeEach(() => {
   localClient.list.mockReset()
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
+  localClient.previewDelete.mockReset().mockResolvedValue({
+    ok: true, entity: 'days_of_operation', entity_id: 'day-1', name: 'Monday',
+    destructive: true, slot_count: 0, routes: [], unprotected_count: 0,
+    anchor_count: 0, overlay_count: 0, weather_dependent_count: 0,
+  })
+  localClient.deleteRecord.mockReset().mockResolvedValue({ ok: true, cleared: 0 })
 })
 
 describe('DaysScreen', () => {
@@ -87,24 +95,37 @@ describe('DaysScreen', () => {
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'new-day-id'))
-    await waitFor(() => expect(screen.queryByText(/Failed to add day/)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText(/That day could not be added/)).not.toBeNull())
   })
 
-  it('deletes a day via localClient.deleteEntity after confirm', async () => {
+  it('names the schedule cells, fixed events and overlays a day holds, before deleting it', async () => {
     localClient.list.mockResolvedValue([day()])
+    localClient.previewDelete.mockResolvedValue({
+      ok: true, entity: 'days_of_operation', entity_id: 'day-1', name: 'Monday',
+      destructive: true, slot_count: 30, routes: [], unprotected_count: 0,
+      anchor_count: 1, overlay_count: 2, weather_dependent_count: 0,
+    })
+    localClient.deleteRecord.mockResolvedValue({ ok: true, cleared: 30 })
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete'))
 
+    // Three different things to a director, reported as three things.
+    await waitFor(() => expect(screen.queryAllByText(/30 places/).length).toBeGreaterThan(0))
+    expect(screen.queryByText(/1 fixed event/)).not.toBeNull()
+    expect(screen.queryByText(/2 trips or other overlay/)).not.toBeNull()
+    expect(localClient.deleteRecord).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('Delete and clear 30 places'))
     await waitFor(() =>
-      expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'day-1')
+      expect(localClient.deleteRecord).toHaveBeenCalledWith('days_of_operation', 'day-1', 30)
     )
   })
 
   it('shows an admin-role-specific error when delete is rejected for a non-admin', async () => {
     localClient.list.mockResolvedValue([day()])
-    localClient.deleteEntity.mockRejectedValue(new Error('admin role required'))
+    localClient.previewDelete.mockRejectedValue(new Error('admin role required'))
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
 

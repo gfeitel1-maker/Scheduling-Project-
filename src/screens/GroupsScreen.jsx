@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
+import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import RecordHistory from '../components/RecordHistory'
 
 const AVAIL_OPTIONS = [
@@ -86,6 +88,7 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
   const [historyFor, setHistoryFor] = useState(null)
+  const [pendingDelete, setPendingDelete] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
@@ -165,7 +168,7 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
       setError(
         /UNIQUE/i.test(err?.message ?? '')
           ? 'A group with this name already exists — choose a different name.'
-          : 'Failed to add group — check your connection and try again'
+          : describeWriteFailure(err, 'That group could not be added.')
       )
     } finally {
       setAdding(false)
@@ -177,27 +180,32 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
       await writeFields(id, fields)
       await load()
     } catch (err) {
-      setError('Failed to save group — check your connection and try again')
+      setError(describeWriteFailure(err, 'That group could not be saved.'))
       throw err
     }
   }
 
+  // Deleting a record a schedule uses: count first, confirm with the count
+  // shown, then clear and delete in one Host-side transaction.
+  // docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md
   async function deleteGroup(id) {
-    if (!window.confirm('Delete this group?')) return
+    setError(null)
+    let preview
     try {
-      const token = localStorage.getItem('shoresh-token')
-      const result = await localClient.deleteEntity(token, 'groups', id)
-      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error('delete failed')
-      }
-      await load()
+      preview = await localClient.previewDelete('groups', id)
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
           ? 'Only an admin can delete groups.'
-          : 'Failed to delete group — check your connection and try again'
+          : describeWriteFailure(err, 'That could not be checked before deleting.')
       )
+      return
     }
+    if (!preview || preview.error) {
+      setError(deleteRefusalMessage(preview?.error ?? 'unknown', preview || {}))
+      return
+    }
+    setPendingDelete(preview)
   }
 
   async function deleteAll() {
@@ -471,6 +479,14 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
         <button onClick={() => onNavigate('timeblocks')} style={S.btnPrimary}>Next: Time Blocks →</button>
       </div>
+
+      {pendingDelete && (
+        <DeleteRecordDialog
+          preview={pendingDelete}
+          onCancel={() => setPendingDelete(null)}
+          onDeleted={() => { setPendingDelete(null); load() }}
+        />
+      )}
 
       {historyFor && (
         <RecordHistory

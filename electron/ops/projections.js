@@ -291,6 +291,28 @@ export const PROJECTIONS = {
       ).run(id, value)
     },
   },
+  // Registered for the same reason schedule_snapshots and template_slots were:
+  // an unregistered entity's ops are appended to the log and then silently
+  // discarded by applyProjection. Until now template_overlays was only ever
+  // written through bulkReplace (BULK_REPLACE_ENTITIES), which bypasses this
+  // registry — so a field-level or DELETE_FIELD op naming it did nothing at
+  // all. Deleting a day has to remove that day's overlays as recorded,
+  // replayable ops (docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md),
+  // and a silent no-op there would leave the day's delete blocked by its own FK
+  // on every device with no error anywhere.
+  //
+  // Parent-scoped with no camp_id column, like template_slots below; field list
+  // is BULK_REPLACE_ENTITIES.template_overlays' column set minus `id`, so the
+  // two paths write the same columns.
+  template_overlays: {
+    table: 'template_overlays',
+    key: 'id',
+    fields: ['template_id', 'unit_id', 'day_id', 'from_block_order', 'to_block_order', 'label'],
+    ensureExists: (db, id, field, value) => {
+      if (field !== 'template_id') return
+      db.prepare('INSERT OR IGNORE INTO template_overlays (id, template_id) VALUES (?, ?)').run(id, value)
+    },
+  },
   // Same never-registered bug class as schedule_snapshots above, and the
   // direct cause of "manual schedule edits silently do nothing":
   // ScheduleScreen.jsx's writeFields() has always written these fields, so

@@ -1,7 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
+import DeleteRecordDialog from '../components/DeleteRecordDialog'
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
@@ -87,8 +89,8 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
       // onSave must re-throw on failure — that's what keeps saveError
       // (rather than a silent modal close) visible to the user.
       await onSave(activity?.id || null, record)
-    } catch {
-      setSaveError('Failed to save — check your connection and try again')
+    } catch (err) {
+      setSaveError(describeWriteFailure(err, 'Your changes could not be saved.'))
       setSaving(false)
       return
     }
@@ -248,6 +250,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
+  const [pendingDelete, setPendingDelete] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
@@ -331,28 +334,33 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
       setError(
         /UNIQUE/i.test(err?.message ?? '')
           ? 'An activity with this name already exists — choose a different name.'
-          : 'Failed to save activity — check your connection and try again'
+          : describeWriteFailure(err, 'That activity could not be saved.')
       )
       throw err
     }
   }
 
+  // Deleting a record a schedule uses: count first, confirm with the count
+  // shown, then clear and delete in one Host-side transaction.
+  // docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md
   async function deleteActivity(id) {
-    if (!window.confirm('Delete this activity?')) return
+    setError(null)
+    let preview
     try {
-      const token = localStorage.getItem('shoresh-token')
-      const result = await localClient.deleteEntity(token, 'activities', id)
-      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error('delete failed')
-      }
-      await load()
+      preview = await localClient.previewDelete('activities', id)
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
           ? "You don't have permission to do this."
-          : 'Failed to delete activity — check your connection and try again'
+          : describeWriteFailure(err, 'That could not be checked before deleting.')
       )
+      return
     }
+    if (!preview || preview.error) {
+      setError(deleteRefusalMessage(preview?.error ?? 'unknown', preview || {}))
+      return
+    }
+    setPendingDelete(preview)
   }
 
   // Ported to the same writeFields-based pattern as addActivity/confirmImport
@@ -394,7 +402,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
       setError(
         /UNIQUE/i.test(err?.message ?? '')
           ? `An activity named "${copyName}" already exists — rename it before duplicating again.`
-          : 'Failed to duplicate activity — check your connection and try again'
+          : describeWriteFailure(err, 'That activity could not be duplicated.')
       )
     }
   }
@@ -537,8 +545,8 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
       }
       setImportResult({ added, skipped })
       setImportStep('done')
-    } catch {
-      setError('Import failed — check your connection and try again')
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That import could not be completed.'))
       setImportStep(null); setImportRows([])
     } finally {
       setImporting(false); await load()
@@ -692,6 +700,13 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
         <button onClick={() => onNavigate('anchors')} style={S.btnPrimary}>Next: Fixed Events →</button>
       </div>
+      {pendingDelete && (
+        <DeleteRecordDialog
+          preview={pendingDelete}
+          onCancel={() => setPendingDelete(null)}
+          onDeleted={() => { setPendingDelete(null); load() }}
+        />
+      )}
     </div>
   )
 }

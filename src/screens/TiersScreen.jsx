@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
@@ -198,7 +199,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       setError(
         /UNIQUE/i.test(err?.message ?? '')
           ? 'A unit with this name already exists — choose a different name.'
-          : 'Failed to add unit — check your connection and try again'
+          : describeWriteFailure(err, 'That unit could not be added.')
       )
     } finally {
       setAdding(false)
@@ -210,7 +211,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       await writeFields(id, fields)
       await load()
     } catch (err) {
-      setError('Failed to save unit — check your connection and try again')
+      setError(describeWriteFailure(err, 'That unit could not be saved.'))
       throw err
     }
   }
@@ -228,7 +229,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       setError(
         /admin role required/i.test(err?.message ?? '')
           ? 'Only an admin can delete units.'
-          : 'Failed to delete unit — check your connection and try again'
+          : describeWriteFailure(err, 'That unit could not be deleted.')
       )
     }
   }
@@ -341,8 +342,8 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       }
       setImportResult({ added, skipped })
       setImportStep('done')
-    } catch {
-      setError('Import failed — check your connection and try again')
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That import could not be completed.'))
       setImportStep(null); setImportRows([])
     } finally {
       setImporting(false); await load()

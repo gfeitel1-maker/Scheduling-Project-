@@ -7,6 +7,8 @@ vi.mock('../localClient', () => ({
     list: vi.fn(),
     write: vi.fn(),
     deleteEntity: vi.fn(),
+    previewDelete: vi.fn(),
+    deleteRecord: vi.fn(),
   },
 }))
 
@@ -48,7 +50,28 @@ beforeEach(() => {
   localClient.list.mockReset()
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
+  localClient.previewDelete.mockReset().mockResolvedValue(preview())
+  localClient.deleteRecord.mockReset().mockResolvedValue({ ok: true, cleared: 75 })
 })
+
+// docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md — the count is
+// counted, and shown before the action.
+function preview(overrides = {}) {
+  return {
+    ok: true,
+    entity: 'groups',
+    entity_id: 'group-1',
+    name: 'Yeladim 1',
+    destructive: true,
+    slot_count: 75,
+    routes: [],
+    unprotected_count: 0,
+    anchor_count: 0,
+    overlay_count: 0,
+    weather_dependent_count: 0,
+    ...overrides,
+  }
+}
 
 describe('GroupsScreen', () => {
   it('loads groups and tiers scoped to campId via localClient.list', async () => {
@@ -114,25 +137,77 @@ describe('GroupsScreen', () => {
     expect(localClient.write).toHaveBeenCalledWith('token-abc', 'groups', 'group-1', 'name', 'Renamed')
   })
 
-  it('deleting a group calls localClient.deleteEntity and reloads', async () => {
+  it('states the real count BEFORE anything happens, and clears only on confirm', async () => {
     localClient.list.mockImplementation((entity) =>
       Promise.resolve(entity === 'groups' ? [group()] : [])
     )
     render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
 
-    localClient.list.mockImplementation(() => Promise.resolve([]))
     fireEvent.click(screen.getByText('Delete'))
 
-    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'groups', 'group-1'))
+    // The number is on screen and nothing has been deleted yet.
+    await waitFor(() => expect(screen.queryByText(/used in 75 places/)).not.toBeNull())
+    expect(localClient.deleteRecord).not.toHaveBeenCalled()
+
+    localClient.list.mockImplementation(() => Promise.resolve([]))
+    fireEvent.click(screen.getByText('Delete and clear 75 places'))
+
+    await waitFor(() =>
+      expect(localClient.deleteRecord).toHaveBeenCalledWith('groups', 'group-1', 75)
+    )
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).toBeNull())
   })
 
-  it('shows an admin-specific message when deleting a group fails due to role', async () => {
+  it('tells the director where the week went, in words, not "a snapshot"', async () => {
     localClient.list.mockImplementation((entity) =>
       Promise.resolve(entity === 'groups' ? [group()] : [])
     )
-    localClient.deleteEntity.mockRejectedValue(new Error('admin role required'))
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    await waitFor(() => expect(screen.queryByText(/bring the week back later from Versions/)).not.toBeNull())
+    expect(screen.queryByText(/snapshot/i)).toBeNull()
+  })
+
+  it('says nothing was deleted when the schedule could not be saved first', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [group()] : [])
+    )
+    localClient.deleteRecord.mockResolvedValue({ error: 'snapshot-failed' })
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    await waitFor(() => expect(screen.queryByText(/used in 75 places/)).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete and clear 75 places'))
+
+    await waitFor(() => expect(screen.queryByText(/[Nn]othing was deleted/)).not.toBeNull())
+    expect(screen.queryByText(/connection/i)).toBeNull()
+    expect(screen.queryByText('Yeladim 1')).not.toBeNull()
+  })
+
+  it('re-asks with the new number when the count changed under the director', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [group()] : [])
+    )
+    localClient.deleteRecord.mockResolvedValue({ error: 'count-changed', slot_count: 76 })
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    await waitFor(() => expect(screen.queryByText(/used in 75 places/)).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete and clear 75 places'))
+
+    await waitFor(() => expect(screen.queryByText(/76 places/)).not.toBeNull())
+  })
+
+  it('shows an admin-specific message when the check is rejected for a non-admin', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [group()] : [])
+    )
+    localClient.previewDelete.mockRejectedValue(new Error('admin role required'))
     render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
 
@@ -143,20 +218,18 @@ describe('GroupsScreen', () => {
     )
   })
 
-  it('shows the generic connectivity message for a non-role delete failure', async () => {
+  it('names the network only when the failure really was the network', async () => {
     localClient.list.mockImplementation((entity) =>
       Promise.resolve(entity === 'groups' ? [group()] : [])
     )
-    localClient.deleteEntity.mockRejectedValue(new Error('network error'))
+    localClient.previewDelete.mockRejectedValue(new Error('network error'))
     render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete'))
 
     await waitFor(() =>
-      expect(
-        screen.queryByText('Failed to delete group — check your connection and try again')
-      ).not.toBeNull()
+      expect(screen.queryByText(/Your devices could not reach each other/)).not.toBeNull()
     )
   })
 
@@ -218,7 +291,7 @@ describe('GroupsScreen', () => {
     )
     await waitFor(() =>
       expect(
-        screen.queryByText('Failed to add group — check your connection and try again')
+        screen.queryByText(/That group could not be added\./)
       ).not.toBeNull()
     )
   })

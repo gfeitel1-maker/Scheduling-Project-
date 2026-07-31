@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
+import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
+import DeleteRecordDialog from '../components/DeleteRecordDialog'
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
@@ -70,6 +72,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
+  const [pendingDelete, setPendingDelete] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
@@ -131,8 +134,8 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       }
       setNewLabel(''); setNewSort('')
       await load()
-    } catch {
-      setError('Failed to add day — check your connection and try again')
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That day could not be added.'))
     } finally {
       setAdding(false)
     }
@@ -143,27 +146,32 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       await writeFields(id, fields)
       await load()
     } catch (err) {
-      setError('Failed to save day — check your connection and try again')
+      setError(describeWriteFailure(err, 'That day could not be saved.'))
       throw err
     }
   }
 
+  // Deleting a record a schedule uses: count first, confirm with the count
+  // shown, then clear and delete in one Host-side transaction.
+  // docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md
   async function deleteDay(id) {
-    if (!window.confirm('Delete this day?')) return
+    setError(null)
+    let preview
     try {
-      const token = localStorage.getItem('shoresh-token')
-      const result = await localClient.deleteEntity(token, 'days_of_operation', id)
-      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error('delete failed')
-      }
-      await load()
+      preview = await localClient.previewDelete('days_of_operation', id)
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
           ? 'Only an admin can delete days.'
-          : 'Failed to delete day — check your connection and try again'
+          : describeWriteFailure(err, 'That could not be checked before deleting.')
       )
+      return
     }
+    if (!preview || preview.error) {
+      setError(deleteRefusalMessage(preview?.error ?? 'unknown', preview || {}))
+      return
+    }
+    setPendingDelete(preview)
   }
 
   function downloadTemplate() {
@@ -234,7 +242,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       setImportResult({ added, skipped }); setImportStep('done')
     } catch (err) {
       console.error('Import failed', err)
-      setError('Import failed — check your connection and try again')
+      setError(describeWriteFailure(err, 'That import could not be completed.'))
       setImportStep(null); setImportRows([])
     } finally {
       setImporting(false); await load()
@@ -342,6 +350,13 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
         <button onClick={() => onNavigate('timeblocks')} style={S.btnPrimary}>Next: Time Blocks →</button>
       </div>
+      {pendingDelete && (
+        <DeleteRecordDialog
+          preview={pendingDelete}
+          onCancel={() => setPendingDelete(null)}
+          onDeleted={() => { setPendingDelete(null); load() }}
+        />
+      )}
     </div>
   )
 }

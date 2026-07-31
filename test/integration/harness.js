@@ -334,6 +334,10 @@ export class Client {
   /** Ask the Host to restore a deleted record (or queue the request). */
   requestRestore(args) { return this.syncClient.requestRestore(args) }
 
+  /** Ask the Host to delete a record a schedule uses. Never queued — see
+   *  docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md. */
+  requestDelete(args) { return this.syncClient.requestDelete(args) }
+
   /** Restore requests recorded on this device but not yet delivered. */
   getPendingRestores() { return listPendingRestores(this.db) }
 

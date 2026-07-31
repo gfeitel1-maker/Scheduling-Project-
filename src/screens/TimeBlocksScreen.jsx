@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
@@ -203,7 +204,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       setError(
         /UNIQUE/i.test(err?.message ?? '')
           ? 'A time block with this name already exists — choose a different name.'
-          : 'Failed to add time block — check your connection and try again'
+          : describeWriteFailure(err, 'That time block could not be added.')
       )
     } finally {
       setAdding(false)
@@ -215,7 +216,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       await writeFields(id, fields)
       await load()
     } catch (err) {
-      setError('Failed to save time block — check your connection and try again')
+      setError(describeWriteFailure(err, 'That time block could not be saved.'))
       throw err
     }
   }
@@ -233,7 +234,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       setError(
         /admin role required/i.test(err?.message ?? '')
           ? 'Only an admin can delete time blocks.'
-          : 'Failed to delete time block — check your connection and try again'
+          : describeWriteFailure(err, 'That time block could not be deleted.')
       )
     }
   }
@@ -355,7 +356,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       setImportResult({ added, skipped }); setImportStep('done')
     } catch (err) {
       console.error('Import failed', err)
-      setError('Import failed — check your connection and try again')
+      setError(describeWriteFailure(err, 'That import could not be completed.'))
       setImportStep(null); setImportRows([])
     } finally {
       setImporting(false); await load()

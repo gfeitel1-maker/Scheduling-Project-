@@ -49,6 +49,13 @@ export const localClient = {
     shoresh.getEntityHistory({ token: currentToken(), entity, entity_id }),
   restoreEntity: (entity, entity_id) =>
     shoresh.restoreEntity({ token: currentToken(), entity, entity_id }),
+  // Deleting a record a schedule uses: previewDelete counts what would change
+  // so the confirmation can state it, deleteRecord clears it and deletes.
+  // docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md
+  previewDelete: (entity, entity_id) =>
+    shoresh.previewDelete({ token: currentToken(), entity, entity_id }),
+  deleteRecord: (entity, entity_id, expected_slot_count) =>
+    shoresh.deleteRecord({ token: currentToken(), entity, entity_id, expected_slot_count }),
   getDevicePairingStatus: () => shoresh.getDevicePairingStatus(),
   listPendingPairingRequests: () => shoresh.listPendingPairingRequests(currentToken()),
   approveDevice: (deviceId) => shoresh.approveDevice({ token: currentToken(), deviceId }),

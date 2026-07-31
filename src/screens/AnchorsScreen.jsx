@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
@@ -105,7 +106,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
       setSaveError(
         err?.cleanupFailed
           ? `Save failed partway through and couldn't be fully rolled back (admin required) — ${err.orphanCount} incomplete fixed-event row(s) may remain; ask an admin to review/delete them.`
-          : 'Failed to save — check your connection and try again'
+          : describeWriteFailure(err, 'Your changes could not be saved.')
       )
       setSaving(false)
       return
@@ -329,7 +330,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       setError(
         err.cleanupFailed
           ? `Save failed partway through and couldn't be fully rolled back (admin required) — ${err.orphanCount} incomplete fixed-event row(s) may remain; ask an admin to review/delete them.`
-          : 'Failed to save fixed event — check your connection and try again'
+          : describeWriteFailure(err, 'That fixed event could not be saved.')
       )
       throw err
     }
@@ -350,7 +351,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       setError(
         /admin role required/i.test(err?.message ?? '')
           ? 'Only an admin can delete fixed events.'
-          : 'Failed to delete fixed event — check your connection and try again'
+          : describeWriteFailure(err, 'That fixed event could not be deleted.')
       )
     }
   }
@@ -387,8 +388,8 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
             : `Deleted ${succeeded} of ${ids.length} fixed events — please try again for the rest.`
         )
       }
-    } catch {
-      setError('Failed to delete fixed events — check your connection and try again')
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That fixed events could not be deleted.'))
     }
   }
 
@@ -493,8 +494,8 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       }
 
       setImportRows(parsed); setImportStep('preview')
-    } catch {
-      setError('Failed to read import file — check your connection and try again')
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That import file could not be read.'))
     }
   }
 
@@ -521,8 +522,8 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
         added++
       }
       setImportResult({ added, skipped, skippedWithOrphan }); setImportStep('done')
-    } catch {
-      setError('Import failed — check your connection and try again')
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That import could not be completed.'))
       setImportStep(null); setImportRows([])
     } finally {
       setImporting(false); await load()
