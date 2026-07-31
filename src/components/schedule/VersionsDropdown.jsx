@@ -55,7 +55,7 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
         <div style={{
           position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 100,
           background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
-          boxShadow: '0 8px 24px rgba(0,0,0,0.10)', width: 320, overflow: 'hidden',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.10)', width: 360, overflow: 'hidden',
         }}>
           {/* Header */}
           <div style={{ padding: '12px 14px 8px', borderBottom: '1px solid var(--border)' }}>
@@ -68,15 +68,27 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
             {snapshots.length === 0 && (
               <div style={{ padding: '16px 14px', fontSize: 12, color: 'var(--text-secondary)' }}>No versions saved yet.</div>
             )}
-            {snapshots.map((snap, i) => {
-              const isCurrent = i === 0
+            {snapshots.map((snap) => {
+              // `on_screen` is derived from the version's payload by
+              // snapshotMatchesSchedule — it says this version IS the week being
+              // displayed. It used to be `i === 0`, which only meant "newest":
+              // the auto-save taken before a regeneration was labelled as the
+              // week on screen straight after it had been replaced, and the week
+              // preserved by the v26 migration was labelled that way despite
+              // never having been shown. It is normal for no version to match.
+              //
+              // It is a label and nothing more. It must never remove Restore:
+              // hiding Restore on the newest row is what made the preserved week
+              // impossible to bring back, and restoring the week you are already
+              // looking at is a harmless no-op, not something to prevent.
+              const isOnScreen = snap.on_screen === true
               const isRenaming = renamingId === snap.id
 
               return (
                 <div key={snap.id} style={{
                   display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px',
                   borderBottom: '1px solid var(--border)',
-                  background: isCurrent ? 'color-mix(in srgb, var(--primary) 3%, transparent)' : undefined,
+                  background: isOnScreen ? 'color-mix(in srgb, var(--primary) 3%, transparent)' : undefined,
                 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     {isRenaming ? (
@@ -105,7 +117,7 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
                       </div>
                     ) : (
                       <>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: snap.is_auto ? 'var(--text-secondary)' : 'var(--text)', fontStyle: snap.is_auto ? 'italic' : 'normal', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: snap.is_auto ? 'var(--text-secondary)' : 'var(--text)', fontStyle: snap.is_auto ? 'italic' : 'normal', overflowWrap: 'anywhere' }}>
                           {snap.is_auto ? 'Auto-save' : snap.name}
                         </div>
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', marginTop: 1 }}>
@@ -115,13 +127,13 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
                     )}
                   </div>
 
-                  {isCurrent && !isRenaming && (
+                  {isOnScreen && !isRenaming && (
                     <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--primary)', background: 'color-mix(in srgb, var(--primary) 8%, transparent)', padding: '2px 6px', borderRadius: 10, whiteSpace: 'nowrap' }}>
-                      current
+                      on screen now
                     </span>
                   )}
 
-                  {!isCurrent && !isRenaming && snap.is_auto && (
+                  {!isRenaming && snap.is_auto && (
                     <button
                       onClick={() => { setRenamingId(snap.id); setRenameValue('') }}
                       style={{ fontSize: 10, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
@@ -130,7 +142,7 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
                     </button>
                   )}
 
-                  {!isCurrent && !isRenaming && (
+                  {!isRenaming && (
                     // `restorable === false` means this version recorded no schedule
                     // data (saved before the write bug was fixed) — there is nothing
                     // to restore. Offering it as if it worked is the T8 defect, so it

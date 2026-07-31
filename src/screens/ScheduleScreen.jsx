@@ -11,6 +11,7 @@ import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
 import ExportChooserModal from '../components/schedule/ExportChooserModal'
 import VersionsDropdown from '../components/schedule/VersionsDropdown'
 import { isRestorable, parseSnapshotPayload, unrestorableMessage } from './snapshotRestore'
+import { snapshotMatchesSchedule } from './snapshotMatchesSchedule'
 import FieldTripDrawer from '../components/schedule/FieldTripDrawer'
 import { exportToExcel } from '../utils/exportSchedule'
 import { normalizeSlots } from '../utils/normalizeSlots'
@@ -397,9 +398,12 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           .sort((x, y) => new Date(y.created_at) - new Date(x.created_at))
           // `restorable` is carried so the Versions list and the restore action
           // agree — offering a version restore will refuse is the T8 defect.
+          // The payload travels with the row so the Versions list can say,
+          // truthfully and at render time, which version is the week on screen.
           .map(x => ({
             id: x.id, template_id: x.template_id, name: x.name,
             is_auto: x.is_auto, created_at: x.created_at,
+            slots: x.slots, overlays: x.overlays,
             restorable: isRestorable(x),
           }))
       }
@@ -780,7 +784,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       setActionError('Failed to save snapshot — check your connection and try again')
       throw err
     }
-    setRouteSnapshots(prev => [{ id, template_id: tid, name: name || null, is_auto: isAuto, created_at: createdAt, restorable: true }, ...prev])
+    setRouteSnapshots(prev => [{ id, template_id: tid, name: name || null, is_auto: isAuto, created_at: createdAt, slots: JSON.stringify(snapSlots), overlays: JSON.stringify(snapOverlays), restorable: true }, ...prev])
   }
 
   // Deleting a version is the director's call, never an automatic cleanup.
@@ -1505,6 +1509,15 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // paint must already have the right colours, and it is idempotent.
   useMemo(() => setActivityPalette(activities), [activities])
 
+  // Which saved version, if any, is the week currently displayed. Derived from
+  // the payloads on every change rather than stored, so the label cannot go
+  // stale after an edit or a restore — and so it is never inferred from list
+  // position, which is what made the newest version unrestorable.
+  const versionRows = useMemo(
+    () => snapshots.map(s => ({ ...s, on_screen: snapshotMatchesSchedule(s, { slots, overlays }) })),
+    [snapshots, slots, overlays]
+  )
+
   // colorIdx carries the activity's stable id, which activityColor() looks up in
   // that assignment (falling back to the bare hash if none is registered).
   const actMap = new Map(activities.map(a => [a.id, { ...a, colorIdx: a.id }]))
@@ -1819,7 +1832,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             <div style={{ flex: 1 }} />
 
             <VersionsDropdown
-              snapshots={snapshots}
+              snapshots={versionRows}
               isOpen={showVersions}
               role={role}
               onToggle={() => setShowVersions(v => !v)}
