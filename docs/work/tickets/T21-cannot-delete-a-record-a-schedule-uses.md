@@ -1,7 +1,7 @@
 ---
 title: T21-cannot-delete-a-record-a-schedule-uses
 document_type: ticket
-status: resolved
+status: completed
 created: 2026-07-30
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/constitution/CONSTITUTION.md]
 related_tickets: [docs/work/tickets/T19-fatal-startup-error-produces-a-silent-windowless-app.md]

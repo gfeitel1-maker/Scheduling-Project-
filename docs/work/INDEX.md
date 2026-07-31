@@ -21,6 +21,9 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [T16-ingest-prior-year-schedule](../../docs/work/tickets/T16-ingest-prior-year-schedule.md) | open | [2026-07-30-prior-year-schedule-ingestion-design](../../docs/work/specs/2026-07-30-prior-year-schedule-ingestion-design.md) |
 | [T22-most-ops-record-no-author](../../docs/work/tickets/T22-most-ops-record-no-author.md) | open | — |
+| [T23-deleting-an-activity-skips-the-confirmation](../../docs/work/tickets/T23-deleting-an-activity-skips-the-confirmation.md) | open | — |
+| [T24-restore-message-omits-the-empty-cells-caveat](../../docs/work/tickets/T24-restore-message-omits-the-empty-cells-caveat.md) | open | — |
+| [T25-the-test-suite-fails-under-load](../../docs/work/tickets/T25-the-test-suite-fails-under-load.md) | open | — |
 
 ## Decisions
 
@@ -36,8 +39,8 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [A joining device must receive current camp domain data, and schedule template identity must be collision-proof](../../docs/adr/2026-07-28-first-pairing-domain-sync-and-template-identity.md) | accepted | shipped | [2026-07-28-plural-candidate-schedules-per-camp](../../docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md) |
 | [Plural candidate schedules per camp: the manual and generated routes are separate outputs](../../docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md) | accepted | not-started | [2026-07-30-retiring-orphaned-schedule-slots](../../docs/adr/2026-07-30-retiring-orphaned-schedule-slots.md) · [2026-07-28-separate-manual-and-generated-flows](../../docs/work/specs/2026-07-28-separate-manual-and-generated-flows.md) · [T15-manual-build-starts-from-generated-schedule](../../docs/work/tickets/T15-manual-build-starts-from-generated-schedule.md) |
 | [Reshape schedule flags: per-cell dots vs. group-level findings](../../docs/adr/2026-07-28-schedule-flag-findings-reshape.md) | accepted | shipped | [2026-07-28-plural-candidate-schedules-per-camp](../../docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md) · [2026-07-28-schedule-flag-findings-reshape-design](../../docs/work/specs/2026-07-28-schedule-flag-findings-reshape-design.md) · [2026-07-28-schedule-grid-decolorization-design](../../docs/work/specs/2026-07-28-schedule-grid-decolorization-design.md) |
-| [Deleting a setup record that a schedule uses](../../docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md) | accepted | implemented | [2026-07-30-retiring-orphaned-schedule-slots](../../docs/adr/2026-07-30-retiring-orphaned-schedule-slots.md) |
-| [Restoring deleted records by re-emitting their field ops](../../docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md) | accepted | not-started | [2026-07-30-deleting-a-record-a-schedule-uses](../../docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md) · [T22-most-ops-record-no-author](../../docs/work/tickets/T22-most-ops-record-no-author.md) |
+| [Deleting a setup record that a schedule uses](../../docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md) | accepted | implemented | [2026-07-30-retiring-orphaned-schedule-slots](../../docs/adr/2026-07-30-retiring-orphaned-schedule-slots.md) · [T23-deleting-an-activity-skips-the-confirmation](../../docs/work/tickets/T23-deleting-an-activity-skips-the-confirmation.md) · [T24-restore-message-omits-the-empty-cells-caveat](../../docs/work/tickets/T24-restore-message-omits-the-empty-cells-caveat.md) |
+| [Restoring deleted records by re-emitting their field ops](../../docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md) | accepted | not-started | [2026-07-30-deleting-a-record-a-schedule-uses](../../docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md) · [T22-most-ops-record-no-author](../../docs/work/tickets/T22-most-ops-record-no-author.md) · [T24-restore-message-omits-the-empty-cells-caveat](../../docs/work/tickets/T24-restore-message-omits-the-empty-cells-caveat.md) |
 | [Retiring orphaned schedule slots by preserving them as a Version](../../docs/adr/2026-07-30-retiring-orphaned-schedule-slots.md) | accepted | implemented | — |
 
 ## Runs
