@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 import RecordHistory from '../components/RecordHistory'
-import { entityLabel, formatMoment } from './recordLabels'
+import { entityLabel, formatMoment, restoreCaveat } from './recordLabels'
 
 // What was deleted, by whom, when — and a way to get it back. All of it has
 // been in the op log since the first delete; none of it was ever shown.
@@ -23,6 +23,12 @@ const OUTCOME_COPY = {
 
 function outcomeMessage(error) {
   return OUTCOME_COPY[error] ?? 'That restore did not go through. Try again in a moment.'
+}
+
+function restoredMessage(row) {
+  const who = row.name || entityLabel(row.entity)
+  const caveat = restoreCaveat(row.entity)
+  return caveat ? `${who} is back. ${caveat}` : `${who} is back.`
 }
 
 function Notice({ tone, children }) {
@@ -91,12 +97,13 @@ export default function TrashScreen({ role }) {
     try {
       const result = await localClient.restoreEntity(row.entity, row.entity_id)
       if (result?.queued) {
+        const caveat = restoreCaveat(row.entity)
         setNotice({
           tone: 'text-secondary',
-          text: `Waiting for the main computer to bring ${row.name || 'this record'} back. It will happen as soon as this device reaches it — you can close the app in the meantime.`,
+          text: `Waiting for the main computer to bring ${row.name || 'this record'} back. It will happen as soon as this device reaches it — you can close the app in the meantime.${caveat ? ` ${caveat}` : ''}`,
         })
       } else if (result?.ok) {
-        setNotice({ tone: 'success', text: `${row.name || entityLabel(row.entity)} is back.` })
+        setNotice({ tone: 'success', text: restoredMessage(row) })
         if (result.deleted_children?.length) {
           setChildOffer({ parent: row, children: result.deleted_children })
         }
@@ -131,11 +138,16 @@ export default function TrashScreen({ role }) {
     }
     setChildOffer(null)
     setBusyId(null)
+    // T24 applies here too — these are the same records, restored in a batch,
+    // and the same thing did not come back with them. Deduped because a batch
+    // of ten groups should say it once, not ten times.
+    const caveats = [...new Set(offer.children.map((c) => restoreCaveat(c.entity)).filter(Boolean))]
+    const count = stillOut
+      ? `${brought} of ${offer.children.length} brought back. ${stillOut} still to do.`
+      : `${brought} record${brought === 1 ? '' : 's'} brought back.`
     setNotice({
       tone: stillOut ? 'danger' : 'success',
-      text: stillOut
-        ? `${brought} of ${offer.children.length} brought back. ${stillOut} still to do.`
-        : `${brought} record${brought === 1 ? '' : 's'} brought back.`,
+      text: brought > 0 && caveats.length ? `${count} ${caveats.join(' ')}` : count,
     })
     await load()
   }

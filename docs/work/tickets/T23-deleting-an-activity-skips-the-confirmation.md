@@ -1,7 +1,7 @@
 ---
 title: T23-deleting-an-activity-skips-the-confirmation
 document_type: ticket
-status: open
+status: completed
 created: 2026-07-31
 governing_docs: [docs/governance/standards/DESIGN_STANDARD.md]
 related_adrs: [docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md]
@@ -42,11 +42,30 @@ this is not "reuse the group dialog", it is "say the true thing for this entity.
 already distinguishes the entities, so the count is available; confirm whether the renderer
 simply does not open the dialog for activities, or opens it and takes an early path.
 
+## Resolution — 2026-07-31: already fixed, now locked in
+
+**The defect was real when Tester found it and was fixed before this ticket was written.**
+Tester ran against a build that predated T21's final commits; `DeleteRecordDialog` already
+distinguishes the two entities correctly, and `ActivitiesScreen.deleteActivity` already routes
+through it. Verified by reading both, then by test.
+
+What was genuinely missing was the guard, not the behaviour: there was **no test file for
+`DeleteRecordDialog` at all**, so nothing stopped this regressing. `src/components/DeleteRecordDialog.test.jsx`
+now covers it, including that the group wording does not leak onto an activity and that the word
+"snapshot" never reaches a director.
+
+Filing it was still right — the claim needed checking, and the absence of any test was a real
+finding underneath a stale one.
+
 ## Completion evidence
 
 1. Deleting an activity that appears in a schedule shows a confirmation naming the real count
-   before anything is cleared.
-2. The copy says the cells are emptied and kept — not that a week is removed.
+   before anything is cleared — **met**: "Swimming is used in 30 places in your schedules", and
+   the button reads "Delete and clear 30 places".
+2. The copy says the cells are emptied and kept — not that a week is removed — **met**, and the
+   test asserts the group phrasing is *absent*, not merely that the right phrasing is present.
 3. Deleting an activity that appears in **no** schedule does not force a confirmation on a
-   director for a zero-consequence action.
-4. A test asserts the confirmation appears for a placed activity, so it cannot silently regress.
+   director for a zero-consequence action — **met**: "Nothing in your schedules uses Swimming",
+   button "Delete activity".
+4. A test asserts the confirmation appears for a placed activity — **met**:
+   `src/components/DeleteRecordDialog.test.jsx`, 5 tests.

@@ -92,3 +92,27 @@ export function formatMoment(timestamp) {
     minute: '2-digit',
   })
 }
+
+// T24 — what did NOT come back, said at the moment the director is checking.
+//
+// The delete confirmation already says this, but restore is when they are
+// actually looking to see whether their work survived. Saying it once, months
+// earlier, is not saying it here. Restoring gives back the record and nothing
+// else (docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md §3), and
+// the expectation that undo restores everything is the default assumption, not
+// an unusual one.
+//
+// A trash row carries no slot count, so these have to be true whether or not
+// the record was ever placed — hence "any cells", not "the 30 cells".
+const RESTORE_CAVEAT = {
+  activities:
+    'It is not back on the schedule, though — any cells it was cleared from are still empty.',
+  groups:
+    'Its week did not come back with it, though. You can bring that back from Versions on the Schedule screen.',
+  days_of_operation:
+    'What was scheduled on it did not come back, though. You can bring that back from Versions on the Schedule screen.',
+}
+
+export function restoreCaveat(entity) {
+  return RESTORE_CAVEAT[entity] ?? null
+}

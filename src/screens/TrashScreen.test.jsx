@@ -139,3 +139,64 @@ describe('TrashScreen', () => {
     expect(await screen.findByText(/Ruth changed name from Alef to Aleph/)).toBeTruthy()
   })
 })
+
+// T24 — restoring says what did NOT come back.
+//
+// The delete confirmation says it, but restore is the moment the director is
+// actually checking whether their work survived. ADR §3 is explicit that the
+// expectation "undo restores everything" is the default assumption, not an
+// unusual one, so it has to be said at the point of use.
+describe('restoring says what did not come back with the record', () => {
+  it('tells a director their restored group has no week, and names Versions', async () => {
+    localClient.listDeleted.mockResolvedValue([deletedGroup()])
+    localClient.restoreEntity.mockResolvedValue({ ok: true })
+
+    render(<TrashScreen role="admin" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Restore' }))
+
+    const notice = await screen.findByText(/Aleph is back\./)
+    expect(notice.textContent).toMatch(/Its week did not come back with it/)
+    expect(notice.textContent).toMatch(/Versions on the Schedule screen/)
+  })
+
+  it('tells a director their restored activity is not back on the schedule', async () => {
+    localClient.listDeleted.mockResolvedValue([
+      deletedGroup({ entity: 'activities', entity_id: 'a1', name: 'Swimming' }),
+    ])
+    localClient.restoreEntity.mockResolvedValue({ ok: true })
+
+    render(<TrashScreen role="admin" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Restore' }))
+
+    const notice = await screen.findByText(/Swimming is back\./)
+    expect(notice.textContent).toMatch(/any cells it was cleared from are still empty/)
+    // Not the group wording — an activity's cells were emptied and kept, so
+    // there is no "week" to talk about.
+    expect(notice.textContent).not.toMatch(/week/)
+  })
+
+  it('says it on the queued path too, where the restore has not happened yet', async () => {
+    localClient.listDeleted.mockResolvedValue([deletedGroup()])
+    localClient.restoreEntity.mockResolvedValue({ queued: true })
+
+    render(<TrashScreen role="admin" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Restore' }))
+
+    const notice = await screen.findByText(/Waiting for the main computer/)
+    expect(notice.textContent).toMatch(/Its week did not come back with it/)
+  })
+
+  it('does not say it for a record where nothing else was lost', async () => {
+    localClient.listDeleted.mockResolvedValue([
+      deletedGroup({ entity: 'users', entity_id: 'u9', name: 'Sarah' }),
+    ])
+    localClient.restoreEntity.mockResolvedValue({ ok: true })
+
+    render(<TrashScreen role="admin" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Restore' }))
+
+    const notice = await screen.findByText(/Sarah is back\./)
+    expect(notice.textContent).not.toMatch(/did not come back/)
+    expect(notice.textContent).not.toMatch(/still empty/)
+  })
+})
