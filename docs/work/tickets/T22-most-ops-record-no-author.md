@@ -1,12 +1,28 @@
 ---
 title: T22-most-ops-record-no-author
 document_type: ticket
-status: open
+status: completed
 created: 2026-07-30
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: [docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md]
 archive_when: resolved
 ---
+
+> **RESOLVED 2026-07-30.** All three write paths in `electron/sync/syncClient.js` now accept
+> `author_user_id` as a parameter — the local `write`, `writeBulkReplace`, and the remote
+> `performWrite` — falling back to the constructed value only when a caller supplies none.
+>
+> **`main.js` was never at fault.** It has always passed `author_user_id: userId` on every write
+> (`:509`). The write functions simply did not declare the parameter, so the value was discarded
+> and the closure's — `null`, fixed at construction before anyone logs in (`main.js:228`) — was
+> written instead. Not missing schema, not a missing caller: a parameter that was never declared,
+> silently swallowing a value that was correctly supplied.
+>
+> Proven before fixing, with a probe that constructed the client and called it exactly as main.js
+> does: `author recorded -> null` for a caller passing `user-1`. After the fix, `user-1`.
+>
+> **This only attributes ops written from now on.** The existing unattributed ops cannot be
+> reconstructed, so Trash and History will keep showing "Unknown" for everything already done.
 
 # T22 — Most operations record no author, so "who did this" is usually Unknown
 

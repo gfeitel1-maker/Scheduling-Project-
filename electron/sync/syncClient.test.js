@@ -1755,3 +1755,55 @@ describe('token renewal scheduling (sub-task 3)', () => {
     expect(() => client.close()).not.toThrow()
   })
 })
+
+// T22 — an op must record who made it.
+//
+// Trash and record history both display the author, and both said "Unknown"
+// for almost everything: 32 of 402 ops on a real camp carried one. The cause
+// was not missing schema and not a missing caller. main.js has always passed
+// `author_user_id: userId` on every write (:509). The write functions here
+// simply did not declare it as a parameter, so the value was discarded and the
+// closure's — null, fixed at construction before anyone logs in (main.js:228) —
+// was written instead.
+//
+// These pin the parameter. A regression would be invisible in the UI until a
+// director opened Trash weeks later and found their own actions attributed to
+// nobody.
+describe('T22: the author the caller supplies is the author recorded', () => {
+  // Matches this file's existing idiom — a real db on a temp file via
+  // openLocalDb, not an in-memory one, so the schema is exactly what ships.
+  function seed() {
+    const file = path.join(os.tmpdir(), `shoresh-t22-${Date.now()}-${Math.random()}.sqlite`)
+    const db = openLocalDb(file)
+    db.prepare('INSERT INTO devices (id, name) VALUES (?,?)').run('dev-1', 'probe')
+    db.prepare('INSERT INTO camps (id, name) VALUES (?,?)').run('camp-1', 'Probe Camp')
+    db.prepare('INSERT INTO users (id, camp_id, name, role, pin_hash, pin_salt) VALUES (?,?,?,?,?,?)')
+      .run('user-1', 'camp-1', 'Sarah', 'admin', 'h', 's')
+    return db
+  }
+
+  it('write() records the signed-in user, not the null it was constructed with', async () => {
+    const db = seed()
+    // Constructed exactly as main.js does it, before anyone has logged in.
+    const client = createSyncClient(db, { device_id: 'dev-1', author_user_id: null })
+    await client.write({ entity: 'activities', entity_id: 'act-1', field: 'name', value: 'Swim', author_user_id: 'user-1' })
+    expect(db.prepare("SELECT author_user_id FROM operations WHERE entity_id='act-1'").get().author_user_id).toBe('user-1')
+  })
+
+  it('writeBulkReplace() records it too', async () => {
+    const db = seed()
+    const client = createSyncClient(db, { device_id: 'dev-1', author_user_id: null })
+    await client.writeBulkReplace({ entity: 'template_slots', scope_id: 'tpl-1', rows: [], author_user_id: 'user-1' })
+    const op = db.prepare("SELECT author_user_id FROM operations WHERE entity='template_slots'").get()
+    expect(op.author_user_id).toBe('user-1')
+  })
+
+  it('falls back to the constructed author when a caller supplies none', async () => {
+    // Bootstrap and pairing write before a user exists. Those stay honestly
+    // unattributed rather than being assigned to a guess.
+    const db = seed()
+    const client = createSyncClient(db, { device_id: 'dev-1', author_user_id: null })
+    await client.write({ entity: 'activities', entity_id: 'act-2', field: 'name', value: 'Archery' })
+    expect(db.prepare("SELECT author_user_id FROM operations WHERE entity_id='act-2'").get().author_user_id).toBe(null)
+  })
+})
