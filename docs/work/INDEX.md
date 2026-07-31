@@ -20,7 +20,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [T16-ingest-prior-year-schedule](../../docs/work/tickets/T16-ingest-prior-year-schedule.md) | open | [2026-07-30-prior-year-schedule-ingestion-design](../../docs/work/specs/2026-07-30-prior-year-schedule-ingestion-design.md) |
-| [T21-cannot-delete-a-record-a-schedule-uses](../../docs/work/tickets/T21-cannot-delete-a-record-a-schedule-uses.md) | open | [2026-07-30-deleting-a-record-a-schedule-uses](../../docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md) · [2026-07-30-retiring-orphaned-schedule-slots](../../docs/adr/2026-07-30-retiring-orphaned-schedule-slots.md) |
 | [T22-most-ops-record-no-author](../../docs/work/tickets/T22-most-ops-record-no-author.md) | open | — |
 
 ## Decisions
@@ -37,7 +36,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [A joining device must receive current camp domain data, and schedule template identity must be collision-proof](../../docs/adr/2026-07-28-first-pairing-domain-sync-and-template-identity.md) | accepted | shipped | [2026-07-28-plural-candidate-schedules-per-camp](../../docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md) |
 | [Plural candidate schedules per camp: the manual and generated routes are separate outputs](../../docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md) | accepted | not-started | [2026-07-30-retiring-orphaned-schedule-slots](../../docs/adr/2026-07-30-retiring-orphaned-schedule-slots.md) · [2026-07-28-separate-manual-and-generated-flows](../../docs/work/specs/2026-07-28-separate-manual-and-generated-flows.md) · [T15-manual-build-starts-from-generated-schedule](../../docs/work/tickets/T15-manual-build-starts-from-generated-schedule.md) |
 | [Reshape schedule flags: per-cell dots vs. group-level findings](../../docs/adr/2026-07-28-schedule-flag-findings-reshape.md) | accepted | shipped | [2026-07-28-plural-candidate-schedules-per-camp](../../docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md) · [2026-07-28-schedule-flag-findings-reshape-design](../../docs/work/specs/2026-07-28-schedule-flag-findings-reshape-design.md) · [2026-07-28-schedule-grid-decolorization-design](../../docs/work/specs/2026-07-28-schedule-grid-decolorization-design.md) |
-| [Deleting a setup record that a schedule uses](../../docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md) | accepted | not-started | [2026-07-30-retiring-orphaned-schedule-slots](../../docs/adr/2026-07-30-retiring-orphaned-schedule-slots.md) |
+| [Deleting a setup record that a schedule uses](../../docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md) | accepted | implemented | [2026-07-30-retiring-orphaned-schedule-slots](../../docs/adr/2026-07-30-retiring-orphaned-schedule-slots.md) |
 | [Restoring deleted records by re-emitting their field ops](../../docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md) | accepted | not-started | [2026-07-30-deleting-a-record-a-schedule-uses](../../docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md) · [T22-most-ops-record-no-author](../../docs/work/tickets/T22-most-ops-record-no-author.md) |
 | [Retiring orphaned schedule slots by preserving them as a Version](../../docs/adr/2026-07-30-retiring-orphaned-schedule-slots.md) | accepted | implemented | — |
 
@@ -49,7 +48,7 @@ They are different facts and a run can carry a bad one of each.
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
 | 2026-07-30 | [Typed run records and a compiled work index — tasks 1-6](../../docs/work/runs/2026-07-30-typed-run-records-and-work-index.md) | documentation-governance | in-progress | _no verdict yet_ |
-| 2026-07-26 | [manual-grid-editing](../../docs/work/runs/2026-07-26-manual-grid-editing.md) | ui-ux-design | in-progress | _no verdict yet_ |
+| 2026-07-26 | [manual-grid-editing](../../docs/work/runs/2026-07-26-manual-grid-editing-run.md) | ui-ux-design | in-progress | _no verdict yet_ |
 
 ## Orphans
 
