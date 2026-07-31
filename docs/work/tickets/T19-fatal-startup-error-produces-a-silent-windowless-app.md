@@ -4,7 +4,7 @@ document_type: ticket
 status: completed
 created: 2026-07-29
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/constitution/CONSTITUTION.md]
-related_tickets: [docs/work/tickets/T20-install-reports-success-for-an-app-that-cannot-start.md, docs/work/tickets/T12-drag-and-drop-dead.md]
+related_tickets: [docs/work/tickets/T20-install-reports-success-for-an-app-that-cannot-start.md, docs/work/tickets/T12-schedule-grid-dnd-degraded.md]
 archive_when: resolved
 ---
 

@@ -42,7 +42,13 @@ Nothing else by default. Everything below is loaded because a task class calls f
 | **Scheduling engine** | [`standards/ARCHITECTURE_STANDARD.md`](standards/ARCHITECTURE_STANDARD.md) §7 · `CONSTITUTION.md` Art. V | `PLATFORM_STATE.md` §engine | **`buildSchedule.test.js` (mandatory)** · test · lint · build | flag taxonomy or placement priority |
 | **Database / sync** | relevant ADRs · `2026-07-24-bulk-replace-seq-fix`, `2026-07-28-first-pairing-domain-sync-and-template-identity` | `PLATFORM_STATE.md` §schema | **integration (mandatory)** · fresh-vs-migrated schema equivalence · test · lint · build | **ADR + migration/rollback plan** |
 | **Copy / terminology** | `CONSTITUTION.md` Art. V | — | lint | terminology is product judgement |
-| **Documentation / governance** | this index · `CONSTITUTION.md` | — | link + reference check | **any change to a constitution or standard** |
+| **Documentation / governance** | this index · `CONSTITUTION.md` · [`standards/WORK_RECORD_STANDARD.md`](standards/WORK_RECORD_STANDARD.md) | `../work/INDEX.md` | link + reference check · `check:governance` | **any change to a constitution or standard** |
+
+**[`standards/WORK_RECORD_STANDARD.md`](standards/WORK_RECORD_STANDARD.md) applies to every row
+above, not only to the documentation row.** It owns the frontmatter schema for runs, tickets,
+specs and ADRs, and gives `CONSTITUTION.md` Article VII's requirement to record agent selection
+and omissions a checkable shape. The `task_class` values in that standard are the rows of this
+table.
 
 **[`standards/TESTING_STANDARD.md`](standards/TESTING_STANDARD.md) owns the gate list** and defines
 when the integration harness is mandatory (any change touching sync, auth, or schema) and which

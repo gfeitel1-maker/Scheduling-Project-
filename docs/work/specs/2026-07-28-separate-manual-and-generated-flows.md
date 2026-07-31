@@ -1,7 +1,7 @@
 ---
 title: "Separate manual-build and generated-schedule flows"
 document_type: spec
-status: approved-with-open-gate
+status: approved
 created: 2026-07-28
 amended: 2026-07-28
 task_class: database-sync

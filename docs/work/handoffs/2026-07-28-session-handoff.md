@@ -1,11 +1,21 @@
 ---
 task: session-handoff-2026-07-28
-document_type: task-state
-status: completed
+document_type: handoff
+status: superseded
 created: 2026-07-28
-governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
+governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
+related_tickets: [docs/work/tickets/T14-dev-run-reports-as-packaged-build.md]
 archive_when: superseded by a later handoff, or 30 days
 ---
+
+> **Migrated 2026-07-30** from `docs/work/task-state/` to `docs/work/handoffs/`.
+> `document_type` was `task-state`, which no longer exists. It was **not** re-typed as `run` — a
+> handoff is not a routed task and has no agents, gates, or verdict. `handoff` was added to the
+> `document_type` enum in `WORK_RECORD_STANDARD.md` instead, per that standard's own rule that a
+> value which does not fit an enum is a finding about the enum.
+>
+> `status: completed` → `superseded`: this handoff described `main` as of 2026-07-28 and the repo
+> is now at v26. **Read it as history, not as current state.**
 
 # Session handoff — 2026-07-28
 

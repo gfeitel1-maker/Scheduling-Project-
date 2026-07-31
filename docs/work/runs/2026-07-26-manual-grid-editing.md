@@ -1,23 +1,56 @@
 ---
 task: manual-grid-editing
-document_type: task-state
-status: active
+document_type: run
+date: 2026-07-26
+round: 1
+status: in-progress
 risk: high
-task_class: navigation-ia
+task_class: ui-ux-design
 created: 2026-07-26
 governing_docs: [docs/governance/standards/DESIGN_STANDARD.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
-selected_agents: [designer, maker, verifier, code-reviewer, tester, grader]
+related_tickets: [docs/work/tickets/T1-persistent-sidebar.md, docs/work/tickets/T2-group-view-drop-targets.md, docs/work/tickets/T3-copy-paste-selection.md, docs/work/tickets/T4-merge-split.md, docs/work/tickets/T5-undo-redo.md]
+related_specs: [docs/work/specs/2026-07-26-manual-grid-editing.md]
+related_adrs: []
+selected_agents: [governor, designer, maker, verifier, code-reviewer, tester, grader]
 omitted_agents:
-  architect: "no new data model; existing template_slots op-log path"
-  security: "no auth/trust-boundary change"
-  red_hat: "no persistence/sync model change"
-deterministic_checks: [npm run test, npm run lint, npm run build]
+  - agent: architect
+    reason: not-applicable
+    note: no new data model; existing template_slots op-log path
+  - agent: security
+    reason: not-applicable
+    note: no auth/trust-boundary change
+  - agent: red-hat
+    reason: not-applicable
+    note: no persistence/sync model change
+deterministic_checks: [test, lint, build]
 human_gates: [approve revised information architecture]
-completion_evidence: [verifier_pass, grader_pass, screenshots_compared]
+verdict: null
+completion_evidence: []
 archive_when: all tickets closed and Verifier PASS recorded
 ---
 
-# Task State — Manual Grid Editing
+# Run — Manual Grid Editing
+
+> **Migrated 2026-07-30** from `docs/work/task-state/` to conform to
+> [`WORK_RECORD_STANDARD.md`](../../governance/standards/WORK_RECORD_STANDARD.md). Four changes
+> to the frontmatter, each recorded here rather than made silently:
+>
+> 1. `task_class: navigation-ia` → **`ui-ux-design`**. `navigation-ia` is not a row in
+>    `GOVERNANCE_INDEX.md` §3–8 and never was. `ui-ux-design` is the nearest true class and pulls
+>    in the same `DESIGN_STANDARD.md`, so no governance changed — but the original value routed
+>    against a class that did not exist. **This is a finding, not a cleanup.**
+> 2. `omitted_agents` map → list of `{agent, reason, note}`. The prose became `note`; each gained
+>    a `reason` from the enum. No wording was dropped.
+> 3. `deterministic_checks` full commands → the short names owned by `TESTING_STANDARD.md` §1.
+> 4. `verdict` and `completion_evidence` **left empty on purpose.** The original claimed
+>    `[verifier_pass, grader_pass, screenshots_compared]` while `status: active` — a pass asserted
+>    with no evidence path attached to it. Under §5.2 `completion_evidence` must be non-empty when
+>    `verdict: pass`, so inventing paths here would manufacture the exact provenance the standard
+>    exists to prevent. `status` is `in-progress` and `verdict` is `null` until Verifier actually
+>    runs.
+>
+> `document_type` changed `task-state` → `run`, and `risk: high` is retained though the schema does
+> not require it — it is true and worth keeping.
 
 **Created:** 2026-07-26  
 **Governor:** Claude (Sonnet 4.6)  
