@@ -10,6 +10,7 @@ import { createUser, issueCampToken, issueLocalToken, ensureHostSigningKey } fro
 import { appendOp } from '../ops/operations.js'
 import { startSyncServer, sendMissedOps, sendWithAck } from './syncServer.js'
 import { ENTITIES } from '../auth/permissions.js'
+import { sleepBecauseTimeIsUnderTest } from '../../test/helpers/waitFor.js'
 
 const PORT = 8137
 
@@ -960,7 +961,7 @@ describe('unauthenticated login message', () => {
     for (let i = 0; i < 5; i++) {
       ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: 'wrong', device_secret_identifier: loginDeviceSecret }))
       await onceMessage(ws)
-      await new Promise((resolve) => setTimeout(resolve, 310))
+      await sleepBecauseTimeIsUnderTest(310)
     }
     ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: '1234', device_secret_identifier: loginDeviceSecret }))
     const reply = await onceMessage(ws)
@@ -971,9 +972,27 @@ describe('unauthenticated login message', () => {
     ws.close()
   })
 
-  // Skipped: timing-sensitive. Relies on a 300ms per-connection throttle window
-  // to drop a burst; passes in isolation but is flaky under CPU contention in
-  // parallel runs where message scheduling drifts. Root cause is environmental.
+  // STILL SKIPPED, with a sharper reason than "environmental" (T25, 2026-07-31).
+  //
+  // I tried to un-skip this by replacing its guessed 800ms sleep with a poll,
+  // on the theory that it only failed for not having replied YET. That was
+  // wrong, and the attempt failed honestly: 6 replies against `toBeLessThan(5)`.
+  //
+  // The real obstacle is that the property under test IS machine speed. The
+  // throttle compares Date.now() at PROCESSING time (syncServer.js:471), and
+  // each attemptLogin runs scryptSync — ~67ms on an idle machine, far more
+  // when starved. So how many of a 20-message burst clear a 300ms window is
+  // a direct function of how long scrypt takes. No amount of polling changes
+  // that; polling fixes races about WHEN something happened, not assertions
+  // about HOW MANY fit in a wall-clock window.
+  //
+  // Making this deterministic needs an injectable clock in handleLogin. That
+  // is a small, legitimate seam, but it is a production change made for a
+  // test and belongs in its own ticket rather than smuggled in here.
+  //
+  // What is NOT lost by skipping: the throttle's user-visible guarantees are
+  // covered by the two tests below — a human-paced retry is not dropped, and
+  // the per-name lockout still trips after 5 genuine attempts.
   it.skip('throttles a burst of rapid login messages from one connection, so not all of them reach attemptLogin / the per-name lockout (round 2 fix)', async () => {
     const ws = connect()
     await onceOpen(ws)
@@ -988,10 +1007,7 @@ describe('unauthenticated login message', () => {
       ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: 'wrong', device_secret_identifier: loginDeviceSecret }))
     }
 
-    // 800ms is generous for the server to process the first message — chosen
-    // to remain stable under full-suite load (30 test files running concurrently
-    // stress the event loop; 400ms proved flaky in that context).
-    await new Promise((resolve) => setTimeout(resolve, 800))
+    await sleepBecauseTimeIsUnderTest(800)
     // Only the first of the 20 rapid-fire messages should have reached
     // attemptLogin; the rest were dropped by the per-connection throttle
     // before ever running a query. If the flood weren't bounded, we'd see
@@ -1004,7 +1020,7 @@ describe('unauthenticated login message', () => {
     // 20 wrong attempts had reached attemptLogin, 'Alice' would already be
     // locked out (5 wrong attempts trips the lock) and this would come back
     // `locked: true` instead of succeeding.
-    await new Promise((resolve) => setTimeout(resolve, 350))
+    await sleepBecauseTimeIsUnderTest(350)
     ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: '1234', device_secret_identifier: loginDeviceSecret }))
     const reply = await onceMessage(ws)
     expect(reply.type).toBe('login_ok')
@@ -1022,7 +1038,7 @@ describe('unauthenticated login message', () => {
 
     // A real user retrying after seeing "wrong pin" comfortably clears the
     // 300ms throttle window; this attempt must not be dropped.
-    await new Promise((resolve) => setTimeout(resolve, 350))
+    await sleepBecauseTimeIsUnderTest(350)
     ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: '1234', device_secret_identifier: loginDeviceSecret }))
     const reply2 = await onceMessage(ws)
     expect(reply2.type).toBe('login_ok')
@@ -1042,7 +1058,7 @@ describe('unauthenticated login message', () => {
     ws.send(JSON.stringify({ type: 'acquire_lock', entity: 'x', entity_id: 'y', field: 'z' }))
     let gotReply = false
     ws.once('message', () => { gotReply = true })
-    await new Promise((resolve) => setTimeout(resolve, 200))
+    await sleepBecauseTimeIsUnderTest(200)
     expect(gotReply).toBe(false)
 
     ws.close()
@@ -1185,7 +1201,7 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
     )
     let gotReply = false
     ws.once('message', () => { gotReply = true })
-    await new Promise((resolve) => setTimeout(resolve, 200))
+    await sleepBecauseTimeIsUnderTest(200)
     expect(gotReply).toBe(false)
 
     ws.close()

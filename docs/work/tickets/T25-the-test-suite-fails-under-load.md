@@ -114,9 +114,13 @@ satisfies it, fail only if it never does.
 
 - `test/helpers/waitFor.js` — the polling helper and the reasoning, with its own tests.
 - `electron/sync/syncClient.test.js` — converted; both observed failures were here.
-- `electron/sync/syncServer.test.js`, `src/utils/ensureCohort.race.test.js` — **not** converted.
-  They did not fail in the observed runs, but they carry the same pattern and are the next place
-  this will surface.
+- `electron/sync/syncServer.test.js` — reviewed 2026-07-31. Its six sleeps are **legitimate**:
+  five wait out a 300ms login throttle or prove no reply arrives, which is elapsed time as the
+  mechanism under test, not a stand-in for an event. Renamed to `sleepBecauseTimeIsUnderTest`
+  so that stays visible. The one genuinely untestable case became [T26](T26-login-throttle-has-no-testable-clock.md).
+- `src/utils/ensureCohort.race.test.js` — reviewed. Its single `setTimeout(resolve, 0)` is a
+  deliberate microtask yield to force two writes to interleave; it is the point of the test, not
+  a guess at a duration. Left alone.
 - `vite.config.js` — the `test` block, for the `testTimeout` reasoning.
 
 ## Known remaining weakness — not fixed here
@@ -143,5 +147,12 @@ different technique (an explicit "batch processed" signal to wait on) to be made
 5. A test that genuinely hangs still fails — **met**: `waitFor` throws at its deadline and
    surfaces the predicate's own error; `waitFor.test.js` asserts this directly.
 
-Not met, and deliberately out of scope: the vacuous-pass weakness above, and conversion of
-`syncServer.test.js` / `ensureCohort.race.test.js`.
+Not met, and deliberately out of scope: the vacuous-pass weakness above.
+
+**Follow-up, 2026-07-31.** The two files left unconverted were reviewed rather than assumed. Both
+turned out to be using sleeps correctly — elapsed time is the mechanism under test, not a proxy
+for an event — so the conversion that looked outstanding was not owed. One skipped test in
+`syncServer.test.js` cannot be made load-independent without a production seam; I tried to
+un-skip it, failed (6 replies against `toBeLessThan(5)`), and filed
+[T26](T26-login-throttle-has-no-testable-clock.md) instead of weakening the assertion until it
+passed.
