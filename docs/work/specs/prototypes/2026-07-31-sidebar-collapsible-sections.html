@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sidebar — collapsible sections</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #F4F3EF; --surface: #FCFBF8; --surface-elevated: #FFFFFF;
+    --primary: #173B63; --primary-dark: #0F2A47; --secondary: #2F6B58;
+    --accent: #B8833A; --success: #4C8A63; --danger: #B44E48;
+    --text: #1E2A34; --text-secondary: #5C6670; --border: #D8DBD9;
+    --font-sans: 'Inter', system-ui, sans-serif;
+    --font-condensed: 'IBM Plex Sans', system-ui, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --motion-fast: 140ms; --motion-base: 220ms;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  html { font-size: 14px; }
+  body {
+    font-family: var(--font-sans); background: var(--bg); color: var(--text);
+    line-height: 1.5; -webkit-font-smoothing: antialiased; padding: 36px 24px 64px;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; }
+  .eyebrow {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--text-secondary); margin-bottom: 8px;
+  }
+  h1 { font-family: var(--font-condensed); font-size: 24px; font-weight: 700; letter-spacing: -.3px; margin-bottom: 8px; }
+  .lede { font-size: 14px; color: var(--text-secondary); max-width: 66ch; margin-bottom: 30px; }
+  .lede b { color: var(--text); font-weight: 600; }
+
+  .stage { display: flex; gap: 32px; align-items: flex-start; flex-wrap: wrap; }
+  .col-label {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--text-secondary); margin-bottom: 10px;
+  }
+
+  /* ---------- sidebar ---------- */
+  .sidebar {
+    width: 216px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden; display: flex; flex-direction: column;
+  }
+  .sidebar.tall { min-height: 540px; }
+  .brand { padding: 18px 18px 14px; border-bottom: 1px solid var(--border); }
+  .brand-name {
+    font-family: var(--font-condensed); font-weight: 700; font-size: 20px;
+    color: var(--primary); letter-spacing: -.3px;
+  }
+  .brand-camp { font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary); margin-top: 1px; }
+  nav { flex: 1; padding: 6px 0; }
+
+  /* ---------- section header = the disclosure ---------- */
+  .sec + .sec { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px; }
+  .sec-head {
+    display: flex; align-items: center; gap: 6px; width: 100%;
+    padding: 9px 14px 7px 11px; border: 0; background: none; text-align: left;
+    font-family: var(--font-condensed); font-size: 10px; font-weight: 700;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--text-secondary);
+    transition: background var(--motion-fast) var(--ease-out);
+  }
+  .sec-head:hover { background: var(--bg); }
+  .sec-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+  .chev {
+    width: 12px; flex: 0 0 12px; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 9px; color: var(--text-secondary); opacity: .75;
+    transition: transform var(--motion-base) var(--ease-out);
+  }
+  .sec[data-open="1"] .chev { transform: rotate(90deg); }
+  @media (prefers-reduced-motion: reduce) { .chev { transition: none; } }
+
+  .sec-title { flex: 1; }
+  .sec-state {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 400;
+    letter-spacing: 0; text-transform: none; color: var(--text-secondary);
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .sec-state.done { color: var(--success); }
+  .sec-state.needed { color: var(--danger); font-weight: 700; }
+
+  .sec-body { overflow: hidden; }
+  .sec[data-open="0"] .sec-body { display: none; }
+
+  /* ---------- items ---------- */
+  .item {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 7px 16px 7px 13px; border: 0; background: none; text-align: left;
+    font-family: inherit; font-size: 13px; color: var(--text);
+    border-left: 3px solid transparent;
+    transition: background var(--motion-fast) var(--ease-out);
+  }
+  .item:hover { background: var(--bg); }
+  .item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .item.active { color: var(--primary); font-weight: 600; border-left-color: var(--primary); }
+  .mark {
+    width: 13px; flex: 0 0 13px; display: inline-flex; align-items: center;
+    justify-content: center; font-size: 11px; line-height: 1;
+  }
+  .mark.done { color: var(--success); font-weight: 700; }
+  .mark.todo { color: var(--text-secondary); opacity: .5; }
+  .mark.needed { color: var(--danger); font-weight: 700; }
+  .item.needed .label, .item.needed .meta { color: var(--danger); }
+  .item.optional .label, .item.optional .meta { color: var(--text-secondary); }
+  .label { flex: 1; }
+  .meta { font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary); }
+  .badge {
+    min-width: 16px; height: 16px; padding: 0 5px; border-radius: 99px;
+    background: var(--danger); color: #fff; font-family: var(--font-mono);
+    font-size: 10px; font-weight: 700; display: inline-flex;
+    align-items: center; justify-content: center;
+  }
+  .badge.sm { height: 14px; min-width: 14px; font-size: 9px; }
+
+  .foot {
+    padding: 10px 16px; border-top: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary);
+  }
+  .dev {
+    display: inline-block; font-size: 9px; font-weight: 700; color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    padding: 1px 4px; border-radius: 4px; margin-right: 5px;
+  }
+
+  /* ---------- notes ---------- */
+  .notes { flex: 1 1 300px; min-width: 290px; padding-top: 26px; }
+  .note { margin-bottom: 18px; }
+  .note h3 { font-family: var(--font-condensed); font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .note p { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+  .note code, .lede code {
+    font-family: var(--font-mono); font-size: .9em; background: var(--surface-elevated);
+    border: 1px solid var(--border); padding: 1px 4px; border-radius: 3px;
+  }
+  .try {
+    font-size: 12px; font-family: var(--font-mono); color: var(--secondary);
+    border: 1px dashed var(--secondary); border-radius: 6px; padding: 8px 11px;
+    margin-bottom: 18px; display: inline-block;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Shoresh · sidebar · 31 July 2026</div>
+  <h1>Collapsible sections</h1>
+  <p class="lede">
+    Every section header is the toggle. Left is live — click the headers.
+    Right shows all three collapsed: <b>the header keeps saying what the section would have said.</b>
+  </p>
+
+  <div class="stage">
+
+    <!-- ============ INTERACTIVE ============ -->
+    <div>
+      <div class="col-label">Click the headers</div>
+      <div class="sidebar tall">
+        <div class="brand">
+          <div class="brand-name">Shoresh</div>
+          <div class="brand-camp">Machaneh Aleph</div>
+        </div>
+        <nav>
+
+          <div class="sec" data-open="1">
+            <button class="sec-head" aria-expanded="true">
+              <span class="chev">▶</span>
+              <span class="sec-title">Camp Set Up</span>
+              <span class="sec-state needed">! 4 / 6</span>
+            </button>
+            <div class="sec-body">
+              <button class="item"><span class="mark done">✓</span><span class="label">Programs</span><span class="meta">1</span></button>
+              <button class="item"><span class="mark done">✓</span><span class="label">Units</span><span class="meta">4</span></button>
+              <button class="item active"><span class="mark done">✓</span><span class="label">Groups</span><span class="meta">14</span></button>
+              <button class="item needed"><span class="mark needed">!</span><span class="label">Days</span><span class="meta">needed</span></button>
+              <button class="item"><span class="mark done">✓</span><span class="label">Time Blocks</span><span class="meta">6</span></button>
+              <button class="item needed"><span class="mark needed">!</span><span class="label">Activities</span><span class="meta">needed</span></button>
+              <button class="item optional"><span class="mark todo">·</span><span class="label">Fixed Events</span><span class="meta">optional</span></button>
+              <button class="item optional"><span class="mark todo">·</span><span class="label">Day Overrides</span><span class="meta">optional</span></button>
+            </div>
+          </div>
+
+          <div class="sec" data-open="1">
+            <button class="sec-head" aria-expanded="true">
+              <span class="chev">▶</span>
+              <span class="sec-title">Schedule</span>
+              <span class="sec-state">2</span>
+            </button>
+            <div class="sec-body">
+              <button class="item"><span class="mark todo">·</span><span class="label">Generated Schedule</span></button>
+              <button class="item"><span class="mark todo">·</span><span class="label">Manual Build</span></button>
+            </div>
+          </div>
+
+          <div class="sec" data-open="1">
+            <button class="sec-head" aria-expanded="true">
+              <span class="chev">▶</span>
+              <span class="sec-title">System</span>
+              <span class="sec-state"><span class="badge sm">2</span></span>
+            </button>
+            <div class="sec-body">
+              <button class="item"><span class="mark done">✓</span><span class="label">LAN</span><span class="meta">host</span></button>
+              <button class="item"><span class="mark todo">·</span><span class="label">Conflicts</span><span class="badge">2</span></button>
+              <button class="item"><span class="mark todo">·</span><span class="label">Trash</span></button>
+              <button class="item"><span class="mark todo">·</span><span class="label">Devices</span></button>
+            </div>
+          </div>
+
+        </nav>
+        <div class="foot"><span class="dev">DEV</span>shoresh-dev · v0.1.0</div>
+      </div>
+    </div>
+
+    <!-- ============ ALL COLLAPSED ============ -->
+    <div>
+      <div class="col-label">All collapsed</div>
+      <div class="sidebar">
+        <div class="brand">
+          <div class="brand-name">Shoresh</div>
+          <div class="brand-camp">Machaneh Aleph</div>
+        </div>
+        <nav>
+          <div class="sec" data-open="0">
+            <button class="sec-head" aria-expanded="false" tabindex="-1">
+              <span class="chev">▶</span><span class="sec-title">Camp Set Up</span>
+              <span class="sec-state needed">! 4 / 6</span>
+            </button>
+            <div class="sec-body"></div>
+          </div>
+          <div class="sec" data-open="0">
+            <button class="sec-head" aria-expanded="false" tabindex="-1">
+              <span class="chev">▶</span><span class="sec-title">Schedule</span>
+              <span class="sec-state">2</span>
+            </button>
+            <div class="sec-body"></div>
+          </div>
+          <div class="sec" data-open="0">
+            <button class="sec-head" aria-expanded="false" tabindex="-1">
+              <span class="chev">▶</span><span class="sec-title">System</span>
+              <span class="sec-state"><span class="badge sm">2</span></span>
+            </button>
+            <div class="sec-body"></div>
+          </div>
+        </nav>
+        <div class="foot"><span class="dev">DEV</span>shoresh-dev · v0.1.0</div>
+      </div>
+      <p style="font-size:12px;color:var(--text-secondary);margin-top:12px;max-width:216px;line-height:1.55">
+        Three rows. Still says setup is short, still shows two unresolved conflicts.
+      </p>
+    </div>
+
+    <!-- ============ NOTES ============ -->
+    <div class="notes">
+      <div class="try">try: collapse System →</div>
+
+      <div class="note">
+        <h3>Collapsing must not hide a problem</h3>
+        <p>
+          The conflicts badge rolls up onto the <code>System</code> header, and
+          <code>! 4 / 6</code> stays on <code>Camp Set Up</code>. A director who tidied
+          their sidebar in June still sees a sync problem in August. This is the rule that
+          makes collapsing safe — without it, collapse is a way to lose alerts.
+        </p>
+      </div>
+
+      <div class="note">
+        <h3>Chevron is always visible</h3>
+        <p>
+          Twenty hides its chevron until you hover the section. Cleaner, and wrong for this
+          audience — a director who doesn't know sections collapse will never hover to find out.
+          Low-contrast and always there.
+        </p>
+      </div>
+
+      <div class="note">
+        <h3>The whole header is the target</h3>
+        <p>
+          Not just the <code>▶</code>. A 216px-wide row is an easy click; a 12px glyph is not.
+          <code>aria-expanded</code> tracks state, and the header is a real button so it
+          takes keyboard focus and Enter/Space.
+        </p>
+      </div>
+
+      <div class="note">
+        <h3>Open/closed is remembered per device</h3>
+        <p>
+          <code>localStorage</code>, never synced — how one director likes their sidebar is not
+          camp data, and shouldn't change what a counsellor sees on another laptop.
+        </p>
+      </div>
+
+      <div class="note">
+        <h3>Not tabs</h3>
+        <p>
+          Tabs would show one section at a time. Collapse lets a director keep Schedule open
+          while Camp Set Up stays folded — the common August case — and nothing forces a
+          choice between them.
+        </p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.sidebar.tall .sec-head').forEach(function (head) {
+    head.addEventListener('click', function () {
+      var sec = head.closest('.sec');
+      var open = sec.dataset.open === '1';
+      sec.dataset.open = open ? '0' : '1';
+      head.setAttribute('aria-expanded', String(!open));
+    });
+  });
+</script>
+</body>
+</html>
