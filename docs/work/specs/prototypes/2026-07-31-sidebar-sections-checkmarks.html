@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sidebar — sections with checkmarks</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #F4F3EF; --surface: #FCFBF8; --surface-elevated: #FFFFFF;
+    --primary: #173B63; --primary-dark: #0F2A47; --secondary: #2F6B58;
+    --accent: #B8833A; --success: #4C8A63; --danger: #B44E48;
+    --text: #1E2A34; --text-secondary: #5C6670; --border: #D8DBD9;
+    --font-sans: 'Inter', system-ui, sans-serif;
+    --font-condensed: 'IBM Plex Sans', system-ui, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --motion-fast: 140ms; --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  html { font-size: 14px; }
+  body {
+    font-family: var(--font-sans); background: var(--bg); color: var(--text);
+    line-height: 1.5; -webkit-font-smoothing: antialiased; padding: 36px 24px 64px;
+  }
+  .wrap { max-width: 900px; margin: 0 auto; }
+
+  .eyebrow {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--text-secondary); margin-bottom: 8px;
+  }
+  h1 { font-family: var(--font-condensed); font-size: 24px; font-weight: 700; letter-spacing: -.3px; margin-bottom: 8px; }
+  .lede { font-size: 14px; color: var(--text-secondary); max-width: 64ch; margin-bottom: 32px; }
+
+  .stage { display: flex; gap: 32px; align-items: flex-start; flex-wrap: wrap; }
+  .col { flex: 0 0 auto; }
+  .col-label {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--text-secondary); margin-bottom: 10px;
+  }
+
+  /* ---------- the sidebar ---------- */
+  .sidebar {
+    width: 216px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden; display: flex; flex-direction: column;
+    min-height: 560px;
+  }
+  .brand { padding: 18px 18px 14px; border-bottom: 1px solid var(--border); }
+  .brand-name {
+    font-family: var(--font-condensed); font-weight: 700; font-size: 20px;
+    color: var(--primary); letter-spacing: -.3px;
+  }
+  .brand-camp { font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary); margin-top: 1px; }
+
+  nav { flex: 1; padding: 6px 0; }
+
+  .sec-head {
+    display: flex; align-items: center; gap: 7px;
+    padding: 12px 18px 5px;
+    font-family: var(--font-condensed); font-size: 10px; font-weight: 700;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--text-secondary);
+  }
+  .sec-head.first { padding-top: 6px; }
+  .sec-head .count {
+    margin-left: auto; font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: 0; text-transform: none; font-weight: 400;
+  }
+  .sec-head .count.done { color: var(--success); }
+  .sec-head .count.todo { color: var(--text-secondary); }
+  .sec + .sec .sec-head { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 14px; }
+
+  .item {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 7px 18px 7px 15px; border: 0; background: none; text-align: left;
+    font-family: inherit; font-size: 13px; color: var(--text);
+    border-left: 3px solid transparent;
+    transition: background var(--motion-fast) var(--ease-out);
+  }
+  .item:hover { background: var(--bg); }
+  .item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .item.active {
+    color: var(--primary); font-weight: 600; border-left-color: var(--primary);
+  }
+
+  /* the mark column — fixed width so labels align whatever the state */
+  .mark {
+    width: 13px; flex: 0 0 13px; display: inline-flex; align-items: center;
+    justify-content: center; font-size: 11px; line-height: 1;
+  }
+  .mark.done { color: var(--success); font-weight: 700; }
+  .mark.todo { color: var(--text-secondary); opacity: .5; }
+  .item.needed .label { color: var(--danger); }
+  .mark.needed { color: var(--danger); font-weight: 700; }
+
+  .label { flex: 1; }
+  .meta {
+    font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary);
+  }
+  .item.needed .meta { color: var(--danger); }
+  .item.optional .label, .item.optional .meta { color: var(--text-secondary); }
+
+  .badge {
+    min-width: 16px; height: 16px; padding: 0 5px; border-radius: 99px;
+    background: var(--danger); color: #fff; font-family: var(--font-mono);
+    font-size: 10px; font-weight: 700; display: inline-flex;
+    align-items: center; justify-content: center;
+  }
+
+  .foot {
+    padding: 10px 18px; border-top: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary);
+  }
+  .dev {
+    display: inline-block; font-size: 9px; font-weight: 700; color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    padding: 1px 4px; border-radius: 4px; margin-right: 5px;
+  }
+
+  /* ---------- annotations ---------- */
+  .notes { flex: 1 1 300px; min-width: 280px; padding-top: 26px; }
+  .note { margin-bottom: 20px; }
+  .note h3 {
+    font-family: var(--font-condensed); font-size: 13px; font-weight: 700; margin-bottom: 4px;
+  }
+  .note p { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+  .note code {
+    font-family: var(--font-mono); font-size: .9em; background: var(--surface-elevated);
+    border: 1px solid var(--border); padding: 1px 4px; border-radius: 3px;
+  }
+  .key { display: flex; gap: 16px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+  .key span { display: inline-flex; align-items: center; gap: 6px; }
+  .k-done { color: var(--success); font-weight: 700; }
+  .k-todo { color: var(--text-secondary); opacity: .5; }
+  .k-needed { color: var(--danger); font-weight: 700; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Shoresh · sidebar · 31 July 2026</div>
+  <h1>Three sections, and the checkmarks move to the sidebar</h1>
+  <p class="lede">
+    The tick system from Camp Setup, applied to the nav. Left: mid-setup. Right: same camp once it can build a week.
+  </p>
+
+  <div class="stage">
+
+    <!-- ============ MID-SETUP ============ -->
+    <div class="col">
+      <div class="col-label">June — still building</div>
+      <div class="sidebar">
+        <div class="brand">
+          <div class="brand-name">Shoresh</div>
+          <div class="brand-camp">Machaneh Aleph</div>
+        </div>
+
+        <nav>
+          <div class="sec">
+            <div class="sec-head first">Camp Set Up <span class="count todo">4 / 6</span></div>
+            <button class="item"><span class="mark done">✓</span><span class="label">Programs</span><span class="meta">1</span></button>
+            <button class="item"><span class="mark done">✓</span><span class="label">Units</span><span class="meta">4</span></button>
+            <button class="item active"><span class="mark done">✓</span><span class="label">Groups</span><span class="meta">14</span></button>
+            <button class="item needed"><span class="mark needed">!</span><span class="label">Days</span><span class="meta">needed</span></button>
+            <button class="item"><span class="mark done">✓</span><span class="label">Time Blocks</span><span class="meta">6</span></button>
+            <button class="item needed"><span class="mark needed">!</span><span class="label">Activities</span><span class="meta">needed</span></button>
+            <button class="item optional"><span class="mark todo">·</span><span class="label">Fixed Events</span><span class="meta">optional</span></button>
+            <button class="item optional"><span class="mark todo">·</span><span class="label">Day Overrides</span><span class="meta">optional</span></button>
+          </div>
+
+          <div class="sec">
+            <div class="sec-head">Schedule</div>
+            <button class="item"><span class="mark todo">·</span><span class="label">Generated Schedule</span></button>
+            <button class="item"><span class="mark todo">·</span><span class="label">Manual Build</span></button>
+          </div>
+
+          <div class="sec">
+            <div class="sec-head">System</div>
+            <button class="item"><span class="mark done">✓</span><span class="label">LAN</span><span class="meta">host</span></button>
+            <button class="item"><span class="mark todo">·</span><span class="label">Conflicts</span><span class="badge">2</span></button>
+            <button class="item"><span class="mark todo">·</span><span class="label">Trash</span></button>
+            <button class="item"><span class="mark todo">·</span><span class="label">Devices</span></button>
+          </div>
+        </nav>
+
+        <div class="foot"><span class="dev">DEV</span>shoresh-dev · v0.1.0</div>
+      </div>
+    </div>
+
+    <!-- ============ COMPLETE ============ -->
+    <div class="col">
+      <div class="col-label">August — ready</div>
+      <div class="sidebar">
+        <div class="brand">
+          <div class="brand-name">Shoresh</div>
+          <div class="brand-camp">Machaneh Aleph</div>
+        </div>
+
+        <nav>
+          <div class="sec">
+            <div class="sec-head first">Camp Set Up <span class="count done">✓ 6 / 6</span></div>
+            <button class="item"><span class="mark done">✓</span><span class="label">Programs</span><span class="meta">1</span></button>
+            <button class="item"><span class="mark done">✓</span><span class="label">Units</span><span class="meta">4</span></button>
+            <button class="item"><span class="mark done">✓</span><span class="label">Groups</span><span class="meta">14</span></button>
+            <button class="item"><span class="mark done">✓</span><span class="label">Days</span><span class="meta">7</span></button>
+            <button class="item"><span class="mark done">✓</span><span class="label">Time Blocks</span><span class="meta">6</span></button>
+            <button class="item"><span class="mark done">✓</span><span class="label">Activities</span><span class="meta">18</span></button>
+            <button class="item optional"><span class="mark done">✓</span><span class="label">Fixed Events</span><span class="meta">3</span></button>
+            <button class="item optional"><span class="mark todo">·</span><span class="label">Day Overrides</span><span class="meta">optional</span></button>
+          </div>
+
+          <div class="sec">
+            <div class="sec-head">Schedule</div>
+            <button class="item active"><span class="mark done">✓</span><span class="label">Generated Schedule</span></button>
+            <button class="item"><span class="mark done">✓</span><span class="label">Manual Build</span></button>
+          </div>
+
+          <div class="sec">
+            <div class="sec-head">System</div>
+            <button class="item"><span class="mark done">✓</span><span class="label">LAN</span><span class="meta">host</span></button>
+            <button class="item"><span class="mark todo">·</span><span class="label">Conflicts</span></button>
+            <button class="item"><span class="mark todo">·</span><span class="label">Trash</span></button>
+            <button class="item"><span class="mark todo">·</span><span class="label">Devices</span></button>
+          </div>
+        </nav>
+
+        <div class="foot"><span class="dev">DEV</span>shoresh-dev · v0.1.0</div>
+      </div>
+    </div>
+
+    <!-- ============ NOTES ============ -->
+    <div class="notes">
+      <div class="note">
+        <h3>The marks</h3>
+        <div class="key">
+          <span><span class="k-done">✓</span> has data</span>
+          <span><span class="k-needed">!</span> blocks building</span>
+          <span><span class="k-todo">·</span> nothing yet</span>
+        </div>
+        <p style="margin-top:8px">
+          Only the six the engine needs can show <span class="k-needed">!</span>.
+          Fixed Events and Day Overrides read <code>optional</code> and never turn red —
+          a camp with no day overrides isn’t unfinished.
+        </p>
+      </div>
+
+      <div class="note">
+        <h3>Days is in the list</h3>
+        <p>
+          Camp Setup tracks five and omits Days, which is the one the engine blocks on.
+          Moving the ticks without fixing the set would put that bug somewhere more visible.
+        </p>
+      </div>
+
+      <div class="note">
+        <h3>The section header carries the total</h3>
+        <p>
+          <code>4 / 6</code> answers “how far along am I” without a progress bar,
+          and turns into <code>✓ 6 / 6</code> when the camp can build. The header
+          still opens the Camp Setup screen, which keeps the plain-language
+          descriptions of what a unit or a fixed event is.
+        </p>
+      </div>
+
+      <div class="note">
+        <h3>Both weeks stay level</h3>
+        <p>
+          Generated Schedule and Manual Build share a section, a mark style and a row height,
+          alphabetical by accident of the alphabet. Neither is the real one.
+        </p>
+      </div>
+
+      <div class="note">
+        <h3>System absorbs the footer</h3>
+        <p>
+          LAN, Conflicts, Trash and Devices become a named section instead of loose
+          diagnostics. Only the DEV badge and version stay pinned at the bottom.
+        </p>
+      </div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>
