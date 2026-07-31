@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Camp Setup — the loop, and R1</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #F4F3EF;
+    --surface: #FCFBF8;
+    --surface-elevated: #FFFFFF;
+    --primary: #173B63;
+    --primary-dark: #0F2A47;
+    --secondary: #2F6B58;
+    --accent: #B8833A;
+    --success: #4C8A63;
+    --danger: #B44E48;
+    --text: #1E2A34;
+    --text-secondary: #5C6670;
+    --border: #D8DBD9;
+    --font-sans: 'Inter', system-ui, sans-serif;
+    --font-condensed: 'IBM Plex Sans', system-ui, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --motion-fast: 140ms;
+    --motion-base: 220ms;
+    --motion-settle: 340ms;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  html { font-size: 14px; }
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    padding: 40px 24px 80px;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  /* ---- masthead ---------------------------------------------------- */
+  .eyebrow {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--text-secondary); margin-bottom: 10px;
+  }
+  h1 {
+    font-family: var(--font-condensed); font-size: 30px; font-weight: 700;
+    letter-spacing: -.4px; line-height: 1.15; margin-bottom: 12px;
+  }
+  .standfirst {
+    font-size: 15px; color: var(--text-secondary); max-width: 62ch; line-height: 1.65;
+  }
+  .standfirst strong { color: var(--text); font-weight: 600; }
+
+  hr.rule { border: 0; border-top: 1px solid var(--border); margin: 36px 0; }
+
+  h2 {
+    font-family: var(--font-condensed); font-size: 12px; font-weight: 700;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--text-secondary);
+    margin-bottom: 6px;
+  }
+  .h2-note { font-size: 13px; color: var(--text-secondary); margin-bottom: 18px; max-width: 68ch; }
+
+  /* ---- the loop (signature) ---------------------------------------- */
+  .loop {
+    background: var(--surface-elevated);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0;
+    overflow: hidden;
+  }
+  .loop-stage { position: relative; min-height: 268px; }
+  .panel {
+    padding: 26px 28px;
+    display: none;
+  }
+  .panel[data-on="1"] { display: block; }
+  @media (prefers-reduced-motion: no-preference) {
+    .panel[data-on="1"] { animation: rise var(--motion-settle) var(--ease-out); }
+    @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  }
+
+  .screen-tag {
+    display: inline-block; font-family: var(--font-mono); font-size: 10px;
+    letter-spacing: .1em; text-transform: uppercase; color: var(--text-secondary);
+    border: 1px solid var(--border); border-radius: 4px; padding: 3px 7px; margin-bottom: 16px;
+  }
+  .panel h3 {
+    font-family: var(--font-condensed); font-size: 19px; font-weight: 700; margin-bottom: 6px;
+  }
+  .panel p.sub { font-size: 13px; color: var(--text-secondary); margin-bottom: 18px; max-width: 56ch; }
+  .false { color: var(--danger); }
+
+  .meter { margin-bottom: 18px; max-width: 420px; }
+  .meter-top {
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); margin-bottom: 6px;
+  }
+  .meter-track { height: 6px; background: var(--border); border-radius: 99px; overflow: hidden; }
+  .meter-fill { height: 100%; width: 100%; background: var(--success); border-radius: 99px; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 20px; }
+  .chip {
+    font-size: 12px; padding: 4px 10px; border-radius: 99px;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary);
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .chip .tick { color: var(--success); font-weight: 700; }
+  .chip.absent { border-style: dashed; color: var(--danger); border-color: var(--danger); }
+
+  .btn {
+    font-family: inherit; font-size: 13px; font-weight: 600;
+    padding: 10px 18px; border-radius: 6px; border: 1px solid transparent;
+    background: var(--primary); color: #fff; transition: background var(--motion-fast) var(--ease-out);
+  }
+  .btn:hover { background: var(--primary-dark); }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn.ghost { background: transparent; color: var(--primary); border-color: var(--border); }
+  .btn.ghost:hover { background: var(--bg); }
+
+  .missing {
+    border-left: 3px solid var(--danger); padding: 12px 16px; background: var(--surface);
+    border-radius: 0 6px 6px 0; margin-bottom: 18px; max-width: 460px;
+  }
+  .missing-h { font-weight: 600; font-size: 13px; margin-bottom: 6px; }
+  .missing ul { list-style: none; font-family: var(--font-mono); font-size: 12px; color: var(--danger); }
+
+  .lapbar {
+    border-top: 1px solid var(--border); background: var(--surface);
+    padding: 12px 28px; display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    font-size: 12px; color: var(--text-secondary);
+  }
+  .lapcount { font-family: var(--font-mono); font-weight: 700; color: var(--text); }
+  .verdict { color: var(--danger); font-weight: 600; }
+  .reset {
+    margin-left: auto; font-size: 11px; font-family: var(--font-mono);
+    background: none; border: 0; color: var(--text-secondary); text-decoration: underline;
+  }
+  .reset:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+  /* ---- comparison --------------------------------------------------- */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 820px) { .cols { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface-elevated); border: 1px solid var(--border);
+    border-radius: 10px; padding: 24px; display: flex; flex-direction: column;
+  }
+  .card.now { border-top: 3px solid var(--danger); }
+  .card.next { border-top: 3px solid var(--secondary); }
+  .card-label {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .12em;
+    text-transform: uppercase; margin-bottom: 14px;
+  }
+  .card.now .card-label { color: var(--danger); }
+  .card.next .card-label { color: var(--secondary); }
+
+  .steps { list-style: none; margin: 16px 0 0; }
+  .step {
+    display: flex; align-items: baseline; gap: 11px; padding: 9px 0;
+    border-bottom: 1px solid var(--border); font-size: 13px;
+  }
+  .step:last-child { border-bottom: 0; }
+  .step .num {
+    font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary);
+    min-width: 14px;
+  }
+  .step .nm { flex: 1; }
+  .step .ct { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
+  .step.gap .nm { color: var(--danger); font-weight: 600; }
+  .step.gap .ct { color: var(--danger); }
+  .step.added { background: color-mix(in srgb, var(--secondary) 7%, transparent); margin: 0 -10px; padding-left: 10px; padding-right: 10px; }
+  .step.optional .nm, .step.optional .ct { color: var(--text-secondary); }
+
+  .gapline {
+    font-size: 14px; line-height: 1.6; padding: 14px 16px; border-radius: 6px;
+    background: color-mix(in srgb, var(--danger) 7%, transparent);
+    border-left: 3px solid var(--danger); margin-bottom: 4px;
+  }
+  .gapline a { color: var(--danger); font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
+  .gapline.ok {
+    background: color-mix(in srgb, var(--success) 8%, transparent);
+    border-left-color: var(--success);
+  }
+  .statelabel {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--text-secondary); margin-bottom: 8px;
+  }
+  .statelabel.or {
+    margin: 8px 0; text-align: center; max-width: 460px;
+  }
+  .struck { text-decoration: line-through; color: var(--text-secondary); opacity: .65; }
+  .note {
+    margin-top: auto; padding-top: 16px; font-size: 12px; color: var(--text-secondary);
+    line-height: 1.6; border-top: 1px solid var(--border); margin-top: 20px;
+  }
+  .note code, code {
+    font-family: var(--font-mono); font-size: .92em;
+    background: var(--bg); padding: 1px 5px; border-radius: 3px;
+  }
+
+  /* ---- truth table --------------------------------------------------- */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  caption { text-align: left; font-size: 12px; color: var(--text-secondary); padding-bottom: 10px; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  th {
+    font-family: var(--font-condensed); font-size: 10px; letter-spacing: .1em;
+    text-transform: uppercase; color: var(--text-secondary); font-weight: 700;
+  }
+  td.y { color: var(--secondary); font-weight: 600; }
+  td.n { color: var(--text-secondary); }
+  tr.key td:first-child { font-weight: 600; }
+  .tbl-wrap { overflow-x: auto; background: var(--surface-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px 4px; }
+
+  footer { margin-top: 44px; font-size: 12px; color: var(--text-secondary); line-height: 1.7; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Shoresh · setup flow review · 31 July 2026</div>
+  <h1>The setup screen says you’re done.<br>The schedule screen disagrees.</h1>
+  <p class="standfirst">
+    Camp Setup tracks five things. The engine needs four — and only three of them overlap.
+    The one it blocks on, <strong>Days</strong>, isn’t tracked at all. Below: walk the loop that
+    creates, then the change that removes it.
+  </p>
+
+  <hr class="rule">
+
+  <h2>Walk it</h2>
+  <p class="h2-note">
+    This is the real sequence, reachable today by deleting your days from the Days screen —
+    which has no minimum guard. Click through and watch where you end up.
+  </p>
+
+  <div class="loop">
+    <div class="loop-stage">
+
+      <section class="panel" data-panel="setup" data-on="1" aria-live="polite">
+        <span class="screen-tag">Camp Setup</span>
+        <h3>Machaneh Aleph</h3>
+        <p class="sub">
+          Complete each section in order.
+          <span class="false">The engine needs all five before it can build a schedule.</span>
+        </p>
+
+        <div class="meter">
+          <div class="meter-top"><span>5 / 5 complete</span><span>100%</span></div>
+          <div class="meter-track"><div class="meter-fill"></div></div>
+        </div>
+
+        <div class="chips">
+          <span class="chip"><span class="tick">✓</span> Units · 4</span>
+          <span class="chip"><span class="tick">✓</span> Groups · 14</span>
+          <span class="chip"><span class="tick">✓</span> Time Blocks · 6</span>
+          <span class="chip"><span class="tick">✓</span> Activities · 18</span>
+          <span class="chip"><span class="tick">✓</span> Fixed Events · 3</span>
+          <span class="chip absent">Days · not tracked here</span>
+        </div>
+
+        <button class="btn" data-go="schedule">Generate Schedule →</button>
+      </section>
+
+      <section class="panel" data-panel="schedule" aria-live="polite">
+        <span class="screen-tag">Schedule</span>
+        <h3>Setup incomplete</h3>
+        <p class="sub">Setup the following before generating a schedule:</p>
+        <div class="missing">
+          <div class="missing-h">Still missing</div>
+          <ul><li>Days</li></ul>
+        </div>
+        <button class="btn ghost" data-go="setup">← Go to Camp Setup</button>
+      </section>
+
+    </div>
+
+    <div class="lapbar">
+      <span>Laps: <span class="lapcount" id="laps">0</span></span>
+      <span id="verdict"></span>
+      <button class="reset" id="reset">reset</button>
+    </div>
+  </div>
+
+  <hr class="rule">
+
+  <h2>The change</h2>
+  <p class="h2-note">
+    R1 replaces both screens’ hand-maintained lists with one <code>getSetupGaps()</code> derived from
+    what the engine actually reads. Same function, same sentence, both screens.
+  </p>
+
+  <div class="cols">
+
+    <div class="card now">
+      <div class="card-label">Today</div>
+      <div class="meter">
+        <div class="meter-top"><span>5 / 5 complete</span><span>100%</span></div>
+        <div class="meter-track"><div class="meter-fill"></div></div>
+      </div>
+      <ul class="steps">
+        <li class="step"><span class="num">1</span><span class="nm">Units</span><span class="ct">4 items</span></li>
+        <li class="step"><span class="num">2</span><span class="nm">Groups</span><span class="ct">14 items</span></li>
+        <li class="step"><span class="num">3</span><span class="nm">Time Blocks</span><span class="ct">6 items</span></li>
+        <li class="step"><span class="num">4</span><span class="nm">Activities</span><span class="ct">18 items</span></li>
+        <li class="step"><span class="num">5</span><span class="nm">Fixed Events</span><span class="ct">3 items</span></li>
+      </ul>
+      <p class="note">
+        Gates on <code>tiers</code>, which the engine never reads, and <code>anchor_activities</code>,
+        which is optional. Omits <code>days_of_operation</code>, which it blocks on.
+        Ordering is decorative — <code>prevAllDone</code> only sets a shadow; every row always navigates.
+      </p>
+    </div>
+
+    <div class="card next">
+      <div class="card-label">R1 — recommended</div>
+
+      <div class="statelabel">One line, two states — whichever is true right now</div>
+      <div class="gapline">
+        Two things still needed before you can build a week:
+        <a href="#" onclick="return false">Days</a>, <a href="#" onclick="return false">Time Blocks</a>.
+      </div>
+      <div class="statelabel or">or</div>
+      <div class="gapline ok">Ready to build a week.</div>
+
+      <ul class="steps">
+        <li class="step optional"><span class="num">·</span><span class="nm">Programs</span><span class="ct">1</span></li>
+        <li class="step"><span class="num">·</span><span class="nm">Units</span><span class="ct">4</span></li>
+        <li class="step"><span class="num">·</span><span class="nm">Groups</span><span class="ct">14</span></li>
+        <li class="step gap added"><span class="num">·</span><span class="nm">Days</span><span class="ct">none yet</span></li>
+        <li class="step"><span class="num">·</span><span class="nm">Time Blocks</span><span class="ct">6</span></li>
+        <li class="step"><span class="num">·</span><span class="nm">Activities</span><span class="ct">18</span></li>
+        <li class="step optional"><span class="num">·</span><span class="nm">Fixed Events</span><span class="ct">3 · optional</span></li>
+      </ul>
+
+      <p class="note">
+        <span class="struck">Progress bar</span> ·
+        <span class="struck">“Generate Schedule →”</span> ·
+        <span class="struck">numbered order</span> — all deleted.
+        Days added. The gap sentence is the only claim the screen makes, and the schedule screen
+        renders the same one from the same function.
+      </p>
+    </div>
+
+  </div>
+
+  <hr class="rule">
+
+  <h2>What setup actually requires</h2>
+  <p class="h2-note">
+    Read out of <code>buildSchedule.js</code>, not decided editorially. No surface in the app
+    currently draws this distinction — all five use a flat <code>count &gt; 0</code>.
+  </p>
+
+  <div class="tbl-wrap">
+    <table>
+      <caption>“Can it run” is not “is it usable.”</caption>
+      <thead>
+        <tr><th>Setup area</th><th>Needed to run</th><th>Needed to be usable</th><th>Evidence</th></tr>
+      </thead>
+      <tbody>
+        <tr class="key"><td>Groups</td><td class="y">Yes</td><td class="y">Yes</td><td><code>:147</code> outer loop</td></tr>
+        <tr class="key"><td>Days</td><td class="y">Yes</td><td class="y">Yes</td><td><code>:148</code> middle loop</td></tr>
+        <tr class="key"><td>Time Blocks</td><td class="y">Yes</td><td class="y">Yes</td><td><code>:149</code> inner loop</td></tr>
+        <tr class="key"><td>Activities</td><td class="n">Builds — every cell unfillable</td><td class="y">Yes</td><td><code>:165</code>, <code>:336</code></td></tr>
+        <tr class="key"><td>Units</td><td class="n">No — table never read</td><td class="y">Yes, via <code>group.tier_id</code></td><td><code>:70</code>, <code>:94</code></td></tr>
+        <tr class="key"><td>Programs</td><td class="n">No</td><td class="y">Yes — gates data entry</td><td>Tiers/Blocks/Anchors screens</td></tr>
+        <tr class="key"><td>Fixed Events</td><td class="n">No</td><td class="n">No</td><td><code>:106</code> defaults empty</td></tr>
+        <tr class="key"><td>Day Overrides</td><td class="n">No</td><td class="n">No</td><td>absent from engine</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <footer>
+    Prototype for <code>2026-07-31-camp-setup-flow-recommendations.md</code> (R1). Uses Shoresh’s own
+    tokens from <code>src/index.css</code> — no new palette, no new type. Illustrative only; no code changed.
+  </footer>
+
+</div>
+
+<script>
+  (function () {
+    var panels = document.querySelectorAll('.panel');
+    var laps = 0;
+    var lapEl = document.getElementById('laps');
+    var verdictEl = document.getElementById('verdict');
+
+    function show(name) {
+      panels.forEach(function (p) {
+        p.setAttribute('data-on', p.dataset.panel === name ? '1' : '0');
+      });
+    }
+
+    document.querySelectorAll('[data-go]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var target = btn.dataset.go;
+        show(target);
+        if (target === 'setup') {
+          laps++;
+          lapEl.textContent = laps;
+          if (laps === 1) verdictEl.innerHTML = '<span class="verdict">Back to 5 / 5 complete.</span>';
+          if (laps === 2) verdictEl.innerHTML = '<span class="verdict">Twice. Nothing on either screen has changed.</span>';
+          if (laps >= 3) verdictEl.innerHTML = '<span class="verdict">The only exit is guessing “Days” from a nine-item sidebar.</span>';
+        }
+      });
+    });
+
+    document.getElementById('reset').addEventListener('click', function () {
+      laps = 0; lapEl.textContent = '0'; verdictEl.textContent = ''; show('setup');
+    });
+  })();
+</script>
+</body>
+</html>
