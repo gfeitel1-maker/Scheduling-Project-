@@ -23,7 +23,6 @@ Regenerate with `npm run index:work`.
 | [T22-most-ops-record-no-author](../../docs/work/tickets/T22-most-ops-record-no-author.md) | open | — |
 | [T23-deleting-an-activity-skips-the-confirmation](../../docs/work/tickets/T23-deleting-an-activity-skips-the-confirmation.md) | open | — |
 | [T24-restore-message-omits-the-empty-cells-caveat](../../docs/work/tickets/T24-restore-message-omits-the-empty-cells-caveat.md) | open | — |
-| [T25-the-test-suite-fails-under-load](../../docs/work/tickets/T25-the-test-suite-fails-under-load.md) | open | — |
 
 ## Decisions
 

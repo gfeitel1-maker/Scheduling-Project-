@@ -21,6 +21,25 @@ export default defineConfig({
     // count went 678 -> 1367 and the duplicated sync tests contended for the
     // same WebSocket ports, failing exactly as the release/ copies did.
     exclude: ['**/node_modules/**', '**/dist/**', 'release/**', '**/.claude/worktrees/**'],
+    // T25: the default 5000ms per-test budget made a green run depend on how
+    // busy the machine was. Six identical full runs on 2026-07-31 produced
+    // three greens and three reds, with a different set of tests failing each
+    // time and every red run a slow one.
+    //
+    // Measured, not guessed. `electron/main.test.js` run alone: 14.6s for 95
+    // tests, slowest single test 1535ms. The same file inside the full suite:
+    // 118s. That is ~8x contention, and it is not because the file is slow —
+    // it is 56 test files (sqlite native, jsdom, real WebSocket servers) on a
+    // 4-core machine, usually alongside other agent sessions.
+    //
+    // 1535ms x 8 = ~12s, so 20s clears the worst observed case with headroom
+    // while still being far below "hung". A test that genuinely never resolves
+    // still fails here; only the contention noise is absorbed.
+    //
+    // If this ever needs raising again, measure first and record the numbers,
+    // as here. Do not treat a rising timeout as the fix — it is the symptom.
+    testTimeout: 20000,
+    hookTimeout: 20000,
   },
   server: {
     port: 5200,

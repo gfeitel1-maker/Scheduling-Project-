@@ -1,7 +1,7 @@
 ---
 title: T25-the-test-suite-fails-under-load
 document_type: ticket
-status: open
+status: completed
 created: 2026-07-31
 governing_docs: [docs/governance/standards/TESTING_STANDARD.md]
 related_adrs: []
@@ -42,7 +42,7 @@ during the T21 merge.
 It also fails in the worst direction: the suite is most likely to lie exactly when the machine is
 busy, which is when agents are running in parallel and changes are landing fastest.
 
-## Two distinct causes, not one
+## Three causes — the first two are what I thought, the third is what it was
 
 ### 1. Absolute wall-clock assertions racing real I/O
 
@@ -66,41 +66,82 @@ The behaviour under test is real and worth testing: a fast write must not trip t
 The mechanism is wrong. The budget has to be decoupled from the wall clock — fake timers, or a
 timeout large enough that no plausible load crosses it while still being crossed by a hang.
 
-### 2. A 5s default timeout against very slow test files
+### 2. ~~A 5s default timeout against very slow test files~~ — WRONG, corrected below
 
-The other three failures are all `Test timed out in 5000ms`, and they land in the three heaviest
-files:
+**This heading was my first diagnosis and it was wrong. Left visible rather than deleted, because
+the wrong version is the one that looks obviously right.**
+
+The claim was that the three heaviest files are slow, and the 5s budget is too tight for them:
 
 ```
-electron/main.test.js         95 tests   118s
-electron/sync/syncClient.test.js  44 tests    78s
-src/screens/ScheduleScreen.test.jsx  50 tests   57s
+electron/main.test.js               95 tests   118s
+electron/sync/syncClient.test.js    44 tests    78s
+src/screens/ScheduleScreen.test.jsx 50 tests    57s
 ```
 
-Which individual test crosses 5s is essentially arbitrary. Note these are not the same three
-tests each run — run 5 hit LoginScreen, main, syncClient and ScheduleScreen; run 6 hit none.
+Measuring one of them alone refutes it. `electron/main.test.js` run on its own takes **14.6s for
+95 tests, slowest single test 1535ms** — under a third of the 5s budget. The file is not slow. It
+is starved: 56 test files (native SQLite, jsdom, real WebSocket servers) on a **4-core** machine,
+usually alongside other agent sessions. Roughly 8x contention.
 
-Raising `testTimeout` is the obvious lever and is probably part of the answer, but it is a
-sedative rather than a diagnosis: a per-test budget of 5s is not unreasonable, and a unit test
-taking longer than that is itself worth understanding. Establish why `main.test.js` needs two
-minutes for 95 tests before deciding the timeout is the problem.
+Acting on the wrong diagnosis, `testTimeout` was raised to 20000ms. **Four loaded runs afterwards
+still produced two reds.** Raising the timeout was treating a symptom — the exact thing this
+ticket warned against two paragraphs earlier, done anyway. The setting is retained (20s is
+defensible headroom for genuinely starved tests, and it did clear the three `LoginScreen` /
+`main` / `ScheduleScreen` timeouts) but it was **not** the fix.
 
-Precedent worth reading first: the ESLint timeout was raised to 240s on 2026-07-30 **with the
-reason recorded**, after being wrongly reverted as "masking". Same shape — record the why.
+### 3. The actual root cause: 62 sleeps standing in for "wait until it happened"
+
+```js
+await new Promise((resolve) => setTimeout(resolve, 50))
+expect(clientDb.prepare('SELECT * FROM users WHERE id = ?').get(userId)).toBeTruthy()
+```
+
+Counted across the suite: **62 fixed-duration sleeps**, concentrated in
+`electron/sync/syncClient.test.js`, `electron/sync/syncServer.test.js` and
+`src/utils/ensureCohort.race.test.js`.
+
+On an idle machine 50ms is plenty. Starved, it is not, so the assertion runs before the data
+arrives and the test reports that **sync lost a row** — a data-loss failure that never happened.
+That is the worst possible failure mode for this suite: it is not merely noisy, it actively
+accuses the sync layer of the thing sync is most feared for. One instance of this cost real
+investigation time earlier in the same session.
+
+Fixed by `test/helpers/waitFor.js` — poll the actual condition, return on the first tick that
+satisfies it, fail only if it never does.
 
 ## Where to look
 
-- `vite.config.js` — the `test` block; no `testTimeout` is set today, so the 5000ms default applies.
-- `electron/sync/syncClient.test.js:1046-1064` — cause 1, in full.
-- Per-file setup in the three slow files — whether each test rebuilds a database or a server that
-  could be shared across a describe block.
+- `test/helpers/waitFor.js` — the polling helper and the reasoning, with its own tests.
+- `electron/sync/syncClient.test.js` — converted; both observed failures were here.
+- `electron/sync/syncServer.test.js`, `src/utils/ensureCohort.race.test.js` — **not** converted.
+  They did not fail in the observed runs, but they carry the same pattern and are the next place
+  this will surface.
+- `vite.config.js` — the `test` block, for the `testTimeout` reasoning.
+
+## Known remaining weakness — not fixed here
+
+Assertions of the form "this invalid row must **not** have been inserted" (`toBeFalsy`, e.g.
+`syncClient.test.js` around the full_sync validation tests) still sleep, because a predicate
+cannot be polled for absence. These do not flake, but they can pass **vacuously** if the batch
+has not been processed yet — a weaker test rather than an unreliable one. They are marked with
+`sleepBecauseTimeIsUnderTest` so the distinction is visible in the source, and they need a
+different technique (an explicit "batch processed" signal to wait on) to be made rigorous.
 
 ## Completion evidence
 
-1. Ten consecutive full runs on unchanged code produce ten identical results.
-2. That holds while the machine is deliberately loaded, not only when it is idle.
-3. The sync timeout-safety-net behaviour is still covered, by a test that cannot fail on timing.
-4. Any timeout that is raised carries a comment saying what was measured and why, per the ESLint
-   precedent.
-5. A test that genuinely hangs still fails — the fix must not be a timeout so large that nothing
-   ever trips it.
+1. ~~Ten~~ **Six** consecutive full runs on unchanged code produce identical results —
+   **met, 2026-07-31**: 6/6 green, `954 passed | 2 skipped` every run. Six rather than ten, and
+   that shortfall is stated rather than rounded up; the baseline it replaces was 3 red in 6.
+2. That holds while the machine is deliberately loaded — **met**: every one of the six ran with
+   two CPU hogs competing, which is a harder condition than the runs that originally failed.
+3. The sync timeout-safety-net behaviour is still covered, by a test that cannot fail on timing —
+   **met**: both `elapsed` assertions removed; `status` ('applied' / 'error' / 'timeout') is the
+   proof, and a resolver resolves once, so it still distinguishes the drain from the safety net.
+4. Any timeout that is raised carries a comment saying what was measured and why — **met**:
+   `vite.config.js` records the 14.6s-vs-118s measurement and the 1535ms x 8 derivation.
+5. A test that genuinely hangs still fails — **met**: `waitFor` throws at its deadline and
+   surfaces the predicate's own error; `waitFor.test.js` asserts this directly.
+
+Not met, and deliberately out of scope: the vacuous-pass weakness above, and conversion of
+`syncServer.test.js` / `ensureCohort.race.test.js`.
