@@ -3,6 +3,7 @@ import SlotCell from '../schedule/SlotCell'
 import { emptyTd } from '../schedule/slotCellConstants'
 import OverlayCell from '../schedule/OverlayCell'
 import { S } from '../../styles/shared'
+import { decideCell } from '../../screens/schedule/gridGeometry'
 
 // DndContext lives in ScheduleScreen for day view (covers sidebar + grid).
 // isExpandDragActive is passed down from ScheduleScreen's drag-start handler.
@@ -31,12 +32,9 @@ export default function ScheduleDayView({
   groups, days, timeBlocks, selectedDay, onSelectDay,
   weatherMode, stampMode, actMap, anchorMap,
   releaseCell,
-  overlayForCell, isOverlayHead, getOverlayRowSpan,
-  isAnchorTail, getAnchorRowSpan,
-  isActivityTail, getActivityRowSpan,
+  geometry,
   handleFillEnter, startFill, removeOverlay, handleStampClick,
   onEditSlot, fillState,
-  getSlot,
   isExpandDragActive,
 }) {
   return (
@@ -78,11 +76,13 @@ export default function ScheduleDayView({
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
                   </td>
                   {groups.map(group => {
-                    // Overlay check
-                    const overlay = overlayForCell(group.id, selectedDay, block.id)
-                    if (overlay && !isOverlayHead(group.id, selectedDay, block.id)) return null
-                    if (overlay && isOverlayHead(group.id, selectedDay, block.id)) {
-                      const rowSpan = getOverlayRowSpan(overlay)
+                    const decision = decideCell(geometry, group.id, selectedDay, block.id)
+                    if (decision.kind === 'skip') return null
+                    if (decision.kind === 'empty') {
+                      return <DroppableEmptyCell key={group.id} groupId={group.id} dayId={selectedDay} blockId={block.id} />
+                    }
+                    if (decision.kind === 'overlay') {
+                      const { overlay, rowSpan } = decision
                       return (
                         <OverlayCell
                           key={group.id}
@@ -96,13 +96,7 @@ export default function ScheduleDayView({
                       )
                     }
 
-                    const slot = getSlot(group.id, selectedDay, block.id)
-                    if (!slot) return <DroppableEmptyCell key={group.id} groupId={group.id} dayId={selectedDay} blockId={block.id} />
-                    if (slot.is_anchor && isAnchorTail(group.id, selectedDay, block.id)) return null
-                    if (!slot.is_anchor && isActivityTail(group.id, selectedDay, block.id)) return null
-                    const rowSpan = slot.is_anchor
-                      ? getAnchorRowSpan(group.id, selectedDay, block.id)
-                      : getActivityRowSpan(group.id, selectedDay, block.id)
+                    const { slot, rowSpan, cellType } = decision
                     const act = slot.activity_id ? actMap.get(slot.activity_id) : null
                     const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
                     const actIsLocked = slot.activity_id && act?.is_locked
@@ -110,17 +104,6 @@ export default function ScheduleDayView({
                     const cellClickHandler = stampMode
                       ? () => handleStampClick(group.id, selectedDay, block.id)
                       : undefined
-
-                    const isUnfillable = Boolean(slot.flags?.UNFILLABLE) && !slot.flags?.UNFILLABLE_dismissed
-
-                    if (!slot.activity_id && !slot.is_anchor && !isUnfillable) {
-                      return <DroppableEmptyCell key={group.id} groupId={group.id} dayId={selectedDay} blockId={block.id} />
-                    }
-
-                    // Every open slot the engine couldn't fill is flagged UNFILLABLE, so a
-                    // row with no activity, not an anchor, and not UNFILLABLE is the
-                    // "unavailable" case (group not available for this block).
-                    const cellType = !slot.activity_id && !isUnfillable ? 'unavailable' : 'activity'
 
                     return (
                       <SlotCell

@@ -29,8 +29,7 @@ export default function ManualBuildView({
   groups, days, timeBlocks,
   selectedGroup, onSelectGroup,
   actMap, anchorMap,
-  isAnchorTail, getAnchorRowSpan,
-  getSlot, onEditSlot,
+  geometry, onEditSlot,
   onExpandSlot, onSplitSlot,
   selectedSlotKeys, pasteMode, onCellSelect,
 }) {
@@ -66,12 +65,12 @@ export default function ManualBuildView({
                     <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
                   </td>
                   {days.map(day => {
-                    const slot = getSlot(selectedGroup, day.id, block.id)
+                    const slot = geometry.getSlot(selectedGroup, day.id, block.id)
 
-                    if (slot?.is_anchor && isAnchorTail(selectedGroup, day.id, block.id)) return null
+                    if (slot?.is_anchor && geometry.isAnchorTail(selectedGroup, day.id, block.id)) return null
 
                     if (slot?.is_anchor) {
-                      const rowSpan = getAnchorRowSpan(selectedGroup, day.id, block.id)
+                      const rowSpan = geometry.getAnchorRowSpan(selectedGroup, day.id, block.id)
                       const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
                       return (
                         <SlotCell
@@ -94,7 +93,7 @@ export default function ManualBuildView({
                       const isSelected = selectedSlotKeys?.has(slotKey) ?? false
                       const isMultiSelected = isSelected && (selectedSlotKeys?.size ?? 0) > 1
                       const nextBlock = timeBlocks.find(b => b.sort_order === block.sort_order + 1)
-                      const nextSlot = nextBlock ? getSlot(selectedGroup, day.id, nextBlock.id) : null
+                      const nextSlot = nextBlock ? geometry.getSlot(selectedGroup, day.id, nextBlock.id) : null
                       const hasMergeDown = !isMerged && Boolean(nextBlock) && !nextSlot?.is_anchor && nextSlot?.is_span_head !== false
                       const onMergeDown = hasMergeDown && onExpandSlot ? () => {
                         const tailAct = nextSlot?.activity_id ? actMap.get(nextSlot.activity_id) : null
