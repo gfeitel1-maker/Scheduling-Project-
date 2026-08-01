@@ -39,7 +39,7 @@ export const localClient = {
   getSyncStatus: () => shoresh.getSyncStatus(),
   // T16 — commit an approved import proposal. The preview is built in the
   // renderer; only the confirmed list crosses this boundary.
-  ingestCommit: (approved) => shoresh.ingestCommit({ token: currentToken(), approved }),
+  ingestCommit: (approved, links) => shoresh.ingestCommit({ token: currentToken(), approved, links }),
   onSyncStatusChanged: (cb) => shoresh.onSyncStatusChanged?.(cb) ?? (() => {}),
   onOpConflict: (cb) => shoresh.onOpConflict(cb),
   getCamp: () => shoresh.getCamp(),

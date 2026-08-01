@@ -150,3 +150,46 @@ describe('all or nothing (ADR §4)', () => {
     expect(() => commitIngest(db, { approved: null, camp_id: campId, device_id: deviceId })).toThrow(/nothing to commit/)
   })
 })
+
+describe('filing a bunk under its unit', () => {
+  it('creates the unit and files the bunk under it, in one transaction', () => {
+    commitIngest(db, {
+      approved: { tiers: ["Adom 4's"], groups: ['Matzo Balls'] },
+      links: { groups: { 'Matzo Balls': "Adom 4's" } },
+      camp_id: campId, device_id: deviceId,
+    })
+    const row = db.prepare('SELECT g.name AS g, t.name AS t FROM groups g JOIN tiers t ON t.id = g.tier_id').get()
+    expect(row).toEqual({ g: 'Matzo Balls', t: "Adom 4's" })
+  })
+
+  it('reuses a unit the camp already has instead of duplicating it', () => {
+    // A second import must not leave the director merging two "Lavan"s.
+    db.prepare('INSERT INTO tiers (id, camp_id, name) VALUES (?, ?, ?)').run('t-existing', campId, 'Lavan')
+    commitIngest(db, {
+      approved: { groups: ['Chamsas'] },
+      links: { groups: { Chamsas: 'lavan' } },
+      camp_id: campId, device_id: deviceId,
+    })
+    expect(count('tiers')).toBe(1)
+    expect(db.prepare('SELECT tier_id FROM groups').get().tier_id).toBe('t-existing')
+  })
+
+  it('leaves a bunk unfiled when the file named no unit for it', () => {
+    commitIngest(db, {
+      approved: { groups: ['Zahav'] }, links: { groups: {} },
+      camp_id: campId, device_id: deviceId,
+    })
+    expect(db.prepare('SELECT tier_id FROM groups').get().tier_id).toBeNull()
+  })
+
+  it('does not pull in a unit for a bunk the director unticked', () => {
+    // The link map is keyed by group name, so a group that is not being
+    // created cannot drag its unit in behind it.
+    commitIngest(db, {
+      approved: { groups: [] }, links: { groups: { Chamsas: 'Lavan' } },
+      camp_id: campId, device_id: deviceId,
+    })
+    expect(count('tiers')).toBe(0)
+    expect(count('groups')).toBe(0)
+  })
+})

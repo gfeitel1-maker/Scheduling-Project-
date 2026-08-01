@@ -84,7 +84,13 @@ export default function ImportScreen({ onNavigate }) {
     try {
       const approved = {}
       for (const entity of INGESTIBLE_ENTITIES) approved[entity] = [...(chosen[entity] ?? [])]
-      const outcome = await localClient.ingestCommit(approved)
+      // Only the units of groups actually being created are sent, so a bunk
+      // the director unticked cannot drag a unit in behind it.
+      const groupUnits = {}
+      for (const name of approved.groups ?? []) {
+        if (preview.groupUnits?.[name]) groupUnits[name] = preview.groupUnits[name]
+      }
+      const outcome = await localClient.ingestCommit(approved, { groups: groupUnits })
       setResult(outcome)
       setPreview(null)
     } catch (err) {

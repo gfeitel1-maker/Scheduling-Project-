@@ -69,6 +69,22 @@ function isActivityLike(text) {
   return true
 }
 
+// A page title on a per-bunk schedule usually names the unit as well as the
+// bunk: "Adom 4's - Matzo Balls", "Maccabiah- Rookies", "Omanut- Chagalls".
+//
+// An earlier version of this file asserted that "a bunk schedule does not say
+// which division a bunk is in". That was wrong, and wrong in an expensive way:
+// it left a 33-bunk camp with 13 units to type in and 33 bunks to file by hand,
+// when the file states both. 29 of Camp A's 33 titles carry the unit.
+//
+// Titles with no separator (Zahav, Gesher) are bunks with no unit, which is a
+// real shape and not a parse failure.
+export function splitUnitAndGroup(title) {
+  const match = String(title ?? '').match(/^(.+?)\s*[-–—]\s*(.+)$/)
+  if (!match) return { unit: null, group: String(title ?? '').trim() }
+  return { unit: match[1].trim(), group: match[2].trim() }
+}
+
 // "Adom 4's - Matzo Balls Schedule" -> "Adom 4's - Matzo Balls"
 // "Monday — All Camp" -> "Monday"
 function cleanTitle(title) {
@@ -152,6 +168,9 @@ export function extractEntities(parsed) {
   const orientation = detectOrientation(pages)
 
   const groups = []
+  // Which unit each group belongs to, where the file says so.
+  const groupUnits = new Map()
+  const units = []
   const days = []
   const timeBlocks = []
   const activities = []
@@ -161,9 +180,14 @@ export function extractEntities(parsed) {
 
     if (orientation.columns === 'days') {
       days.push(...page.columns.filter(isDayName))
-      if (title) groups.push(title)
+      if (title) {
+        const { unit, group } = splitUnitAndGroup(title)
+        groups.push({ title, unit, group })
+        if (unit) units.push(unit)
+      }
     } else {
-      groups.push(...page.columns)
+      // Columns are group names on this layout, with no unit information.
+      groups.push(...page.columns.map((c) => ({ title: c, unit: null, group: c })))
       if (title) {
         const day = DAY_ORDER.find((d) => title.toLowerCase().includes(d))
         if (day) days.push(day[0].toUpperCase() + day.slice(1))
@@ -187,16 +211,28 @@ export function extractEntities(parsed) {
     }
   }
 
+  // A bunk keeps its short name where that is unambiguous — "Matzo Balls"
+  // reads better than "Adom 4's - Matzo Balls" once the unit is a field. Two
+  // units can use the same bunk name though (Rimon and Zayit both have a
+  // "Traditional"), and groups are UNIQUE(camp_id, name), so a name used twice
+  // keeps its full title.
+  const shortNameUses = new Map()
+  for (const g of groups) shortNameUses.set(g.group.toLowerCase(), (shortNameUses.get(g.group.toLowerCase()) ?? 0) + 1)
+  const groupNames = groups.map((g) => {
+    const name = shortNameUses.get(g.group.toLowerCase()) === 1 ? g.group : g.title
+    if (g.unit) groupUnits.set(name, g.unit)
+    return name
+  })
+
   const entities = {
-    groups: dedupe(groups),
+    groups: dedupe(groupNames),
     days_of_operation: dedupe(days),
     time_blocks: dedupe(timeBlocks),
     activities: tally(activities).map((v) => v.name),
-    // Neither layout carries units or programs — a bunk schedule does not say
-    // which division a bunk is in. Proposing a guess would be worse than
-    // proposing nothing, so these come back empty and the director fills them
-    // in. Saying "we could not tell" is the honest output.
-    tiers: [],
+    tiers: dedupe(units),
+    // Programs really are absent from both layouts — nothing in a weekly grid
+    // says which session it belongs to. Proposing a guess would be worse than
+    // proposing nothing.
     cohorts: [],
   }
 
@@ -208,6 +244,7 @@ export function extractEntities(parsed) {
   return {
     orientation,
     entities,
+    groupUnits: Object.fromEntries(groupUnits),
     seenCounts,
     counts: Object.fromEntries(Object.entries(entities).map(([k, v]) => [k, v.length])),
   }

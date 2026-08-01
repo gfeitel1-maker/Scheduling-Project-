@@ -83,9 +83,39 @@ describe('Camp A — one page per group, days across', () => {
   const { entities } = extractEntities(campA)
 
   it('finds the bunks from the page titles, with "Schedule" trimmed off', () => {
-    expect(entities.groups.length).toBeGreaterThan(10)
-    expect(entities.groups.some((g) => /Adom/.test(g))).toBe(true)
+    expect(entities.groups.length).toBe(33)
     for (const g of entities.groups) expect(g).not.toMatch(/Schedule$/)
+  })
+
+  it('reads the unit out of the bunk name, and files the bunk under it', () => {
+    // "Adom 4's - Matzo Balls" names both. An earlier version of this file
+    // asserted the opposite — that a bunk schedule never says which division a
+    // bunk is in — which left a 33-bunk camp with 13 units to type by hand.
+    expect(entities.tiers).toContain("Adom 4's")
+    expect(entities.tiers).toContain('Maccabiah')
+    expect(entities.tiers.length).toBe(13)
+  })
+
+  it('gives a bunk its short name once the unit is a field of its own', () => {
+    expect(entities.groups).toContain('Matzo Balls')
+    expect(entities.groups).not.toContain("Adom 4's - Matzo Balls")
+  })
+
+  it('keeps the full title when two units share a bunk name', () => {
+    // Rimon and Zayit both have a "Traditional", and groups are
+    // UNIQUE(camp_id, name), so the short name cannot be used for either.
+    expect(entities.groups).toContain('Rimon - Traditional')
+    expect(entities.groups).toContain('Zayit - Traditional')
+    expect(entities.groups).not.toContain('Traditional')
+  })
+
+  it('leaves a bunk with no unit unfiled rather than inventing one', () => {
+    // "Zahav" and "Gesher" have no separator. That is a real shape, not a
+    // parse failure.
+    const { groupUnits } = extractEntities(campA)
+    expect(entities.groups).toContain('Zahav')
+    expect(groupUnits.Zahav).toBeUndefined()
+    expect(groupUnits['Matzo Balls']).toBe("Adom 4's")
   })
 
   it('finds the five weekdays from the column headers', () => {
@@ -109,14 +139,20 @@ describe('Camp A — one page per group, days across', () => {
 })
 
 describe('what it refuses to guess', () => {
-  it('proposes no units or programs, because neither layout records them', () => {
-    // A bunk schedule does not say which division a bunk belongs to. An empty
-    // list the director fills in is honest; a guessed hierarchy is not.
+  it('proposes no programs, because neither layout records a session', () => {
+    // Units ARE recorded, in the bunk names — see the Camp A tests above. A
+    // program is not: nothing in a weekly grid says which session it belongs
+    // to, and an empty list the director fills in is honest where a guess is
+    // silently wrong.
     for (const parsed of [campA, campB]) {
-      const { entities } = extractEntities(parsed)
-      expect(entities.tiers).toEqual([])
-      expect(entities.cohorts).toEqual([])
+      expect(extractEntities(parsed).entities.cohorts).toEqual([])
     }
+  })
+
+  it('proposes no units for a layout that does not carry them', () => {
+    // Camp B's columns are bare group names with no unit prefix.
+    expect(extractEntities(campB).entities.tiers).toEqual([])
+    expect(extractEntities(campB).groupUnits).toEqual({})
   })
 
   it('deduplicates case- and whitespace-insensitively, keeping the first spelling', () => {

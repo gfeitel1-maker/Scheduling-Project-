@@ -104,6 +104,7 @@ export function buildPreview(proposal, existing) {
 
   return {
     orientation: proposal?.orientation ?? null,
+    groupUnits: proposal?.groupUnits ?? {},
     perEntity,
     createTotal,
     skipTotal,

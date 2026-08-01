@@ -17,7 +17,8 @@
  *      template_slots row appears;
  *   d. a failed commit leaves the camp exactly as it was, with no partial
  *      import and no orphan ops;
- *   e. importing the same file twice adds nothing the second time.
+ *   e. importing the same file twice adds nothing the second time;
+ *   f. Camp A's bunks are filed under the units their own names encode.
  */
 
 import assert from 'node:assert/strict'
@@ -145,6 +146,42 @@ export async function run() {
     // The one rejected group is still missing, so it is the only thing left.
     assert.deepEqual(second.perEntity.groups.create, [rejected], 'only the rejected group remains to add')
 
+    // ---- f. units are read from the bunk names and linked ------------------
+    // "Adom 4's - Matzo Balls" names both the unit and the bunk. 29 of Camp A's
+    // 33 titles do; the other four are bunks with no unit, which is a real
+    // shape rather than a parse failure.
+    const aPreview = buildPreview(campA, {})
+    assert.ok(aPreview.perEntity.tiers.create.length >= 10, 'Camp A proposes its units')
+
+    const dir2 = makeTmpDir()
+    dirs.push(dir2)
+    const db2 = openLocalDb(path.join(dir2, 'shoresh.sqlite'))
+    const camp2 = randomUUID()
+    const dev2 = randomUUID()
+    db2.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(camp2, 'Camp A', 'b'.repeat(64))
+    db2.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(dev2, 'Host')
+
+    const aApproved = {
+      tiers: aPreview.perEntity.tiers.create,
+      groups: aPreview.perEntity.groups.create,
+    }
+    const aLinks = { groups: {} }
+    for (const name of aApproved.groups) {
+      if (aPreview.groupUnits[name]) aLinks.groups[name] = aPreview.groupUnits[name]
+    }
+    commitIngest(db2, { approved: aApproved, links: aLinks, camp_id: camp2, device_id: dev2 })
+
+    const filed = db2.prepare('SELECT COUNT(*) c FROM groups WHERE tier_id IS NOT NULL').get().c
+    const unfiled = db2.prepare('SELECT COUNT(*) c FROM groups WHERE tier_id IS NULL').get().c
+    assert.ok(filed >= 25, `most bunks are filed under a unit (${filed})`)
+    assert.ok(unfiled > 0 && unfiled <= 6, `the unit-less bunks stay unfiled (${unfiled})`)
+
+    const matzo = db2
+      .prepare('SELECT t.name AS unit FROM groups g JOIN tiers t ON t.id = g.tier_id WHERE g.name = ?')
+      .get('Matzo Balls')
+    assert.equal(matzo?.unit, "Adom 4's", 'Matzo Balls is in Adom 4\'s')
+
+    db2.close()
     db.close()
     return 'PASS'
   } finally {

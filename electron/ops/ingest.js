@@ -81,7 +81,7 @@ function fieldsFor(entity, name, campId, index) {
  *
  * Returns `{ created: { [entity]: count }, total }`.
  */
-export function commitIngest(db, { approved, camp_id, author_user_id, device_id }) {
+export function commitIngest(db, { approved, links, camp_id, author_user_id, device_id }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -94,6 +94,16 @@ export function commitIngest(db, { approved, camp_id, author_user_id, device_id 
   const created = {}
   let total = 0
 
+  // Unit name -> tier id, so a group created in this same transaction can be
+  // filed under a unit created moments earlier. Seeded with the units the camp
+  // already has, because a second import must reuse them rather than making a
+  // duplicate the director then has to merge by hand.
+  const tierIdByName = new Map()
+  for (const row of db.prepare('SELECT id, name FROM tiers WHERE camp_id = ?').all(camp_id)) {
+    if (row.name) tierIdByName.set(String(row.name).trim().toLowerCase(), row.id)
+  }
+  const groupUnits = links?.groups ?? {}
+
   // One transaction for the whole import. Any throw below — a constraint, a
   // bad field, a disk error — rolls back every op and every projected row
   // together, so the camp is either fully imported or untouched.
@@ -105,7 +115,18 @@ export function commitIngest(db, { approved, camp_id, author_user_id, device_id 
         const name = String(rawName ?? '').trim()
         if (!name) return
         const entityId = randomUUID()
-        for (const [field, value] of Object.entries(fieldsFor(entity, name, camp_id, index))) {
+        const fields = fieldsFor(entity, name, camp_id, index)
+
+        if (entity === 'tiers') tierIdByName.set(name.toLowerCase(), entityId)
+        if (entity === 'groups') {
+          // The file said which unit this bunk is in; file it there rather
+          // than leaving the director to assign 33 bunks by hand.
+          const unit = groupUnits[name]
+          const tierId = unit ? tierIdByName.get(String(unit).trim().toLowerCase()) : null
+          if (tierId) fields.tier_id = tierId
+        }
+
+        for (const [field, value] of Object.entries(fields)) {
           if (value === null || value === undefined) continue
           appendOp(db, {
             entity,
