@@ -6,8 +6,8 @@ import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 
 const FREQUENCY_MODES = [
-  { value: 'reduced',     label: 'Reduced — targets scale down proportionally (coming soon)' },
-  { value: 'best_effort', label: 'Best effort — targets unchanged, engine does what it can (coming soon)' },
+  { value: 'reduced',     label: 'Fewer of everything — each activity happens proportionally less (coming soon)' },
+  { value: 'best_effort', label: 'Keep the usual amounts — fit in as much as the day allows (coming soon)' },
 ]
 
 // Fires one write() per field (the op-log is field-level) and surfaces the
@@ -211,7 +211,7 @@ function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
         </div>
 
         <div style={{ marginBottom: 18 }}>
-          <div style={S.label}>Frequency Mode</div>
+          <div style={S.label}>How often activities run</div>
           <select value={freqMode} onChange={e => setFreqMode(e.target.value)} style={S.input}>
             {FREQUENCY_MODES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
@@ -368,7 +368,7 @@ export default function DayOverridesScreen({ campId, role }) {
             <thead>
               <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
                 <th style={S.th}>Name</th>
-                <th style={S.th}>Frequency Mode</th>
+                <th style={S.th}>How often activities run</th>
                 <th style={S.th}>Block Overrides</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
@@ -386,7 +386,7 @@ export default function DayOverridesScreen({ campId, role }) {
                 >
                   <td style={{ ...S.td, fontWeight: 500 }}>{t.name}</td>
                   <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>
-                    {FREQUENCY_MODES.find(o => o.value === t.frequency_mode)?.label ?? t.frequency_mode}
+                    {FREQUENCY_MODES.find(o => o.value === t.frequency_mode)?.label ?? '—'}
                   </td>
                   <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>
                     {t.day_override_template_slots?.length ?? 0} block{(t.day_override_template_slots?.length ?? 0) !== 1 ? 's' : ''}

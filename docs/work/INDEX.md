@@ -20,7 +20,7 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [T16-ingest-prior-year-schedule](../../docs/work/tickets/T16-ingest-prior-year-schedule.md) | open | [2026-07-30-prior-year-schedule-ingestion-design](../../docs/work/specs/2026-07-30-prior-year-schedule-ingestion-design.md) |
-| [T26-login-throttle-has-no-testable-clock](../../docs/work/tickets/T26-login-throttle-has-no-testable-clock.md) | open | — |
+| [T18-copy-pass-and-grid-card-colours](../../docs/work/tickets/T18-copy-pass-and-grid-card-colours.md) | in-progress | — |
 
 ## Decisions
 

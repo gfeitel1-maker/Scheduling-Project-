@@ -132,6 +132,32 @@ has not been processed yet — a weaker test rather than an unreliable one. They
 `sleepBecauseTimeIsUnderTest` so the distinction is visible in the source, and they need a
 different technique (an explicit "batch processed" signal to wait on) to be made rigorous.
 
+## A counter-example worth keeping — 2026-08-01
+
+While clearing the ticket queue, `eslint.supabase-ban.test.js` failed at **254s against its
+explicit 240s budget**. The obvious read was "the project grew, raise the timeout again", and
+this ticket's own §2 is a record of me doing exactly that and being wrong.
+
+`time` refused the story: **26s of CPU against 4 minutes of wall clock**. A starved process, not
+a slow one. The cause was dozens of stray `yes` processes left behind by this ticket's own
+load-testing — `kill %1 %2` does not work as expected in a non-interactive shell, so every loop
+iteration spawned two more and killed none. Load average reached **999**.
+
+After `pkill`, the same test: **32 seconds, 3 passed.** The 240s budget was never the problem and
+was not touched.
+
+Two things worth keeping from this:
+
+- **`time` is the cheap discriminator.** User-CPU far below wall-clock means contention; the two
+  close together means the code is genuinely slow. One command separates "raise the timeout"
+  from "find the cause", and it should be the first thing run whenever a duration-shaped failure
+  appears.
+- **The machine has a real baseline load that is not the test suite's fault.** With every stray
+  process gone, `top` still shows OrbStack at ~53% and heavy swapping on a 4-core / 8GB box. The
+  ~8x contention factor measured in §2 is therefore a property of the development machine, not
+  an artifact — which is the argument for `waitFor` over sleeps, and against tuning timeouts to
+  whatever today's load happens to be.
+
 ## Completion evidence
 
 1. ~~Ten~~ **Six** consecutive full runs on unchanged code produce identical results —

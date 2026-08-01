@@ -59,7 +59,7 @@ function GroupRow({ group, tiers, role, onSave, onDelete, onHistory }) {
     >
       <td style={S.td}>{group.name}</td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{tierName}</td>
-      <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{AVAIL_OPTIONS.find(o => o.value === group.availability)?.label || group.availability}</td>
+      <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{AVAIL_OPTIONS.find(o => o.value === group.availability)?.label || '—'}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
         <button onClick={() => onHistory(group)} style={{ ...S.btnSecondary, marginLeft: 6 }}>History</button>
@@ -448,7 +448,7 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
                       <tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}>
                         <td style={S.td}>{r.name || <span style={{ color: 'var(--warning)' }}>—</span>}</td>
                         <td style={S.td}>{r.tierName || '—'}</td>
-                        <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.availability}</td>
+                        <td style={S.td}>{AVAIL_OPTIONS.find(o => o.value === r.availability)?.label ?? '—'}</td>
                         <td style={{ ...S.td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td>
                       </tr>
                     ))}

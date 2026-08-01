@@ -37,7 +37,7 @@ const STEPS = [
     label: 'Fixed Events',
     screen: 'anchors',
     table: 'anchor_activities',
-    desc: 'Events that hold the same slot every day — Aruchat Boker, Tefillah, Flagpole.',
+    desc: 'Events that happen at the same time every day — Aruchat Boker, Tefillah, Flagpole.',
   },
 ]
 

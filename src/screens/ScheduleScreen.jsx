@@ -447,7 +447,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     await writeFields('schedule_templates', tid, {
       kind: routeName,
       camp_id: campId,
-      name: routeName === 'manual' ? 'Manual' : 'Master Template',
+      name: routeName === 'manual' ? 'Manual' : 'Generated',
     })
     setExistingTemplates(prev => ({ ...prev, [routeName]: true }))
     setTemplateIdByRoute(prev => ({ ...prev, [routeName]: tid }))
@@ -557,7 +557,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     try {
       await writeFields('template_slots', slot.id, { activity_id: nextActivityId, flags: {} })
     } catch (err) {
-      setActionError(describeWriteFailure(err, 'That slot could not be saved.'))
+      setActionError(describeWriteFailure(err, 'That cell could not be saved.'))
       return
     }
     setSlots(prev => prev.map(s =>
@@ -571,7 +571,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     const day = days.find(d => d.id === dayId)
     const block = timeBlocks.find(b => b.id === blockId)
     pushUndo({
-      description: `Edited slot → ${actAfter?.name ?? 'empty'} ${day?.label ?? dayId} ${block?.name ?? blockId}`,
+      description: `Changed to ${actAfter?.name ?? 'empty'} → ${day?.label ?? ''} ${block?.name ?? ''}`.replace(/\s+/g, ' ').trim(),
       undo: async () => {
         await writeFields('template_slots', slot.id, { activity_id: prevActivityId, flags: prevFlags })
         setSlots(prev => prev.map(s =>
@@ -604,7 +604,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         writeFields('template_slots', rowB.id, { activity_id: slotA.activityId || null, flags: {} }),
       ])
     } catch (err) {
-      setActionError(describeWriteFailure(err, 'That slots could not be swapped.'))
+      setActionError(describeWriteFailure(err, 'Those two cells could not be swapped.'))
       return
     }
     setSlots(prev => prev.map(s => {
@@ -618,7 +618,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     const actA = activities.find(a => a.id === slotA.activityId)
     const actB = activities.find(a => a.id === slotB.activityId)
     pushUndo({
-      description: `Swapped ${actA?.name ?? 'slot'} ↔ ${actB?.name ?? 'slot'}`,
+      description: `Swapped ${actA?.name ?? 'an empty cell'} ↔ ${actB?.name ?? 'an empty cell'}`,
       undo: async () => {
         await Promise.all([
           writeFields('template_slots', rowA.id, { activity_id: slotA.activityId || null, flags: {} }),
@@ -660,7 +660,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     try {
       await Promise.all(updates.map(({ id, newFlags }) => writeFields('template_slots', id, { flags: newFlags })))
     } catch (err) {
-      setActionError(describeWriteFailure(err, 'That flag could not be dismissed.'))
+      setActionError(describeWriteFailure(err, 'That finding could not be set aside.'))
       return
     }
 
@@ -702,7 +702,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     try {
       await writeFields('template_slots', slotId, { is_released: true })
     } catch (err) {
-      setActionError(describeWriteFailure(err, 'That cell could not be released.'))
+      setActionError(describeWriteFailure(err, 'That cell could not be unlocked.'))
       return
     }
     setSlots(prev => prev.map(s => s.id === slotId ? { ...s, is_released: true } : s))
@@ -720,7 +720,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     try {
       await writeFields('template_overlays', id, { template_id: templateId, unit_id: unitId, day_id: dayId, from_block_order: fromBlockOrder, to_block_order: toBlockOrder, label })
     } catch (err) {
-      setActionError(describeWriteFailure(err, 'That overlay could not be added.'))
+      setActionError(describeWriteFailure(err, 'That field trip could not be added.'))
       return
     }
     setOverlays(prev => [...prev, overlay])
@@ -735,7 +735,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         throw new Error('delete failed')
       }
     } catch (err) {
-      setActionError(describeWriteFailure(err, 'That overlay could not be removed.'))
+      setActionError(describeWriteFailure(err, 'That field trip could not be removed.'))
       return
     }
     setOverlays(prev => prev.filter(o => o.id !== overlayId))
@@ -746,7 +746,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     try {
       await writeFields('template_overlays', overlayId, { to_block_order: toBlockOrder })
     } catch (err) {
-      setActionError(describeWriteFailure(err, 'That overlay could not be updated.'))
+      setActionError(describeWriteFailure(err, 'That field trip could not be updated.'))
       return
     }
     setOverlays(prev => prev.map(o => o.id === overlayId ? { ...o, to_block_order: toBlockOrder } : o))
@@ -782,7 +782,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         overlays: JSON.stringify(snapOverlays),
       })
     } catch (err) {
-      setActionError(describeWriteFailure(err, 'That snapshot could not be saved.'))
+      setActionError(describeWriteFailure(err, 'That version could not be saved.'))
       throw err
     }
     setRouteSnapshots(prev => [{ id, template_id: tid, name: name || null, is_auto: isAuto, created_at: createdAt, slots: JSON.stringify(snapSlots), overlays: JSON.stringify(snapOverlays), restorable: true }, ...prev])
@@ -806,7 +806,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       setActionError(
         err?.message?.includes('admin role required')
           ? 'Only an admin can delete a saved version'
-          : describeWriteFailure(err, 'That that version could not be deleted.')
+          : describeWriteFailure(err, 'That version could not be deleted.')
       )
       return
     }
@@ -875,8 +875,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     } catch (err) {
       setActionError(
         err?.message?.includes('admin role required')
-          ? 'Only an admin can restore a schedule snapshot'
-          : describeWriteFailure(err, 'That snapshot could not be restored.')
+          ? 'Only an admin can restore a version.'
+          : describeWriteFailure(err, 'That version could not be restored.')
       )
       return
     }
@@ -897,7 +897,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     try {
       await writeFields('schedule_snapshots', snapshotId, { name: newName, is_auto: false })
     } catch (err) {
-      setActionError(describeWriteFailure(err, 'That snapshot could not be renamed.'))
+      setActionError(describeWriteFailure(err, 'That version could not be renamed.'))
       return
     }
     setSnapshots(prev => prev.map(s => s.id === snapshotId ? { ...s, name: newName, is_auto: false } : s))
@@ -1196,7 +1196,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       // Write flag to head slot
       await writeFields('template_slots', headSlot.id, { flags: newFlags })
     } catch (err) {
-      setActionError(describeWriteFailure(err, 'That slot could not be expanded.'))
+      setActionError(describeWriteFailure(err, 'That activity could not be made longer.'))
       return
     }
 
@@ -1227,7 +1227,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     const prevHeadFlags = headSlot.flags ?? {}
     const prevTailActivityId = tailSlot.activity_id ?? null
     pushUndo({
-      description: `Merged ${headActivityId ? actMap.get(headActivityId)?.name ?? 'slot' : 'slot'} down → ${tailBlockName} ${dayLabel}`,
+      description: `Made ${headActivityId ? actMap.get(headActivityId)?.name ?? 'an activity' : 'an activity'} run longer → ${tailBlockName} ${dayLabel}`,
       undo: async () => {
         await writeFields('template_slots', tailSlot.id, { activity_id: prevTailActivityId, is_span_head: true })
         await writeFields('template_slots', headSlot.id, { flags: prevHeadFlags })
@@ -1314,7 +1314,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       await writeFields('template_slots', tailSlot.id, { activity_id: null, is_span_head: true, flags: {} })
       await writeFields('template_slots', headSlot.id, { flags: cleanedFlags })
     } catch (err) {
-      setActionError(describeWriteFailure(err, 'That slot could not be split.'))
+      setActionError(describeWriteFailure(err, 'That activity could not be split back into two.'))
       return
     }
 
@@ -1345,7 +1345,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     }
 
     pushUndo({
-      description: `Split merged slot ${headBlockId}`,
+      // T18: was `Split merged slot ${headBlockId}` — a raw uuid in a tooltip.
+      description: (() => {
+        const headBlock = timeBlocks.find(b => b.id === headBlockId)
+        const dayLabel = days.find(d => d.id === dayId)?.label
+        const where = [dayLabel, headBlock?.name].filter(Boolean).join(' ')
+        return where ? `Split back into two → ${where}` : 'Split back into two'
+      })(),
       undo: async () => {
         await writeFields('template_slots', tailSlot.id, { activity_id: prevTailActivityId, is_span_head: prevTailIsSpanHead ?? false, flags: tailSlot.flags ?? {} })
         await writeFields('template_slots', headSlot.id, { flags: prevHeadFlags })
@@ -1401,7 +1407,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
 
   async function handlePasteClick(slot) {
     if (slot.is_anchor || slot.is_span_head === false) {
-      setPasteError('Cannot paste onto an anchor or merged tail')
+      setPasteError('You cannot paste onto a fixed event, or onto the second half of an activity that runs across two periods.')
       setTimeout(() => setPasteError(null), 2000)
       return
     }
@@ -1465,7 +1471,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       key: s.id,
       kind: 'UNFILLABLE',
       severity: FLAG_SEVERITY.UNFILLABLE,
-      reason: s.flags?.UNFILLABLE_reason || 'No eligible activity could be placed in this slot',
+      reason: s.flags?.UNFILLABLE_reason || 'No activity this group can do fits here',
       locator: slotLocator(s),
       slotIds: [s.id],
       groupId: s.group_id,
@@ -1878,7 +1884,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 disabled={role !== 'admin'}
                 title={role !== 'admin' ? 'Admin only' : undefined}
                 style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-              >Regenerate from Scratch</button>
+              >Build a new week</button>
             )}
           </>
         )}

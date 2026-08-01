@@ -69,7 +69,7 @@ function BlockRow({ block, role, onSave, onDelete }) {
       <td style={S.td}>{block.name}</td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.start_time)}</td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.end_time)}</td>
-      <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{block.part_of_day}</td>
+      <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{POD_OPTIONS.find(o => o.value === block.part_of_day)?.label ?? '—'}</td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{block.sort_order}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>

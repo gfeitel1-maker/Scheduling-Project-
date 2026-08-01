@@ -10,9 +10,11 @@ import { createUser, issueCampToken, issueLocalToken, ensureHostSigningKey } fro
 import { appendOp } from '../ops/operations.js'
 import { startSyncServer, sendMissedOps, sendWithAck } from './syncServer.js'
 import { ENTITIES } from '../auth/permissions.js'
-import { sleepBecauseTimeIsUnderTest } from '../../test/helpers/waitFor.js'
+import { LOGIN_MIN_INTERVAL_MS } from './rateLimit.js'
+import { waitFor, sleepBecauseTimeIsUnderTest } from '../../test/helpers/waitFor.js'
 
 const PORT = 8137
+const THROTTLE_PORT = PORT + 20
 
 let db, tmpFile, server, campId, userId, deviceId, token
 
@@ -972,58 +974,93 @@ describe('unauthenticated login message', () => {
     ws.close()
   })
 
-  // STILL SKIPPED, with a sharper reason than "environmental" (T25, 2026-07-31).
+  // T26: un-skipped for real, by driving the clock instead of racing it.
   //
-  // I tried to un-skip this by replacing its guessed 800ms sleep with a poll,
-  // on the theory that it only failed for not having replied YET. That was
-  // wrong, and the attempt failed honestly: 6 replies against `toBeLessThan(5)`.
+  // This was skipped for years as "timing-sensitive ... environmental". It was
+  // not environmental. The throttle compared Date.now() at processing time
+  // while each attemptLogin ran scryptSync (~67ms idle, far more when starved)
+  // against a 300ms window — so how many of a burst got through was a direct
+  // function of machine speed. A first attempt to fix it by polling failed
+  // honestly, 6 replies against toBeLessThan(5), because polling repairs races
+  // about WHEN something happened, not assertions about HOW MANY events fit in
+  // a wall-clock window.
   //
-  // The real obstacle is that the property under test IS machine speed. The
-  // throttle compares Date.now() at PROCESSING time (syncServer.js:471), and
-  // each attemptLogin runs scryptSync — ~67ms on an idle machine, far more
-  // when starved. So how many of a 20-message burst clear a 300ms window is
-  // a direct function of how long scrypt takes. No amount of polling changes
-  // that; polling fixes races about WHEN something happened, not assertions
-  // about HOW MANY fit in a wall-clock window.
-  //
-  // Making this deterministic needs an injectable clock in handleLogin. That
-  // is a small, legitimate seam, but it is a production change made for a
-  // test and belongs in its own ticket rather than smuggled in here.
-  //
-  // What is NOT lost by skipping: the throttle's user-visible guarantees are
-  // covered by the two tests below — a human-paced retry is not dropped, and
-  // the per-name lockout still trips after 5 genuine attempts.
-  it.skip('throttles a burst of rapid login messages from one connection, so not all of them reach attemptLogin / the per-name lockout (round 2 fix)', async () => {
+  // With an injected clock the assertion becomes exact: not "fewer than five",
+  // but "exactly one".
+  it('drops every message of a burst except the first, and none of the dropped ones touch the lockout', async () => {
+    // Frozen clock. Nothing advances it during the burst, so the throttle
+    // window cannot elapse no matter how slow the machine is.
+    let fakeNow = 1_000_000
+    // Counting the calls is also the test's synchronisation: handleLogin calls
+    // now() exactly once per message that clears the device-secret gate, so
+    // 20 calls means all 20 have been processed. That is a real signal, not a
+    // guess at a duration.
+    let nowCalls = 0
+    const throttleServer = startSyncServer(db, {
+      port: THROTTLE_PORT,
+      now: () => { nowCalls += 1; return fakeNow },
+    })
+
+    try {
+      const ws = new WebSocket(`ws://localhost:${THROTTLE_PORT}`)
+      await onceOpen(ws)
+      const replies = []
+      ws.on('message', (data) => replies.push(JSON.parse(data.toString())))
+
+      for (let i = 0; i < 20; i++) {
+        ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: 'wrong', device_secret_identifier: loginDeviceSecret }))
+      }
+
+      // Both conditions matter and neither implies the other: nowCalls proves
+      // the server has handled all 20, and the reply proves the one that got
+      // through has finished its round trip. Only one message can pass a
+      // frozen clock, so once both hold, nothing further can arrive.
+      await waitFor(
+        () => nowCalls === 20 && replies.length >= 1,
+        { message: 'the server never processed all 20 messages and answered the first' }
+      )
+
+      // Exactly one reached attemptLogin. The other 19 were dropped before
+      // touching the database at all.
+      expect(replies).toHaveLength(1)
+      expect(replies[0].type).toBe('login_failed')
+
+      // And the 19 dropped ones never reached the per-name lockout counter:
+      // 5 genuine wrong attempts would lock Alice out, so if the flood had
+      // gotten through, the correct PIN below would come back locked.
+      fakeNow += LOGIN_MIN_INTERVAL_MS
+      ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: '1234', device_secret_identifier: loginDeviceSecret }))
+      const reply = await onceMessage(ws)
+      expect(reply.type).toBe('login_ok')
+
+      ws.close()
+    } finally {
+      throttleServer.close()
+    }
+  })
+
+  it('defaults to the real clock, so what ships is not the injected one', async () => {
+    // The seam exists for the test above; this makes sure the test above is
+    // not the only thing it is true of. A server started without `now` must
+    // still throttle, using real elapsed time.
     const ws = connect()
     await onceOpen(ws)
     const replies = []
     ws.on('message', (data) => replies.push(JSON.parse(data.toString())))
 
-    // Fire 20 wrong-pin login messages back-to-back with no delay. Sub-task 4
-    // requires an authorized device + matching secret, so all messages use the
-    // same loginDeviceId/secret. The per-connection throttle (300ms) should
-    // still drop all but the first once the authorized-device gate is passed.
-    for (let i = 0; i < 20; i++) {
-      ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: 'wrong', device_secret_identifier: loginDeviceSecret }))
-    }
+    ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: 'wrong', device_secret_identifier: loginDeviceSecret }))
+    await onceMessage(ws)
+    // Immediately again, well inside the 300ms window on any machine.
+    ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: 'wrong', device_secret_identifier: loginDeviceSecret }))
 
-    await sleepBecauseTimeIsUnderTest(800)
-    // Only the first of the 20 rapid-fire messages should have reached
-    // attemptLogin; the rest were dropped by the per-connection throttle
-    // before ever running a query. If the flood weren't bounded, we'd see
-    // up to 20 replies here.
-    expect(replies.length).toBeGreaterThan(0)
-    expect(replies.length).toBeLessThan(5)
-
-    // Prove the dropped messages never touched the per-name lockout counter:
-    // wait past the throttle window and log in with the correct PIN. If all
-    // 20 wrong attempts had reached attemptLogin, 'Alice' would already be
-    // locked out (5 wrong attempts trips the lock) and this would come back
-    // `locked: true` instead of succeeding.
-    await sleepBecauseTimeIsUnderTest(350)
-    ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: '1234', device_secret_identifier: loginDeviceSecret }))
-    const reply = await onceMessage(ws)
-    expect(reply.type).toBe('login_ok')
+    // The second must be dropped. This is an absence assertion and so needs a
+    // real wait; it is sound in the "too fast" direction — a slow machine makes
+    // the second message arrive LATER, never sooner, and later only helps the
+    // throttle. The only way this misreads is if the machine is so slow that
+    // 300ms elapses between two back-to-back sends, at which point the send
+    // itself outlasted the window it is testing.
+    await sleepBecauseTimeIsUnderTest(200)
+    expect(replies).toHaveLength(1)
 
     ws.close()
   })

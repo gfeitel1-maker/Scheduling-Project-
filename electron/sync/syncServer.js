@@ -17,6 +17,7 @@ import { recordAuditEvent } from '../audit/auditLog.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from '../ops/campScopedEntities.js'
 import { restoreEntity } from '../ops/restore.js'
 import { CLEARABLE_ENTITIES, deleteRecord } from '../ops/deleteRecord.js'
+import { shouldThrottle, LOGIN_MIN_INTERVAL_MS, PAIRING_RATE_MS } from './rateLimit.js'
 
 // The parent-scoped entities shipped in the first-pairing domain snapshot —
 // deliberately excludes `schedule_snapshots` (see design doc Consequences:
@@ -417,19 +418,11 @@ function validateAcquireLockMsg(msg) {
   return isNonEmptyString(msg.entity) && isNonEmptyString(msg.entity_id) && isNonEmptyString(msg.field)
 }
 
-// Minimum spacing between 'login' messages accepted from a single connection.
-// This is a per-connection throttle, distinct from and in addition to the
-// per-name lockout inside attemptLogin. It exists because 'login' is reachable
-// with zero prior authentication (unlike acquire_lock/submit_op, which require
-// an already-authenticated ws.deviceId): a single connection hammering 'login'
-// in a tight loop drives synchronous better-sqlite3 calls on Node's
-// single-threaded event loop, starving every other connected device's
-// acquire_lock/submit_op responses and op_applied broadcasts. 300ms bounds
-// that risk while comfortably allowing a real user's retry-after-wrong-pin
-// flow (type PIN, get it wrong, retry).
-const LOGIN_MIN_INTERVAL_MS = 300
+// The throttle constants and the "is this too soon?" rule live in
+// ./rateLimit.js so they can be tested by arithmetic rather than by racing a
+// real clock against scryptSync. See T26.
 
-function handleLogin(db, ws, msg) {
+function handleLogin(db, ws, msg, now) {
   if (!validateLoginMsg(msg)) return
 
   // Sub-task 4: require device to be paired and secret to match BEFORE touching PIN
@@ -467,11 +460,11 @@ function handleLogin(db, ws, msg) {
   // file's existing convention for rejecting bad input (see the malformed
   // message and validateLoginMsg early-returns above) and keeps the
   // unauthenticated surface from being handed a way to trigger extra replies.
-  const now = Date.now()
-  if (ws.lastLoginAttemptAt !== undefined && now - ws.lastLoginAttemptAt < LOGIN_MIN_INTERVAL_MS) {
+  const at = now()
+  if (shouldThrottle(ws.lastLoginAttemptAt, at, LOGIN_MIN_INTERVAL_MS)) {
     return
   }
-  ws.lastLoginAttemptAt = now
+  ws.lastLoginAttemptAt = at
 
   const result = attemptLogin(db, { name: msg.name, pin: msg.pin, deviceId: msg.device_id })
 
@@ -846,9 +839,10 @@ function handleDeleteRecordRequest(db, wss, ws, msg) {
 const MAX_PENDING_PAIRING = 50
 // Minimum interval between pairing_request messages from the same device_id
 // (Security: per-device rate limit to bound DB write frequency).
-const PAIRING_RATE_MS = 5000
 
-export function startSyncServer(db, { port, onPairingRequest } = {}) {
+// `now` is injectable so the rate limits can be tested deterministically; it
+// defaults to the real clock, which is what ships. See T26.
+export function startSyncServer(db, { port, onPairingRequest, now = Date.now } = {}) {
   const wss = new WebSocketServer({ port })
   // Map of device_id -> ws for devices waiting for pairing approval
   const pendingPairingConnections = new Map()
@@ -884,13 +878,13 @@ export function startSyncServer(db, { port, onPairingRequest } = {}) {
           }
 
           // Security: rate-limit per device_id to prevent DB flood.
-          const now = Date.now()
+          const at = now()
           const lastReq = lastPairingRequestTime.get(device_id)
-          if (lastReq && now - lastReq < PAIRING_RATE_MS) {
+          if (shouldThrottle(lastReq, at, PAIRING_RATE_MS)) {
             ws.close()
             return
           }
-          lastPairingRequestTime.set(device_id, now)
+          lastPairingRequestTime.set(device_id, at)
 
           // Security: cap total pending connections to prevent Map/WS handle exhaustion.
           if (pendingPairingConnections.size >= MAX_PENDING_PAIRING) {
@@ -928,7 +922,7 @@ export function startSyncServer(db, { port, onPairingRequest } = {}) {
         }
 
         if (msg.type === 'login') {
-          handleLogin(db, ws, msg)
+          handleLogin(db, ws, msg, now)
           return
         }
 

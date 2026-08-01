@@ -244,7 +244,7 @@ export default function SlotCell({
         {cellHovered && hasMergeDown && !isMerged && (
           <button
             style={S.cellActionBtn}
-            title="Merge with block below"
+            title="Let this activity run into the next period"
             onClick={e => { e.stopPropagation(); onMergeDown?.() }}
           >↕</button>
         )}
@@ -255,7 +255,7 @@ export default function SlotCell({
               ...S.cellActionBtn,
               ...(splitHovered ? { borderColor: 'var(--danger)', color: 'var(--danger)' } : {}),
             }}
-            title="Split merged block"
+            title="Split this back into two periods"
             onClick={e => { e.stopPropagation(); onSplitSlot?.() }}
             onPointerEnter={() => setSplitHovered(true)}
             onPointerLeave={() => setSplitHovered(false)}

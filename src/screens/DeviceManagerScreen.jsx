@@ -2,6 +2,21 @@ import { useEffect, useState } from 'react'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 
+// T18 / CONSTITUTION Art. V. `pairing_status` is a database enum and was
+// rendered raw — a director saw "authorized", "pending", "revoked", or the
+// null-leak placeholder "unknown" as a status badge. These say what the state
+// means for the device in front of them.
+const PAIRING_STATUS_LABEL = {
+  authorized: 'Allowed in',
+  pending: 'Waiting for approval',
+  denied: 'Turned away',
+  revoked: 'No longer allowed',
+}
+
+function pairingStatusLabel(status) {
+  return PAIRING_STATUS_LABEL[status] ?? 'Not set up yet'
+}
+
 export default function DeviceManagerScreen({ campId, role }) {
   const [pending, setPending] = useState([])
   const [allDevices, setAllDevices] = useState([])
@@ -151,7 +166,7 @@ export default function DeviceManagerScreen({ campId, role }) {
                     <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{device.id.slice(0, 8)}</td>
                     <td style={S.td}>
                       <span style={isRevoked ? styles.badgeRevoked : isAuthorized ? styles.badgeAuthorized : styles.badgePending}>
-                        {device.pairing_status || 'unknown'}
+                        {pairingStatusLabel(device.pairing_status)}
                       </span>
                     </td>
                     <td style={S.td}>{fmt(device.authorized_at)}</td>

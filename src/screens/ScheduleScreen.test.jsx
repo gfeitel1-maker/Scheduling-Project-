@@ -56,7 +56,7 @@ function mockList(overridesByEntity = {}) {
     activities: [activity()],
     anchor_activities: [],
     tiers: [tier()],
-    schedule_templates: [{ id: 'schedule-template:camp-1', camp_id: CAMP_ID, name: 'Master Template' }],
+    schedule_templates: [{ id: 'schedule-template:camp-1', camp_id: CAMP_ID, name: 'Generated' }],
     template_slots: [slotRow()],
     template_overlays: [],
     schedule_snapshots: [],
@@ -224,7 +224,8 @@ describe('editSlotSave (exercises the shared writeFields primitive)', () => {
     fireEvent.click(within(editModal()).getByText('Save'))
 
     await waitFor(() => {
-      expect(screen.getByText(/That slot could not be saved/i)).toBeTruthy()
+      // T18: 'slot' is the template_slots row, not a word a director uses.
+      expect(screen.getByText(/That cell could not be saved/i)).toBeTruthy()
     })
     // Modal stays open — editSlotSave returned early instead of clearing editSlot.
     expect(screen.getByText('Assign Activity')).toBeTruthy()
@@ -263,7 +264,8 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
     fireEvent.click(scheduleCell('Swim'))
 
     await waitFor(() => {
-      expect(screen.getByText(/That cell could not be released/i)).toBeTruthy()
+      // T18: 'released' is the is_released column; the director unlocks a cell.
+      expect(screen.getByText(/That cell could not be unlocked/i)).toBeTruthy()
     })
   })
 
@@ -450,7 +452,8 @@ describe('snapshot CRUD ported to localClient', () => {
     fireEvent.click(screen.getByText('Save'))
 
     await waitFor(() => {
-      expect(screen.getByText(/That snapshot could not be renamed/i)).toBeTruthy()
+      // T18: the menu says Versions; 'snapshot' appears nowhere the director sees.
+      expect(screen.getByText(/That version could not be renamed/i)).toBeTruthy()
     })
   })
 })
@@ -497,7 +500,7 @@ describe('generate() aborts the destructive wipe when the pre-emptive snapshot f
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
-    fireEvent.click(screen.getByText('Regenerate from Scratch'))
+    fireEvent.click(screen.getByText('Build a new week'))
     await waitFor(() => expect(screen.getByText('Build a new one')).toBeTruthy())
     fireEvent.click(screen.getByText('Build a new one'))
 
@@ -694,7 +697,7 @@ describe('separate manual and generated routes', () => {
     mockList({
       activities: [activity(), activity({ id: 'act-2', name: 'Archery', min_per_week: 3 })],
       schedule_templates: [
-        { id: GENERATED, camp_id: CAMP_ID, name: 'Master Template', kind: 'generated' },
+        { id: GENERATED, camp_id: CAMP_ID, name: 'Generated', kind: 'generated' },
         { id: MANUAL, camp_id: CAMP_ID, name: 'Manual', kind: 'manual' },
       ],
       template_slots: [
@@ -763,7 +766,7 @@ describe('separate manual and generated routes', () => {
 
   it('does not ask when only one week exists — there is no choice to make', async () => {
     mockList({
-      schedule_templates: [{ id: GENERATED, camp_id: CAMP_ID, name: 'Master Template', kind: 'generated' }],
+      schedule_templates: [{ id: GENERATED, camp_id: CAMP_ID, name: 'Generated', kind: 'generated' }],
       template_slots: [slotRow({ id: 'gen-1', template_id: GENERATED, activity_id: 'act-1' })],
     })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
@@ -791,9 +794,9 @@ describe('separate manual and generated routes', () => {
   it('writes Generate only to the generated schedule, leaving the manual one alone', async () => {
     bothRoutes()
     render(routeScreen('generated'))
-    await waitFor(() => expect(screen.getByText('Regenerate from Scratch')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Build a new week')).toBeTruthy())
 
-    fireEvent.click(screen.getByText('Regenerate from Scratch'))
+    fireEvent.click(screen.getByText('Build a new week'))
     await waitFor(() => expect(screen.getByText('Build a new one')).toBeTruthy())
     fireEvent.click(screen.getByText('Build a new one'))
 
@@ -806,7 +809,7 @@ describe('separate manual and generated routes', () => {
 
   it('offers a blank week — not the generated one — when the manual route has not been started', async () => {
     mockList({
-      schedule_templates: [{ id: GENERATED, camp_id: CAMP_ID, name: 'Master Template', kind: 'generated' }],
+      schedule_templates: [{ id: GENERATED, camp_id: CAMP_ID, name: 'Generated', kind: 'generated' }],
       template_slots: [slotRow({ id: 'gen-1', template_id: GENERATED, activity_id: 'act-1' })],
     })
     render(routeScreen('manual'))
@@ -851,7 +854,7 @@ describe('ScheduleScreen — camp whose generated template has a random UUID id'
 
   function uuidCamp(extra = {}) {
     mockList({
-      schedule_templates: [{ id: UUID, camp_id: CAMP_ID, name: 'Master Template', kind: 'generated' }],
+      schedule_templates: [{ id: UUID, camp_id: CAMP_ID, name: 'Generated', kind: 'generated' }],
       template_slots: [slotRow({ id: 'gen-1', template_id: UUID, activity_id: 'act-1' })],
       ...extra,
     })
@@ -872,9 +875,9 @@ describe('ScheduleScreen — camp whose generated template has a random UUID id'
   it('C3: generate() writes to the UUID id and mints no schedule_templates row', async () => {
     uuidCamp()
     render(routeScreen('generated'))
-    await waitFor(() => expect(screen.getByText('Regenerate from Scratch')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Build a new week')).toBeTruthy())
 
-    fireEvent.click(screen.getByText('Regenerate from Scratch'))
+    fireEvent.click(screen.getByText('Build a new week'))
     await waitFor(() => expect(screen.getByText('Build a new one')).toBeTruthy())
     fireEvent.click(screen.getByText('Build a new one'))
 
@@ -1015,7 +1018,7 @@ describe('ScheduleScreen — switching routes cannot carry work across candidate
   it('drops the clipboard and the selection when the director navigates to the other route', async () => {
     mockList({
       schedule_templates: [
-        { id: GENERATED, camp_id: CAMP_ID, name: 'Master Template', kind: 'generated' },
+        { id: GENERATED, camp_id: CAMP_ID, name: 'Generated', kind: 'generated' },
         { id: MANUAL, camp_id: CAMP_ID, name: 'Manual', kind: 'manual' },
       ],
       template_slots: [
@@ -1048,7 +1051,7 @@ describe('ScheduleScreen — switching routes cannot carry work across candidate
     mockList({
       activities: [activity(), activity({ id: 'act-2', name: 'Art' })],
       schedule_templates: [
-        { id: GENERATED, camp_id: CAMP_ID, name: 'Master Template', kind: 'generated' },
+        { id: GENERATED, camp_id: CAMP_ID, name: 'Generated', kind: 'generated' },
         { id: MANUAL, camp_id: CAMP_ID, name: 'Manual', kind: 'manual' },
       ],
       template_slots: [
@@ -1169,7 +1172,7 @@ describe('T4: merging a cell down', () => {
 
     const headCell = scheduleCell('Swim').closest('td')
     fireEvent.pointerEnter(headCell)
-    const mergeBtn = within(headCell).queryByTitle(/merge/i)
+    const mergeBtn = within(headCell).queryByTitle(/run into the next period/i)
     expect(mergeBtn, 'merge affordance should exist on a cell with a block below it').toBeTruthy()
     fireEvent.click(mergeBtn)
 
@@ -1191,7 +1194,7 @@ describe('T4: merging a cell down', () => {
 
     const headCell = scheduleCell('Swim').closest('td')
     fireEvent.pointerEnter(headCell)
-    fireEvent.click(within(headCell).getByTitle(/merge/i))
+    fireEvent.click(within(headCell).getByTitle(/run into the next period/i))
 
     await waitFor(() => expect(screen.getByText(/Displaced Activities/i)).toBeTruthy())
     expect(screen.getByText(/displaced from/i)).toBeTruthy()

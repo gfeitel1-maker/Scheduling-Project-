@@ -8,6 +8,7 @@
 // drainer (syncClient.js), not here.
 
 import { randomUUID } from 'node:crypto'
+import { lastKnownFields, nameFieldFor } from '../ops/restore.js'
 
 // INSERT OR IGNORE against UNIQUE(entity, entity_id): three presses of Restore
 // while the Host is down produce ONE intent, and the first requester is
@@ -35,6 +36,14 @@ export function recordRestoreError(db, pendingId, error) {
   db.prepare('UPDATE pending_restores SET last_error = ? WHERE pending_id = ?').run(error ?? null, pendingId)
 }
 
+// T18: `name` is resolved here rather than left to the screen, which used to
+// render the raw entity_id — "Group . 8f3c1a02-..." — in the "Waiting on the
+// main computer" list. A director cannot tell which group that is, so the row
+// was unactionable. Same source as listDeleted, so the two lists cannot name
+// the same record differently.
+//
+// The name comes from the op log, not from the live row: the record is deleted,
+// so there is no row to read it from.
 export function listPendingRestores(db) {
   return db
     .prepare('SELECT * FROM pending_restores ORDER BY requested_at ASC')
@@ -46,5 +55,6 @@ export function listPendingRestores(db) {
       requested_by: row.requested_by,
       requested_at: row.requested_at,
       last_error: row.last_error,
+      name: lastKnownFields(db, row.entity, row.entity_id).get(nameFieldFor(row.entity)) ?? null,
     }))
 }

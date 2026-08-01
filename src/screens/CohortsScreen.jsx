@@ -5,12 +5,12 @@ import { S } from '../styles/shared'
 
 const ANCHOR_MODELS = [
   { value: 'none',     label: 'None — no fixed events' },
-  { value: 'fixed',    label: 'Fixed — fixed events locked to day + block' },
-  { value: 'floating', label: 'Floating — fixed events constrained to a day window (coming soon)' },
+  { value: 'fixed',    label: 'Fixed — fixed events happen at the same time every day' },
+  { value: 'floating', label: 'Floating — fixed events can move within the day (coming soon)' },
 ]
 
 const CAPACITY_SOURCES = [
-  { value: 'groups_per_slot',  label: 'Groups per slot (default)' },
+  { value: 'groups_per_slot',  label: 'How many groups share a period' },
   { value: 'camper_headcount', label: 'Camper headcount (coming soon)' },
 ]
 
@@ -108,10 +108,10 @@ function CohortRow({ cohort, onSave, onDelete }) {
         {cohort.session_week_start}–{cohort.session_week_end}
       </td>
       <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>
-        {ANCHOR_MODELS.find(o => o.value === cohort.anchor_model)?.label ?? cohort.anchor_model}
+        {ANCHOR_MODELS.find(o => o.value === cohort.anchor_model)?.label ?? '—'}
       </td>
       <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>
-        {CAPACITY_SOURCES.find(o => o.value === cohort.capacity_source)?.label ?? cohort.capacity_source}
+        {CAPACITY_SOURCES.find(o => o.value === cohort.capacity_source)?.label ?? '—'}
       </td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{cohort.sort_order}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>

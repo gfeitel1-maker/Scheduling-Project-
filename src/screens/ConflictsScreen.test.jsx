@@ -94,13 +94,15 @@ describe('ConflictsScreen keep(): exercises every real write-status path through
     expect(screen.queryByText(/something went wrong/i)).toBeNull()
   })
 
-  it('status "queued" (Fix 2b) shows distinct "will sync when connected" copy, NOT the same certainty-implying "Kept" text as "applied"', async () => {
+  it('status "queued" (Fix 2b) shows distinct not-yet-sent copy, NOT the same certainty-implying "Kept" text as "applied"', async () => {
     const user = userEvent.setup()
     const resolveConflict = vi.fn().mockResolvedValue({ status: 'queued' })
     renderScreen({ resolveConflict })
 
     await user.click(screen.getAllByRole('button', { name: /keep this version/i })[0])
-    await waitFor(() => expect(screen.queryByText(/will sync when connected/i)).not.toBeNull())
+    // T18: was /will sync when connected/. "Sync" is developer vocabulary; the
+    // copy now says what actually happens to the other computers.
+    await waitFor(() => expect(screen.queryByText(/will reach the other computers/i)).not.toBeNull())
     expect(screen.queryByText(/^✓ Kept Someone's version$/)).toBeNull()
   })
 

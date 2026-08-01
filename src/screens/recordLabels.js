@@ -17,7 +17,10 @@ export const ENTITY_LABEL = {
 }
 
 export function entityLabel(entity) {
-  return ENTITY_LABEL[entity] ?? entity
+  // T18: the fallback used to render the raw table name — a director would see
+  // "template_slots" or "day_override_template_slots" as a section heading.
+  // `users` is a real case: deleting a person is covered by the Trash tests.
+  return ENTITY_LABEL[entity] ?? 'Record'
 }
 
 // Field labels match the wording of the edit forms, never the column name.
@@ -60,6 +63,18 @@ const FIELD_LABEL = {
   pin_hash: 'PIN',
   pin_salt: 'PIN',
   role: 'Role',
+  // T18: the schedule-cell fields. Without these, a history line about a cell
+  // fell through to the raw column name — "changed is span head". Named for
+  // what the director did, not for how the row stores it.
+  group_id: 'Group',
+  template_id: 'Schedule',
+  is_locked: 'Held in place',
+  is_released: 'Unlocked',
+  is_span_head: 'Runs across two periods',
+  is_anchor: 'Fixed event',
+  flags: 'Findings',
+  is_all_day: 'All day',
+  day_override_template_id: 'Day override',
 }
 
 // Which entity a foreign-key field points at, so a history line can read
@@ -76,7 +91,10 @@ export const FK_TARGET = {
 export function fieldLabel(field) {
   if (field === '__deleted__') return 'Deleted'
   if (field === '__bulk_replace__') return 'Replaced in bulk'
-  return FIELD_LABEL[field] ?? field.replace(/_/g, ' ')
+  // T18: de-underscoring a column name is still a column name — "changed is
+  // span head", "changed template id". Say plainly that we cannot name it
+  // rather than showing schema.
+  return FIELD_LABEL[field] ?? 'something'
 }
 
 // The op log records a moment; a director reads a day and a time.

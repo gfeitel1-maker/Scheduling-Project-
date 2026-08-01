@@ -1,7 +1,7 @@
 ---
 title: T26-login-throttle-has-no-testable-clock
 document_type: ticket
-status: open
+status: completed
 created: 2026-07-31
 governing_docs: [docs/governance/standards/TESTING_STANDARD.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: []
@@ -75,10 +75,38 @@ The throttle's user-visible guarantees do still have passing tests:
 What is uncovered is specifically the burst-drop count — the part that bounds an attacker
 flooding the unauthenticated surface.
 
+## Resolution — 2026-07-31
+
+`electron/sync/rateLimit.js` now holds both intervals and the single question they reduce to,
+`shouldThrottle(lastAt, now, minIntervalMs)`. `startSyncServer` takes `now = Date.now`, threaded
+into `handleLogin` and the pairing rate limit — which had the same inline `Date.now()` shape and
+is fixed at the same time.
+
+**One behaviour change, deliberate.** `shouldThrottle` now fails **open** when the clock goes
+backwards. The old expression `now - last < 300` treats a negative elapsed time as "too soon", so
+an NTP correction or a director changing the system time would silently refuse legitimate logins
+for as long as the skew lasted. That is the wrong direction to fail in: this throttle bounds
+event-loop starvation, while the control that actually bounds PIN guessing is the per-name
+lockout in `attemptLogin`, which is unaffected.
+
+The test the ticket was filed for is un-skipped and its assertion is now **exact** — not "fewer
+than five replies" but "exactly one" — because a frozen clock makes the outcome deterministic.
+Its synchronisation is the clock function itself: `handleLogin` calls `now()` once per message
+that clears the device-secret gate, so 20 calls means all 20 were processed. That is a real
+signal rather than a guessed duration.
+
 ## Completion evidence
 
-1. The skipped test runs, and passes on both an idle and a deliberately loaded machine.
-2. It asserts which messages are dropped, not merely that "fewer than N" replies arrived.
+1. The skipped test runs, and passes on both an idle and a deliberately loaded machine —
+   **met**: `syncServer.test.js` 50 passed / 0 skipped, and 3/3 green with two CPU hogs running.
+2. It asserts which messages are dropped, not merely that "fewer than N" replies arrived —
+   **met**: `expect(replies).toHaveLength(1)`.
 3. The injected clock defaults to real time in production, with a test proving the default is
-   what ships.
-4. No test of this behaviour reads `Date.now()` to decide whether it passed.
+   what ships — **met**: "defaults to the real clock, so what ships is not the injected one"
+   starts a server with no `now` and proves it still throttles.
+4. No test of this behaviour reads `Date.now()` to decide whether it passed — **met**:
+   `rateLimit.test.js` is pure arithmetic, including the window edge and the backwards clock.
+
+Also checked, as the ticket asked: `attemptLogin`'s per-name lockout reasons about elapsed time
+too (5 attempts, 30s). It is **not** fixed here — its tests pass and were not among the flakes —
+but it carries the same untestable shape and is the next candidate if it ever starts failing.

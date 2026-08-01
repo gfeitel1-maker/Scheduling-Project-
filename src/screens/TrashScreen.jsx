@@ -165,7 +165,7 @@ export default function TrashScreen({ role }) {
         <Notice tone="border">
           <div style={{ marginBottom: 8 }}>
             {childOffer.children.length} record{childOffer.children.length === 1 ? ' was' : 's were'} deleted with{' '}
-            {childOffer.parent.name || 'it'}: {childOffer.children.map((c) => c.name || c.entity_id).join(', ')}.
+            {childOffer.parent.name || 'it'}: {childOffer.children.map((c) => c.name || `an unnamed ${entityLabel(c.entity).toLowerCase()}`).join(', ')}.
             They are still deleted.
           </div>
           <button
@@ -185,7 +185,11 @@ export default function TrashScreen({ role }) {
           {waiting.map((item) => (
             <div key={item.pendingId} style={trashStyles.waitingRow}>
               <span style={{ color: 'var(--text)' }}>
-                {entityLabel(item.entity)} · {item.entity_id}
+                {/* T18: this rendered the raw entity_id — "Group · 8f3c1a02-…",
+                    which tells a director nothing about which group it is and
+                    makes the row unactionable. The name is what identifies a
+                    record to them; when it is genuinely unknown, say so. */}
+                {entityLabel(item.entity)} · {item.name || 'name not known on this device'}
               </span>
               <span style={S.mergeMeta}>
                 {item.last_error

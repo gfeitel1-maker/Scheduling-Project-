@@ -18,15 +18,15 @@ const FIELD_LABELS = {
   'users.role': "A staff member's role",
   'users.pin_hash': '__PIN__',
   'users.pin_salt': '__PIN__',
-  'template_slots.activity_id': "A schedule slot's activity",
-  'template_slots.group_id': "A schedule slot's assigned group",
-  'template_slots.locked': "A schedule slot's lock status",
+  'template_slots.activity_id': "Which activity is in a cell",
+  'template_slots.group_id': "Which group a cell belongs to",
+  'template_slots.locked': "Whether a cell was held in place",
 }
 
 function describeConflict(entity, field) {
   const key = `${entity}.${field}`
   if (FIELD_LABELS[key] === '__PIN__') return null
-  return FIELD_LABELS[key] || `A ${field.replace(/_/g, ' ')} change`
+  return FIELD_LABELS[key] || 'A change to this record'
 }
 
 function relativeTime(timestamp) {
@@ -188,7 +188,7 @@ function ConflictCard({ conflict, resolved, resolveAuthorLabel, onResolve }) {
       {confirmedSide ? (
         <div style={{ ...S.mergeConfirmed, opacity: collapsing ? 0 : 1 }}>
           {resolved && resolved.queued
-            ? `Saved — will sync when connected (${confirmedSide}'s version)`
+            ? `Saved — this will reach the other computers when they are back in range (kept ${confirmedSide === 'A' ? 'the first' : 'the second'} version)`
             : `✓ Kept ${confirmedSide}'s version`}
         </div>
       ) : (

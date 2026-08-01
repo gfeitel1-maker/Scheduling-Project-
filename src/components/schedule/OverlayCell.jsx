@@ -59,7 +59,7 @@ export default function OverlayCell({ label, onRemove, rowSpan = 1, showFillHand
 
         {showFillHandle && (
           <div
-            title="Drag to extend overlay"
+            title="Drag to make this field trip longer"
             onPointerDown={e => {
               e.preventDefault()
               e.stopPropagation()

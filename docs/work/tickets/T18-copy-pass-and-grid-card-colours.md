@@ -1,7 +1,7 @@
 ---
 title: T18-copy-pass-and-grid-card-colours
 document_type: ticket
-status: parked
+status: in-progress
 created: 2026-07-29
 governing_docs: [docs/governance/standards/DESIGN_STANDARD.md, docs/governance/constitution/CONSTITUTION.md]
 archive_when: superseded by an approved design spec
@@ -9,7 +9,7 @@ archive_when: superseded by an approved design spec
 
 # T18 — Copy pass across the app, and the schedule grid's card colours
 
-**Status: parked.** Raised by the product owner 2026-07-29 as future work, explicitly after the
+**Status: in-progress.** Raised by the product owner 2026-07-29 as future work, explicitly after the
 current T15 route-separation work. Recorded so it is not lost. **Not a design — no approach
 chosen.** Two related but separable pieces.
 
@@ -109,6 +109,77 @@ So the first step is to look at the rendered grid with real data, not to re-read
 `T17` (dead `colorIdx` field) is adjacent and should be closed out in the same area of code.
 
 Note the grid gained an `OVERLAP` treatment during T15; whatever is decided must cover it.
+
+## Progress — 2026-07-31
+
+### Part 1, wording: the headline defect and the app-wide pass are done
+
+**The two-routes-name-the-same-thing-twice defect is fixed.** Both routes now say `Placed` /
+`Still needed` / `Spread across the week`, and `StatBadge` no longer uppercases them, so
+`SPREAD ACROSS THE WEEK` has stopped shouting. `Overlapping` / `Unfillable` still differ, which
+is correct — those are different concepts.
+
+An inventory of every rendered string in `src/` against Article V found ~60 further violations.
+Fixed in this pass:
+
+- **Raw ids reaching the screen.** The Trash "waiting" list rendered `Group · 8f3c1a02-…`, which
+  tells a director nothing about which group it is; `listPendingRestores` now resolves the name
+  from the op log, the same source `listDeleted` uses. Record History rendered uuids mid-sentence
+  ("changed Unit from 3ac1… to 9df0…") when the referenced record was itself deleted, and
+  stringified booleans and uuid arrays raw. An undo tooltip read `Split merged slot 6e21b0c4-…`.
+- **Raw enums.** `pairing_status`, `part_of_day`, `availability`, `frequency_mode`,
+  `anchor_model` and `capacity_source` were each rendered untranslated somewhere, in most cases
+  in a table beside a form that already had the label map.
+- **Table and column names as fallbacks.** `entityLabel` and `fieldLabel` passed the raw name
+  through for anything unmapped, so `users`, `template_slots` and `is_span_head` could appear on
+  screen. Both now refuse to show schema, and the schedule-cell fields have real labels.
+- **Mechanism instead of outcome.** `snapshot` → `version` (the menu has always said Versions),
+  `overlay` → `field trip`, `slot` → `cell`, `flag` → `finding`, `released` → `unlocked`,
+  "anchor or merged tail" → "a fixed event, or the second half of an activity that runs across
+  two periods", "Regenerate from Scratch" → "Build a new week".
+- One pre-existing typo: *"That that version could not be deleted."*
+
+`src/screens/recordLabels.test.js` is new and locks the fallbacks, which had no test.
+
+**Not done, and needing the product owner:** the tone question this ticket already raises —
+whether findings should read as *what the week still owes you* rather than *errors you have
+made*, app-wide. Everything above is a correctness fix under Article V; tone is a decision.
+
+Also deliberately untouched: the sidebar's nav labels and the DEV badge. The badge because the
+product owner said "the footer is fine" on 2026-07-29, and the nav labels because a UI/UX handoff
+covering the sidebar is pending.
+
+### Part 2, colours: the collision was the real bug; the palette needs a decision
+
+The complaint was measured rather than guessed at. On the product owner's own data **three of
+four activities hashed to the same colour** — the grid looked broken because it was, and
+`assignActivityColors` now walks to the next free entry instead of colliding.
+
+What remains is whether the six values themselves are right, which this ticket correctly calls a
+product-owner approval gate. One piece of that is not a matter of taste, so it is measured here:
+
+```
+closest pairs under deuteranopia (~6% of men)     RGB distance
+#3C8C86  #7C5E86       6        (79 for normal vision)
+#3F6690  #3C8C86      11        (39)
+#3F6690  #7C5E86      17        (62)
+```
+
+**Three of the six collapse into effectively one colour.** Teal, purple and blue are distinct to
+most people and near-identical to a deuteranope.
+
+Severity is moderate, not critical, and the reason matters: the activity **name is always
+rendered beside the dot** (`SlotCell.jsx`), so colour is a redundant scanning cue rather than the
+sole identity signal. A director who cannot distinguish them can still read the grid — it is
+slower, not unusable.
+
+Worth stating plainly: this is invisible to the "look at the rendered grid with real data" step
+this ticket proposes, because you cannot see your own colour vision. It needs a palette chosen
+for separation under simulation, which is a Designer task and a token-value change.
+
+I have **not** changed the palette. Six replacement values are a design decision with an
+approval gate, and picking them myself would be exactly the unapproved taste call the ticket
+warns against.
 
 ## Sequencing
 

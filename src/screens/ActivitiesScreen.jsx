@@ -626,7 +626,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
                           {a.max_groups_per_slot > 1 ? `Up to ${a.max_groups_per_slot}${a.same_tier_only ? ' (same unit)' : ''}` : '—'}
                         </td>
                         <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{a.min_per_week}–{a.max_per_week}</td>
-                        <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{a.weather_alternative_id ? actMap[a.weather_alternative_id] || '?' : '—'}</td>
+                        <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{a.weather_alternative_id ? actMap[a.weather_alternative_id] || '—' : '—'}</td>
                         <td style={{ ...S.td, textAlign: 'right' }}>
                           <button onClick={() => setModal({ activity: a })} style={S.btnSecondary}>Edit</button>
                           <button onClick={() => duplicateActivity(a)} style={{ ...S.btnSecondary, marginLeft: 6 }}>Duplicate</button>

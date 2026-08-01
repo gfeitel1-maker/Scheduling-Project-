@@ -57,6 +57,38 @@ Recording the questions now, because the shape of the feature depends on answers
   *entities* — and the product owner's phrasing, "populate all the corresponding fields",
   reads as the entities. Worth confirming before anyone scopes it.
 
+## Why this is still open — 2026-07-31
+
+Worked through the open-ticket queue on 2026-07-31; this is the one that could not be finished,
+and the reason is a governance gate rather than effort.
+
+`GOVERNANCE_INDEX.md` puts ingestion in the **Database / sync** row: an ADR plus a
+migration/rollback plan, mandatory integration tests, and a **product-owner approval gate**. The
+drafted design also stops on a question only the product owner can answer, recorded at §9 of the
+spec: **do the two camps whose PDFs we have also hold the source spreadsheets?**
+
+That answer changes what gets built, not merely when:
+
+- **If the spreadsheets exist**, Tier 1 (read the Excel directly) is the better path for those
+  camps, the `xlsx` library is already bundled, and the grid arrives pre-parsed. Small, and the
+  inference layer stays shallow.
+- **If they do not**, Tier 3 — reconstructing a table from a PDF — is the first thing that has
+  to work, which is a materially larger and less certain piece of engineering.
+
+Building the PDF reconstructor before asking would be committing the expensive option on a
+guess, when one question makes it unnecessary for some or all camps.
+
+Two further answers are wanted at the same time, both from the ticket and the spec:
+
+1. **Entities only, or placements too?** The product owner said "entities only, skip duplicates,
+   one entry point" on 2026-07-30, which the spec takes as settled — confirm it still holds.
+2. **May the two supplied PDFs be committed as test fixtures?** They contain a real camp's group
+   names and staff-facing structure. Without them the integration tests the governance row
+   requires have nothing real to run against; with them, that data enters the repository
+   permanently.
+
+Nothing here is blocked on design work. It is blocked on those answers.
+
 ## Next step when this is picked up
 
 Brainstorm, then an approved specification, before any implementation. Likely needs an ADR:

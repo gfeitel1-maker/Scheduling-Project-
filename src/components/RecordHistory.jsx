@@ -6,9 +6,11 @@ import { entityLabel, fieldLabel, formatMoment, FK_TARGET } from '../screens/rec
 // Who changed what, and when, for one record. Everything shown here has been
 // in the op log since the first edit; nothing new is stored to produce it.
 //
-// Values for foreign-key fields are shown as the referenced record's name,
-// falling back to the raw id when the referent is itself deleted — the same
-// fallback the rest of the app already uses.
+// Values for foreign-key fields are shown as the referenced record's name.
+// When the referent is itself deleted there is no name to show, and the old
+// fallback printed the raw id — "changed Unit from 3ac1... to 9df0...", which
+// explains nothing and makes the feature look broken. T18: say what is true
+// instead. Booleans and id lists get the same treatment for the same reason.
 
 function useReferenceNames(history) {
   const [names, setNames] = useState({})
@@ -33,9 +35,28 @@ function useReferenceNames(history) {
   return names
 }
 
+// T18 / CONSTITUTION Art. V. A history line is meant to explain a change, so
+// anything it cannot put in words is worse than useless — a raw uuid mid-
+// sentence ("changed Unit from 3ac1… to 9df0…") tells a director nothing and
+// makes the feature look broken. Say what is true instead: the record it
+// pointed at is gone.
+function looksLikeAnId(value) {
+  return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(value)
+}
+
 function renderValue(field, value, names) {
   if (value === null || value === undefined || value === '') return 'nothing'
-  if (FK_TARGET[field]) return names[value] ?? String(value)
+  if (FK_TARGET[field]) return names[value] ?? 'a record that has since been deleted'
+  if (typeof value === 'boolean') return value ? 'yes' : 'no'
+  if (Array.isArray(value)) {
+    if (value.length === 0) return 'nothing'
+    const named = value.map((v) => names[v]).filter(Boolean)
+    // Only say "3 of them" when we genuinely cannot name them — a count is a
+    // poor answer, but a list of uuids is not an answer at all.
+    if (named.length === value.length) return named.join(', ')
+    return `${value.length} ${value.length === 1 ? 'record' : 'records'}`
+  }
+  if (looksLikeAnId(value)) return 'a record that has since been deleted'
   return String(value)
 }
 
