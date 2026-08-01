@@ -278,3 +278,23 @@ describe('rarity is judged within a unit, not across the camp', () => {
     expect(seenCounts.activityUnitShare['service project']).toBe(1)
   })
 })
+
+describe('days are the calendar\'s words, not the camp\'s', () => {
+  it('normalises a shouted day name', () => {
+    // A real camp's spreadsheet writes "MONDAY". The app should not shout
+    // because a spreadsheet did, and a day is a closed set with one spelling.
+    const grid = { pages: [
+      { title: 'Bunk A', columns: ['MONDAY', 'TUESDAY'], rows: [{ label: '9:00-10:00', cells: ['Swim', 'Art'] }] },
+      { title: 'Bunk B', columns: ['MONDAY', 'TUESDAY'], rows: [{ label: '9:00-10:00', cells: ['Art', 'Swim'] }] },
+    ] }
+    expect(extractEntities(grid).entities.days_of_operation).toEqual(['Monday', 'Tuesday'])
+  })
+
+  it('treats a shouted and a spelled day as the same day', () => {
+    const grid = { pages: [
+      { title: 'Bunk A', columns: ['MONDAY'], rows: [{ label: '9:00', cells: ['Swim'] }] },
+      { title: 'Bunk B', columns: ['Monday'], rows: [{ label: '9:00', cells: ['Art'] }] },
+    ] }
+    expect(extractEntities(grid).entities.days_of_operation).toEqual(['Monday'])
+  })
+})

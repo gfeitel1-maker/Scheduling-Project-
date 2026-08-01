@@ -91,6 +91,12 @@ function isActivityLike(text) {
 //
 // Titles with no separator (Zahav, Gesher) are bunks with no unit, which is a
 // real shape and not a parse failure.
+// "MONDAY" -> "Monday". Only ever applied to text isDayName already accepted.
+function canonicalDay(text) {
+  const name = String(text).trim().toLowerCase()
+  return name[0].toUpperCase() + name.slice(1)
+}
+
 export function splitUnitAndGroup(title) {
   // The separator must have whitespace on at least one side. Camp Mindy has a
   // group called "2-3A" — grades 2 and 3, section A — and a bare hyphen rule
@@ -204,7 +210,10 @@ export function extractEntities(parsed) {
     const title = cleanTitle(page.title)
 
     if (orientation.columns === 'days') {
-      days.push(...page.columns.filter(isDayName))
+      // A day is not the camp's vocabulary, it is the calendar's. One camp
+      // writes "MONDAY", another "Monday"; both mean the same day and the app
+      // should not shout because a spreadsheet did.
+      days.push(...page.columns.filter(isDayName).map(canonicalDay))
       if (title) {
         const { unit, group } = splitUnitAndGroup(title)
         groups.push({ title, unit, group })
