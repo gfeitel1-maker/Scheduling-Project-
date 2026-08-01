@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
+import * as XLSX from 'xlsx'
 import { parseTextGrid } from '../ingest/textGrid'
+import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { buildPreview, describePreview } from '../ingest/preview'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
@@ -28,32 +30,61 @@ const LABEL = {
 }
 
 export default function ImportScreen({ onNavigate }) {
-  const [fileName, setFileName] = useState(null)
+  const [fileNames, setFileNames] = useState([])
   const [preview, setPreview] = useState(null)
   const [chosen, setChosen] = useState({})
   const [error, setError] = useState(null)
   const [working, setWorking] = useState(false)
   const [result, setResult] = useState(null)
 
-  async function readFile(file) {
+  // A camp's schedule can arrive as several files — Camp Mindy exports one
+  // spreadsheet per group. They are one camp and must be read as one import,
+  // or the same days and activities are proposed four times over and the
+  // groups arrive in four separate passes.
+  async function readFiles(fileList) {
     setError(null)
     setResult(null)
-    if (!file) return
-    setFileName(file.name)
+    const files = [...(fileList ?? [])]
+    if (files.length === 0) return
+    setFileNames(files.map((f) => f.name))
+
     try {
-      const text = await file.text()
-      const proposal = extractEntities(parseTextGrid(text))
+      // The camp's own name and the year are in every filename, so they say
+      // nothing about which group a file is. What differs is the group.
+      const prefix = sharedFilenamePrefix(files.map((f) => f.name))
+      const pages = []
+
+      for (const file of files) {
+        const title = groupNameFromFilename(file.name, prefix)
+        if (/\.(xlsx|xlsm|xls)$/i.test(file.name)) {
+          const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+          const sheets = wb.SheetNames.map((name) => ({
+            name,
+            rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '' }),
+          }))
+          pages.push(...workbookToPages(sheets, title))
+        } else {
+          pages.push(...parseTextGrid(await file.text()).pages)
+        }
+      }
+
+      if (pages.length === 0) {
+        setPreview(null)
+        setError('No schedule could be read out of that. It may be a scan rather than a document with text in it.')
+        return
+      }
+
+      const proposal = extractEntities({ pages })
       const existing = {}
       for (const entity of INGESTIBLE_ENTITIES) {
         existing[entity] = await localClient.list(entity).catch(() => [])
       }
       const next = buildPreview(proposal, existing)
       setPreview(next)
-      // Everything starts approved except values seen only once in the whole
-      // document. On a 33-page bunk schedule a real activity recurs dozens of
-      // times and a parse artifact appears once, so this is the difference
-      // between a director unticking sixty rows and ticking two. Nothing is
-      // hidden either way — the unticked rows are right there with their count.
+      // Everything starts approved except values the file gives no reason to
+      // trust — seen once across the camp AND not universal in any one unit,
+      // or a name that is two other proposed names welded together. Nothing is
+      // hidden either way; the unticked rows are right there with their count.
       const initial = {}
       for (const entity of INGESTIBLE_ENTITIES) {
         const { create, lowConfidence = [] } = next.perEntity[entity]
@@ -134,17 +165,18 @@ export default function ImportScreen({ onNavigate }) {
         borderRadius: 10, padding: '16px', marginBottom: 20,
       }}>
         <label style={{ display: 'block', fontSize: 13, marginBottom: 8, color: 'var(--text)' }}>
-          Choose the file
+          Choose the file, or all of them
         </label>
         <input
           type="file"
-          accept=".txt,.csv,.tsv"
-          onChange={e => readFile(e.target.files?.[0])}
+          multiple
+          accept=".xlsx,.xlsm,.xls,.txt,.csv,.tsv"
+          onChange={e => readFiles(e.target.files)}
           style={{ fontSize: 13 }}
         />
-        {fileName && (
-          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
-            {fileName}
+        {fileNames.length > 0 && (
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', lineHeight: 1.6 }}>
+            {fileNames.join(', ')}
           </div>
         )}
       </div>
@@ -238,7 +270,7 @@ export default function ImportScreen({ onNavigate }) {
             >
               {working ? 'Importing…' : `Add ${approvedCount} ${approvedCount === 1 ? 'record' : 'records'}`}
             </button>
-            <button onClick={() => { setPreview(null); setFileName(null) }} disabled={working} style={S.btnSecondary}>
+            <button onClick={() => { setPreview(null); setFileNames([]) }} disabled={working} style={S.btnSecondary}>
               Cancel
             </button>
           </div>

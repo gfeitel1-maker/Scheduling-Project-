@@ -93,9 +93,22 @@ export function buildPreview(proposal, existing) {
     // but does not start ticked. The director ticks it if it is real; they do
     // not have to untick sixty things if it is not.
     const counts = proposal?.seenCounts?.[entity] ?? {}
-    const lowConfidence = create.filter(
-      (name) => (counts[name] ?? 2) < 2 || looksLikeAMerge(name, counts)
-    )
+    const shares = proposal?.seenCounts?.activityUnitShare ?? {}
+    const shareOf = (name) => shares[String(name).toLowerCase().replace(/\s+/g, ' ')] ?? 0
+
+    // Rare across the camp is not the same as rare where it happens. An
+    // activity that EVERY bunk in its unit does is real however few bunks that
+    // is — a specialty programme's whole timetable looks like this.
+    //
+    // The bar is the whole unit, not half of it. At half, a two-bunk unit
+    // vouches for anything one of its bunks shows once, which let merges like
+    // "Dance Ceramics" and "Preschool Playground Transition to Dismissal"
+    // through alongside the real "Service Project" and "Mitzvah Project".
+    const lowConfidence = create.filter((name) => {
+      if (looksLikeAMerge(name, counts)) return true
+      if ((counts[name] ?? 2) >= 2) return false
+      return shareOf(name) < 1
+    })
 
     perEntity[entity] = { create, skip, counts, lowConfidence }
     createTotal += create.length

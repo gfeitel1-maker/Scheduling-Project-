@@ -239,3 +239,42 @@ describe('the proposal as a whole is worth showing a director', () => {
     expect(counts[counts.length - 1]).toBe(1)
   })
 })
+
+describe('rarity is judged within a unit, not across the camp', () => {
+  // Product owner, 2026-08-01: "count frequency within the unit". A camp with
+  // many programmes has activities that are rare overall and completely normal
+  // where they happen — only the Omanut bunks do Ceramics. Judged against the
+  // whole camp those look like misreads.
+  function campWith(pages) {
+    return extractEntities({ pages })
+  }
+
+  it('scores an activity by how much of its own unit does it', () => {
+    const { seenCounts } = campWith([
+      { title: 'Omanut - Chagalls', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Ceramics'] }] },
+      { title: 'Omanut - Picassos', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Ceramics'] }] },
+      { title: 'Lavan - Chais', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Swim'] }] },
+      { title: 'Lavan - Yads', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Swim'] }] },
+    ])
+    // Both Omanut bunks do Ceramics; no Lavan bunk does.
+    expect(seenCounts.activityUnitShare.ceramics).toBe(1)
+  })
+
+  it('gives a half share to an activity only one bunk of a unit does', () => {
+    const { seenCounts } = campWith([
+      { title: 'Omanut - Chagalls', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Ceramics'] }] },
+      { title: 'Omanut - Picassos', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Swim'] }] },
+    ])
+    expect(seenCounts.activityUnitShare.ceramics).toBe(0.5)
+  })
+
+  it('treats a bunk with no unit as its own unit', () => {
+    // "Gesher" has no unit prefix, and what Gesher does is still normal for
+    // Gesher — "Service Project" should not read as a misread.
+    const { seenCounts } = campWith([
+      { title: 'Gesher', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Service Project'] }] },
+      { title: 'Lavan - Chais', columns: ['Monday'], rows: [{ label: '9:00-10:00', cells: ['Swim'] }] },
+    ])
+    expect(seenCounts.activityUnitShare['service project']).toBe(1)
+  })
+})

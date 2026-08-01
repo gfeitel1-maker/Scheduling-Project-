@@ -38,17 +38,29 @@ const NOT_AN_ACTIVITY = [
 // "Instructional Swim 11:45-12:10-" and "Opening 9:40-9:50 Change". The
 // activity is in there; the schedule's own timing is not part of its name.
 function stripTimes(text) {
-  return String(text ?? '')
-    .replace(/\d{1,2}[:.]\d{2}\s*[-–—]?\s*(\d{1,2}[:.]\d{2})?/g, ' ')
-    .replace(/\bChange\b/gi, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
+  const raw = String(text ?? '')
+  // "Change" is only noise when it labels a transition next to a time, as in
+  // Camp A's "11:10-11:20 Change". Camp Mindy has "Change/SPLAT" and "Change
+  // Time/Snack" as real activities, and stripping the word unconditionally
+  // turned those into "/SPLAT" and "Time/Snack".
+  const hasTime = /\d{1,2}[:.]\d{2}/.test(raw)
+  let out = raw.replace(/\d{1,2}[:.]\d{2}\s*[-–—]?\s*(\d{1,2}[:.]\d{2})?/g, ' ')
+  if (hasTime) out = out.replace(/\bChange\b/gi, ' ')
+  return out.replace(/\s+/g, ' ').trim()
 }
 
 // A cell repeated down a column accumulates when a page is read too long —
 // "Field Field Field Field". One occurrence is the activity.
+//
+// Only in a value long enough for the repeat to be accidental. Camp Mindy has
+// an activity written "Change/Ga Ga" — two words, both meant — while Camp A
+// produces "Transition to Dismissal Dismissal" and "Field Field Field Field".
+// Collapsing any doubled word turned "Ga Ga" into "Ga"; refusing to collapse
+// doubles left the four-word artifacts intact. Word count separates them.
 function collapseRepeats(text) {
-  return String(text ?? '').replace(/\b(.+?)\b(?:\s+\1\b)+/gi, '$1').trim()
+  const value = String(text ?? '').trim()
+  if (value.split(/\s+/).length <= 2) return value
+  return value.replace(/\b(.+?)\b(?:\s+\1\b)+/gi, '$1').trim()
 }
 
 export function cleanCellValue(text) {
@@ -80,9 +92,21 @@ function isActivityLike(text) {
 // Titles with no separator (Zahav, Gesher) are bunks with no unit, which is a
 // real shape and not a parse failure.
 export function splitUnitAndGroup(title) {
-  const match = String(title ?? '').match(/^(.+?)\s*[-–—]\s*(.+)$/)
+  // The separator must have whitespace on at least one side. Camp Mindy has a
+  // group called "2-3A" — grades 2 and 3, section A — and a bare hyphen rule
+  // read it as unit "2", group "3A", quietly renaming the group and inventing
+  // a unit called "2". Camp A's real separators all have a space somewhere:
+  // "Adom 4's - Matzo Balls", "Omanut- Chagalls", "Kesef 3- Cooking".
+  const match = String(title ?? '').match(/^(.+?)(?:\s+[-–—]\s*|[-–—]\s+)(.+)$/)
   if (!match) return { unit: null, group: String(title ?? '').trim() }
-  return { unit: match[1].trim(), group: match[2].trim() }
+  const unit = match[1].trim()
+  const group = match[2].trim()
+  // A one-character unit, or one with no letters in it, is far more likely to
+  // be part of the group's own name than a division of the camp.
+  if (unit.length < 2 || !/[A-Za-z]/.test(unit)) {
+    return { unit: null, group: String(title ?? '').trim() }
+  }
+  return { unit, group }
 }
 
 // "Adom 4's - Matzo Balls Schedule" -> "Adom 4's - Matzo Balls"
@@ -168,6 +192,7 @@ export function extractEntities(parsed) {
   const orientation = detectOrientation(pages)
 
   const groups = []
+  const activityPages = new Map()
   // Which unit each group belongs to, where the file says so.
   const groupUnits = new Map()
   const units = []
@@ -194,6 +219,10 @@ export function extractEntities(parsed) {
       }
     }
 
+    // Which page (bunk) each activity showed up on, so rarity can be judged
+    // within a unit rather than across the whole camp.
+    const pageKey = orientation.columns === 'days' ? title : null
+
     for (const row of page.rows) {
       // A row label is the period it covers. Rows with no label are banners
       // ("Opening") rather than periods.
@@ -205,7 +234,13 @@ export function extractEntities(parsed) {
         // "Instructional Swim - Recreational Swim" is two activities, not one.
         for (const part of cleanCellValue(cell).split(/\s+[-–—]\s+/)) {
           const value = part.replace(/^[\s\-–—:]+|[\s\-–—:]+$/g, '').trim()
-          if (isActivityLike(value)) activities.push(value)
+          if (!isActivityLike(value)) continue
+          activities.push(value)
+          if (pageKey) {
+            const key = value.toLowerCase().replace(/\s+/g, ' ')
+            if (!activityPages.has(key)) activityPages.set(key, new Set())
+            activityPages.get(key).add(pageKey)
+          }
         }
       }
     }
@@ -240,6 +275,41 @@ export function extractEntities(parsed) {
   // pipeline uses. Only activities are ranked this way — a group or a day
   // appears once by construction, so a count would say nothing.
   const seenCounts = { activities: Object.fromEntries(tally(activities).map((v) => [v.name, v.count])) }
+
+  // How much of a single unit an activity covers.
+  //
+  // Product owner, 2026-08-01: "count frequency within the unit". A camp with
+  // many programs has activities that are rare overall and completely normal
+  // where they happen — only the Omanut bunks do Ceramics, only Gesher does
+  // SSL Hours. Judged against the whole camp those look like misreads; judged
+  // against their own unit they are universal.
+  //
+  // So the measure is a share, not a count: of the bunks in the unit where
+  // this activity appears most, how many do it? A real specialty activity
+  // scores 1.0 in its own unit while appearing twice in a 33-page document.
+  const unitOfGroup = new Map()
+  for (const g of groups) if (g.unit) unitOfGroup.set(g.title, g.unit)
+  const groupsPerUnit = new Map()
+  for (const g of groups) {
+    const unit = g.unit ?? `\u0000${g.title}`
+    groupsPerUnit.set(unit, (groupsPerUnit.get(unit) ?? 0) + 1)
+  }
+
+  const unitShare = {}
+  for (const [key, pageSet] of activityPages) {
+    const perUnit = new Map()
+    for (const pageTitle of pageSet) {
+      const unit = unitOfGroup.get(pageTitle) ?? `\u0000${pageTitle}`
+      perUnit.set(unit, (perUnit.get(unit) ?? 0) + 1)
+    }
+    let best = 0
+    for (const [unit, seen] of perUnit) {
+      const total = groupsPerUnit.get(unit) ?? 1
+      best = Math.max(best, seen / total)
+    }
+    unitShare[key] = best
+  }
+  seenCounts.activityUnitShare = unitShare
 
   return {
     orientation,
