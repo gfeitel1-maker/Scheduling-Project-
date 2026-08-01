@@ -2,10 +2,10 @@
 title: "Ingesting a prior-year schedule to populate setup"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-08-01
 supersedes: []
-implementation_state: not-started
+implementation_state: implemented
 affects:
   - docs/work/tickets/T16-ingest-prior-year-schedule.md
   - docs/work/specs/2026-07-30-prior-year-schedule-ingestion-design.md
@@ -13,10 +13,9 @@ affects:
 
 # Ingesting a prior-year schedule to populate setup
 
-**Status: PROPOSED. This needs product-owner approval before implementation begins** —
-`GOVERNANCE_INDEX.md` puts ingestion in the Database/sync row, whose gate is "ADR +
-migration/rollback plan". The three questions this depended on were answered on 2026-08-01; this
-is the remaining gate.
+**Status: ACCEPTED by the product owner, 2026-08-01**, who also instructed implementation to
+begin. `GOVERNANCE_INDEX.md` puts ingestion in the Database/sync row, whose gate is "ADR +
+migration/rollback plan"; both are here and the gate is cleared.
 
 Resolves the design question behind [T16](../work/tickets/T16-ingest-prior-year-schedule.md).
 The analysis is in

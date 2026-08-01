@@ -15,11 +15,7 @@ Regenerate with `npm run index:work`.
 
 ## Open work
 
-### unclassified
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [T16-ingest-prior-year-schedule](../../docs/work/tickets/T16-ingest-prior-year-schedule.md) | in-progress | [2026-08-01-ingesting-a-prior-year-schedule](../../docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md) · [2026-07-30-prior-year-schedule-ingestion-design](../../docs/work/specs/2026-07-30-prior-year-schedule-ingestion-design.md) |
+None.
 
 ## Decisions
 
@@ -38,7 +34,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Deleting a setup record that a schedule uses](../../docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md) | accepted | implemented | [2026-07-30-retiring-orphaned-schedule-slots](../../docs/adr/2026-07-30-retiring-orphaned-schedule-slots.md) · [T23-deleting-an-activity-skips-the-confirmation](../../docs/work/tickets/T23-deleting-an-activity-skips-the-confirmation.md) · [T24-restore-message-omits-the-empty-cells-caveat](../../docs/work/tickets/T24-restore-message-omits-the-empty-cells-caveat.md) |
 | [Restoring deleted records by re-emitting their field ops](../../docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md) | accepted | not-started | [2026-07-30-deleting-a-record-a-schedule-uses](../../docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md) · [T22-most-ops-record-no-author](../../docs/work/tickets/T22-most-ops-record-no-author.md) · [T24-restore-message-omits-the-empty-cells-caveat](../../docs/work/tickets/T24-restore-message-omits-the-empty-cells-caveat.md) |
 | [Retiring orphaned schedule slots by preserving them as a Version](../../docs/adr/2026-07-30-retiring-orphaned-schedule-slots.md) | accepted | implemented | — |
-| [Ingesting a prior-year schedule to populate setup](../../docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md) | proposed | not-started | — |
+| [Ingesting a prior-year schedule to populate setup](../../docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md) | accepted | implemented | — |
 
 ## Runs
 

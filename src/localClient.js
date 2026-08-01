@@ -37,6 +37,9 @@ export const localClient = {
   onOpApplied: (cb) => shoresh.onOpApplied(cb),
   // T27 — is this device the main computer, connected to it, or on its own.
   getSyncStatus: () => shoresh.getSyncStatus(),
+  // T16 — commit an approved import proposal. The preview is built in the
+  // renderer; only the confirmed list crosses this boundary.
+  ingestCommit: (approved) => shoresh.ingestCommit({ token: currentToken(), approved }),
   onSyncStatusChanged: (cb) => shoresh.onSyncStatusChanged?.(cb) ?? (() => {}),
   onOpConflict: (cb) => shoresh.onOpConflict(cb),
   getCamp: () => shoresh.getCamp(),

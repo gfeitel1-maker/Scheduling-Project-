@@ -3,6 +3,7 @@
 // nothing about where they are — `camp`, `devices` and both schedule routes
 // were all doing that.
 const TITLES = {
+  import:       'Import last year',
   cohorts:      'Programs',
   tiers:        'Units',
   groups:       'Groups',

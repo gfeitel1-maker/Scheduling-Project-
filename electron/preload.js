@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   // T27 — read-only status, plus a push so it does not go stale. A value read
   // once at mount is wrong within minutes: a laptop closes, wifi drops.
   getSyncStatus: () => ipcRenderer.invoke('shoresh:get-sync-status'),
+  ingestCommit: (args) => ipcRenderer.invoke('shoresh:ingest-commit', args),
   onSyncStatusChanged: (cb) => {
     const listener = (_e, status) => cb(status)
     ipcRenderer.on('shoresh:sync-status-changed', listener)

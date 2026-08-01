@@ -21,6 +21,7 @@ import { IPC_PIN_FIELDS } from './ops/pinFields.js'
 import { listDeleted, getEntityHistory } from './ops/trash.js'
 import { RESTORABLE_ENTITIES, restoreEntity } from './ops/restore.js'
 import { CLEARABLE_ENTITIES, previewDelete, deleteRecord } from './ops/deleteRecord.js'
+import { commitIngest } from './ops/ingest.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
 import {
@@ -192,6 +193,26 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // `phase === 'session'`. There is no session to derive a role from at this
   // point in the flow — same category as login/verify-session, per the ADR's
   // open question, resolved here by reading the actual call sites rather than
+  // T16 — commit an import the director approved in the preview. Admin only:
+  // it creates setup records in bulk, which is the same authority the setup
+  // screens already require.
+  function ingestCommit({ token, approved } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    // Admin only. Staff may edit setup records one at a time; creating a
+    // camp's whole structure in one action is a different kind of authority,
+    // and 'groups.import' is deliberately absent from the staff permission
+    // list so admin: ['*'] is what grants it.
+    const session = requireAuthorized(db, { token, action: 'groups.import' })
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) throw new Error('no camp on this device')
+    return commitIngest(db, {
+      approved,
+      camp_id: camp.id,
+      author_user_id: session.userId,
+      device_id: deviceId,
+    })
+  }
+
   // T27 — what this device IS right now, as opposed to chooseMode, which sets
   // it. Kept strictly read-only: a status call that could reconfigure the
   // device would be a much larger change than it looks.
@@ -802,6 +823,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     bulkReplace,
     getDeviceId,
     getSyncStatus,
+    ingestCommit,
     resolveConflict,
     listPendingConflicts: listPendingConflictsHandler,
     getDevicePairingStatus,
@@ -856,6 +878,7 @@ if (isElectronEntryPoint()) {
     'shoresh:list',
     'shoresh:get-device-id',
     'shoresh:get-sync-status',
+    'shoresh:ingest-commit',
     'shoresh:resolve-conflict',
     'shoresh:list-conflicts',
     'shoresh:list-deleted',
@@ -895,6 +918,7 @@ if (isElectronEntryPoint()) {
     })
     ipcMain.handle('shoresh:get-device-id', (_event, args) => handlers.getDeviceId(args && args.token))
     ipcMain.handle('shoresh:get-sync-status', () => handlers.getSyncStatus())
+    ipcMain.handle('shoresh:ingest-commit', (_event, args) => handlers.ingestCommit(args))
     ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
     ipcMain.handle('shoresh:list-conflicts', (_event, args) => handlers.listPendingConflicts(args && args.token))
     ipcMain.handle('shoresh:list-deleted', (_event, args) => handlers.listDeleted(args && args.token))

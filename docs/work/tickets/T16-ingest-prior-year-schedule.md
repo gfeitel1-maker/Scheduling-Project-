@@ -1,7 +1,7 @@
 ---
 title: T16-ingest-prior-year-schedule
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-07-28
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 archive_when: superseded by an approved specification
@@ -57,7 +57,41 @@ Recording the questions now, because the shape of the feature depends on answers
   *entities* — and the product owner's phrasing, "populate all the corresponding fields",
   reads as the entities. Worth confirming before anyone scopes it.
 
-## ADR written, awaiting approval — 2026-08-01
+## Built — 2026-08-01
+
+ADR approved by the product owner and implemented.
+
+| Piece | Where |
+|---|---|
+| Column reconstruction from PDF text | `src/ingest/textGrid.js` |
+| Grid → entity proposal, orientation detection | `src/ingest/extractEntities.js` |
+| Duplicate detection and the preview | `src/ingest/preview.js` |
+| Transactional, whitelisted commit | `electron/ops/ingest.js` |
+| The review screen | `src/screens/ImportScreen.jsx` |
+
+Proven on both real camps' files: 47 unit tests, 13 commit tests, and integration
+scenario 21 running the whole chain — parse, extract, preview, commit — against a real database.
+
+**Three things the real files taught that no amount of design would have:**
+
+1. **Wrapped text appears above *and* below its own row.** "Little" sits on the line before the
+   timed row and "Playground" on the line after. Applying untimed lines eagerly split it into two
+   activities that were each wrong. Lines are now buffered and resolved by what follows.
+2. **A time is not always followed by a dash.** Camp A's period cells read "10:30 Block". Requiring
+   the dash missed the row boundary, merged two rows, and would have proposed
+   *"Drama Back Playground"* as an activity name.
+3. **The time column is two lines tall in Camp A**, so the block number sat in the Monday column
+   and every activity there read "Drama 1". Text left of the first data column is now time-column
+   text and dropped.
+
+Each was a wrong entity name that would have reached the preview. None was visible from the
+design; all three came from running the parser over the actual files.
+
+**What it deliberately does not guess.** Neither layout records which unit a bunk belongs to, so
+Units and Programs come back empty for the director to fill in. An empty list is honest; a guessed
+hierarchy would be silently wrong in a way that is hard to notice.
+
+## ADR — approved 2026-08-01
 
 [`docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md`](../../adr/2026-08-01-ingesting-a-prior-year-schedule.md)
 is written and **proposed**. That is the governance gate this ticket has been blocked on since it

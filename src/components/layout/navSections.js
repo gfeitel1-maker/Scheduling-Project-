@@ -18,6 +18,11 @@ export const NAV_SECTIONS = [
     // its explanations; those now live on the screens they describe
     // (src/components/screenIntroText.js), so there is nothing to link to.
     items: [
+      // Sits above the setup rows because it is what a returning camp does
+      // first — and below nothing, because a new camp should not have to
+      // wonder whether they need it. It carries no mark: importing is not a
+      // step that can be complete.
+      { key: 'import',       label: 'Import last year' },
       { key: 'cohorts',      label: 'Programs',      area: 'cohorts' },
       { key: 'tiers',        label: 'Units',         area: 'tiers' },
       { key: 'groups',       label: 'Groups',        area: 'groups' },

@@ -5,6 +5,7 @@ import JoinScreen from './screens/JoinScreen'
 import CampBootstrapScreen from './screens/CampBootstrapScreen'
 import LoginScreen from './screens/LoginScreen'
 import CampScreen from './screens/CampScreen'
+import ImportScreen from './screens/ImportScreen'
 import TiersScreen from './screens/TiersScreen'
 import GroupsScreen from './screens/GroupsScreen'
 import TimeBlocksScreen from './screens/TimeBlocksScreen'
@@ -26,6 +27,7 @@ import { S } from './styles/shared'
 
 const SCREENS = {
   camp:         CampScreen,
+  import:       ImportScreen,
   conflicts:    ConflictsScreen,
   trash:        TrashScreen,
   cohorts:      CohortsScreen,
