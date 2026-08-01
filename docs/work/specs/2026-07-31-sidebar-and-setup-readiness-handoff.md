@@ -480,12 +480,31 @@ The `host` / `client` meta in §3's sketch is **not** built: no LAN mode is expo
 renderer at all, so it would need a new IPC surface. Worth a ticket, not worth smuggling into
 a sidebar change.
 
-**§3.1, toggle and navigate — both, via a separate hit area.** Product owner, 2026-08-01,
+**§3.1 and §4.2 are superseded: the Camp Setup screen is retired.** Product owner, 2026-08-01:
+*"move the descriptions and retire camp setup."* This document assumed that screen survives as
+the home of the plain-language `desc` strings and warned "do not drop the descriptions" — the
+warning was right, the conclusion was not. The descriptions moved to the screens they describe
+(`src/components/screenIntroText.js`, rendered by `ScreenIntro` at the top of each setup screen),
+where they are read at the moment they are needed rather than one screen earlier.
+
+What was left over is one setting, the camp's name, which had nowhere else to live. It is now
+`CampScreen` under **System → Camp**. That is not a second setup pathway; it is a settings row.
+
+Consequences worth knowing:
+- The app lands on **Programs**, the first setup row, rather than a screen that no longer exists.
+- The Camp Set Up header now only toggles — there is nothing left to navigate to.
+- ScheduleScreen's setup gate said "Go to Camp Setup"; it now offers the first thing actually
+  missing, e.g. **"Set up Units"**.
+- `TopBar`'s title map was missing `camp`, `devices` and both schedule routes, so those screens
+  showed "Shoresh" — a pre-existing gap, fixed here, and now required to match the sidebar's
+  labels exactly.
+
+**§3.1, toggle and navigate — the toggle half only.** Product owner, 2026-08-01,
 described the intent as *"click a tab on the side bar and it pops up, as well as a next button
 on the bottom of those screens to move to the next and a check mark being present when
-completed."* So: the header row toggles, and a small `?` at its right edge reaches Camp Setup,
-which still holds the plain-language `desc` strings. The fallback in §3.1 (toggling wins, Camp
-Setup returns as an item) was not needed.
+completed."* All three exist: the header toggles, every setup screen ends with a Next button, and
+every Camp Set Up row carries a mark. The `?` affordance that briefly reached Camp Setup was
+removed when that screen was retired.
 
 **The Next-button chain was broken, and that is the same bug as §4.** Nothing in the app
 navigated **to** Days: `GroupsScreen` jumped straight to Time Blocks, so the only way to reach

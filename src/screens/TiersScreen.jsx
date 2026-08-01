@@ -5,6 +5,7 @@ import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
+import ScreenIntro from '../components/ScreenIntro'
 
 function TierRow({ tier, groupCount, role, onSave, onDelete }) {
   const [editing, setEditing] = useState(false)
@@ -355,6 +356,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 700 }}>
+      <ScreenIntro screen="tiers" />
       <CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />
       {error && (
         <div style={S.errorBanner}>

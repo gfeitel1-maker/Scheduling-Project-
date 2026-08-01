@@ -212,17 +212,6 @@ export default function Sidebar({ current, onNavigate, campId, role, badges = {}
                   </span>
                 )}
 
-                {section.headerScreen && (
-                  <button
-                    onClick={() => onNavigate(section.headerScreen)}
-                    title="What each of these means"
-                    style={{
-                      background: 'none', border: 'none', padding: '0 0 0 8px',
-                      cursor: 'pointer', color: 'var(--text-secondary)',
-                      fontSize: 11, lineHeight: 1, opacity: 0.7,
-                    }}
-                  >?</button>
-                )}
               </div>
 
               {/* Setup never folds itself silently. Asked once, on the render

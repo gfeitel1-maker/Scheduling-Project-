@@ -5,6 +5,7 @@ import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
+import ScreenIntro from '../components/ScreenIntro'
 
 // operations.value only accepts strings/null (better-sqlite3 throws on a raw
 // boolean/array) — every write must pre-serialize through these before
@@ -548,6 +549,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 760 }}>
+      <ScreenIntro screen="anchors" />
       <CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />
       {error && (
         <div style={S.errorBanner}>

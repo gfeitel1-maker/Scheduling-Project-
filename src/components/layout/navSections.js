@@ -14,9 +14,9 @@ export const NAV_SECTIONS = [
   {
     key: 'setup',
     title: 'Camp Set Up',
-    // The header navigates here as well as toggling, so the screen holding the
-    // plain-language explanations stays reachable (§3.1).
-    headerScreen: 'setup',
+    // The header only toggles. It used to also reach the Camp Setup screen for
+    // its explanations; those now live on the screens they describe
+    // (src/components/screenIntroText.js), so there is nothing to link to.
     items: [
       { key: 'cohorts',      label: 'Programs',      area: 'cohorts' },
       { key: 'tiers',        label: 'Units',         area: 'tiers' },
@@ -46,6 +46,9 @@ export const NAV_SECTIONS = [
     key: 'system',
     title: 'System',
     items: [
+      // Not a setup pathway — one setting, which had nowhere else to live once
+      // the Camp Setup screen was retired.
+      { key: 'camp',      label: 'Camp' },
       // Sync conflict resolution — LAN collisions and post-reconnection
       // upserts — not schedule conflicts. Product owner confirmed 2026-07-31.
       { key: 'conflicts', label: 'Conflicts' },

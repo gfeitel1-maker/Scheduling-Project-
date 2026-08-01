@@ -335,7 +335,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         localClient.list('anchor_activities'),
         localClient.list('tiers'),
         // Cohorts are not used to build a week, only to answer "is setup
-        // done" from the same source CampSetup and the sidebar use. Without
+        // done" from the same source the sidebar and Camp Setup use. Without
         // it this screen would report a Programs gap the setup screen does
         // not — the exact disagreement getSetupGaps exists to end.
         localClient.list('cohorts'),
@@ -1657,7 +1657,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     }
   }
 
-  // One required set, shared with CampSetup and the sidebar. This used to be an
+  // One required set, shared with the sidebar. This used to be an
   // inline check of a different four areas — see src/engine/readiness.js.
   const setupGaps = getSetupGaps({ cohorts, tiers, groups, days, timeBlocks, activities })
 
@@ -1681,7 +1681,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               </li>
             ))}
           </ul>
-          <button onClick={() => onNavigate('setup')} style={{ ...S.btnPrimary, marginTop: 12 }}>Go to Camp Setup</button>
+          <button onClick={() => onNavigate(setupGaps[0].screen)} style={{ ...S.btnPrimary, marginTop: 12 }}>
+            Set up {setupGaps[0].label}
+          </button>
         </div>
       </div>
     )
@@ -1709,7 +1711,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     },
   }
 
-  // The neutral 'schedule' entry (CampSetup / AnchorsScreen "Next: Schedule")
+  // The neutral 'schedule' entry (AnchorsScreen "Next: Schedule")
   // supplies no route. With both candidates started, falling through to the
   // 'generated' fallback would be the APP picking a week for the director,
   // which the no-canonical-schedule rule forbids

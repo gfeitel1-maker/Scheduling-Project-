@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
+import ScreenIntro from '../components/ScreenIntro'
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
@@ -561,6 +562,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 820 }}>
+      <ScreenIntro screen="activities" />
       {error && (
         <div style={S.errorBanner}>
           {error}

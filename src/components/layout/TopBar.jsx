@@ -1,5 +1,8 @@
+// Must match the sidebar's labels exactly (src/components/layout/navSections.js).
+// A screen missing here falls back to "Shoresh", which tells the director
+// nothing about where they are — `camp`, `devices` and both schedule routes
+// were all doing that.
 const TITLES = {
-  setup:        'Camp Setup',
   cohorts:      'Programs',
   tiers:        'Units',
   groups:       'Groups',
@@ -8,9 +11,13 @@ const TITLES = {
   activities:   'Activities',
   anchors:      'Fixed Events',
   dayoverrides: 'Day Overrides',
-  schedule:     'Schedule',
+  schedule:              'Schedule',
+  'schedule:generated':  'Generated Schedule',
+  'schedule:manual':     'Manual Build',
+  camp:         'Camp',
   conflicts:    'Conflicts',
   trash:        'Trash',
+  devices:      'LAN & Devices',
 }
 
 export default function TopBar({ screen, onLogout }) {

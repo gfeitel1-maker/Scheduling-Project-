@@ -4,7 +4,7 @@ import ModeSelectScreen from './screens/ModeSelectScreen'
 import JoinScreen from './screens/JoinScreen'
 import CampBootstrapScreen from './screens/CampBootstrapScreen'
 import LoginScreen from './screens/LoginScreen'
-import CampSetup from './screens/CampSetup'
+import CampScreen from './screens/CampScreen'
 import TiersScreen from './screens/TiersScreen'
 import GroupsScreen from './screens/GroupsScreen'
 import TimeBlocksScreen from './screens/TimeBlocksScreen'
@@ -25,7 +25,7 @@ import { seedDays } from './utils/seedDays'
 import { S } from './styles/shared'
 
 const SCREENS = {
-  setup:        CampSetup,
+  camp:         CampScreen,
   conflicts:    ConflictsScreen,
   trash:        TrashScreen,
   cohorts:      CohortsScreen,
@@ -57,7 +57,10 @@ const SCHEDULE_ROUTE_BY_SCREEN = {
 }
 
 function AppShell({ campId, role, onLogout }) {
-  const [screen, setScreen] = useState('setup')
+  // The sidebar is the setup pathway now, so landing lands at the top of it.
+  // The old 'setup' screen was a second pathway through the same steps and has
+  // been retired (product owner, 2026-08-01).
+  const [screen, setScreen] = useState('cohorts')
   // Single instance of the pending-conflicts source for this whole shell —
   // both the Sidebar badge count and ConflictsScreen's list read from it, so
   // they can never disagree.
@@ -78,7 +81,7 @@ function AppShell({ campId, role, onLogout }) {
     ensureCohort(campId)
   }, [campId])
 
-  const Screen = SCREENS[screen] || CampSetup
+  const Screen = SCREENS[screen] || CohortsScreen
   const scheduleRoute = SCHEDULE_ROUTE_BY_SCREEN[screen]
   const screenProps = screen === 'conflicts'
     ? { campId, role, onNavigate: setScreen, pendingConflicts }

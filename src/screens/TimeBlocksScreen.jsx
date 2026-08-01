@@ -5,6 +5,7 @@ import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
+import ScreenIntro from '../components/ScreenIntro'
 
 const POD_OPTIONS = [
   { value: 'morning', label: 'Morning' },
@@ -368,6 +369,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 780 }}>
+      <ScreenIntro screen="timeblocks" />
       <CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />
       {error && (
         <div style={S.errorBanner}>

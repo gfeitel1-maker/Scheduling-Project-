@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
+import ScreenIntro from '../components/ScreenIntro'
 
 const ANCHOR_MODELS = [
   { value: 'none',     label: 'None — no fixed events' },
@@ -249,6 +250,7 @@ export default function CohortsScreen({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 900 }}>
+      <ScreenIntro screen="cohorts" />
       {error && <div style={S.errorBanner}>{error}</div>}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>

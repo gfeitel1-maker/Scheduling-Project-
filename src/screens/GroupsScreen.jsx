@@ -5,6 +5,7 @@ import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import RecordHistory from '../components/RecordHistory'
+import ScreenIntro from '../components/ScreenIntro'
 
 const AVAIL_OPTIONS = [
   { value: 'all', label: 'All Day' },
@@ -331,6 +332,7 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 720 }}>
+      <ScreenIntro screen="groups" />
       {error && (
         <div style={S.errorBanner}>
           {error}
