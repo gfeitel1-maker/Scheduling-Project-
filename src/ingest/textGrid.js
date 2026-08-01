@@ -121,6 +121,10 @@ export function countTimes(text) {
 export function normalizeTimeLabel(label) {
   const times = String(label ?? '').match(/\d{1,2}[:.]\d{2}/g) ?? []
   if (times.length >= 2) return `${times[0]}-${times[1]}`
+  // Only one time survived, so the two halves of the cell were not matched up.
+  // Keep the time and drop what was mixed in with it — "11:10-Block" and
+  // "10:25  1" are not period names a camp would recognise.
+  if (times.length === 1) return times[0]
   return String(label ?? '').trim()
 }
 

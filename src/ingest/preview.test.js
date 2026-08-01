@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildPreview, describePreview, normalizeName } from './preview'
+import { buildPreview, describePreview, normalizeName, looksLikeAMerge } from './preview'
 
 // docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md §1, §5.
 //
@@ -96,5 +96,53 @@ describe('describePreview speaks to a director', () => {
   it('uses no table names', () => {
     const preview = buildPreview(proposal({ days_of_operation: ['Monday'], time_blocks: ['09:00-10:00'] }), {})
     expect(describePreview(preview)).not.toMatch(/days_of_operation|time_blocks|cohorts|tiers|entity/)
+  })
+})
+
+describe('looksLikeAMerge — telling a compound name from two welded cells', () => {
+  // Camp A's densest pages read two adjacent cells as one. Frequency alone
+  // does not catch it: the same two cells are adjacent on many pages, so the
+  // artifact recurs. What distinguishes it is that it is far rarer than each
+  // of its own parts.
+  it('flags a pair that is far rarer than both its parts', () => {
+    const counts = { 'Opening Drama': 2, Opening: 21, Drama: 36 }
+    expect(looksLikeAMerge('Opening Drama', counts)).toBe(true)
+  })
+
+  it('keeps a genuine compound name whose parts are no more common', () => {
+    // "Instructional Swim" is the real activity. Without the frequency guard
+    // this rule would reject it alongside the artifacts, because
+    // "Instructional" and "Swim" are both proposed too.
+    const counts = { 'Instructional Swim': 77, Instructional: 34, Swim: 75 }
+    expect(looksLikeAMerge('Instructional Swim', counts)).toBe(false)
+  })
+
+  it('leaves a name alone when its parts were never proposed', () => {
+    // "Snack and PJ Library" only splits into things nobody proposed, so there
+    // is no evidence it is a merge.
+    expect(looksLikeAMerge('Snack and PJ Library', { 'Snack and PJ Library': 3 })).toBe(false)
+  })
+
+  it('never flags a single word', () => {
+    expect(looksLikeAMerge('Drama', { Drama: 36 })).toBe(false)
+  })
+
+  it('is safe on values it has no count for', () => {
+    expect(looksLikeAMerge('Anything At All', {})).toBe(false)
+  })
+})
+
+describe('what starts ticked', () => {
+  it('unticks a seen-once value and a merge, and leaves the real ones ticked', () => {
+    const proposal = {
+      entities: { activities: ['Drama', 'Opening', 'Opening Drama', 'One Off'], groups: [], days_of_operation: [], time_blocks: [], tiers: [], cohorts: [] },
+      seenCounts: { activities: { Drama: 36, Opening: 21, 'Opening Drama': 2, 'One Off': 1 } },
+    }
+    const { lowConfidence, create } = buildPreview(proposal, {}).perEntity.activities
+    expect(create).toContain('Opening Drama')   // shown, never hidden
+    expect(lowConfidence).toContain('Opening Drama')
+    expect(lowConfidence).toContain('One Off')
+    expect(lowConfidence).not.toContain('Drama')
+    expect(lowConfidence).not.toContain('Opening')
   })
 })

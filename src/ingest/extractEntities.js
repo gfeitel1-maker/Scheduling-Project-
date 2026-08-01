@@ -176,7 +176,14 @@ export function extractEntities(parsed) {
       if (row.label && /^\d{1,2}[:.]\d{2}/.test(row.label.trim())) {
         timeBlocks.push(row.label.trim())
       }
-      activities.push(...row.cells.map(cleanCellValue).filter(isActivityLike))
+      for (const cell of row.cells) {
+        // A dash left between two names is the seam where a time used to be:
+        // "Instructional Swim - Recreational Swim" is two activities, not one.
+        for (const part of cleanCellValue(cell).split(/\s+[-–—]\s+/)) {
+          const value = part.replace(/^[\s\-–—:]+|[\s\-–—:]+$/g, '').trim()
+          if (isActivityLike(value)) activities.push(value)
+        }
+      }
     }
   }
 

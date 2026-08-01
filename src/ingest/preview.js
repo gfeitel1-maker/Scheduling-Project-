@@ -10,6 +10,35 @@
 
 import { INGESTIBLE_ENTITIES } from './extractEntities.js'
 
+// Is this name just two other proposed names stuck together?
+//
+// "Opening Drama" appears twice; "Opening" appears 21 times and "Drama" 36. A
+// name that is far rarer than every one of its own parts is where two adjacent
+// cells were read as one, not a compound the camp actually uses.
+//
+// The frequency guard is what keeps genuine compounds: "Instructional Swim"
+// (54) is not much rarer than "Instructional" (34) or "Swim" (68), so it
+// survives. Without the guard this would reject the real activity along with
+// the artifact.
+const MERGE_RARITY = 3
+
+export function looksLikeAMerge(name, counts) {
+  const words = String(name ?? '').trim().split(/\s+/)
+  if (words.length < 2) return false
+  const whole = counts[name] ?? 0
+  if (whole === 0) return false
+
+  for (let split = 1; split < words.length; split++) {
+    const left = words.slice(0, split).join(' ')
+    const right = words.slice(split).join(' ')
+    const leftCount = counts[left]
+    const rightCount = counts[right]
+    if (!leftCount || !rightCount) continue
+    if (leftCount >= whole * MERGE_RARITY && rightCount >= whole * MERGE_RARITY) return true
+  }
+  return false
+}
+
 // The same rule the per-screen imports use. Both paths must agree, or the same
 // file imported two ways gives two different camps.
 export function normalizeName(name) {
@@ -64,7 +93,9 @@ export function buildPreview(proposal, existing) {
     // but does not start ticked. The director ticks it if it is real; they do
     // not have to untick sixty things if it is not.
     const counts = proposal?.seenCounts?.[entity] ?? {}
-    const lowConfidence = create.filter((name) => (counts[name] ?? 2) < 2)
+    const lowConfidence = create.filter(
+      (name) => (counts[name] ?? 2) < 2 || looksLikeAMerge(name, counts)
+    )
 
     perEntity[entity] = { create, skip, counts, lowConfidence }
     createTotal += create.length
