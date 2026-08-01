@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CampSetup vs Sidebar — first-run / week-three</title>
+<style>
+  :root{
+    --bg:#F4F3EF; --surface:#FCFBF8; --surface-elevated:#FFFFFF;
+    --primary:#173B63; --primary-dark:#0F2A47; --secondary:#2F6B58;
+    --accent:#B8833A; --success:#4C8A63; --danger:#B44E48; --warning:#B44E48;
+    --anchor:#5C6B7A; --text:#1E2A34; --text-secondary:#5C6670; --border:#D8DBD9;
+    --font-sans:'Inter',system-ui,sans-serif; --font-condensed:'IBM Plex Sans',system-ui,sans-serif;
+    --font-mono:'IBM Plex Mono',monospace;
+    --motion-fast:140ms; --motion-base:220ms; --motion-settle:340ms;
+    --ease-out:cubic-bezier(.22,1,.36,1);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);font-family:var(--font-sans);color:var(--text);padding:24px;}
+  h2{font-family:var(--font-condensed);font-weight:700;font-size:15px;letter-spacing:-0.2px;margin:28px 0 10px;}
+  .row{display:flex;gap:24px;align-items:flex-start;}
+  .frame{border:1px solid var(--border);border-radius:10px;background:var(--surface);overflow:hidden;width:420px;}
+  .sidebar{width:200px;background:var(--surface);border-right:1px solid var(--border);}
+  .shell{display:flex;height:520px;}
+  .content{flex:1;background:var(--bg);padding:18px;font-size:12px;color:var(--text-secondary);}
+  .logo{font-family:var(--font-condensed);font-weight:700;font-size:18px;color:var(--primary);padding:16px 16px 12px;border-bottom:1px solid var(--border);}
+  .section-title{font-family:var(--font-condensed);font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--text-secondary);padding:12px 16px 4px;}
+  .item{padding:7px 16px;font-size:12.5px;display:flex;justify-content:space-between;align-items:center;border-left:3px solid transparent;}
+  .item.active{color:var(--primary);font-weight:600;border-left-color:var(--primary);background:color-mix(in srgb, var(--primary) 6%, transparent);}
+  .item .muted{color:var(--text-secondary);font-size:11px;font-weight:400;}
+  .fold{padding:7px 16px;font-size:12.5px;color:var(--text);display:flex;align-items:center;gap:6px;cursor:pointer;}
+  .fold .chev{font-size:10px;color:var(--text-secondary);}
+  .badge{background:var(--warning);color:#fff;font-size:9px;font-weight:700;border-radius:99px;padding:1px 6px;font-family:var(--font-mono);}
+  .caption{font-size:9px;color:var(--text-secondary);padding:2px 16px 6px;font-style:italic;}
+  .note{font-size:11.5px;color:var(--text-secondary);max-width:420px;line-height:1.5;margin-top:8px;}
+</style>
+</head>
+<body>
+
+<h2>First run — nothing configured</h2>
+<div class="row">
+  <div class="frame">
+    <div class="shell">
+      <div class="sidebar">
+        <div class="logo">Shoresh</div>
+        <div class="section-title">Setup</div>
+        <div class="item active">Camp Setup <span class="muted">1 / 6</span></div>
+        <div class="item">Programs <span class="muted">1</span></div>
+        <div class="item">Units <span class="muted">not set yet</span></div>
+        <div class="item">Groups <span class="muted">not set yet</span></div>
+        <div class="item">Days <span class="muted">not set yet</span></div>
+        <div class="item">Time Blocks <span class="muted">not set yet</span></div>
+        <div class="item">Activities <span class="muted">add Time Blocks first</span></div>
+        <div class="item">Fixed Events</div>
+        <div class="item">Day Overrides</div>
+        <div class="section-title">Operations</div>
+        <div class="item">Generated Schedule</div>
+        <div class="item">Manual Schedule</div>
+      </div>
+      <div class="content">
+        Camp Setup screen renders here: progress bar 1/6, ordered step cards,
+        each step's own count and "why" copy, single CTA at the bottom
+        reading <b>"Continue building your camp"</b> (not "Generate").
+      </div>
+    </div>
+  </div>
+  <div class="note">
+    <b>First run:</b> both surfaces show setup, but only <i>Camp Setup</i> explains
+    order and stakes ("the engine needs Days before it can place anything").
+    The sidebar row for each item is a live status line, not a duplicate task list —
+    it's wayfinding while the director is inside a step, the launcher is the
+    onboarding narrative. Same six required items, same source of truth
+    (<code>sidebarState.js</code>).
+  </div>
+</div>
+
+<h2>Week three — required six all hold data</h2>
+<div class="row">
+  <div class="frame">
+    <div class="shell">
+      <div class="sidebar">
+        <div class="logo">Shoresh</div>
+        <div class="fold"><span class="chev">▸</span> Camp Setup</div>
+        <div class="section-title">Operations</div>
+        <div class="item active">Generated Schedule</div>
+        <div class="item">Manual Schedule</div>
+        <div class="item">Conflicts <span class="badge">2</span></div>
+        <div class="item">Trash</div>
+      </div>
+      <div class="caption" style="padding-left:16px;">Setup folded once — director accepted the offer in week one.</div>
+      <div class="content">
+        Generated Schedule / Manual Schedule screen. Camp Setup screen still
+        exists at this route — reachable by expanding the fold — but nobody
+        is navigating there daily anymore.
+      </div>
+    </div>
+  </div>
+  <div class="note">
+    <b>Week three:</b> Setup is one row. CampSetup the screen still exists —
+    unchanged code, just rarely opened — because Programs/Units/Groups/Days/
+    Time Blocks/Activities/Fixed Events/Day Overrides still need destinations
+    and the launcher is the cheapest one. Deleting the screen would strand
+    nine sidebar links with no landing narrative; folding the sidebar section
+    removes the daily clutter without deleting anything.
+  </div>
+</div>
+
+</body>
+</html>

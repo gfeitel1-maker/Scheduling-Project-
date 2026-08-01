@@ -1,3 +1,13 @@
+---
+title: "Sidebar mechanics across four OSS products — consolidated reference"
+document_type: spec
+status: active
+created: 2026-07-30
+governing_docs: [docs/governance/standards/DESIGN_STANDARD.md]
+related_specs: [docs/work/specs/2026-07-31-sidebar-and-setup-readiness-handoff.md]
+archive_when: the sidebar design questions it answers are all settled
+---
+
 # Sidebar mechanics across four OSS products — consolidated reference
 
 Compiled 2026-07-30 from four independent source-level investigations. Every

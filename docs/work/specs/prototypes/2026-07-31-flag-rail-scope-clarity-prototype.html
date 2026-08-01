@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Flag/rail scope clarity — before / after / 100-group</title>
+<style>
+  :root{
+    --bg:#F4F3EF; --surface:#FCFBF8; --surface-elevated:#FFFFFF;
+    --primary:#173B63; --secondary:#2F6B58; --accent:#B8833A;
+    --success:#4C8A63; --danger:#B44E48; --anchor:#5C6B7A;
+    --text:#1E2A34; --text-secondary:#5C6670; --border:#D8DBD9;
+    --ease-out: cubic-bezier(.22,1,.36,1);
+  }
+  *{box-sizing:border-box;}
+  body{
+    background:var(--bg); color:var(--text); font-family:'Inter',system-ui,sans-serif;
+    font-size:14px; line-height:1.5; margin:0; padding:32px; max-width:920px; margin-inline:auto;
+  }
+  h1{font-size:20px; margin-bottom:4px;}
+  h2{font-size:15px; color:var(--text-secondary); font-weight:600; margin:40px 0 4px;}
+  .note{font-size:12.5px; color:var(--text-secondary); margin-bottom:18px; max-width:640px;}
+  .panel{
+    background:var(--surface); border:1px solid var(--border); border-radius:10px;
+    padding:20px; position:relative;
+  }
+  .badgerow{display:flex; gap:10px; flex-wrap:wrap; position:relative;}
+  .badge{
+    background:var(--surface-elevated); border:1px solid var(--border); border-radius:8px;
+    padding:8px 12px; cursor:pointer; min-width:96px;
+  }
+  .badge .label{font-size:11px; color:var(--text-secondary);}
+  .badge .value{font-size:18px; font-weight:700; display:flex; align-items:center; gap:4px; margin-top:2px;}
+  .badge.active{outline:2px solid var(--primary); outline-offset:-1px;}
+
+  .glyph-unfillable{width:10px;height:10px;flex-shrink:0;}
+  .glyph-overlap{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 0 1px var(--surface-elevated); flex-shrink:0;}
+
+  .rail{
+    margin-top:8px; background:var(--surface-elevated); border:1px solid var(--border);
+    border-radius:8px; max-width:400px; box-shadow:0 2px 24px rgba(30,42,52,.06);
+  }
+  .rail .intro{padding:10px 14px; border-bottom:1px solid var(--border); font-size:12px; color:var(--text-secondary);}
+  .rail .section-header{font-size:12px; font-weight:600; color:var(--text-secondary); padding:8px 12px 2px;}
+  .rail .row{display:flex; gap:8px; align-items:flex-start; padding:8px 12px; border-bottom:1px solid var(--border); border-left:3px solid var(--border);}
+  .rail .row .dot{width:8px;height:8px;border-radius:50%; margin-top:3px; flex-shrink:0;}
+  .rail .row .reason{font-size:13px;}
+  .rail .row .locator{font-size:11px; color:var(--text-secondary); margin-top:2px;}
+  .rail .row.danger{border-left-color:var(--danger);}
+  .rail .row.caution{border-left-color:var(--accent);}
+  .rail .row.info{border-left-color:var(--secondary);}
+  .rail .row .dot.danger{background:var(--danger);}
+  .rail .row .dot.caution{border:1.5px solid var(--accent); background:transparent;}
+  .rail .row .dot.info{border:1.5px solid var(--secondary); background:transparent;}
+  .rail .scroll{max-height:340px; overflow-y:auto;}
+
+  .grid{border-collapse:collapse; margin-top:14px; width:100%;}
+  .grid td{border:1px solid var(--border); padding:8px; font-size:11px; position:relative; width:70px; background:var(--surface-elevated); border-radius:6px;}
+  .cellname{font-weight:600; font-size:11px;}
+  .cell-unfillable-mark{position:absolute; top:3px; right:3px;}
+  .cell-overlap-mark{position:absolute; top:4px; right:4px; width:7px; height:7px; border-radius:50%; background:var(--accent); box-shadow:0 0 0 1.5px var(--surface-elevated);}
+
+  .callout{background:color-mix(in srgb, var(--primary) 6%, var(--surface)); border:1px solid color-mix(in srgb, var(--primary) 25%, var(--border)); border-radius:8px; padding:10px 14px; font-size:12.5px; margin:14px 0 0;}
+</style>
+</head>
+<body>
+
+<h1>Flag / rail scope clarity</h1>
+<p class="note">Static illustration only — production values are inline React style objects per <code>src/styles/shared.js</code>. See the design spec for exact tokens.</p>
+
+<!-- ============ BEFORE ============ -->
+<h2>Before — today's shipped state</h2>
+<p class="note">Four identical badges, all opening one flat, severity-only-sorted rail. Nothing distinguishes "this number is a tally of marks visible below" (Unfillable) from "this number exists nowhere else" (Still needed / Spread across the week).</p>
+<div class="panel">
+  <div class="badgerow">
+    <div class="badge"><div class="label">Placed</div><div class="value" style="color:var(--success)">18 of 24</div></div>
+    <div class="badge active"><div class="label">Unfillable</div><div class="value" style="color:var(--danger)">3</div></div>
+    <div class="badge"><div class="label">Still needed</div><div class="value" style="color:var(--accent)">4</div></div>
+    <div class="badge"><div class="label">Spread across the week</div><div class="value" style="color:var(--secondary)">2</div></div>
+    <div class="rail" style="position:absolute; top:100%; left:0; margin-top:6px;">
+      <div class="intro">What this week still needs<br><span style="opacity:.8">Nothing here is a mistake. It's what's left to place.</span></div>
+      <div class="row danger"><div class="dot danger"></div><div><div class="reason">No eligible activity could be placed in this slot</div><div class="locator">Bunk 4 · Tue · Block 3</div></div></div>
+      <div class="row caution"><div class="dot caution"></div><div><div class="reason">Needs 2 more this week — Swim, Bunk 2</div><div class="locator">Bunk 2 · Swim</div></div></div>
+      <div class="row danger"><div class="dot danger"></div><div><div class="reason">No eligible activity could be placed in this slot</div><div class="locator">Bunk 7 · Wed · Block 1</div></div></div>
+      <div class="row info"><div class="dot info"></div><div><div class="reason">Try to fit Basketball in before Thursday — 1 so far.</div><div class="locator">Bunk 5 · Basketball</div></div></div>
+      <div class="row caution"><div class="dot caution"></div><div><div class="reason">Needs 1 more this week — Arts &amp; Crafts, Bunk 6</div><div class="locator">Bunk 6 · Arts &amp; Crafts</div></div></div>
+    </div>
+  </div>
+  <table class="grid"><tbody>
+    <tr>
+      <td><div class="cellname">Basketball</div></td>
+      <td><div class="cellname">Unassigned</div><svg class="cell-unfillable-mark" viewBox="0 0 12 12" width="12" height="12"><circle cx="6" cy="6" r="5.25" stroke="#B44E48" stroke-width="1.5" fill="none"/><line x1="6" y1="3.25" x2="6" y2="6.5" stroke="#B44E48" stroke-width="1.5" stroke-linecap="round"/><circle cx="6" cy="8.5" r="0.75" fill="#B44E48"/></svg></td>
+      <td><div class="cellname">Swim</div></td>
+      <td><div class="cellname">Arts &amp; Crafts</div></td>
+    </tr>
+  </tbody></table>
+</div>
+
+<!-- ============ AFTER ============ -->
+<h2>After — glyph-bearing badges + two-section rail</h2>
+<p class="note">Unfillable badge repeats the exact outline glyph from the cell; Overlapping would repeat the exact bronze dot. Still needed / Spread across the week keep plain labels — there is nothing on the grid for them to echo. The rail groups by scope with a heading, not by severity alone.</p>
+<div class="panel">
+  <div class="badgerow">
+    <div class="badge"><div class="label">Placed</div><div class="value" style="color:var(--success)">18 of 24</div></div>
+    <div class="badge active">
+      <div class="label">Unfillable</div>
+      <div class="value" style="color:var(--danger)">
+        <svg class="glyph-unfillable" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5.25" stroke="#B44E48" stroke-width="1.5" fill="none"/><line x1="6" y1="3.25" x2="6" y2="6.5" stroke="#B44E48" stroke-width="1.5" stroke-linecap="round"/><circle cx="6" cy="8.5" r="0.75" fill="#B44E48"/></svg>
+        3
+      </div>
+    </div>
+    <div class="badge"><div class="label">Still needed</div><div class="value" style="color:var(--accent)">4</div></div>
+    <div class="badge"><div class="label">Spread across the week</div><div class="value" style="color:var(--secondary)">2</div></div>
+
+    <div class="rail" style="position:absolute; top:100%; left:0; margin-top:6px;">
+      <div class="intro">What this week still needs<br><span style="opacity:.8">Nothing here is a mistake. It's what's left to place.</span></div>
+      <div class="section-header">On this grid</div>
+      <div class="row danger"><div class="dot danger"></div><div><div class="reason">No eligible activity could be placed in this slot</div><div class="locator">Bunk 4 · Tue · Block 3</div></div></div>
+      <div class="row danger"><div class="dot danger"></div><div><div class="reason">No eligible activity could be placed in this slot</div><div class="locator">Bunk 7 · Wed · Block 1</div></div></div>
+      <div class="section-header">This week overall</div>
+      <div class="row caution"><div class="dot caution"></div><div><div class="reason">Needs 2 more this week — Swim, Bunk 2</div><div class="locator">Bunk 2 · Swim</div></div></div>
+      <div class="row caution"><div class="dot caution"></div><div><div class="reason">Needs 1 more this week — Arts &amp; Crafts, Bunk 6</div><div class="locator">Bunk 6 · Arts &amp; Crafts</div></div></div>
+      <div class="row info"><div class="dot info"></div><div><div class="reason">Try to fit Basketball in before Thursday — 1 so far.</div><div class="locator">Bunk 5 · Basketball</div></div></div>
+    </div>
+  </div>
+  <table class="grid"><tbody>
+    <tr>
+      <td><div class="cellname">Basketball</div></td>
+      <td><div class="cellname">Unassigned</div><svg class="cell-unfillable-mark" viewBox="0 0 12 12" width="12" height="12"><circle cx="6" cy="6" r="5.25" stroke="#B44E48" stroke-width="1.5" fill="none"/><line x1="6" y1="3.25" x2="6" y2="6.5" stroke="#B44E48" stroke-width="1.5" stroke-linecap="round"/><circle cx="6" cy="8.5" r="0.75" fill="#B44E48"/></svg></td>
+      <td><div class="cellname">Swim</div></td>
+      <td><div class="cellname">Arts &amp; Crafts</div></td>
+    </tr>
+  </tbody></table>
+</div>
+<div class="callout">The only pixel-level change is the two small glyphs on the "Unfillable" badge and the section headers inside the rail. No hue changed, no new shape was invented — both glyphs are copies of marks that already exist on the grid.</div>
+
+<!-- ============ 100-GROUP CASE ============ -->
+<h2>100-group case</h2>
+<p class="note">At scale, the grid itself is unaffected (marks are per-cell, drawn identically regardless of grid size — not shown in full here, only illustrated as a strip). The rail is where scale actually shows up: dozens of "This week overall" rows. Scope-grouping keeps the short, actionable "On this grid" list from being buried in a long aggregate tail.</p>
+<div class="panel">
+  <div class="badgerow">
+    <div class="badge"><div class="label">Placed</div><div class="value" style="color:var(--success)">812 of 900</div></div>
+    <div class="badge active">
+      <div class="label">Unfillable</div>
+      <div class="value" style="color:var(--danger)">
+        <svg class="glyph-unfillable" viewBox="0 0 12 12"><circle cx="6" cy="6" r="5.25" stroke="#B44E48" stroke-width="1.5" fill="none"/><line x1="6" y1="3.25" x2="6" y2="6.5" stroke="#B44E48" stroke-width="1.5" stroke-linecap="round"/><circle cx="6" cy="8.5" r="0.75" fill="#B44E48"/></svg>
+        7
+      </div>
+    </div>
+    <div class="badge"><div class="label">Still needed</div><div class="value" style="color:var(--accent)">46</div></div>
+    <div class="badge"><div class="label">Spread across the week</div><div class="value" style="color:var(--secondary)">23</div></div>
+  </div>
+
+  <div class="rail" style="margin-top:8px; position:static; max-width:460px;">
+    <div class="intro">What this week still needs<br><span style="opacity:.8">Nothing here is a mistake. It's what's left to place.</span></div>
+    <div class="section-header">On this grid (7)</div>
+    <div class="scroll" style="max-height:120px;">
+      <div class="row danger"><div class="dot danger"></div><div><div class="reason">No eligible activity could be placed in this slot</div><div class="locator">Bunk 12 · Mon · Block 2</div></div></div>
+      <div class="row danger"><div class="dot danger"></div><div><div class="reason">No eligible activity could be placed in this slot</div><div class="locator">Bunk 44 · Tue · Block 4</div></div></div>
+      <div class="row danger"><div class="dot danger"></div><div><div class="reason">No eligible activity could be placed in this slot</div><div class="locator">Bunk 61 · Wed · Block 1</div></div></div>
+      <div class="row danger"><div class="dot danger"></div><div><div class="reason">No eligible activity could be placed in this slot</div><div class="locator">Bunk 78 · Wed · Block 3</div></div></div>
+      <div class="row danger" style="border-bottom:none;"><div class="dot danger"></div><div><div class="reason">…3 more</div></div></div>
+    </div>
+    <div class="section-header">This week overall (69)</div>
+    <div class="scroll">
+      <div class="row caution"><div class="dot caution"></div><div><div class="reason">Needs 3 more this week — Swim, Bunk 2</div><div class="locator">Bunk 2 · Swim</div></div></div>
+      <div class="row caution"><div class="dot caution"></div><div><div class="reason">Needs 1 more this week — Ropes Course, Bunk 9</div><div class="locator">Bunk 9 · Ropes Course</div></div></div>
+      <div class="row caution"><div class="dot caution"></div><div><div class="reason">Needs 2 more this week — Arts &amp; Crafts, Bunk 14</div><div class="locator">Bunk 14 · Arts &amp; Crafts</div></div></div>
+      <div class="row info"><div class="dot info"></div><div><div class="reason">Try to fit Basketball in before Thursday — 1 so far.</div><div class="locator">Bunk 5 · Basketball</div></div></div>
+      <div class="row info"><div class="dot info"></div><div><div class="reason">Try to fit Nature in before Friday — 2 so far.</div><div class="locator">Bunk 31 · Nature</div></div></div>
+      <div class="row info" style="border-bottom:none;"><div class="dot info"></div><div><div class="reason">…64 more, scroll for full list</div></div></div>
+    </div>
+  </div>
+</div>
+<div class="callout">Existing <code>findingsRailPanel</code> scroll container (<code>maxHeight: 400</code>) is unchanged and sufficient at this scale. No pagination or filter added — flagged as an optional follow-up, not part of this change.</div>
+
+</body>
+</html>

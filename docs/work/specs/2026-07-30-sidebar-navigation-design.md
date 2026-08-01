@@ -1,7 +1,7 @@
 ---
 title: "Sidebar navigation and visual hierarchy — design"
 document_type: spec
-status: active
+status: superseded
 created: 2026-07-30
 governing_docs: [docs/governance/standards/DESIGN_STANDARD.md]
 related_adrs: [docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md]
@@ -9,6 +9,14 @@ archive_when: phase 1 is merged and Verifier PASS recorded
 ---
 
 # Sidebar navigation and visual hierarchy — design
+
+> **SUPERSEDED, 2026-08-01**, by
+> [`2026-07-31-sidebar-and-setup-readiness-handoff.md`](2026-07-31-sidebar-and-setup-readiness-handoff.md),
+> which is implemented and shipped. Its §D1–D6 are replaced: the required set of
+> six here was derived editorially and includes the wrong areas — the shipped set
+> comes from `src/engine/readiness.js`, derived from the engine. The two-section
+> structure and the D1 decision to take Groups out of the sidebar are replaced by
+> that document's §3. Kept for the reasoning, not as instruction.
 
 Decision document for the sidebar. Companion files:
 

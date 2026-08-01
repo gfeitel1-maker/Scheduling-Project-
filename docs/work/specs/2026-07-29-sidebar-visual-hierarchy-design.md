@@ -1,14 +1,21 @@
 ---
 title: "Sidebar visual hierarchy — design spec"
 document_type: spec
-status: proposed
+status: superseded
 created: 2026-07-29
 governing_docs: [docs/governance/standards/DESIGN_STANDARD.md]
 related_files: [src/components/layout/Sidebar.jsx, src/components/layout/Shell.jsx, src/styles/shared.js]
 related_specs: [docs/work/specs/2026-07-29-structure-tree-design.md]
+archive_when: superseded 2026-08-01 — kept for its reasoning until the sidebar work is archived
 ---
 
 ## DESIGN SPEC — Sidebar Visual Hierarchy
+
+> **SUPERSEDED for visual decisions, 2026-08-01**, by
+> [`2026-07-31-sidebar-and-setup-readiness-handoff.md`](2026-07-31-sidebar-and-setup-readiness-handoff.md),
+> which is implemented and shipped. Its three-level indented tree, lock-glyph
+> dimming, and blanket-icon proposal were all dropped. Kept for the reasoning,
+> not as instruction.
 
 Director's framing: this is read dozens of times a day by someone who knows
 camp operations, not software. The sidebar's job is to answer two questions

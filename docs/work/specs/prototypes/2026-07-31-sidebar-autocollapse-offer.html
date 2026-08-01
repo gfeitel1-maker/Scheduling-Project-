@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sidebar — the tuck-away offer</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #F4F3EF; --surface: #FCFBF8; --surface-elevated: #FFFFFF;
+    --primary: #173B63; --primary-dark: #0F2A47; --secondary: #2F6B58;
+    --accent: #B8833A; --success: #4C8A63; --danger: #B44E48;
+    --text: #1E2A34; --text-secondary: #5C6670; --border: #D8DBD9;
+    --font-sans: 'Inter', system-ui, sans-serif;
+    --font-condensed: 'IBM Plex Sans', system-ui, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --motion-fast: 140ms; --motion-base: 220ms; --motion-settle: 340ms;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  html { font-size: 14px; }
+  body {
+    font-family: var(--font-sans); background: var(--bg); color: var(--text);
+    line-height: 1.5; -webkit-font-smoothing: antialiased; padding: 36px 24px 64px;
+  }
+  .wrap { max-width: 940px; margin: 0 auto; }
+  .eyebrow {
+    font-family: var(--font-mono); font-size: 10px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--text-secondary); margin-bottom: 8px;
+  }
+  h1 { font-family: var(--font-condensed); font-size: 24px; font-weight: 700; letter-spacing: -.3px; margin-bottom: 8px; }
+  .lede { font-size: 14px; color: var(--text-secondary); max-width: 66ch; margin-bottom: 26px; }
+
+  .stage { display: flex; gap: 34px; align-items: flex-start; flex-wrap: wrap; }
+
+  .drive {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 14px;
+  }
+  .btn {
+    font-family: inherit; font-size: 12px; font-weight: 600; padding: 7px 13px;
+    border-radius: 6px; border: 1px solid var(--border); background: var(--surface-elevated);
+    color: var(--text); transition: background var(--motion-fast) var(--ease-out);
+  }
+  .btn:hover { background: var(--bg); }
+  .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .btn.go { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .btn.go:hover { background: var(--primary-dark); }
+
+  /* ---------- sidebar ---------- */
+  .sidebar {
+    width: 216px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; overflow: hidden; display: flex; flex-direction: column;
+    min-height: 480px;
+  }
+  .brand { padding: 18px 18px 14px; border-bottom: 1px solid var(--border); }
+  .brand-name {
+    font-family: var(--font-condensed); font-weight: 700; font-size: 20px;
+    color: var(--primary); letter-spacing: -.3px;
+  }
+  .brand-camp { font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary); margin-top: 1px; }
+  nav { flex: 1; padding: 6px 0; }
+
+  .sec + .sec { border-top: 1px solid var(--border); margin-top: 6px; padding-top: 6px; }
+  .sec-head {
+    display: flex; align-items: center; gap: 6px; width: 100%;
+    padding: 9px 14px 7px 11px; border: 0; background: none; text-align: left;
+    font-family: var(--font-condensed); font-size: 10px; font-weight: 700;
+    letter-spacing: .12em; text-transform: uppercase; color: var(--text-secondary);
+    transition: background var(--motion-fast) var(--ease-out);
+  }
+  .sec-head:hover { background: var(--bg); }
+  .sec-head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .chev {
+    width: 12px; flex: 0 0 12px; display: inline-flex; align-items: center; justify-content: center;
+    font-size: 9px; color: var(--text-secondary); opacity: .75;
+    transition: transform var(--motion-base) var(--ease-out);
+  }
+  .sec[data-open="1"] .chev { transform: rotate(90deg); }
+  @media (prefers-reduced-motion: reduce) { .chev { transition: none; } }
+  .sec-title { flex: 1; }
+  .sec-state {
+    font-family: var(--font-mono); font-size: 10px; font-weight: 400;
+    letter-spacing: 0; text-transform: none; color: var(--text-secondary);
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .sec-state.done { color: var(--success); }
+  .sec-state.needed { color: var(--danger); font-weight: 700; }
+  .sec[data-open="0"] .sec-body { display: none; }
+
+  .item {
+    display: flex; align-items: center; gap: 8px; width: 100%;
+    padding: 7px 16px 7px 13px; border: 0; background: none; text-align: left;
+    font-family: inherit; font-size: 13px; color: var(--text);
+    border-left: 3px solid transparent;
+  }
+  .item:hover { background: var(--bg); }
+  .item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+  .item.active { color: var(--primary); font-weight: 600; border-left-color: var(--primary); }
+  .mark { width: 13px; flex: 0 0 13px; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; line-height: 1; }
+  .mark.done { color: var(--success); font-weight: 700; }
+  .mark.todo { color: var(--text-secondary); opacity: .5; }
+  .mark.needed { color: var(--danger); font-weight: 700; }
+  .item.needed .label, .item.needed .meta { color: var(--danger); }
+  .item.optional .label, .item.optional .meta { color: var(--text-secondary); }
+  .label { flex: 1; }
+  .meta { font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary); }
+  .badge {
+    min-width: 16px; height: 16px; padding: 0 5px; border-radius: 99px;
+    background: var(--danger); color: #fff; font-family: var(--font-mono);
+    font-size: 10px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center;
+  }
+
+  /* ---------- the offer ---------- */
+  .offer {
+    margin: 4px 10px 8px; padding: 11px 12px;
+    background: var(--surface-elevated);
+    border: 1px solid color-mix(in srgb, var(--secondary) 40%, var(--border));
+    border-left: 3px solid var(--secondary);
+    border-radius: 0 6px 6px 0;
+  }
+  .offer[hidden] { display: none; }
+  @media (prefers-reduced-motion: no-preference) {
+    .offer { animation: slip var(--motion-settle) var(--ease-out); }
+    @keyframes slip { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+  }
+  .offer-text { font-size: 12px; line-height: 1.5; margin-bottom: 9px; }
+  .offer-text b { font-weight: 600; }
+  .offer-actions { display: flex; gap: 6px; }
+  .offer-btn {
+    font-family: inherit; font-size: 11px; font-weight: 600; padding: 5px 10px;
+    border-radius: 5px; border: 1px solid var(--border); background: var(--surface);
+    color: var(--text);
+  }
+  .offer-btn:hover { background: var(--bg); }
+  .offer-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .offer-btn.primary { background: var(--secondary); border-color: var(--secondary); color: #fff; }
+  .offer-btn.primary:hover { filter: brightness(.94); }
+
+  .foot {
+    padding: 10px 16px; border-top: 1px solid var(--border);
+    font-family: var(--font-mono); font-size: 10px; color: var(--text-secondary);
+  }
+  .dev {
+    display: inline-block; font-size: 9px; font-weight: 700; color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+    padding: 1px 4px; border-radius: 4px; margin-right: 5px;
+  }
+
+  /* ---------- memory readout ---------- */
+  .memory {
+    font-family: var(--font-mono); font-size: 11px; line-height: 1.7;
+    background: var(--surface-elevated); border: 1px solid var(--border);
+    border-radius: 8px; padding: 13px 15px; width: 216px; margin-top: 14px;
+  }
+  .memory .k { color: var(--text-secondary); }
+  .memory .v { color: var(--secondary); }
+  .memory .v.null { color: var(--text-secondary); opacity: .6; }
+  .memory h4 {
+    font-family: var(--font-condensed); font-size: 10px; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--text-secondary); margin-bottom: 7px;
+  }
+
+  .notes { flex: 1 1 300px; min-width: 290px; padding-top: 4px; }
+  .note { margin-bottom: 18px; }
+  .note h3 { font-family: var(--font-condensed); font-size: 13px; font-weight: 700; margin-bottom: 4px; }
+  .note p { font-size: 13px; color: var(--text-secondary); line-height: 1.6; }
+  .note code, .lede code {
+    font-family: var(--font-mono); font-size: .9em; background: var(--surface-elevated);
+    border: 1px solid var(--border); padding: 1px 4px; border-radius: 3px;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow">Shoresh · sidebar · 31 July 2026</div>
+  <h1>The tuck-away offer</h1>
+  <p class="lede">
+    Setup never folds itself. When the last required thing lands, the sidebar asks once and
+    keeps the answer. Drive it with the buttons — the panel underneath shows what got remembered.
+  </p>
+
+  <div class="stage">
+
+    <div>
+      <div class="drive">
+        <button class="btn go" id="finish">Finish setup →</button>
+        <button class="btn" id="break">Delete the days</button>
+        <button class="btn" id="reset">Start over</button>
+      </div>
+
+      <div class="sidebar">
+        <div class="brand">
+          <div class="brand-name">Shoresh</div>
+          <div class="brand-camp">Machaneh Aleph</div>
+        </div>
+        <nav>
+
+          <div class="sec" id="setupSec" data-open="1">
+            <button class="sec-head" id="setupHead" aria-expanded="true">
+              <span class="chev">▶</span>
+              <span class="sec-title">Camp Set Up</span>
+              <span class="sec-state needed" id="setupState">! 5 / 6</span>
+            </button>
+
+            <div class="offer" id="offer" hidden>
+              <div class="offer-text"><b>Setup looks complete.</b> Tuck this away?</div>
+              <div class="offer-actions">
+                <button class="offer-btn primary" id="tuck">Tuck away</button>
+                <button class="offer-btn" id="keep">Keep open</button>
+              </div>
+            </div>
+
+            <div class="sec-body">
+              <button class="item"><span class="mark done">✓</span><span class="label">Programs</span><span class="meta">1</span></button>
+              <button class="item"><span class="mark done">✓</span><span class="label">Units</span><span class="meta">4</span></button>
+              <button class="item active"><span class="mark done">✓</span><span class="label">Groups</span><span class="meta">14</span></button>
+              <button class="item needed" id="daysItem"><span class="mark needed">!</span><span class="label">Days</span><span class="meta">needed</span></button>
+              <button class="item"><span class="mark done">✓</span><span class="label">Time Blocks</span><span class="meta">6</span></button>
+              <button class="item"><span class="mark done">✓</span><span class="label">Activities</span><span class="meta">18</span></button>
+              <button class="item optional"><span class="mark todo">·</span><span class="label">Fixed Events</span><span class="meta">optional</span></button>
+              <button class="item optional"><span class="mark todo">·</span><span class="label">Day Overrides</span><span class="meta">optional</span></button>
+            </div>
+          </div>
+
+          <div class="sec" data-open="1">
+            <button class="sec-head" aria-expanded="true">
+              <span class="chev">▶</span><span class="sec-title">Schedule</span><span class="sec-state">2</span>
+            </button>
+            <div class="sec-body">
+              <button class="item"><span class="mark todo">·</span><span class="label">Generated Schedule</span></button>
+              <button class="item"><span class="mark todo">·</span><span class="label">Manual Build</span></button>
+            </div>
+          </div>
+
+          <div class="sec" data-open="1">
+            <button class="sec-head" aria-expanded="true">
+              <span class="chev">▶</span><span class="sec-title">System</span>
+              <span class="sec-state"><span class="badge" style="height:14px;min-width:14px;font-size:9px">2</span></span>
+            </button>
+            <div class="sec-body">
+              <button class="item"><span class="mark done">✓</span><span class="label">LAN</span><span class="meta">host</span></button>
+              <button class="item"><span class="mark todo">·</span><span class="label">Conflicts</span><span class="badge">2</span></button>
+              <button class="item"><span class="mark todo">·</span><span class="label">Trash</span></button>
+              <button class="item"><span class="mark todo">·</span><span class="label">Devices</span></button>
+            </div>
+          </div>
+
+        </nav>
+        <div class="foot"><span class="dev">DEV</span>shoresh-dev · v0.1.0</div>
+      </div>
+
+      <div class="memory">
+        <h4>Remembered · this device</h4>
+        <div><span class="k">setupFoldOffered:</span> <span class="v null" id="mOffered">false</span></div>
+        <div><span class="k">setupSectionOpen:</span> <span class="v" id="mOpen">true</span></div>
+      </div>
+    </div>
+
+    <div class="notes">
+      <div class="note">
+        <h3>It asks on the edge, not on load</h3>
+        <p>
+          The offer fires once, on the transition from short to complete. It does not
+          reappear on every launch, and it never fires while setup is still short.
+        </p>
+      </div>
+
+      <div class="note">
+        <h3>Either answer is final</h3>
+        <p>
+          <b>Tuck away</b> folds the section and remembers folded. <b>Keep open</b> leaves it
+          and remembers that too — the offer does not come back next week to ask again.
+          Both write <code>setupFoldOffered: true</code>; only the fold state differs.
+        </p>
+      </div>
+
+      <div class="note">
+        <h3>The header still toggles</h3>
+        <p>
+          Whatever they answered, clicking the header works as it always did. A remembered
+          answer sets the starting state; it never takes the control away.
+        </p>
+      </div>
+
+      <div class="note">
+        <h3>If setup breaks again, nothing jumps</h3>
+        <p>
+          Delete the days on a folded sidebar and the header goes to <code>! 5 / 6</code> in
+          place. It does not re-expand — layout moving under a director is the thing we
+          were avoiding, and the roll-up already carries the alert.
+        </p>
+      </div>
+
+      <div class="note">
+        <h3>Per device, not synced</h3>
+        <p>
+          Both values live in <code>localStorage</code>. One director folding their sidebar
+          shouldn't fold a counsellor's on another laptop.
+        </p>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  (function () {
+    var sec = document.getElementById('setupSec');
+    var head = document.getElementById('setupHead');
+    var state = document.getElementById('setupState');
+    var offer = document.getElementById('offer');
+    var daysItem = document.getElementById('daysItem');
+    var mOffered = document.getElementById('mOffered');
+    var mOpen = document.getElementById('mOpen');
+
+    var offered = false;
+    var complete = false;
+
+    function paintMemory() {
+      mOffered.textContent = offered ? 'true' : 'false';
+      mOffered.className = 'v' + (offered ? '' : ' null');
+      var open = sec.dataset.open === '1';
+      mOpen.textContent = open ? 'true' : 'false';
+      mOpen.className = 'v' + (open ? '' : ' null');
+    }
+
+    function setOpen(open) {
+      sec.dataset.open = open ? '1' : '0';
+      head.setAttribute('aria-expanded', String(open));
+      paintMemory();
+    }
+
+    function paintState() {
+      if (complete) {
+        state.textContent = '✓ 6 / 6';
+        state.className = 'sec-state done';
+        daysItem.className = 'item';
+        daysItem.innerHTML = '<span class="mark done">✓</span><span class="label">Days</span><span class="meta">7</span>';
+      } else {
+        state.textContent = '! 5 / 6';
+        state.className = 'sec-state needed';
+        daysItem.className = 'item needed';
+        daysItem.innerHTML = '<span class="mark needed">!</span><span class="label">Days</span><span class="meta">needed</span>';
+      }
+    }
+
+    head.addEventListener('click', function () { setOpen(sec.dataset.open !== '1'); });
+
+    document.getElementById('finish').addEventListener('click', function () {
+      if (complete) return;
+      complete = true;
+      paintState();
+      if (!offered) { setOpen(true); offer.hidden = false; }
+    });
+
+    document.getElementById('break').addEventListener('click', function () {
+      complete = false;
+      paintState();
+      offer.hidden = true;   // never ask while short
+    });
+
+    document.getElementById('tuck').addEventListener('click', function () {
+      offered = true; offer.hidden = true; setOpen(false);
+    });
+    document.getElementById('keep').addEventListener('click', function () {
+      offered = true; offer.hidden = true; setOpen(true);
+    });
+
+    document.getElementById('reset').addEventListener('click', function () {
+      offered = false; complete = false; offer.hidden = true;
+      paintState(); setOpen(true);
+    });
+
+    paintState(); paintMemory();
+  })();
+</script>
+</body>
+</html>
