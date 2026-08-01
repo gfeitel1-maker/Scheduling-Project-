@@ -192,6 +192,30 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // `phase === 'session'`. There is no session to derive a role from at this
   // point in the flow — same category as login/verify-session, per the ADR's
   // open question, resolved here by reading the actual call sites rather than
+  // T27 — what this device IS right now, as opposed to chooseMode, which sets
+  // it. Kept strictly read-only: a status call that could reconfigure the
+  // device would be a much larger change than it looks.
+  //
+  // 'standalone' is not the same as 'client, disconnected'. A device that never
+  // joined anything is working correctly; a client that cannot see the Host is
+  // not, and the director needs to be able to tell those apart.
+  function getSyncStatus() {
+    if (!modeChosen) return { mode: null, connected: false, state: 'standalone' }
+    if (mode === 'host') return { mode: 'host', connected: true, state: 'host' }
+    const connected = typeof syncClient?.isConnected === 'function' ? syncClient.isConnected() : false
+    return { mode: 'client', connected, state: connected ? 'client-connected' : 'client-disconnected' }
+  }
+
+  // T27 — push the status when it changes, rather than leaving the renderer to
+  // poll. Without this the sidebar would show whatever was true at mount.
+  function wireSyncStatus() {
+    if (typeof syncClient?.onConnectionChange !== 'function') return
+    syncClient.onConnectionChange(() => {
+      const mainWindow = getMainWindow ? getMainWindow() : null
+      if (mainWindow) mainWindow.webContents.send('shoresh:sync-status-changed', getSyncStatus())
+    })
+  }
+
   // guessing.
   function chooseMode(args) {
     const { mode: requestedMode, campName, port } = args || {}
@@ -228,6 +252,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       ).run(new Date().toISOString(), deviceId)
       syncClient = createSyncClient(db, { device_id: deviceId, author_user_id: null })
       wireOpApplied()
+      wireSyncStatus()
     } else {
       pendingServerUrl = resolveClientServerUrl(args)
       const deviceRow = db.prepare('SELECT name FROM devices WHERE id = ?').get(deviceId)
@@ -240,6 +265,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       })
       wireOpApplied()
       wirePairingCallbacks()
+      wireSyncStatus()
     }
 
     mode = requestedMode
@@ -775,6 +801,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     list,
     bulkReplace,
     getDeviceId,
+    getSyncStatus,
     resolveConflict,
     listPendingConflicts: listPendingConflictsHandler,
     getDevicePairingStatus,
@@ -828,6 +855,7 @@ if (isElectronEntryPoint()) {
     'shoresh:list-users',
     'shoresh:list',
     'shoresh:get-device-id',
+    'shoresh:get-sync-status',
     'shoresh:resolve-conflict',
     'shoresh:list-conflicts',
     'shoresh:list-deleted',
@@ -866,6 +894,7 @@ if (isElectronEntryPoint()) {
       return handlers.list(token, entity)
     })
     ipcMain.handle('shoresh:get-device-id', (_event, args) => handlers.getDeviceId(args && args.token))
+    ipcMain.handle('shoresh:get-sync-status', () => handlers.getSyncStatus())
     ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
     ipcMain.handle('shoresh:list-conflicts', (_event, args) => handlers.listPendingConflicts(args && args.token))
     ipcMain.handle('shoresh:list-deleted', (_event, args) => handlers.listDeleted(args && args.token))

@@ -107,6 +107,25 @@ export function loadSidebarState(storage) {
   return { sections, offered: parsed.offered === true }
 }
 
+// T27 — what the LAN row says, in camp language. A director does not know what
+// a host, a client or a socket is; they know whether the schedule they just
+// changed will reach the other iPad.
+//
+// 'standalone' and 'client-disconnected' are deliberately different sentences.
+// A device that never joined anything is working correctly. A device that
+// joined and cannot see the main computer is not, and conflating the two hides
+// the only case worth acting on.
+const SYNC_STATUS_COPY = {
+  host: { text: 'main', tone: 'success', title: 'This computer is the main one. The others follow what is on it.' },
+  'client-connected': { text: 'linked', tone: 'success', title: 'Connected to the main computer.' },
+  'client-disconnected': { text: 'alone', tone: 'danger', title: 'Cannot reach the main computer right now. Your changes are saved here and will reach it when it is back.' },
+  standalone: { text: 'on its own', tone: 'secondary', title: 'This computer is not sharing with any other yet.' },
+}
+
+export function syncStatusLabel(status) {
+  return SYNC_STATUS_COPY[status?.state] ?? SYNC_STATUS_COPY.standalone
+}
+
 export function saveSidebarState(storage, state) {
   try {
     storage?.setItem?.(STORAGE_KEY, JSON.stringify({ sections: state.sections, offered: state.offered }))

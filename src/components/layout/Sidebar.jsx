@@ -3,7 +3,7 @@ import { localClient } from '../../localClient'
 
 import { NAV_SECTIONS, AREA_TABLE } from './navSections'
 import { getSetupGaps } from '../../engine/readiness'
-import { loadSidebarState, saveSidebarState, sectionRollup, shouldOfferFold, nextFoldStateAfterAnswer } from './sidebarState'
+import { loadSidebarState, saveSidebarState, sectionRollup, shouldOfferFold, nextFoldStateAfterAnswer, syncStatusLabel } from './sidebarState'
 
 // Marks are fixed-width whether or not one is present, so labels stay aligned
 // as ticks appear. Colour is never the only carrier: `!` is a distinct glyph
@@ -42,6 +42,9 @@ export default function Sidebar({ current, onNavigate, campId, role, badges = {}
   // Counted from the slots themselves, so an empty template does not read as
   // a started week.
   const [startedRoutes, setStartedRoutes] = useState(0)
+  // T27 — whether this device can reach the others. Pushed, not polled: a value
+  // read once at mount is wrong within minutes.
+  const [syncStatus, setSyncStatus] = useState(null)
 
   // Count every area the sidebar marks, then work out whether the last gap has
   // just closed. Both happen here, in one async step, because this is the only
@@ -83,6 +86,15 @@ export default function Sidebar({ current, onNavigate, campId, role, badges = {}
     // refreshCounts happens after an await. Same pattern as TrashScreen.
     void (async () => { await refreshCounts() })()
   }, [refreshCounts])
+
+  useEffect(() => {
+    let cancelled = false
+    localClient.getSyncStatus?.()
+      .then((s) => { if (!cancelled) setSyncStatus(s) })
+      .catch(() => { /* leave unknown rather than guessing */ })
+    const unsub = localClient.onSyncStatusChanged?.((s) => setSyncStatus(s))
+    return () => { cancelled = true; unsub?.() }
+  }, [])
 
   // Counts must follow the data, or a tick lags a whole session behind.
   useEffect(() => {
@@ -234,6 +246,7 @@ export default function Sidebar({ current, onNavigate, campId, role, badges = {}
               )}
 
               {open && items.map(item => {
+                const lan = item.key === 'devices' && syncStatus ? syncStatusLabel(syncStatus) : null
                 const count = item.area ? counts?.[item.area] : undefined
                 const isBlocking = item.area ? gapAreas.has(item.area) : false
                 const mark = !item.area ? null : isBlocking ? '!' : (count > 0 ? '✓' : '·')
@@ -270,6 +283,12 @@ export default function Sidebar({ current, onNavigate, campId, role, badges = {}
                     <span style={{ flex: 1, minWidth: 0, marginLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {item.label}
                     </span>
+                    {lan && (
+                      <span title={lan.title} style={{
+                        fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0,
+                        color: TONE_COLOR[lan.tone],
+                      }}>{lan.text}</span>
+                    )}
                     {meta && (
                       <span style={{
                         fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0,

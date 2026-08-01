@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   SECTION_DEFAULTS,
+  syncStatusLabel,
   loadSidebarState,
   nextFoldStateAfterAnswer,
   sectionRollup,
@@ -122,5 +123,40 @@ describe('loadSidebarState', () => {
 
   it('survives no storage at all', () => {
     expect(loadSidebarState(undefined).sections).toEqual(SECTION_DEFAULTS)
+  })
+})
+
+describe('syncStatusLabel (T27)', () => {
+  it('tells a director this computer is the main one', () => {
+    expect(syncStatusLabel({ state: 'host' }).text).toBe('main')
+    expect(syncStatusLabel({ state: 'host' }).tone).toBe('success')
+  })
+
+  it('distinguishes "never joined anything" from "cannot reach the main computer"', () => {
+    // The whole point. A device on its own is working correctly; a client that
+    // has lost the Host is not, and conflating them hides the only case worth
+    // acting on.
+    const alone = syncStatusLabel({ state: 'client-disconnected' })
+    const standalone = syncStatusLabel({ state: 'standalone' })
+    expect(alone.text).not.toBe(standalone.text)
+    expect(alone.tone).toBe('danger')
+    expect(standalone.tone).toBe('secondary')
+  })
+
+  it('reassures rather than alarms when a client is disconnected — the work is not lost', () => {
+    expect(syncStatusLabel({ state: 'client-disconnected' }).title)
+      .toMatch(/saved here and will reach it/)
+  })
+
+  it('uses no developer vocabulary', () => {
+    for (const state of ['host', 'client-connected', 'client-disconnected', 'standalone']) {
+      const label = syncStatusLabel({ state })
+      expect(`${label.text} ${label.title}`).not.toMatch(/host|client|socket|mDNS|LAN|sync\b|peer/i)
+    }
+  })
+
+  it('falls back to standalone for an unknown or missing status', () => {
+    expect(syncStatusLabel(null).text).toBe('on its own')
+    expect(syncStatusLabel({ state: 'something-new' }).text).toBe('on its own')
   })
 })

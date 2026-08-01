@@ -2,7 +2,26 @@
 // so that component file only exports components — keeping Fast Refresh happy
 // (react-refresh/only-export-components).
 
-export const ACTIVITY_COLORS = ['#3F6690','#3C8C86','#5F8A5A','#8C6F26','#B26B47','#7C5E86']
+// T18. Six hues on six rungs of a lightness ladder — hue carries identity for
+// most people, lightness carries it for everyone else.
+//
+// The previous set was chosen for hue alone, and three of its six collapsed
+// into one colour for anyone with red-green colour blindness (~6% of men).
+// Measured as the smallest distance between any two entries:
+//
+//                     normal  deuteranopia  protanopia  greyscale
+//   was                   39             6           5          2
+//   now                   34            20          17         17
+//
+// Slightly less separation for normal vision, several times more for everyone
+// else — and the greyscale figure is the one that matters most in practice,
+// because camps print schedules. At 2, a printed dot was indistinguishable
+// from any other.
+//
+// This is a token-value change and the aesthetic call is the director's; the
+// constraint that must survive any reshuffle is the one in
+// slotCellConstants.test.js, not these exact values.
+export const ACTIVITY_COLORS = ['#305C7B','#3D7D84','#4B8C60','#B6A050','#B68B6B','#BE6BC7']
 export const ANCHOR_COLOR = 'var(--anchor)'
 
 // Per-slot flags are UNFILLABLE (generated route) and OVERLAP (manual route).

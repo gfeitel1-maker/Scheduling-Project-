@@ -1,7 +1,7 @@
 ---
 title: T16-ingest-prior-year-schedule
 document_type: ticket
-status: open
+status: in-progress
 created: 2026-07-28
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 archive_when: superseded by an approved specification
@@ -56,6 +56,25 @@ Recording the questions now, because the shape of the feature depends on answers
   *placements* into `template_slots` is a materially different feature from reading the
   *entities* — and the product owner's phrasing, "populate all the corresponding fields",
   reads as the entities. Worth confirming before anyone scopes it.
+
+## ADR written, awaiting approval — 2026-08-01
+
+[`docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md`](../../adr/2026-08-01-ingesting-a-prior-year-schedule.md)
+is written and **proposed**. That is the governance gate this ticket has been blocked on since it
+was filed; implementation starts once it is approved.
+
+Two findings from writing it are worth surfacing here, because both make the work smaller than
+this ticket assumed:
+
+**No schema change, and therefore no migration.** Ingestion writes existing entities through the
+existing op-log path. This ticket's "where does it land?" worry — a bulk write across five entity
+types — is answered by one SQLite transaction on the Host, and undo is ordinary deletion plus the
+Trash path that already exists. The feature sounds like it needs an import-session table. It does
+not.
+
+**Entities-only makes the parser markedly simpler, not just the writer.** Extracting the entity
+lists needs the header row, the time column, and the distinct cell values — no placement inference
+at all. The dangerous part of grid inference is exactly the part the agreed scope removes.
 
 ## Product-owner answers — 2026-08-01
 

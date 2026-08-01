@@ -188,6 +188,14 @@ export const mockShoresh = {
     }
     return { valid: false }
   },
+  // The browser dev server has no Electron and no LAN. Reporting 'standalone'
+  // is the truthful answer here, not a placeholder.
+  async getSyncStatus() {
+    return { mode: null, connected: false, state: 'standalone' }
+  },
+  onSyncStatusChanged() {
+    return () => {}
+  },
   onOpApplied(cb) {
     if (typeof cb === 'function') opAppliedListeners.push(cb)
     return () => { opAppliedListeners = opAppliedListeners.filter((l) => l !== cb) }

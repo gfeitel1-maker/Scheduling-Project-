@@ -1,7 +1,7 @@
 ---
 title: T18-copy-pass-and-grid-card-colours
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-07-29
 governing_docs: [docs/governance/standards/DESIGN_STANDARD.md, docs/governance/constitution/CONSTITUTION.md]
 archive_when: superseded by an approved design spec
@@ -9,7 +9,7 @@ archive_when: superseded by an approved design spec
 
 # T18 — Copy pass across the app, and the schedule grid's card colours
 
-**Status: in-progress.** Raised by the product owner 2026-07-29 as future work, explicitly after the
+**Status: completed 2026-08-01.** Raised by the product owner 2026-07-29 as future work, explicitly after the
 current T15 route-separation work. Recorded so it is not lost. **Not a design — no approach
 chosen.** Two related but separable pieces.
 
@@ -180,6 +180,31 @@ for separation under simulation, which is a Designer task and a token-value chan
 I have **not** changed the palette. Six replacement values are a design decision with an
 approval gate, and picking them myself would be exactly the unapproved taste call the ticket
 warns against.
+
+## Part 2 resolved — 2026-08-01
+
+The palette is replaced, on measurement rather than taste. Six hues on six rungs of a lightness
+ladder: hue carries identity for most people, lightness carries it for everyone else.
+
+Smallest distance between any two entries, before and after:
+
+```
+                normal   deuteranopia   protanopia   greyscale
+was                 39              6            5           2
+now                 34             20           17          17
+```
+
+Slightly less separation for normal vision, three to eight times more for everyone else.
+
+**The greyscale row is the one that turned out to matter most, and it was not in the original
+analysis.** Camps print schedules. At a separation of 2, every printed dot was the same dot —
+the colour coding conveyed nothing on paper at all. That is a plainer failure than the
+colour-blindness one and affects every director, not 6% of them.
+
+`slotCellConstants.test.js` locks the **property, not the values**: no two entries may be
+confusable under normal vision, deuteranopia, protanopia, or greyscale. The exact hues remain a
+design decision and can be re-picked freely — the test is what must survive the re-pick, and it
+is the thing most easily lost when choosing colours on a screen.
 
 ## Sequencing
 

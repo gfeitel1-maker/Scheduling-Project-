@@ -51,6 +51,14 @@ contextBridge.exposeInMainWorld('shoresh', {
   onTokenRenewed: (callback) => ipcRenderer.on('shoresh:token-renewed', (_event, data) => callback(data.token)),
   // §9 project-file lifecycle
   getCurrentProject: () => ipcRenderer.invoke('shoresh:get-current-project'),
+  // T27 — read-only status, plus a push so it does not go stale. A value read
+  // once at mount is wrong within minutes: a laptop closes, wifi drops.
+  getSyncStatus: () => ipcRenderer.invoke('shoresh:get-sync-status'),
+  onSyncStatusChanged: (cb) => {
+    const listener = (_e, status) => cb(status)
+    ipcRenderer.on('shoresh:sync-status-changed', listener)
+    return () => ipcRenderer.removeListener('shoresh:sync-status-changed', listener)
+  },
   createProject: () => ipcRenderer.invoke('shoresh:create-project'),
   openProject: () => ipcRenderer.invoke('shoresh:open-project'),
   exportProject: () => ipcRenderer.invoke('shoresh:export-project'),

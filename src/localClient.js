@@ -35,6 +35,9 @@ export const localClient = {
     shoresh.bulkReplace({ token, entity, scope_id, rows }),
   verifySession: (token) => shoresh.verifySession({ token }),
   onOpApplied: (cb) => shoresh.onOpApplied(cb),
+  // T27 — is this device the main computer, connected to it, or on its own.
+  getSyncStatus: () => shoresh.getSyncStatus(),
+  onSyncStatusChanged: (cb) => shoresh.onSyncStatusChanged?.(cb) ?? (() => {}),
   onOpConflict: (cb) => shoresh.onOpConflict(cb),
   getCamp: () => shoresh.getCamp(),
   listUsers: () => shoresh.listUsers(currentToken()),

@@ -181,6 +181,15 @@ export function createSyncClient(
       onFullSyncApplied(callback) {
         fullSyncAppliedListeners.push(callback)
       },
+      // T27. This is the offline/no-op client (no serverUrl), so it is never
+      // connected to anything and never will be — say so plainly rather than
+      // leaving the renderer to infer it.
+      isConnected() {
+        return false
+      },
+      onConnectionChange() {
+        return () => {}
+      },
       getQueuedOps() {
         return []
       },
@@ -199,6 +208,14 @@ export function createSyncClient(
 
   let ws = null
   let connected = false
+  // T27: listeners for connection state, so the renderer can show whether this
+  // device can currently reach the main computer instead of guessing.
+  const connectionListeners = new Set()
+  function announceConnection() {
+    for (const cb of connectionListeners) {
+      try { cb({ connected, authenticated }) } catch { /* a listener must not break sync */ }
+    }
+  }
   let renewalTimer = null
   // Set to true when the consumer explicitly calls close() so the auto-reconnect
   // loop does not restart a deliberately-closed client.
@@ -452,6 +469,7 @@ export function createSyncClient(
       }
       connected = true
       connectedResolve()
+      announceConnection()
     })
 
     ws.on('message', (data) => {
@@ -651,6 +669,7 @@ export function createSyncClient(
     ws.on('close', () => {
       connected = false
       authenticated = false
+      announceConnection()
       connectedPromise = new Promise((resolve) => {
         connectedResolve = resolve
       })
@@ -1006,6 +1025,19 @@ export function createSyncClient(
     onFullSyncApplied(callback) {
       fullSyncAppliedListeners.push(callback)
     },
+    // T27. Read-only by design: this reports what the device IS, and must never
+    // become a second way to change what it is — chooseMode already does that,
+    // and a status read that can reconfigure the device is a much bigger change
+    // than it looks.
+    isConnected() {
+      return connected
+    },
+
+    onConnectionChange(callback) {
+      connectionListeners.add(callback)
+      return () => connectionListeners.delete(callback)
+    },
+
     getQueuedOps() {
       return queue.slice()
     },
