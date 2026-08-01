@@ -477,7 +477,7 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
       )}
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button onClick={() => onNavigate('timeblocks')} style={S.btnPrimary}>Next: Time Blocks →</button>
+        <button onClick={() => onNavigate('days')} style={S.btnPrimary}>Next: Days →</button>
       </div>
 
       {pendingDelete && (

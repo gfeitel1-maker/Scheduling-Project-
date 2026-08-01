@@ -122,7 +122,7 @@ function CohortRow({ cohort, onSave, onDelete }) {
   )
 }
 
-export default function CohortsScreen({ campId }) {
+export default function CohortsScreen({ campId, onNavigate }) {
   const [cohorts, setCohorts] = useState([])
   const [loading, setLoading] = useState(true)
   const [newName, setNewName] = useState('')
@@ -328,6 +328,13 @@ export default function CohortsScreen({ campId }) {
       <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
         A program groups units, time blocks, and fixed events that share a schedule structure.
         Most camps have one program ("Main"). Add a second for specialty programs with a different time grid.
+      </div>
+
+      {/* Programs is the first required area (src/engine/readiness.js), so the
+          setup chain starts here. It had no Next button, which left the chain
+          without a beginning. */}
+      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
+        <button onClick={() => onNavigate('tiers')} style={S.btnPrimary}>Next: Units →</button>
       </div>
     </div>
   )

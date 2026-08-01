@@ -3,6 +3,7 @@ import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { localClient } from '../localClient'
 import buildSchedule, { computeFindings } from '../engine/buildSchedule'
+import { getSetupGaps, describeSetupGaps } from '../engine/readiness'
 import { S } from '../styles/shared'
 import StatBadge from '../components/schedule/StatBadge'
 import { legendEntriesFor, FLAG_SEVERITY, setActivityPalette } from '../components/schedule/slotCellConstants'
@@ -93,6 +94,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const [activities, setActivities] = useState([])
   const [anchors, setAnchors] = useState([])
   const [tiers, setTiers] = useState([])
+  const [cohorts, setCohorts] = useState([])
   // Which route is on screen is driven by the sidebar entry the director
   // clicked (App.jsx SCREENS -> 'schedule:manual' / 'schedule:generated'). The
   // neutral 'schedule' entry passes nothing and lands on the first-run choice
@@ -325,13 +327,18 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setTemplateError(null)
     let g, a, d
     try {
-      const [gd, td, bd, ad, ancd, tierd] = await Promise.all([
+      const [gd, td, bd, ad, ancd, tierd, cohd] = await Promise.all([
         localClient.list('groups'),
         localClient.list('days_of_operation'),
         localClient.list('time_blocks'),
         localClient.list('activities'),
         localClient.list('anchor_activities'),
         localClient.list('tiers'),
+        // Cohorts are not used to build a week, only to answer "is setup
+        // done" from the same source CampSetup and the sidebar use. Without
+        // it this screen would report a Programs gap the setup screen does
+        // not — the exact disagreement getSetupGaps exists to end.
+        localClient.list('cohorts'),
       ])
       g = [...(gd || [])].filter(x => x.camp_id === campId).sort((x, y) => x.name.localeCompare(y.name))
       const b = [...(bd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
@@ -346,7 +353,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         const oy = tierOrderMap.get(y.tier_id) ?? 999
         return ox !== oy ? ox - oy : x.name.localeCompare(y.name)
       })
-      setGroups(sortedG); setDays(d); setTimeBlocks(b); setActivities(a); setAnchors(anc); setTiers(t)
+      const coh = (cohd || []).filter(x => x.camp_id === campId)
+      setGroups(sortedG); setDays(d); setTimeBlocks(b); setActivities(a); setAnchors(anc); setTiers(t); setCohorts(coh)
       // loadAll() re-runs on every op-applied event. Defaulting the selection
       // unconditionally here is right on first load and wrong on every reload
       // after it — it threw the user back to Monday after each drop (T10).
@@ -1649,21 +1657,29 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     }
   }
 
-  const setupIncomplete = groups.length === 0 || days.length === 0 || timeBlocks.length === 0 || activities.length === 0
+  // One required set, shared with CampSetup and the sidebar. This used to be an
+  // inline check of a different four areas — see src/engine/readiness.js.
+  const setupGaps = getSetupGaps({ cohorts, tiers, groups, days, timeBlocks, activities })
 
   if (loading) return <div style={S.stateLoading}>Loading…</div>
 
-  if (setupIncomplete) {
+  if (setupGaps.length > 0) {
     return (
       <div style={{ maxWidth: 480 }}>
         <div style={{ background: 'color-mix(in srgb, var(--accent) 8%, var(--surface))', border: '1px solid var(--accent)', borderRadius: 12, padding: '20px 24px', fontSize: 13 }}>
-          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 16, marginBottom: 8, color: 'color-mix(in srgb, var(--accent) 60%, var(--text))' }}>Setup incomplete</div>
-          Setup the following before generating a schedule:
-          <ul style={{ marginTop: 8, paddingLeft: 18, lineHeight: 2 }}>
-            {groups.length === 0 && <li>Groups</li>}
-            {days.length === 0 && <li>Days</li>}
-            {timeBlocks.length === 0 && <li>Time Blocks</li>}
-            {activities.length === 0 && <li>Activities</li>}
+          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 16, marginBottom: 8, color: 'color-mix(in srgb, var(--accent) 60%, var(--text))' }}>
+            {describeSetupGaps(setupGaps)}
+          </div>
+          <ul style={{ marginTop: 8, paddingLeft: 18, lineHeight: 1.9 }}>
+            {setupGaps.map(gap => (
+              <li key={gap.key}>
+                <button
+                  onClick={() => onNavigate(gap.screen)}
+                  style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: 'var(--primary)', cursor: 'pointer', textDecoration: 'underline' }}
+                >{gap.label}</button>
+                {' — '}{gap.message}
+              </li>
+            ))}
           </ul>
           <button onClick={() => onNavigate('setup')} style={{ ...S.btnPrimary, marginTop: 12 }}>Go to Camp Setup</button>
         </div>

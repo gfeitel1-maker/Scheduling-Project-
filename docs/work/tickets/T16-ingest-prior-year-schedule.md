@@ -57,7 +57,29 @@ Recording the questions now, because the shape of the feature depends on answers
   *entities* — and the product owner's phrasing, "populate all the corresponding fields",
   reads as the entities. Worth confirming before anyone scopes it.
 
-## Why this is still open — 2026-07-31
+## Product-owner answers — 2026-08-01
+
+The three questions are answered. They change scope, so they are recorded here:
+
+1. **The two PDFs are for testing the PDF route specifically.** They are not a stand-in for
+   missing spreadsheets. **Separate Excel documents will be supplied for the Excel route.**
+   This settles §9 of the design: its correction — "build Tier 3 first, against these two
+   files" — holds, and Tier 1 gets its own real inputs rather than being inferred from a PDF.
+2. **Entities only, not placements.** Confirmed; the spec's assumption stands.
+3. **The supplied files may be used for testing only.** That is authorisation to use them as
+   test fixtures, and also a limit: not for documentation, screenshots, demos, or anything
+   shipped.
+
+Note for whoever adds the fixtures: committing them writes a real camp's group names into git
+history permanently, and deleting the file later does not remove them. Worth checking which
+repository this is before the first `git add`, and worth preferring a redacted fixture if one
+would exercise the parser equally well.
+
+**Still required before implementation**, unchanged by these answers: `GOVERNANCE_INDEX.md`'s
+Database/sync row — an ADR plus a migration/rollback plan, mandatory integration tests, and a
+product-owner approval gate on the ADR.
+
+## Why this was blocked — 2026-07-31
 
 Worked through the open-ticket queue on 2026-07-31; this is the one that could not be finished,
 and the reason is a governance gate rather than effort.

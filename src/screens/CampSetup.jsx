@@ -2,8 +2,21 @@ import { useState, useEffect } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
+import { getSetupGaps, describeSetupGaps, OPTIONAL_AREAS } from '../engine/readiness'
 
+// The rows a director walks, in the order they walk them. Which of these BLOCK
+// building a week is not decided here — src/engine/readiness.js owns that, and
+// this screen reads it. Before that split, this list was the de-facto required
+// set and was wrong twice over: it counted Fixed Events, which is optional, and
+// omitted Days and Programs, which are not.
 const STEPS = [
+  {
+    key: 'cohorts',
+    label: 'Programs',
+    screen: 'cohorts',
+    table: 'cohorts',
+    desc: 'A session or division of camp with its own schedule — Session A, Machaneh Kayitz.',
+  },
   {
     key: 'tiers',
     label: 'Units',
@@ -17,6 +30,13 @@ const STEPS = [
     screen: 'groups',
     table: 'groups',
     desc: 'Individual bunks or tzrifim within each unit — Tzrif Aleph, Bunk 4, etc.',
+  },
+  {
+    key: 'days',
+    label: 'Days',
+    screen: 'days',
+    table: 'days_of_operation',
+    desc: 'Which days of the week camp runs — Sunday through Friday, or whatever your week is.',
   },
   {
     key: 'timeblocks',
@@ -127,8 +147,17 @@ export default function CampSetup({ campId, onNavigate }) {
     }
   }
 
-  const doneCount = STEPS.filter(s => (counts[s.key] || 0) > 0).length
-  const allDone = doneCount === STEPS.length
+  // Counts are keyed by STEPS.key; getSetupGaps wants collections. Length is
+  // all it inspects, so a count becomes an array of that length.
+  const gaps = getSetupGaps({
+    cohorts: Array(counts.cohorts || 0).fill(null),
+    tiers: Array(counts.tiers || 0).fill(null),
+    groups: Array(counts.groups || 0).fill(null),
+    days: Array(counts.days || 0).fill(null),
+    timeBlocks: Array(counts.timeblocks || 0).fill(null),
+    activities: Array(counts.activities || 0).fill(null),
+  })
+  const gapKeys = new Set(gaps.map(g => g.key))
 
   return (
     <div style={{ maxWidth: 560 }}>
@@ -165,7 +194,7 @@ export default function CampSetup({ campId, onNavigate }) {
           Camp Setup
         </div>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-          Complete each section in order. The engine needs all five before it can build a schedule.
+          Set these up in whatever order suits you. Every row can be opened at any time.
         </div>
       </div>
 
@@ -211,34 +240,32 @@ export default function CampSetup({ campId, onNavigate }) {
         )}
       </div>
 
-      {/* Progress bar */}
-      <div style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 }}>
-          <div style={{
-            fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
-            letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text-secondary)',
-          }}>Progress</div>
-          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)' }}>
-            {doneCount} / {STEPS.length} complete
-          </div>
+      {/* Where setup stands, in one sentence. This replaced a progress bar
+          that reported a fraction of the wrong set — see readiness.js. */}
+      {!loadingCounts && (
+        <div style={{
+          marginBottom: 20, padding: '10px 14px', borderRadius: 8, fontSize: 13, lineHeight: 1.5,
+          background: 'var(--surface)',
+          borderLeft: `3px solid var(--${gaps.length === 0 ? 'success' : 'accent'})`,
+          border: '1px solid var(--border)',
+          borderLeftWidth: 3,
+          borderLeftColor: `var(--${gaps.length === 0 ? 'success' : 'accent'})`,
+          color: 'var(--text)',
+        }}>
+          {describeSetupGaps(gaps)}
         </div>
-        <div style={{ height: 4, background: 'var(--border)', borderRadius: 99, overflow: 'hidden' }}>
-          <div style={{
-            height: '100%', borderRadius: 99,
-            width: `${(doneCount / STEPS.length) * 100}%`,
-            background: 'var(--primary)',
-            transition: 'width 0.4s ease',
-          }} />
-        </div>
-      </div>
+      )}
 
       {/* Step cards */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 20 }}>
-        {STEPS.map((step, idx) => {
+        {STEPS.map((step) => {
           const count = counts[step.key] || 0
           const done = count > 0
-          const prevAllDone = STEPS.slice(0, idx).every(s => (counts[s.key] || 0) > 0)
-          const isActive = !done && prevAllDone
+          // Was `prevAllDone` — a sequential gate that only ever changed a
+          // shadow, since every row always navigated. What a director needs
+          // marked is what stops them building a week.
+          const isBlocking = gapKeys.has(step.key)
+          const isOptional = OPTIONAL_AREAS.some(a => a.key === step.key)
 
           return (
             <button
@@ -250,23 +277,23 @@ export default function CampSetup({ campId, onNavigate }) {
                 background: 'var(--surface)',
                 border: '1px solid var(--border)',
                 borderRadius: 10, textAlign: 'left', cursor: 'pointer',
-                boxShadow: isActive ? '0 2px 10px rgba(0,0,0,0.08)' : 'none',
-                outline: isActive ? '1.5px solid var(--primary)' : 'none',
+                boxShadow: 'none',
+                outline: isBlocking ? '1.5px solid var(--accent)' : 'none',
                 outlineOffset: -1,
                 transition: 'box-shadow 0.15s, border-color 0.15s',
               }}
-              onMouseEnter={e => { if (!isActive) e.currentTarget.style.borderColor = 'var(--primary)' }}
-              onMouseLeave={e => { if (!isActive) e.currentTarget.style.borderColor = 'var(--border)' }}
+              onMouseEnter={e => { if (!isBlocking) e.currentTarget.style.borderColor = 'var(--primary)' }}
+              onMouseLeave={e => { if (!isBlocking) e.currentTarget.style.borderColor = 'var(--border)' }}
             >
               {/* Icon */}
               <div style={{
                 width: 26, height: 26, borderRadius: '50%', flexShrink: 0, marginTop: 1,
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 fontFamily: 'var(--font-mono)', fontSize: 11, fontWeight: 700,
-                background: done ? 'rgba(0,170,89,0.12)' : isActive ? 'rgba(47,125,225,0.1)' : 'var(--border)',
-                color: done ? 'var(--success)' : isActive ? 'var(--primary)' : 'var(--text-secondary)',
+                background: done ? 'rgba(0,170,89,0.12)' : isBlocking ? 'color-mix(in srgb, var(--accent) 12%, transparent)' : 'var(--border)',
+                color: done ? 'var(--success)' : isBlocking ? 'var(--accent)' : 'var(--text-secondary)',
               }}>
-                {done ? '✓' : idx + 1}
+                {done ? '✓' : isBlocking ? '!' : '·'}
               </div>
 
               {/* Text */}
@@ -285,7 +312,7 @@ export default function CampSetup({ campId, onNavigate }) {
               {/* Count + chevron */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, paddingTop: 2 }}>
                 <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: done ? 'var(--success)' : 'var(--text-secondary)' }}>
-                  {loadingCounts ? '…' : done ? `${count} ${count === 1 ? 'item' : 'items'}` : '—'}
+                  {loadingCounts ? '…' : done ? `${count} ${count === 1 ? 'item' : 'items'}` : isOptional ? 'optional' : 'needed'}
                 </span>
                 <span style={{ fontSize: 14, color: 'var(--text-secondary)' }}>›</span>
               </div>
@@ -317,25 +344,6 @@ export default function CampSetup({ campId, onNavigate }) {
         </div>
       )}
 
-      {/* CTA */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-        <button
-          onClick={() => onNavigate('schedule')}
-          disabled={!allDone}
-          style={{
-            ...S.btnPrimary, padding: '11px 22px', fontSize: 14,
-            opacity: allDone ? 1 : 0.35,
-            cursor: allDone ? 'pointer' : 'not-allowed',
-          }}
-        >
-          Generate Schedule →
-        </button>
-        {!allDone && (
-          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-            {STEPS.length - doneCount} step{STEPS.length - doneCount !== 1 ? 's' : ''} remaining
-          </span>
-        )}
-      </div>
     </div>
   )
 }

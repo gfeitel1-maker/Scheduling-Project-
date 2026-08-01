@@ -56,6 +56,10 @@ function mockList(overridesByEntity = {}) {
     activities: [activity()],
     anchor_activities: [],
     tiers: [tier()],
+    // Programs are part of the required set (src/engine/readiness.js) even
+    // though buildSchedule never reads cohorts — three setup screens gate data
+    // entry on an active one, so a camp without one cannot have groups.
+    cohorts: [{ id: 'coh-1', camp_id: CAMP_ID, name: 'Main Session' }],
     schedule_templates: [{ id: 'schedule-template:camp-1', camp_id: CAMP_ID, name: 'Generated' }],
     template_slots: [slotRow()],
     template_overlays: [],
@@ -976,6 +980,7 @@ describe('ScheduleScreen — generate() is route-explicit', () => {
       activities: [activity()],
       anchor_activities: [],
       tiers: [tier()],
+      cohorts: [{ id: 'coh-1', camp_id: CAMP_ID, name: 'Main Session' }],
       schedule_templates: [],
       template_slots: [],
       template_overlays: [],
