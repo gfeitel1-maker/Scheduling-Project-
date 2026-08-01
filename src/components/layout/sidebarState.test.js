@@ -24,12 +24,12 @@ describe('sectionRollup', () => {
 
   it('carries the unmet count out to a collapsed Camp Set Up header', () => {
     const rollup = sectionRollup({ section: 'setup', open: false, gaps: TWO_GAPS, badges: {} })
-    expect(rollup).toEqual({ mark: '!', text: '4 / 6', tone: 'danger' })
+    expect(rollup).toEqual({ mark: '!', text: '3 / 5', tone: 'danger' })
   })
 
   it('shows a complete setup as complete, not as silence', () => {
     const rollup = sectionRollup({ section: 'setup', open: false, gaps: NO_GAPS, badges: {} })
-    expect(rollup).toEqual({ mark: '✓', text: '6 / 6', tone: 'success' })
+    expect(rollup).toEqual({ mark: '✓', text: '5 / 5', tone: 'success' })
   })
 
   it('rolls the conflicts badge up to a collapsed System header', () => {

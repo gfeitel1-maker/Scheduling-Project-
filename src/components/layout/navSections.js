@@ -23,7 +23,9 @@ export const NAV_SECTIONS = [
       // wonder whether they need it. It carries no mark: importing is not a
       // step that can be complete.
       { key: 'import',       label: 'Import last year' },
-      { key: 'cohorts',      label: 'Programs',      area: 'cohorts' },
+      // Programs is not listed. Every camp has exactly one, created for it, and
+      // a row a director can only ever look at is a question they should not
+      // have to answer — see src/engine/readiness.js.
       { key: 'tiers',        label: 'Units',         area: 'tiers' },
       { key: 'groups',       label: 'Groups',        area: 'groups' },
       { key: 'days',         label: 'Days',          area: 'days' },

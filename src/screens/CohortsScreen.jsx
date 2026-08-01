@@ -123,7 +123,7 @@ function CohortRow({ cohort, onSave, onDelete }) {
   )
 }
 
-export default function CohortsScreen({ campId, onNavigate }) {
+export default function CohortsScreen({ campId }) {
   const [cohorts, setCohorts] = useState([])
   const [loading, setLoading] = useState(true)
   const [newName, setNewName] = useState('')
@@ -332,12 +332,10 @@ export default function CohortsScreen({ campId, onNavigate }) {
         Most camps have one program ("Main"). Add a second for specialty programs with a different time grid.
       </div>
 
-      {/* Programs is the first required area (src/engine/readiness.js), so the
-          setup chain starts here. It had no Next button, which left the chain
-          without a beginning. */}
-      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button onClick={() => onNavigate('tiers')} style={S.btnPrimary}>Next: Units →</button>
-      </div>
+      {/* This screen is no longer in the sidebar — every camp gets one program
+          automatically — so it is not part of the setup chain and has no Next
+          button. It stays reachable for a camp that genuinely runs two
+          sessions on different time grids. */}
     </div>
   )
 }

@@ -15,21 +15,26 @@
 // Membership below is derived from src/engine/buildSchedule.js, not from what
 // any screen happened to display.
 
-// The six that gate building a week.
+// The five that gate building a week.
 //
 // `screen` is the navigation key (App.jsx's SCREENS map), `label` is camp
 // language, and `message` is what a director reads. Ordered as setup is
 // approached, so a list of gaps reads as a sequence rather than a jumble.
+//
+// Programs are deliberately absent.
+//
+// Every camp gets one called "Main" automatically (src/utils/ensureCohort.js,
+// run from App.jsx on first sight of a camp), and both real databases have
+// exactly that one row. It is a structural necessity — tiers, time_blocks,
+// anchor_activities and day_override_templates all carry a cohort_id — and not
+// a decision a director has ever had to make.
+//
+// Product owner, 2026-08-01: "hide programs from the sidebar and auto-create
+// main." So it is no longer a step, no longer a gap, and no longer a question
+// a first-run director is asked. The screen and the schema are untouched; a
+// camp that genuinely runs two sessions on different time grids is still
+// possible, and reinstating the row is a one-line change.
 export const REQUIRED_AREAS = [
-  {
-    key: 'cohorts',
-    label: 'Programs',
-    screen: 'cohorts',
-    // Not read by buildSchedule at all. Required anyway: three setup screens
-    // gate data entry on an active program, so without one the director cannot
-    // enter the rest.
-    message: 'Add at least one program before setting up the rest of the camp.',
-  },
   {
     key: 'tiers',
     label: 'Units',
