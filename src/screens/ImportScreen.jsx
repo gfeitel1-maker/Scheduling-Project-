@@ -60,7 +60,11 @@ export default function ImportScreen({ onNavigate }) {
           const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
           const sheets = wb.SheetNames.map((name) => ({
             name,
-            rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '' }),
+            // raw:false so Excel formats each cell the way the sheet displays it.
+            // A time typed as a time is stored as a fraction of a day — 9:15am
+            // is 0.3854166666666667 — and reading it raw puts that number in
+            // the camp as the name of a period.
+            rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false }),
           }))
           pages.push(...workbookToPages(sheets, title))
         } else {

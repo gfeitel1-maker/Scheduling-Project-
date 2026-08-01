@@ -150,3 +150,22 @@ describe.skipIf(mindyFiles.length === 0)('a real camp export (not committed — 
     for (const b of entities.time_blocks) expect(b).not.toMatch(/^\*/)
   })
 })
+
+describe('Excel stores a time as a number', () => {
+  it('reads a fraction of a day as the time it means', () => {
+    // 9:15am is 0.3854166666666667. Left alone it becomes the name of a
+    // period. Callers pass raw:false so Excel formats it, but a cell with no
+    // format still arrives as a number.
+    const page = sheetToPage(sheet([
+      ['', 'Monday'],
+      [0.3854166666666667, 'Opening'],
+      [0.5104166666666666, 'Lunch'],
+    ]), 'Team A')
+    expect(page.rows.map((r) => r.label)).toEqual(['9:15', '12:15'])
+  })
+
+  it('leaves an ordinary number alone', () => {
+    const page = sheetToPage(sheet([['', 'Monday'], ['2', 'Opening']]), 'x')
+    expect(page.rows[0].label).toBe('2')
+  })
+})

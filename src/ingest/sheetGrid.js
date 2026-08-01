@@ -13,9 +13,26 @@
 
 const FOOTNOTE = /^\s*\*/
 
+// Excel stores a time as a fraction of a day: 9:15am is 0.3854166666666667.
+// Callers should read sheets with `raw: false` so the sheet's own formatting
+// is applied, but a number can still arrive — from a caller that forgot, or a
+// cell with no format — and it must not become the name of a period.
+const EXCEL_FRACTION_OF_A_DAY = /^0?\.\d{6,}$/
+
+function excelSerialToTime(value) {
+  const fraction = Number(value)
+  if (!Number.isFinite(fraction) || fraction < 0 || fraction >= 1) return null
+  const totalMinutes = Math.round(fraction * 24 * 60)
+  const hours = Math.floor(totalMinutes / 60) % 24
+  const minutes = totalMinutes % 60
+  return `${hours}:${String(minutes).padStart(2, '0')}`
+}
+
 function asText(cell) {
   if (cell === null || cell === undefined) return ''
-  return String(cell).replace(/\s+/g, ' ').trim()
+  const text = String(cell).replace(/\s+/g, ' ').trim()
+  if (EXCEL_FRACTION_OF_A_DAY.test(text)) return excelSerialToTime(text) ?? text
+  return text
 }
 
 /**
