@@ -34,6 +34,34 @@ const NOT_AN_ACTIVITY = [
   /^-+$/,
 ]
 
+// Time-column text overflows into data columns in Camp A, so cells arrive as
+// "Instructional Swim 11:45-12:10-" and "Opening 9:40-9:50 Change". The
+// activity is in there; the schedule's own timing is not part of its name.
+function stripTimes(text) {
+  return String(text ?? '')
+    .replace(/\d{1,2}[:.]\d{2}\s*[-–—]?\s*(\d{1,2}[:.]\d{2})?/g, ' ')
+    .replace(/\bChange\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+// A cell repeated down a column accumulates when a page is read too long —
+// "Field Field Field Field". One occurrence is the activity.
+function collapseRepeats(text) {
+  return String(text ?? '').replace(/\b(.+?)\b(?:\s+\1\b)+/gi, '$1').trim()
+}
+
+export function cleanCellValue(text) {
+  return collapseRepeats(stripTimes(text))
+    // Stripping a time leaves its dash behind, so "11:45-12:10- Instructional
+    // Swim" became "- Instructional Swim" — a separate activity from the real
+    // one, and a frequent one, because the split is systematic rather than
+    // occasional.
+    .replace(/^[\s\-–—:]+/, '')
+    .replace(/[\s\-–—:]+$/, '')
+    .trim()
+}
+
 function isActivityLike(text) {
   const t = String(text ?? '').trim()
   if (t.length < 2) return false
@@ -50,6 +78,30 @@ function cleanTitle(title) {
     .trim()
 }
 
+// How often each value appeared, kept because it is the only honest signal of
+// confidence available.
+//
+// A real activity recurs — "Drama" appears on most of a 33-page bunk schedule.
+// A parse artifact ("Lunch Head Counselor", two cells welded together) appears
+// once. Nothing is hidden on that basis; the count is shown, the list is
+// ordered by it, and the preview uses it only to decide what starts ticked.
+function tally(values) {
+  const seen = new Map()
+  for (const raw of values) {
+    const text = String(raw ?? '').trim()
+    if (!text) continue
+    const key = text.toLowerCase().replace(/\s+/g, ' ')
+    const found = seen.get(key)
+    if (found) found.count += 1
+    else seen.set(key, { name: text, count: 1 })
+  }
+  // Most-seen first, then alphabetical so the order is stable between runs.
+  return [...seen.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+}
+
+// Groups, days and periods keep the order they appear in the document — a week
+// reads Monday to Friday, not most-frequent first. Only activities are ranked
+// by how often they were seen, because only they benefit from it.
 function dedupe(values) {
   const seen = new Map()
   for (const raw of values) {
@@ -124,7 +176,7 @@ export function extractEntities(parsed) {
       if (row.label && /^\d{1,2}[:.]\d{2}/.test(row.label.trim())) {
         timeBlocks.push(row.label.trim())
       }
-      activities.push(...row.cells.filter(isActivityLike))
+      activities.push(...row.cells.map(cleanCellValue).filter(isActivityLike))
     }
   }
 
@@ -132,7 +184,7 @@ export function extractEntities(parsed) {
     groups: dedupe(groups),
     days_of_operation: dedupe(days),
     time_blocks: dedupe(timeBlocks),
-    activities: dedupe(activities),
+    activities: tally(activities).map((v) => v.name),
     // Neither layout carries units or programs — a bunk schedule does not say
     // which division a bunk is in. Proposing a guess would be worse than
     // proposing nothing, so these come back empty and the director fills them
@@ -141,9 +193,15 @@ export function extractEntities(parsed) {
     cohorts: [],
   }
 
+  // Per-value occurrence counts, alongside the plain name lists the rest of the
+  // pipeline uses. Only activities are ranked this way — a group or a day
+  // appears once by construction, so a count would say nothing.
+  const seenCounts = { activities: Object.fromEntries(tally(activities).map((v) => [v.name, v.count])) }
+
   return {
     orientation,
     entities,
+    seenCounts,
     counts: Object.fromEntries(Object.entries(entities).map(([k, v]) => [k, v.length])),
   }
 }

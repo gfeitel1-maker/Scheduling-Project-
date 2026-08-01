@@ -59,7 +59,14 @@ export function buildPreview(proposal, existing) {
       }
     }
 
-    perEntity[entity] = { create, skip }
+    // A value seen only once across the whole document is far more likely to
+    // be a parse artifact than a real activity, so it is shown — never hidden —
+    // but does not start ticked. The director ticks it if it is real; they do
+    // not have to untick sixty things if it is not.
+    const counts = proposal?.seenCounts?.[entity] ?? {}
+    const lowConfidence = create.filter((name) => (counts[name] ?? 2) < 2)
+
+    perEntity[entity] = { create, skip, counts, lowConfidence }
     createTotal += create.length
     skipTotal += skip.length
   }

@@ -135,3 +135,71 @@ describe('what it refuses to guess', () => {
     }
   })
 })
+
+// The tests above assert that specific known-good values appear. That is not
+// the same as the LIST being good, and the difference mattered: an early
+// version passed every one of them while proposing 114 activities for Camp A,
+// of which 29 were page titles ("Adom 5's - Blintzes Schedule") and 14 held a
+// time. A director would have had to reject most of the list.
+//
+// These look at the whole proposal instead.
+describe('the proposal as a whole is worth showing a director', () => {
+  for (const [name, parsed] of [['Camp A', campA], ['Camp B', campB]]) {
+    describe(name, () => {
+      const { entities } = extractEntities(parsed)
+
+      it('proposes no page title as an activity', () => {
+        // Each page's title is the bunk's name; it must end the page above it,
+        // or it is read as one more row of that page.
+        const leaked = entities.activities.filter((a) => /Schedule$/i.test(a))
+        expect(leaked, `leaked: ${leaked.slice(0, 3).join(', ')}`).toEqual([])
+      })
+
+      it('proposes no activity containing a clock time', () => {
+        const timed = entities.activities.filter((a) => /\d{1,2}[:.]\d{2}/.test(a))
+        expect(timed, `timed: ${timed.slice(0, 3).join(', ')}`).toEqual([])
+      })
+
+      it('proposes no activity that is a word repeated', () => {
+        // "Field Field Field Field" — a cell accumulating down a column.
+        const repeated = entities.activities.filter((a) => /\b(\w+)\b(?:\s+\1\b)+/i.test(a))
+        expect(repeated, `repeated: ${repeated.slice(0, 3).join(', ')}`).toEqual([])
+      })
+
+      it('proposes no activity starting with leftover punctuation', () => {
+        // Stripping a time leaves its dash: "- Instructional Swim" was a
+        // separate, frequent activity from the real one.
+        const ragged = entities.activities.filter((a) => /^[\s\-–—:]/.test(a))
+        expect(ragged, `ragged: ${ragged.slice(0, 3).join(', ')}`).toEqual([])
+      })
+
+      it('proposes a believable number of periods for one camp day', () => {
+        // Camp A's two-line time cell once produced 53 "periods". A camp day
+        // has somewhere between a handful and about twenty.
+        expect(entities.time_blocks.length).toBeGreaterThan(3)
+        expect(entities.time_blocks.length).toBeLessThan(25)
+      })
+
+      it('gives every period a start and an end where the source had one', () => {
+        const ranged = entities.time_blocks.filter((b) => /^\d{1,2}[:.]\d{2}-\d{1,2}[:.]\d{2}$/.test(b))
+        expect(ranged.length / entities.time_blocks.length).toBeGreaterThan(0.6)
+      })
+
+      it('keeps the days in week order, not in whatever order they were counted', () => {
+        const order = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+        const indexes = entities.days_of_operation.map((d) => order.indexOf(d))
+        expect(indexes).toEqual([...indexes].sort((a, b) => a - b))
+      })
+    })
+  }
+
+  it('ranks activities by how often they were seen, so artifacts sink', () => {
+    // The signal that separates a real activity from a misread: a real one
+    // recurs across a 33-page document, an artifact appears once.
+    const { entities, seenCounts } = extractEntities(campA)
+    const counts = entities.activities.map((a) => seenCounts.activities[a])
+    expect(counts).toEqual([...counts].sort((a, b) => b - a))
+    expect(counts[0]).toBeGreaterThan(20)
+    expect(counts[counts.length - 1]).toBe(1)
+  })
+})

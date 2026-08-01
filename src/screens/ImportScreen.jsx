@@ -49,10 +49,17 @@ export default function ImportScreen({ onNavigate }) {
       }
       const next = buildPreview(proposal, existing)
       setPreview(next)
-      // Everything starts approved — the director's job is to remove what is
-      // wrong, which is far less work than picking out what is right.
+      // Everything starts approved except values seen only once in the whole
+      // document. On a 33-page bunk schedule a real activity recurs dozens of
+      // times and a parse artifact appears once, so this is the difference
+      // between a director unticking sixty rows and ticking two. Nothing is
+      // hidden either way — the unticked rows are right there with their count.
       const initial = {}
-      for (const entity of INGESTIBLE_ENTITIES) initial[entity] = new Set(next.perEntity[entity].create)
+      for (const entity of INGESTIBLE_ENTITIES) {
+        const { create, lowConfidence = [] } = next.perEntity[entity]
+        const low = new Set(lowConfidence)
+        initial[entity] = new Set(create.filter((n) => !low.has(n)))
+      }
       setChosen(initial)
     } catch (err) {
       setPreview(null)
@@ -157,7 +164,7 @@ export default function ImportScreen({ onNavigate }) {
           )}
 
           {INGESTIBLE_ENTITIES.map(entity => {
-            const { create, skip } = preview.perEntity[entity]
+            const { create, skip, lowConfidence = [] } = preview.perEntity[entity]
             if (create.length === 0 && skip.length === 0) return null
             return (
               <div key={entity} style={{ marginBottom: 20 }}>
@@ -169,12 +176,21 @@ export default function ImportScreen({ onNavigate }) {
                   {LABEL[entity]}
                 </div>
 
+                {lowConfidence.length > 0 && (
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
+                    {lowConfidence.length} of these appeared only once in the file, so they are more
+                    likely to be a misread than something your camp does. They are left unticked —
+                    tick any that are real.
+                  </div>
+                )}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {create.map(name => {
                     const on = chosen[entity]?.has(name)
+                    const seen = preview.perEntity[entity].counts?.[name]
                     return (
                       <button
                         key={name}
+                        title={seen ? `Found ${seen} ${seen === 1 ? 'time' : 'times'} in the file` : undefined}
                         onClick={() => toggle(entity, name)}
                         style={{
                           fontSize: 12, padding: '5px 10px', borderRadius: 6, cursor: 'pointer',
@@ -186,6 +202,11 @@ export default function ImportScreen({ onNavigate }) {
                         }}
                       >
                         {on ? '✓ ' : ''}{name}
+                        {seen > 1 && (
+                          <span style={{ marginLeft: 6, opacity: 0.55, fontFamily: 'var(--font-mono)', fontSize: 10 }}>
+                            ×{seen}
+                          </span>
+                        )}
                       </button>
                     )
                   })}
