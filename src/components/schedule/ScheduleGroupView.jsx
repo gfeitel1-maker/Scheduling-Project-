@@ -3,6 +3,7 @@ import SlotCell from '../schedule/SlotCell'
 import { emptyTd } from '../schedule/slotCellConstants'
 import OverlayCell from '../schedule/OverlayCell'
 import { S } from '../../styles/shared'
+import { decideCell } from '../../screens/schedule/gridGeometry'
 
 function DroppableEmptyCell({ groupId, dayId, blockId }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -32,12 +33,9 @@ export default function ScheduleGroupView({
   groups, days, timeBlocks, selectedGroup, onSelectGroup,
   weatherMode, stampMode, actMap, anchorMap,
   releaseCell,
-  overlayForCell, isOverlayHead, getOverlayRowSpan,
-  isAnchorTail, getAnchorRowSpan,
-  isActivityTail, getActivityRowSpan,
+  geometry,
   handleFillEnter, startFill, removeOverlay, handleStampClick,
   onEditSlot, fillState,
-  getSlot,
   onExpandSlot,
   onSplitSlot,
   isExpandDragActive,
@@ -83,11 +81,13 @@ export default function ScheduleGroupView({
                         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
                       </td>
                       {days.map(day => {
-                        // Overlay check — takes priority over schedule slot
-                        const overlay = overlayForCell(selectedGroup, day.id, block.id)
-                        if (overlay && !isOverlayHead(selectedGroup, day.id, block.id)) return null // tail — covered by head rowSpan
-                        if (overlay && isOverlayHead(selectedGroup, day.id, block.id)) {
-                          const rowSpan = getOverlayRowSpan(overlay)
+                        const decision = decideCell(geometry, selectedGroup, day.id, block.id)
+                        if (decision.kind === 'skip') return null // tail — covered by head rowSpan
+                        if (decision.kind === 'empty') {
+                          return <DroppableEmptyCell key={day.id} groupId={selectedGroup} dayId={day.id} blockId={block.id} />
+                        }
+                        if (decision.kind === 'overlay') {
+                          const { overlay, rowSpan } = decision
                           return (
                             <OverlayCell
                               key={day.id}
@@ -101,35 +101,12 @@ export default function ScheduleGroupView({
                           )
                         }
 
-                        const slot = getSlot(selectedGroup, day.id, block.id)
-                        if (!slot) return <DroppableEmptyCell key={day.id} groupId={selectedGroup} dayId={day.id} blockId={block.id} />
-                        if (slot.is_anchor && isAnchorTail(selectedGroup, day.id, block.id)) return null
-                        if (!slot.is_anchor && isActivityTail(selectedGroup, day.id, block.id)) return null
-                        const rowSpan = slot.is_anchor
-                          ? getAnchorRowSpan(selectedGroup, day.id, block.id)
-                          : getActivityRowSpan(selectedGroup, day.id, block.id)
+                        const { slot, rowSpan, cellType } = decision
                         const act = slot.activity_id ? actMap.get(slot.activity_id) : null
                         const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
                         const cellClickHandler = stampMode
                           ? () => handleStampClick(selectedGroup, day.id, block.id)
                           : undefined
-                        const isUnfillable = Boolean(slot.flags?.UNFILLABLE) && !slot.flags?.UNFILLABLE_dismissed
-
-                        // A row with no activity and not flagged UNFILLABLE is a genuinely
-                        // empty open slot — no template_slots row means "no slot placed" at
-                        // all (handled above); this is "nothing placed here, not flagged
-                        // either" which the engine doesn't currently produce post-build but
-                        // is kept as a defensive droppable-empty fallback.
-                        if (!slot.activity_id && !slot.is_anchor && !isUnfillable) {
-                          return <DroppableEmptyCell key={day.id} groupId={selectedGroup} dayId={day.id} blockId={block.id} />
-                        }
-
-                        // Every open slot the engine couldn't fill is flagged UNFILLABLE
-                        // (buildSchedule.js), so a row with no activity, not an anchor, and
-                        // not UNFILLABLE-flagged is the "unavailable" case (group not
-                        // available for this block) — route it through SlotCell for the
-                        // distinct unavailable treatment instead of the empty/droppable one.
-                        const cellType = !slot.activity_id && !isUnfillable ? 'unavailable' : 'activity'
 
                         const actIsLocked = slot.activity_id && act?.is_locked
                         const isLocked = Boolean(actIsLocked && !slot.is_released)
@@ -139,7 +116,7 @@ export default function ScheduleGroupView({
                         const isSelected = selectedSlotKeys?.has(slotKey) ?? false
                         const isMultiSelected = isSelected && (selectedSlotKeys?.size ?? 0) > 1
                         const nextBlock = timeBlocks.find(b => b.sort_order === block.sort_order + 1)
-                        const nextSlot = nextBlock ? getSlot(selectedGroup, day.id, nextBlock.id) : null
+                        const nextSlot = nextBlock ? geometry.getSlot(selectedGroup, day.id, nextBlock.id) : null
                         const hasMergeDown = !isMerged && Boolean(nextBlock) && !nextSlot?.is_anchor && nextSlot?.is_span_head !== false
                         const onMergeDown = hasMergeDown && onExpandSlot ? () => {
                           const tailAct = nextSlot?.activity_id ? actMap.get(nextSlot.activity_id) : null

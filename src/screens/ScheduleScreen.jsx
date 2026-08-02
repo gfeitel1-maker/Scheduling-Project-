@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
-import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { localClient } from '../localClient'
-import buildSchedule, { computeFindings } from '../engine/buildSchedule'
+import { createScheduleRepository } from '../data/scheduleRepository'
+import { computeFindings } from '../engine/buildSchedule'
 import { getSetupGaps, describeSetupGaps } from '../engine/readiness'
 import { S } from '../styles/shared'
 import StatBadge from '../components/schedule/StatBadge'
@@ -12,15 +12,22 @@ import EditModal from '../components/schedule/EditModal'
 import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
 import ExportChooserModal from '../components/schedule/ExportChooserModal'
 import VersionsDropdown from '../components/schedule/VersionsDropdown'
-import { isRestorable, parseSnapshotPayload, unrestorableMessage } from './snapshotRestore'
+import { isRestorable } from './snapshotRestore'
 import { snapshotMatchesSchedule } from './snapshotMatchesSchedule'
 import FieldTripDrawer from '../components/schedule/FieldTripDrawer'
 import { exportToExcel } from '../utils/exportSchedule'
-import { normalizeSlots } from '../utils/normalizeSlots'
 import { withOverlapFlags } from '../utils/computeOverlaps'
 import { deriveScheduleTemplateId } from '../../electron/ops/scheduleTemplateId'
 import { resolveSelection } from './resolveSelection'
 import { normalizeActivityEligibility } from '../utils/normalizeActivityEligibility'
+import { getSlot, makeGridGeometry } from './schedule/gridGeometry'
+import { useUndoRedo } from './schedule/useUndoRedo'
+import { useClipboardSelection } from './schedule/useClipboardSelection'
+import { useOverlayFillStamp } from './schedule/useOverlayFillStamp'
+import { useSnapshots } from './schedule/useSnapshots'
+import { useGeneration } from './schedule/useGeneration'
+import { useSlotMutations } from './schedule/useSlotMutations'
+import { ROUTES, EMPTY_BY_ROUTE, useRouteState } from './schedule/useRouteState'
 import ScheduleGroupView from '../components/schedule/ScheduleGroupView'
 import ScheduleDayView from '../components/schedule/ScheduleDayView'
 import ScheduleActivityView from '../components/schedule/ScheduleActivityView'
@@ -28,30 +35,6 @@ import ManualBuildView from '../components/schedule/ManualBuildView'
 import ActivityPalette from '../components/schedule/ActivityPalette'
 import DisplacedPalette from '../components/schedule/DisplacedPalette'
 
-// Fires one write() per field (the op-log is field-level) and surfaces the
-// first failure rather than a silent partial write — mirrors
-// DayOverridesScreen.jsx/ActivitiesScreen.jsx's identical helper.
-async function writeFields(entity, id, fields) {
-  const token = localStorage.getItem('shoresh-token')
-  for (const [field, value] of Object.entries(fields)) {
-    const result = await localClient.write(token, entity, id, field, value)
-    if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-      throw new Error(`write failed for field "${field}"`)
-    }
-  }
-}
-
-// Two routes to a schedule, each with its own candidate: the director builds
-// one themselves (the spreadsheet replacement) or the app proposes one and they
-// edit it. NEITHER is the real schedule — that call is the director's, and the
-// app must never make it for them (CONSTITUTION.md Art. V, and the ADR on
-// plural candidate schedules). Route selection is local UI state and does not
-// replicate.
-const ROUTES = ['generated', 'manual']
-const EMPTY_BY_ROUTE = (value) => ({ generated: value(), manual: value() })
-
-// Keeps the ~20 existing call sites writing `setSlots(prev => ...)` exactly as
-// they were, while the value they touch is the current route's.
 // Which row IS this camp's candidate for this route? Ask the database by
 // (camp_id, kind) — do not assume the derived id is the one on disk.
 //
@@ -79,14 +62,6 @@ function resolveTemplateId(templates, campId, kind) {
   return row ? row.id : deriveScheduleTemplateId(campId, kind)
 }
 
-function routeSetter(setState, route) {
-  return updater =>
-    setState(prev => ({
-      ...prev,
-      [route]: typeof updater === 'function' ? updater(prev[route]) : updater,
-    }))
-}
-
 export default function ScheduleScreen({ campId, role, onNavigate, initialRoute }) {
   const [groups, setGroups] = useState([])
   const [days, setDays] = useState([])
@@ -110,21 +85,27 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // neutral-entry chooser further down.
   const [localRoute, setRoute] = useState(null)
   const route = initialRoute || localRoute || 'generated'
-  // Which routes actually have a schedule_templates row today. The id itself is
-  // derived, never minted — two devices that independently create a candidate
-  // for the same camp and route must agree on its id or their work forks.
-  const [existingTemplates, setExistingTemplates] = useState(() => EMPTY_BY_ROUTE(() => false))
-  // The id a route's schedule_templates row ACTUALLY has. Resolved from the
-  // database by (camp_id, kind); the derived id is only a fallback used when
-  // minting a row that does not exist yet. See resolveTemplateId below.
-  const [templateIdByRoute, setTemplateIdByRoute] = useState(() => ({ generated: null, manual: null }))
-  const [slotsByRoute, setSlotsByRoute] = useState(() => EMPTY_BY_ROUTE(() => []))
-  const [statsByRoute, setStatsByRoute] = useState(() => EMPTY_BY_ROUTE(() => null))
-  // Aggregate UNDERSERVED/DISTRIBUTION findings from the last buildSchedule()
-  // call — never persisted, recomputed fresh on every generate()/placeAnchors()
-  // (docs/adr/2026-07-28-schedule-flag-findings-reshape.md §"findings never persisted").
-  const [findingsByRoute, setFindingsByRoute] = useState(() => EMPTY_BY_ROUTE(() => []))
-  const [dismissedByRoute, setDismissedByRoute] = useState(() => EMPTY_BY_ROUTE(() => new Set()))
+  // T31 — the route-scoped state lives in one module (useRouteState): the eight
+  // by-route atoms, the current-route derived values, and the current-route
+  // setters. Route SELECTION stays here (above) — the hook only receives the
+  // resulting route and owns no canonical designation. Names and shapes are
+  // unchanged from the single-schedule version on purpose, so the ~20 call sites
+  // below keep reading `slots`/`templateId`/`setSlots` verbatim.
+  const routeState = useRouteState(campId, route)
+  const {
+    existingTemplates, setExistingTemplates,
+    setTemplateIdByRoute,
+    slotsByRoute, setSlotsByRoute,
+    setStatsByRoute, setFindingsByRoute, setDismissedByRoute,
+    setSnapshotsByRoute, setOverlaysByRoute,
+    templateIdFor,
+    rawSlots, stats, findings, dismissedFindingKeys, overlays, snapshots,
+    setStats, setDismissedFindingKeys,
+  } = routeState
+  // OVERLAP is derived, never persisted — so it clears from every participating
+  // cell the moment any one of them moves, and only on the manual route, where
+  // a clashing placement is accepted rather than refused.
+  const slots = route === 'manual' ? withOverlapFlags(rawSlots, activities) : rawSlots
   // null = rail closed; otherwise the kind ('UNFILLABLE'|'UNDERSERVED'|'DISTRIBUTION') filtered to
   // Deviation from design spec: spec called for one aggregate header badge
   // opening one rail. We kept three per-kind badges (director-legible counts
@@ -145,50 +126,93 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const [loadError, setLoadError] = useState(null)
   const [templateError, setTemplateError] = useState(null)
   const [actionError, setActionError] = useState(null)
-  const [snapshotsByRoute, setSnapshotsByRoute] = useState(() => EMPTY_BY_ROUTE(() => []))
-  const [overlaysByRoute, setOverlaysByRoute] = useState(() => EMPTY_BY_ROUTE(() => []))
   const [exportChoosing, setExportChoosing] = useState(false)
   const [showVersions, setShowVersions] = useState(false)
-  const [stampMode, setStampMode] = useState(null) // null | string (label of active stamp)
   const [showFieldTripDrawer, setShowFieldTripDrawer] = useState(false)
-  const [fillState, setFillState] = useState(null)  // null | { overlayId, previewToOrder }
-  const [displacedItems, setDisplacedItems] = useState([])
   const [isDayExpandDragActive, setIsDayExpandDragActive] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [isGroupExpandDragActive, setIsGroupExpandDragActive] = useState(false)
-  // T5 — undo / redo
-  const [undoStack, setUndoStack] = useState([])
-  const [redoStack, setRedoStack] = useState([])
-  // T3 — selection and copy/paste
-  const [selectedSlotKeys, setSelectedSlotKeys] = useState(new Set())
-  const [clipboardItems, setClipboardItems] = useState([])
-  const [pasteMode, setPasteMode] = useState(false)
-  const [pasteModeIndex, setPasteModeIndex] = useState(0)
-  const [pasteError, setPasteError] = useState(null)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
-  // Everything below reads and writes the CURRENT route's candidate. Names and
-  // shapes are unchanged from the single-schedule version on purpose.
-  const templateIdFor = (r) => templateIdByRoute[r] || deriveScheduleTemplateId(campId, r)
-  const templateId = templateIdFor(route)
-  const rawSlots = slotsByRoute[route]
-  // OVERLAP is derived, never persisted — so it clears from every participating
-  // cell the moment any one of them moves, and only on the manual route, where
-  // a clashing placement is accepted rather than refused.
-  const slots = route === 'manual' ? withOverlapFlags(rawSlots, activities) : rawSlots
-  const stats = statsByRoute[route]
-  const findings = findingsByRoute[route]
-  const dismissedFindingKeys = dismissedByRoute[route]
-  const overlays = overlaysByRoute[route]
-  const snapshots = snapshotsByRoute[route]
+  // The persistence seam. Instantiated once with the real localClient (ADR
+  // 2026-08-01 §3); it owns token acquisition, every schedule read/write, and
+  // the single slot->row mapper. The screen keeps all React state, banner copy,
+  // route policy, and engine calls.
+  const repo = useMemo(() => createScheduleRepository({ localClient }), [])
 
-  const setSlots = routeSetter(setSlotsByRoute, route)
-  const setStats = routeSetter(setStatsByRoute, route)
-  const setFindings = routeSetter(setFindingsByRoute, route)
-  const setDismissedFindingKeys = routeSetter(setDismissedByRoute, route)
-  const setOverlays = routeSetter(setOverlaysByRoute, route)
-  const setSnapshots = routeSetter(setSnapshotsByRoute, route)
+  // T5 — undo/redo lives in its own hook: the two stacks, the push/undo/redo
+  // helpers, and the keyboard shortcuts. It is transient — reset() is called
+  // from the transient-reset block below on a route switch.
+  const { undoStack, redoStack, pushUndo, handleUndo, handleRedo, reset: resetUndoRedo } = useUndoRedo({ setActionError })
+
+  // Overlay fill / field-trip stamp / displaced-activity tray. Transient
+  // direct-manipulation state; orchestrates persistence through the slot
+  // mutations' addOverlay/updateOverlayRange (wrapped below). reset() runs from
+  // the block below.
+  const {
+    fillState, stampMode, setStampMode, displacedItems, setDisplacedItems,
+    startFill, handleFillEnter, handleStampClick, dismissDisplaced, reset: resetOverlayFillStamp,
+  } = useOverlayFillStamp({ groups, timeBlocks, overlays, addOverlay, updateOverlayRange })
+
+  // T32 — the per-cell slot/overlay mutation cluster lives in its own hook: the
+  // ~11 handlers that write a slot/overlay through the T28 repo and record the
+  // undo entry. It owns no state — route-scoped values and the route-PINNED
+  // setters come from routeState; pushUndo, setDisplacedItems, recalcStats, the
+  // geometry getSlot and the data lists are injected. `slots` is the screen's
+  // overlap-flagged value (what the inline handlers read pre-extraction), so
+  // prevFlags in the undo closures stays byte-identical.
+  const slotMutations = useSlotMutations({
+    routeState, repo, pushUndo, setActionError,
+    editSlot, setEditSlot, setDisplacedItems, recalcStats,
+    getSlot, setActivities,
+    slots, groups, activities, days, timeBlocks,
+  })
+  const {
+    editSlotSave, swapSlots, dismissFlag, lockActivity, releaseCell,
+    removeOverlay, placeActivityManual, expandSlot, splitSlot,
+  } = slotMutations
+
+  // addOverlay / updateOverlayRange are consumed by useOverlayFillStamp, which
+  // runs BEFORE useSlotMutations, so they are provided as thin hoisted wrappers
+  // that delegate to the hook. The fill/stamp hook only calls them from event
+  // handlers (stamp click, fill pointer-up), never during render, so
+  // `slotMutations` is always assigned by the time they fire. This breaks the
+  // genuine cycle — the mutations need setDisplacedItems (owned by the fill/stamp
+  // hook) and that hook needs the overlay mutations — without lifting the
+  // displaced-tray state out of its hook.
+  function addOverlay(args) { return slotMutations.addOverlay(args) }
+  function updateOverlayRange(overlayId, toBlockOrder) { return slotMutations.updateOverlayRange(overlayId, toBlockOrder) }
+
+  // T3 — selection + clipboard + paste + keyboard live in their own hook. It
+  // reads the week on screen (copy/select-all) and hands a pasted activity back
+  // to placeActivityManual (available above). Transient — reset() is called from
+  // the block below.
+  const {
+    selectedSlotKeys, clipboardItems, pasteMode, pasteModeIndex, pasteError,
+    handleCellSelect, clearSelection, cancelPaste, reset: resetClipboardSelection,
+  } = useClipboardSelection({ slots, activities, selectedGroup, placeActivityManual })
+
+  // Snapshots / versions CRUD + restore. It reads all route-scoped state from
+  // the T31 routeState (route, existingTemplates, templateId(For), the route
+  // data and setters) and persists through the T28 repo; only genuine
+  // cross-cluster wiring is injected directly.
+  const { saveSnapshot, deleteSnapshot, restoreSnapshot, renameSnapshot } = useSnapshots({
+    routeState, repo, setActionError,
+    recalcStats, resetUndoRedo,
+    groups, activities, days,
+  })
+
+  // Generation: generate / regenerate / place-anchors, over the repo + the pure
+  // engine. Route-scoped state comes from routeState (the route-explicit setters
+  // are built from its by-route setters inside the hook); the
+  // abort-on-failed-auto-snapshot behaviour lives in the hook.
+  const { generate, regenFromScratch, placeAnchors } = useGeneration({
+    routeState, repo, campId, setActionError, setGenerating,
+    resetUndoRedo, saveSnapshot, ensureTemplateRow,
+    setConfirmRegen, setSelectedGroup, statsFor,
+    groups, tiers, days, timeBlocks, activities, anchors,
+  })
 
   // The two routes are separate candidates, but they are ONE mounted component
   // (App.jsx maps both sidebar destinations to this screen), so anything held
@@ -208,118 +232,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const [transientRoute, setTransientRoute] = useState(route)
   if (transientRoute !== route) {
     setTransientRoute(route)
-    setUndoStack([])
-    setRedoStack([])
-    setClipboardItems([])
-    setPasteMode(false)
-    setPasteModeIndex(0)
-    setPasteError(null)
-    setSelectedSlotKeys(new Set())
+    resetUndoRedo()
+    resetClipboardSelection()
     setEditSlot(null)
-    setStampMode(null)
-    setFillState(null)
-    setDisplacedItems([])
+    resetOverlayFillStamp()
   }
-
-  useEffect(() => { loadAll() }, [campId])
-
-  // §7.3: Re-run the schedule after any op is applied — this covers conflict
-  // resolution (resolveConflict IPC → syncClient.write → server broadcasts
-  // op_applied → wireOpApplied → shoresh:op-applied) as well as ordinary
-  // writes from other devices. The op_applied event already fires naturally
-  // on those paths; we just need ScheduleScreen to react to it.
-  //
-  // This is best-effort / fire-and-forget: a failure in loadAll() surfaces
-  // via setLoadError (the screen's own error banner) rather than crashing
-  // the listener. The reload re-fetches all schedule data and calls
-  // recalcStats(), ensuring the ScheduleScreen's stats/flags reflect the
-  // post-resolution state of the DB.
-  useEffect(() => {
-    if (typeof localClient.onOpApplied !== 'function') return
-    const unsub = localClient.onOpApplied(() => { loadAll() })
-    return () => { unsub?.() }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // T3 — keyboard shortcuts: Ctrl+C (copy), Ctrl+A (select all), Escape
-  useEffect(() => {
-    function onKeyDown(e) {
-      const isMeta = e.ctrlKey || e.metaKey
-      if (e.key === 'Escape') {
-        if (pasteMode) {
-          setPasteMode(false)
-          setClipboardItems([])
-          setPasteModeIndex(0)
-        } else {
-          setSelectedSlotKeys(new Set())
-        }
-        return
-      }
-      if (isMeta && e.key === 'c') {
-        e.preventDefault()
-        if (selectedSlotKeys.size === 0) return
-        const items = []
-        for (const key of selectedSlotKeys) {
-          const [gId, dId, bId] = key.split('|')
-          const s = slots.find(sl => sl.group_id === gId && sl.day_id === dId && sl.time_block_id === bId)
-          if (!s || !s.activity_id) continue
-          const act = activities.find(a => a.id === s.activity_id)
-          items.push({ activityId: s.activity_id, activityName: act?.name || '' })
-        }
-        if (items.length === 0) return
-        setClipboardItems(items)
-        setPasteModeIndex(0)
-        setPasteMode(true)
-        setSelectedSlotKeys(new Set())
-      }
-      if (isMeta && e.key === 'a') {
-        e.preventDefault()
-        const newKeys = new Set()
-        for (const s of slots) {
-          if (s.is_anchor || !s.activity_id || s.is_span_head === false) continue
-          if (selectedGroup && s.group_id !== selectedGroup) continue
-          newKeys.add(`${s.group_id}|${s.day_id}|${s.time_block_id}`)
-        }
-        setSelectedSlotKeys(newKeys)
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [pasteMode, selectedSlotKeys, slots, activities, selectedGroup])
-
-  // T5 — undo/redo keyboard shortcuts: Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z
-  useEffect(() => {
-    function onKeyDown(e) {
-      const isMac = navigator.platform.toUpperCase().includes('MAC')
-      const ctrl = isMac ? e.metaKey : e.ctrlKey
-      if (!ctrl) return
-      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return
-      if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); handleUndo() }
-      if (e.key === 'y' || (e.key === 'z' && e.shiftKey)) { e.preventDefault(); handleRedo() }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [undoStack, redoStack])
-
-  useEffect(() => {
-    if (!fillState) return
-    function onPointerUp() {
-      const previewTo = fillState.previewToOrder
-      if (previewTo !== undefined) {
-        const overlay = overlays.find(o => o.id === fillState.overlayId)
-        if (overlay && previewTo !== overlay.to_block_order) {
-          updateOverlayRange(fillState.overlayId, previewTo)
-        }
-      }
-      setFillState(null)
-    }
-    window.addEventListener('pointerup', onPointerUp)
-    return () => window.removeEventListener('pointerup', onPointerUp)
-  // updateOverlayRange is redefined every render now that `overlays` is a
-  // derived, route-scoped value; listing it would re-bind the listener on
-  // every render for no behavioural gain. The values it reads are in the deps.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fillState, overlays])
 
   async function loadAll() {
     setLoading(true)
@@ -327,19 +244,14 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setTemplateError(null)
     let g, a, d
     try {
-      const [gd, td, bd, ad, ancd, tierd, cohd] = await Promise.all([
-        localClient.list('groups'),
-        localClient.list('days_of_operation'),
-        localClient.list('time_blocks'),
-        localClient.list('activities'),
-        localClient.list('anchor_activities'),
-        localClient.list('tiers'),
-        // Cohorts are not used to build a week, only to answer "is setup
-        // done" from the same source the sidebar and Camp Setup use. Without
-        // it this screen would report a Programs gap the setup screen does
-        // not — the exact disagreement getSetupGaps exists to end.
-        localClient.list('cohorts'),
-      ])
+      // Cohorts are not used to build a week, only to answer "is setup done"
+      // from the same source the sidebar and Camp Setup use. Without it this
+      // screen would report a Programs gap the setup screen does not — the exact
+      // disagreement getSetupGaps exists to end.
+      const {
+        groups: gd, days_of_operation: td, time_blocks: bd, activities: ad,
+        anchor_activities: ancd, tiers: tierd, cohorts: cohd,
+      } = await repo.loadSetupLists()
       g = [...(gd || [])].filter(x => x.camp_id === campId).sort((x, y) => x.name.localeCompare(y.name))
       const b = [...(bd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
       a = (ad || []).filter(x => x.camp_id === campId).map(normalizeActivityEligibility)
@@ -370,13 +282,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     // applied op, and a load that only refreshed the route on screen would
     // leave the other one showing whatever it held before the op arrived.
     try {
-      const templates = (await localClient.list('schedule_templates')) || []
-      const [slotData, overlayData, snapData] = await Promise.all([
-        localClient.list('template_slots'),
-        localClient.list('template_overlays'),
-        localClient.list('schedule_snapshots'),
-      ])
-      const allSlots = normalizeSlots(slotData)
+      const { templates, slots: allSlots, overlays: overlayData, snapshots: snapData } =
+        await repo.loadTemplateData()
 
       const exists = {}
       const nextTids = {}
@@ -431,6 +338,33 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setLoading(false)
   }
 
+  // Placed after loadAll's declaration so the reload effects reference an
+  // already-declared function (react-hooks/immutability). Function hoisting
+  // makes the runtime behaviour identical to declaring them at the top.
+  //
+  // Load-on-mount: loadAll() sets state from its own async body, which is the
+  // canonical data-fetch-on-mount pattern the set-state-in-effect rule allows
+  // an exception for.
+  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
+  useEffect(() => { loadAll() }, [campId])
+
+  // §7.3: Re-run the schedule after any op is applied — this covers conflict
+  // resolution (resolveConflict IPC → syncClient.write → server broadcasts
+  // op_applied → wireOpApplied → shoresh:op-applied) as well as ordinary
+  // writes from other devices. The op_applied event already fires naturally
+  // on those paths; we just need ScheduleScreen to react to it.
+  //
+  // This is best-effort / fire-and-forget: a failure in loadAll() surfaces
+  // via setLoadError (the screen's own error banner) rather than crashing
+  // the listener. The reload re-fetches all schedule data and calls
+  // recalcStats(), ensuring the ScheduleScreen's stats/flags reflect the
+  // post-resolution state of the DB.
+  useEffect(() => {
+    if (typeof localClient.onOpApplied !== 'function') return
+    const unsub = localClient.onOpApplied(() => { loadAll() })
+    return () => { unsub?.() }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   function statsFor(slotList) {
     return {
       open: slotList.filter(s => s.is_anchor === false).length,
@@ -452,234 +386,14 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   async function ensureTemplateRow(routeName) {
     if (existingTemplates[routeName]) return templateIdFor(routeName)
     const tid = deriveScheduleTemplateId(campId, routeName)
-    await writeFields('schedule_templates', tid, {
+    await repo.createScheduleTemplate(tid, {
       kind: routeName,
-      camp_id: campId,
+      campId,
       name: routeName === 'manual' ? 'Manual' : 'Generated',
     })
     setExistingTemplates(prev => ({ ...prev, [routeName]: true }))
     setTemplateIdByRoute(prev => ({ ...prev, [routeName]: tid }))
     return tid
-  }
-
-  // Writes ONLY to the generated candidate — the manual one is never read,
-  // moved or cleared here.
-  async function generate() {
-    setGenerating(true)
-    setUndoStack([])
-    setRedoStack([])
-
-    // Explicitly generated-route setters and generated-route DATA, not the
-    // current-route ones: this can be invoked from the first-run choice screen,
-    // and from a route offer whose onClick calls setRoute(r) immediately before
-    // — setRoute does not apply inside that handler, so `route` in closure is
-    // still the previous one. placeAnchors() is written the same way.
-    const setGenSlots = routeSetter(setSlotsByRoute, 'generated')
-    const setGenFindings = routeSetter(setFindingsByRoute, 'generated')
-    const setGenDismissed = routeSetter(setDismissedByRoute, 'generated')
-    const setGenOverlays = routeSetter(setOverlaysByRoute, 'generated')
-    const setGenStats = routeSetter(setStatsByRoute, 'generated')
-
-    const lockedActIds = new Set(activities.filter(a => a.is_locked).map(a => a.id))
-    const preplacedSlots = slotsByRoute.generated
-      .filter(s => s.activity_id && lockedActIds.has(s.activity_id) && !s.is_released && !s.is_anchor)
-      .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, activityId: s.activity_id }))
-
-    const result = buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId, preplacedSlots })
-    setGenFindings(result.findings || [])
-    setGenDismissed(new Set())
-
-    // ensureTemplateRow -> writeFields THROWS on any non-applied write (including
-    // the SCHEDULE_TEMPLATE_KIND_CONFLICT backstop in electron/ops/projections.js).
-    // generate() is invoked as a floating promise from the route offers, so an
-    // unguarded throw here would leave `generating` stuck true — a spinner that
-    // never resolves and no banner. Fail visibly instead.
-    let tid
-    try {
-      tid = await ensureTemplateRow('generated')
-    } catch {
-      setActionError('Could not open the generated schedule — nothing was changed. Try again, and tell support if it repeats.')
-      setGenerating(false)
-      return
-    }
-
-    if (slotsByRoute.generated.length > 0) {
-      try {
-        await saveSnapshot(null, true, 'generated')
-      } catch {
-        setActionError('Could not save undo point — regeneration cancelled')
-        setGenerating(false)
-        return
-      }
-    }
-
-    const token = localStorage.getItem('shoresh-token')
-
-    // Replace all slots in one transactional bulk_replace op
-    const rows = result.slots.map(s => ({
-      id: crypto.randomUUID(),
-      template_id: tid,
-      group_id: s.groupId,
-      day_id: s.dayId,
-      time_block_id: s.blockId,
-      activity_id: s.activityId,
-      anchor_id: s.anchorId,
-      is_anchor: s.type === 'anchor' ? '1' : '0',
-      is_span_head: s.is_span_head !== false ? '1' : '0',
-      flags: JSON.stringify(s.flags || {}),
-    }))
-
-    setActionError(null)
-    try {
-      // Clear overlays when regenerating (post-generation stamps are re-applied manually)
-      await localClient.bulkReplace(token, 'template_overlays', tid, [])
-      await localClient.bulkReplace(token, 'template_slots', tid, rows)
-    } catch (err) {
-      setActionError(
-        err?.message?.includes('admin role required')
-          ? 'Only an admin can regenerate the schedule'
-          : describeWriteFailure(err, 'That schedule could not be regenerated.')
-      )
-      setGenerating(false)
-      return
-    }
-    setGenOverlays([])
-
-    const freshSlots = normalizeSlots(await localClient.list('template_slots')).filter(s => s.template_id === tid)
-    setGenSlots(freshSlots)
-    setGenStats(statsFor(freshSlots))
-    setGenerating(false)
-  }
-
-  async function editSlotSave(newActivityId) {
-    if (!editSlot || !templateId) return
-    const { groupId, dayId, blockId } = editSlot
-    const slot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId)
-    if (!slot) return
-
-    const prevActivityId = slot.activity_id ?? null
-    const prevFlags = slot.flags ?? {}
-    const nextActivityId = newActivityId || null
-
-    setActionError(null)
-    try {
-      await writeFields('template_slots', slot.id, { activity_id: nextActivityId, flags: {} })
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That cell could not be saved.'))
-      return
-    }
-    setSlots(prev => prev.map(s =>
-      s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-        ? { ...s, activity_id: nextActivityId, flags: {} }
-        : s
-    ))
-    setEditSlot(null)
-
-    const actAfter = activities.find(a => a.id === nextActivityId)
-    const day = days.find(d => d.id === dayId)
-    const block = timeBlocks.find(b => b.id === blockId)
-    pushUndo({
-      description: `Changed to ${actAfter?.name ?? 'empty'} → ${day?.label ?? ''} ${block?.name ?? ''}`.replace(/\s+/g, ' ').trim(),
-      undo: async () => {
-        await writeFields('template_slots', slot.id, { activity_id: prevActivityId, flags: prevFlags })
-        setSlots(prev => prev.map(s =>
-          s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-            ? { ...s, activity_id: prevActivityId, flags: prevFlags }
-            : s
-        ))
-      },
-      redo: async () => {
-        await writeFields('template_slots', slot.id, { activity_id: nextActivityId, flags: {} })
-        setSlots(prev => prev.map(s =>
-          s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-            ? { ...s, activity_id: nextActivityId, flags: {} }
-            : s
-        ))
-      },
-    })
-  }
-
-  async function swapSlots(slotA, slotB) {
-    // slotA and slotB are { groupId, dayId, blockId, activityId }
-    if (!existingTemplates[route]) return
-    const rowA = slots.find(s => s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
-    const rowB = slots.find(s => s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
-    if (!rowA || !rowB) return
-    setActionError(null)
-    try {
-      await Promise.all([
-        writeFields('template_slots', rowA.id, { activity_id: slotB.activityId || null, flags: {} }),
-        writeFields('template_slots', rowB.id, { activity_id: slotA.activityId || null, flags: {} }),
-      ])
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'Those two cells could not be swapped.'))
-      return
-    }
-    setSlots(prev => prev.map(s => {
-      if (s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
-        return { ...s, activity_id: slotB.activityId || null, flags: {} }
-      if (s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
-        return { ...s, activity_id: slotA.activityId || null, flags: {} }
-      return s
-    }))
-
-    const actA = activities.find(a => a.id === slotA.activityId)
-    const actB = activities.find(a => a.id === slotB.activityId)
-    pushUndo({
-      description: `Swapped ${actA?.name ?? 'an empty cell'} ↔ ${actB?.name ?? 'an empty cell'}`,
-      undo: async () => {
-        await Promise.all([
-          writeFields('template_slots', rowA.id, { activity_id: slotA.activityId || null, flags: {} }),
-          writeFields('template_slots', rowB.id, { activity_id: slotB.activityId || null, flags: {} }),
-        ])
-        setSlots(prev => prev.map(s => {
-          if (s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
-            return { ...s, activity_id: slotA.activityId || null, flags: {} }
-          if (s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
-            return { ...s, activity_id: slotB.activityId || null, flags: {} }
-          return s
-        }))
-      },
-      redo: async () => {
-        await Promise.all([
-          writeFields('template_slots', rowA.id, { activity_id: slotB.activityId || null, flags: {} }),
-          writeFields('template_slots', rowB.id, { activity_id: slotA.activityId || null, flags: {} }),
-        ])
-        setSlots(prev => prev.map(s => {
-          if (s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
-            return { ...s, activity_id: slotB.activityId || null, flags: {} }
-          if (s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
-            return { ...s, activity_id: slotA.activityId || null, flags: {} }
-          return s
-        }))
-      },
-    })
-  }
-
-  async function dismissFlag(slotIds, flagName) {
-    const updates = slotIds.map(id => {
-      const slot = slots.find(s => s.id === id)
-      if (!slot) return null
-      const newFlags = { ...(slot.flags || {}), [`${flagName}_dismissed`]: true }
-      return { id, newFlags }
-    }).filter(Boolean)
-
-    setActionError(null)
-    try {
-      await Promise.all(updates.map(({ id, newFlags }) => writeFields('template_slots', id, { flags: newFlags })))
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That finding could not be set aside.'))
-      return
-    }
-
-    setSlots(prev => {
-      const next = prev.map(s => {
-        const u = updates.find(u => u.id === s.id)
-        return u ? { ...s, flags: u.newFlags } : s
-      })
-      recalcStats(next)
-      return next
-    })
   }
 
   // Findings (UNDERSERVED/DISTRIBUTION) are keyed by (groupId, activityId, kind)
@@ -693,381 +407,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       return next
     })
   }
-
-  async function lockActivity(activityId) {
-    setActionError(null)
-    try {
-      await writeFields('activities', activityId, { is_locked: true })
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That activity could not be locked.'))
-      return
-    }
-    setActivities(prev => prev.map(a => a.id === activityId ? { ...a, is_locked: true } : a))
-  }
-
-  async function releaseCell(slotId) {
-    setActionError(null)
-    try {
-      await writeFields('template_slots', slotId, { is_released: true })
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That cell could not be unlocked.'))
-      return
-    }
-    setSlots(prev => prev.map(s => s.id === slotId ? { ...s, is_released: true } : s))
-  }
-
-  async function addOverlay({ unitId, dayId, fromBlockOrder, toBlockOrder, label }) {
-    if (!existingTemplates[route]) return
-    if (!unitId) {
-      console.warn('addOverlay: group has no tier_id — cannot create overlay')
-      return
-    }
-    const id = crypto.randomUUID()
-    const overlay = { id, template_id: templateId, unit_id: unitId, day_id: dayId, from_block_order: fromBlockOrder, to_block_order: toBlockOrder, label }
-    setActionError(null)
-    try {
-      await writeFields('template_overlays', id, { template_id: templateId, unit_id: unitId, day_id: dayId, from_block_order: fromBlockOrder, to_block_order: toBlockOrder, label })
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That field trip could not be added.'))
-      return
-    }
-    setOverlays(prev => [...prev, overlay])
-  }
-
-  async function removeOverlay(overlayId) {
-    const token = localStorage.getItem('shoresh-token')
-    setActionError(null)
-    try {
-      const result = await localClient.deleteEntity(token, 'template_overlays', overlayId)
-      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error('delete failed')
-      }
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That field trip could not be removed.'))
-      return
-    }
-    setOverlays(prev => prev.filter(o => o.id !== overlayId))
-  }
-
-  async function updateOverlayRange(overlayId, toBlockOrder) {
-    setActionError(null)
-    try {
-      await writeFields('template_overlays', overlayId, { to_block_order: toBlockOrder })
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That field trip could not be updated.'))
-      return
-    }
-    setOverlays(prev => prev.map(o => o.id === overlayId ? { ...o, to_block_order: toBlockOrder } : o))
-  }
-
-  // routeName is explicit so generate()/placeAnchors() can snapshot the route
-  // they are building rather than whichever one happens to be on screen; every
-  // other caller is a user action on the visible route and defaults to it.
-  async function saveSnapshot(name, isAuto, routeName = route) {
-    if (!existingTemplates[routeName]) return
-    const tid = templateIdFor(routeName)
-    const setRouteSnapshots = routeSetter(setSnapshotsByRoute, routeName)
-    const snapSlots = slotsByRoute[routeName].map(s => ({
-      group_id: s.group_id,
-      day_id: s.day_id,
-      time_block_id: s.time_block_id,
-      activity_id: s.activity_id,
-      anchor_id: s.anchor_id,
-      is_anchor: s.is_anchor,
-      flags: s.flags || {},
-    }))
-    const id = crypto.randomUUID()
-    const createdAt = new Date().toISOString()
-    const snapOverlays = overlaysByRoute[routeName].map(o => ({ unit_id: o.unit_id, day_id: o.day_id, from_block_order: o.from_block_order, to_block_order: o.to_block_order, label: o.label }))
-    setActionError(null)
-    try {
-      await writeFields('schedule_snapshots', id, {
-        template_id: tid,
-        name: name || null,
-        is_auto: isAuto,
-        created_at: createdAt,
-        slots: JSON.stringify(snapSlots),
-        overlays: JSON.stringify(snapOverlays),
-      })
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That version could not be saved.'))
-      throw err
-    }
-    setRouteSnapshots(prev => [{ id, template_id: tid, name: name || null, is_auto: isAuto, created_at: createdAt, slots: JSON.stringify(snapSlots), overlays: JSON.stringify(snapOverlays), restorable: true }, ...prev])
-  }
-
-  // Deleting a version is the director's call, never an automatic cleanup.
-  // Every snapshot saved before the op-value coercion fix (af6a9d8) recorded no
-  // schedule data and shows as "Empty" — this is how those get cleared, one at a
-  // time, by a human who can see what they are removing.
-  //
-  // deleteEntity routes to a DELETE_FIELD write, which main.js gates to admin.
-  // A refused delete must surface: the row is still there, and saying otherwise
-  // would repeat the exact silent-no-op failure this ticket exists to fix.
-  async function deleteSnapshot(snapshotId) {
-    setActionError(null)
-    let result
-    try {
-      const token = localStorage.getItem('shoresh-token')
-      result = await localClient.deleteEntity(token, 'schedule_snapshots', snapshotId)
-    } catch (err) {
-      setActionError(
-        err?.message?.includes('admin role required')
-          ? 'Only an admin can delete a saved version'
-          : describeWriteFailure(err, 'That version could not be deleted.')
-      )
-      return
-    }
-    if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-      setActionError('That version could not be deleted. It is still in the list.')
-      return
-    }
-    setSnapshots(prev => prev.filter(s => s.id !== snapshotId))
-  }
-
-  async function restoreSnapshot(snapshot) {
-    if (!existingTemplates[route]) return
-    setUndoStack([])
-    setRedoStack([])
-    const fullSnap = (await localClient.list('schedule_snapshots')).find(s => s.id === snapshot.id)
-    const parsed = parseSnapshotPayload(fullSnap)
-    if (!parsed.ok) {
-      // Never a bare return: a restore that cannot proceed must say so. This
-      // failing silently is the whole of T8.
-      setActionError(unrestorableMessage(parsed.reason))
-      setSnapshots(prev => prev.map(s => s.id === snapshot.id ? { ...s, restorable: false } : s))
-      return
-    }
-    // restoreSnapshot re-stamps template_id from component state onto every
-    // row below. With two candidates per camp, restoring a version that belongs
-    // to the OTHER route would silently overwrite this route's entire week —
-    // so the version must be one of this route's before anything is written.
-    if (fullSnap.template_id !== templateId) {
-      setActionError('That saved version belongs to the other schedule. Switch to it to restore this version.')
-      return
-    }
-
-    fullSnap.slots = parsed.slots
-    fullSnap.overlays = parsed.overlays
-
-    const token = localStorage.getItem('shoresh-token')
-
-    const rows = fullSnap.slots.map(s => ({
-      id: crypto.randomUUID(),
-      template_id: templateId,
-      group_id: s.group_id,
-      day_id: s.day_id,
-      time_block_id: s.time_block_id,
-      activity_id: s.activity_id,
-      anchor_id: s.anchor_id,
-      is_anchor: s.is_anchor ? '1' : '0',
-      flags: JSON.stringify(s.flags || {}),
-    }))
-
-    const snapOverlays = fullSnap.overlays || []
-    const overlayRows = snapOverlays.map(o => ({
-      id: crypto.randomUUID(),
-      template_id: templateId,
-      unit_id: o.unit_id,
-      day_id: o.day_id,
-      from_block_order: o.from_block_order != null ? String(o.from_block_order) : null,
-      to_block_order: o.to_block_order != null ? String(o.to_block_order) : null,
-      label: o.label,
-    }))
-
-    setActionError(null)
-    try {
-      await localClient.bulkReplace(token, 'template_slots', templateId, rows)
-      // Restore overlays from snapshot
-      await localClient.bulkReplace(token, 'template_overlays', templateId, overlayRows)
-    } catch (err) {
-      setActionError(
-        err?.message?.includes('admin role required')
-          ? 'Only an admin can restore a version.'
-          : describeWriteFailure(err, 'That version could not be restored.')
-      )
-      return
-    }
-
-    const freshSlots = normalizeSlots(await localClient.list('template_slots')).filter(s => s.template_id === templateId)
-    setSlots(freshSlots)
-
-    const freshOverlays = (await localClient.list('template_overlays')).filter(o => o.template_id === templateId)
-    setOverlays(freshOverlays)
-
-    recalcStats(freshSlots)
-    setFindings(computeFindings({ slots: freshSlots, groups, activities, days }))
-    setDismissedFindingKeys(new Set())
-  }
-
-  async function renameSnapshot(snapshotId, newName) {
-    setActionError(null)
-    try {
-      await writeFields('schedule_snapshots', snapshotId, { name: newName, is_auto: false })
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That version could not be renamed.'))
-      return
-    }
-    setSnapshots(prev => prev.map(s => s.id === snapshotId ? { ...s, name: newName, is_auto: false } : s))
-  }
-
-  async function regenFromScratch() {
-    setConfirmRegen(false)
-    await generate()
-  }
-
-  // Starts the manual route's blank week: meals and fixed events already in
-  // place, every other cell empty. It writes ONLY to the manual candidate — the
-  // generated one is never read, moved or cleared here.
-  async function placeAnchors() {
-    setGenerating(true)
-    // Explicitly manual-route setters, not the current-route ones: this can be
-    // invoked from the first-run choice screen, where the route on screen is
-    // still whatever it defaulted to.
-    const setManualSlots = routeSetter(setSlotsByRoute, 'manual')
-    const setManualFindings = routeSetter(setFindingsByRoute, 'manual')
-    const setManualDismissed = routeSetter(setDismissedByRoute, 'manual')
-    const setManualOverlays = routeSetter(setOverlaysByRoute, 'manual')
-    const setManualStats = routeSetter(setStatsByRoute, 'manual')
-
-    const result = buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId, anchorsOnly: true })
-    setManualFindings(result.findings || [])
-    setManualDismissed(new Set())
-
-    // Same guard as generate(): a throw from ensureTemplateRow would otherwise
-    // strand `generating` at true with no error on screen.
-    let tid
-    try {
-      tid = await ensureTemplateRow('manual')
-    } catch {
-      setActionError('Could not open the manual schedule — nothing was changed. Try again, and tell support if it repeats.')
-      setGenerating(false)
-      return
-    }
-
-    if (slotsByRoute.manual.length > 0) {
-      try {
-        await saveSnapshot(null, true, 'manual')
-      } catch {
-        setActionError('Could not save undo point — regeneration cancelled')
-        setGenerating(false)
-        return
-      }
-    }
-
-    const token = localStorage.getItem('shoresh-token')
-
-    const rows = result.slots.map(s => ({
-      id: crypto.randomUUID(),
-      template_id: tid,
-      group_id: s.groupId,
-      day_id: s.dayId,
-      time_block_id: s.blockId,
-      activity_id: s.activityId,
-      anchor_id: s.anchorId,
-      is_anchor: s.type === 'anchor' ? '1' : '0',
-      is_span_head: s.is_span_head !== false ? '1' : '0',
-      flags: JSON.stringify(s.flags || {}),
-    }))
-
-    setActionError(null)
-    try {
-      await localClient.bulkReplace(token, 'template_overlays', tid, [])
-      await localClient.bulkReplace(token, 'template_slots', tid, rows)
-    } catch (err) {
-      setActionError(
-        err?.message?.includes('admin role required')
-          ? 'Only an admin can place anchors'
-          : describeWriteFailure(err, 'That anchors could not be placed.')
-      )
-      setGenerating(false)
-      return
-    }
-    setManualOverlays([])
-
-    const freshSlots = normalizeSlots(await localClient.list('template_slots')).filter(s => s.template_id === tid)
-    setManualSlots(freshSlots)
-    setManualStats(statsFor(freshSlots))
-    // Findings are shown the moment the blank week opens — every activity still
-    // under its weekly target, as an honest list of what the week owes you.
-    setManualFindings(computeFindings({ slots: freshSlots, groups, activities, days }))
-    setManualDismissed(new Set())
-    if (groups.length > 0) setSelectedGroup(prev => prev ?? groups[0].id)
-    setGenerating(false)
-  }
-
-  async function placeActivityManual(activityId, groupId, dayId, blockId) {
-    if (!existingTemplates[route]) return
-    const slot = getSlot(groupId, dayId, blockId)
-    if (!slot || slot.is_anchor) return
-
-    const activity = activities.find(a => a.id === activityId)
-    if (!activity) return
-
-    const group = groups.find(g => g.id === groupId)
-    const tierIds = activity.eligible_tier_ids || []
-    const groupIds = activity.eligible_group_ids || []
-    const eligible = (tierIds.length === 0 && groupIds.length === 0)
-      || tierIds.includes(group?.tier_id)
-      || groupIds.includes(groupId)
-
-    const coScheduled = slots.filter(s => s.day_id === dayId && s.time_block_id === blockId && s.activity_id === activityId).length
-    const locationFull = activity.max_groups_per_slot != null && coScheduled >= activity.max_groups_per_slot
-
-    // Weekly-max enforcement is ActivityPalette disabling the drag source —
-    // it's not a per-slot flag kind anymore (UNDERSERVED moved to
-    // buildSchedule()'s aggregate findings).
-    //
-    // On the MANUAL route the placement is always accepted: a director building
-    // their own week is never blocked and never has a placement silently
-    // corrected. An over-booking is surfaced instead, as a derived OVERLAP
-    // marker computed from the week on screen (src/utils/computeOverlaps.js),
-    // and there is no UNFILLABLE here at all — an empty cell is simply not
-    // filled yet. On the generated route the existing behaviour is unchanged.
-    const flags = {}
-    if (route !== 'manual' && (!eligible || locationFull)) flags.UNFILLABLE = true
-
-    const prevActivityId = slot.activity_id ?? null
-    const prevFlags = slot.flags ?? {}
-
-    setActionError(null)
-    try {
-      await writeFields('template_slots', slot.id, { activity_id: activityId, flags })
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That activity could not be placed.'))
-      return
-    }
-
-    setSlots(prev => prev.map(s =>
-      s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-        ? { ...s, activity_id: activityId, flags }
-        : s
-    ))
-
-    const day = days.find(d => d.id === dayId)
-    const block = timeBlocks.find(b => b.id === blockId)
-    pushUndo({
-      description: `Placed ${activity.name} → ${group?.name ?? groupId} ${day?.label ?? dayId} ${block?.name ?? blockId}`,
-      undo: async () => {
-        await writeFields('template_slots', slot.id, { activity_id: prevActivityId, flags: prevFlags })
-        setSlots(prev => prev.map(s =>
-          s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-            ? { ...s, activity_id: prevActivityId, flags: prevFlags }
-            : s
-        ))
-      },
-      redo: async () => {
-        await writeFields('template_slots', slot.id, { activity_id: activityId, flags })
-        setSlots(prev => prev.map(s =>
-          s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-            ? { ...s, activity_id: activityId, flags }
-            : s
-        ))
-      },
-    })
-  }
-
-
 
   // Group-view DnD: covers both expand-drag (ExpandHandle) and palette drops.
   // DndContext for group view lives in ScheduleScreen so the sidebar palette chips
@@ -1097,7 +436,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       if (!headBlock || !tailBlock) return
       if (tailBlock.sort_order !== headBlock.sort_order + 1) return
 
-      const tailSlot = getSlot(groupId, dayId, tailBlockId)
+      const tailSlot = getSlot(slots, groupId, dayId, tailBlockId)
       if (!tailSlot || !tailSlot.activity_id || tailSlot.is_anchor) return
 
       const tailActivity = actMap.get(tailSlot.activity_id)
@@ -1112,7 +451,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       const dayId = d.dayId ?? d.slot?.dayId
       const blockId = d.blockId ?? d.slot?.blockId
       if (!groupId || !dayId || !blockId) return
-      const targetSlot = getSlot(groupId, dayId, blockId)
+      const targetSlot = getSlot(slots, groupId, dayId, blockId)
       if (targetSlot?.is_anchor) return
       placeActivityManual(paletteActivity.id, groupId, dayId, blockId)
     }
@@ -1146,7 +485,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       if (!headBlock || !tailBlock) return
       if (tailBlock.sort_order !== headBlock.sort_order + 1) return
 
-      const tailSlot = getSlot(groupId, dayId, tailBlockId)
+      const tailSlot = getSlot(slots, groupId, dayId, tailBlockId)
       if (!tailSlot || !tailSlot.activity_id || tailSlot.is_anchor) return
 
       const tailActivity = actMap.get(tailSlot.activity_id)
@@ -1161,7 +500,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       const dayId = d.dayId ?? d.slot?.dayId
       const blockId = d.blockId ?? d.slot?.blockId
       if (!groupId || !dayId || !blockId) return
-      const targetSlot = getSlot(groupId, dayId, blockId)
+      const targetSlot = getSlot(slots, groupId, dayId, blockId)
       if (targetSlot?.is_anchor) return
       placeActivityManual(paletteActivity.id, groupId, dayId, blockId)
       return
@@ -1179,257 +518,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     )
   }
 
-  async function expandSlot(groupId, dayId, headBlockId, tailBlockId, tailActivityId, tailActivityName, tailBlockName, dayLabel) {
-    if (!existingTemplates[route]) return
-    const headSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-    const tailSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-    if (!headSlot || !tailSlot) return
-
-    const headActivityId = headSlot.activity_id
-    const existingFlags = headSlot.flags || {}
-    const newFlags = {
-      ...existingFlags,
-      expanded: {
-        displacedActivityId: tailActivityId,
-        displacedActivityName: tailActivityName,
-        from_block: tailBlockId,
-      },
-    }
-
-    setActionError(null)
-    try {
-      // Update tail slot: now owned by head activity, marked as tail (is_span_head = false)
-      await writeFields('template_slots', tailSlot.id, { activity_id: headActivityId, is_span_head: false })
-
-      // Write flag to head slot
-      await writeFields('template_slots', headSlot.id, { flags: newFlags })
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That activity could not be made longer.'))
-      return
-    }
-
-    // Update local state
-    setSlots(prev => prev.map(s => {
-      if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId) {
-        return { ...s, activity_id: headActivityId, is_span_head: false }
-      }
-      if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId) {
-        return { ...s, flags: newFlags }
-      }
-      return s
-    }))
-
-    // Add displaced activity to palette
-    if (tailActivityId) {
-      setDisplacedItems(prev => [
-        ...prev,
-        {
-          activityId: tailActivityId,
-          activityName: tailActivityName,
-          fromBlockName: tailBlockName,
-          dayLabel,
-        },
-      ])
-    }
-
-    const prevHeadFlags = headSlot.flags ?? {}
-    const prevTailActivityId = tailSlot.activity_id ?? null
-    pushUndo({
-      description: `Made ${headActivityId ? actMap.get(headActivityId)?.name ?? 'an activity' : 'an activity'} run longer → ${tailBlockName} ${dayLabel}`,
-      undo: async () => {
-        await writeFields('template_slots', tailSlot.id, { activity_id: prevTailActivityId, is_span_head: true })
-        await writeFields('template_slots', headSlot.id, { flags: prevHeadFlags })
-        setSlots(prev => prev.map(s => {
-          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-            return { ...s, activity_id: prevTailActivityId, is_span_head: true }
-          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-            return { ...s, flags: prevHeadFlags }
-          return s
-        }))
-        if (tailActivityId) setDisplacedItems(prev => prev.filter(i => !(i.activityId === tailActivityId && i.fromBlockName === tailBlockName)))
-      },
-      redo: async () => {
-        await writeFields('template_slots', tailSlot.id, { activity_id: headActivityId, is_span_head: false })
-        await writeFields('template_slots', headSlot.id, { flags: newFlags })
-        setSlots(prev => prev.map(s => {
-          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-            return { ...s, activity_id: headActivityId, is_span_head: false }
-          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-            return { ...s, flags: newFlags }
-          return s
-        }))
-        if (tailActivityId) {
-          setDisplacedItems(prev => [...prev, { activityId: tailActivityId, activityName: tailActivityName, fromBlockName: tailBlockName, dayLabel }])
-        }
-      },
-    })
-  }
-
-  function dismissDisplaced(activityId, fromBlockName) {
-    setDisplacedItems(prev => prev.filter(
-      item => !(item.activityId === activityId && item.fromBlockName === fromBlockName)
-    ))
-  }
-
-  // T5 — undo/redo helpers
-  function pushUndo(entry) {
-    setUndoStack(prev => {
-      const next = [...prev, entry]
-      return next.length > 50 ? next.slice(next.length - 50) : next
-    })
-    setRedoStack([])
-  }
-
-  async function handleUndo() {
-    if (undoStack.length === 0) return
-    const entry = undoStack[undoStack.length - 1]
-    try {
-      await entry.undo()
-      setUndoStack(prev => prev.slice(0, -1))
-      setRedoStack(prev => [...prev, entry])
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That undo could not be applied.'))
-    }
-  }
-
-  async function handleRedo() {
-    if (redoStack.length === 0) return
-    const entry = redoStack[redoStack.length - 1]
-    try {
-      await entry.redo()
-      setRedoStack(prev => prev.slice(0, -1))
-      setUndoStack(prev => [...prev, entry])
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That redo could not be applied.'))
-    }
-  }
-
-  // T4 — split a merged span back into two independent slots
-  async function splitSlot(groupId, dayId, headBlockId) {
-    if (!existingTemplates[route]) return
-    const headSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-    if (!headSlot || !headSlot.flags?.expanded) return
-
-    const { displacedActivityId, displacedActivityName, from_block: tailBlockId } = headSlot.flags.expanded
-    const tailSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-    if (!tailSlot) return
-
-    const cleanedFlags = { ...headSlot.flags }
-    delete cleanedFlags.expanded
-
-    setActionError(null)
-    try {
-      await writeFields('template_slots', tailSlot.id, { activity_id: null, is_span_head: true, flags: {} })
-      await writeFields('template_slots', headSlot.id, { flags: cleanedFlags })
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That activity could not be split back into two.'))
-      return
-    }
-
-    setSlots(prev => prev.map(s => {
-      if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-        return { ...s, activity_id: null, is_span_head: true, flags: {} }
-      if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-        return { ...s, flags: cleanedFlags }
-      return s
-    }))
-
-    const prevHeadFlags = headSlot.flags
-    const prevTailActivityId = tailSlot.activity_id ?? null
-    const prevTailIsSpanHead = tailSlot.is_span_head
-
-    if (displacedActivityId && displacedActivityName) {
-      const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
-      const day = days.find(d => d.id === dayId)
-      setDisplacedItems(prev => [
-        ...prev,
-        {
-          activityId: displacedActivityId,
-          activityName: displacedActivityName,
-          fromBlockName: tailBlock?.name ?? '',
-          dayLabel: day?.label ?? '',
-        },
-      ])
-    }
-
-    pushUndo({
-      // T18: was `Split merged slot ${headBlockId}` — a raw uuid in a tooltip.
-      description: (() => {
-        const headBlock = timeBlocks.find(b => b.id === headBlockId)
-        const dayLabel = days.find(d => d.id === dayId)?.label
-        const where = [dayLabel, headBlock?.name].filter(Boolean).join(' ')
-        return where ? `Split back into two → ${where}` : 'Split back into two'
-      })(),
-      undo: async () => {
-        await writeFields('template_slots', tailSlot.id, { activity_id: prevTailActivityId, is_span_head: prevTailIsSpanHead ?? false, flags: tailSlot.flags ?? {} })
-        await writeFields('template_slots', headSlot.id, { flags: prevHeadFlags })
-        setSlots(prev => prev.map(s => {
-          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-            return { ...s, activity_id: prevTailActivityId, is_span_head: prevTailIsSpanHead ?? false }
-          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-            return { ...s, flags: prevHeadFlags }
-          return s
-        }))
-        if (displacedActivityId) {
-          const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
-          setDisplacedItems(prev => prev.filter(i => !(i.activityId === displacedActivityId && i.fromBlockName === (tailBlock?.name ?? ''))))
-        }
-      },
-      redo: async () => {
-        await writeFields('template_slots', tailSlot.id, { activity_id: null, is_span_head: true, flags: {} })
-        await writeFields('template_slots', headSlot.id, { flags: cleanedFlags })
-        setSlots(prev => prev.map(s => {
-          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-            return { ...s, activity_id: null, is_span_head: true, flags: {} }
-          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-            return { ...s, flags: cleanedFlags }
-          return s
-        }))
-      },
-    })
-  }
-
   // T3 — cell selection (single and multi) and paste mode
   function handleSelectGroup(groupId) {
     setSelectedGroup(groupId)
-    setSelectedSlotKeys(new Set())
-  }
-
-  function handleCellSelect(slot, e) {
-    if (pasteMode) {
-      handlePasteClick(slot)
-      return
-    }
-    const key = `${slot.groupId}|${slot.dayId}|${slot.blockId}`
-    if (e?.ctrlKey || e?.metaKey) {
-      setSelectedSlotKeys(prev => {
-        const next = new Set(prev)
-        if (next.has(key)) next.delete(key)
-        else next.add(key)
-        return next
-      })
-    } else {
-      setSelectedSlotKeys(new Set([key]))
-    }
-  }
-
-  async function handlePasteClick(slot) {
-    if (slot.is_anchor || slot.is_span_head === false) {
-      setPasteError('You cannot paste onto a fixed event, or onto the second half of an activity that runs across two periods.')
-      setTimeout(() => setPasteError(null), 2000)
-      return
-    }
-    const item = clipboardItems[pasteModeIndex]
-    if (!item) return
-    await placeActivityManual(item.activityId, slot.groupId, slot.dayId, slot.blockId)
-    const nextIndex = pasteModeIndex + 1
-    if (nextIndex >= clipboardItems.length) {
-      setPasteMode(false)
-      setClipboardItems([])
-      setPasteModeIndex(0)
-    } else {
-      setPasteModeIndex(nextIndex)
-    }
+    clearSelection()
   }
 
   // Always count flags camp-wide so badges don't change value when switching views
@@ -1538,124 +630,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const actMap = new Map(activities.map(a => [a.id, { ...a, colorIdx: a.id }]))
   const anchorMap = new Map(anchors.map(a => [a.id, a]))
 
-  function getSlot(groupId, dayId, blockId) {
-    return slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId)
-  }
-
-  // Returns true if this slot is a tail block of a multi-block anchor
-  // (i.e., the previous block for this group+day has the same anchor_id)
-  function isAnchorTail(groupId, dayId, blockId) {
-    const slot = getSlot(groupId, dayId, blockId)
-    if (!slot?.is_anchor || !slot?.anchor_id) return false
-    const blockIdx = timeBlocks.findIndex(b => b.id === blockId)
-    if (blockIdx <= 0) return false
-    const prevSlot = getSlot(groupId, dayId, timeBlocks[blockIdx - 1].id)
-    return Boolean(prevSlot?.is_anchor && prevSlot?.anchor_id === slot.anchor_id)
-  }
-
-  // Returns how many consecutive blocks share the same anchor_id starting at blockId
-  function getAnchorRowSpan(groupId, dayId, blockId) {
-    const slot = getSlot(groupId, dayId, blockId)
-    if (!slot?.is_anchor || !slot?.anchor_id) return 1
-    const startIdx = timeBlocks.findIndex(b => b.id === blockId)
-    if (startIdx === -1) return 1
-    let span = 1
-    for (let i = startIdx + 1; i < timeBlocks.length; i++) {
-      const nextSlot = getSlot(groupId, dayId, timeBlocks[i].id)
-      if (nextSlot?.is_anchor && nextSlot?.anchor_id === slot.anchor_id) {
-        span++
-      } else {
-        break
-      }
-    }
-    return span
-  }
-
-  function isActivityTail(groupId, dayId, blockId) {
-    const slot = getSlot(groupId, dayId, blockId)
-    if (slot?.is_anchor || !slot?.activity_id) return false
-    return slot.is_span_head === false
-  }
-
-  function getActivityRowSpan(groupId, dayId, blockId) {
-    const slot = getSlot(groupId, dayId, blockId)
-    if (!slot?.activity_id || slot.is_anchor) return 1
-    const startIdx = timeBlocks.findIndex(b => b.id === blockId)
-    if (startIdx === -1) return 1
-    let span = 1
-    for (let i = startIdx + 1; i < timeBlocks.length; i++) {
-      const nextSlot = getSlot(groupId, dayId, timeBlocks[i].id)
-      if (nextSlot?.activity_id === slot.activity_id && nextSlot.is_span_head === false) {
-        span++
-      } else {
-        break
-      }
-    }
-    return span
-  }
-
-  // Returns the overlay object if an overlay covers this (group, day, block), else null
-  function overlayForCell(groupId, dayId, blockId) {
-    const group = groups.find(g => g.id === groupId)
-    const block = timeBlocks.find(b => b.id === blockId)
-    if (!group || !block) return null
-    return overlays.find(o => {
-      const effectiveTo = (fillState?.overlayId === o.id && fillState.previewToOrder !== undefined)
-        ? fillState.previewToOrder
-        : o.to_block_order
-      return (
-        o.unit_id === group.tier_id &&
-        o.day_id === dayId &&
-        block.sort_order >= o.from_block_order &&
-        block.sort_order <= effectiveTo
-      )
-    }) || null
-  }
-
-  // Returns true if this block is the FIRST block of an overlay (render the OverlayCell here)
-  function isOverlayHead(groupId, dayId, blockId) {
-    const group = groups.find(g => g.id === groupId)
-    const block = timeBlocks.find(b => b.id === blockId)
-    if (!group || !block) return false
-    const overlay = overlayForCell(groupId, dayId, blockId)
-    if (!overlay) return false
-    return block.sort_order === overlay.from_block_order
-  }
-
-  // Returns the rowSpan for an overlay starting at this block (uses live preview during fill drag)
-  function getOverlayRowSpan(overlay) {
-    const effectiveTo = (fillState?.overlayId === overlay.id && fillState.previewToOrder !== undefined)
-      ? fillState.previewToOrder
-      : overlay.to_block_order
-    return timeBlocks.filter(b => b.sort_order >= overlay.from_block_order && b.sort_order <= effectiveTo).length
-  }
-
-  async function handleStampClick(groupId, dayId, blockId) {
-    if (!stampMode) return
-    const group = groups.find(g => g.id === groupId)
-    const block = timeBlocks.find(b => b.id === blockId)
-    if (!group || !block) return
-    await addOverlay({
-      unitId: group.tier_id,
-      dayId,
-      fromBlockOrder: block.sort_order,
-      toBlockOrder: block.sort_order,
-      label: stampMode,
-    })
-  }
-
-  function startFill(overlay) {
-    setFillState({ overlayId: overlay.id, previewToOrder: overlay.to_block_order })
-  }
-
-  function handleFillEnter(blockSortOrder) {
-    if (!fillState) return
-    const overlay = overlays.find(o => o.id === fillState.overlayId)
-    if (!overlay) return
-    if (blockSortOrder >= overlay.from_block_order) {
-      setFillState(prev => ({ ...prev, previewToOrder: blockSortOrder }))
-    }
-  }
+  // Grid geometry (getSlot / tails / rowspans / overlays) lives in the pure
+  // ./schedule/gridGeometry module. Bind the current data once so the views and
+  // the handlers below call the readers with just a cell coordinate.
+  const geometry = makeGridGeometry({ slots, timeBlocks, groups, overlays, fillState })
 
   // One required set, shared with the sidebar. This used to be an
   // inline check of a different four areas — see src/engine/readiness.js.
@@ -1982,7 +960,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               : `⊡ ${clipboardItems.length - pasteModeIndex} of ${clipboardItems.length} to paste — click a cell to place "${clipboardItems[pasteModeIndex]?.activityName}"`}
           </span>
           <button
-            onClick={() => { setPasteMode(false); setClipboardItems([]); setPasteModeIndex(0) }}
+            onClick={cancelPaste}
             style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-secondary)', fontSize: 11, fontFamily: 'inherit', padding: 0 }}
           >Esc to cancel</button>
         </div>
@@ -2046,9 +1024,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onSelectGroup={handleSelectGroup}
                 actMap={actMap}
                 anchorMap={anchorMap}
-                isAnchorTail={isAnchorTail}
-                getAnchorRowSpan={getAnchorRowSpan}
-                getSlot={getSlot}
+                geometry={geometry}
                 onEditSlot={setEditSlot}
                 onExpandSlot={expandSlot}
                 onSplitSlot={splitSlot}
@@ -2070,20 +1046,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 actMap={actMap}
                 anchorMap={anchorMap}
                 releaseCell={releaseCell}
-                overlayForCell={overlayForCell}
-                isOverlayHead={isOverlayHead}
-                getOverlayRowSpan={getOverlayRowSpan}
-                isAnchorTail={isAnchorTail}
-                getAnchorRowSpan={getAnchorRowSpan}
-                isActivityTail={isActivityTail}
-                getActivityRowSpan={getActivityRowSpan}
+                geometry={geometry}
                 handleFillEnter={handleFillEnter}
                 startFill={startFill}
                 removeOverlay={removeOverlay}
                 handleStampClick={handleStampClick}
                 onEditSlot={setEditSlot}
                 fillState={fillState}
-                getSlot={getSlot}
                 onExpandSlot={expandSlot}
                 onSplitSlot={splitSlot}
                 isExpandDragActive={isGroupExpandDragActive}
@@ -2107,20 +1076,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 anchorMap={anchorMap}
                 lockActivity={lockActivity}
                 releaseCell={releaseCell}
-                overlayForCell={overlayForCell}
-                isOverlayHead={isOverlayHead}
-                getOverlayRowSpan={getOverlayRowSpan}
-                isAnchorTail={isAnchorTail}
-                getAnchorRowSpan={getAnchorRowSpan}
-                isActivityTail={isActivityTail}
-                getActivityRowSpan={getActivityRowSpan}
+                geometry={geometry}
                 handleFillEnter={handleFillEnter}
                 startFill={startFill}
                 removeOverlay={removeOverlay}
                 handleStampClick={handleStampClick}
                 onEditSlot={setEditSlot}
                 fillState={fillState}
-                getSlot={getSlot}
                 isExpandDragActive={isDayExpandDragActive}
               />
             )}
