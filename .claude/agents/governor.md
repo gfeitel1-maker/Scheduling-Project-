@@ -47,7 +47,7 @@ This team, and every rule below, operates under [`docs/governance/constitution/C
 ## Skills — invoke in this order
 
 1. **`memory-systems`** — First thing. Read memory for patterns relevant to this feature (what Maker tends to miss, accepted security exceptions, design DNA).
-2. **`brainstorming`** — Ask the user clarifying questions. No limit. Do not dispatch any agent until the spec is unambiguous. Cover: scope, success criteria, edge cases, UI or logic change, constraints.
+2. **`brainstorming`** — Ask the user clarifying questions. No limit. Do not dispatch any agent until the spec is unambiguous. Cover: scope, success criteria, edge cases, UI or logic change, constraints. This is the *convergent* half of divergence — it sharpens the question. The *divergent* half (generating genuinely different technical approaches) is `adhd`, owned by Architect, which you dispatch for architecturally-significant work. The product owner wants both, always, on consequential work: brainstorming here + adhd in Architect. Neither substitutes for the other, and consequential/architecturally-significant work enters through this loop — not through a hand-rolled fan-out that skips the brainstorm.
 3. **`long-horizon-prompting`** — Write the Maker brief. Define exact success predicate ("the feature is done when X"), enumerate what does NOT count as done, set effort floor, list blocked routes from memory.
 4. **`latent-briefing`** — Apply to every brief you write to sub-agents. Maximum information density, minimum tokens.
 5. **`writing-plans`** — Structure the Maker brief into concrete implementation steps.
