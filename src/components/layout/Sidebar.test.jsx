@@ -49,6 +49,15 @@ function renderSidebar(props = {}) {
 }
 
 describe('Sidebar: the three sections', () => {
+  it('does not list Programs, because every camp is given one', async () => {
+    // Product owner, 2026-08-01: "hide programs from the sidebar and
+    // auto-create main." A row a director can only ever look at is a question
+    // they should not be asked.
+    renderSidebar()
+    await waitFor(() => expect(screen.getByText('Camp Set Up')).toBeTruthy())
+    expect(screen.queryByText('Programs')).toBeNull()
+  })
+
   it('shows Camp Set Up, Schedule and System', async () => {
     renderSidebar()
     await waitFor(() => expect(screen.getByText('Camp Set Up')).toBeTruthy())
@@ -115,7 +124,7 @@ describe('Sidebar: collapsing never hides a problem', () => {
     fireEvent.click(screen.getByText('Camp Set Up').closest('button'))
 
     expect(screen.queryByText('Days')).toBeNull()
-    expect(screen.getByText('4 / 6')).toBeTruthy()
+    expect(screen.getByText('3 / 5')).toBeTruthy()
   })
 
   it('rolls the conflicts badge up to a collapsed System header', async () => {

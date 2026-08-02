@@ -190,6 +190,11 @@ export const mockShoresh = {
   },
   // The browser dev server has no Electron and no LAN. Reporting 'standalone'
   // is the truthful answer here, not a placeholder.
+  // The browser mock has no database. Refusing is honest — an import that
+  // reported success at :5200 would look verified when nothing was written.
+  async ingestCommit() {
+    throw new Error('Importing needs the installed app, not the browser preview.')
+  },
   async getSyncStatus() {
     return { mode: null, connected: false, state: 'standalone' }
   },

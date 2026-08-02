@@ -26,6 +26,12 @@ describe('getSetupGaps: what actually blocks building a week', () => {
     expect(getSetupGaps(FULL)).toEqual([])
   })
 
+  it('never names Programs as a gap, whatever it is handed', () => {
+    for (const input of [{}, undefined, { ...FULL, cohorts: [] }]) {
+      expect(getSetupGaps(input).map((g) => g.key)).not.toContain('cohorts')
+    }
+  })
+
   it('names Days, and only Days, when days are the only thing missing', () => {
     const gaps = getSetupGaps({ ...FULL, days: [] })
     expect(gaps).toHaveLength(1)
@@ -34,11 +40,11 @@ describe('getSetupGaps: what actually blocks building a week', () => {
     expect(gaps[0].screen).toBe('days')
   })
 
-  it('counts Programs as required even though the engine never reads cohorts', () => {
-    // Three setup screens gate data entry on an active cohort, so without one
-    // the director cannot proceed — the schedule would build and be useless.
-    const gaps = getSetupGaps({ ...FULL, cohorts: [] })
-    expect(gaps.map((g) => g.key)).toEqual(['cohorts'])
+  it('does not count Programs, because every camp is given one', () => {
+    // ensureCohort creates "Main" the first time a camp is seen, so a missing
+    // program is not a state a director can be in — and asking them about it
+    // was a question with one possible answer.
+    expect(getSetupGaps({ ...FULL, cohorts: [] })).toEqual([])
   })
 
   it('counts Units as required even though buildSchedule discards the tiers argument', () => {
@@ -60,14 +66,14 @@ describe('getSetupGaps: what actually blocks building a week', () => {
 
   it('reports every missing area at once, in setup order', () => {
     const gaps = getSetupGaps({ cohorts: [], tiers: [], groups: [], days: [], timeBlocks: [], activities: [] })
-    expect(gaps.map((g) => g.key)).toEqual(['cohorts', 'tiers', 'groups', 'days', 'timeblocks', 'activities'])
+    expect(gaps.map((g) => g.key)).toEqual(['tiers', 'groups', 'days', 'timeblocks', 'activities'])
   })
 
   it('treats a missing argument the same as an empty one', () => {
     // Callers load these asynchronously; undefined during load must not read
-    // as "present". Six gaps, not a crash.
-    expect(getSetupGaps({})).toHaveLength(6)
-    expect(getSetupGaps(undefined)).toHaveLength(6)
+    // as "present". Five gaps, not a crash.
+    expect(getSetupGaps({})).toHaveLength(5)
+    expect(getSetupGaps(undefined)).toHaveLength(5)
   })
 
   it('gives every gap a message a director can act on', () => {
@@ -78,8 +84,8 @@ describe('getSetupGaps: what actually blocks building a week', () => {
     }
   })
 
-  it('exposes exactly six required areas and two optional ones', () => {
-    expect(REQUIRED_AREAS).toHaveLength(6)
+  it('exposes exactly five required areas and two optional ones', () => {
+    expect(REQUIRED_AREAS).toHaveLength(5)
     expect(OPTIONAL_AREAS).toHaveLength(2)
     // The two must not overlap; an area that is both is the bug this replaces.
     const required = new Set(REQUIRED_AREAS.map((a) => a.key))

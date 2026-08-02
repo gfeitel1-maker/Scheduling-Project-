@@ -2,10 +2,10 @@
 title: "Ingesting a prior-year schedule to populate setup"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-08-01
 supersedes: []
-implementation_state: not-started
+implementation_state: implemented
 affects:
   - docs/work/tickets/T16-ingest-prior-year-schedule.md
   - docs/work/specs/2026-07-30-prior-year-schedule-ingestion-design.md
@@ -13,10 +13,9 @@ affects:
 
 # Ingesting a prior-year schedule to populate setup
 
-**Status: PROPOSED. This needs product-owner approval before implementation begins** —
-`GOVERNANCE_INDEX.md` puts ingestion in the Database/sync row, whose gate is "ADR +
-migration/rollback plan". The three questions this depended on were answered on 2026-08-01; this
-is the remaining gate.
+**Status: ACCEPTED by the product owner, 2026-08-01**, who also instructed implementation to
+begin. `GOVERNANCE_INDEX.md` puts ingestion in the Database/sync row, whose gate is "ADR +
+migration/rollback plan"; both are here and the gate is cleared.
 
 Resolves the design question behind [T16](../work/tickets/T16-ingest-prior-year-schedule.md).
 The analysis is in
@@ -132,8 +131,22 @@ Measured from the two real files, not assumed:
 - **Camp A interleaves non-schedule rows** ("11:10–11:20 Change") among the blocks. These must not
   become time blocks.
 
-Entities are recoverable from structure alone: the header row, the time column, and the distinct
-cell values. That is the whole extraction — no placement inference is needed for the agreed scope,
+**The bunk names encode the units, and this document said otherwise.** §7 originally recorded
+that neither layout carries units, so `tiers` was proposed empty. That was wrong: 29 of Camp A's
+33 page titles read `Unit - Bunk` — "Adom 4's - Matzo Balls", "Maccabiah- Rookies", "Omanut-
+Chagalls" — which yields 13 units and files 29 bunks under them. Product owner spotted it on
+2026-08-01: *"camp A — this would be one with many programs and units within those."*
+
+The cost of the error was the whole point of the feature for a large camp: 13 units to type in
+and 33 bunks to file by hand. Corrected — units are proposed, bunks carry their short name where
+that is unambiguous, and the link is written in the same transaction. A bunk whose title has no
+separator stays unfiled, which is a real shape rather than a parse failure.
+
+**Programs genuinely are absent.** Nothing in a weekly grid says which session it belongs to, so
+`cohorts` remains empty for the director to fill in.
+
+Entities are recoverable from structure alone: the header row, the time column, the page titles,
+and the distinct cell values. That is the whole extraction — no placement inference is needed for the agreed scope,
 which is why §2's boundary also makes the parser markedly simpler.
 
 ## Consequences

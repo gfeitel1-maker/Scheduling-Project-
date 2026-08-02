@@ -41,7 +41,10 @@ export default defineConfig([
     // run under Node, not the browser — so Node globals (Buffer, process,
     // require, setImmediate, …) are legitimately defined. Merge them on top of
     // the browser globals.
-    files: ['electron/**/*.js', 'scripts/**/*.js', '**/*.test.{js,jsx}'],
+    // test/integration/**/*.js are Node scripts too — they are not named
+    // *.test.js because they are driven by test/integration/run.js rather than
+    // by Vitest, which left them outside the node globals until 2026-08-01.
+    files: ['electron/**/*.js', 'scripts/**/*.js', 'test/**/*.js', '**/*.test.{js,jsx}'],
     languageOptions: {
       globals: globals.node,
     },
