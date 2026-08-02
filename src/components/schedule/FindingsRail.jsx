@@ -49,15 +49,22 @@ export default function FindingsRail({ rows, onDismiss, onLocate, onClose, intro
               </div>
               <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>{row.locator}</div>
             </div>
-            <button
-              onClick={() => onDismiss(row)}
-              title="Dismiss"
-              style={{
-                fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)',
-                background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px',
-                fontFamily: 'inherit', flexShrink: 0,
-              }}
-            >×</button>
+            {/* "Accept" is the Word track-changes verb: I've seen this and I
+                can live with it — hide it. It IS the old dismiss, relabelled so
+                the action reads as a decision, not a deletion. OVERLAP (manual
+                only) has nothing to accept — it clears when a clashing
+                placement moves — so it shows no button. */}
+            {row.kind !== 'OVERLAP' && (
+              <button
+                onClick={() => onDismiss(row)}
+                title="I can live with this — hide it"
+                style={{
+                  fontSize: 11, fontWeight: 600, color: 'var(--text-secondary)',
+                  background: 'none', border: '1px solid var(--border)', borderRadius: 5,
+                  cursor: 'pointer', padding: '2px 8px', fontFamily: 'inherit', flexShrink: 0,
+                }}
+              >Accept</button>
+            )}
           </div>
         ))
       )}

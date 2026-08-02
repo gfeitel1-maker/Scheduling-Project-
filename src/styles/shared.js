@@ -452,6 +452,38 @@ export const S = {
     color: 'var(--danger)',
   },
 
+  // A cell lit up because a concern box is active (the generated "track
+  // changes" review). ONE treatment, parameterised only by the concern's
+  // colour, so a director learns the pattern once — a full outline plus a faint
+  // tint, distinct from selection (which lifts) and from the structural bars
+  // (which are a left edge). docs/work/specs/2026-08-01-generated-flag-review.md
+  cellFlagHighlight: color => ({
+    outline: `1.5px solid ${color}`,
+    outlineOffset: -1,
+    background: `color-mix(in srgb, ${color} 10%, var(--surface))`,
+  }),
+  // The reason callout that appears when a lit cell is hovered or focused.
+  // Anchored above the cell; fades via opacity so it doesn't jump.
+  cellReasonCallout: {
+    position: 'absolute',
+    bottom: 'calc(100% + 4px)',
+    left: 0,
+    zIndex: 30,
+    minWidth: 160,
+    maxWidth: 240,
+    padding: '6px 9px',
+    background: 'var(--surface-elevated)',
+    border: '1px solid var(--border)',
+    borderRadius: 6,
+    boxShadow: '0 2px 16px color-mix(in srgb, var(--text) 10%, transparent)',
+    fontSize: 11,
+    fontWeight: 500,
+    lineHeight: 1.35,
+    color: 'var(--text)',
+    whiteSpace: 'normal',
+    pointerEvents: 'none',
+  },
+
   // Findings & Flags rail (popover under header badge)
   findingsRailPanel: {
     position: 'absolute',

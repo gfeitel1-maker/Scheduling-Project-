@@ -90,10 +90,20 @@ export default function SlotCell({
   isSelected = false, isMultiSelected = false, pasteMode = false,
   hasMergeDown = false, isMerged = false,
   onMergeDown, onSplitSlot,
+  // Generated-route "track changes" review (default off, so the manual route
+  // and every existing caller are unchanged). showIdentityDot=false is the calm
+  // grid: the activity name carries identity, no colour dot. isFlagHighlighted
+  // lights the cell in the active concern's colour; highlightReason is shown in
+  // a callout when the lit cell is hovered or focused.
+  showIdentityDot = true,
+  isFlagHighlighted = false,
+  highlightColor = 'var(--danger)',
+  highlightReason = null,
 }) {
   const [cellHovered, setCellHovered] = useState(false)
   const [splitHovered, setSplitHovered] = useState(false)
   const [pressed, setPressed] = useState(false)
+  const [reasonFocused, setReasonFocused] = useState(false)
 
   function triggerPress() {
     setPressed(true)
@@ -191,6 +201,9 @@ export default function SlotCell({
       : isUnfillable
         ? S.cellUnfillableBar
         : { background: 'var(--surface)', border: '1px solid var(--border)' }),
+    // Review highlight sits above the base border but below selection/drop
+    // indicators (spread later), so an in-progress drag still shows its target.
+    ...(isFlagHighlighted ? S.cellFlagHighlight(highlightColor) : {}),
     opacity: isDragging ? 0.4 : 1,
     // Weather outline applies first — selection (spread after) wins if both apply.
     ...(isWeatherHighlight ? { outline: '1px solid var(--text-secondary)', outlineOffset: -1 } : {}),
@@ -225,6 +238,11 @@ export default function SlotCell({
       onContextMenu={handleContextMenu}
       onPointerEnter={() => setCellHovered(true)}
       onPointerLeave={() => setCellHovered(false)}
+      // Keyboard path to the same reason a mouse gets on hover — a lit cell is
+      // focusable only while it is lit, so tab order is unchanged otherwise.
+      tabIndex={isFlagHighlighted ? 0 : undefined}
+      onFocus={() => setReasonFocused(true)}
+      onBlur={() => setReasonFocused(false)}
       title={tooltipText}
       {...(canDrag ? { ...listeners, ...attributes } : {})}
     >
@@ -240,6 +258,12 @@ export default function SlotCell({
         ].filter(Boolean).join(' '),
         transition: 'transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out)',
       }}>
+        {/* Why this cell is lit — shown while the lit cell is hovered or
+            focused, per the "track changes" review. Screen-only review chrome;
+            never printed. */}
+        {isFlagHighlighted && highlightReason && (cellHovered || reasonFocused) && (
+          <div style={S.cellReasonCallout} role="tooltip">{highlightReason}</div>
+        )}
         {/* Merge-down button (T4) */}
         {cellHovered && hasMergeDown && !isMerged && (
           <button
@@ -271,7 +295,7 @@ export default function SlotCell({
           display: 'flex',
           alignItems: 'center',
         }}>
-          {activity && <span style={{ ...S.cellIdentityChip, background: color }} />}
+          {showIdentityDot && activity && <span style={{ ...S.cellIdentityChip, background: color }} />}
           {activity?.name || <span style={{ fontSize: 11 }}>{isUnfillable ? 'Unfillable' : 'Unassigned'}</span>}
         </div>
         {isOverlapping && (

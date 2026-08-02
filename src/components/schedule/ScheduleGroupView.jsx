@@ -42,6 +42,11 @@ export default function ScheduleGroupView({
   selectedSlotKeys,
   pasteMode,
   onCellSelect,
+  // Generated "track changes" review: calm grid (showIdentityDot=false) and the
+  // lit-cell set for the active concern. highlightMap is Map<slotId, reason>.
+  showIdentityDot = true,
+  highlightMap,
+  highlightColor = 'var(--danger)',
 }) {
   return (
       <div>
@@ -146,6 +151,10 @@ export default function ScheduleGroupView({
                             isMerged={isMerged}
                             onMergeDown={onMergeDown}
                             onSplitSlot={onSplit}
+                            showIdentityDot={showIdentityDot}
+                            isFlagHighlighted={highlightMap?.has(slot.id) ?? false}
+                            highlightColor={highlightColor}
+                            highlightReason={highlightMap?.get(slot.id) ?? null}
                           />
                         )
                       })}

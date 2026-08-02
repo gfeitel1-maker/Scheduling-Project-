@@ -15,7 +15,7 @@ export default function ConfirmRegenModal({ role, onConfirm, onCancel }) {
   return (
     <div style={S.overlay}>
       <div style={{ ...S.modalLg, maxWidth: 420 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Build a new schedule?</div>
+        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Rebuild this schedule?</div>
         <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
           The app will propose a fresh schedule and replace the one you're looking at now, including any changes you've dragged into it.
         </div>
@@ -32,7 +32,7 @@ export default function ConfirmRegenModal({ role, onConfirm, onCancel }) {
             disabled={!isAdmin}
             title={!isAdmin ? 'Admin only' : undefined}
             style={!isAdmin ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-          >Build a new one</button>
+          >Rebuild it</button>
         </div>
       </div>
     </div>

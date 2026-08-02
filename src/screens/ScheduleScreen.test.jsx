@@ -121,7 +121,7 @@ describe('flags round-trips through bulk_replace as a parsed object (Round 2 Fix
     // elements and throws — and matching the legend would prove nothing here,
     // since the legend is static and renders whether or not any slot is flagged.
     const statBadgeLabel = () => screen.getAllByText(/Unfillable/)
-      .find(el => el.parentElement?.getAttribute('title') === 'Click to see details')
+      .find(el => el.parentElement?.getAttribute('title') === 'Click to review these')
 
     await waitFor(() => {
       expect(statBadgeLabel()).toBeTruthy()
@@ -504,9 +504,9 @@ describe('generate() aborts the destructive wipe when the pre-emptive snapshot f
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
 
-    fireEvent.click(screen.getByText('Build a new week'))
-    await waitFor(() => expect(screen.getByText('Build a new one')).toBeTruthy())
-    fireEvent.click(screen.getByText('Build a new one'))
+    fireEvent.click(screen.getByText('Rebuild this schedule'))
+    await waitFor(() => expect(screen.getByText('Rebuild it')).toBeTruthy())
+    fireEvent.click(screen.getByText('Rebuild it'))
 
     await waitFor(() => {
       expect(screen.getByText(/undo point/i)).toBeTruthy()
@@ -728,7 +728,7 @@ describe('separate manual and generated routes', () => {
     rerender(routeScreen('manual'))
     // No "are you sure" of any kind stands between the two routes.
     expect(screen.queryByText(/are you sure/i)).toBeNull()
-    expect(screen.queryByText(/Build a new one/)).toBeNull()
+    expect(screen.queryByText(/Rebuild it/)).toBeNull()
   })
 
   it('does not show the generated schedule’s placements on the manual grid', async () => {
@@ -798,11 +798,11 @@ describe('separate manual and generated routes', () => {
   it('writes Generate only to the generated schedule, leaving the manual one alone', async () => {
     bothRoutes()
     render(routeScreen('generated'))
-    await waitFor(() => expect(screen.getByText('Build a new week')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Rebuild this schedule')).toBeTruthy())
 
-    fireEvent.click(screen.getByText('Build a new week'))
-    await waitFor(() => expect(screen.getByText('Build a new one')).toBeTruthy())
-    fireEvent.click(screen.getByText('Build a new one'))
+    fireEvent.click(screen.getByText('Rebuild this schedule'))
+    await waitFor(() => expect(screen.getByText('Rebuild it')).toBeTruthy())
+    fireEvent.click(screen.getByText('Rebuild it'))
 
     await waitFor(() => {
       expect(localClient.bulkReplace).toHaveBeenCalledWith('token-abc', 'template_slots', GENERATED, expect.any(Array))
@@ -836,13 +836,42 @@ describe('separate manual and generated routes', () => {
     render(routeScreen('manual'))
 
     const stillNeeded = () => screen.getAllByText((_, el) => el?.textContent?.trim().startsWith('Still needed'))
-      .find(el => el.parentElement?.getAttribute('title') === 'Click to see details')
+      .find(el => el.parentElement?.getAttribute('title') === 'Click to review these')
     await waitFor(() => expect(stillNeeded()).toBeTruthy())
     // Archery needs 3 a week and nothing is placed on the blank grid.
     const tile = stillNeeded().parentElement
     expect(tile.textContent).toContain('1')
     // No "unfillable" anywhere on this route — not in the tiles, not in the legend.
     expect(document.body.textContent).not.toMatch(/nfillable/)
+  })
+
+  it('generated: clicking a concern box opens its list, shows the reason, and Accept clears it', async () => {
+    // docs/work/specs/2026-08-01-generated-flag-review.md — the "track changes"
+    // review. The box is a toggle (aria-pressed), the list shows the per-cell
+    // reason, and dismiss reads as "Accept" (I can live with this).
+    bothRoutes({
+      template_slots: [
+        slotRow({ id: 'gen-1', template_id: GENERATED, activity_id: null, flags: JSON.stringify({ UNFILLABLE: true, UNFILLABLE_reason: 'No activity this group can do fits here' }) }),
+        slotRow({ id: 'man-1', template_id: MANUAL, activity_id: null }),
+      ],
+    })
+    render(routeScreen('generated'))
+
+    // The clickable concern box is the one Unfillable label with aria-pressed;
+    // the static legend entry has none.
+    const boxLabel = () => screen.getAllByText(/Unfillable/).find(el => el.parentElement?.hasAttribute('aria-pressed'))
+    await waitFor(() => expect(boxLabel()).toBeTruthy())
+    expect(boxLabel().parentElement.getAttribute('aria-pressed')).toBe('false')
+
+    fireEvent.click(boxLabel().parentElement)
+
+    await waitFor(() => expect(screen.getByText('Accept')).toBeTruthy())
+    expect(screen.getByText('No activity this group can do fits here')).toBeTruthy()
+    expect(boxLabel().parentElement.getAttribute('aria-pressed')).toBe('true')
+
+    // Toggling the same box off closes the list.
+    fireEvent.click(boxLabel().parentElement)
+    await waitFor(() => expect(screen.queryByText('Accept')).toBeNull())
   })
 })
 
@@ -879,11 +908,11 @@ describe('ScheduleScreen — camp whose generated template has a random UUID id'
   it('C3: generate() writes to the UUID id and mints no schedule_templates row', async () => {
     uuidCamp()
     render(routeScreen('generated'))
-    await waitFor(() => expect(screen.getByText('Build a new week')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Rebuild this schedule')).toBeTruthy())
 
-    fireEvent.click(screen.getByText('Build a new week'))
-    await waitFor(() => expect(screen.getByText('Build a new one')).toBeTruthy())
-    fireEvent.click(screen.getByText('Build a new one'))
+    fireEvent.click(screen.getByText('Rebuild this schedule'))
+    await waitFor(() => expect(screen.getByText('Rebuild it')).toBeTruthy())
+    fireEvent.click(screen.getByText('Rebuild it'))
 
     await waitFor(() => {
       expect(localClient.bulkReplace).toHaveBeenCalledWith('token-abc', 'template_slots', UUID, expect.any(Array))

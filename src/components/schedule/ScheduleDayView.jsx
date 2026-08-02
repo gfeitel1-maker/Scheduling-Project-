@@ -36,6 +36,11 @@ export default function ScheduleDayView({
   handleFillEnter, startFill, removeOverlay, handleStampClick,
   onEditSlot, fillState,
   isExpandDragActive,
+  // Generated "track changes" review; empty/true on the manual route so its
+  // day view is unchanged. highlightMap is Map<slotId, reason>.
+  showIdentityDot = true,
+  highlightMap,
+  highlightColor = 'var(--danger)',
 }) {
   return (
     <div>
@@ -121,6 +126,10 @@ export default function ScheduleDayView({
                         isLocked={isLocked}
                         isDndEnabled={!isLocked && !stampMode}
                         isExpandDragActive={isExpandDragActive}
+                        showIdentityDot={showIdentityDot}
+                        isFlagHighlighted={highlightMap?.has(slot.id) ?? false}
+                        highlightColor={highlightColor}
+                        highlightReason={highlightMap?.get(slot.id) ?? null}
                       />
                     )
                   })}

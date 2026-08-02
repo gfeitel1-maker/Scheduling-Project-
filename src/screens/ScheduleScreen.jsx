@@ -8,6 +8,7 @@ import { S } from '../styles/shared'
 import StatBadge from '../components/schedule/StatBadge'
 import { legendEntriesFor, FLAG_SEVERITY, setActivityPalette } from '../components/schedule/slotCellConstants'
 import FindingsRail from '../components/schedule/FindingsRail'
+import { highlightMapForKind } from './schedule/findingHighlight'
 import EditModal from '../components/schedule/EditModal'
 import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
 import ExportChooserModal from '../components/schedule/ExportChooserModal'
@@ -106,14 +107,16 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // cell the moment any one of them moves, and only on the manual route, where
   // a clashing placement is accepted rather than refused.
   const slots = route === 'manual' ? withOverlapFlags(rawSlots, activities) : rawSlots
-  // null = rail closed; otherwise the kind ('UNFILLABLE'|'UNDERSERVED'|'DISTRIBUTION') filtered to
-  // Deviation from design spec: spec called for one aggregate header badge
-  // opening one rail. We kept three per-kind badges (director-legible counts
-  // at a glance) but all of them open the SAME rail, listing every kind
-  // together severity-sorted, so a director can read all problems in one
-  // click regardless of which badge they clicked. See "Deviations" section
-  // appended to docs/superpowers/specs/2026-07-28-schedule-flag-findings-reshape-design.md.
-  const [findingsRailOpen, setFindingsRailOpen] = useState(false)
+  // The generated "track changes" review (docs/work/specs/2026-08-01-generated-
+  // flag-review.md). One piece of state is the single source of truth for both
+  // the review list and the grid highlight:
+  //   null                -> list closed, grid calm
+  //   'ALL'               -> list open showing every concern, grid stays calm
+  //   'UNFILLABLE' | ...  -> list filtered to that concern AND its cells lit
+  // Deriving the rail-open flag and the highlighted kind from this one value is
+  // what stops the "list open but nothing highlighted / highlighted but list
+  // closed" drift the two design passes disagreed about.
+  const [railView, setRailView] = useState(null)
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [view, setView] = useState('group') // 'group' | 'activity' | 'day'
@@ -595,6 +598,35 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     })),
   ].sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
 
+  // Derived from the one railView value (see its declaration). The grid only
+  // lights up for a specific concern on the generated route — 'ALL' reads the
+  // full list without forcing colour onto the grid, and the manual route never
+  // highlights (its one flag, OVERLAP, is derived per-cell already).
+  const findingsRailOpen = railView !== null
+  const highlightedKind = !isManual && railView && railView !== 'ALL' ? railView : null
+  const KIND_COLOR = { UNFILLABLE: 'var(--danger)', UNDERSERVED: 'var(--accent)', DISTRIBUTION: 'var(--secondary)' }
+  const highlightColor = KIND_COLOR[highlightedKind] || 'var(--danger)'
+  const highlightMap = highlightMapForKind(highlightedKind, findingsRows, slots)
+  const railRows = railView && railView !== 'ALL'
+    ? findingsRows.filter(r => r.kind === railView)
+    : findingsRows
+
+  // Toggle a concern box: clicking the active one turns the review off.
+  const toggleRail = (target) => setRailView(v => (v === target ? null : target))
+
+  // How many lit cells are reachable in the current view, so the off-view note
+  // can be honest about "3 of 8 shown here". Only meaningful while a concern is
+  // highlighted (group/day are the views with a grid; activity drilldown shows
+  // its own cells and is treated as "all visible").
+  const highlightedIds = [...highlightMap.keys()]
+  const visibleHighlighted = highlightedIds.filter(id => {
+    const s = slots.find(x => x.id === id)
+    if (!s) return false
+    if (view === 'group') return s.group_id === selectedGroup
+    if (view === 'day') return s.day_id === selectedDay
+    return true
+  }).length
+
   function dismissFindingsRow(row) {
     if (row.kind === 'UNFILLABLE') dismissFlag(row.slotIds, 'UNFILLABLE')
     // OVERLAP is derived from the week on screen, so there is nothing to
@@ -606,7 +638,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   function locateFindingsRow(row) {
     setView('group')
     setSelectedGroup(row.groupId)
-    setFindingsRailOpen(false)
+    setRailView(null)
   }
 
   // Register the colour assignment for this camp's activity set before anything
@@ -880,7 +912,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 disabled={role !== 'admin'}
                 title={role !== 'admin' ? 'Admin only' : undefined}
                 style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-              >Build a new week</button>
+              >Rebuild this schedule</button>
             )}
           </>
         )}
@@ -888,20 +920,17 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         {anyRouteStarted && generating && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>Generating…</span>}
       </div>
 
-      {/* Stats bar — its SHAPE differs by route, which is itself an orientation
-          cue: a director who glances at the tiles knows where they are. */}
+      {/* Concern boxes — the generated schedule's "track changes" review. Each
+          box clicks to light up the cells its concern touches and opens the
+          list filtered to it; clicking the active box turns it off. On the
+          manual route the boxes stay a plain count that opens the same list —
+          manual owns no engine concerns to review cell-by-cell, so it is left
+          as it was. docs/work/specs/2026-08-01-generated-flag-review.md */}
       {hasSchedule && stats && (
-        <div style={{ position: 'relative', display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-          {/* T18: one concept, one name, on both routes. These labels used to be
-              ternaries on isManual — the manual route said "Placed" / "Still
-              needed" / "Spread across the week" while the generated route said
-              "Filled" / "Underserved" / "Distribution" for the SAME numbers.
-              The routes were deliberately given a shared flag vocabulary so a
-              director learns it once; two names for one concept defeated that.
-              The director's words win over the engine's (Art. V).
-
-              Unfillable vs Overlapping below is NOT this — those are genuinely
-              different flags, and the routes share a vocabulary, not a flag set. */}
+        <div style={{ marginBottom: 20 }}>
+        <div style={{ position: 'relative', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* T18: one concept, one name. "Placed" is a plain progress count on
+              both routes — not a concern, so it never toggles anything. */}
           <StatBadge
             label="Placed"
             value={`${stats.filled} of ${stats.open}`}
@@ -912,42 +941,66 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               label="Overlapping"
               value={overlapSlots.length}
               color={overlapSlots.length > 0 ? 'var(--accent)' : 'var(--text-secondary)'}
-              onClick={() => setFindingsRailOpen(o => !o)}
+              onClick={() => toggleRail('ALL')}
             />
           ) : (
             <StatBadge
               label="Unfillable"
               value={unfillableSlots.length}
               color={unfillableSlots.length > 0 ? 'var(--danger)' : 'var(--text-secondary)'}
-              onClick={() => setFindingsRailOpen(o => !o)}
+              active={railView === 'UNFILLABLE'}
+              onClick={() => toggleRail('UNFILLABLE')}
             />
           )}
           <StatBadge
             label="Still needed"
             value={activeFindings.filter(f => f.kind === 'UNDERSERVED').length}
             color={activeFindings.some(f => f.kind === 'UNDERSERVED') ? 'var(--accent)' : 'var(--text-secondary)'}
-            onClick={() => setFindingsRailOpen(o => !o)}
+            active={!isManual && railView === 'UNDERSERVED'}
+            onClick={() => toggleRail(isManual ? 'ALL' : 'UNDERSERVED')}
           />
           <StatBadge
             label="Spread across the week"
             value={activeFindings.filter(f => f.kind === 'DISTRIBUTION').length}
             color={activeFindings.some(f => f.kind === 'DISTRIBUTION') ? 'var(--secondary)' : 'var(--text-secondary)'}
-            onClick={() => setFindingsRailOpen(o => !o)}
+            active={!isManual && railView === 'DISTRIBUTION'}
+            onClick={() => toggleRail(isManual ? 'ALL' : 'DISTRIBUTION')}
           />
-          {/* Same framing on both routes. An under-target activity means the
-              same thing however the week was built: work remaining, not a
-              mistake made. The generated route previously got no intro at all,
-              so identical findings read as bare failures there. */}
+          {/* Read the whole list without picking a concern first — opens the
+              list showing everything and leaves the grid calm. */}
+          {!isManual && findingsRows.length > 0 && (
+            <button
+              onClick={() => setRailView(v => (v === 'ALL' ? null : 'ALL'))}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer', padding: '4px 6px',
+                fontFamily: 'inherit', fontSize: 12,
+                color: railView === 'ALL' ? 'var(--text)' : 'var(--text-secondary)',
+                textDecoration: 'underline', textUnderlineOffset: 3,
+              }}
+            >{railView === 'ALL' ? 'Hide list' : 'Review all'}</button>
+          )}
           {findingsRailOpen && (
             <FindingsRail
-              rows={findingsRows}
+              rows={railRows}
               onDismiss={dismissFindingsRow}
               onLocate={locateFindingsRow}
-              onClose={() => setFindingsRailOpen(false)}
+              onClose={() => setRailView(null)}
               intro={{ title: 'What this week still needs', sub: "Nothing here is a mistake. It's what's left to place." }}
               emptyText="Everything on your list is placed."
             />
           )}
+        </div>
+        {/* Off-view honesty: a concern's count is camp-wide, but the grid only
+            lights the current view. Say so rather than silently showing fewer. */}
+        {highlightedKind && (view === 'group' || view === 'day') && (
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>
+            {highlightedIds.length === 0
+              ? 'Nothing to light up here — this concern is about time that isn’t placed yet. See the list.'
+              : visibleHighlighted < highlightedIds.length
+                ? `Showing ${visibleHighlighted} of ${highlightedIds.length} here — open the list to reach the rest.`
+                : `${highlightedIds.length} lit on the grid.`}
+          </div>
+        )}
         </div>
       )}
 
@@ -1059,6 +1112,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 selectedSlotKeys={selectedSlotKeys}
                 pasteMode={pasteMode}
                 onCellSelect={handleCellSelect}
+                showIdentityDot={false}
+                highlightMap={highlightMap}
+                highlightColor={highlightColor}
               />
             )}
 
@@ -1084,6 +1140,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onEditSlot={setEditSlot}
                 fillState={fillState}
                 isExpandDragActive={isDayExpandDragActive}
+                showIdentityDot={isManual}
+                highlightMap={highlightMap}
+                highlightColor={highlightColor}
               />
             )}
 
@@ -1200,9 +1259,12 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         />
       )}
 
-      {/* Grid legend — every treatment the grid can show, from one source
-          (LEGEND_ENTRIES) so a new flag cannot ship undocumented. */}
-      {hasSchedule && (
+      {/* Grid legend — only on the manual route now. The generated grid is
+          calm (no identity dots, no per-cell flag marks — concerns are reviewed
+          from the boxes above), so there is nothing left for a legend to
+          document there. Manual still carries dots (identity + overlap), so it
+          keeps its key. docs/work/specs/2026-08-01-generated-flag-review.md */}
+      {hasSchedule && isManual && (
         <div style={{ display: 'flex', gap: 16, marginTop: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-secondary)' }}>
           {legendEntriesFor(route).map(entry => (
             <span key={entry.label} title={entry.description} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'default' }}>
