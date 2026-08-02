@@ -42,3 +42,7 @@ release/
 
 # Generated at package time (T13) — describes one artifact, never the repo
 electron/build-info.json
+.abi-target
+
+# Real camp schedule files staged for import — testing only, never committed
+.ingest-incoming/
