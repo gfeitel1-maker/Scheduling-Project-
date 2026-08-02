@@ -36,6 +36,16 @@ export default function ImportScreen({ onNavigate }) {
   const [error, setError] = useState(null)
   const [working, setWorking] = useState(false)
   const [result, setResult] = useState(null)
+  // What the camp already holds, and whether to keep it or clear it first.
+  // Captured when the preview is built so the keep-vs-replace choice can show a
+  // real count. 'add' keeps everything; 'replace' deletes the existing setup
+  // (recoverable from Trash) before importing. Programs/"Main" is never deleted
+  // — it is structural, auto-created, and not part of a year's schedule.
+  const [existingRecords, setExistingRecords] = useState({})
+  const [importMode, setImportMode] = useState('add')
+
+  const REPLACEABLE = INGESTIBLE_ENTITIES.filter((e) => e !== 'cohorts')
+  const existingCount = REPLACEABLE.reduce((n, e) => n + (existingRecords[e]?.length ?? 0), 0)
 
   // A camp's schedule can arrive as several files — Camp Mindy exports one
   // spreadsheet per group. They are one camp and must be read as one import,
@@ -83,6 +93,8 @@ export default function ImportScreen({ onNavigate }) {
       for (const entity of INGESTIBLE_ENTITIES) {
         existing[entity] = await localClient.list(entity).catch(() => [])
       }
+      setExistingRecords(existing)
+      setImportMode('add')
       const next = buildPreview(proposal, existing)
       setPreview(next)
       // Everything starts approved except values the file gives no reason to
@@ -117,6 +129,18 @@ export default function ImportScreen({ onNavigate }) {
     setWorking(true)
     setError(null)
     try {
+      // Replace = clear the existing setup first. Deletes go to Trash (the
+      // director can bring anything back), and "Main" is left alone. Done
+      // before the import so a clean slate is what the new records land on.
+      if (importMode === 'replace' && existingCount > 0) {
+        const token = localStorage.getItem('shoresh-token')
+        for (const entity of REPLACEABLE) {
+          for (const row of existingRecords[entity] ?? []) {
+            await localClient.deleteEntity(token, entity, row.id)
+          }
+        }
+      }
+
       const approved = {}
       for (const entity of INGESTIBLE_ENTITIES) approved[entity] = [...(chosen[entity] ?? [])]
       // Only the units of groups actually being created are sent, so a bunk
@@ -266,13 +290,55 @@ export default function ImportScreen({ onNavigate }) {
             )
           })}
 
+          {/* Keep-vs-replace. Only asked when the camp already holds setup —
+              importing onto an empty camp has nothing to replace. Replace is
+              recoverable (Trash), so it is a plain choice, not a scary gate. */}
+          {existingCount > 0 && (
+            <div style={{
+              marginTop: 20, padding: '14px 16px', background: 'var(--surface)',
+              border: '1px solid var(--border)', borderRadius: 8,
+            }}>
+              <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 10 }}>
+                Your camp already has <strong>{existingCount}</strong> {existingCount === 1 ? 'item' : 'items'} set up. What should happen to {existingCount === 1 ? 'it' : 'them'}?
+              </div>
+              {[
+                { key: 'add', title: 'Keep them', sub: 'Add what I import alongside what’s already here.' },
+                { key: 'replace', title: 'Replace them', sub: `Clear the ${existingCount} existing ${existingCount === 1 ? 'item' : 'items'} first, then import. You can bring anything back from Trash.` },
+              ].map(opt => {
+                const on = importMode === opt.key
+                return (
+                  <button
+                    key={opt.key}
+                    onClick={() => setImportMode(opt.key)}
+                    style={{
+                      display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer',
+                      marginTop: opt.key === 'add' ? 0 : 8, padding: '10px 12px', borderRadius: 7,
+                      fontFamily: 'inherit',
+                      background: on ? `color-mix(in srgb, var(--primary) 8%, var(--surface))` : 'var(--bg)',
+                      border: `1.5px solid ${on ? 'var(--primary)' : 'var(--border)'}`,
+                    }}
+                  >
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+                      {on ? '● ' : '○ '}{opt.title}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2, marginLeft: 16 }}>{opt.sub}</div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 24, paddingTop: 18, borderTop: '1px solid var(--border)' }}>
             <button
               onClick={commit}
               disabled={working || approvedCount === 0}
               style={{ ...S.btnPrimary, opacity: working || approvedCount === 0 ? 0.45 : 1 }}
             >
-              {working ? 'Importing…' : `Add ${approvedCount} ${approvedCount === 1 ? 'record' : 'records'}`}
+              {working
+                ? 'Importing…'
+                : importMode === 'replace' && existingCount > 0
+                  ? `Replace with ${approvedCount} ${approvedCount === 1 ? 'record' : 'records'}`
+                  : `Add ${approvedCount} ${approvedCount === 1 ? 'record' : 'records'}`}
             </button>
             <button onClick={() => { setPreview(null); setFileNames([]) }} disabled={working} style={S.btnSecondary}>
               Cancel

@@ -33,6 +33,89 @@ function seedDevices() {
   ]
 }
 
+// A ready-to-review demo camp for the browser dev server, so the generated
+// schedule's flag review can be iterated on at :5200 with hot-reload — no
+// Electron, no native rebuild. Everything is marked "(sample)" and lives only
+// in this device's localStorage; the DEV badge and this naming are the signal
+// that nothing here is a real camp. Triggered by visiting `?demo=schedule`
+// (see the window block at the bottom) or window.__seedDemo() from the console.
+//
+// Deliberately a PRE-BUILT generated week rather than a live generate: it makes
+// the calm grid, the Unfillable concern box, the click-to-highlight, the hover
+// reason and Accept all testable immediately. "Still needed" / "Spread"
+// populate only after a real generate (findings are recomputed, never stored),
+// so "Build a new week" is the way to exercise those.
+function seedDemoCamp() {
+  const CAMP = 'demo-camp'
+  const TEMPLATE = `schedule-template:${CAMP}`
+  const camp = { id: CAMP, name: 'Demo Camp (sample)' }
+  const users = [{ id: 'demo-admin', name: 'Director', pin: '1234', role: 'admin' }]
+  const cohorts = [{ id: 'main', camp_id: CAMP, name: 'Main' }]
+  const tiers = [
+    { id: 'tier-jr', camp_id: CAMP, cohort_id: 'main', name: 'Juniors', sort_order: 0 },
+    { id: 'tier-sr', camp_id: CAMP, cohort_id: 'main', name: 'Seniors', sort_order: 1 },
+  ]
+  const groups = [
+    { id: 'grp-1', camp_id: CAMP, name: 'Bunk 1', tier_id: 'tier-jr', availability: 'all' },
+    { id: 'grp-2', camp_id: CAMP, name: 'Bunk 2', tier_id: 'tier-jr', availability: 'all' },
+    { id: 'grp-3', camp_id: CAMP, name: 'Bunk 3', tier_id: 'tier-sr', availability: 'all' },
+  ]
+  const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+  const days = dayNames.map((label, i) => ({ id: `day-${i}`, camp_id: CAMP, label, day_of_week: i + 1, sort_order: i + 1 }))
+  const blockNames = ['First Period', 'Second Period', 'Third Period', 'Fourth Period']
+  const hh = (h) => String(h).padStart(2, '0')
+  const time_blocks = blockNames.map((name, i) => ({
+    id: `blk-${i}`, camp_id: CAMP, cohort_id: 'main', name, sort_order: i + 1,
+    start_time: `${hh(9 + i)}:00:00`, end_time: `${hh(10 + i)}:00:00`,
+  }))
+  const activityNames = ['Swim', 'Art', 'Soccer', 'Drama', 'Archery']
+  const activities = activityNames.map((name, i) => ({
+    id: `act-${i}`, camp_id: CAMP, name, min_per_week: 2,
+  }))
+
+  // A full generated week. Every cell holds an activity except a few that the
+  // engine "couldn't fill" — those carry the UNFILLABLE flag with a reason, so
+  // the Unfillable box shows a real count and the highlight has cells to light.
+  const unfillable = new Set(['grp-3|day-4|blk-3', 'grp-3|day-1|blk-0', 'grp-2|day-2|blk-2'])
+  const template_slots = []
+  groups.forEach((g, gi) => {
+    days.forEach((d, di) => {
+      time_blocks.forEach((b, bi) => {
+        const key = `${g.id}|${d.id}|${b.id}`
+        const isUnfillable = unfillable.has(key)
+        template_slots.push({
+          id: `slot-${key}`,
+          template_id: TEMPLATE,
+          group_id: g.id,
+          day_id: d.id,
+          time_block_id: b.id,
+          activity_id: isUnfillable ? null : `act-${(gi + di + bi) % activityNames.length}`,
+          anchor_id: null,
+          is_anchor: 0,
+          is_span_head: 1,
+          is_released: 0,
+          flags: isUnfillable
+            ? { UNFILLABLE: true, UNFILLABLE_reason: 'No activity these campers can do fits here' }
+            : {},
+        })
+      })
+    })
+  })
+
+  return {
+    camp, users, conflicts: [], devices: seedDevices(),
+    cohorts, tiers, groups,
+    days_of_operation: days,
+    time_blocks,
+    activities,
+    anchor_activities: [],
+    schedule_templates: [{ id: TEMPLATE, camp_id: CAMP, name: 'Generated', kind: 'generated' }],
+    template_slots,
+    template_overlays: [],
+    schedule_snapshots: [],
+  }
+}
+
 function updateDevice(deviceId, patch) {
   const state = loadState()
   const device = (state.devices || []).find((d) => d.id === deviceId)
@@ -188,12 +271,61 @@ export const mockShoresh = {
     }
     return { valid: false }
   },
-  // The browser dev server has no Electron and no LAN. Reporting 'standalone'
-  // is the truthful answer here, not a placeholder.
-  // The browser mock has no database. Refusing is honest — an import that
-  // reported success at :5200 would look verified when nothing was written.
-  async ingestCommit() {
-    throw new Error('Importing needs the installed app, not the browser preview.')
+  // Import committed into the localStorage-backed mock state, mirroring the
+  // real commitIngest (electron/ops/ingest.js): the same six ingestible
+  // entities, the same derived fields, and groups filed under the unit the
+  // file named. This lets the whole import flow — pick files, review the
+  // proposal, commit, see the records appear in Units/Groups/etc — be tested at
+  // :5200 with hot-reload. It writes to mock state, NOT the op log, so it proves
+  // the UI flow, not the real persistence/sync path (that stays electron:dev).
+  async ingestCommit({ approved, links } = {}) {
+    const ORDER = ['cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'activities']
+    const DAY_INDEX = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
+    const parseTimeRange = (label) => {
+      const m = String(label ?? '').match(/(\d{1,2})[:.](\d{2})\s*[-–—]\s*(\d{1,2})[:.](\d{2})/)
+      if (!m) return { start_time: null, end_time: null }
+      const pad = (h, mm) => `${String(h).padStart(2, '0')}:${mm}`
+      return { start_time: pad(m[1], m[2]), end_time: pad(m[3], m[4]) }
+    }
+    const state = loadState()
+    if (!state.camp) throw new Error('ingest: no camp')
+    const campId = state.camp.id
+    const groupUnits = links?.groups ?? {}
+
+    // Unit name -> tier id, seeded from existing tiers so a second import reuses
+    // them rather than duplicating (matches the real commitIngest).
+    const tierIdByName = new Map()
+    for (const t of state.tiers ?? []) if (t.name) tierIdByName.set(String(t.name).trim().toLowerCase(), t.id)
+
+    const created = {}
+    let total = 0
+    for (const entity of ORDER) {
+      if (!Array.isArray(state[entity])) state[entity] = []
+      const names = Array.isArray(approved?.[entity]) ? approved[entity] : []
+      created[entity] = 0
+      names.forEach((rawName, index) => {
+        const name = String(rawName ?? '').trim()
+        if (!name) return
+        const id = randomId()
+        let row
+        if (entity === 'cohorts') row = { id, camp_id: campId, name }
+        else if (entity === 'tiers') { row = { id, camp_id: campId, cohort_id: 'main', name, sort_order: index }; tierIdByName.set(name.toLowerCase(), id) }
+        else if (entity === 'groups') {
+          row = { id, camp_id: campId, name, availability: 'all' }
+          const unit = groupUnits[name]
+          const tierId = unit ? tierIdByName.get(String(unit).trim().toLowerCase()) : null
+          if (tierId) row.tier_id = tierId
+        }
+        else if (entity === 'days_of_operation') { const dow = DAY_INDEX[name.toLowerCase()]; row = { id, camp_id: campId, label: name, day_of_week: dow ?? index, sort_order: dow ?? index } }
+        else if (entity === 'time_blocks') { const { start_time, end_time } = parseTimeRange(name); row = { id, camp_id: campId, cohort_id: 'main', name, start_time, end_time, sort_order: index } }
+        else if (entity === 'activities') row = { id, camp_id: campId, name }
+        state[entity].push(row)
+        created[entity] += 1
+        total += 1
+      })
+    }
+    saveState(state)
+    return { created, total }
   },
   async getSyncStatus() {
     return { mode: null, connected: false, state: 'standalone' }
@@ -361,4 +493,23 @@ export const mockShoresh = {
 // events without monkey-patching this file, per Fix 7.
 if (typeof window !== 'undefined') {
   window.__mockShoresh = mockShoresh
+
+  // Load a ready-to-review demo camp so the generated flag review can be tested
+  // at :5200 with hot-reload. `__seedDemo()` writes the state + a signed-in
+  // host session and reloads; `__clearDemo()` wipes it back to a blank dev
+  // server. Visiting `?demo=schedule` runs the seed once and strips the param.
+  window.__seedDemo = () => {
+    saveState(seedDemoCamp())
+    localStorage.setItem('shoresh-mode', 'host')
+    localStorage.setItem('shoresh-token', 'mock.demo-admin')
+    localStorage.setItem('shoresh-role', 'admin')
+    window.location.replace(window.location.pathname)
+  }
+  window.__clearDemo = () => {
+    for (const k of [STORE_KEY, 'shoresh-mode', 'shoresh-token', 'shoresh-role', 'shoresh-join-host']) {
+      localStorage.removeItem(k)
+    }
+    window.location.replace(window.location.pathname)
+  }
+  if (window.location.search.includes('demo=schedule')) window.__seedDemo()
 }
