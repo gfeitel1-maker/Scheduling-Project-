@@ -52,6 +52,7 @@ They are different facts and a run can carry a bad one of each.
 | 2026-08-01 | [T29 — extract the schedule grid-geometry module](../../docs/work/runs/2026-08-01-t29-schedule-grid-geometry-run.md) | architecture | pass | pass |
 | 2026-08-01 | [T30 — extract schedule feature hooks](../../docs/work/runs/2026-08-01-t30-schedule-feature-hooks-run.md) | architecture | pass | pass |
 | 2026-08-01 | [T31 — encapsulate the route (Manual/Generated) state module](../../docs/work/runs/2026-08-01-t31-schedule-route-state-run.md) | architecture | pass | pass |
+| 2026-08-01 | [T32 — extract useSlotMutations from the orchestrator](../../docs/work/runs/2026-08-01-t32-schedule-slot-mutations-run.md) | architecture | pass | pass |
 | 2026-07-30 | [Typed run records and a compiled work index — tasks 1-6](../../docs/work/runs/2026-07-30-typed-run-records-and-work-index.md) | documentation-governance | in-progress | _no verdict yet_ |
 | 2026-07-26 | [manual-grid-editing](../../docs/work/runs/2026-07-26-manual-grid-editing-run.md) | ui-ux-design | in-progress | _no verdict yet_ |
 
