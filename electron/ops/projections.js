@@ -261,8 +261,20 @@ export const PROJECTIONS = {
       // ensureTemplateRow calls). It is recorded as a residual, not a claim
       // that the op survives.
       //
-      // After the renderer's resolve-by-(week_id, kind) fix nothing should ever
-      // reach this throw; it exists so a future regression cannot be silent.
+      // The renderer's resolve-by-(week_id, kind) fix NARROWS this throw but does
+      // not eliminate it (confirmed by review, 2026-08-02): writeFields sends one
+      // appendOp per field, each its own transaction, so on a new template the
+      // `kind` and `camp_id` writes COMMIT before the `week_id` write runs. If
+      // that final write collides — reachable when a device's renderer state lags
+      // a legacy random-UUID row that v27 just backfilled a week_id onto, and the
+      // old row's op arrives between the camp_id and week_id writes — the throw
+      // rolls back only its own op, leaving a residual row (kind+camp_id set,
+      // week_id NULL) that templateRowFor's `week_id === weekId` filter can never
+      // resolve. It is harmless clutter, not data loss: a NULL week_id does not
+      // violate UNIQUE(week_id, kind) (NULLs are distinct), cannot appear in any
+      // week's grid, and SELF-HEALS — the next write to the same week+kind reuses
+      // the deterministic id and completes the same row. Named honestly here so a
+      // maintainer doesn't read "unreachable" and treat this as dead code.
       // Narrowed deliberately to the (week_id, kind) collision. An INSERT OR
       // IGNORE can also be absorbed for unrelated reasons (e.g. no camps row
       // yet, mid first-pairing sync), and those must keep their existing

@@ -311,6 +311,18 @@ describe('migrated database whose generated template has a RANDOM UUID id', () =
     const holders = db.prepare("SELECT id FROM schedule_templates WHERE week_id = ? AND kind = 'generated'").all(weekId)
     expect(holders).toHaveLength(1)
     expect(holders[0].id).toBe(UUID_TEMPLATE_ID)
+
+    // The LOSING side, asserted rather than asserted-away (review 2026-08-02):
+    // the `kind` write committed in its own appendOp transaction before the
+    // `week_id` write threw, so the derived-id row is left behind as a residual
+    // with week_id NULL. This is the harmless-clutter outcome the projections.js
+    // backstop comment now documents — it is invisible to the week's grid
+    // (week_id !== weekId) and self-heals if that week+route is written again.
+    const residual = db.prepare('SELECT week_id FROM schedule_templates WHERE id = ?').get(derived)
+    expect(residual).toBeTruthy()
+    expect(residual.week_id).toBeNull()
+    // And it is NOT a holder of the week — the whole point of the backstop.
+    expect(holders.map((h) => h.id)).not.toContain(derived)
     db.close()
   })
 
