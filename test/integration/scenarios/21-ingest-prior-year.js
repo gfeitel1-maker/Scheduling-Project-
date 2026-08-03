@@ -181,6 +181,41 @@ export async function run() {
       .get('Matzo Balls')
     assert.equal(matzo?.unit, "Adom 4's", 'Matzo Balls is in Adom 4\'s')
 
+    // ---- g. units and time blocks are filed into the active Program (T33) ----
+    // Units and time blocks are Program-scoped; the setup screens list only the
+    // active Program's rows, so an import that left cohort_id null created rows
+    // the director could never see — and an invisible unit cannot appear tied to
+    // its groups. The active Program is threaded into the commit so they land
+    // where they show. docs/work/tickets/T33-ingest-creates-cohort-orphaned-entities.md.
+    const dir3 = makeTmpDir()
+    dirs.push(dir3)
+    const db3 = openLocalDb(path.join(dir3, 'shoresh.sqlite'))
+    const camp3 = randomUUID()
+    const dev3 = randomUUID()
+    const coMain = randomUUID()
+    db3.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(camp3, 'Camp A', 'c'.repeat(64))
+    db3.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(dev3, 'Host')
+    db3.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run(coMain, camp3, 'Main')
+
+    commitIngest(db3, {
+      approved: { tiers: aApproved.tiers, groups: aApproved.groups, time_blocks: aPreview.perEntity.time_blocks.create },
+      links: aLinks, camp_id: camp3, cohort_id: coMain, device_id: dev3,
+    })
+
+    assert.equal(
+      db3.prepare('SELECT COUNT(*) c FROM tiers WHERE cohort_id IS NOT ?').get(coMain).c, 0,
+      'every imported unit is filed under the active Program, not orphaned'
+    )
+    assert.equal(
+      db3.prepare('SELECT COUNT(*) c FROM time_blocks WHERE cohort_id IS NOT ?').get(coMain).c, 0,
+      'every imported time block is filed under the active Program'
+    )
+    const matzo3 = db3
+      .prepare('SELECT t.cohort_id AS c FROM groups g JOIN tiers t ON t.id = g.tier_id WHERE g.name = ?')
+      .get('Matzo Balls')
+    assert.equal(matzo3?.c, coMain, 'a filed bunk\'s unit lives in the active Program, so both are visible together')
+    db3.close()
+
     db2.close()
     db.close()
     return 'PASS'

@@ -196,7 +196,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // T16 — commit an import the director approved in the preview. Admin only:
   // it creates setup records in bulk, which is the same authority the setup
   // screens already require.
-  function ingestCommit({ token, approved, links } = {}) {
+  function ingestCommit({ token, approved, links, cohort_id } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // Admin only. Staff may edit setup records one at a time; creating a
     // camp's whole structure in one action is a different kind of authority,
@@ -208,6 +208,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return commitIngest(db, {
       approved,
       links,
+      // The Program the director is importing into, so units and time blocks
+      // land where the setup screens will show them (T33).
+      cohort_id: cohort_id ?? null,
       camp_id: camp.id,
       author_user_id: session.userId,
       device_id: deviceId,

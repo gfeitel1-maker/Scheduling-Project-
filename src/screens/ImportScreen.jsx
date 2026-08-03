@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { localClient } from '../localClient'
+import { useCohorts } from '../hooks/useCohorts'
 import { S } from '../styles/shared'
 import * as XLSX from 'xlsx'
 import { parseTextGrid } from '../ingest/textGrid'
@@ -29,7 +30,10 @@ const LABEL = {
   activities: 'Activities',
 }
 
-export default function ImportScreen({ onNavigate }) {
+export default function ImportScreen({ campId, onNavigate }) {
+  // Units and time blocks are scoped to a Program; an import files them under
+  // the active one so the setup screens will show them (T33).
+  const { activeCohort } = useCohorts(campId)
   const [fileNames, setFileNames] = useState([])
   const [preview, setPreview] = useState(null)
   const [chosen, setChosen] = useState({})
@@ -91,7 +95,14 @@ export default function ImportScreen({ onNavigate }) {
       const proposal = extractEntities({ pages })
       const existing = {}
       for (const entity of INGESTIBLE_ENTITIES) {
-        existing[entity] = await localClient.list(entity).catch(() => [])
+        let rows = await localClient.list(entity).catch(() => [])
+        // Duplicate-detection for the Program-scoped entities is scoped to the
+        // active Program, or a re-import into a different Program would skip a
+        // unit/time-block that only exists in another one (T33).
+        if ((entity === 'tiers' || entity === 'time_blocks') && activeCohort) {
+          rows = rows.filter((r) => r.cohort_id === activeCohort.id)
+        }
+        existing[entity] = rows
       }
       setExistingRecords(existing)
       setImportMode('add')
@@ -149,7 +160,7 @@ export default function ImportScreen({ onNavigate }) {
       for (const name of approved.groups ?? []) {
         if (preview.groupUnits?.[name]) groupUnits[name] = preview.groupUnits[name]
       }
-      const outcome = await localClient.ingestCommit(approved, { groups: groupUnits })
+      const outcome = await localClient.ingestCommit(approved, { groups: groupUnits }, activeCohort?.id ?? null)
       setResult(outcome)
       setPreview(null)
     } catch (err) {
@@ -328,11 +339,21 @@ export default function ImportScreen({ onNavigate }) {
             </div>
           )}
 
+          {/* Without an active Program, units and time blocks would be filed
+              nowhere and vanish from the setup screens (T33); block the commit
+              rather than import into limbo. "Main" is auto-created, so this is a
+              still-loading guard, not a normal state. */}
+          {!activeCohort && (
+            <div style={{ marginTop: 16, fontSize: 12, color: 'var(--text-secondary)' }}>
+              Waiting for a Program to load before importing…
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 24, paddingTop: 18, borderTop: '1px solid var(--border)' }}>
             <button
               onClick={commit}
-              disabled={working || approvedCount === 0}
-              style={{ ...S.btnPrimary, opacity: working || approvedCount === 0 ? 0.45 : 1 }}
+              disabled={working || approvedCount === 0 || !activeCohort}
+              style={{ ...S.btnPrimary, opacity: working || approvedCount === 0 || !activeCohort ? 0.45 : 1 }}
             >
               {working
                 ? 'Importing…'

@@ -40,12 +40,22 @@ function parseTimeRange(label) {
 // The fields each entity needs beyond its name, derived rather than guessed.
 // A director approved a list of names; they did not approve a day-of-week
 // number, so it is computed from the name and nothing else is invented.
-function fieldsFor(entity, name, campId, index) {
+//
+// `cohortId` is the Program the director is importing into. Units and time
+// blocks are scoped to a Program in this app — the Units and Time Blocks
+// screens only show rows whose `cohort_id` matches the active Program
+// (TiersScreen/TimeBlocksScreen), so an import that left it null created rows
+// that existed but were invisible, and a unit the director could not see could
+// not appear tied to its groups (T33). A null `cohortId` is skipped by the
+// op-writer below, preserving the pre-T33 behaviour for callers that pass none.
+// Groups, activities and days are camp-scoped in the UI, so they take no
+// cohort_id — matching how GroupsScreen/ActivitiesScreen/DaysScreen create them.
+function fieldsFor(entity, name, campId, index, cohortId) {
   switch (entity) {
     case 'cohorts':
       return { camp_id: campId, name }
     case 'tiers':
-      return { camp_id: campId, name, sort_order: index }
+      return { camp_id: campId, name, sort_order: index, cohort_id: cohortId }
     case 'groups':
       return { camp_id: campId, name, availability: 'all' }
     case 'days_of_operation': {
@@ -59,7 +69,7 @@ function fieldsFor(entity, name, campId, index) {
     }
     case 'time_blocks': {
       const { start_time, end_time } = parseTimeRange(name)
-      return { camp_id: campId, name, start_time, end_time, sort_order: index }
+      return { camp_id: campId, name, start_time, end_time, sort_order: index, cohort_id: cohortId }
     }
     case 'activities':
       return { camp_id: campId, name }
@@ -81,7 +91,7 @@ function fieldsFor(entity, name, campId, index) {
  *
  * Returns `{ created: { [entity]: count }, total }`.
  */
-export function commitIngest(db, { approved, links, camp_id, author_user_id, device_id }) {
+export function commitIngest(db, { approved, links, camp_id, cohort_id = null, author_user_id, device_id }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -98,9 +108,17 @@ export function commitIngest(db, { approved, links, camp_id, author_user_id, dev
   // filed under a unit created moments earlier. Seeded with the units the camp
   // already has, because a second import must reuse them rather than making a
   // duplicate the director then has to merge by hand.
+  //
+  // Seeded only from units in the SAME Program we are importing into: a "Rimon"
+  // in another Program is a different unit, and reusing it would file this
+  // import's bunks under a unit the director cannot see here (T33). When no
+  // cohort is given (older callers), every existing unit is null-cohort too, so
+  // the match still holds and behaviour is unchanged.
   const tierIdByName = new Map()
-  for (const row of db.prepare('SELECT id, name FROM tiers WHERE camp_id = ?').all(camp_id)) {
-    if (row.name) tierIdByName.set(String(row.name).trim().toLowerCase(), row.id)
+  for (const row of db.prepare('SELECT id, name, cohort_id FROM tiers WHERE camp_id = ?').all(camp_id)) {
+    if (row.name && (row.cohort_id ?? null) === (cohort_id ?? null)) {
+      tierIdByName.set(String(row.name).trim().toLowerCase(), row.id)
+    }
   }
   const groupUnits = links?.groups ?? {}
 
@@ -115,7 +133,7 @@ export function commitIngest(db, { approved, links, camp_id, author_user_id, dev
         const name = String(rawName ?? '').trim()
         if (!name) return
         const entityId = randomUUID()
-        const fields = fieldsFor(entity, name, camp_id, index)
+        const fields = fieldsFor(entity, name, camp_id, index, cohort_id)
 
         if (entity === 'tiers') tierIdByName.set(name.toLowerCase(), entityId)
         if (entity === 'groups') {
