@@ -4,13 +4,9 @@ document_type: spec
 status: draft
 created: 2026-08-02
 task_class: database-sync
-governing_docs:
-  - docs/governance/constitution/CONSTITUTION.md
-  - docs/governance/standards/ARCHITECTURE_STANDARD.md
-related_adrs:
-  - docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md
-related_tickets:
-  - docs/work/tickets/T16-ingest-prior-year-schedule.md
+governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
+related_adrs: [docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md]
+related_tickets: [docs/work/tickets/T16-ingest-prior-year-schedule.md]
 archive_when: the Maker's change lands, the ingest suite is green with the synthetic fixture, and Shemesh imports a correct proposal
 ---
 
