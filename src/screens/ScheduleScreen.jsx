@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { localClient } from '../localClient'
 import { createScheduleRepository } from '../data/scheduleRepository'
@@ -117,7 +117,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setSnapshotsByRoute, setOverlaysByRoute,
     templateIdFor,
     rawSlots, stats, findings, dismissedFindingKeys, overlays, snapshots,
-    setStats, setDismissedFindingKeys,
+    setStats, setFindings, setDismissedFindingKeys,
   } = routeState
   // OVERLAP is derived, never persisted — so it clears from every participating
   // cell the moment any one of them moves, and only on the manual route, where
@@ -155,6 +155,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const [isGroupExpandDragActive, setIsGroupExpandDragActive] = useState(false)
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+  const localDeviceIdRef = useRef(null)
 
   // The persistence seam. Instantiated once with the real localClient (ADR
   // 2026-08-01 §3); it owns token acquisition, every schedule read/write, and
@@ -185,7 +186,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // prevFlags in the undo closures stays byte-identical.
   const slotMutations = useSlotMutations({
     routeState, repo, pushUndo, setActionError,
-    editSlot, setEditSlot, setDisplacedItems, recalcStats,
+    editSlot, setEditSlot, setDisplacedItems, recalcStats, recalcFindings,
     getSlot, setActivities,
     slots, groups, activities, days, timeBlocks,
   })
@@ -437,8 +438,17 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // recalcStats(), ensuring the ScheduleScreen's stats/flags reflect the
   // post-resolution state of the DB.
   useEffect(() => {
+    if (typeof localClient.getDeviceId === 'function') {
+      localClient.getDeviceId().then(id => { localDeviceIdRef.current = id }).catch(() => {})
+    }
+  }, [])
+
+  useEffect(() => {
     if (typeof localClient.onOpApplied !== 'function') return
-    const unsub = localClient.onOpApplied(() => { loadAll() })
+    const unsub = localClient.onOpApplied((op) => {
+      if (op?.device_id === localDeviceIdRef.current) return
+      loadAll()
+    })
     return () => { unsub?.() }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -451,6 +461,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
 
   function recalcStats(slotList) {
     setStats(statsFor(slotList))
+  }
+
+  function recalcFindings(slotList) {
+    setFindings(computeFindings({ slots: slotList, groups, activities, days }))
   }
 
   // The schedule_templates row for a route is created lazily, on first use.

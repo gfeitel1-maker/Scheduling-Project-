@@ -12,6 +12,7 @@ vi.mock('../localClient', () => ({
     deleteEntity: vi.fn(),
     bulkReplace: vi.fn(),
     onOpApplied: vi.fn((cb) => { opAppliedListeners.push(cb) }),
+    getDeviceId: vi.fn(),
   },
 }))
 
@@ -88,6 +89,7 @@ beforeEach(() => {
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.bulkReplace.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.onOpApplied.mockReset().mockImplementation((cb) => { opAppliedListeners.push(cb) })
+  localClient.getDeviceId.mockReset().mockResolvedValue('device-local')
   // Clear captured listeners before each test so one test's listener
   // callbacks can't fire in a later test's assertion window.
   opAppliedListeners.length = 0
@@ -240,7 +242,7 @@ describe('editSlotSave (exercises the shared writeFields primitive)', () => {
 
     await waitFor(() => expect(screen.queryByText('Assign Activity')).toBeNull())
     // The cell must still show Swim, and no clearing write may have happened.
-    expect(scheduleCell('Swim')).toBeTruthy()
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
     const clearedWrite = localClient.write.mock.calls.find(
       c => c[1] === 'template_slots' && c[2] === 'slot-1' && c[3] === 'activity_id' && c[4] === null
     )
@@ -564,7 +566,10 @@ describe('placeActivityManual eligibility (T6 — DB-shaped eligible_tier_ids/el
   // the "Soccer" cell (slot-2, block b2), which is what drives
   // placeActivityManual('act-1', 'g1', 'd1', 'b2') without touching dnd-kit.
   async function copySwimPasteOntoSoccer() {
-    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+    await waitFor(() => {
+      expect(scheduleCell('Swim')).toBeTruthy()
+      expect(scheduleCell('Soccer')).toBeTruthy()
+    })
     fireEvent.click(scheduleCell('Swim'))
     fireEvent.keyDown(window, { key: 'c', ctrlKey: true })
     fireEvent.click(scheduleCell('Soccer'))
@@ -1239,7 +1244,7 @@ describe('T4: merging a cell down', () => {
 
     const headCell = scheduleCell('Swim').closest('td')
     fireEvent.pointerEnter(headCell)
-    const mergeBtn = within(headCell).queryByTitle(/run into the next period/i)
+    const mergeBtn = await within(headCell).findByTitle(/run into the next period/i)
     expect(mergeBtn, 'merge affordance should exist on a cell with a block below it').toBeTruthy()
     fireEvent.click(mergeBtn)
 
@@ -1261,7 +1266,8 @@ describe('T4: merging a cell down', () => {
 
     const headCell = scheduleCell('Swim').closest('td')
     fireEvent.pointerEnter(headCell)
-    fireEvent.click(within(headCell).getByTitle(/run into the next period/i))
+    const resizeHandle = await within(headCell).findByTitle(/run into the next period/i)
+    fireEvent.click(resizeHandle)
 
     await waitFor(() => expect(screen.getByText(/Displaced Activities/i)).toBeTruthy())
     expect(screen.getByText(/displaced from/i)).toBeTruthy()
@@ -1305,5 +1311,41 @@ describe('T3: selecting, copying and pasting cells', () => {
     fireEvent.keyDown(window, { key: 'Escape' })
     await waitFor(() => expect(screen.queryByText(/to paste/i)).toBeNull())
     expect(localClient.write.mock.calls.length).toBe(writesBefore)
+  })
+})
+
+describe('T37: onOpApplied skips loadAll for local-device ops', () => {
+  it('does NOT call loadAll (localClient.list) when op.device_id matches the local device', async () => {
+    mockList({ template_slots: [slotRow()] })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+
+    // Wait for getDeviceId to resolve so localDeviceIdRef is populated.
+    await waitFor(() => expect(localClient.getDeviceId).toHaveBeenCalled())
+
+    const listCallsBefore = localClient.list.mock.calls.length
+
+    // Fire an op-applied event from the local device — loadAll must NOT fire.
+    opAppliedListeners.forEach(cb => cb({ device_id: 'device-local', entity: 'template_slots' }))
+
+    // Give any async reload a chance to run.
+    await new Promise(r => setTimeout(r, 50))
+
+    expect(localClient.list.mock.calls.length).toBe(listCallsBefore)
+  })
+
+  it('DOES call loadAll when op.device_id is a different device (peer write)', async () => {
+    mockList({ template_slots: [slotRow()] })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+
+    await waitFor(() => expect(localClient.getDeviceId).toHaveBeenCalled())
+
+    const listCallsBefore = localClient.list.mock.calls.length
+
+    // Fire an op-applied event from a different device — loadAll MUST fire.
+    opAppliedListeners.forEach(cb => cb({ device_id: 'device-peer', entity: 'template_slots' }))
+
+    await waitFor(() => expect(localClient.list.mock.calls.length).toBeGreaterThan(listCallsBefore))
   })
 })

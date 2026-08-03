@@ -31,6 +31,7 @@ export function useSlotMutations({
   setEditSlot,
   setDisplacedItems,
   recalcStats,
+  recalcFindings,
   getSlot,
   setActivities,
   slots,
@@ -69,11 +70,16 @@ export function useSlotMutations({
       setActionError(describeWriteFailure(err, 'That cell could not be saved.'))
       return
     }
-    setSlots(prev => prev.map(s =>
-      s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-        ? { ...s, activity_id: nextActivityId, flags: {} }
-        : s
-    ))
+    setSlots(prev => {
+      const next = prev.map(s =>
+        s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
+          ? { ...s, activity_id: nextActivityId, flags: {} }
+          : s
+      )
+      recalcStats(next)
+      recalcFindings(next)
+      return next
+    })
     setEditSlot(null)
 
     const actAfter = activities.find(a => a.id === nextActivityId)
@@ -116,13 +122,18 @@ export function useSlotMutations({
       setActionError(describeWriteFailure(err, 'Those two cells could not be swapped.'))
       return
     }
-    setSlots(prev => prev.map(s => {
-      if (s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
-        return { ...s, activity_id: slotB.activityId || null, flags: {} }
-      if (s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
-        return { ...s, activity_id: slotA.activityId || null, flags: {} }
-      return s
-    }))
+    setSlots(prev => {
+      const next = prev.map(s => {
+        if (s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
+          return { ...s, activity_id: slotB.activityId || null, flags: {} }
+        if (s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
+          return { ...s, activity_id: slotA.activityId || null, flags: {} }
+        return s
+      })
+      recalcStats(next)
+      recalcFindings(next)
+      return next
+    })
 
     const actA = activities.find(a => a.id === slotA.activityId)
     const actB = activities.find(a => a.id === slotB.activityId)
@@ -290,11 +301,16 @@ export function useSlotMutations({
       return
     }
 
-    setSlots(prev => prev.map(s =>
-      s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-        ? { ...s, activity_id: activityId, flags }
-        : s
-    ))
+    setSlots(prev => {
+      const next = prev.map(s =>
+        s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
+          ? { ...s, activity_id: activityId, flags }
+          : s
+      )
+      recalcStats(next)
+      recalcFindings(next)
+      return next
+    })
 
     const day = days.find(d => d.id === dayId)
     const block = timeBlocks.find(b => b.id === blockId)
