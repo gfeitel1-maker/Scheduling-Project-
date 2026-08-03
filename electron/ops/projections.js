@@ -120,16 +120,12 @@ export const PROJECTIONS = {
   activities: {
     table: 'activities',
     key: 'id',
-    // is_locked is deliberately excluded — ScheduleScreen.jsx (not migrated
-    // until a later sub-plan) still writes activities.is_locked directly via
-    // Supabase, against the now-separate Supabase `activities` table. That
-    // is an intentional transition-window gap, not something this
-    // projection should paper over by accepting writes it doesn't yet own.
     fields: [
       'camp_id',
       'name',
       'location',
       'is_outdoor',
+      'is_locked',
       'max_groups_per_slot',
       'min_per_week',
       'max_per_week',
