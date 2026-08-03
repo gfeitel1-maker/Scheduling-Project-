@@ -1,5 +1,5 @@
 ---
-title: T33-generated-schedule-post-save-refresh-flicker
+title: T37-generated-schedule-post-save-refresh-flicker
 document_type: ticket
 status: open
 created: 2026-08-03
@@ -8,7 +8,7 @@ related_adrs: []
 archive_when: resolved and verified in the real app
 ---
 
-# T33 — Generated Schedule flickers/refreshes after a drop or Save
+# T37 — Generated Schedule flickers/refreshes after a drop or Save
 
 **Risk:** Low — cosmetic, but on the most repeated actions in the schedule builder.
 **Found:** 2026-08-03, product owner testing the generated-schedule blank-cell fix in real Electron.

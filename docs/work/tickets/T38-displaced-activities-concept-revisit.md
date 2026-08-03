@@ -1,5 +1,5 @@
 ---
-title: T34-displaced-activities-concept-revisit
+title: T38-displaced-activities-concept-revisit
 document_type: ticket
 status: parked
 created: 2026-08-03
@@ -8,7 +8,7 @@ related_adrs: []
 archive_when: superseded by an approved specification
 ---
 
-# T34 — Revisit the "Displaced Activities" concept
+# T38 — Revisit the "Displaced Activities" concept
 
 **Status: parked.** Product owner, 2026-08-03, while testing the generated-schedule blank-cell fix:
 *"displaced activities — this is a concept we should come back to after the other things are fixed."*
@@ -31,8 +31,8 @@ The product owner wants to reconsider the **concept and its UX**, not fix a spec
 
 ## Why it's parked
 
-Lower priority than the blank-cell fix (done, T-N/A), the post-save refresh flicker (**T33**), and
-the flaky schedule tests (**T35**). Revisit once those settle.
+Lower priority than the blank-cell fix (done, T-N/A), the post-save refresh flicker (**T37**), and
+the flaky schedule tests (**T39**). Revisit once those settle.
 
 ## Next step when picked up
 
@@ -42,4 +42,4 @@ any implementation. Capture displaced-activity persistence expectations explicit
 ## Related
 
 - The flaky test at `src/screens/ScheduleScreen.test.jsx:~1264` ("T4: merging a cell down > sends
-  the displaced activity to the tray") exercises this feature — see **T35**.
+  the displaced activity to the tray") exercises this feature — see **T39**.

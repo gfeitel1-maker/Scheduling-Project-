@@ -1,5 +1,5 @@
 ---
-title: T35-flaky-schedulescreen-tests
+title: T39-flaky-schedulescreen-tests
 document_type: ticket
 status: open
 created: 2026-08-03
@@ -8,7 +8,7 @@ related_adrs: []
 archive_when: resolved — suite passes reliably across repeated runs
 ---
 
-# T35 — `ScheduleScreen.test.jsx` is flaky (async/timing)
+# T39 — `ScheduleScreen.test.jsx` is flaky (async/timing)
 
 **Risk:** Medium for CI trust — green is not reliably green, which erodes the deterministic-evidence
 gate the workflow depends on.
