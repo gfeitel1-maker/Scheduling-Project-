@@ -68,4 +68,5 @@ contextBridge.exposeInMainWorld('shoresh', {
   listRecentProjects: () => ipcRenderer.invoke('shoresh:list-recent-projects'),
   openRecentProject: (targetPath) => ipcRenderer.invoke('shoresh:open-recent-project', { path: targetPath }),
   duplicateWeek: (args) => ipcRenderer.invoke('shoresh:duplicate-week', args),
+  deleteWeek: (args) => ipcRenderer.invoke('shoresh:delete-week', args),
 })

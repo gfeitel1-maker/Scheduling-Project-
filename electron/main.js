@@ -23,6 +23,7 @@ import { RESTORABLE_ENTITIES, restoreEntity } from './ops/restore.js'
 import { CLEARABLE_ENTITIES, previewDelete, deleteRecord } from './ops/deleteRecord.js'
 import { commitIngest } from './ops/ingest.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
+import { deleteWeek } from './ops/deleteWeek.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
 import {
@@ -826,12 +827,30 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ...reportable, ops_written: ops.length }
   }
 
+  function deleteWeekHandler({ token, weekId } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'schedule_weeks.write' })
+    if (!isNonEmptyString(weekId)) throw new Error('weekId is required')
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) throw new Error('no camp')
+
+    const result = deleteWeek(
+      db,
+      { weekId, campId: camp.id },
+      { author_user_id: userId, device_id: deviceId }
+    )
+    if (result.error) return result
+    const { ops, ...reportable } = result
+    return { ...reportable, ops_written: ops.length }
+  }
+
   return {
     chooseMode,
     discoverHosts: discoverHostsHandler,
     previewDelete: previewDeleteHandler,
     deleteRecord: deleteRecordHandler,
     duplicateWeek: duplicateWeekHandler,
+    deleteWeek: deleteWeekHandler,
     listDeleted: listDeletedHandler,
     listPendingRestores: listPendingRestoresHandler,
     getEntityHistory: getEntityHistoryHandler,
@@ -917,6 +936,7 @@ if (isElectronEntryPoint()) {
     'shoresh:deny-device',
     'shoresh:revoke-device',
     'shoresh:duplicate-week',
+    'shoresh:delete-week',
   ]
 
   function registerHandlers(handlers, currentDb) {
@@ -958,6 +978,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:deny-device', (_event, args) => handlers.denyDevice(args))
     ipcMain.handle('shoresh:revoke-device', (_event, args) => handlers.revokeDevice(args))
     ipcMain.handle('shoresh:duplicate-week', (_event, args) => handlers.duplicateWeek(args))
+    ipcMain.handle('shoresh:delete-week', (_event, args) => handlers.deleteWeek(args))
   }
 
   /**

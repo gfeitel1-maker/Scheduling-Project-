@@ -565,6 +565,33 @@ export const mockShoresh = {
     saveState(state)
     return { ok: true, newWeekId, newName }
   },
+
+  // Permanently delete a week and all its scoped rows, mirroring deleteWeek.js's
+  // contract: last-week guard, full cascade, no raw deletes outside the log.
+  // Operates on localStorage state — no op-log, no broadcast. For layout work at
+  // :5200; persistence/sync is only verifiable under electron:dev.
+  async deleteWeek({ weekId } = {}) {
+    const state = loadState()
+    const allWeeks = state.schedule_weeks || []
+    const week = allWeeks.find(w => w.id === weekId)
+    if (!week) return { error: 'no-week' }
+
+    if (allWeeks.length <= 1) return { error: 'last-week' }
+
+    const templates = (state.schedule_templates || []).filter(t => t.week_id === weekId)
+    const templateIds = new Set(templates.map(t => t.id))
+
+    state.schedule_snapshots = (state.schedule_snapshots || []).filter(s => !templateIds.has(s.template_id))
+    state.template_overlays = (state.template_overlays || []).filter(o => !templateIds.has(o.template_id))
+    state.template_slots = (state.template_slots || []).filter(s => !templateIds.has(s.template_id))
+    state.week_activity_exclusions = (state.week_activity_exclusions || []).filter(e => e.week_id !== weekId)
+    state.week_group_exclusions = (state.week_group_exclusions || []).filter(e => e.week_id !== weekId)
+    state.schedule_templates = (state.schedule_templates || []).filter(t => t.week_id !== weekId)
+    state.schedule_weeks = allWeeks.filter(w => w.id !== weekId)
+
+    saveState(state)
+    return { ok: true }
+  },
 }
 
 // Dev-only: expose the mock on window so a manual/automated browser session

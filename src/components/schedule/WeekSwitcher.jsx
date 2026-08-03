@@ -5,7 +5,7 @@ import { S } from '../../styles/shared'
 // (CONSTITUTION Art. V). Switching weeks is pure navigation: onSelect just
 // changes what's on screen, no confirm, nothing saved or destroyed
 // (docs/adr/2026-08-02-schedule-weeks-first-class.md).
-export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRename, onArchive, onUnarchive, onDuplicate, onDuplicateSuccess }) {
+export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRename, onArchive, onUnarchive, onDuplicate, onDuplicateSuccess, onDelete }) {
   const [isOpen, setIsOpen] = useState(false)
   const [renamingId, setRenamingId] = useState(null)
   const [renameValue, setRenameValue] = useState('')
@@ -121,7 +121,7 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
                       duplicate
                     </button>
                   )}
-                  {!isRenaming && onArchive && (
+                  {!isRenaming && onArchive && weeks.length > 1 && (
                     <button
                       onClick={() => onArchive(w.id)}
                       title="Archive this week"
@@ -162,6 +162,15 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
                       style={{ fontSize: 10, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
                     >
                       unarchive
+                    </button>
+                  )}
+                  {onDelete && weeks.length > 1 && (
+                    <button
+                      onClick={() => { setIsOpen(false); onDelete(w) }}
+                      title="Permanently delete this week"
+                      style={{ fontSize: 10, color: 'var(--warning)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
+                    >
+                      Delete permanently
                     </button>
                   )}
                 </div>

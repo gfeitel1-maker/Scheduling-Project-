@@ -36,6 +36,7 @@ export const RESTORE_DECISIONS = Object.freeze({
   day_override_template_slots: 'refused: rebuilt with its parent override, not on its own',
   week_activity_exclusions: 'refused: rebuilt by toggling the exclusion UI or duplicating the week',
   week_group_exclusions: 'refused: rebuilt by toggling the exclusion UI or duplicating the week',
+  conflicts: 'refused: conflicts are closed by resolution or by a week delete, never by trash',
 })
 
 export const RESTORABLE_ENTITIES = Object.freeze(

@@ -430,6 +430,17 @@ export const PROJECTIONS = {
       db.prepare('INSERT OR IGNORE INTO template_slots (id, template_id) VALUES (?, ?)').run(id, value)
     },
   },
+  // Registered so that DELETE_FIELD ops from deleteWeek.js can physically
+  // remove stale conflict rows when their referenced entity is deleted.
+  // Conflicts are created by raw SQL (recordConflict in operations.js), not
+  // via appendOp, so ensureExists is a no-op — a conflict row is never
+  // created by projection replay. No field writes via op-log either.
+  conflicts: {
+    table: 'conflicts',
+    key: 'id',
+    fields: [],
+    ensureExists: () => {},
+  },
 }
 
 // Reserved field name for a row-delete op — see DELETE_FIELD's definition in

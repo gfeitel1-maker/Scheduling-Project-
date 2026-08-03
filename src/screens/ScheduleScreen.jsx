@@ -27,6 +27,7 @@ import { useUndoRedo } from './schedule/useUndoRedo'
 import { useClipboardSelection } from './schedule/useClipboardSelection'
 import { useOverlayFillStamp } from './schedule/useOverlayFillStamp'
 import { useSnapshots } from './schedule/useSnapshots'
+import DeleteWeekDialog from '../components/schedule/DeleteWeekDialog'
 import { useGeneration } from './schedule/useGeneration'
 import { useSlotMutations } from './schedule/useSlotMutations'
 import { ROUTES, EMPTY_BY_ROUTE, useRouteState } from './schedule/useRouteState'
@@ -145,6 +146,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const [templateError, setTemplateError] = useState(null)
   const [actionError, setActionError] = useState(null)
   const [exportChoosing, setExportChoosing] = useState(false)
+  const [deletingWeek, setDeletingWeek] = useState(null)
+  const [weekDeletedBanner, setWeekDeletedBanner] = useState(null)
   const [showVersions, setShowVersions] = useState(false)
   const [showFieldTripDrawer, setShowFieldTripDrawer] = useState(false)
   const [isDayExpandDragActive, setIsDayExpandDragActive] = useState(false)
@@ -331,6 +334,12 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       // so `liveWeekId` is set for the route load BELOW — a functional setState
       // updater runs asynchronously (React batches it), which would leave
       // liveWeekId null on first load and skip the whole route load.
+      if (weekId && !camp.some(w => w.id === weekId)) {
+        // S3-6: The current week has disappeared — deleted on another device.
+        const deletedWeek = campWeeks.find(w => w.id === weekId) ?? weeks.find(w => w.id === weekId)
+        const name = deletedWeek?.name ?? 'This week'
+        setWeekDeletedBanner(`${name} was deleted on another device.`)
+      }
       liveWeekId = weekId && camp.some(w => w.id === weekId) ? weekId : (camp[0]?.id ?? null)
       setWeekId(liveWeekId)
     } catch {
@@ -867,6 +876,12 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
 
   return (
     <div style={{ maxWidth: '100%' }}>
+      {weekDeletedBanner && (
+        <div style={{ ...S.errorBanner, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>{weekDeletedBanner}</span>
+          <button onClick={() => setWeekDeletedBanner(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 16, lineHeight: 1 }}>×</button>
+        </div>
+      )}
       {loadError && (
         <div style={S.errorBanner}>
           {loadError}
@@ -923,6 +938,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             }
             return result
           }}
+          onDelete={(week) => setDeletingWeek(week)}
         />
         {anyRouteStarted && (
           <>
@@ -1401,6 +1417,27 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           if (label) setShowFieldTripDrawer(false)
         }}
       />
+
+      {deletingWeek && (
+        <DeleteWeekDialog
+          week={deletingWeek}
+          campId={campId}
+          localClient={localClient}
+          repo={repo}
+          onConfirm={(deletedWeekId) => {
+            setDeletingWeek(null)
+            setWeeks(prev => {
+              const remaining = prev.filter(w => w.id !== deletedWeekId)
+              if (weekId === deletedWeekId) {
+                const first = remaining.find(w => String(w.is_archived) !== '1')
+                setWeekId(first?.id ?? remaining[0]?.id ?? null)
+              }
+              return remaining
+            })
+          }}
+          onCancel={() => setDeletingWeek(null)}
+        />
+      )}
     </div>
   )
 }
