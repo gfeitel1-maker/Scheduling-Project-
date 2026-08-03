@@ -134,12 +134,44 @@ camp-scoped directly, not reached through a parent, so it belongs in
 
 Migration is additive-only and forward-only per project convention (no down
 migration file is written for schema-adding migrations, consistent with
-v23-v26). Rollback means running an older app build against a migrated db:
-`week_id` is a column the old build's queries don't reference, so old-build
-reads/writes of `schedule_templates` by `(camp_id, kind)` continue to work
-UNLESS a camp has been given a second week by the new build — in which case
-the old build's `(camp_id, kind)` query will ambiguously match more than one
-row (one per week) and must pick one, which is a known and accepted
-limitation of running an old build after adopting the new feature, not a
-migration defect. This mirrors how v23's rollback story already treats
-"an old build after a camp gets its second route."
+v23-v26).
+
+**Downgrade is a supported path** (product owner, 2026-08-02): an older app
+build may run against a migrated db (auto-update rollback, a side-loaded older
+build). The guarantee is **non-destructive downgrade**, not full feature parity:
+
+- The migrated "Week 1" rows keep the original camp-derived template ids a
+  pre-v27 build already used (`deriveScheduleTemplateId(campId, kind)` ==
+  `deriveScheduleTemplateId(weekId, kind)` only for Week 1, whose weekId the
+  renderer never substitutes — the migrated rows retain their existing ids).
+  So an old build resolving a route by `(camp_id, kind)` finds a real, intact
+  Week 1 schedule and operates on it normally.
+- Additional weeks (Week 2+) created by the new build are invisible to an old
+  build (it has no `week_id` concept) but **their rows are preserved** — nothing
+  is deleted. Re-upgrading restores the full multi-week view.
+- The one rough edge: with 2+ weeks, an old build's `(camp_id, kind)` query
+  matches more than one row and picks one by list order (first-created = Week 1
+  in practice), and because the old `UNIQUE(camp_id, kind)` index is gone it
+  could create a row the new build later sees as a NULL-week residual (harmless
+  clutter; see the backstop residual in Consequences). Neither loses data.
+
+Covered by `electron/db/scheduleWeeks.migration.test.js` ("downgrade is
+non-destructive…"). This mirrors how v23's rollback story treats "an old build
+after a camp gets its second route," extended to weeks.
+
+## Migration ordering note (v26 coupling)
+
+v27 is gated on `getSchemaVersion(db) >= 26 && < 27`, not a bare `< 27`, because
+v26 uses a deferred-retry pattern (it leaves the version unstamped if a camp's
+snapshot write fails, so the next launch retries) and `getSchemaVersion` is
+`MAX(version)`. A bare `< 27` would let v27 stamp 27 while v26 is still pending,
+pushing MAX past 26 so v26's `< 26` guard never fires again — silently skipping
+its orphan cleanup forever.
+
+The `>= 26` gate fixes that, but introduces a coupling worth naming: **every
+migration after v26 is now gated behind v26 completing for all camps on a
+device.** A camp that *persistently* fails its v26 snapshot write (e.g. an
+unresolvable template_id FK) would freeze that whole device below v27+ forever,
+not just leave its own orphans unrecovered. No trigger is known, but a future
+migration should add a bounded escape hatch (skip v26's retry after N launches
+and let later migrations proceed) rather than leaving this open-ended.

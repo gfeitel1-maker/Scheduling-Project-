@@ -302,7 +302,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       // weeks are eligible for `weekId` (a director cannot land on an
       // archived week by default or via reload).
       const campWeeks = (weekRows || [])
-        .filter(w => w.camp_id === campId)
+        // A blank name is a placeholder a device holds transiently mid-sync
+        // (projections.ensureExists inserts schedule_weeks with name='' when a
+        // field arrives before the name op) — never show it in the switcher or
+        // let weekId land on it; it resolves to a real name once sync catches up.
+        .filter(w => w.camp_id === campId && String(w.name ?? '').trim() !== '')
         .sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0) || x.name.localeCompare(y.name))
       let camp = campWeeks.filter(w => String(w.is_archived) !== '1')
       // Lazy creation, same precedent as ensureTemplateRow: a camp is never
