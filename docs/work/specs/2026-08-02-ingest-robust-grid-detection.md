@@ -169,8 +169,15 @@ So:
 
 *Why this cannot touch Camp A/B*: the whole branch is gated on `!hasTimeLabel`. Camp A's nested swim
 sub-schedule and Camp B's `Little`/`Playground` wrap never enter it. **Proven**: A/B `parseTextGrid`
-output is byte-identical; Shemesh's activity list contains none of the seven named room words and no
-bare number, while retaining `Boker Tov/Snack`, `Sof Hayom`, `Pick Up`, `Lunch`.
+output is byte-identical; Shemesh's activity list contains no *standalone* room word and no bare number,
+while retaining `Boker Tov/Snack`, `Sof Hayom`, `Pick Up`, `Lunch`.
+
+> **Correction (implementation) — the strip is fail-safe; see R3.** Adjacency alone is *not* the whole
+> discriminator: dropping every trailing data line silently truncated a genuine narrow wrap
+> (`Instructional` over `Swim`). The shipped rule drops a trailing line only when it is location-SHAPED
+> — a full-width value row (`isValueRow`) or bare numbers (`isBareNumbers`); a NARROW trailing line is
+> kept as a wrap. The residual cost (a narrow one-column room name welds onto its activity rather than
+> dropping) is the ADR-sanctioned over-inclusion, detailed in **R3**.
 
 ---
 
@@ -213,11 +220,16 @@ Each page carries a repeating banner `Shemesh Camp 2025` on the line above the r
 picks `KA`, not the banner. The remaining problem: the banner physically sits inside the **previous**
 page's body span and would become a phantom activity.
 
-**Rule**: detect the banner as *the line immediately above the title that repeats on ≥ half the pages*
-(`Shemesh Camp 2025`, 20×). Then, during body parsing, treat any line equal to the banner like a blank
-line (close the block, skip it). A camp whose titles are distinct with no shared line above them yields
-**no** banner (Camp A/B → `banner = null`, the skip is a no-op). Banner detection is gated to
-strip-mode pages, adding a second layer of Camp A/B safety.
+**Rule**: detect the banner as *the **single-token** line immediately above the title that repeats on
+≥ half the pages* (`Shemesh Camp 2025` tokenizes to one centred token, 20×). The single-token guard is
+what keeps a repeated **full-width fixed-event row** — a daily `Dismissal`/`Pick Up` printed under every
+day, which tokenizes to many columns — from being read as a banner and stripped from every page.
+Dropping a real repeated event is precisely the omission the ADR forbids, so the shape guard is a
+correctness fix, not a nicety. Then, during body parsing **of unlabeled pages only** (`!labeled`), treat
+any line equal to the banner like a blank line (close the block, skip it). A camp whose titles are
+distinct with no shared single-token line above them yields **no** banner (Camp A/B → `banner = null`);
+and because the body-skip is gated on `!labeled`, the labelled path is byte-identical whether or not a
+banner is detected — two independent layers of Camp A/B safety.
 
 ---
 
@@ -366,7 +378,27 @@ constitution. My recommendation is the addendum, for the durable record.
   *unlabeled* time column but single-line cells would simply have nothing to strip (safe). If a camp
   ever breaks the coupling, the fix is to detect location sub-lines independently (adjacency signal
   already exists) rather than off the header. Documented, not pre-built (karpathy: no speculative
-  generality).
+  generality). The three `!labeled` read-sites in code (strip in `closeBlock`, banner-skip in the body
+  loop of `textGrid.js`, unit inference in `extractEntities.js`) each carry a one-line note pointing
+  here, so the next editor sees the coupling.
+
+- **R3a — the strip is fail-safe, and its bias is over-inclusion.** The location strip does **not** drop
+  every trailing data line under an activity (the first draft did, and that silently truncated a genuine
+  narrow wrap — `Instructional` over `Swim` came back as just `Instructional`). The shipped rule drops a
+  trailing line only when it is location-SHAPED: a **full-width value row** (`isValueRow`) or **bare
+  numbers** (`isBareNumbers`). A **narrow** trailing line is kept as a wrapped activity continuation,
+  because width alone cannot separate `Swim` (a wrap to preserve) from a one-column room-name tail (a
+  location) — and per ADR §1 the tie breaks toward KEEPING, since a dropped activity is the one
+  unrecoverable failure. **Measured cost on the real Shemesh text**: the premise in §3b/acceptance-(a)
+  that "all Shemesh room lines are full-width value rows" is **not** literally true — a handful of rooms
+  print as a *narrow single column* (e.g. `Studio 1`, `Outside of 101`) under a full-width activity row.
+  Those now **weld onto the activity above** (`Group Time Social Hall`, `Mindfulness Studio 1`) instead
+  of being dropped: activity count moves 43 → 49, **0 removed**, with **no standalone room name and no
+  bare number** introduced (the exact-membership phantom check still passes; a substring scan would see
+  the welded room words). This is the ADR-sanctioned over-inclusion — a director unwelds it in a click,
+  versus the earlier code which could silently drop a real wrapped activity. If welded rooms ever need
+  removing, that is a *separate* narrow-tail-stripping ticket, not this change (no speculative generality
+  here).
 
 - **R4 — combined `A/B` activity slots.** RA/RB print two activities in one slot (`Drama/Movement`,
   `Art/Maker's Space`). The extractor keeps them as one activity (it splits only on spaced dashes).

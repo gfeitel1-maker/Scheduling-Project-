@@ -40,10 +40,19 @@ export function tokenize(line) {
 // The first two camps label their time column "Time"; the third leaves it
 // blank. `hasTimeLabel` is the single signal that tells the two families apart,
 // and every new-family behaviour below is gated on it being false — so a camp
-// that labels its time column runs a byte-identical code path and cannot
-// regress (ADR §7 addendum, spec §3).
+// that labels its time column runs none of the new-family branches, which is
+// the regression guarantee for the three shipped camps (ADR §7 addendum,
+// spec §3). Proven byte-identical for Camp A/B; not a general-case proof —
+// see the isHeaderLine note and [T36] for the widened-match residual.
+//
+// The label is matched by prefix, not equality: a Camp-A-shaped camp that heads
+// its time column "Times", "Time:", "Time Block", or "Period" must take the
+// labelled path too, or it silently loses unit inference (tiers=[]). One
+// constant, reused by hasTimeLabel and isHeaderLine, so the two never drift.
+const TIME_HEADER_LABEL = /^(time|times|period)\b/i
+
 export function hasTimeLabel(tokens) {
-  return tokens.length > 0 && /^time$/i.test(tokens[0]?.text ?? '')
+  return tokens.length > 0 && TIME_HEADER_LABEL.test(tokens[0]?.text ?? '')
 }
 
 function dayCount(tokens) {
@@ -61,13 +70,20 @@ export function isDayHeader(tokens) {
 
 /**
  * The header row is the line that names the columns. Two families label their
- * first column "Time" (the layout-independent anchor); a third leaves the time
- * column blank and is recognised instead by a day-name-majority row. Signal (A)
- * is tried first and is unchanged, so any document that labels its time column
- * selects exactly the line it selected before.
+ * first column with a time word (Time/Times/Time Block/Period — the
+ * layout-independent anchor); a third leaves the time column blank and is
+ * recognised instead by a day-name-majority row.
+ *
+ * The time-word test is a PREFIX, wider than the original `/^time$/` so a
+ * "Times"/"Period" time column is caught (spec §3 FIX 2). The cost: a BODY row
+ * whose first cell begins with a time word (a period literally named "Period 2",
+ * an activity "Times Up") could be misread as a header on some future unlabeled
+ * camp and split the page wrongly. No such body line exists in Camp A/B/Shemesh,
+ * so it does not fire on the current corpus — tracked as a residual, not
+ * pre-solved. See [T36].
  */
 export function isHeaderLine(tokens) {
-  return (tokens.length >= 3 && /^time$/i.test(tokens[0].text)) || isDayHeader(tokens)
+  return (tokens.length >= 3 && TIME_HEADER_LABEL.test(tokens[0].text)) || isDayHeader(tokens)
 }
 
 export function findHeaderLine(lines) {
@@ -175,18 +191,32 @@ export function isDayName(text) {
   return DAY_NAMES.includes(String(text).trim().toLowerCase())
 }
 
+// A location printed as bare room numbers — a single "217" tail, or "102 104
+// 105" spread across the days — rather than a room name. Used by the fail-safe
+// strip alongside the full-width value-row test to tell a location line from a
+// wrapped activity continuation (spec §3b, R3).
+function isBareNumbers(tokens) {
+  return tokens.length > 0 && tokens.every((t) => /^\d+$/.test(t.text))
+}
+
 // A page banner is the line that repeats above every page's title (e.g. a camp
 // name printed on each page). It physically falls inside the PREVIOUS page's
 // body span, so left alone it becomes a phantom activity. A camp whose titles
 // have no shared line above them yields `null` and the skip below is a no-op
 // (spec §3d).
+//
+// A banner CANDIDATE must be a single centred label, not schedule content: a
+// real full-width content row (e.g. a daily "Dismissal"/"Pick Up" printed under
+// every day) tokenizes to many columns, while a camp-name banner is one token.
+// Requiring one token stops a repeated fixed-event row from being mistaken for a
+// banner and silently stripped (ADR §1 forbids the omission; spec §3d).
 function detectBanner(lines, titleIndexes) {
   const counts = new Map()
   for (const ti of titleIndexes) {
     for (let i = ti - 1; i >= 0; i--) {
       const text = lines[i].trim()
       if (!text) continue
-      counts.set(text, (counts.get(text) ?? 0) + 1)
+      if (tokenize(lines[i]).length === 1) counts.set(text, (counts.get(text) ?? 0) + 1)
       break
     }
   }
@@ -315,11 +345,24 @@ export function parseTextGrid(text) {
       // standing alone. Getting this backwards is what split "Little" from
       // "Playground" — the two halves sit either side of the row.
       let leading = []
-      // A data line whose immediately-preceding non-blank line was also data is
-      // a location printed under its activity, and is dropped. A time line (no
-      // data) resets the adjacency — so a fixed event that follows its own time
-      // line (e.g. "Sof Hayom" under the 03:20 line) is NOT mistaken for a
-      // location and is kept. Gated to unlabeled pages (spec §3b).
+      // A data line whose immediately-preceding non-blank line was also data MAY
+      // be a location printed under its activity — but only a location-SHAPED one
+      // is dropped (R3, the coupling: strip runs on `!labeled` pages). A trailing
+      // line is treated as a location when it is a full-width value row (a room
+      // under every day) OR bare numbers (a room number); a NARROW trailing line
+      // fills far fewer columns than the activity above, so it is a wrapped
+      // continuation ("Instructional" over "Swim") — kept, not dropped. A time
+      // line (no data) resets the adjacency, so a fixed event that follows its
+      // own time line ("Sof Hayom" under the 03:20 line) is kept too. When
+      // ambiguous, KEEP: ADR §1 makes a dropped activity the one unrecoverable
+      // failure. Gated to unlabeled pages (spec §3b).
+      //
+      // RESIDUAL: this reads any full-width trailing row as a location, so a
+      // block that stacks TWO activity rows with no blank line between (as Camp
+      // A nests its swim sub-schedule — but Camp A is labelled and spared) would
+      // drop the second on a future unlabeled camp. Every current-corpus period
+      // is one activity + one location per blank-delimited block, so it does not
+      // fire today. Tracked, not pre-solved — see [T36].
       let prevHadData = false
       for (const tokens of block) {
         const dataTokens = []
@@ -332,7 +375,7 @@ export function parseTextGrid(text) {
           continue
         }
         if (stripLocations) {
-          if (prevHadData) continue
+          if (prevHadData && (isValueRow(tokens) || isBareNumbers(dataTokens))) continue
           prevHadData = true
         }
         if (isValueRow(tokens)) {
@@ -372,8 +415,9 @@ export function parseTextGrid(text) {
       const line = lines[i]
       if (!line.trim()) { closeBlock(); continue }
       // The repeating page banner sits in this page's body span; treat it like a
-      // blank line so it never becomes a phantom activity (spec §3d).
-      if (banner && line.trim() === banner) { closeBlock(); continue }
+      // blank line so it never becomes a phantom activity (spec §3d). Gated on
+      // `!labeled` (R3, the coupling) so a labelled camp's body is never skipped.
+      if (!labeled && banner && line.trim() === banner) { closeBlock(); continue }
       const tokens = tokenize(line)
       if (tokens.length > 0) block.push(tokens)
     }

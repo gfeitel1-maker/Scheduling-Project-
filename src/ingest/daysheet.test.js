@@ -120,3 +120,68 @@ describe('resilience — malformed unlabeled input fails cleanly', () => {
     expect(result.entities.time_blocks).toEqual([])
   })
 })
+
+// FIX 2 — a Camp-A-shaped camp that labels its time column "Times"/"Period"/etc.
+// must still take the labelled path, or it silently loses unit inference. The
+// gate is a prefix match, not the exact word "Time" (spec §3a, R3).
+describe('the time-label gate matches beyond the exact word "Time"', () => {
+  for (const label of ['Time', 'TIME', 'Times', 'Time:', 'Time Block', 'Period']) {
+    it(`a "${label}"-labelled header takes the labelled path`, () => {
+      const header = tokenize(`${label}          Yeladim 1          Yeladim 2          CIT`)
+      expect(hasTimeLabel(header)).toBe(true)
+      expect(isHeaderLine(header)).toBe(true)
+    })
+  }
+
+  it('a plain day-only header stays unlabelled (day-name majority, not a time label)', () => {
+    const header = tokenize('                  Monday                 Tuesday                Wednesday')
+    expect(hasTimeLabel(header)).toBe(false)
+    expect(isHeaderLine(header)).toBe(true)
+  })
+})
+
+// FIX 1 — the location strip is fail-safe. A NARROW trailing line (a wrapped
+// activity name continuing one column) is kept; only a full-width value row or
+// bare numbers (a room) is dropped. The old adjacency-only strip dropped ANY
+// trailing data line and so silently truncated a genuine wrap (spec §3b, R3).
+describe('a narrow wrapped activity continuation is kept, not stripped as a location', () => {
+  const HDR = '                  Monday                 Tuesday                Wednesday                Thursday               Friday'
+  const page = [
+    '                                                                 QA',
+    HDR,
+    '09:30 AM',
+    '             Instructional             Pottery                 Sailing                 Archery               Theme Day',
+    '             Swim',
+    '10:10 AM',
+    '',
+  ].join('\n')
+
+  it('retains the full wrapped name ("Instructional" over "Swim")', () => {
+    const { entities } = extractEntities(parseTextGrid(page))
+    expect(entities.activities).toContain('Instructional Swim')
+    // the truncated half must not appear on its own (the old bug)
+    expect(entities.activities).not.toContain('Instructional')
+  })
+})
+
+// FIX 3 — a repeating full-width fixed-event row must not be eaten as a banner.
+// A banner candidate is a single centred label (one token); a real daily event
+// row tokenizes to many columns and is kept. The old detector counted any
+// pre-title line and stripped it on every page (spec §3d, R3).
+describe('a repeating full-width fixed-event row is not mistaken for a banner', () => {
+  const HDR = '                  Monday                 Tuesday                Wednesday                Thursday               Friday'
+  const DIS = '             Dismissal               Dismissal               Dismissal               Dismissal             Dismissal'
+  const SIGN = '             Sign In                 Sign In                 Sign In                 Sign In               Sign In'
+  const dayPage = (t) => [
+    '                                                                 ' + t,
+    HDR, '09:00 AM', SIGN, '09:20 AM', '', '03:45 PM', DIS, '',
+  ].join('\n')
+  // Each page ends with a full-width "Dismissal" row sitting directly above the
+  // next page's title — exactly where the old banner detector would grab it.
+  const doc = [dayPage('QA'), dayPage('QB'), dayPage('QC')].join('\n')
+
+  it('keeps the repeated "Dismissal" event as an activity', () => {
+    const { entities } = extractEntities(parseTextGrid(doc))
+    expect(entities.activities).toContain('Dismissal')
+  })
+})

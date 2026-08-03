@@ -232,6 +232,8 @@ export function extractEntities(parsed) {
         // The new family's title is a positional code (unlabeled time column);
         // the group keeps the whole code and the unit is inferred from its
         // prefix. The two labelled camps keep calling splitUnitAndGroup (spec §3c).
+        // This is the third behaviour gated on `!labeled` (with strip + banner in
+        // textGrid.js); the coupling is spec R3.
         const { unit, group } = page.timeColumnLabeled === false
           ? { unit: inferUnitFromCode(title), group: title }
           : splitUnitAndGroup(title)
