@@ -220,6 +220,33 @@ describe('editSlotSave (exercises the shared writeFields primitive)', () => {
     await waitFor(() => expect(screen.queryByText('Assign Activity')).toBeNull())
   })
 
+  // Regression (reported): opening the edit modal on a FILLED cell and pressing
+  // Save without touching the list blanked the cell. EditModal initialised its
+  // selection from `slot.activityId` (camelCase), but the slot object threaded
+  // through onEdit/setEditSlot carries `activity_id` (snake_case, DB shape) — so
+  // the current activity was never pre-selected, the list sat on "Clear slot",
+  // and Save wrote activity_id: null. The director's mental model is "I opened
+  // this to look at it / tweak it", not "I asked to erase it".
+  it('preselection: opening the modal on a filled cell and saving unchanged keeps the activity (does not blank the cell)', async () => {
+    mockList({ activities: [activity({ id: 'act-1', name: 'Swim' }), activity({ id: 'act-2', name: 'Art' })] })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+    fireEvent.doubleClick(scheduleCell('Swim'))
+
+    await waitFor(() => expect(screen.getByText('Assign Activity')).toBeTruthy())
+    // Save WITHOUT selecting anything — the current activity must already be the
+    // active choice.
+    fireEvent.click(within(editModal()).getByText('Save'))
+
+    await waitFor(() => expect(screen.queryByText('Assign Activity')).toBeNull())
+    // The cell must still show Swim, and no clearing write may have happened.
+    expect(scheduleCell('Swim')).toBeTruthy()
+    const clearedWrite = localClient.write.mock.calls.find(
+      c => c[1] === 'template_slots' && c[2] === 'slot-1' && c[3] === 'activity_id' && c[4] === null
+    )
+    expect(clearedWrite).toBeUndefined()
+  })
+
   it('failure: does not silently proceed when the write comes back non-applied — surfaces an error banner and keeps the modal open', async () => {
     mockList({ activities: [activity({ id: 'act-1', name: 'Swim' }), activity({ id: 'act-2', name: 'Art' })] })
     localClient.write.mockResolvedValue({ status: 'rejected' })

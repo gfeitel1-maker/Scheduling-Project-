@@ -3,7 +3,12 @@ import { ANCHOR_COLOR, activityColor } from './slotCellConstants'
 import { S } from '../../styles/shared'
 
 export default function EditModal({ slot, eligibleActivities, currentActivity, currentAnchor, weatherAlt, weatherMode, onSave, onClose }) {
-  const [selected, setSelected] = useState(slot.activityId || '')
+  // The slot threaded in from the grid carries the DB-shaped `activity_id`
+  // (snake_case); `activityId` is only present on some transient shapes. Reading
+  // the camelCase key alone left `selected` empty on a filled cell, so the list
+  // sat on "Clear slot" and an unchanged Save blanked the cell. Preselect the
+  // current activity from whichever key is present.
+  const [selected, setSelected] = useState(slot.activity_id ?? slot.activityId ?? '')
 
   if (slot.type === 'anchor') {
     return (
