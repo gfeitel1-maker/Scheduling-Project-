@@ -193,3 +193,88 @@ describe('filing a bunk under its unit', () => {
     expect(count('groups')).toBe(0)
   })
 })
+
+// T33 — an import must file the Program-scoped entities under the active
+// Program, or the Units/Time Blocks screens (which filter by cohort_id) never
+// show them and a unit the director cannot see cannot appear tied to its
+// groups. docs/work/tickets/T33-ingest-creates-cohort-orphaned-entities.md.
+describe('filing imported units and time blocks under the active Program', () => {
+  const coMain = 'co-main'
+  const coOther = 'co-other'
+  beforeEach(() => {
+    db.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run(coMain, campId, 'Main')
+    db.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run(coOther, campId, 'Session 2')
+  })
+
+  it('files created units under the given Program', () => {
+    commitIngest(db, {
+      approved: { tiers: ['Yeladim'] }, links: { groups: {} },
+      camp_id: campId, cohort_id: coMain, device_id: deviceId,
+    })
+    expect(db.prepare('SELECT cohort_id FROM tiers').get().cohort_id).toBe(coMain)
+  })
+
+  it('files created time blocks under the given Program', () => {
+    commitIngest(db, {
+      approved: { time_blocks: ['9:00-9:40'] }, links: { groups: {} },
+      camp_id: campId, cohort_id: coMain, device_id: deviceId,
+    })
+    expect(db.prepare('SELECT cohort_id FROM time_blocks').get().cohort_id).toBe(coMain)
+  })
+
+  it('still creates camp-scoped groups (the groups table carries no Program of its own)', () => {
+    // Groups are camp-scoped in this app — the table has no cohort_id column and
+    // the Groups screen lists by camp_id — so passing a Program does not change
+    // group creation; it only files tiers/time_blocks.
+    commitIngest(db, {
+      approved: { groups: ['Matzo Balls'] }, links: { groups: {} },
+      camp_id: campId, cohort_id: coMain, device_id: deviceId,
+    })
+    expect(count('groups')).toBe(1)
+  })
+
+  it('files the bunk under a unit created in the same Program', () => {
+    commitIngest(db, {
+      approved: { tiers: ["Adom 4's"], groups: ['Matzo Balls'] },
+      links: { groups: { 'Matzo Balls': "Adom 4's" } },
+      camp_id: campId, cohort_id: coMain, device_id: deviceId,
+    })
+    const row = db.prepare('SELECT t.cohort_id AS c FROM groups g JOIN tiers t ON t.id = g.tier_id').get()
+    expect(row.c).toBe(coMain)
+  })
+
+  it('does not reuse a same-named unit from a different Program — creates a fresh one here', () => {
+    // A "Rimon" in Session 2 is a different unit than a "Rimon" in Main; reusing
+    // it across Programs would file this import's bunks under one the director
+    // cannot see in the Program they imported into.
+    db.prepare('INSERT INTO tiers (id, camp_id, name, cohort_id) VALUES (?, ?, ?, ?)').run('t-other', campId, 'Rimon', coOther)
+    commitIngest(db, {
+      approved: { tiers: ['Rimon'], groups: ['Chamsas'] }, links: { groups: { Chamsas: 'Rimon' } },
+      camp_id: campId, cohort_id: coMain, device_id: deviceId,
+    })
+    // A fresh Rimon is created in Main rather than the Session-2 one reused.
+    expect(count('tiers')).toBe(2)
+    const tierId = db.prepare('SELECT tier_id FROM groups').get().tier_id
+    expect(tierId).not.toBe('t-other')
+    expect(db.prepare('SELECT cohort_id FROM tiers WHERE id = ?').get(tierId).cohort_id).toBe(coMain)
+  })
+
+  it('reuses a same-named unit that is already in this Program', () => {
+    db.prepare('INSERT INTO tiers (id, camp_id, name, cohort_id) VALUES (?, ?, ?, ?)').run('t-main', campId, 'Lavan', coMain)
+    commitIngest(db, {
+      approved: { groups: ['Chamsas'] }, links: { groups: { Chamsas: 'lavan' } },
+      camp_id: campId, cohort_id: coMain, device_id: deviceId,
+    })
+    expect(count('tiers')).toBe(1)
+    expect(db.prepare('SELECT tier_id FROM groups').get().tier_id).toBe('t-main')
+  })
+
+  it('without a Program (older callers) still writes null-cohort rows, unchanged', () => {
+    commitIngest(db, {
+      approved: { tiers: ['Yeladim'], time_blocks: ['9:00-9:40'] }, links: { groups: {} },
+      camp_id: campId, device_id: deviceId,
+    })
+    expect(db.prepare('SELECT cohort_id FROM tiers').get().cohort_id).toBeNull()
+    expect(db.prepare('SELECT cohort_id FROM time_blocks').get().cohort_id).toBeNull()
+  })
+})

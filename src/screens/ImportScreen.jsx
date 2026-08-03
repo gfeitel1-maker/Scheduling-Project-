@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { localClient } from '../localClient'
+import { useCohorts } from '../hooks/useCohorts'
 import { S } from '../styles/shared'
 import * as XLSX from 'xlsx'
 import { parseTextGrid } from '../ingest/textGrid'
@@ -29,7 +30,10 @@ const LABEL = {
   activities: 'Activities',
 }
 
-export default function ImportScreen({ onNavigate }) {
+export default function ImportScreen({ campId, onNavigate }) {
+  // Units and time blocks are scoped to a Program; an import files them under
+  // the active one so the setup screens will show them (T33).
+  const { activeCohort } = useCohorts(campId)
   const [fileNames, setFileNames] = useState([])
   const [preview, setPreview] = useState(null)
   const [chosen, setChosen] = useState({})
@@ -91,7 +95,14 @@ export default function ImportScreen({ onNavigate }) {
       const proposal = extractEntities({ pages })
       const existing = {}
       for (const entity of INGESTIBLE_ENTITIES) {
-        existing[entity] = await localClient.list(entity).catch(() => [])
+        let rows = await localClient.list(entity).catch(() => [])
+        // Duplicate-detection for the Program-scoped entities is scoped to the
+        // active Program, or a re-import into a different Program would skip a
+        // unit/time-block that only exists in another one (T33).
+        if ((entity === 'tiers' || entity === 'time_blocks') && activeCohort) {
+          rows = rows.filter((r) => r.cohort_id === activeCohort.id)
+        }
+        existing[entity] = rows
       }
       setExistingRecords(existing)
       setImportMode('add')
@@ -149,7 +160,7 @@ export default function ImportScreen({ onNavigate }) {
       for (const name of approved.groups ?? []) {
         if (preview.groupUnits?.[name]) groupUnits[name] = preview.groupUnits[name]
       }
-      const outcome = await localClient.ingestCommit(approved, { groups: groupUnits })
+      const outcome = await localClient.ingestCommit(approved, { groups: groupUnits }, activeCohort?.id ?? null)
       setResult(outcome)
       setPreview(null)
     } catch (err) {
