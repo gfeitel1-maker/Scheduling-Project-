@@ -119,6 +119,49 @@ export function createScheduleRepository({
       return (await localClient.list('schedule_weeks')) || []
     },
 
+    async loadWeekExclusions(weekId) {
+      const [activityExclusions, groupExclusions] = await Promise.all([
+        localClient.list('week_activity_exclusions'),
+        localClient.list('week_group_exclusions'),
+      ])
+      return {
+        activityExclusions: (activityExclusions || []).filter((e) => e.week_id === weekId),
+        groupExclusions: (groupExclusions || []).filter((e) => e.week_id === weekId),
+      }
+    },
+
+    async toggleActivityExclusion(weekId, activityId, excluded) {
+      if (excluded) {
+        const id = crypto.randomUUID()
+        await writeFields('week_activity_exclusions', id, {
+          week_id: weekId,
+          activity_id: activityId,
+        })
+      } else {
+        const rows = (await localClient.list('week_activity_exclusions')) || []
+        const row = rows.find((r) => r.week_id === weekId && r.activity_id === activityId)
+        if (row) {
+          await localClient.deleteEntity(getToken(), 'week_activity_exclusions', row.id)
+        }
+      }
+    },
+
+    async toggleGroupExclusion(weekId, groupId, excluded) {
+      if (excluded) {
+        const id = crypto.randomUUID()
+        await writeFields('week_group_exclusions', id, {
+          week_id: weekId,
+          group_id: groupId,
+        })
+      } else {
+        const rows = (await localClient.list('week_group_exclusions')) || []
+        const row = rows.find((r) => r.week_id === weekId && r.group_id === groupId)
+        if (row) {
+          await localClient.deleteEntity(getToken(), 'week_group_exclusions', row.id)
+        }
+      }
+    },
+
     // --- field writes ------------------------------------------------------
     // `kind` is written FIRST (see writeFields note); the caller's object order
     // guarantees it.

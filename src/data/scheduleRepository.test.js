@@ -335,3 +335,59 @@ describe('is_anchor derivation is shape-specific, not a disjunction', () => {
     expect(client.calls.bulkReplace[0][3][0].is_anchor).toBe('0')
   })
 })
+
+describe('week exclusions — loadWeekExclusions / toggleActivityExclusion / toggleGroupExclusion', () => {
+  it('loadWeekExclusions returns rows for the given weekId only', async () => {
+    const client = makeFakeClient()
+    client.setListStore({
+      week_activity_exclusions: [
+        { id: 'e1', week_id: 'week-1', activity_id: 'act-1' },
+        { id: 'e2', week_id: 'week-2', activity_id: 'act-2' },
+      ],
+      week_group_exclusions: [
+        { id: 'g1', week_id: 'week-1', group_id: 'grp-1' },
+        { id: 'g2', week_id: 'week-2', group_id: 'grp-2' },
+      ],
+    })
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    const result = await repo.loadWeekExclusions('week-1')
+    expect(result.activityExclusions).toEqual([{ id: 'e1', week_id: 'week-1', activity_id: 'act-1' }])
+    expect(result.groupExclusions).toEqual([{ id: 'g1', week_id: 'week-1', group_id: 'grp-1' }])
+  })
+
+  it('toggleActivityExclusion(true) calls write with week_id first then activity_id', async () => {
+    const client = makeFakeClient()
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    await repo.toggleActivityExclusion('week-1', 'act-swim', true)
+    // week_id must be written first (projections ensureExists gate)
+    expect(client.calls.write[0][3]).toBe('week_id')
+    expect(client.calls.write[0][4]).toBe('week-1')
+    expect(client.calls.write[1][3]).toBe('activity_id')
+    expect(client.calls.write[1][4]).toBe('act-swim')
+    expect(client.calls.write[0][1]).toBe('week_activity_exclusions')
+  })
+
+  it('toggleActivityExclusion(false) calls deleteEntity for the matching row', async () => {
+    const client = makeFakeClient()
+    client.setListStore({
+      week_activity_exclusions: [
+        { id: 'excl-1', week_id: 'week-1', activity_id: 'act-swim' },
+      ],
+    })
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    await repo.toggleActivityExclusion('week-1', 'act-swim', false)
+    expect(client.calls.deleteEntity).toEqual([
+      ['tok', 'week_activity_exclusions', 'excl-1'],
+    ])
+  })
+
+  it('toggleGroupExclusion(true) calls write with week_id first then group_id', async () => {
+    const client = makeFakeClient()
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    await repo.toggleGroupExclusion('week-1', 'grp-3', true)
+    expect(client.calls.write[0][3]).toBe('week_id')
+    expect(client.calls.write[1][3]).toBe('group_id')
+    expect(client.calls.write[1][4]).toBe('grp-3')
+    expect(client.calls.write[0][1]).toBe('week_group_exclusions')
+  })
+})

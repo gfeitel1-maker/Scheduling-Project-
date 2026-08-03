@@ -47,4 +47,14 @@ export const PARENT_SCOPED_ENTITIES = {
     parentTable: 'day_override_templates',
     parentKey: 'day_override_template_id',
   },
+  week_activity_exclusions: {
+    table: 'week_activity_exclusions',
+    parentTable: 'schedule_weeks',
+    parentKey: 'week_id',
+  },
+  week_group_exclusions: {
+    table: 'week_group_exclusions',
+    parentTable: 'schedule_weeks',
+    parentKey: 'week_id',
+  },
 }

@@ -200,6 +200,32 @@ export const PROJECTIONS = {
       ).run(id, value)
     },
   },
+  // Parent-scoped via week_id, same pattern as day_override_template_slots.
+  // ensureExists is gated on field === 'week_id' arriving first: these rows have
+  // no other NOT NULL column to seed, and creating the row before week_id is
+  // known would land an orphan with a NULL FK.
+  week_activity_exclusions: {
+    table: 'week_activity_exclusions',
+    key: 'id',
+    fields: ['week_id', 'activity_id'],
+    ensureExists: (db, id, field, value) => {
+      if (field !== 'week_id') return
+      db.prepare(
+        'INSERT OR IGNORE INTO week_activity_exclusions (id, week_id) VALUES (?, ?)'
+      ).run(id, value)
+    },
+  },
+  week_group_exclusions: {
+    table: 'week_group_exclusions',
+    key: 'id',
+    fields: ['week_id', 'group_id'],
+    ensureExists: (db, id, field, value) => {
+      if (field !== 'week_id') return
+      db.prepare(
+        'INSERT OR IGNORE INTO week_group_exclusions (id, week_id) VALUES (?, ?)'
+      ).run(id, value)
+    },
+  },
   // A week is director-named text ("Week 1"), direct-camp-scoped exactly like
   // groups/tiers — it is not reached through a parent, so it belongs in
   // DIRECT_CAMP_ENTITIES (electron/ops/campScopedEntities.js), not

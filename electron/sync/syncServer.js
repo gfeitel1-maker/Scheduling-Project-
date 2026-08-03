@@ -22,7 +22,7 @@ import { shouldThrottle, LOGIN_MIN_INTERVAL_MS, PAIRING_RATE_MS } from './rateLi
 // The parent-scoped entities shipped in the first-pairing domain snapshot —
 // deliberately excludes `schedule_snapshots` (see design doc Consequences:
 // unbounded historical growth over a season, out of scope for this ticket).
-const DOMAIN_PARENT_SCOPED_ENTITIES = ['template_slots', 'template_overlays', 'day_override_template_slots']
+const DOMAIN_PARENT_SCOPED_ENTITIES = ['template_slots', 'template_overlays', 'day_override_template_slots', 'week_activity_exclusions', 'week_group_exclusions']
 
 // Task 10 round-5 Fix 4: report success/failure back to the caller instead
 // of unconditionally swallowing it. sendMissedOps needs this to know exactly

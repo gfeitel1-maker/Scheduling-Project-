@@ -437,3 +437,19 @@ CREATE TABLE IF NOT EXISTS day_override_template_slots (
   time_block_id TEXT,
   activity_id TEXT
 );
+
+-- Per-week activity and group exclusion tables (migration v28).
+-- A row means "this activity/group does not run in this week." Absence means it runs.
+-- idx_week_activity_exclusions_week_activity and idx_week_group_exclusions_week_group
+-- are created by migration v28, not here — schema.sql re-executes on every open.
+CREATE TABLE IF NOT EXISTS week_activity_exclusions (
+  id TEXT PRIMARY KEY,
+  week_id TEXT NOT NULL REFERENCES schedule_weeks(id),
+  activity_id TEXT NOT NULL REFERENCES activities(id)
+);
+
+CREATE TABLE IF NOT EXISTS week_group_exclusions (
+  id TEXT PRIMARY KEY,
+  week_id TEXT NOT NULL REFERENCES schedule_weeks(id),
+  group_id TEXT NOT NULL REFERENCES groups(id)
+);

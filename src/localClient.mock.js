@@ -490,6 +490,81 @@ export const mockShoresh = {
   async deleteRecord() {
     return { error: 'no-record' }
   },
+
+  // Duplicate a week in mock state, mirroring duplicateWeek.js's contract:
+  // a new schedule_weeks row, new schedule_templates rows, copies of slots/
+  // overlays/exclusions with fresh ids, appended last. Operates on
+  // localStorage state — no op-log, no broadcast. For layout work at :5200;
+  // persistence/sync is only verifiable under electron:dev.
+  async duplicateWeek({ sourceWeekId } = {}) {
+    const state = loadState()
+    const sourceWeek = (state.schedule_weeks || []).find((w) => w.id === sourceWeekId)
+    if (!sourceWeek) return { error: 'no-source-week' }
+
+    const newWeekId = randomId()
+
+    const existingNames = new Set((state.schedule_weeks || []).map((w) => w.name))
+    let newName = `${sourceWeek.name} copy`
+    if (existingNames.has(newName)) {
+      let n = 2
+      while (existingNames.has(`${sourceWeek.name} copy (${n})`)) n++
+      newName = `${sourceWeek.name} copy (${n})`
+    }
+
+    const maxSort = Math.max(0, ...(state.schedule_weeks || []).map((w) => w.sort_order ?? 0))
+
+    if (!Array.isArray(state.schedule_weeks)) state.schedule_weeks = []
+    if (!Array.isArray(state.schedule_templates)) state.schedule_templates = []
+    if (!Array.isArray(state.template_slots)) state.template_slots = []
+    if (!Array.isArray(state.template_overlays)) state.template_overlays = []
+
+    for (const kind of ['generated', 'manual']) {
+      const srcTemplate = state.schedule_templates.find(
+        (t) => t.week_id === sourceWeekId && t.kind === kind
+      )
+      if (!srcTemplate) continue
+
+      const newTemplateId = randomId()
+      state.schedule_templates.push({
+        id: newTemplateId,
+        camp_id: srcTemplate.camp_id,
+        name: srcTemplate.name,
+        kind,
+        week_id: newWeekId,
+      })
+
+      const srcSlots = state.template_slots.filter((s) => s.template_id === srcTemplate.id)
+      for (const s of srcSlots) {
+        state.template_slots.push({ ...s, id: randomId(), template_id: newTemplateId })
+      }
+
+      const srcOverlays = state.template_overlays.filter((o) => o.template_id === srcTemplate.id)
+      for (const o of srcOverlays) {
+        state.template_overlays.push({ ...o, id: randomId(), template_id: newTemplateId })
+      }
+    }
+
+    if (!Array.isArray(state.week_activity_exclusions)) state.week_activity_exclusions = []
+    if (!Array.isArray(state.week_group_exclusions)) state.week_group_exclusions = []
+
+    for (const e of state.week_activity_exclusions.filter((e) => e.week_id === sourceWeekId)) {
+      state.week_activity_exclusions.push({ id: randomId(), week_id: newWeekId, activity_id: e.activity_id })
+    }
+    for (const e of state.week_group_exclusions.filter((e) => e.week_id === sourceWeekId)) {
+      state.week_group_exclusions.push({ id: randomId(), week_id: newWeekId, group_id: e.group_id })
+    }
+
+    state.schedule_weeks.push({
+      id: newWeekId,
+      camp_id: sourceWeek.camp_id,
+      name: newName,
+      sort_order: maxSort + 1,
+      is_archived: 0,
+    })
+
+    saveState(state)
+    return { ok: true, newWeekId, newName }
+  },
 }
 
 // Dev-only: expose the mock on window so a manual/automated browser session

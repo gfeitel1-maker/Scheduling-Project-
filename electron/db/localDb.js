@@ -13,7 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 27
+export const CURRENT_SCHEMA_VERSION = 28
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1313,6 +1313,37 @@ export function initSchema(db) {
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (27, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // Per-week activity and group exclusion tables
+  // (docs/adr/2026-08-03-multi-week-slices-2-3.md).
+  // Gated on >= 27 (not a bare < 28) for the same reason v27 is gated on >= 26:
+  // v26 uses deferred retry and getSchemaVersion is MAX(version), so a bare
+  // < 28 gate would let v28 stamp 28 while v27 is still pending.
+  if (getSchemaVersion(db) >= 27 && getSchemaVersion(db) < 28) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS week_activity_exclusions (
+          id TEXT PRIMARY KEY,
+          week_id TEXT NOT NULL REFERENCES schedule_weeks(id),
+          activity_id TEXT NOT NULL REFERENCES activities(id)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_week_activity_exclusions_week_activity
+          ON week_activity_exclusions(week_id, activity_id);
+
+        CREATE TABLE IF NOT EXISTS week_group_exclusions (
+          id TEXT PRIMARY KEY,
+          week_id TEXT NOT NULL REFERENCES schedule_weeks(id),
+          group_id TEXT NOT NULL REFERENCES groups(id)
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_week_group_exclusions_week_group
+          ON week_group_exclusions(week_id, group_id);
+      `)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (28, ?)').run(
       new Date().toISOString()
     )
   }

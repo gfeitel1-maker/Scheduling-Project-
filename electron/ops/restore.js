@@ -34,6 +34,8 @@ export const RESTORE_DECISIONS = Object.freeze({
   template_overlays: 'refused: schedule edits already have snapshots on ScheduleScreen',
   schedule_snapshots: 'refused: a snapshot is itself the undo story; nesting one is confusing',
   day_override_template_slots: 'refused: rebuilt with its parent override, not on its own',
+  week_activity_exclusions: 'refused: rebuilt by toggling the exclusion UI or duplicating the week',
+  week_group_exclusions: 'refused: rebuilt by toggling the exclusion UI or duplicating the week',
 })
 
 export const RESTORABLE_ENTITIES = Object.freeze(
