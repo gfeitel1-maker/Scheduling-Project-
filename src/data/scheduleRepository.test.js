@@ -114,13 +114,17 @@ describe('field writes — one write() per field, in insertion order', () => {
 })
 
 describe('createScheduleTemplate — kind is written FIRST (projections write-ordering contract)', () => {
-  it('writes kind, then camp_id, then name', async () => {
+  it('writes kind first, then camp_id, week_id, name', async () => {
     const client = makeFakeClient()
     const repo = createScheduleRepository({ localClient: client, getToken })
-    await repo.createScheduleTemplate('tid', { kind: 'manual', campId: 'camp-1', name: 'Manual' })
+    await repo.createScheduleTemplate('tid', { kind: 'manual', campId: 'camp-1', weekId: 'week-1', name: 'Manual' })
+    // week_id (docs/adr/2026-08-02-schedule-weeks-first-class.md) is written
+    // AFTER kind — the per-week conflict backstop is caught on the week_id
+    // write, so kind must still land first (projections write-ordering contract).
     expect(client.calls.write).toEqual([
       ['tok', 'schedule_templates', 'tid', 'kind', 'manual'],
       ['tok', 'schedule_templates', 'tid', 'camp_id', 'camp-1'],
+      ['tok', 'schedule_templates', 'tid', 'week_id', 'week-1'],
       ['tok', 'schedule_templates', 'tid', 'name', 'Manual'],
     ])
     // kind must be the very first field written.

@@ -25,10 +25,11 @@ export function routeSetter(setState, route) {
 }
 
 // The route-scoped state for the schedule screen: the eight by-route atoms, the
-// current-route derived values, and the current-route setters. `campId` and the
-// currently selected `route` are inputs; route selection itself is not owned
-// here.
-export function useRouteState(campId, route) {
+// current-route derived values, and the current-route setters. `weekId` (the
+// schedule_weeks row currently on screen — docs/adr/2026-08-02-schedule-weeks-first-class.md)
+// and the currently selected `route` are inputs; route selection itself is not
+// owned here.
+export function useRouteState(weekId, route) {
   // Which routes actually have a schedule_templates row today.
   const [existingTemplates, setExistingTemplates] = useState(() => EMPTY_BY_ROUTE(() => false))
   // The id a route's schedule_templates row ACTUALLY has. Resolved from the
@@ -48,7 +49,7 @@ export function useRouteState(campId, route) {
   // The derived id is only a fallback: two devices that independently create a
   // candidate for the same camp and route must agree on its id or their work
   // forks, so an un-minted route derives deterministically rather than at random.
-  const templateIdFor = (r) => templateIdByRoute[r] || deriveScheduleTemplateId(campId, r)
+  const templateIdFor = (r) => templateIdByRoute[r] || deriveScheduleTemplateId(weekId, r)
   const templateId = templateIdFor(route)
 
   // Everything below reads and writes the CURRENT route's candidate. Names and

@@ -13,6 +13,7 @@ import EditModal from '../components/schedule/EditModal'
 import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
 import ExportChooserModal from '../components/schedule/ExportChooserModal'
 import VersionsDropdown from '../components/schedule/VersionsDropdown'
+import WeekSwitcher from '../components/schedule/WeekSwitcher'
 import { isRestorable } from './snapshotRestore'
 import { snapshotMatchesSchedule } from './snapshotMatchesSchedule'
 import FieldTripDrawer from '../components/schedule/FieldTripDrawer'
@@ -50,17 +51,20 @@ import DisplacedPalette from '../components/schedule/DisplacedPalette'
 // invariant deterministic ids exist for (two devices independently creating a
 // candidate must agree on its id). Determinism was only ever needed at mint
 // time; once a row exists it has replicated, and both devices resolve to it.
-function templateRowFor(templates, campId, kind) {
+// Resolution is by (week_id, kind) — a week now holds one row per route,
+// same reasoning as the camp-scoped version this replaces
+// (docs/adr/2026-08-02-schedule-weeks-first-class.md).
+function templateRowFor(templates, weekId, kind) {
   // A row with no kind at all is 'generated': that is the column default and
   // what migration v23 backfilled, so a row that predates the column (or
   // arrives from a peer that has not projected kind yet) must not read as
   // belonging to no route.
-  return (templates || []).find(t => t.camp_id === campId && (t.kind || 'generated') === kind)
+  return (templates || []).find(t => t.week_id === weekId && (t.kind || 'generated') === kind)
 }
 
-function resolveTemplateId(templates, campId, kind) {
-  const row = templateRowFor(templates, campId, kind)
-  return row ? row.id : deriveScheduleTemplateId(campId, kind)
+function resolveTemplateId(templates, weekId, kind) {
+  const row = templateRowFor(templates, weekId, kind)
+  return row ? row.id : deriveScheduleTemplateId(weekId, kind)
 }
 
 export default function ScheduleScreen({ campId, role, onNavigate, initialRoute }) {
@@ -86,13 +90,22 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // neutral-entry chooser further down.
   const [localRoute, setRoute] = useState(null)
   const route = initialRoute || localRoute || 'generated'
+  // Which week is on screen — a camp may hold several (docs/adr/2026-08-02-
+  // schedule-weeks-first-class.md). Screen-level state, symmetric to `route`:
+  // switching weeks is pure navigation, no confirm, nothing saved or destroyed.
+  // `weeks` holds every non-archived schedule_weeks row for this camp, sorted
+  // by sort_order; `weekId` defaults to the first of them (for every camp that
+  // existed before this feature, that is exactly the migration-created
+  // "Week 1"). Loaded in loadAll() below alongside everything else.
+  const [weeks, setWeeks] = useState([])
+  const [weekId, setWeekId] = useState(null)
   // T31 — the route-scoped state lives in one module (useRouteState): the eight
   // by-route atoms, the current-route derived values, and the current-route
   // setters. Route SELECTION stays here (above) — the hook only receives the
   // resulting route and owns no canonical designation. Names and shapes are
   // unchanged from the single-schedule version on purpose, so the ~20 call sites
   // below keep reading `slots`/`templateId`/`setSlots` verbatim.
-  const routeState = useRouteState(campId, route)
+  const routeState = useRouteState(weekId, route)
   const {
     existingTemplates, setExistingTemplates,
     setTemplateIdByRoute,
@@ -281,6 +294,44 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       setLoading(false)
       return
     }
+    let liveWeekId = weekId
+    try {
+      const weekRows = await repo.loadWeeks()
+      // `weeks` holds every one of this camp's weeks, archived included — the
+      // switcher needs archived ones too, to offer Unarchive. Only ACTIVE
+      // weeks are eligible for `weekId` (a director cannot land on an
+      // archived week by default or via reload).
+      const campWeeks = (weekRows || [])
+        .filter(w => w.camp_id === campId)
+        .sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0) || x.name.localeCompare(y.name))
+      let camp = campWeeks.filter(w => String(w.is_archived) !== '1')
+      // Lazy creation, same precedent as ensureTemplateRow: a camp is never
+      // shown with zero weeks to choose from. This only fires for a camp that
+      // predates schedule_weeks entirely and somehow reached this screen before
+      // migration v27 ran (the ordinary path is the v27 migration creating
+      // "Week 1" for every existing camp up front) — not a normal first-run.
+      if (campWeeks.length === 0) {
+        const wid = `schedule-week:${campId}:1`
+        await repo.createWeek(wid, { campId, name: 'Week 1', sortOrder: 0 })
+        camp = [{ id: wid, camp_id: campId, name: 'Week 1', sort_order: 0, is_archived: 0 }]
+        setWeeks(camp)
+      } else {
+        setWeeks(campWeeks)
+      }
+      // Keep the current week if it is still in the list (a mid-switch reload
+      // must not bounce the director back to the first one), otherwise fall to
+      // the first active week. Computed synchronously from the current weekId
+      // so `liveWeekId` is set for the route load BELOW — a functional setState
+      // updater runs asynchronously (React batches it), which would leave
+      // liveWeekId null on first load and skip the whole route load.
+      liveWeekId = weekId && camp.some(w => w.id === weekId) ? weekId : (camp[0]?.id ?? null)
+      setWeekId(liveWeekId)
+    } catch {
+      setLoadError('Failed to load schedule data — check your connection and refresh')
+      setLoading(false)
+      return
+    }
+    if (!liveWeekId) { setLoading(false); return }
     // Both routes are refreshed on every load. loadAll() re-runs on every
     // applied op, and a load that only refreshed the route on screen would
     // leave the other one showing whatever it held before the op arrived.
@@ -297,13 +348,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       const nextFindings = {}
 
       for (const r of ROUTES) {
-        // Resolution is by (camp_id, kind), never by camp_id alone: a camp now
+        // Resolution is by (week_id, kind), never by week_id alone: a week now
         // has one row per route, and first-match-wins would silently elect one
         // of them as "the" schedule. It is NOT by derived id either — see
         // resolveTemplateId.
-        const tid = resolveTemplateId(templates, campId, r)
+        const tid = resolveTemplateId(templates, liveWeekId, r)
         nextTids[r] = tid
-        exists[r] = Boolean(templateRowFor(templates, campId, r))
+        exists[r] = Boolean(templateRowFor(templates, liveWeekId, r))
         // Gated on the parent row existing: a route with no schedule_templates
         // row has not been started, whatever orphan child rows may be lying
         // around.
@@ -349,7 +400,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // canonical data-fetch-on-mount pattern the set-state-in-effect rule allows
   // an exception for.
   // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
-  useEffect(() => { loadAll() }, [campId])
+  useEffect(() => { loadAll() }, [campId, weekId])
 
   // §7.3: Re-run the schedule after any op is applied — this covers conflict
   // resolution (resolveConflict IPC → syncClient.write → server broadcasts
@@ -388,10 +439,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // and only then is the derived id used.
   async function ensureTemplateRow(routeName) {
     if (existingTemplates[routeName]) return templateIdFor(routeName)
-    const tid = deriveScheduleTemplateId(campId, routeName)
+    const tid = deriveScheduleTemplateId(weekId, routeName)
     await repo.createScheduleTemplate(tid, {
       kind: routeName,
       campId,
+      weekId,
       name: routeName === 'manual' ? 'Manual' : 'Generated',
     })
     setExistingTemplates(prev => ({ ...prev, [routeName]: true }))
@@ -818,6 +870,37 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       )}
       {/* Controls bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
+        {/* Week switcher — pure navigation, not tied to whether either route
+            has been started, and not part of the route-designation copy above
+            it (docs/adr/2026-08-02-schedule-weeks-first-class.md). */}
+        <WeekSwitcher
+          weeks={weeks}
+          weekId={weekId}
+          onSelect={setWeekId}
+          onCreate={async (name) => {
+            const wid = crypto.randomUUID()
+            const sortOrder = weeks.length > 0 ? Math.max(...weeks.map(w => w.sort_order ?? 0)) + 1 : 0
+            await repo.createWeek(wid, { campId, name, sortOrder })
+            setWeeks(prev => [...prev, { id: wid, camp_id: campId, name, sort_order: sortOrder, is_archived: 0 }])
+            setWeekId(wid)
+          }}
+          onRename={async (id, name) => {
+            await repo.writeWeekFields(id, { name })
+            setWeeks(prev => prev.map(w => (w.id === id ? { ...w, name } : w)))
+          }}
+          onArchive={async (id) => {
+            await repo.writeWeekFields(id, { is_archived: '1' })
+            setWeeks(prev => prev.map(w => (w.id === id ? { ...w, is_archived: 1 } : w)))
+            if (weekId === id) {
+              const next = weeks.find(w => w.id !== id && String(w.is_archived) !== '1')
+              setWeekId(next ? next.id : null)
+            }
+          }}
+          onUnarchive={async (id) => {
+            await repo.writeWeekFields(id, { is_archived: '0' })
+            setWeeks(prev => prev.map(w => (w.id === id ? { ...w, is_archived: 0 } : w)))
+          }}
+        />
         {anyRouteStarted && (
           <>
             {/* Which route this week belongs to. Route SELECTION lives in the

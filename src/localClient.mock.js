@@ -102,6 +102,7 @@ function seedDemoCamp() {
     })
   })
 
+  const WEEK = `schedule-week:${CAMP}:1`
   return {
     camp, users, conflicts: [], devices: seedDevices(),
     cohorts, tiers, groups,
@@ -109,7 +110,10 @@ function seedDemoCamp() {
     time_blocks,
     activities,
     anchor_activities: [],
-    schedule_templates: [{ id: TEMPLATE, camp_id: CAMP, name: 'Generated', kind: 'generated' }],
+    // One week; the generated schedule belongs to it (week_id). The switcher
+    // renders it and "+ New Week" adds more, all in localStorage.
+    schedule_weeks: [{ id: WEEK, camp_id: CAMP, name: 'Week 1', sort_order: 0, is_archived: 0 }],
+    schedule_templates: [{ id: TEMPLATE, camp_id: CAMP, name: 'Generated', kind: 'generated', week_id: WEEK }],
     template_slots,
     template_overlays: [],
     schedule_snapshots: [],

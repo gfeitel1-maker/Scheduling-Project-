@@ -115,11 +115,25 @@ export function createScheduleRepository({
       return (await localClient.list('schedule_snapshots')).find(s => s.id === snapshotId)
     },
 
+    async loadWeeks() {
+      return (await localClient.list('schedule_weeks')) || []
+    },
+
     // --- field writes ------------------------------------------------------
     // `kind` is written FIRST (see writeFields note); the caller's object order
     // guarantees it.
-    async createScheduleTemplate(templateId, { kind, campId, name }) {
-      await writeFields('schedule_templates', templateId, { kind, camp_id: campId, name })
+    async createScheduleTemplate(templateId, { kind, campId, weekId, name }) {
+      await writeFields('schedule_templates', templateId, { kind, camp_id: campId, week_id: weekId, name })
+    },
+
+    async createWeek(weekId, { campId, name, sortOrder }) {
+      await writeFields('schedule_weeks', weekId, {
+        camp_id: campId, name, sort_order: String(sortOrder ?? 0), is_archived: '0',
+      })
+    },
+
+    async writeWeekFields(weekId, fields) {
+      await writeFields('schedule_weeks', weekId, fields)
     },
 
     async writeSlotFields(slotId, fields) {

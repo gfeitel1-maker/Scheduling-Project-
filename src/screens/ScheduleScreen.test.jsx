@@ -60,7 +60,12 @@ function mockList(overridesByEntity = {}) {
     // though buildSchedule never reads cohorts — three setup screens gate data
     // entry on an active one, so a camp without one cannot have groups.
     cohorts: [{ id: 'coh-1', camp_id: CAMP_ID, name: 'Main Session' }],
-    schedule_templates: [{ id: 'schedule-template:camp-1', camp_id: CAMP_ID, name: 'Generated' }],
+    // One week (Slice 1). Its id is CAMP_ID by fixture convention: template ids
+    // are deriveScheduleTemplateId(weekId, kind), so a week keyed to CAMP_ID
+    // keeps the existing 'schedule-template:camp-1' ids the slot fixtures use,
+    // avoiding a rename across every fixture (docs/adr/2026-08-02-schedule-weeks-first-class.md).
+    schedule_weeks: [{ id: CAMP_ID, camp_id: CAMP_ID, name: 'Week 1', sort_order: 0, is_archived: 0 }],
+    schedule_templates: [{ id: 'schedule-template:camp-1', camp_id: CAMP_ID, name: 'Generated', kind: 'generated', week_id: CAMP_ID }],
     template_slots: [slotRow()],
     template_overlays: [],
     schedule_snapshots: [],
@@ -701,8 +706,8 @@ describe('separate manual and generated routes', () => {
     mockList({
       activities: [activity(), activity({ id: 'act-2', name: 'Archery', min_per_week: 3 })],
       schedule_templates: [
-        { id: GENERATED, camp_id: CAMP_ID, name: 'Generated', kind: 'generated' },
-        { id: MANUAL, camp_id: CAMP_ID, name: 'Manual', kind: 'manual' },
+        { id: GENERATED, camp_id: CAMP_ID, name: 'Generated', kind: 'generated', week_id: CAMP_ID },
+        { id: MANUAL, camp_id: CAMP_ID, name: 'Manual', kind: 'manual', week_id: CAMP_ID },
       ],
       template_slots: [
         slotRow({ id: 'gen-1', template_id: GENERATED, activity_id: 'act-1' }),
@@ -770,7 +775,7 @@ describe('separate manual and generated routes', () => {
 
   it('does not ask when only one week exists — there is no choice to make', async () => {
     mockList({
-      schedule_templates: [{ id: GENERATED, camp_id: CAMP_ID, name: 'Generated', kind: 'generated' }],
+      schedule_templates: [{ id: GENERATED, camp_id: CAMP_ID, name: 'Generated', kind: 'generated', week_id: CAMP_ID }],
       template_slots: [slotRow({ id: 'gen-1', template_id: GENERATED, activity_id: 'act-1' })],
     })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
@@ -813,7 +818,7 @@ describe('separate manual and generated routes', () => {
 
   it('offers a blank week — not the generated one — when the manual route has not been started', async () => {
     mockList({
-      schedule_templates: [{ id: GENERATED, camp_id: CAMP_ID, name: 'Generated', kind: 'generated' }],
+      schedule_templates: [{ id: GENERATED, camp_id: CAMP_ID, name: 'Generated', kind: 'generated', week_id: CAMP_ID }],
       template_slots: [slotRow({ id: 'gen-1', template_id: GENERATED, activity_id: 'act-1' })],
     })
     render(routeScreen('manual'))
@@ -887,7 +892,7 @@ describe('ScheduleScreen — camp whose generated template has a random UUID id'
 
   function uuidCamp(extra = {}) {
     mockList({
-      schedule_templates: [{ id: UUID, camp_id: CAMP_ID, name: 'Generated', kind: 'generated' }],
+      schedule_templates: [{ id: UUID, camp_id: CAMP_ID, name: 'Generated', kind: 'generated', week_id: CAMP_ID }],
       template_slots: [slotRow({ id: 'gen-1', template_id: UUID, activity_id: 'act-1' })],
       ...extra,
     })
@@ -1010,6 +1015,7 @@ describe('ScheduleScreen — generate() is route-explicit', () => {
       anchor_activities: [],
       tiers: [tier()],
       cohorts: [{ id: 'coh-1', camp_id: CAMP_ID, name: 'Main Session' }],
+      schedule_weeks: [{ id: CAMP_ID, camp_id: CAMP_ID, name: 'Week 1', sort_order: 0, is_archived: 0 }],
       schedule_templates: [],
       template_slots: [],
       template_overlays: [],
@@ -1052,8 +1058,8 @@ describe('ScheduleScreen — switching routes cannot carry work across candidate
   it('drops the clipboard and the selection when the director navigates to the other route', async () => {
     mockList({
       schedule_templates: [
-        { id: GENERATED, camp_id: CAMP_ID, name: 'Generated', kind: 'generated' },
-        { id: MANUAL, camp_id: CAMP_ID, name: 'Manual', kind: 'manual' },
+        { id: GENERATED, camp_id: CAMP_ID, name: 'Generated', kind: 'generated', week_id: CAMP_ID },
+        { id: MANUAL, camp_id: CAMP_ID, name: 'Manual', kind: 'manual', week_id: CAMP_ID },
       ],
       template_slots: [
         slotRow({ id: 'gen-1', template_id: GENERATED, activity_id: 'act-1' }),
@@ -1085,8 +1091,8 @@ describe('ScheduleScreen — switching routes cannot carry work across candidate
     mockList({
       activities: [activity(), activity({ id: 'act-2', name: 'Art' })],
       schedule_templates: [
-        { id: GENERATED, camp_id: CAMP_ID, name: 'Generated', kind: 'generated' },
-        { id: MANUAL, camp_id: CAMP_ID, name: 'Manual', kind: 'manual' },
+        { id: GENERATED, camp_id: CAMP_ID, name: 'Generated', kind: 'generated', week_id: CAMP_ID },
+        { id: MANUAL, camp_id: CAMP_ID, name: 'Manual', kind: 'manual', week_id: CAMP_ID },
       ],
       template_slots: [
         slotRow({ id: 'gen-1', template_id: GENERATED, activity_id: 'act-1' }),
