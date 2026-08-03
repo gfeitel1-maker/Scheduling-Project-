@@ -75,6 +75,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const [anchors, setAnchors] = useState([])
   const [tiers, setTiers] = useState([])
   const [cohorts, setCohorts] = useState([])
+  const [activityExclusions, setActivityExclusions] = useState([])
+  const [groupExclusions, setGroupExclusions] = useState([])
   // Which route is on screen is driven by the sidebar entry the director
   // clicked (App.jsx SCREENS -> 'schedule:manual' / 'schedule:generated'). The
   // neutral 'schedule' entry passes nothing and lands on the first-run choice
@@ -228,6 +230,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     resetUndoRedo, saveSnapshot, ensureTemplateRow,
     setConfirmRegen, setSelectedGroup, statsFor,
     groups, tiers, days, timeBlocks, activities, anchors,
+    weekId, activityExclusions, groupExclusions,
   })
 
   // The two routes are separate candidates, but they are ONE mounted component
@@ -336,6 +339,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       return
     }
     if (!liveWeekId) { setLoading(false); return }
+    try {
+      const { activityExclusions: ae, groupExclusions: ge } = await repo.loadWeekExclusions(liveWeekId)
+      setActivityExclusions(ae || [])
+      setGroupExclusions(ge || [])
+    } catch {
+      setActivityExclusions([]); setGroupExclusions([])
+    }
     // Both routes are refreshed on every load. loadAll() re-runs on every
     // applied op, and a load that only refreshed the route on screen would
     // leave the other one showing whatever it held before the op arrived.
@@ -903,6 +913,15 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           onUnarchive={async (id) => {
             await repo.writeWeekFields(id, { is_archived: '0' })
             setWeeks(prev => prev.map(w => (w.id === id ? { ...w, is_archived: 0 } : w)))
+          }}
+          onDuplicate={async (sourceWeekId) => {
+            const result = await localClient.duplicateWeek(sourceWeekId, campId)
+            if (result?.ok) {
+              const freshWeeks = await repo.loadWeeks()
+              const camp = freshWeeks.filter(w => w.camp_id === campId).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+              setWeeks(camp)
+            }
+            return result
           }}
         />
         {anyRouteStarted && (

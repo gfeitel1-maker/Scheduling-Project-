@@ -2,10 +2,15 @@ import React, { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { localClient } from '../localClient'
-import { S } from '../styles/shared'
+import { S, prefersReducedMotion } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import RecordHistory from '../components/RecordHistory'
 import ScreenIntro from '../components/ScreenIntro'
+import WeekContextBar from '../components/schedule/WeekContextBar'
+import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
+import { createScheduleRepository } from '../data/scheduleRepository'
+
+const repo = createScheduleRepository({ localClient })
 
 const AVAIL_OPTIONS = [
   { value: 'all', label: 'All Day' },
@@ -13,7 +18,7 @@ const AVAIL_OPTIONS = [
   { value: 'afternoon', label: 'Afternoon Only' },
 ]
 
-function GroupRow({ group, tiers, role, onSave, onDelete, onHistory }) {
+function GroupRow({ group, tiers, role, onSave, onDelete, onHistory, weekToggle }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(group.name)
   const [tierId, setTierId] = useState(group.tier_id || '')
@@ -61,7 +66,8 @@ function GroupRow({ group, tiers, role, onSave, onDelete, onHistory }) {
       <td style={S.td}>{group.name}</td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{tierName}</td>
       <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{AVAIL_OPTIONS.find(o => o.value === group.availability)?.label || '—'}</td>
-      <td style={{ ...S.td, textAlign: 'right' }}>
+      {weekToggle}
+      <td style={{ ...S.td, textAlign: 'right', borderLeft: weekToggle ? '1px solid var(--border)' : undefined }}>
         <button onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
         <button onClick={() => onHistory(group)} style={{ ...S.btnSecondary, marginLeft: 6 }}>History</button>
         <button
@@ -75,7 +81,7 @@ function GroupRow({ group, tiers, role, onSave, onDelete, onHistory }) {
   )
 }
 
-export default function GroupsScreen({ campId, role, onNavigate }) {
+export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks = [], onSelectWeek }) {
   const [groups, setGroups] = useState([])
   const [tiers, setTiers] = useState([])
   const [loading, setLoading] = useState(true)
@@ -90,9 +96,12 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
   const [error, setError] = useState(null)
   const [historyFor, setHistoryFor] = useState(null)
   const [pendingDelete, setPendingDelete] = useState(null)
+  const [excludedGroupIds, setExcludedGroupIds] = useState(new Set())
+  const [pendingExclusion, setPendingExclusion] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
+  useEffect(() => { loadExclusions() }, [weekId])
 
   async function load() {
     setLoading(true)
@@ -115,6 +124,43 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function loadExclusions() {
+    if (!weekId) { setExcludedGroupIds(new Set()); return }
+    try {
+      const { groupExclusions } = await repo.loadWeekExclusions(weekId)
+      setExcludedGroupIds(new Set(groupExclusions.map(e => e.group_id)))
+    } catch {
+      setExcludedGroupIds(new Set())
+    }
+  }
+
+  async function handleToggleExclusion(group, currentlyExcluded) {
+    if (!weekId) return
+    if (currentlyExcluded) {
+      await repo.toggleGroupExclusion(weekId, group.id, false)
+      setExcludedGroupIds(prev => { const next = new Set(prev); next.delete(group.id); return next })
+      return
+    }
+    const allSlots = await localClient.list('template_slots') || []
+    const templates = await localClient.list('schedule_templates') || []
+    const weekTemplateIds = new Set(templates.filter(t => t.week_id === weekId).map(t => t.id))
+    const slotCount = allSlots.filter(s => weekTemplateIds.has(s.template_id) && s.group_id === group.id).length
+    if (slotCount === 0) {
+      await repo.toggleGroupExclusion(weekId, group.id, true)
+      setExcludedGroupIds(prev => new Set([...prev, group.id]))
+    } else {
+      setPendingExclusion({ group, slotCount })
+    }
+  }
+
+  async function confirmExclusion() {
+    if (!pendingExclusion || !weekId) return
+    const { group } = pendingExclusion
+    await repo.toggleGroupExclusion(weekId, group.id, true)
+    setExcludedGroupIds(prev => new Set([...prev, group.id]))
+    setPendingExclusion(null)
   }
 
   // Fires one write() per field (the op-log is field-level) and surfaces
@@ -330,9 +376,21 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
   const readyRows = importRows.filter(r => r.name && !r.warning)
   const warnRows = importRows.filter(r => r.warning || !r.name)
 
+  const currentWeek = weeks.find(w => w.id === weekId)
+
   return (
     <div style={{ maxWidth: 720 }}>
       <ScreenIntro screen="groups" />
+      {weeks.length > 0 && (
+        <WeekContextBar
+          weekId={weekId}
+          weeks={weeks}
+          onSelectWeek={onSelectWeek}
+          exclusionCount={excludedGroupIds.size}
+          totalCount={groups.length}
+          entityLabel="groups"
+        />
+      )}
       {error && (
         <div style={S.errorBanner}>
           {error}
@@ -371,12 +429,13 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
                 <th style={S.th}>Name</th>
                 <th style={S.th}>Unit</th>
                 <th style={S.th}>Availability</th>
+                {weekId && <th style={{ ...S.th, textAlign: 'center' }}>{currentWeek?.name ?? 'Week'}</th>}
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {groups.length === 0 ? (
-                <tr><td colSpan={4} style={S.emptyState}>
+                <tr><td colSpan={weekId ? 5 : 4} style={S.emptyState}>
                   <div style={S.emptyStateTitle}>No groups yet</div>
                   <div style={S.emptyStateBody}>Add your first group below.</div>
                 </td></tr>
@@ -388,12 +447,12 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
                     return (
                       <React.Fragment key={tier.id}>
                         <tr style={{ background: 'var(--surface-elevated)', borderBottom: '1px solid var(--border)' }}>
-                          <td colSpan={4} style={{ padding: '6px 14px', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                          <td colSpan={weekId ? 5 : 4} style={{ padding: '6px 14px', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
                             {tier.name}
                           </td>
                         </tr>
                         {tierGroups.map(g => (
-                          <GroupRow key={g.id} group={g} tiers={tiers} role={role} onSave={saveGroup} onDelete={deleteGroup} onHistory={setHistoryFor} />
+                          <GroupRow key={g.id} group={g} tiers={tiers} role={role} onSave={saveGroup} onDelete={deleteGroup} onHistory={setHistoryFor} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
                         ))}
                       </React.Fragment>
                     )
@@ -401,12 +460,12 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
                   {noTier.length > 0 && (
                     <>
                       <tr style={{ background: 'var(--surface-elevated)', borderBottom: '1px solid var(--border)' }}>
-                        <td colSpan={4} style={{ padding: '6px 14px', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+                        <td colSpan={weekId ? 5 : 4} style={{ padding: '6px 14px', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
                           No Unit
                         </td>
                       </tr>
                       {noTier.map(g => (
-                        <GroupRow key={g.id} group={g} tiers={tiers} role={role} onSave={saveGroup} onDelete={deleteGroup} onHistory={setHistoryFor} />
+                        <GroupRow key={g.id} group={g} tiers={tiers} role={role} onSave={saveGroup} onDelete={deleteGroup} onHistory={setHistoryFor} weekToggle={weekId ? <td style={{ ...S.td, textAlign: 'center' }}><WeekToggle on={!excludedGroupIds.has(g.id)} label={excludedGroupIds.has(g.id) ? `Off in ${currentWeek?.name ?? 'this week'}` : `Runs in ${currentWeek?.name ?? 'this week'}`} onToggle={() => handleToggleExclusion(g, excludedGroupIds.has(g.id))} /></td> : null} />
                       ))}
                     </>
                   )}
@@ -498,7 +557,55 @@ export default function GroupsScreen({ campId, role, onNavigate }) {
           onClose={() => setHistoryFor(null)}
         />
       )}
+      {pendingExclusion && (
+        <ExclusionConfirmDialog
+          entityName={pendingExclusion.group.name}
+          weekName={currentWeek?.name ?? 'this week'}
+          slotCount={pendingExclusion.slotCount}
+          onCancel={() => setPendingExclusion(null)}
+          onConfirm={confirmExclusion}
+        />
+      )}
     </div>
+  )
+}
+
+function WeekToggle({ on, label, onToggle }) {
+  const reduced = prefersReducedMotion()
+  const W = 32, H = 18, PAD = 2, KNOB = H - PAD * 2
+  const knobLeft = on ? W - KNOB - PAD : PAD
+  return (
+    <button
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={onToggle}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        width: W,
+        height: H,
+        borderRadius: H / 2,
+        background: on ? 'var(--primary)' : 'var(--border)',
+        border: 'none',
+        padding: 0,
+        cursor: 'pointer',
+        position: 'relative',
+        transition: reduced ? 'none' : 'background-color 120ms ease',
+        flexShrink: 0,
+      }}
+    >
+      <span style={{
+        position: 'absolute',
+        left: knobLeft,
+        top: PAD,
+        width: KNOB,
+        height: KNOB,
+        borderRadius: '50%',
+        background: '#fff',
+        transition: reduced ? 'none' : 'left 120ms ease',
+      }} />
+    </button>
   )
 }
 

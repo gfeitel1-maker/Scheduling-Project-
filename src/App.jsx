@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { localClient } from './localClient'
 import Shell from './components/layout/Shell'
 import ModeSelectScreen from './screens/ModeSelectScreen'
 import JoinScreen from './screens/JoinScreen'
@@ -67,6 +68,25 @@ function AppShell({ campId, role, onLogout }) {
   // they can never disagree.
   const pendingConflicts = usePendingConflicts()
 
+  // Shared week state threaded into Activities and Groups screens so the
+  // director stays on the same week as they navigate between setup screens
+  // (S2-6). ScheduleScreen manages its own week state independently.
+  const [weeks, setWeeks] = useState([])
+  const [weekId, setWeekId] = useState(null)
+  useEffect(() => {
+    if (!campId) return
+    localClient.list('schedule_weeks').then(rows => {
+      const active = (rows || [])
+        .filter(w => w.camp_id === campId)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+      setWeeks(active)
+      if (!weekId || !active.some(w => w.id === weekId)) {
+        const first = active.find(w => String(w.is_archived) !== '1')
+        setWeekId(first?.id ?? null)
+      }
+    }).catch(() => {})
+  }, [campId])
+
   // Run the one-time camp bootstrap (default weekdays + "Main" program) once
   // per camp. The ref guard neutralizes React StrictMode's dev-mode
   // double-invocation of this effect: seedDays/ensureCohort each read-then-write
@@ -82,11 +102,18 @@ function AppShell({ campId, role, onLogout }) {
     ensureCohort(campId)
   }, [campId])
 
+  const weekProps = { weekId, weeks, onSelectWeek: setWeekId }
+
   const Screen = SCREENS[screen] || TiersScreen
   const scheduleRoute = SCHEDULE_ROUTE_BY_SCREEN[screen]
+  const isWeekScreen = screen === 'activities' || screen === 'groups'
   const screenProps = screen === 'conflicts'
     ? { campId, role, onNavigate: setScreen, pendingConflicts }
-    : { campId, role, onNavigate: setScreen, ...(scheduleRoute ? { initialRoute: scheduleRoute } : {}) }
+    : {
+        campId, role, onNavigate: setScreen,
+        ...(scheduleRoute ? { initialRoute: scheduleRoute } : {}),
+        ...(isWeekScreen ? weekProps : {}),
+      }
 
   return (
     <Shell

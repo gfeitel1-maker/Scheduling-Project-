@@ -1,6 +1,7 @@
 import buildSchedule, { computeFindings } from '../../engine/buildSchedule'
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { routeSetter } from './useRouteState'
+import { resolveWeekCatalog } from '../../engine/weekCatalog'
 
 // generate / regenerate / place-anchors, over the T28 repository + the pure
 // engine. This hook orchestrates: it calls buildSchedule (pure) and the repo,
@@ -33,6 +34,9 @@ export function useGeneration({
   timeBlocks,
   activities,
   anchors,
+  weekId,
+  activityExclusions,
+  groupExclusions,
 }) {
   const {
     slotsByRoute,
@@ -59,12 +63,19 @@ export function useGeneration({
     const setGenOverlays = routeSetter(setOverlaysByRoute, 'generated')
     const setGenStats = routeSetter(setStatsByRoute, 'generated')
 
-    const lockedActIds = new Set(activities.filter(a => a.is_locked).map(a => a.id))
+    const { groups: effGroups, activities: effActivities, anchors: effAnchors } = resolveWeekCatalog({
+      groups, activities, anchors,
+      weekId,
+      activityExclusions: activityExclusions || [],
+      groupExclusions: groupExclusions || [],
+    })
+
+    const lockedActIds = new Set(effActivities.filter(a => a.is_locked).map(a => a.id))
     const preplacedSlots = slotsByRoute.generated
       .filter(s => s.activity_id && lockedActIds.has(s.activity_id) && !s.is_released && !s.is_anchor)
       .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, activityId: s.activity_id }))
 
-    const result = buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId, preplacedSlots })
+    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: effActivities, anchors: effAnchors, campId, preplacedSlots })
     setGenFindings(result.findings || [])
     setGenDismissed(new Set())
 

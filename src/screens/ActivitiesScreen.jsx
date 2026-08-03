@@ -2,9 +2,12 @@ import React, { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { localClient } from '../localClient'
-import { S } from '../styles/shared'
+import { S, prefersReducedMotion } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ScreenIntro from '../components/ScreenIntro'
+import WeekContextBar from '../components/schedule/WeekContextBar'
+import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
+import { createScheduleRepository } from '../data/scheduleRepository'
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
@@ -240,7 +243,9 @@ function Field({ label, children }) {
   )
 }
 
-export default function ActivitiesScreen({ campId, role, onNavigate }) {
+const repo = createScheduleRepository({ localClient })
+
+export default function ActivitiesScreen({ campId, role, onNavigate, weekId, weeks = [], onSelectWeek }) {
   const [activities, setActivities] = useState([])
   const [tiers, setTiers] = useState([])
   const [groups, setGroups] = useState([])
@@ -252,9 +257,12 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
   const [pendingDelete, setPendingDelete] = useState(null)
+  const [excludedActivityIds, setExcludedActivityIds] = useState(new Set())
+  const [pendingExclusion, setPendingExclusion] = useState(null) // { activity, slotCount }
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
+  useEffect(() => { loadExclusions() }, [weekId])
 
   async function load() {
     setLoading(true)
@@ -280,6 +288,45 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
     } finally {
       setLoading(false)
     }
+  }
+
+  async function loadExclusions() {
+    if (!weekId) { setExcludedActivityIds(new Set()); return }
+    try {
+      const { activityExclusions } = await repo.loadWeekExclusions(weekId)
+      setExcludedActivityIds(new Set(activityExclusions.map(e => e.activity_id)))
+    } catch {
+      setExcludedActivityIds(new Set())
+    }
+  }
+
+  async function handleToggleExclusion(activity, currentlyExcluded) {
+    if (!weekId) return
+    if (currentlyExcluded) {
+      // Turning ON — no confirmation needed
+      await repo.toggleActivityExclusion(weekId, activity.id, false)
+      setExcludedActivityIds(prev => { const next = new Set(prev); next.delete(activity.id); return next })
+      return
+    }
+    // Turning OFF — count placed slots first
+    const allSlots = await localClient.list('template_slots') || []
+    const templates = await localClient.list('schedule_templates') || []
+    const weekTemplateIds = new Set(templates.filter(t => t.week_id === weekId).map(t => t.id))
+    const slotCount = allSlots.filter(s => weekTemplateIds.has(s.template_id) && s.activity_id === activity.id).length
+    if (slotCount === 0) {
+      await repo.toggleActivityExclusion(weekId, activity.id, true)
+      setExcludedActivityIds(prev => new Set([...prev, activity.id]))
+    } else {
+      setPendingExclusion({ activity, slotCount })
+    }
+  }
+
+  async function confirmExclusion() {
+    if (!pendingExclusion || !weekId) return
+    const { activity } = pendingExclusion
+    await repo.toggleActivityExclusion(weekId, activity.id, true)
+    setExcludedActivityIds(prev => new Set([...prev, activity.id]))
+    setPendingExclusion(null)
   }
 
   // Fires one write() per field (the op-log is field-level) and surfaces
@@ -560,9 +607,21 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
   const warnRows = importRows.filter(r => r.warning || !r.name)
   const actMap = Object.fromEntries(activities.map(a => [a.id, a.name]))
 
+  const currentWeek = weeks.find(w => w.id === weekId)
+
   return (
     <div style={{ maxWidth: 820 }}>
       <ScreenIntro screen="activities" />
+      {weeks.length > 0 && (
+        <WeekContextBar
+          weekId={weekId}
+          weeks={weeks}
+          onSelectWeek={onSelectWeek}
+          exclusionCount={excludedActivityIds.size}
+          totalCount={activities.length}
+          entityLabel="activities"
+        />
+      )}
       {error && (
         <div style={S.errorBanner}>
           {error}
@@ -605,6 +664,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
                 <th style={S.th}>Co-schedule</th>
                 <th style={S.th}>Min–Max/Wk</th>
                 <th style={S.th}>Alt</th>
+                {weekId && <th style={{ ...S.th, textAlign: 'center' }}>{currentWeek?.name ?? 'Week'}</th>}
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
@@ -614,7 +674,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
                 return (
                   <React.Fragment key={label}>
                     <tr style={{ background: 'var(--surface-elevated)', borderBottom: '1px solid var(--border)' }}>
-                      <td colSpan={7} style={{ padding: '6px 14px', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{label}</td>
+                      <td colSpan={weekId ? 8 : 7} style={{ padding: '6px 14px', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{label}</td>
                     </tr>
                     {rows.map(a => (
                       <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}
@@ -629,7 +689,18 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
                         </td>
                         <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{a.min_per_week}–{a.max_per_week}</td>
                         <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{a.weather_alternative_id ? actMap[a.weather_alternative_id] || '—' : '—'}</td>
-                        <td style={{ ...S.td, textAlign: 'right' }}>
+                        {weekId && (
+                          <td style={{ ...S.td, textAlign: 'center' }}>
+                            <WeekToggle
+                              on={!excludedActivityIds.has(a.id)}
+                              label={excludedActivityIds.has(a.id)
+                                ? `Off in ${currentWeek?.name ?? 'this week'}`
+                                : `Runs in ${currentWeek?.name ?? 'this week'}`}
+                              onToggle={() => handleToggleExclusion(a, excludedActivityIds.has(a.id))}
+                            />
+                          </td>
+                        )}
+                        <td style={{ ...S.td, textAlign: 'right', borderLeft: weekId ? '1px solid var(--border)' : undefined }}>
                           <button onClick={() => setModal({ activity: a })} style={S.btnSecondary}>Edit</button>
                           <button onClick={() => duplicateActivity(a)} style={{ ...S.btnSecondary, marginLeft: 6 }}>Duplicate</button>
                           <button
@@ -709,7 +780,55 @@ export default function ActivitiesScreen({ campId, role, onNavigate }) {
           onDeleted={() => { setPendingDelete(null); load() }}
         />
       )}
+      {pendingExclusion && (
+        <ExclusionConfirmDialog
+          entityName={pendingExclusion.activity.name}
+          weekName={currentWeek?.name ?? 'this week'}
+          slotCount={pendingExclusion.slotCount}
+          onCancel={() => setPendingExclusion(null)}
+          onConfirm={confirmExclusion}
+        />
+      )}
     </div>
+  )
+}
+
+function WeekToggle({ on, label, onToggle }) {
+  const reduced = prefersReducedMotion()
+  const W = 32, H = 18, PAD = 2, KNOB = H - PAD * 2
+  const knobLeft = on ? W - KNOB - PAD : PAD
+  return (
+    <button
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={onToggle}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        width: W,
+        height: H,
+        borderRadius: H / 2,
+        background: on ? 'var(--primary)' : 'var(--border)',
+        border: 'none',
+        padding: 0,
+        cursor: 'pointer',
+        position: 'relative',
+        transition: reduced ? 'none' : 'background-color 120ms ease',
+        flexShrink: 0,
+      }}
+    >
+      <span style={{
+        position: 'absolute',
+        left: knobLeft,
+        top: PAD,
+        width: KNOB,
+        height: KNOB,
+        borderRadius: '50%',
+        background: '#fff',
+        transition: reduced ? 'none' : 'left 120ms ease',
+      }} />
+    </button>
   )
 }
 

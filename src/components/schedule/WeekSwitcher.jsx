@@ -5,12 +5,14 @@ import { S } from '../../styles/shared'
 // (CONSTITUTION Art. V). Switching weeks is pure navigation: onSelect just
 // changes what's on screen, no confirm, nothing saved or destroyed
 // (docs/adr/2026-08-02-schedule-weeks-first-class.md).
-export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRename, onArchive, onUnarchive }) {
+export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRename, onArchive, onUnarchive, onDuplicate, onDuplicateSuccess }) {
   const [isOpen, setIsOpen] = useState(false)
   const [renamingId, setRenamingId] = useState(null)
   const [renameValue, setRenameValue] = useState('')
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
+  const [duplicatingId, setDuplicatingId] = useState(null)
+  const [successBanner, setSuccessBanner] = useState(null)
   const dropRef = useRef(null)
 
   useEffect(() => {
@@ -88,7 +90,7 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
                       {w.name}
                     </button>
                   )}
-                  {!isRenaming && (
+                  {!isRenaming && onRename && (
                     <button
                       onClick={() => { setRenamingId(w.id); setRenameValue(w.name) }}
                       title="Rename this week"
@@ -97,7 +99,29 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
                       rename
                     </button>
                   )}
-                  {!isRenaming && (
+                  {!isRenaming && onDuplicate && (
+                    <button
+                      onClick={async () => {
+                        setDuplicatingId(w.id)
+                        try {
+                          const result = await onDuplicate(w.id)
+                          if (result?.ok) {
+                            setSuccessBanner({ sourceName: w.name, newName: result.newName })
+                            setTimeout(() => setSuccessBanner(null), 3000)
+                            if (onDuplicateSuccess) onDuplicateSuccess(result)
+                          }
+                        } finally {
+                          setDuplicatingId(null)
+                        }
+                      }}
+                      disabled={duplicatingId === w.id}
+                      title="Duplicate this week"
+                      style={{ fontSize: 10, color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: duplicatingId === w.id ? 'wait' : 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
+                    >
+                      duplicate
+                    </button>
+                  )}
+                  {!isRenaming && onArchive && (
                     <button
                       onClick={() => onArchive(w.id)}
                       title="Archive this week"
@@ -111,6 +135,18 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
             })}
           </div>
 
+          {successBanner && (
+            <div style={{
+              padding: '8px 12px',
+              background: 'color-mix(in srgb, var(--success) 12%, var(--surface))',
+              borderTop: '1px solid color-mix(in srgb, var(--success) 30%, var(--border))',
+              fontSize: 12,
+              color: 'color-mix(in srgb, var(--success) 70%, var(--text))',
+              lineHeight: 1.5,
+            }}>
+              Duplicated '{successBanner.sourceName}' as '{successBanner.newName}'. Activities, groups, and days are shared across all weeks.
+            </div>
+          )}
           {archived.length > 0 && (
             <div style={{ borderTop: '1px solid var(--border)', background: 'var(--surface-elevated)' }}>
               <div style={{ padding: '8px 12px 4px', fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text-secondary)' }}>
@@ -119,19 +155,21 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
               {archived.map(w => (
                 <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px' }}>
                   <span style={{ flex: 1, fontSize: 13, color: 'var(--text-secondary)' }}>{w.name}</span>
-                  <button
-                    onClick={() => onUnarchive(w.id)}
-                    title="Bring this week back"
-                    style={{ fontSize: 10, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
-                  >
-                    unarchive
-                  </button>
+                  {onUnarchive && (
+                    <button
+                      onClick={() => onUnarchive(w.id)}
+                      title="Bring this week back"
+                      style={{ fontSize: 10, color: 'var(--primary)', background: 'none', border: 'none', cursor: 'pointer', padding: '2px 4px', fontFamily: 'inherit' }}
+                    >
+                      unarchive
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
           )}
 
-          <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)', background: 'var(--surface-elevated)' }}>
+          {onCreate && <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)', background: 'var(--surface-elevated)' }}>
             {creating ? (
               <div style={{ display: 'flex', gap: 4 }}>
                 <input
@@ -162,7 +200,7 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
                 + New Week
               </button>
             )}
-          </div>
+          </div>}
         </div>
       )}
     </div>

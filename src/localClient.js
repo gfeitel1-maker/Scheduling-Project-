@@ -68,6 +68,7 @@ export const localClient = {
   denyDevice: (deviceId) => shoresh.denyDevice({ token: currentToken(), deviceId }),
   listDevices: () => shoresh.listDevices(currentToken()),
   revokeDevice: (deviceId, reason) => shoresh.revokeDevice({ token: currentToken(), deviceId, reason }),
+  duplicateWeek: (sourceWeekId, campId) => shoresh.duplicateWeek({ sourceWeekId, campId }),
   onPairingRequest: (cb) => shoresh.onPairingRequest && shoresh.onPairingRequest(cb),
   onPairingApproved: (cb) => shoresh.onPairingApproved && shoresh.onPairingApproved(cb),
   onPairingDenied: (cb) => shoresh.onPairingDenied && shoresh.onPairingDenied(cb),
