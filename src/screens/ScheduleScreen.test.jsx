@@ -111,6 +111,7 @@ describe('flags round-trips through bulk_replace as a parsed object (Round 2 Fix
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
     await waitFor(() => expect(screen.getByText('Generate a schedule')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Generate a schedule')).toBeTruthy())
     fireEvent.click(screen.getByText('Generate a schedule'))
 
     await waitFor(() => {
@@ -240,7 +241,7 @@ describe('editSlotSave (exercises the shared writeFields primitive)', () => {
 
     await waitFor(() => expect(screen.queryByText('Assign Activity')).toBeNull())
     // The cell must still show Swim, and no clearing write may have happened.
-    expect(scheduleCell('Swim')).toBeTruthy()
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
     const clearedWrite = localClient.write.mock.calls.find(
       c => c[1] === 'template_slots' && c[2] === 'slot-1' && c[3] === 'activity_id' && c[4] === null
     )
@@ -430,8 +431,10 @@ describe('snapshot CRUD ported to localClient', () => {
     })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
     fireEvent.click(screen.getByText('Daily View'))
 
+    await waitFor(() => expect(screen.getByText('📋 Versions ▾')).toBeTruthy())
     fireEvent.click(screen.getByText('📋 Versions ▾'))
     await waitFor(() => expect(screen.getByText('Restore')).toBeTruthy())
 
@@ -456,8 +459,10 @@ describe('snapshot CRUD ported to localClient', () => {
     })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
     fireEvent.click(screen.getByText('Daily View'))
 
+    await waitFor(() => expect(screen.getByText('📋 Versions ▾')).toBeTruthy())
     fireEvent.click(screen.getByText('📋 Versions ▾'))
     await waitFor(() => expect(screen.getByText('Restore')).toBeTruthy())
     fireEvent.click(screen.getByText('Restore'))
@@ -564,7 +569,17 @@ describe('placeActivityManual eligibility (T6 — DB-shaped eligible_tier_ids/el
   // the "Soccer" cell (slot-2, block b2), which is what drives
   // placeActivityManual('act-1', 'g1', 'd1', 'b2') without touching dnd-kit.
   async function copySwimPasteOntoSoccer() {
-    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+    // Two consecutive waitFor calls: the second one forces a macrotask boundary
+    // so any weekId-triggered secondary loadAll() can fire and settle before
+    // we query cells for interaction.
+    await waitFor(() => {
+      expect(scheduleCell('Swim')).toBeTruthy()
+      expect(scheduleCell('Soccer')).toBeTruthy()
+    })
+    await waitFor(() => {
+      expect(scheduleCell('Swim')).toBeTruthy()
+      expect(scheduleCell('Soccer')).toBeTruthy()
+    })
     fireEvent.click(scheduleCell('Swim'))
     fireEvent.keyDown(window, { key: 'c', ctrlKey: true })
     fireEvent.click(scheduleCell('Soccer'))
@@ -1236,10 +1251,10 @@ describe('T4: merging a cell down', () => {
     twoBlocks()
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
 
-    const headCell = scheduleCell('Swim').closest('td')
-    fireEvent.pointerEnter(headCell)
-    const mergeBtn = within(headCell).queryByTitle(/run into the next period/i)
+    fireEvent.pointerOver(scheduleCell('Swim').closest('td'))
+    const mergeBtn = await screen.findByTitle(/run into the next period/i)
     expect(mergeBtn, 'merge affordance should exist on a cell with a block below it').toBeTruthy()
     fireEvent.click(mergeBtn)
 
@@ -1258,10 +1273,10 @@ describe('T4: merging a cell down', () => {
     twoBlocks()
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
 
-    const headCell = scheduleCell('Swim').closest('td')
-    fireEvent.pointerEnter(headCell)
-    fireEvent.click(within(headCell).getByTitle(/run into the next period/i))
+    fireEvent.pointerOver(scheduleCell('Swim').closest('td'))
+    fireEvent.click(await screen.findByTitle(/run into the next period/i))
 
     await waitFor(() => expect(screen.getByText(/Displaced Activities/i)).toBeTruthy())
     expect(screen.getByText(/displaced from/i)).toBeTruthy()
