@@ -115,6 +115,20 @@ export function splitUnitAndGroup(title) {
   return { unit, group }
 }
 
+// The third camp's titles are separator-less positional codes — "KA", "1A",
+// "RB", "K1 (ECC)" — where the grade prefix IS the unit and the whole code is
+// the group. splitUnitAndGroup needs a whitespace-delimited "Unit - Bunk" and
+// cannot read these, so the unit is inferred from the prefix instead (spec §3c):
+// a leading letter ("KA" -> "K") or a leading digit run ("1A" -> "1"). The
+// {1,2}-char section and `$` anchor mean a real word cannot match ("Zahav"
+// leaves "ah"/"av" over), so a bunk with no code keeps unit=null. Applied only
+// on unlabeled pages; the two labelled camps never reach it, which is what keeps
+// splitUnitAndGroup — and Camp A's "Zahav"/"2-3A" guards — untouched.
+export function inferUnitFromCode(title) {
+  const m = String(title ?? '').match(/^([A-Za-z]|\d+)\s*[A-Za-z0-9]{1,2}(\s*\([^)]*\))?$/)
+  return m ? m[1] : null
+}
+
 // "Adom 4's - Matzo Balls Schedule" -> "Adom 4's - Matzo Balls"
 // "Monday — All Camp" -> "Monday"
 function cleanTitle(title) {
@@ -215,7 +229,12 @@ export function extractEntities(parsed) {
       // should not shout because a spreadsheet did.
       days.push(...page.columns.filter(isDayName).map(canonicalDay))
       if (title) {
-        const { unit, group } = splitUnitAndGroup(title)
+        // The new family's title is a positional code (unlabeled time column);
+        // the group keeps the whole code and the unit is inferred from its
+        // prefix. The two labelled camps keep calling splitUnitAndGroup (spec §3c).
+        const { unit, group } = page.timeColumnLabeled === false
+          ? { unit: inferUnitFromCode(title), group: title }
+          : splitUnitAndGroup(title)
         groups.push({ title, unit, group })
         if (unit) units.push(unit)
       }

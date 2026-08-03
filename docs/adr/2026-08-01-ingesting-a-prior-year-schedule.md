@@ -149,6 +149,18 @@ Entities are recoverable from structure alone: the header row, the time column, 
 and the distinct cell values. That is the whole extraction — no placement inference is needed for the agreed scope,
 which is why §2's boundary also makes the parser markedly simpler.
 
+**§7 addendum (2026-08-02) — a third layout family.** A fourth real camp (one page per group, days
+across the top, like Camp A) leaves its **time column unlabeled**, so page/column detection can no
+longer depend on a `Time` token; it now also keys on a **day-name-majority header row**, with the
+unlabeled time column located from where the body's times sit. This family prints a **location under
+each activity** (room name or number) — these are **stripped** (location metadata, not activities),
+discriminated from a genuine wrapped continuation by **vertical adjacency** (a data line directly
+under another data line, with no time line between, is a location). Its group titles are
+**separator-less positional codes** (`1A`, `KA`, `RB`, `K1 (ECC)`) from which the **unit is inferred**
+from the grade prefix, over-including per this section's existing bias. A repeating page **banner** is
+dropped. All of this is gated on the absent `Time` label, so Camp A and Camp B are provably
+unaffected. No schema, projection, IPC, or commit-path change — §2 and §3 stand.
+
 ## Consequences
 
 - A returning camp's setup goes from an afternoon of retyping to a review of a proposal.
@@ -173,3 +185,25 @@ which is why §2's boundary also makes the parser markedly simpler.
 5. Both supplied layouts — one page per group, one page per day — produce correct entity lists,
    including the wrapped-cell and interleaved-row cases named in §7.
 6. Fresh-vs-migrated schema equivalence is untouched, because there is no migration.
+
+## Addendum — 2026-08-02 (T33): an import must file into the active Program
+
+The first real use surfaced a defect this ADR's §2/§4 did not anticipate: the commit created the
+entities but left the **Program-scoped** ones orphaned, so the director could not see them.
+
+- Two ingestible entities are scoped to a Program (cohort) in the app — **`tiers` (Units) and
+  `time_blocks`** carry `cohort_id`, and their setup screens list only rows whose `cohort_id` matches
+  the active Program. `groups`, `activities`, `days_of_operation` are camp-scoped (no `cohort_id`
+  column on `groups`) and are unaffected.
+- `commitIngest` wrote those rows with `cohort_id = NULL`, so they existed but were filtered out of
+  every Program view. The group→unit `tier_id` link was set correctly, but an invisible unit cannot
+  appear tied to its groups — which is what the product owner saw as "units aren't tying to groups".
+- **Fix:** the active Program's id is threaded from `ImportScreen` (`useCohorts`) through
+  `ingestCommit` into `commitIngest`, which sets `cohort_id` on created tiers and time blocks, scopes
+  the unit-reuse map to that Program (a same-named unit in another Program is not reused), and the
+  preview's duplicate check is scoped to the active Program for those two entities.
+- **No schema change, no migration.** The columns and their projections already exist; this is a
+  write-correctness fix. A null Program (older callers/tests) preserves the pre-fix behaviour.
+- **No backfill.** Rows orphaned by imports done before this fix keep `cohort_id = NULL`; the feature
+  is new enough that these are test data. A director can delete and re-import, or reassign the unit's
+  Program by hand. Flagged rather than silently migrated.

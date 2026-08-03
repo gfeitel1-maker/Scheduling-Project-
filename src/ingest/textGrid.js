@@ -37,18 +37,61 @@ export function tokenize(line) {
   return out.filter((t) => t.text.length > 0)
 }
 
+// The first two camps label their time column "Time"; the third leaves it
+// blank. `hasTimeLabel` is the single signal that tells the two families apart,
+// and every new-family behaviour below is gated on it being false — so a camp
+// that labels its time column runs a byte-identical code path and cannot
+// regress (ADR §7 addendum, spec §3).
+export function hasTimeLabel(tokens) {
+  return tokens.length > 0 && /^time$/i.test(tokens[0]?.text ?? '')
+}
+
+function dayCount(tokens) {
+  return tokens.filter((t) => isDayName(t.text)).length
+}
+
+// A header with no "Time" label is recognised by being predominantly day names
+// — the cross-camp signal for the days-across-the-top family. The 0.6 majority
+// mirrors detectOrientation's day-column test; requiring >= 3 day names keeps a
+// stray one- or two-word line from being read as a header.
+export function isDayHeader(tokens) {
+  const days = dayCount(tokens)
+  return days >= 3 && days >= Math.ceil(tokens.length * 0.6)
+}
+
 /**
- * The header row is the line that names the columns. Both real samples label
- * their first column "Time", which is the only anchor available that does not
- * assume a layout — the column labels themselves differ completely between the
- * two camps (days in one, group names in the other).
+ * The header row is the line that names the columns. Two families label their
+ * first column "Time" (the layout-independent anchor); a third leaves the time
+ * column blank and is recognised instead by a day-name-majority row. Signal (A)
+ * is tried first and is unchanged, so any document that labels its time column
+ * selects exactly the line it selected before.
  */
+export function isHeaderLine(tokens) {
+  return (tokens.length >= 3 && /^time$/i.test(tokens[0].text)) || isDayHeader(tokens)
+}
+
 export function findHeaderLine(lines) {
   for (let i = 0; i < lines.length; i++) {
-    const tokens = tokenize(lines[i])
-    if (tokens.length >= 3 && /^time$/i.test(tokens[0].text)) return i
+    if (isHeaderLine(tokenize(lines[i]))) return i
   }
   return -1
+}
+
+// Where the body's time column ends, for a header that does not label it.
+//
+// The time column is invisible in the header, so its extent is read from the
+// body: lines whose first token sits at the left margin and looks like a time.
+// The maximum such end is the time column's right edge — a synthesized leading
+// token ending there reproduces a "Time" label's exact column geometry (spec
+// §3a). Capped below the first header token so it can never overlap a day.
+export function leadingTimeExtent(lines, headerIndex, endIndex, firstDataStart) {
+  let end = 0
+  for (let i = headerIndex + 1; i < endIndex; i++) {
+    const first = tokenize(lines[i])[0]
+    if (!first || first.start !== 0 || !looksLikeTime(first.text)) continue
+    if (first.end < firstDataStart) end = Math.max(end, first.end)
+  }
+  return end
 }
 
 /**
@@ -132,6 +175,29 @@ export function isDayName(text) {
   return DAY_NAMES.includes(String(text).trim().toLowerCase())
 }
 
+// A page banner is the line that repeats above every page's title (e.g. a camp
+// name printed on each page). It physically falls inside the PREVIOUS page's
+// body span, so left alone it becomes a phantom activity. A camp whose titles
+// have no shared line above them yields `null` and the skip below is a no-op
+// (spec §3d).
+function detectBanner(lines, titleIndexes) {
+  const counts = new Map()
+  for (const ti of titleIndexes) {
+    for (let i = ti - 1; i >= 0; i--) {
+      const text = lines[i].trim()
+      if (!text) continue
+      counts.set(text, (counts.get(text) ?? 0) + 1)
+      break
+    }
+  }
+  let banner = null
+  let best = 0
+  for (const [text, n] of counts) {
+    if (n > best) { best = n; banner = text }
+  }
+  return best >= Math.ceil(titleIndexes.length / 2) ? banner : null
+}
+
 /**
  * Split the document into pages.
  *
@@ -142,8 +208,7 @@ export function isDayName(text) {
 function splitPages(lines) {
   const headerIndexes = []
   for (let i = 0; i < lines.length; i++) {
-    const tokens = tokenize(lines[i])
-    if (tokens.length >= 3 && /^time$/i.test(tokens[0].text)) headerIndexes.push(i)
+    if (isHeaderLine(tokenize(lines[i]))) headerIndexes.push(i)
   }
 
   // The line above a header is that page's title. It must also END the previous
@@ -158,11 +223,13 @@ function splitPages(lines) {
     return headerIndex
   })
 
-  return headerIndexes.map((headerIndex, n) => ({
+  const pages = headerIndexes.map((headerIndex, n) => ({
     title: lines[titleIndexes[n]]?.trim() ?? '',
     headerIndex,
     endIndex: n === headerIndexes.length - 1 ? lines.length : titleIndexes[n + 1],
   }))
+
+  return { pages, banner: detectBanner(lines, titleIndexes) }
 }
 
 /**
@@ -179,11 +246,31 @@ export function parseTextGrid(text) {
   const lines = String(text ?? '').split(/\r?\n/)
   const pages = []
 
-  for (const { title, headerIndex, endIndex } of splitPages(lines)) {
+  const { pages: pageSpans, banner } = splitPages(lines)
+
+  for (const { title, headerIndex, endIndex } of pageSpans) {
     const headerTokens = tokenize(lines[headerIndex])
-    // The first header cell is the time column and is not a data column.
-    const columns = columnSpans(headerTokens).slice(1)
+    const labeled = hasTimeLabel(headerTokens)
+
+    // A labelled time column is the original path, unchanged. An unlabeled one
+    // is reconstructed from where the body's times sit: a synthesized leading
+    // token ending at that extent makes the SAME columnSpans + slice(1) place
+    // the first day column's boundary exactly where a "Time" label would (spec
+    // §3a). Without it, slicing the header alone gives the first day a start of
+    // 0 and pulls the body's times into it.
+    let columns
+    if (labeled) {
+      // The first header cell is the time column and is not a data column.
+      columns = columnSpans(headerTokens).slice(1)
+    } else {
+      const timeEnd = leadingTimeExtent(lines, headerIndex, endIndex, headerTokens[0]?.start ?? 0)
+      const synthetic = [{ text: '', start: 0, end: timeEnd }, ...headerTokens]
+      columns = columnSpans(synthetic).slice(1)
+    }
     const columnLabels = columns.map((c) => c.label)
+    // The new family prints a location line under each activity; strip it (spec
+    // §3b). Gated on the missing time label so the two labelled camps never do.
+    const stripLocations = !labeled
 
     // Rows are delimited by BLANK LINES, not by which line carries a time.
     //
@@ -228,13 +315,26 @@ export function parseTextGrid(text) {
       // standing alone. Getting this backwards is what split "Little" from
       // "Playground" — the two halves sit either side of the row.
       let leading = []
+      // A data line whose immediately-preceding non-blank line was also data is
+      // a location printed under its activity, and is dropped. A time line (no
+      // data) resets the adjacency — so a fixed event that follows its own time
+      // line (e.g. "Sof Hayom" under the 03:20 line) is NOT mistaken for a
+      // location and is kept. Gated to unlabeled pages (spec §3b).
+      let prevHadData = false
       for (const tokens of block) {
         const dataTokens = []
         for (const token of tokens) {
           if (columns.length > 0 && token.end <= columns[0].start) label.push(token.text)
           else dataTokens.push(token)
         }
-        if (dataTokens.length === 0) continue
+        if (dataTokens.length === 0) {
+          if (stripLocations) prevHadData = false
+          continue
+        }
+        if (stripLocations) {
+          if (prevHadData) continue
+          prevHadData = true
+        }
         if (isValueRow(tokens)) {
           valueRows.push([...leading, dataTokens])
           leading = []
@@ -271,13 +371,16 @@ export function parseTextGrid(text) {
     for (let i = headerIndex + 1; i < endIndex; i++) {
       const line = lines[i]
       if (!line.trim()) { closeBlock(); continue }
+      // The repeating page banner sits in this page's body span; treat it like a
+      // blank line so it never becomes a phantom activity (spec §3d).
+      if (banner && line.trim() === banner) { closeBlock(); continue }
       const tokens = tokenize(line)
       if (tokens.length > 0) block.push(tokens)
     }
     closeBlock()
 
     for (const row of rows) row.label = normalizeTimeLabel(row.label)
-    pages.push({ title, columns: columnLabels, rows })
+    pages.push({ title, columns: columnLabels, rows, timeColumnLabeled: labeled })
   }
 
   return { pages }
