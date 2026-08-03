@@ -1361,13 +1361,29 @@ describe('T7 fix: schedule_templates re-key + UNIQUE(camp_id) (schema version 21
     db.close()
   })
 
-  it('adds UNIQUE(camp_id) as a defense-in-depth backstop', () => {
+  it('enforces one route per WEEK via UNIQUE(week_id, kind) — v27 superseded the old camp-scoped backstop', () => {
+    // The v21 backstop was UNIQUE(camp_id); v23 narrowed it to (camp_id, kind);
+    // v27 moved it to (week_id, kind) so a camp can hold many weeks
+    // (docs/adr/2026-08-02-schedule-weeks-first-class.md). freshDb runs every
+    // migration, so the live index here is the week-scoped one.
     const db = freshDb()
     db.prepare('INSERT INTO camps (id, name) VALUES (?, ?)').run('camp1', 'Camp')
-    db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run('schedule-template:camp1', 'camp1', 'Master Template')
+    db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, ?, ?, 0)')
+      .run('week1', 'camp1', 'Week 1', 0)
+    db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, ?, ?, 0)')
+      .run('week2', 'camp1', 'Week 2', 1)
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind, week_id) VALUES (?, ?, ?, ?, ?)')
+      .run('schedule-template:week1', 'camp1', 'Master Template', 'generated', 'week1')
+    // Same week + same route under a different id: rejected.
     expect(() => {
-      db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run('some-other-id', 'camp1', 'Second Template')
+      db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind, week_id) VALUES (?, ?, ?, ?, ?)')
+        .run('some-other-id', 'camp1', 'Second Template', 'generated', 'week1')
     }).toThrow(/UNIQUE/)
+    // Same camp, DIFFERENT week, same route: allowed — this is the whole point.
+    expect(() => {
+      db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind, week_id) VALUES (?, ?, ?, ?, ?)')
+        .run('schedule-template:week2', 'camp1', 'Week 2', 'generated', 'week2')
+    }).not.toThrow()
     db.close()
   })
 

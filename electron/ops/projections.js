@@ -200,6 +200,21 @@ export const PROJECTIONS = {
       ).run(id, value)
     },
   },
+  // A week is director-named text ("Week 1"), direct-camp-scoped exactly like
+  // groups/tiers — it is not reached through a parent, so it belongs in
+  // DIRECT_CAMP_ENTITIES (electron/ops/campScopedEntities.js), not
+  // PARENT_SCOPED_ENTITIES. See docs/adr/2026-08-02-schedule-weeks-first-class.md.
+  schedule_weeks: {
+    table: 'schedule_weeks',
+    key: 'id',
+    fields: ['camp_id', 'name', 'sort_order', 'is_archived'],
+    ensureExists: (db, id) => {
+      const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+      db.prepare(
+        "INSERT OR IGNORE INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, '', 0, 0)"
+      ).run(id, camp?.id ?? null)
+    },
+  },
   schedule_templates: {
     table: 'schedule_templates',
     key: 'id',
@@ -207,12 +222,12 @@ export const PROJECTIONS = {
     // row. The row is created by whichever field arrives first, and kind is NOT
     // NULL DEFAULT 'generated' — so a manual candidate whose kind arrived
     // second would first materialise as 'generated', collide with the real
-    // generated row under UNIQUE(camp_id, kind), be absorbed by INSERT OR
+    // generated row under UNIQUE(week_id, kind), be absorbed by INSERT OR
     // IGNORE, and vanish silently on that device. Op replay is seq-ordered, so
     // the write-site order is the replica order. Recovering the route by
     // parsing the id suffix is deliberately NOT done: the id format is not a
     // parsing contract (ADR Decision §1).
-    fields: ['kind', 'camp_id', 'name'],
+    fields: ['kind', 'camp_id', 'week_id', 'name'],
     ensureExists: (db, id, field, value) => {
       const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
       db.prepare("INSERT OR IGNORE INTO schedule_templates (id, camp_id, name, kind) VALUES (?, ?, '', ?)").run(
@@ -220,7 +235,7 @@ export const PROJECTIONS = {
         camp?.id ?? null,
         field === 'kind' && value ? value : 'generated'
       )
-      // BACKSTOP. INSERT OR IGNORE absorbs a UNIQUE(camp_id, kind) violation
+      // BACKSTOP. INSERT OR IGNORE absorbs a UNIQUE(week_id, kind) violation
       // just as silently as a primary-key clash: if a row of this kind already
       // exists under a DIFFERENT id, nothing is inserted, every following field
       // UPDATE matches zero rows, and the caller believes it succeeded. That
@@ -246,20 +261,30 @@ export const PROJECTIONS = {
       // ensureTemplateRow calls). It is recorded as a residual, not a claim
       // that the op survives.
       //
-      // After the renderer's resolve-by-(camp_id, kind) fix nothing should ever
+      // After the renderer's resolve-by-(week_id, kind) fix nothing should ever
       // reach this throw; it exists so a future regression cannot be silent.
-      // Narrowed deliberately to the (camp_id, kind) collision. An INSERT OR
+      // Narrowed deliberately to the (week_id, kind) collision. An INSERT OR
       // IGNORE can also be absorbed for unrelated reasons (e.g. no camps row
       // yet, mid first-pairing sync), and those must keep their existing
       // tolerant behaviour rather than becoming a new hard failure.
+      //
+      // week_id is NOT necessarily known on this call — ensureExists only ever
+      // sees ONE field's value (see the write-ordering contract above), and
+      // week_id is written after `kind`. So this reads the row's CURRENT
+      // week_id (already set by an earlier write in this same writeFields()
+      // sequence, if any) rather than assuming this call's `value` is it. Once
+      // the row exists with a real week_id, this also correctly guards the
+      // write that FIRST sets week_id on a freshly-created row.
       const exists = db.prepare('SELECT 1 FROM schedule_templates WHERE id = ?').get(id)
-      const kind = field === 'kind' && value ? value : 'generated'
-      const holder = camp?.id
-        ? db.prepare('SELECT id FROM schedule_templates WHERE camp_id = ? AND kind = ?').get(camp.id, kind)
+      const row = db.prepare('SELECT kind, week_id FROM schedule_templates WHERE id = ?').get(id)
+      const kind = field === 'kind' && value ? value : row?.kind || 'generated'
+      const weekId = field === 'week_id' && value ? value : row?.week_id
+      const holder = weekId
+        ? db.prepare('SELECT id FROM schedule_templates WHERE week_id = ? AND kind = ?').get(weekId, kind)
         : null
-      if (!exists && holder) {
+      if (holder && holder.id !== id && !(exists && holder.id === id)) {
         const err = new Error(
-          `SCHEDULE_TEMPLATE_KIND_CONFLICT: a schedule_templates row for this camp and kind already exists under a different id (attempted id: ${id}, existing id: ${holder.id})`
+          `SCHEDULE_TEMPLATE_KIND_CONFLICT: a schedule_templates row for this week and kind already exists under a different id (attempted id: ${id}, existing id: ${holder.id})`
         )
         err.code = 'SCHEDULE_TEMPLATE_KIND_CONFLICT'
         throw err

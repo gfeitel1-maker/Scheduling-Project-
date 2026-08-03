@@ -82,25 +82,40 @@ describe('migration v23: schedule_templates.kind', () => {
     db.close()
   })
 
-  it('lets the two routes coexist, and still rejects a third row or a duplicate route', () => {
+  it('lets the two routes coexist within a week, rejects a duplicate route in the same week, and allows the same route in a DIFFERENT week', () => {
+    // Uniqueness moved from (camp_id, kind) to (week_id, kind) at v27
+    // (docs/adr/2026-08-02-schedule-weeks-first-class.md), so the rows must
+    // carry a week_id to exercise it — two rows with a NULL week_id would not
+    // collide (distinct NULLs), which is why every real write supplies one.
     const db = freshDb()
     seedCamp(db)
-    db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind) VALUES (?, ?, ?, ?)')
-      .run('schedule-template:camp1', 'camp1', 'Master Template', 'generated')
-    db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind) VALUES (?, ?, ?, ?)')
-      .run('schedule-template:camp1:manual', 'camp1', 'Manual', 'manual')
+    db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, ?, ?, 0)')
+      .run('week1', 'camp1', 'Week 1', 0)
+    db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, ?, ?, 0)')
+      .run('week2', 'camp1', 'Week 2', 1)
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind, week_id) VALUES (?, ?, ?, ?, ?)')
+      .run('schedule-template:week1', 'camp1', 'Master Template', 'generated', 'week1')
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind, week_id) VALUES (?, ?, ?, ?, ?)')
+      .run('schedule-template:week1:manual', 'camp1', 'Manual', 'manual', 'week1')
 
     expect(db.prepare('SELECT COUNT(*) c FROM schedule_templates').get().c).toBe(2)
 
-    // v21's invariant survives, narrowed to one row per route.
+    // The per-route invariant survives, now scoped to the WEEK.
     expect(() =>
-      db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind) VALUES (?, ?, ?, ?)')
-        .run('rogue-uuid', 'camp1', 'Second Generated', 'generated')
+      db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind, week_id) VALUES (?, ?, ?, ?, ?)')
+        .run('rogue-uuid', 'camp1', 'Second Generated', 'generated', 'week1')
     ).toThrow(/UNIQUE/)
     expect(() =>
-      db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind) VALUES (?, ?, ?, ?)')
-        .run('rogue-uuid-2', 'camp1', 'Third', 'manual')
+      db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind, week_id) VALUES (?, ?, ?, ?, ?)')
+        .run('rogue-uuid-2', 'camp1', 'Third', 'manual', 'week1')
     ).toThrow(/UNIQUE/)
+
+    // The whole point of Slice 1: the SAME route in a DIFFERENT week is allowed.
+    expect(() =>
+      db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind, week_id) VALUES (?, ?, ?, ?, ?)')
+        .run('schedule-template:week2', 'camp1', 'Week 2 Generated', 'generated', 'week2')
+    ).not.toThrow()
+    expect(db.prepare('SELECT COUNT(*) c FROM schedule_templates').get().c).toBe(3)
     db.close()
   })
 
@@ -194,8 +209,9 @@ describe('migration v23: schedule_templates.kind', () => {
     expect(indexes(migrated)).toEqual(indexes(fresh))
 
     const names = indexes(fresh).map((i) => i.name)
-    expect(names).toContain('idx_schedule_templates_camp_kind')
-    expect(names).not.toContain('idx_schedule_templates_camp')
+    // v27 retired idx_schedule_templates_camp_kind in favour of the week-scoped one.
+    expect(names).toContain('idx_schedule_templates_week_kind')
+    expect(names).not.toContain('idx_schedule_templates_camp_kind')
 
     expect(getSchemaVersion(migrated)).toBe(CURRENT_SCHEMA_VERSION)
     expect(getSchemaVersion(fresh)).toBe(CURRENT_SCHEMA_VERSION)
@@ -269,23 +285,32 @@ describe('migrated database whose generated template has a RANDOM UUID id', () =
     db.close()
   })
 
-  it('A2: an ensureTemplateRow write using the DERIVED id now fails loudly instead of silently', () => {
+  it('A2: a write that would add a second row for a route already in that week fails loudly, not silently', () => {
     const db = migratedDbWithRandomUuidTemplate()
-    const derived = deriveScheduleTemplateId('camp1')
+    // v27 backfilled the pre-existing UUID row into this camp's Week 1.
+    const weekId = 'schedule-week:camp1:1'
+    const derived = deriveScheduleTemplateId(weekId) // a DIFFERENT id than the UUID row
 
-    // Exactly the ops the shipped renderer wrote: kind first, then camp_id,
-    // then name, against the DERIVED id.
+    // `kind` is written first, and the (week_id, kind) collision is NOT yet
+    // detectable here — the week is unknown until its own field arrives
+    // (the write-ordering contract; see electron/ops/projections.js). So this
+    // write does not throw; the conflict is caught one field later.
     expect(() =>
-      applyProjection(db, {
-        entity: 'schedule_templates', entity_id: derived, field: 'kind', value: 'generated',
-      })
+      applyProjection(db, { entity: 'schedule_templates', entity_id: derived, field: 'kind', value: 'generated' })
+    ).not.toThrow()
+
+    // Setting the week is where the collision with the existing UUID row is
+    // caught — loudly, so a future regression that writes to the wrong id can
+    // never silently no-op the way it did before the backstop existed.
+    expect(() =>
+      applyProjection(db, { entity: 'schedule_templates', entity_id: derived, field: 'week_id', value: weekId })
     ).toThrow(/SCHEDULE_TEMPLATE_KIND_CONFLICT/)
 
-    // Pre-fix behaviour, reproduced: the row is still not there. Before the
-    // backstop this state was reached with NO error at all, which is why
-    // generation silently did nothing.
-    expect(db.prepare('SELECT COUNT(*) c FROM schedule_templates WHERE id = ?').get(derived).c).toBe(0)
-    expect(db.prepare('SELECT COUNT(*) c FROM schedule_templates').get().c).toBe(1)
+    // The invariant that matters held: exactly one row holds (Week 1, generated),
+    // and it is the real UUID row — the errant write never became a second holder.
+    const holders = db.prepare("SELECT id FROM schedule_templates WHERE week_id = ? AND kind = 'generated'").all(weekId)
+    expect(holders).toHaveLength(1)
+    expect(holders[0].id).toBe(UUID_TEMPLATE_ID)
     db.close()
   })
 

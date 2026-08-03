@@ -29,6 +29,7 @@ export const RESTORE_DECISIONS = Object.freeze({
   camps: 'refused: singleton identity row, created only by bootstrapCamp',
   devices: 'refused: device trust is granted by pairing, never rebuilt from a log',
   schedule_templates: 'refused: a route, not a record — recreated by opening the route',
+  schedule_weeks: 'refused: weeks are archived (reversible), never trashed, in this slice — a later delete slice decides restorability',
   template_slots: 'refused: schedule edits already have snapshots on ScheduleScreen',
   template_overlays: 'refused: schedule edits already have snapshots on ScheduleScreen',
   schedule_snapshots: 'refused: a snapshot is itself the undo story; nesting one is confusing',

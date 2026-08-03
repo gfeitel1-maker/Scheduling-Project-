@@ -34,6 +34,11 @@
 // route by inspecting the string; `schedule_templates.kind` is the only
 // authority on which route a row belongs to (see
 // docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md, Decision §1).
+// NOTE (schedule weeks, docs/adr/2026-08-02-schedule-weeks-first-class.md):
+// the first argument is now the id of the schedule_weeks row a template pair
+// belongs to, not necessarily a camp id — uniqueness moved from
+// UNIQUE(camp_id, kind) to UNIQUE(week_id, kind). Only the call-site meaning
+// changed; the function body and its determinism guarantee are unchanged.
 export function deriveScheduleTemplateId(campId, kind = 'generated') {
   return kind === 'generated' ? `schedule-template:${campId}` : `schedule-template:${campId}:${kind}`
 }

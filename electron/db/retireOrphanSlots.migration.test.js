@@ -223,8 +223,14 @@ describe('migration v26: retiring orphaned schedule slots', () => {
   it('leaves a camp with no orphans byte-identically unchanged', () => {
     const db = freshDb()
     seedCamp(db, 'camp1')
-    db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind) VALUES (?, ?, ?, ?)')
-      .run(deriveScheduleTemplateId('camp1'), 'camp1', 'Master Template', 'generated')
+    // week_id is pre-set to what v27 would backfill, so re-running migrations
+    // (rerunV26 below re-runs v27 too) leaves this row byte-identical instead
+    // of flipping week_id from NULL — this test asserts a clean camp is a no-op.
+    // The schedule_weeks row must exist first (FK on week_id).
+    db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, ?, 0, 0)')
+      .run('schedule-week:camp1:1', 'camp1', 'Week 1')
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind, week_id) VALUES (?, ?, ?, ?, ?)')
+      .run(deriveScheduleTemplateId('camp1'), 'camp1', 'Master Template', 'generated', 'schedule-week:camp1:1')
     db.prepare(
       `INSERT INTO template_slots (id, template_id, group_id, activity_id, day_id, time_block_id, flags)
        VALUES ('s1', ?, 'grp-camp1', 'act-camp1', 'day-0', 'block-0', '{}')`

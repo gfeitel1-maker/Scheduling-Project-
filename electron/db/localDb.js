@@ -13,7 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 26
+export const CURRENT_SCHEMA_VERSION = 27
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1253,6 +1253,68 @@ export function initSchema(db) {
         new Date().toISOString()
       )
     }
+  }
+
+  // Schedule weeks first-class (docs/adr/2026-08-02-schedule-weeks-first-class.md).
+  // A camp previously held one manual + one generated schedule_templates row
+  // total; it now holds one such pair PER WEEK. Every existing camp gets
+  // exactly one schedule_weeks row named "Week 1" and every existing
+  // schedule_templates row is pointed at it — nothing is deleted, nothing is
+  // re-keyed, both of a camp's existing schedules land under the same week.
+  // Gated on v26 having COMPLETED (>= 26), not merely `< 27`. v26 uses a
+  // deferred-retry pattern — if a camp's snapshot write fails it leaves the
+  // version unstamped so the next launch retries — and getSchemaVersion is
+  // MAX(version). A bare `< 27` guard would let v27 stamp 27 while v26 is still
+  // pending, pushing MAX past 26 so v26's `< 26` guard never fires again and
+  // its orphan cleanup is skipped forever. `>= 26 && < 27` runs v27 only once
+  // v26 is done (including in the same fresh-install pass, right after v26
+  // stamps), and stays out of the way while v26 is deferred.
+  if (getSchemaVersion(db) >= 26 && getSchemaVersion(db) < 27) {
+    db.transaction(() => {
+      db.exec(`CREATE TABLE IF NOT EXISTS schedule_weeks (
+        id TEXT PRIMARY KEY,
+        camp_id TEXT NOT NULL REFERENCES camps(id),
+        name TEXT NOT NULL,
+        sort_order INTEGER,
+        is_archived INTEGER NOT NULL DEFAULT 0
+      )`)
+
+      // Deterministic per-camp id — this migration runs independently on every
+      // device that opens this camp's db, and two devices migrating the same
+      // camp without coordination must agree on the row id or the week forks
+      // once sync replays it (same reasoning as deriveScheduleTemplateId).
+      const camps = db.prepare('SELECT id FROM camps').all()
+      const insertWeek = db.prepare(
+        'INSERT OR IGNORE INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, ?, 0, 0)'
+      )
+      for (const c of camps) {
+        insertWeek.run(`schedule-week:${c.id}:1`, c.id, 'Week 1')
+      }
+
+      const hasWeekId = db.pragma('table_info(schedule_templates)').some((c) => c.name === 'week_id')
+      if (!hasWeekId) {
+        db.exec('ALTER TABLE schedule_templates ADD COLUMN week_id TEXT REFERENCES schedule_weeks(id)')
+      }
+      // Every EXISTING schedule_templates row (both a camp's manual and its
+      // generated row, if present) is re-pointed at that camp's Week 1 — the
+      // existing rows keep whatever id they already have, same "nothing is
+      // re-keyed" principle the v22 comment above states for kind.
+      db.exec(`UPDATE schedule_templates SET week_id = (
+        SELECT id FROM schedule_weeks WHERE schedule_weeks.camp_id = schedule_templates.camp_id
+      ) WHERE week_id IS NULL OR week_id = ''`)
+
+      db.exec('DROP INDEX IF EXISTS idx_schedule_templates_camp_kind')
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_templates_week_kind ON schedule_templates(week_id, kind)'
+      )
+      db.exec(
+        'CREATE UNIQUE INDEX IF NOT EXISTS idx_schedule_weeks_camp_name ON schedule_weeks(camp_id, name)'
+      )
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (27, ?)').run(
+      new Date().toISOString()
+    )
   }
 }
 

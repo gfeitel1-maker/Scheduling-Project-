@@ -340,25 +340,58 @@ CREATE TABLE IF NOT EXISTS anchor_activities (
   notes TEXT
 );
 
+-- A week is director-named text (e.g. "Week 1"), not a `template`/`slot`/
+-- `kind` concept — CONSTITUTION Art. V. Direct-camp-scoped, same sync
+-- treatment as groups/tiers (see DIRECT_CAMP_ENTITIES).
+-- docs/adr/2026-08-02-schedule-weeks-first-class.md
+CREATE TABLE IF NOT EXISTS schedule_weeks (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  name TEXT NOT NULL,
+  sort_order INTEGER,
+  is_archived INTEGER NOT NULL DEFAULT 0
+);
+-- idx_schedule_weeks_camp_name is created by migration v27, not here.
+
 -- `kind` names which of the two schedule-building routes a row belongs to
 -- ('generated' | 'manual'). It is load-bearing: the unique index below is what
--- keeps a camp to exactly one candidate per route, and NOT NULL is required —
+-- keeps a WEEK to exactly one candidate per route, and NOT NULL is required —
 -- distinct NULLs do not conflict in SQLite, so a nullable kind would let the
 -- duplicate-row fork that migration v21 exists to prevent back in.
 --
 -- Column ORDER matters: migration v23 adds `kind` via ALTER TABLE, which always
 -- appends, so it must be last here for a fresh db to match a migrated one.
+-- week_id (added by v27) appends after it for the same reason.
+--
+-- A camp now holds one-or-more weeks; each week holds its own manual+generated
+-- pair (UNIQUE(week_id, kind) below, created by migration v27, replacing the
+-- old camp-scoped UNIQUE(camp_id, kind)). week_id is deliberately NOT declared
+-- NOT NULL here even though every row a fresh install ever WRITES will have
+-- one: applyProjection's ensureExists only ever knows one field's value per
+-- call (see the write-ordering contract comment in electron/ops/projections.js),
+-- so the row-creating INSERT cannot guarantee week_id is populated at insert
+-- time any more than it could guarantee `kind` was before the write-ordering
+-- contract existed. The invariant is enforced by the write path
+-- (ensureTemplateRow always supplies week_id) and the unique index below, not
+-- by a SQL-level NOT NULL — same "never a retroactive NOT NULL" principle this
+-- file already applies to migrated columns, extended here because a
+-- single-field ensureExists call can't satisfy it even on a fresh install.
 CREATE TABLE IF NOT EXISTS schedule_templates (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
   name TEXT NOT NULL,
-  kind TEXT NOT NULL DEFAULT 'generated'
+  kind TEXT NOT NULL DEFAULT 'generated',
+  week_id TEXT REFERENCES schedule_weeks(id)
 );
 
--- idx_schedule_templates_camp_kind is created by migration v23, not here:
+-- idx_schedule_templates_camp_kind is retired (was created by migration v23);
 -- schema.sql is re-executed on every open, and a CREATE INDEX naming `kind`
--- would fail on a not-yet-migrated v22 file whose table has no such column.
--- v23 runs on fresh databases too, so both paths end up identical.
+-- would fail on a not-yet-migrated v22 file whose table has no such column,
+-- so it was never declared here even when it was current.
+--
+-- idx_schedule_templates_week_kind (replacing idx_schedule_templates_camp_kind)
+-- is created by migration v27, not here, for the same re-execution reason.
+-- v27 runs on fresh databases too, so both paths end up identical.
 
 CREATE TABLE IF NOT EXISTS template_overlays (
   id TEXT PRIMARY KEY,
