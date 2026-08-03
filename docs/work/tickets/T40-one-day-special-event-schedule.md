@@ -1,5 +1,5 @@
 ---
-title: T28-one-day-special-event-schedule
+title: T40-one-day-special-event-schedule
 document_type: ticket
 status: parked
 created: 2026-08-01
