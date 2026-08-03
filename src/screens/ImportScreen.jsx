@@ -339,11 +339,21 @@ export default function ImportScreen({ campId, onNavigate }) {
             </div>
           )}
 
+          {/* Without an active Program, units and time blocks would be filed
+              nowhere and vanish from the setup screens (T33); block the commit
+              rather than import into limbo. "Main" is auto-created, so this is a
+              still-loading guard, not a normal state. */}
+          {!activeCohort && (
+            <div style={{ marginTop: 16, fontSize: 12, color: 'var(--text-secondary)' }}>
+              Waiting for a Program to load before importing…
+            </div>
+          )}
+
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 24, paddingTop: 18, borderTop: '1px solid var(--border)' }}>
             <button
               onClick={commit}
-              disabled={working || approvedCount === 0}
-              style={{ ...S.btnPrimary, opacity: working || approvedCount === 0 ? 0.45 : 1 }}
+              disabled={working || approvedCount === 0 || !activeCohort}
+              style={{ ...S.btnPrimary, opacity: working || approvedCount === 0 || !activeCohort ? 0.45 : 1 }}
             >
               {working
                 ? 'Importing…'

@@ -282,7 +282,7 @@ export const mockShoresh = {
   // proposal, commit, see the records appear in Units/Groups/etc — be tested at
   // :5200 with hot-reload. It writes to mock state, NOT the op log, so it proves
   // the UI flow, not the real persistence/sync path (that stays electron:dev).
-  async ingestCommit({ approved, links } = {}) {
+  async ingestCommit({ approved, links, cohort_id } = {}) {
     const ORDER = ['cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'activities']
     const DAY_INDEX = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
     const parseTimeRange = (label) => {
@@ -313,7 +313,7 @@ export const mockShoresh = {
         const id = randomId()
         let row
         if (entity === 'cohorts') row = { id, camp_id: campId, name }
-        else if (entity === 'tiers') { row = { id, camp_id: campId, cohort_id: 'main', name, sort_order: index }; tierIdByName.set(name.toLowerCase(), id) }
+        else if (entity === 'tiers') { row = { id, camp_id: campId, cohort_id: cohort_id ?? 'main', name, sort_order: index }; tierIdByName.set(name.toLowerCase(), id) }
         else if (entity === 'groups') {
           row = { id, camp_id: campId, name, availability: 'all' }
           const unit = groupUnits[name]
@@ -321,7 +321,7 @@ export const mockShoresh = {
           if (tierId) row.tier_id = tierId
         }
         else if (entity === 'days_of_operation') { const dow = DAY_INDEX[name.toLowerCase()]; row = { id, camp_id: campId, label: name, day_of_week: dow ?? index, sort_order: dow ?? index } }
-        else if (entity === 'time_blocks') { const { start_time, end_time } = parseTimeRange(name); row = { id, camp_id: campId, cohort_id: 'main', name, start_time, end_time, sort_order: index } }
+        else if (entity === 'time_blocks') { const { start_time, end_time } = parseTimeRange(name); row = { id, camp_id: campId, cohort_id: cohort_id ?? 'main', name, start_time, end_time, sort_order: index } }
         else if (entity === 'activities') row = { id, camp_id: campId, name }
         state[entity].push(row)
         created[entity] += 1
