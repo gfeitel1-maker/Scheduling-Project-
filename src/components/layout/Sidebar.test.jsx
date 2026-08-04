@@ -3,7 +3,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 
 vi.mock('../../localClient', () => ({
-  localClient: { list: vi.fn(), getCamp: vi.fn(), onOpApplied: vi.fn(() => () => {}) },
+  localClient: {
+    list: vi.fn(),
+    getCamp: vi.fn(),
+    onOpApplied: vi.fn(() => () => {}),
+    getCurrentProject: vi.fn(),
+    backupProject: vi.fn(),
+  },
 }))
 
 import Sidebar from './Sidebar'
@@ -39,6 +45,8 @@ beforeEach(() => {
   })
   localClient.getCamp.mockResolvedValue({ name: 'Camp Test' })
   localClient.onOpApplied.mockReturnValue(() => {})
+  localClient.getCurrentProject.mockResolvedValue({ path: null, isDev: true, build: null })
+  localClient.backupProject.mockResolvedValue({ status: 'ok' })
   mockCounts()
 })
 
