@@ -8,8 +8,19 @@ import { createScheduleRepository } from './scheduleRepository'
 
 // A fake localClient: records calls, returns a settable result for the write
 // verbs. list() answers from a per-entity store.
+// Scope key per entity, mirroring PARENT_SCOPED_ENTITIES's parentKey for the
+// five entities C4 targets — used only to make the fake's listByScope filter
+// realistically; it is not the thing under test (the real handler/mock's
+// registry-driven filtering is covered in main.test.js and localClient.mock.test.js).
+const FAKE_SCOPE_KEYS = {
+  template_slots: 'template_id',
+  template_overlays: 'template_id',
+  week_activity_exclusions: 'week_id',
+  week_group_exclusions: 'week_id',
+}
+
 function makeFakeClient({ writeResult = { status: 'applied' } } = {}) {
-  const calls = { write: [], bulkReplace: [], deleteEntity: [], list: [] }
+  const calls = { write: [], bulkReplace: [], deleteEntity: [], list: [], listByScope: [] }
   const listStore = {}
   return {
     calls,
@@ -30,6 +41,11 @@ function makeFakeClient({ writeResult = { status: 'applied' } } = {}) {
     list: vi.fn((entity) => {
       calls.list.push(entity)
       return Promise.resolve(listStore[entity] ?? [])
+    }),
+    listByScope: vi.fn((entity, scopeId) => {
+      calls.listByScope.push([entity, scopeId])
+      const key = FAKE_SCOPE_KEYS[entity]
+      return Promise.resolve((listStore[entity] ?? []).filter((row) => row[key] === scopeId))
     }),
   }
 }
@@ -279,7 +295,7 @@ describe('reads — fetch + normalize', () => {
     expect(lists.activities).toEqual([{ id: 'a1' }])
   })
 
-  it('reloadSlots normalizes and filters template_slots by templateId', async () => {
+  it('reloadSlots calls listByScope(template_slots, templateId) and normalizes the result', async () => {
     const client = makeFakeClient()
     client.setListStore({
       template_slots: [
@@ -289,16 +305,25 @@ describe('reads — fetch + normalize', () => {
     })
     const repo = createScheduleRepository({ localClient: client, getToken })
     const slots = await repo.reloadSlots('tid')
+    expect(client.calls.listByScope).toEqual([['template_slots', 'tid']])
     expect(slots).toHaveLength(1)
     expect(slots[0].id).toBe('s1')
     expect(slots[0].is_span_head).toBe(false)
   })
 
-  it('reloadOverlays filters template_overlays by templateId', async () => {
+  it('reloadSlots passes null (not undefined) for an unminted template', async () => {
+    const client = makeFakeClient()
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    await repo.reloadSlots(undefined)
+    expect(client.calls.listByScope).toEqual([['template_slots', null]])
+  })
+
+  it('reloadOverlays calls listByScope(template_overlays, templateId)', async () => {
     const client = makeFakeClient()
     client.setListStore({ template_overlays: [{ id: 'o1', template_id: 'tid' }, { id: 'o2', template_id: 'x' }] })
     const repo = createScheduleRepository({ localClient: client, getToken })
     expect(await repo.reloadOverlays('tid')).toEqual([{ id: 'o1', template_id: 'tid' }])
+    expect(client.calls.listByScope).toEqual([['template_overlays', 'tid']])
   })
 
   it('getSnapshot finds a schedule_snapshots row by id', async () => {
@@ -353,6 +378,12 @@ describe('week exclusions — loadWeekExclusions / toggleActivityExclusion / tog
     const result = await repo.loadWeekExclusions('week-1')
     expect(result.activityExclusions).toEqual([{ id: 'e1', week_id: 'week-1', activity_id: 'act-1' }])
     expect(result.groupExclusions).toEqual([{ id: 'g1', week_id: 'week-1', group_id: 'grp-1' }])
+    expect(client.calls.listByScope).toEqual(
+      expect.arrayContaining([
+        ['week_activity_exclusions', 'week-1'],
+        ['week_group_exclusions', 'week-1'],
+      ])
+    )
   })
 
   it('toggleActivityExclusion(true) calls write with week_id first then activity_id', async () => {

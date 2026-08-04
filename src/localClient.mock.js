@@ -174,6 +174,22 @@ let opConflictListeners = []
 // this duplication — don't: that would be the first src/ -> electron/ import
 // in the project and the drift test exists specifically so staleness here is
 // loud (a failing test) rather than silent.
+// Independent transcription of PARENT_SCOPED_ENTITIES's parentKey in
+// electron/ops/campScopedEntities.js, for the five entities C4's
+// listByScope targets (day_override_template_slots is deliberately
+// excluded — it is in PARENT_SCOPED_ENTITIES but not in main.js's
+// SCOPED_LIST_ENTITIES allowlist). Same duplication discipline as
+// MOCK_WRITE_ALLOWLIST above: src/ never imports from electron/, so this is
+// a verbatim copy kept honest by electron/ipcSurfaceParity.test.js's drift
+// check rather than by sharing code.
+export const MOCK_SCOPE_KEYS = {
+  template_slots: 'template_id',
+  template_overlays: 'template_id',
+  schedule_snapshots: 'template_id',
+  week_activity_exclusions: 'week_id',
+  week_group_exclusions: 'week_id',
+}
+
 export const MOCK_WRITE_ALLOWLIST = {
   camps: ['name'],
   users: ['camp_id', 'name', 'pin_hash', 'pin_salt', 'role'],
@@ -466,6 +482,12 @@ export const mockShoresh = {
     const state = loadState()
     if (!Array.isArray(state[entity])) return []
     return state[entity]
+  },
+  async listByScope(_token, entity, scopeId) {
+    const state = loadState()
+    const key = MOCK_SCOPE_KEYS[entity]
+    if (!key || !Array.isArray(state[entity])) return []
+    return state[entity].filter((row) => row[key] === scopeId)
   },
   async getDeviceId() {
     return 'mock-device'

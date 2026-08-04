@@ -6,6 +6,7 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 vi.mock('../localClient', () => ({
   localClient: {
     list: vi.fn(),
+    listByScope: vi.fn(),
     write: vi.fn(),
     deleteEntity: vi.fn(),
     bulkReplace: vi.fn(),
@@ -74,6 +75,7 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {})
   vi.spyOn(console, 'error').mockImplementation(() => {})
   localClient.list.mockReset()
+  localClient.listByScope.mockReset()
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.bulkReplace.mockReset().mockResolvedValue({ status: 'applied' })
@@ -84,6 +86,10 @@ describe('S2-9: generated rebuild respects week exclusions', () => {
   it('Week 2 generate: Archery (excluded) does not appear in any generated slot', async () => {
     const base = makeBase({ withArcheryExclusion: true })
     localClient.list.mockImplementation((entity) => Promise.resolve(base[entity] ?? []))
+    localClient.listByScope.mockImplementation((entity, scopeId) => {
+      const key = entity === 'week_activity_exclusions' || entity === 'week_group_exclusions' ? 'week_id' : 'template_id'
+      return Promise.resolve((base[entity] ?? []).filter((row) => row[key] === scopeId))
+    })
 
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="generated" />)
 
@@ -102,6 +108,10 @@ describe('S2-9: generated rebuild respects week exclusions', () => {
   it('without exclusion, Archery appears in generated slots (control)', async () => {
     const base = makeBase({ withArcheryExclusion: false })
     localClient.list.mockImplementation((entity) => Promise.resolve(base[entity] ?? []))
+    localClient.listByScope.mockImplementation((entity, scopeId) => {
+      const key = entity === 'week_activity_exclusions' || entity === 'week_group_exclusions' ? 'week_id' : 'template_id'
+      return Promise.resolve((base[entity] ?? []).filter((row) => row[key] === scopeId))
+    })
 
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="generated" />)
 
@@ -123,6 +133,10 @@ describe('S2-9: generated rebuild respects week exclusions', () => {
   it('rebuilding Week 2 still excludes Archery (exclusions persist across rebuilds)', async () => {
     const base = makeBase({ withArcheryExclusion: true })
     localClient.list.mockImplementation((entity) => Promise.resolve(base[entity] ?? []))
+    localClient.listByScope.mockImplementation((entity, scopeId) => {
+      const key = entity === 'week_activity_exclusions' || entity === 'week_group_exclusions' ? 'week_id' : 'template_id'
+      return Promise.resolve((base[entity] ?? []).filter((row) => row[key] === scopeId))
+    })
 
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="generated" />)
 

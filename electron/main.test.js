@@ -1131,6 +1131,77 @@ describe('list: generic entity-read IPC', () => {
   })
 })
 
+describe('listByScope: scope-filtered entity-read IPC (C4)', () => {
+  it('rejects day_override_template_slots even though it is in PARENT_SCOPED_ENTITIES (SCOPED_LIST_ENTITIES gate)', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    const { campId } = await seedCampAndUser({ name: 'Scoper1', pin: '1234' })
+    const { token } = await handlers.login({ name: 'Scoper1', pin: '1234' })
+    void campId
+
+    expect(() => handlers.listByScope(token, 'day_override_template_slots', 'anything')).toThrow(
+      'Unrecognized entity'
+    )
+  })
+
+  it('rejects an entity absent from both registries', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    const { campId } = await seedCampAndUser({ name: 'Scoper2', pin: '1234' })
+    const { token } = await handlers.login({ name: 'Scoper2', pin: '1234' })
+    void campId
+
+    expect(() => handlers.listByScope(token, 'nonexistent_table', 'x')).toThrow('Unrecognized entity')
+  })
+
+  it('returns only rows for the requested template_id, scoped additionally by camp (cross-camp rows excluded)', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    const campId = randomUUID()
+    const otherCampId = randomUUID()
+    db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Camp A', 'a'.repeat(64))
+    db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(otherCampId, 'Camp B', 'b'.repeat(64))
+    const myCampId = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    const foreignCampId = myCampId === campId ? otherCampId : campId
+
+    const myTemplateId = randomUUID()
+    const myOtherTemplateId = randomUUID()
+    const foreignTemplateId = randomUUID()
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(myTemplateId, myCampId, 'Mine')
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(myOtherTemplateId, myCampId, 'Mine Other')
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(foreignTemplateId, foreignCampId, 'Foreign')
+
+    // Same template_id value used across camps would be a coincidence in
+    // production (ids are UUIDs), but the camp predicate must still exclude
+    // a foreign camp's row even if it happened to share the requested id —
+    // so seed a foreign-camp slot under a DIFFERENT template_id to prove the
+    // "correct rows for a valid entity" case, and a same-camp-different-
+    // template slot to prove the scope predicate isn't just "any camp row".
+    db.prepare('INSERT INTO template_slots (id, template_id) VALUES (?, ?)').run(randomUUID(), myTemplateId)
+    db.prepare('INSERT INTO template_slots (id, template_id) VALUES (?, ?)').run(randomUUID(), myOtherTemplateId)
+    db.prepare('INSERT INTO template_slots (id, template_id) VALUES (?, ?)').run(randomUUID(), foreignTemplateId)
+
+    await createUser(db, { camp_id: myCampId, name: 'Scoper3', pin: '1234', role: 'staff' }, localTestWrite())
+    const { token } = await handlers.login({ name: 'Scoper3', pin: '1234' })
+
+    const rows = handlers.listByScope(token, 'template_slots', myTemplateId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].template_id).toBe(myTemplateId)
+  })
+
+  it('an unminted/null scopeId returns [] without throwing', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    const { campId } = await seedCampAndUser({ name: 'Scoper4', pin: '1234' })
+    const { token } = await handlers.login({ name: 'Scoper4', pin: '1234' })
+    void campId
+
+    expect(handlers.listByScope(token, 'template_slots', null)).toEqual([])
+    expect(handlers.listByScope(token, 'template_slots', undefined)).toEqual([])
+  })
+
+  it('rejects with no token at all', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.listByScope(undefined, 'template_slots', 'x')).toThrow('token is required')
+  })
+})
+
 describe('listUsers handler (users.read, staff+admin)', () => {
   it('rejects with no token', () => {
     const handlers = makeHandlers(db, deviceId, {})

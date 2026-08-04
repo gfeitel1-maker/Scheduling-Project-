@@ -8,6 +8,7 @@ const opAppliedListeners = []
 vi.mock('../localClient', () => ({
   localClient: {
     list: vi.fn(),
+    listByScope: vi.fn(),
     write: vi.fn(),
     deleteEntity: vi.fn(),
     bulkReplace: vi.fn(),
@@ -73,6 +74,13 @@ function mockList(overridesByEntity = {}) {
   }
   const merged = { ...base, ...overridesByEntity }
   localClient.list.mockImplementation((entity) => Promise.resolve(merged[entity] ?? []))
+  // Mirrors main.js's PARENT_SCOPED_ENTITIES parentKey for the entities
+  // reloadSlots/reloadOverlays actually call listByScope for.
+  const scopeKeyByEntity = { template_slots: 'template_id', template_overlays: 'template_id' }
+  localClient.listByScope.mockImplementation((entity, scopeId) => {
+    const key = scopeKeyByEntity[entity]
+    return Promise.resolve((merged[entity] ?? []).filter((row) => row[key] === scopeId))
+  })
 }
 
 beforeEach(() => {
@@ -85,6 +93,7 @@ beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {})
   vi.spyOn(console, 'error').mockImplementation(() => {})
   localClient.list.mockReset()
+  localClient.listByScope.mockReset()
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.bulkReplace.mockReset().mockResolvedValue({ status: 'applied' })
@@ -1066,6 +1075,9 @@ describe('ScheduleScreen — generate() is route-explicit', () => {
       schedule_snapshots: [],
     }
     localClient.list.mockImplementation((entity) => Promise.resolve(store[entity] ?? []))
+    localClient.listByScope.mockImplementation((entity, scopeId) =>
+      Promise.resolve((store[entity] ?? []).filter((row) => row.template_id === scopeId))
+    )
     localClient.bulkReplace.mockImplementation((_t, entity, templateId, rows) => {
       store[entity] = [
         ...(store[entity] ?? []).filter(r => r.template_id !== templateId),
