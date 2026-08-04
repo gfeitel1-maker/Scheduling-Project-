@@ -7,6 +7,7 @@ import { S } from '../../styles/shared'
 export default function DeleteWeekDialog({ week, campId, localClient, repo, onConfirm, onCancel }) {
   const [counts, setCounts] = useState(null)
   const [confirming, setConfirming] = useState(false)
+  const [deleteError, setDeleteError] = useState(null)
 
   useEffect(() => {
     if (!week) return
@@ -38,15 +39,18 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
 
   async function handleConfirm() {
     setConfirming(true)
+    setDeleteError(null)
     try {
       const result = await localClient.deleteWeek({ weekId: week.id, campId })
       if (result?.error) {
         setConfirming(false)
+        setDeleteError('Week could not be deleted. Please try again, or restart the app if this keeps happening.')
         return
       }
       onConfirm(week.id)
     } catch {
       setConfirming(false)
+      setDeleteError('Week could not be deleted. Please try again, or restart the app if this keeps happening.')
     }
   }
 
@@ -92,6 +96,11 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
         <p style={{ margin: '0 0 20px', fontSize: 14, fontWeight: 700, color: 'var(--warning)' }}>
           There is no way to get this week back.
         </p>
+        {deleteError && (
+          <p style={{ margin: '0 0 16px', fontSize: 13, color: 'var(--danger)', lineHeight: 1.5 }}>
+            {deleteError}
+          </p>
+        )}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button
             onClick={onCancel}
