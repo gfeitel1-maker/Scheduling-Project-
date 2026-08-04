@@ -195,6 +195,8 @@ Passes weakly but correctly: deleting the module disperses the single implementa
 
 Group view **will** support slot-swap. The same drag-onto-filled-cell action that swaps slots in day view should work identically in group view and record the change correctly in both routes. C2 therefore ships with `allowSwap: true` at **both** call sites. The regression test still applies — it now asserts that swapSlots *is* called in group view (not that it isn't).
 
+**Cross-day swaps in group view are approved (confirmed 2026-08-04, after implementation).** Group view shows one group with days as columns, so "works identically to day view" necessarily means a drag can land on a cell in a *different day*. There is deliberately **no same-day constraint**: `swapSlots` operates on `(groupId, dayId, blockId)` coordinates with no day-equality requirement, and an imprecise drag can therefore exchange two different days' activities for that group. This was raised by Red Hat as an implication the original decision had not explicitly discussed, and the product owner confirmed it: ship as-is. The action is undoable via `pushUndo`. Do not add a same-day guard, and do not re-open this question — the absence of the constraint is the decision, not an oversight.
+
 ---
 
 ## C4 — Scope-filtered IPC reads
