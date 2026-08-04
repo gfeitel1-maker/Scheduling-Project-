@@ -23,6 +23,7 @@ import { deriveScheduleTemplateId } from '../../electron/ops/scheduleTemplateId'
 import { resolveSelection } from './resolveSelection'
 import { normalizeActivityEligibility } from '../utils/normalizeActivityEligibility'
 import { getSlot, makeGridGeometry } from './schedule/gridGeometry'
+import { makeDragHandlers } from './schedule/dragHandlers'
 import { useUndoRedo } from './schedule/useUndoRedo'
 import { useClipboardSelection } from './schedule/useClipboardSelection'
 import { useOverlayFillStamp } from './schedule/useOverlayFillStamp'
@@ -500,116 +501,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     })
   }
 
-  // Group-view DnD: covers both expand-drag (ExpandHandle) and palette drops.
-  // DndContext for group view lives in ScheduleScreen so the sidebar palette chips
-  // (outside ScheduleGroupView) share the same DnD context as the droppable cells.
-  function handleGroupDragStart({ active }) {
-    if (active.data.current?.expandDrag) setIsGroupExpandDragActive(true)
-  }
-
-  function handleGroupDragEnd({ active, over }) {
-    setIsGroupExpandDragActive(false)
-    if (!over) return
-
-    const expandDrag = active.data.current?.expandDrag
-    const paletteActivity = active.data.current?.paletteActivity
-
-    if (expandDrag) {
-      const { groupId, dayId, blockId: headBlockId } = expandDrag
-      const overData = over.data.current || {}
-      const tailBlockId = overData.blockId || overData.slot?.blockId
-      const tailGroupId = overData.groupId || overData.slot?.groupId
-      const tailDayId = overData.dayId || overData.slot?.dayId
-
-      if (!tailBlockId || tailGroupId !== groupId || tailDayId !== dayId) return
-
-      const headBlock = timeBlocks.find(b => b.id === headBlockId)
-      const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
-      if (!headBlock || !tailBlock) return
-      if (tailBlock.sort_order !== headBlock.sort_order + 1) return
-
-      const tailSlot = getSlot(slots, groupId, dayId, tailBlockId)
-      if (!tailSlot || !tailSlot.activity_id || tailSlot.is_anchor) return
-
-      const tailActivity = actMap.get(tailSlot.activity_id)
-      const day = days.find(d => d.id === dayId)
-      expandSlot(groupId, dayId, headBlockId, tailBlockId, tailSlot.activity_id, tailActivity?.name || '', tailBlock.name, day?.label ?? dayId)
-      return
-    }
-
-    if (paletteActivity) {
-      const d = over.data.current || {}
-      const groupId = d.groupId ?? d.slot?.groupId
-      const dayId = d.dayId ?? d.slot?.dayId
-      const blockId = d.blockId ?? d.slot?.blockId
-      if (!groupId || !dayId || !blockId) return
-      const targetSlot = getSlot(slots, groupId, dayId, blockId)
-      if (targetSlot?.is_anchor) return
-      placeActivityManual(paletteActivity.id, groupId, dayId, blockId)
-    }
-  }
-
-  // Day-view DnD: covers expand-drag, palette drops, and slot-swap.
-  // DndContext for day view lives in ScheduleScreen so the sidebar palette chips
-  // (outside ScheduleDayView) share the same DnD context as the droppable cells.
-  function handleDayDragStart({ active }) {
-    if (active.data.current?.expandDrag) setIsDayExpandDragActive(true)
-  }
-
-  function handleDayDragEnd({ active, over }) {
-    setIsDayExpandDragActive(false)
-    if (!over) return
-
-    const expandDrag = active.data.current?.expandDrag
-    const paletteActivity = active.data.current?.paletteActivity
-
-    if (expandDrag) {
-      const { groupId, dayId, blockId: headBlockId } = expandDrag
-      const overData = over.data.current || {}
-      const tailBlockId = overData.blockId || overData.slot?.blockId
-      const tailGroupId = overData.groupId || overData.slot?.groupId
-      const tailDayId = overData.dayId || overData.slot?.dayId
-
-      if (!tailBlockId || tailGroupId !== groupId || tailDayId !== dayId) return
-
-      const headBlock = timeBlocks.find(b => b.id === headBlockId)
-      const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
-      if (!headBlock || !tailBlock) return
-      if (tailBlock.sort_order !== headBlock.sort_order + 1) return
-
-      const tailSlot = getSlot(slots, groupId, dayId, tailBlockId)
-      if (!tailSlot || !tailSlot.activity_id || tailSlot.is_anchor) return
-
-      const tailActivity = actMap.get(tailSlot.activity_id)
-      const day = days.find(d => d.id === dayId)
-      expandSlot(groupId, dayId, headBlockId, tailBlockId, tailSlot.activity_id, tailActivity?.name || '', tailBlock.name, day?.label ?? dayId)
-      return
-    }
-
-    if (paletteActivity) {
-      const d = over.data.current || {}
-      const groupId = d.groupId ?? d.slot?.groupId
-      const dayId = d.dayId ?? d.slot?.dayId
-      const blockId = d.blockId ?? d.slot?.blockId
-      if (!groupId || !dayId || !blockId) return
-      const targetSlot = getSlot(slots, groupId, dayId, blockId)
-      if (targetSlot?.is_anchor) return
-      placeActivityManual(paletteActivity.id, groupId, dayId, blockId)
-      return
-    }
-
-    // Slot swap
-    const slotA = active.data.current?.slot
-    const slotB = over.data.current?.slot
-    if (!slotA || !slotB) return
-    if (slotA.groupId === slotB.groupId && slotA.dayId === slotB.dayId && slotA.blockId === slotB.blockId) return
-    if (slotB.type === 'anchor' || slotB.type === 'unavailable') return
-    swapSlots(
-      { groupId: slotA.groupId, dayId: slotA.dayId, blockId: slotA.blockId, activityId: slotA.activity_id },
-      { groupId: slotB.groupId, dayId: slotB.dayId, blockId: slotB.blockId, activityId: slotB.activity_id }
-    )
-  }
-
   // T3 — cell selection (single and multi) and paste mode
   function handleSelectGroup(groupId) {
     setSelectedGroup(groupId)
@@ -750,6 +641,12 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // that assignment (falling back to the bare hash if none is registered).
   const actMap = new Map(activities.map(a => [a.id, { ...a, colorIdx: a.id }]))
   const anchorMap = new Map(anchors.map(a => [a.id, a]))
+
+  // Group-view and day-view DnD share identical expand-drag/palette-drop
+  // branches; group view also allows slot-swap (product decision 2026-08-04).
+  const dragDeps = { timeBlocks, days, slots, actMap, getSlot, expandSlot, placeActivityManual, swapSlots }
+  const groupHandlers = makeDragHandlers({ ...dragDeps, setExpandDragActive: setIsGroupExpandDragActive, allowSwap: true })
+  const dayHandlers = makeDragHandlers({ ...dragDeps, setExpandDragActive: setIsDayExpandDragActive, allowSwap: true })
 
   // Grid geometry (getSlot / tails / rowspans / overlays) lives in the pure
   // ./schedule/gridGeometry module. Bind the current data once so the views and
@@ -1312,8 +1209,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             <DndContext
               key="group"
               sensors={sensors}
-              onDragStart={handleGroupDragStart}
-              onDragEnd={handleGroupDragEnd}
+              onDragStart={groupHandlers.handleDragStart}
+              onDragEnd={groupHandlers.handleDragEnd}
               onDragCancel={() => setIsGroupExpandDragActive(false)}
             >
               {twoCol}
@@ -1325,8 +1222,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             <DndContext
               key="day"
               sensors={sensors}
-              onDragStart={handleDayDragStart}
-              onDragEnd={handleDayDragEnd}
+              onDragStart={dayHandlers.handleDragStart}
+              onDragEnd={dayHandlers.handleDragEnd}
               onDragCancel={() => setIsDayExpandDragActive(false)}
             >
               {twoCol}
