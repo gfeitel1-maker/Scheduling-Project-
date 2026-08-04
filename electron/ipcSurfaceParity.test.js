@@ -133,7 +133,7 @@ describe('scanner anti-vacuity floors', () => {
   })
 
   it('localClient.mock.js: found at least a floor number of methods', () => {
-    // Observed: 49 keys (including the 6 test/dev-only trigger helpers).
+    // Observed: 52 keys (including the 6 test/dev-only trigger helpers).
     // Floor set to 30, same margin logic.
     expect(mockKeys.length).toBeGreaterThanOrEqual(30)
   })
@@ -181,8 +181,28 @@ describe('IPC surface parity', () => {
     ).toEqual([])
   })
 
-  it('every localClient method has a mock implementation', () => {
-    const missing = localClientKeys.filter((k) => !mockKeys.includes(k))
+  it('every localClient method has a mock implementation, except named non-channel wrappers', () => {
+    // "Every localClient method needs a same-named mock method" is false for a
+    // convenience wrapper whose name doesn't match the shoresh channel it
+    // actually invokes — that wrapper needs no mock method of its own name,
+    // because nothing ever calls shoresh.<wrapperName>(). Each entry below is
+    // hardcoded (not a naming-convention/pattern match, matching the
+    // MOCK_ONLY_HELPERS discipline) and names the channel it really invokes.
+    const LOCAL_CLIENT_NON_CHANNEL_METHODS = [
+      // deleteEntity calls shoresh.write({ ..., field: '__deleted__' }) — see
+      // src/localClient.js — never shoresh.deleteEntity. mockShoresh.write
+      // already covers it; no mockShoresh.deleteEntity should exist.
+      'deleteEntity',
+    ]
+    const stale = LOCAL_CLIENT_NON_CHANNEL_METHODS.filter((name) => !localClientKeys.includes(name))
+    expect(
+      stale,
+      `LOCAL_CLIENT_NON_CHANNEL_METHODS entry/entries [${stale.join(', ')}] no longer name a real localClient.js method — update the list.`
+    ).toEqual([])
+
+    const missing = localClientKeys.filter(
+      (k) => !mockKeys.includes(k) && !LOCAL_CLIENT_NON_CHANNEL_METHODS.includes(k)
+    )
     expect(
       missing,
       `localClient method(s) [${missing.join(', ')}] have no mockShoresh implementation in src/localClient.mock.js — calling them under 'npm run dev' throws (shoresh.<name> is not a function). Add a mock implementation.`
@@ -206,6 +226,42 @@ describe('IPC surface parity', () => {
     expect(
       stale,
       `MOCK_ONLY_HELPERS entry/entries [${stale.join(', ')}] no longer describe a real mock-only method (either removed from the mock, or a localClient.js wrapper now exists for them) — update the list.`
+    ).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Project-lifecycle wrappers are exempt from camp-session authorization by
+// recorded decision (docs/adr/2026-08-04-project-lifecycle-authorization-exemption.md)
+// — they must thread no token. Guards against a well-meaning future
+// "consistency" pass silently reintroducing one.
+// ---------------------------------------------------------------------------
+describe('project-lifecycle wrappers stay token-free (ADR exemption)', () => {
+  const LIFECYCLE_WRAPPERS = [
+    'getCurrentProject',
+    'createProject',
+    'openProject',
+    'exportProject',
+    'backupProject',
+    'restoreProject',
+    'listRecentProjects',
+    'openRecentProject',
+  ]
+
+  it('no lifecycle wrapper body references currentToken() or token', () => {
+    const localClientText = fs.readFileSync(LOCAL_CLIENT_FILE, 'utf8')
+    const offenders = []
+    for (const name of LIFECYCLE_WRAPPERS) {
+      const lineMatch = localClientText.split('\n').find((line) => new RegExp(`^ {2}${name}:`).test(line))
+      if (!lineMatch) {
+        offenders.push(`${name} (wrapper not found)`)
+        continue
+      }
+      if (/currentToken\(\)|\btoken\b/.test(lineMatch)) offenders.push(name)
+    }
+    expect(
+      offenders,
+      `Lifecycle wrapper(s) [${offenders.join(', ')}] in src/localClient.js reference a token. Per docs/adr/2026-08-04-project-lifecycle-authorization-exemption.md, the exemption is file-level only — these eight §9 project-file lifecycle wrappers are trusted local-device operations exempt from camp session authorization by recorded decision, and threading a token through them contradicts that decision.`
     ).toEqual([])
   })
 })

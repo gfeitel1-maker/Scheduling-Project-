@@ -39,7 +39,7 @@ describe('localClient.deleteWeek', () => {
     expect(typeof localClient.deleteWeek).toBe('function')
   })
 
-  it('forwards the current token and weekId to shoresh.deleteWeek', async () => {
+  it('forwards the current token and weekId to shoresh.deleteWeek, dropping any other fields', async () => {
     globalThis.localStorage.setItem(TOKEN_KEY, 'tok-123')
     const { localClient } = await import('./localClient.js')
 
@@ -48,7 +48,18 @@ describe('localClient.deleteWeek', () => {
     expect(deleteWeekSpy).toHaveBeenCalledWith({
       token: 'tok-123',
       weekId: 'week-1',
-      campId: 'camp-1',
+    })
+  })
+
+  it('never lets a caller-supplied token field override the real one', async () => {
+    globalThis.localStorage.setItem(TOKEN_KEY, 'tok-123')
+    const { localClient } = await import('./localClient.js')
+
+    await localClient.deleteWeek({ weekId: 'week-1', token: 'forged-token' })
+
+    expect(deleteWeekSpy).toHaveBeenCalledWith({
+      token: 'tok-123',
+      weekId: 'week-1',
     })
   })
 })

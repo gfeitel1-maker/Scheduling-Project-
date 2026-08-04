@@ -71,8 +71,9 @@ export const localClient = {
   duplicateWeek: (sourceWeekId, campId) => shoresh.duplicateWeek({ sourceWeekId, campId }),
   // deleteWeekHandler (electron/main.js) destructures { token, weekId } and goes
   // through authorize() — thread the token the same way every other authorized
-  // wrapper here does via currentToken().
-  deleteWeek: (args) => shoresh.deleteWeek({ token: currentToken(), ...args }),
+  // wrapper here does via currentToken(). Fields enumerated explicitly (not
+  // spread) so a caller-supplied token in args can never override the real one.
+  deleteWeek: ({ weekId }) => shoresh.deleteWeek({ token: currentToken(), weekId }),
   onPairingRequest: (cb) => shoresh.onPairingRequest && shoresh.onPairingRequest(cb),
   onPairingApproved: (cb) => shoresh.onPairingApproved && shoresh.onPairingApproved(cb),
   onPairingDenied: (cb) => shoresh.onPairingDenied && shoresh.onPairingDenied(cb),
