@@ -52,8 +52,8 @@ The engine (`src/engine/buildSchedule.js`) and the pure-helper layer (`computeOv
 1. **Renderer never touches the DB** (§1) — extracted modules call `localClient`; none holds a DB
    handle or SQL. No new IPC channel.
 2. **All mutations through the op-log, no new entity, no `PROJECTIONS` change** (§2).
-3. **Engine stays pure** (§7) — no scheduling logic or mapping moves *into* the engine.
-4. **Inline styling** (§6) — any component split keeps inline style objects; no CSS files.
+3. **Engine stays pure** (§8) — no scheduling logic or mapping moves *into* the engine.
+4. **Inline styling** (§7) — any component split keeps inline style objects; no CSS files.
 5. **The plural-candidate (Manual/Generated) route model is preserved** exactly, per
    `docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md`. Nothing here designates a canonical
    schedule.

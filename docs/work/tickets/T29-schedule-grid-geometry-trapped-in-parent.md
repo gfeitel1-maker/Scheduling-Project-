@@ -44,7 +44,7 @@ consolidate the duplicated cell-decision rendering. Shrink the three view prop l
 **Out:** persistence (T28), feature-cluster state (T30), route-state (T31); the pure engine; the
 already-clean leaf components; any visual change.
 
-**Boundaries:** pure functions only, no IPC, engine untouched (§7), inline styling kept (§6),
+**Boundaries:** pure functions only, no IPC, engine untouched (§8), inline styling kept (§7),
 behaviour-preserving.
 
 ## Completion evidence

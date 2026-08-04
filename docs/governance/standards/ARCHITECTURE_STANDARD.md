@@ -5,7 +5,7 @@ authority: normative
 status: active
 applies_to: [architecture, engineering]
 supersedes: []
-last_reviewed: 2026-07-28
+last_reviewed: 2026-08-04
 review_trigger: any ADR that changes the op-log, sync protocol, IPC surface, or isolation model
 ---
 
@@ -59,9 +59,23 @@ Mutating IPC handlers and mutating WebSocket handlers call `authorize()`
 the database on every call and never trusts the token payload, which is what makes a role change or
 a device revocation take effect on the very next request.
 
-A handful of handlers sit outside it deliberately — they run before a session exists or carry no
-caller-controlled authority. Each documents why in code. Adding a privileged side effect to one of
-those is a change of security posture, not a refactor.
+Two categories of handlers sit outside it deliberately, each with a recorded decision:
+
+**Pre-session handlers** (`choose-mode`, `discover-hosts`, `login`, `bootstrap-camp`, `get-camp`)
+run before any session token exists. Each carries an inline comment stating why. Adding a privileged
+side effect to one of those is a change of security posture, not a refactor.
+
+**Project-lifecycle handlers** (`get-current-project`, `create-project`, `open-project`,
+`export-project`, `backup-project`, `restore-project`, `list-recent-projects`, `open-recent-project`)
+are trusted local-device operations that manage which SQLite file is open. They are exempt because
+requiring authentication against the currently-open camp database creates a circular recovery
+dependency: a corrupted file cannot issue the token needed to open or restore it. See
+[ADR 2026-08-04](../../adr/2026-08-04-project-lifecycle-authorization-exemption.md). Each handler
+in this block carries the comment:
+`// Project lifecycle — trusted local-device operation, exempt from camp session auth.`
+
+This exemption covers file-level operations only. Every handler that reads or writes camp-scoped
+data through the op-log must call `authorize()`, regardless of where in `main.js` it is registered.
 
 ## 5. Host and Client are asymmetric, permanently
 
@@ -70,13 +84,44 @@ One device is the Host: it runs the WebSocket server and holds the Ed25519 priva
 tokens but never mint them. Do not design anything that assumes a Client can act as a Host without
 an explicit, human-approved promotion path.
 
-## 6. Styling is inline React style objects
+## 6. Renderer dependency rule
+
+Dependencies move downward across explicit boundaries. Pure domain modules and presentational
+components may sit outside the persistence stack, but no lower layer may depend upward on UI or
+renderer code.
+
+The two approved dependency shapes in the renderer:
+
+```
+Complex mapped domain:
+  Screen → Hook → Repository → localClient
+
+Simple domain:
+  Screen → Hook → localClient
+```
+
+**A repository is required when a domain has meaningful shared persistence mapping, normalization,
+batching, or access policy worth centralizing.** Do not create pass-through repositories to satisfy
+the diagram. The practical signal is the deletion test: if deleting the repository disperses real
+complexity across call sites, it is earning its keep. `src/data/scheduleRepository.js` exists
+because it replaced three separately-drifting copies of the same engine-slot → DB-row mapping.
+
+A screen may call `localClient` directly for genuinely simple, screen-owned operations where a hook
+adds no reusable behavior. The ~15 non-schedule screens that do this are conforming under this rule.
+
+Components (`src/components/**`) are presentational. They receive data and emit callbacks; they do
+not perform IO. Documented exceptions must be approved explicitly and are recorded in the boundary
+audit.
+
+See [ADR 2026-08-04](../../adr/2026-08-04-repository-layer-policy.md) for the policy rationale.
+
+## 7. Styling is inline React style objects
 
 No CSS files for component styling, no `className` used as a styling mechanism. Shared constants
 live in `src/styles/shared.js`. Token values and their meanings are governed by
 [`DESIGN_STANDARD.md`](DESIGN_STANDARD.md), not here.
 
-## 7. The schedule engine is pure
+## 8. The schedule engine is pure
 
 `src/engine/buildSchedule.js` has no React and no IPC dependency. It is a pure function over its
 inputs, seeded so identical inputs produce identical schedules. **Determinism is a product
@@ -84,7 +129,7 @@ guarantee**, not an implementation detail — a director must be able to trust t
 not silently reshuffle work they have already reviewed. Never introduce ambient state, wall-clock
 reads, or unseeded randomness into it.
 
-## 8. Code style
+## 9. Code style
 
 - **Validate at boundaries only** — user input, network messages, external APIs. Trust internal code
   and framework guarantees.
@@ -95,7 +140,7 @@ reads, or unseeded randomness into it.
 - **Comments explain why, not what** — a hidden constraint, a workaround, an invariant. The code
   already says what it does.
 
-## 9. Application data location is explicit
+## 10. Application data location is explicit
 
 `app.setName()` and the userData path are set explicitly in `electron/db/userDataPath.js`, before
 any `app.getPath()` call and before `whenReady()`. Never read a path that Electron inferred from
@@ -105,7 +150,7 @@ directory while the packaged app used another, with nothing on screen to disting
 Development and packaged builds resolve **different** directories, and the UI must always show which
 one is loaded. See [ADR 2026-07-28](../../adr/2026-07-28-explicit-userdata-directory.md).
 
-## 10. Native module ABI
+## 11. Native module ABI
 
 `better-sqlite3` is native and must be rebuilt when switching between Node (Vitest) and Electron.
 See [`TESTING_STANDARD.md`](TESTING_STANDARD.md). A mismatch presents as a module-load error or a

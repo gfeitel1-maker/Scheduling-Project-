@@ -94,7 +94,7 @@ Skipping this presents as a module-load error or startup crash, never as a test 
 - **Bug fixes start with a failing test** that demonstrates the bug. A fix without one has no
   evidence it fixed anything, and no protection against regression.
 - **Determinism where determinism is the guarantee** — the schedule engine's seeded output is a
-  product promise (`ARCHITECTURE_STANDARD.md` §7) and must be asserted, not assumed.
+  product promise (`ARCHITECTURE_STANDARD.md` §8) and must be asserted, not assumed.
 
 ## 5. Reporting results
 
