@@ -28,6 +28,15 @@
 // historical activities.is_locked incident) exist purely to make that
 // failure mode loud. Do not remove or weaken them to make a refactor easier
 // — fix the scanner instead.
+//
+// Honesty about what the floors actually prove: the file/entity/pair COUNTS
+// below only catch total or near-total scanner breakage — a scanner
+// regressed to only its simplest extraction pattern (e.g. direct literals)
+// could still clear those floors while silently blind to every other
+// pattern. The per-pattern CANARY SET (below the floors) is what actually
+// catches that partial breakage: one hardcoded, human-verified pair (or call
+// site) per extraction pattern the scanner implements, so losing any single
+// pattern fails loudly regardless of what the aggregate counts say.
 import { describe, it, expect, beforeAll } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -35,6 +44,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { openLocalDb } from '../db/localDb.js'
 import { PROJECTIONS } from './projections.js'
+import { BULK_REPLACE_ENTITIES } from './operations.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.join(__dirname, '..', '..')
@@ -202,6 +212,50 @@ const UNRESOLVED_SPREAD_SOURCES = [
 ]
 
 // ---------------------------------------------------------------------------
+// Hand-maintained: localClient.bulkReplace(token, 'entity', scopeId, rows)
+// call sites. `rows` is always a variable (built by a row-mapping function),
+// never an object literal, so the scanner cannot resolve its keys the way it
+// resolves writeFields(...) object literals. Each entry names the real row
+// builder and the keys it is human-verified to produce, so a call site
+// gaining a new key (or losing coverage of one) has to be caught by eye
+// against BULK_REPLACE_ENTITIES[entity].columns, not silently trusted.
+// ---------------------------------------------------------------------------
+const BULK_REPLACE_ROW_SOURCES = [
+  {
+    file: 'src/data/scheduleRepository.js',
+    entity: 'template_slots',
+    // Human-verified: mapSlotToRow() (scheduleRepository.js ~lines 30-55),
+    // called from replaceWeek() and restoreSnapshotRows(). Always emits id,
+    // template_id, group_id, day_id, time_block_id, activity_id, anchor_id,
+    // is_anchor, flags; is_span_head is emitted only on the replaceWeek()
+    // (spanHead: true) path and omitted on restoreSnapshotRows() — still a
+    // real key the row builder can produce, so it belongs in this list.
+    rowBuilder: 'mapSlotToRow',
+    fields: [
+      'id',
+      'template_id',
+      'group_id',
+      'day_id',
+      'time_block_id',
+      'activity_id',
+      'anchor_id',
+      'is_anchor',
+      'is_span_head',
+      'flags',
+    ],
+  },
+  {
+    file: 'src/data/scheduleRepository.js',
+    entity: 'template_overlays',
+    // Human-verified: the inline row literal built inside
+    // restoreSnapshotRows() (scheduleRepository.js ~lines 213-221), mapping
+    // each snapshot overlay to a template_overlays row.
+    rowBuilder: 'restoreSnapshotRows() inline overlay row literal',
+    fields: ['id', 'template_id', 'unit_id', 'day_id', 'from_block_order', 'to_block_order', 'label'],
+  },
+]
+
+// ---------------------------------------------------------------------------
 // Assertion-set-2: legitimate PROJECTIONS omissions vs the live (migrated)
 // schema. electron/db/schema.sql is proven stale (see brief) so this is
 // checked against a real openLocalDb() database, not the .sql file.
@@ -223,7 +277,7 @@ const PROJECTION_FIELD_EXCEPTIONS = {
     {
       column: 'unit_id',
       reason:
-        'Dead pre-rename column from an early schema (superseded by time_block_id). Verified via grep: no code under src/ or electron/ reads or writes anchor_activities.unit_id (electron/sync/syncClient.js only replicates its raw value, never sets it).',
+        'Dead pre-rename column from an early schema (superseded by time_block_id). Verified: src/engine/buildSchedule.js:107-110 reads anchor.unit_id as its primary scope-resolution key, so this column is NOT dead as a read target — but no code under src/ or electron/ ever WRITES anchor_activities.unit_id (electron/sync/syncClient.js only replicates its raw value, never sets it), so it is exempt as a write target, which is the only thing this table asserts.',
     },
     {
       column: 'span_blocks',
@@ -239,7 +293,11 @@ const PROJECTION_FIELD_EXCEPTIONS = {
     { column: 'existing_op', reason: 'Same as `entity` above — raw-SQL-only column on a non-appendOp table.' },
     { column: 'existing_op_id', reason: 'Same as `entity` above — raw-SQL-only column on a non-appendOp table.' },
     { column: 'created_at', reason: 'Same as `entity` above — raw-SQL-only column on a non-appendOp table.' },
-    { column: 'resolved_at', reason: 'Set only by resolveConflict()\'s raw SQL (electron/auth or sync layer), never via appendOp.' },
+    {
+      column: 'resolved_at',
+      reason:
+        "Set only by raw SQL at electron/ops/operations.js:515 (`UPDATE conflicts SET resolved_at = ? WHERE id = ?`, in the pending-conflict resolution scan), never via appendOp.",
+    },
   ],
 }
 
@@ -255,6 +313,7 @@ beforeAll(() => {
   const foundEntities = new Set()
   const foundPairs = new Set() // "entity.field"
   const spreadHits = [] // { file, entity }
+  const bulkReplaceHits = [] // { file, entity }
   const canaryHits = new Set() // "entity.field" seen via a resolvable path
   // Keys resolved directly at a writeFields(...) call site in a given file
   // (NOT via the repo.<method>() indirection) — scoped per file/entity so the
@@ -390,9 +449,21 @@ beforeAll(() => {
       }
       if (hasSpread) spreadHits.push({ file: rel, entity })
     }
+
+    // (d) localClient.bulkReplace(token, 'entity', scopeId, rows) — `rows` is
+    // always a variable (see BULK_REPLACE_ROW_SOURCES above), so only the
+    // entity literal is mechanically extractable; the field set comes from
+    // the hand-verified BULK_REPLACE_ROW_SOURCES entry for this file/entity.
+    for (const call of findCallArgs(text, /\blocalClient\.bulkReplace\(/)) {
+      const args = splitTopLevel(call.argsText)
+      const entityArg = args[1]?.trim()
+      const entMatch = entityArg?.match(/^'([a-zA-Z_]+)'$/)
+      if (!entMatch) continue
+      bulkReplaceHits.push({ file: rel, entity: entMatch[1] })
+    }
   }
 
-  scanResult = { filesScanned: files.length, foundEntities, foundPairs, spreadHits, canaryHits, directFieldsByFileEntity }
+  scanResult = { filesScanned: files.length, foundEntities, foundPairs, spreadHits, canaryHits, directFieldsByFileEntity, bulkReplaceHits }
 })
 
 // ---------------------------------------------------------------------------
@@ -420,16 +491,33 @@ describe('scanner anti-vacuity floors', () => {
   })
 
   it('finds the known-present canary pairs, including the activities.is_locked historical incident', () => {
-    // If the scanner can no longer see these, it is broken regardless of
-    // whether every other assertion in this file passes.
+    // The counts above catch total/near-total scanner breakage but say
+    // nothing about a single extraction pattern silently regressing (e.g. the
+    // 3-arg wrapper matcher breaking while everything else keeps matching —
+    // the pair/entity floors would still clear easily). This canary set is
+    // the thing that actually catches that: one hardcoded, human-verified
+    // pair per extraction pattern the scanner implements, so losing any one
+    // pattern fails loudly here even if the aggregate counts look fine.
     const canaries = [
-      'activities.is_locked', // commit 9f4b178 — the actual historical incident
-      'camps.name', // CampScreen.jsx, direct fully-literal localClient.write call
-      'groups.name', // GroupsScreen.jsx, local 2-arg writeFields wrapper
+      'activities.is_locked', // commit 9f4b178 — pattern (c): repo.<method>() indirection
+      'camps.name', // CampScreen.jsx — pattern (a): direct fully-literal localClient.write call
+      'groups.name', // GroupsScreen.jsx — pattern (b): local 2-arg writeFields(id, fields) wrapper
+      'day_override_templates.name', // DayOverridesScreen.jsx — pattern (b): local 3-arg writeFields(entity, id, fields) wrapper
     ]
     for (const c of canaries) {
       expect(scanResult.foundPairs.has(c), `expected scanner to find canary pair '${c}'`).toBe(true)
     }
+  })
+
+  it('finds the known-present bulkReplace canary call site (pattern (d))', () => {
+    // Separate from the pair canaries above: bulkReplace rows never enter
+    // foundPairs (they're validated against BULK_REPLACE_ENTITIES, not
+    // PROJECTIONS, in the assertion sets below), so this is checked against
+    // bulkReplaceHits directly.
+    const hit = scanResult.bulkReplaceHits.find(
+      (h) => h.file === 'src/data/scheduleRepository.js' && h.entity === 'template_slots'
+    )
+    expect(hit, 'expected scanner to find the bulkReplace(token, \'template_slots\', ...) canary call site').toBeTruthy()
   })
 })
 
@@ -500,6 +588,135 @@ describe('renderer-writable surface is fully registered in PROJECTIONS', () => {
         ).toBe(true)
       }
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Assertion set 1b: bulkReplace call sites vs BULK_REPLACE_ROW_SOURCES
+// ---------------------------------------------------------------------------
+describe('bulkReplace call sites are covered by BULK_REPLACE_ROW_SOURCES', () => {
+  it('every bulkReplace call site has a hand-verified BULK_REPLACE_ROW_SOURCES entry', () => {
+    const uniqueHits = [...new Set(scanResult.bulkReplaceHits.map((h) => `${h.file}::${h.entity}`))]
+    for (const key of uniqueHits) {
+      const [file, entity] = key.split('::')
+      const entry = BULK_REPLACE_ROW_SOURCES.find((e) => e.file === file && e.entity === entity)
+      expect(
+        entry,
+        `expected a BULK_REPLACE_ROW_SOURCES entry for ${file} / ${entity} — a bulkReplace call site was found but its row-building function has not been hand-verified.`
+      ).toBeTruthy()
+    }
+  })
+
+  it('every BULK_REPLACE_ROW_SOURCES entry still corresponds to an actual bulkReplace call site', () => {
+    const uniqueHits = new Set(scanResult.bulkReplaceHits.map((h) => `${h.file}::${h.entity}`))
+    for (const entry of BULK_REPLACE_ROW_SOURCES) {
+      expect(
+        uniqueHits.has(`${entry.file}::${entry.entity}`),
+        `BULK_REPLACE_ROW_SOURCES entry for ${entry.file} / ${entry.entity} no longer matches any bulkReplace call site the scanner found — remove it or update the file/entity.`
+      ).toBe(true)
+    }
+  })
+
+  it('every BULK_REPLACE_ROW_SOURCES field is listed in BULK_REPLACE_ENTITIES[entity].columns', () => {
+    // validateBulkReplaceRows (electron/ops/operations.js) rejects any row key
+    // not in BULK_REPLACE_ENTITIES[entity].columns — a row builder emitting an
+    // unlisted key is a live bug, not just a documentation gap.
+    for (const entry of BULK_REPLACE_ROW_SOURCES) {
+      const registered = BULK_REPLACE_ENTITIES[entry.entity]
+      expect(registered, `BULK_REPLACE_ROW_SOURCES entity '${entry.entity}' is not registered in BULK_REPLACE_ENTITIES.`).toBeTruthy()
+      for (const field of entry.fields) {
+        expect(
+          registered.columns.includes(field),
+          `BULK_REPLACE_ROW_SOURCES field '${entry.entity}.${field}' (from ${entry.rowBuilder}) is not in BULK_REPLACE_ENTITIES['${entry.entity}'].columns — validateBulkReplaceRows will reject this row key at runtime.`
+        ).toBe(true)
+      }
+    }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Assertion set 1c: the two hand-synced registries (PROJECTIONS and
+// BULK_REPLACE_ENTITIES) must not drift apart. The true relationship,
+// verified by reading both registries: BULK_REPLACE_ENTITIES[entity].columns
+// minus 'id' is a SUBSET of PROJECTIONS[entity].fields, not an equal set —
+// PROJECTIONS is allowed extra field-level-only columns (e.g.
+// template_slots.is_released, written only via writeFields, never via
+// bulkReplace). That asymmetry is real and is captured explicitly below
+// rather than by loosening the assertion to "sets may differ arbitrarily".
+// ---------------------------------------------------------------------------
+const PROJECTIONS_ONLY_FIELDS = {
+  // is_released is written via writeSlotFields()/writeFields('template_slots',
+  // ...) only — never appears in a bulkReplace row (mapSlotToRow does not set
+  // it) — so it is legitimately in PROJECTIONS.template_slots.fields but
+  // absent from BULK_REPLACE_ENTITIES.template_slots.columns.
+  template_slots: ['is_released'],
+}
+
+describe('PROJECTIONS and BULK_REPLACE_ENTITIES stay in sync', () => {
+  let db
+  beforeAll(() => {
+    const tmpFile = path.join(os.tmpdir(), `shoresh-bulk-replace-sync-${Date.now()}-${Math.random()}.sqlite`)
+    db = openLocalDb(tmpFile)
+  })
+
+  it('every BULK_REPLACE_ENTITIES column exists on the real table', () => {
+    const problems = []
+    for (const [entity, def] of Object.entries(BULK_REPLACE_ENTITIES)) {
+      const columns = db.prepare(`PRAGMA table_info(${def.table})`).all().map((c) => c.name)
+      for (const col of def.columns) {
+        if (!columns.includes(col)) {
+          problems.push(`BULK_REPLACE_ENTITIES['${entity}'].columns has '${col}' which does not exist on table '${def.table}'.`)
+        }
+      }
+    }
+    expect(problems).toEqual([])
+  })
+
+  it('BULK_REPLACE_ENTITIES.columns minus id is a subset of PROJECTIONS.fields (plus documented exceptions)', () => {
+    const problems = []
+    for (const [entity, def] of Object.entries(BULK_REPLACE_ENTITIES)) {
+      const projection = PROJECTIONS[entity]
+      expect(projection, `BULK_REPLACE_ENTITIES['${entity}'] has no matching PROJECTIONS['${entity}'] entry.`).toBeTruthy()
+      for (const col of def.columns) {
+        if (col === 'id') continue
+        if (projection.fields.includes(col)) continue
+        problems.push(
+          `BULK_REPLACE_ENTITIES['${entity}'].columns has '${col}' which is not in PROJECTIONS['${entity}'].fields — the two registries have drifted. Add '${col}' to PROJECTIONS['${entity}'].fields in electron/ops/projections.js.`
+        )
+      }
+    }
+    expect(problems).toEqual([])
+  })
+
+  it('every PROJECTIONS_ONLY_FIELDS entry is genuinely absent from BULK_REPLACE_ENTITIES and present in PROJECTIONS', () => {
+    const problems = []
+    for (const [entity, fields] of Object.entries(PROJECTIONS_ONLY_FIELDS)) {
+      const def = BULK_REPLACE_ENTITIES[entity]
+      const projection = PROJECTIONS[entity]
+      for (const field of fields) {
+        if (!projection || !projection.fields.includes(field)) {
+          problems.push(`PROJECTIONS_ONLY_FIELDS['${entity}'] lists '${field}' but it is not in PROJECTIONS['${entity}'].fields — exception is stale.`)
+        }
+        if (def && def.columns.includes(field)) {
+          problems.push(
+            `PROJECTIONS_ONLY_FIELDS['${entity}'] lists '${field}' as PROJECTIONS-only, but it IS in BULK_REPLACE_ENTITIES['${entity}'].columns — the exception is stale and should be removed (it's no longer an asymmetry).`
+          )
+        }
+      }
+    }
+    expect(problems).toEqual([])
+  })
+
+  it('BULK_REPLACE_ENTITIES.requiredColumns is a subset of BULK_REPLACE_ENTITIES.columns', () => {
+    const problems = []
+    for (const [entity, def] of Object.entries(BULK_REPLACE_ENTITIES)) {
+      for (const col of def.requiredColumns || []) {
+        if (!def.columns.includes(col)) {
+          problems.push(`BULK_REPLACE_ENTITIES['${entity}'].requiredColumns has '${col}' which is not in its own .columns.`)
+        }
+      }
+    }
+    expect(problems).toEqual([])
   })
 })
 
