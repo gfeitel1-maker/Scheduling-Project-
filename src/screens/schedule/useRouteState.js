@@ -68,6 +68,35 @@ export function useRouteState(weekId, route) {
   const setOverlays = routeSetter(setOverlaysByRoute, route)
   const setSnapshots = routeSetter(setSnapshotsByRoute, route)
 
+  // Bulk per-route replace for loadAll's shape: one call instead of six+
+  // scattered setters. This does NOT narrow the interface below — every raw
+  // by-route setter stays exported, because useGeneration/useSnapshots must
+  // keep writing a NON-current route explicitly (generate() on Manual must
+  // never land in the visible Manual state). The six data keys are REPLACE
+  // semantics, not merge, and all required: a partial call throws rather than
+  // silently leaving a stale field. dismissed is replaced wholesale too —
+  // dismissal state resets when findings recompute, never merges across calls.
+  function setRouteData(r, payload) {
+    const required = ['slots', 'stats', 'findings', 'dismissed', 'overlays', 'snapshots']
+    for (const key of required) {
+      if (payload[key] === undefined) {
+        throw new Error(`setRouteData: missing required key "${key}" for route "${r}"`)
+      }
+    }
+    setSlotsByRoute(prev => ({ ...prev, [r]: payload.slots }))
+    setStatsByRoute(prev => ({ ...prev, [r]: payload.stats }))
+    setFindingsByRoute(prev => ({ ...prev, [r]: payload.findings }))
+    setDismissedByRoute(prev => ({ ...prev, [r]: payload.dismissed }))
+    setOverlaysByRoute(prev => ({ ...prev, [r]: payload.overlays }))
+    setSnapshotsByRoute(prev => ({ ...prev, [r]: payload.snapshots }))
+    if (payload.existingTemplate !== undefined) {
+      setExistingTemplates(prev => ({ ...prev, [r]: payload.existingTemplate }))
+    }
+    if (payload.templateId !== undefined) {
+      setTemplateIdByRoute(prev => ({ ...prev, [r]: payload.templateId }))
+    }
+  }
+
   return {
     route,
     // The by-route atoms + their raw setters: loadAll's bulk sets and
@@ -86,5 +115,7 @@ export function useRouteState(weekId, route) {
     rawSlots, stats, findings, dismissedFindingKeys, overlays, snapshots,
     // Current-route setters.
     setSlots, setStats, setFindings, setDismissedFindingKeys, setOverlays, setSnapshots,
+    // Bulk per-route replace (see setRouteData above).
+    setRouteData,
   }
 }
