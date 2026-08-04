@@ -56,6 +56,20 @@ const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 // syncServer.js's first-pairing full_sync snapshot are structurally
 // guaranteed to cover the same table set — see that module's own comment.
 
+// Explicit allowlist for `shoresh:list-by-scope`, deliberately narrower than
+// PARENT_SCOPED_ENTITIES: that registry also contains
+// day_override_template_slots, which C4 does not target. Gating on this set
+// ALONE would let a caller-supplied scope column reach nowhere (there is
+// none), but gating on PARENT_SCOPED_ENTITIES alone would silently expose
+// day_override_template_slots as scope-listable. Both checks are required.
+const SCOPED_LIST_ENTITIES = new Set([
+  'template_slots',
+  'template_overlays',
+  'schedule_snapshots',
+  'week_activity_exclusions',
+  'week_group_exclusions',
+])
+
 // Bound on how long login() waits for an in-flight WebSocket handshake to
 // finish before falling back to the local/offline login path. Meaningfully
 // shorter than loginRemote's own timeout for a genuinely unreachable host —
@@ -97,6 +111,25 @@ function sanitizeOpForIpc(op) {
     return rest
   }
   return op
+}
+
+// Extracted from listByScope's handler closure so the query shape itself
+// (camp JOIN retained, scope predicate additive, scopeId ?? null) can be
+// exercised directly in a test without going through requireAuthorized/IPC —
+// this is what the mock/real parity test (electron/ipcSurfaceParity.test.js)
+// runs against the mock's listByScope with identical fixture data. Callers
+// are expected to have already validated entity against SCOPED_LIST_ENTITIES
+// and PARENT_SCOPED_ENTITIES.
+export function runScopedQuery(db, entity, scopeId) {
+  const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+  if (!camp) return []
+
+  const { table, parentTable, parentKey } = PARENT_SCOPED_ENTITIES[entity]
+  return db
+    .prepare(
+      `SELECT t.* FROM ${table} t JOIN ${parentTable} p ON p.id = t.${parentKey} WHERE p.camp_id = ? AND t.${parentKey} = ?`
+    )
+    .all(camp.id, scopeId ?? null)
 }
 
 // Strips PIN values from an op_conflict message BEFORE it is ever handed to
@@ -675,6 +708,28 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       .all(camp.id)
   }
 
+  // Scope-filtered sibling of list(): same allowlist-before-query discipline,
+  // but additionally requires SCOPED_LIST_ENTITIES membership so that
+  // day_override_template_slots (present in PARENT_SCOPED_ENTITIES but not
+  // targeted by this read path) is rejected rather than silently exposed.
+  // The camp JOIN from list() is retained — the scope predicate is additive,
+  // not a replacement — because template_slots and its siblings have no
+  // camp_id column of their own (see campScopedEntities.js).
+  function listByScope(token, entity, scopeId) {
+    if (typeof entity !== 'string' || entity.length === 0) {
+      throw new Error('Invalid entity')
+    }
+    if (!SCOPED_LIST_ENTITIES.has(entity) || !PARENT_SCOPED_ENTITIES[entity]) {
+      throw new Error(`Unrecognized entity: ${entity}`)
+    }
+    if (!isNonEmptyString(token)) {
+      throw new Error('token is required')
+    }
+    requireAuthorized(db, { token, action: `${entity}.read` })
+
+    return runScopedQuery(db, entity, scopeId)
+  }
+
   function listUsers(token) {
     if (!isNonEmptyString(token)) {
       throw new Error('token is required')
@@ -862,6 +917,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     verifySession,
     listUsers,
     list,
+    listByScope,
     bulkReplace,
     getDeviceId,
     getSyncStatus,
@@ -918,6 +974,7 @@ if (isElectronEntryPoint()) {
     'shoresh:get-camp',
     'shoresh:list-users',
     'shoresh:list',
+    'shoresh:list-by-scope',
     'shoresh:get-device-id',
     'shoresh:get-sync-status',
     'shoresh:ingest-commit',
@@ -959,6 +1016,10 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:list', (_event, args) => {
       const { token, entity } = args || {}
       return handlers.list(token, entity)
+    })
+    ipcMain.handle('shoresh:list-by-scope', (_event, args) => {
+      const { token, entity, scopeId } = args || {}
+      return handlers.listByScope(token, entity, scopeId)
     })
     ipcMain.handle('shoresh:get-device-id', (_event, args) => handlers.getDeviceId(args && args.token))
     ipcMain.handle('shoresh:get-sync-status', () => handlers.getSyncStatus())

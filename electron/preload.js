@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   getCamp: () => ipcRenderer.invoke('shoresh:get-camp'),
   listUsers: (token) => ipcRenderer.invoke('shoresh:list-users', { token }),
   list: (token, entity) => ipcRenderer.invoke('shoresh:list', { token, entity }),
+  listByScope: (token, entity, scopeId) => ipcRenderer.invoke('shoresh:list-by-scope', { token, entity, scopeId }),
   getDeviceId: (token) => ipcRenderer.invoke('shoresh:get-device-id', { token }),
   resolveConflict: (args) => ipcRenderer.invoke('shoresh:resolve-conflict', args),
   listPendingConflicts: (token) => ipcRenderer.invoke('shoresh:list-conflicts', { token }),

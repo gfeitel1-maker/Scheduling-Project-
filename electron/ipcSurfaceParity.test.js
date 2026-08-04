@@ -30,10 +30,15 @@
 // fine. Do not weaken either to make a refactor easier — fix the scanner.
 import { describe, it, expect, beforeAll } from 'vitest'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { PROJECTIONS } from './ops/projections.js'
-import { MOCK_WRITE_ALLOWLIST } from '../src/localClient.mock.js'
+import { PARENT_SCOPED_ENTITIES } from './ops/campScopedEntities.js'
+import { runScopedQuery } from './main.js'
+import { openLocalDb } from './db/localDb.js'
+import { MOCK_WRITE_ALLOWLIST, MOCK_SCOPE_KEYS, mockShoresh } from '../src/localClient.mock.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.join(__dirname, '..')
@@ -306,5 +311,166 @@ describe('MOCK_WRITE_ALLOWLIST stays in sync with PROJECTIONS', () => {
       extra,
       `MOCK_WRITE_ALLOWLIST has ${extra.join(', ')} which PROJECTIONS does not — a write the mock wrongly ACCEPTS under 'npm run dev' would be silently discarded by the real path (applyProjection's no-op). Remove from MOCK_WRITE_ALLOWLIST or add to electron/ops/projections.js.`
     ).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// C4 — MOCK_SCOPE_KEYS <-> PARENT_SCOPED_ENTITIES drift, both directions, for
+// exactly the five entities main.js's SCOPED_LIST_ENTITIES targets.
+// day_override_template_slots is deliberately excluded from both sides: it
+// is in PARENT_SCOPED_ENTITIES but rejected by main.js's listByScope, so it
+// must appear in neither MOCK_SCOPE_KEYS nor this comparison.
+// ---------------------------------------------------------------------------
+describe('MOCK_SCOPE_KEYS stays in sync with PARENT_SCOPED_ENTITIES (C4)', () => {
+  const SCOPED_LIST_ENTITIES = [
+    'template_slots',
+    'template_overlays',
+    'schedule_snapshots',
+    'week_activity_exclusions',
+    'week_group_exclusions',
+  ]
+
+  it('every SCOPED_LIST_ENTITIES entity has a matching parentKey in MOCK_SCOPE_KEYS', () => {
+    const missing = []
+    for (const entity of SCOPED_LIST_ENTITIES) {
+      const realKey = PARENT_SCOPED_ENTITIES[entity]?.parentKey
+      const mockKey = MOCK_SCOPE_KEYS[entity]
+      if (!mockKey) missing.push(`entity '${entity}'`)
+      else if (mockKey !== realKey) missing.push(`entity '${entity}' (mock: '${mockKey}', real: '${realKey}')`)
+    }
+    expect(
+      missing,
+      `MOCK_SCOPE_KEYS is missing or diverges on ${missing.join(', ')} — src/localClient.mock.js's listByScope would filter on the wrong column under 'npm run dev'. Update MOCK_SCOPE_KEYS in src/localClient.mock.js to match PARENT_SCOPED_ENTITIES's parentKey in electron/ops/campScopedEntities.js.`
+    ).toEqual([])
+  })
+
+  it('MOCK_SCOPE_KEYS has no entries beyond the five SCOPED_LIST_ENTITIES', () => {
+    const extra = Object.keys(MOCK_SCOPE_KEYS).filter((entity) => !SCOPED_LIST_ENTITIES.includes(entity))
+    expect(
+      extra,
+      `MOCK_SCOPE_KEYS has extra entities [${extra.join(', ')}] beyond the five listByScope targets — including day_override_template_slots here would make it mock-scope-listable even though main.js's SCOPED_LIST_ENTITIES rejects it. Remove the extra entry/entries.`
+    ).toEqual([])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// C4-R3 — mock/real parity: identical fixture data through the mock's
+// listByScope and through the real query (runScopedQuery, extracted from
+// main.js's listByScope handler) must produce identical output.
+// ---------------------------------------------------------------------------
+describe('listByScope: mock/real parity (C4-R3)', () => {
+  function makeMemoryLocalStorage() {
+    const store = new Map()
+    return {
+      getItem: (key) => (store.has(key) ? store.get(key) : null),
+      setItem: (key, value) => store.set(key, String(value)),
+      removeItem: (key) => store.delete(key),
+    }
+  }
+
+  it('mock and real listByScope agree on template_slots for a scoped template, excluding a foreign camp row', async () => {
+    const tmpFile = path.join(os.tmpdir(), `shoresh-parity-test-${Date.now()}-${Math.random()}.sqlite`)
+    const db = openLocalDb(tmpFile)
+    try {
+      const myCampId = randomUUID()
+      const foreignCampId = randomUUID()
+      db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(myCampId, 'Mine', 'a'.repeat(64))
+      db.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(
+        foreignCampId,
+        'Foreign',
+        'b'.repeat(64)
+      )
+      // openLocalDb's own bootstrap may have already created a camp row this
+      // test doesn't control the id of — rebind "mine" to whichever camp
+      // `SELECT id FROM camps LIMIT 1` actually returns, matching every other
+      // list()/listByScope test's convention in main.test.js.
+      const actualMyCampId = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+      const actualForeignCampId = actualMyCampId === myCampId ? foreignCampId : myCampId
+
+      const myTemplateId = randomUUID()
+      const foreignTemplateId = randomUUID()
+      db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(
+        myTemplateId,
+        actualMyCampId,
+        'Mine'
+      )
+      db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(
+        foreignTemplateId,
+        actualForeignCampId,
+        'Foreign'
+      )
+
+      const myRowId = randomUUID()
+      db.prepare('INSERT INTO template_slots (id, template_id) VALUES (?, ?)').run(myRowId, myTemplateId)
+      db.prepare('INSERT INTO template_slots (id, template_id) VALUES (?, ?)').run(randomUUID(), foreignTemplateId)
+
+      const realRows = runScopedQuery(db, 'template_slots', myTemplateId)
+
+      const memoryStorage = makeMemoryLocalStorage()
+      memoryStorage.setItem(
+        'shoresh-mock-state',
+        JSON.stringify({
+          camp: { id: actualMyCampId },
+          users: [],
+          conflicts: [],
+          devices: [],
+          template_slots: [
+            { id: myRowId, template_id: myTemplateId },
+            { id: 'foreign-row', template_id: foreignTemplateId },
+          ],
+        })
+      )
+      const previousLocalStorage = globalThis.localStorage
+      globalThis.localStorage = memoryStorage
+      let mockRows
+      try {
+        mockRows = await mockShoresh.listByScope(null, 'template_slots', myTemplateId)
+      } finally {
+        globalThis.localStorage = previousLocalStorage
+      }
+
+      // Compare id/template_id only: the real row also carries the table's
+      // other (all-null, unset) columns that the mock's plain fixture object
+      // never had reason to declare — those aren't part of what this test is
+      // checking. The mock has no notion of the camp JOIN (it filters purely
+      // by parentKey), which is the one dimension real and mock intentionally
+      // differ on structurally — the mock's fixture above is seeded to
+      // already be "my camp only" data, so comparing the resulting row
+      // identities is still a meaningful parity check on the scope-column
+      // filtering itself, which is the part MOCK_SCOPE_KEYS governs.
+      const identities = (rows) => rows.map((r) => ({ id: r.id, template_id: r.template_id }))
+      expect(identities(realRows)).toEqual([{ id: myRowId, template_id: myTemplateId }])
+      expect(identities(mockRows)).toEqual([{ id: myRowId, template_id: myTemplateId }])
+    } finally {
+      db.close()
+      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile)
+    }
+  })
+
+  it('mock and real listByScope both return [] for an unminted (null) scopeId', async () => {
+    const tmpFile = path.join(os.tmpdir(), `shoresh-parity-test-${Date.now()}-${Math.random()}.sqlite`)
+    const db = openLocalDb(tmpFile)
+    try {
+      const realRows = runScopedQuery(db, 'template_slots', null)
+      expect(realRows).toEqual([])
+
+      const memoryStorage = makeMemoryLocalStorage()
+      memoryStorage.setItem(
+        'shoresh-mock-state',
+        JSON.stringify({ camp: null, users: [], conflicts: [], devices: [], template_slots: [] })
+      )
+      const previousLocalStorage = globalThis.localStorage
+      globalThis.localStorage = memoryStorage
+      let mockRows
+      try {
+        mockRows = await mockShoresh.listByScope(null, 'template_slots', null)
+      } finally {
+        globalThis.localStorage = previousLocalStorage
+      }
+      expect(mockRows).toEqual([])
+    } finally {
+      db.close()
+      if (fs.existsSync(tmpFile)) fs.unlinkSync(tmpFile)
+    }
   })
 })

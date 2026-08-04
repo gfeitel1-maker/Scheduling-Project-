@@ -453,3 +453,12 @@ CREATE TABLE IF NOT EXISTS week_group_exclusions (
   week_id TEXT NOT NULL REFERENCES schedule_weeks(id),
   group_id TEXT NOT NULL REFERENCES groups(id)
 );
+
+-- C4 (scope-filtered IPC reads): indexes for the three template-scoped
+-- tables listByScope queries by template_id. Safe to declare here (unlike
+-- the schedule_templates.kind index above) because template_id is NOT NULL
+-- from each table's original creation, so re-execution on every open never
+-- hits a pre-migration file missing the column.
+CREATE INDEX IF NOT EXISTS idx_template_slots_template_id ON template_slots(template_id);
+CREATE INDEX IF NOT EXISTS idx_template_overlays_template_id ON template_overlays(template_id);
+CREATE INDEX IF NOT EXISTS idx_schedule_snapshots_template_id ON schedule_snapshots(template_id);

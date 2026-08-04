@@ -104,11 +104,11 @@ export function createScheduleRepository({
     },
 
     async reloadSlots(templateId) {
-      return normalizeSlots(await localClient.list('template_slots')).filter(s => s.template_id === templateId)
+      return normalizeSlots(await localClient.listByScope('template_slots', templateId ?? null))
     },
 
     async reloadOverlays(templateId) {
-      return (await localClient.list('template_overlays')).filter(o => o.template_id === templateId)
+      return await localClient.listByScope('template_overlays', templateId ?? null)
     },
 
     async getSnapshot(snapshotId) {
@@ -121,12 +121,12 @@ export function createScheduleRepository({
 
     async loadWeekExclusions(weekId) {
       const [activityExclusions, groupExclusions] = await Promise.all([
-        localClient.list('week_activity_exclusions'),
-        localClient.list('week_group_exclusions'),
+        localClient.listByScope('week_activity_exclusions', weekId ?? null),
+        localClient.listByScope('week_group_exclusions', weekId ?? null),
       ])
       return {
-        activityExclusions: (activityExclusions || []).filter((e) => e.week_id === weekId),
-        groupExclusions: (groupExclusions || []).filter((e) => e.week_id === weekId),
+        activityExclusions: activityExclusions || [],
+        groupExclusions: groupExclusions || [],
       }
     },
 

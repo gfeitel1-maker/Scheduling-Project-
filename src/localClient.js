@@ -46,6 +46,7 @@ export const localClient = {
   listUsers: () => shoresh.listUsers(currentToken()),
   getDeviceId: () => shoresh.getDeviceId(currentToken()),
   list: (entity) => shoresh.list(currentToken(), entity),
+  listByScope: (entity, scopeId) => shoresh.listByScope(currentToken(), entity, scopeId),
   resolveConflict: (token, { entity, entity_id, field, chosen_op_id, parent_op_id }) =>
     shoresh.resolveConflict({ token, entity, entity_id, field, chosen_op_id, parent_op_id }),
   listPendingConflicts: () => shoresh.listPendingConflicts(currentToken()),

@@ -2,7 +2,6 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { localClient } from '../localClient'
 import { createScheduleRepository } from '../data/scheduleRepository'
-import { computeFindings } from '../engine/buildSchedule'
 import { getSetupGaps, describeSetupGaps } from '../engine/readiness'
 import { S } from '../styles/shared'
 import StatBadge from '../components/schedule/StatBadge'
@@ -14,15 +13,14 @@ import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
 import ExportChooserModal from '../components/schedule/ExportChooserModal'
 import VersionsDropdown from '../components/schedule/VersionsDropdown'
 import WeekSwitcher from '../components/schedule/WeekSwitcher'
-import { isRestorable } from './snapshotRestore'
 import { snapshotMatchesSchedule } from './snapshotMatchesSchedule'
 import FieldTripDrawer from '../components/schedule/FieldTripDrawer'
 import { exportToExcel } from '../utils/exportSchedule'
 import { withOverlapFlags } from '../utils/computeOverlaps'
 import { deriveScheduleTemplateId } from '../../electron/ops/scheduleTemplateId'
 import { resolveSelection } from './resolveSelection'
-import { normalizeActivityEligibility } from '../utils/normalizeActivityEligibility'
 import { getSlot, makeGridGeometry } from './schedule/gridGeometry'
+import { makeDragHandlers } from './schedule/dragHandlers'
 import { useUndoRedo } from './schedule/useUndoRedo'
 import { useClipboardSelection } from './schedule/useClipboardSelection'
 import { useOverlayFillStamp } from './schedule/useOverlayFillStamp'
@@ -30,7 +28,8 @@ import { useSnapshots } from './schedule/useSnapshots'
 import DeleteWeekDialog from '../components/schedule/DeleteWeekDialog'
 import { useGeneration } from './schedule/useGeneration'
 import { useSlotMutations } from './schedule/useSlotMutations'
-import { ROUTES, EMPTY_BY_ROUTE, useRouteState } from './schedule/useRouteState'
+import { ROUTES, useRouteState } from './schedule/useRouteState'
+import { useScheduleData, recalcStats as recalcStatsPure, recalcFindings as recalcFindingsPure } from './schedule/useScheduleData'
 import ScheduleGroupView from '../components/schedule/ScheduleGroupView'
 import ScheduleDayView from '../components/schedule/ScheduleDayView'
 import ScheduleActivityView from '../components/schedule/ScheduleActivityView'
@@ -38,46 +37,7 @@ import ManualBuildView from '../components/schedule/ManualBuildView'
 import ActivityPalette from '../components/schedule/ActivityPalette'
 import DisplacedPalette from '../components/schedule/DisplacedPalette'
 
-// Which row IS this camp's candidate for this route? Ask the database by
-// (camp_id, kind) — do not assume the derived id is the one on disk.
-//
-// A camp whose schedule_templates row was minted after migration v21 by a
-// renderer that still used crypto.randomUUID() carries a RANDOM UUID id that no
-// migration will ever normalise. Deriving the id and hoping a row is there
-// found nothing on such a camp, so the app tried to insert one, lost silently
-// to UNIQUE(camp_id, kind), and generation did nothing at all. `kind` is the
-// route authority (ADR Decision §1), so resolve by it.
-//
-// The derived id is still what gets MINTED when no row exists — that is the
-// invariant deterministic ids exist for (two devices independently creating a
-// candidate must agree on its id). Determinism was only ever needed at mint
-// time; once a row exists it has replicated, and both devices resolve to it.
-// Resolution is by (week_id, kind) — a week now holds one row per route,
-// same reasoning as the camp-scoped version this replaces
-// (docs/adr/2026-08-02-schedule-weeks-first-class.md).
-function templateRowFor(templates, weekId, kind) {
-  // A row with no kind at all is 'generated': that is the column default and
-  // what migration v23 backfilled, so a row that predates the column (or
-  // arrives from a peer that has not projected kind yet) must not read as
-  // belonging to no route.
-  return (templates || []).find(t => t.week_id === weekId && (t.kind || 'generated') === kind)
-}
-
-function resolveTemplateId(templates, weekId, kind) {
-  const row = templateRowFor(templates, weekId, kind)
-  return row ? row.id : deriveScheduleTemplateId(weekId, kind)
-}
-
 export default function ScheduleScreen({ campId, role, onNavigate, initialRoute }) {
-  const [groups, setGroups] = useState([])
-  const [days, setDays] = useState([])
-  const [timeBlocks, setTimeBlocks] = useState([])
-  const [activities, setActivities] = useState([])
-  const [anchors, setAnchors] = useState([])
-  const [tiers, setTiers] = useState([])
-  const [cohorts, setCohorts] = useState([])
-  const [activityExclusions, setActivityExclusions] = useState([])
-  const [groupExclusions, setGroupExclusions] = useState([])
   // Which route is on screen is driven by the sidebar entry the director
   // clicked (App.jsx SCREENS -> 'schedule:manual' / 'schedule:generated'). The
   // neutral 'schedule' entry passes nothing and lands on the first-run choice
@@ -96,12 +56,46 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // Which week is on screen — a camp may hold several (docs/adr/2026-08-02-
   // schedule-weeks-first-class.md). Screen-level state, symmetric to `route`:
   // switching weeks is pure navigation, no confirm, nothing saved or destroyed.
-  // `weeks` holds every non-archived schedule_weeks row for this camp, sorted
-  // by sort_order; `weekId` defaults to the first of them (for every camp that
-  // existed before this feature, that is exactly the migration-created
-  // "Week 1"). Loaded in loadAll() below alongside everything else.
-  const [weeks, setWeeks] = useState([])
-  const [weekId, setWeekId] = useState(null)
+  // `preferredWeekId` is a ONE-WAY input into useScheduleData — the director's
+  // last explicit choice (switcher pick, new/archived/deleted week), fed back
+  // in below so a reload (e.g. from onOpApplied) keeps showing the same week
+  // instead of resetting to the first one. It is NOT what the rest of the
+  // screen reads for the week actually on screen — that is the hook's
+  // resolved `weekId` below, always current with no render lag. Not a shared
+  // mutable cell: the hook never reads this after resolving a load.
+  const [preferredWeekId, setPreferredWeekId] = useState(null)
+
+  // The persistence seam. Instantiated once with the real localClient (ADR
+  // 2026-08-01 §3); it owns token acquisition, every schedule read/write, and
+  // the single slot->row mapper. The screen keeps all React state, banner copy,
+  // route policy, and engine calls.
+  const repo = useMemo(() => createScheduleRepository({ localClient }), [])
+
+  // C1 — setup catalog, weeks + weekId resolution, week exclusions, and
+  // per-route template data (slots/overlays/snapshots/stats/findings), plus
+  // load/error state, all live in one hook with one load lifecycle. It never
+  // touches useRouteState (route data flows out, never in) and designates
+  // neither route as canonical. `weekId` below is the RESOLVED week — the
+  // authority every other call site (routeState, ensureTemplateRow,
+  // useGeneration, the switcher's highlighted value) reads.
+  const {
+    setupLists, setActivities, weeks, setWeeks,
+    weekId, weekDeletedBanner, setWeekDeletedBanner, exclusions,
+    templateData, loading, loadError, templateError, reload,
+  } = useScheduleData({ campId, weekId: preferredWeekId, repo, routes: ROUTES })
+  const { groups, days, timeBlocks, activities, anchors, tiers, cohorts } = setupLists
+  const { activityExclusions, groupExclusions } = exclusions
+
+  // Keep `preferredWeekId` converged with the resolved week so the NEXT load
+  // (e.g. a reload from onOpApplied, or simply campId changing) starts from
+  // where the director actually is, not from null. Purely forward-looking —
+  // nothing reads `preferredWeekId` for the current render, so the one-render
+  // lag between a load resolving and this effect committing is harmless.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (weekId !== preferredWeekId) setPreferredWeekId(weekId)
+  }, [weekId]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // T31 — the route-scoped state lives in one module (useRouteState): the eight
   // by-route atoms, the current-route derived values, and the current-route
   // setters. Route SELECTION stays here (above) — the hook only receives the
@@ -112,9 +106,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const {
     existingTemplates, setExistingTemplates,
     setTemplateIdByRoute,
-    slotsByRoute, setSlotsByRoute,
-    setStatsByRoute, setFindingsByRoute, setDismissedByRoute,
-    setSnapshotsByRoute, setOverlaysByRoute,
+    slotsByRoute,
     templateIdFor,
     rawSlots, stats, findings, dismissedFindingKeys, overlays, snapshots,
     setStats, setFindings, setDismissedFindingKeys,
@@ -122,7 +114,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // OVERLAP is derived, never persisted — so it clears from every participating
   // cell the moment any one of them moves, and only on the manual route, where
   // a clashing placement is accepted rather than refused.
-  const slots = route === 'manual' ? withOverlapFlags(rawSlots, activities) : rawSlots
+  const slots = useMemo(
+    () => (route === 'manual' ? withOverlapFlags(rawSlots, activities) : rawSlots),
+    [route, rawSlots, activities]
+  )
   // The generated "track changes" review (docs/work/specs/2026-08-01-generated-
   // flag-review.md). One piece of state is the single source of truth for both
   // the review list and the grid highlight:
@@ -133,7 +128,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // what stops the "list open but nothing highlighted / highlighted but list
   // closed" drift the two design passes disagreed about.
   const [railView, setRailView] = useState(null)
-  const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [view, setView] = useState('group') // 'group' | 'activity' | 'day'
   const [selectedGroup, setSelectedGroup] = useState(null)
@@ -142,12 +136,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const [editSlot, setEditSlot] = useState(null)
   const [confirmRegen, setConfirmRegen] = useState(false)
   const [selectedActivity, setSelectedActivity] = useState(null)
-  const [loadError, setLoadError] = useState(null)
-  const [templateError, setTemplateError] = useState(null)
   const [actionError, setActionError] = useState(null)
   const [exportChoosing, setExportChoosing] = useState(false)
   const [deletingWeek, setDeletingWeek] = useState(null)
-  const [weekDeletedBanner, setWeekDeletedBanner] = useState(null)
   const [showVersions, setShowVersions] = useState(false)
   const [showFieldTripDrawer, setShowFieldTripDrawer] = useState(false)
   const [isDayExpandDragActive, setIsDayExpandDragActive] = useState(false)
@@ -156,12 +147,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
   const localDeviceIdRef = useRef(null)
-
-  // The persistence seam. Instantiated once with the real localClient (ADR
-  // 2026-08-01 §3); it owns token acquisition, every schedule read/write, and
-  // the single slot->row mapper. The screen keeps all React state, banner copy,
-  // route policy, and engine calls.
-  const repo = useMemo(() => createScheduleRepository({ localClient }), [])
 
   // T5 — undo/redo lives in its own hook: the two stacks, the push/undo/redo
   // helpers, and the keyboard shortcuts. It is transient — reset() is called
@@ -232,7 +217,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const { generate, regenFromScratch, placeAnchors } = useGeneration({
     routeState, repo, campId, setActionError, setGenerating,
     resetUndoRedo, saveSnapshot, ensureTemplateRow,
-    setConfirmRegen, setSelectedGroup, statsFor,
+    setConfirmRegen, setSelectedGroup, statsFor: recalcStatsPure,
     groups, tiers, days, timeBlocks, activities, anchors,
     weekId, activityExclusions, groupExclusions,
   })
@@ -261,170 +246,42 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     resetOverlayFillStamp()
   }
 
-  async function loadAll() {
-    setLoading(true)
-    setLoadError(null)
-    setTemplateError(null)
-    let g, a, d
-    try {
-      // Cohorts are not used to build a week, only to answer "is setup done"
-      // from the same source the sidebar and Camp Setup use. Without it this
-      // screen would report a Programs gap the setup screen does not — the exact
-      // disagreement getSetupGaps exists to end.
-      const {
-        groups: gd, days_of_operation: td, time_blocks: bd, activities: ad,
-        anchor_activities: ancd, tiers: tierd, cohorts: cohd,
-      } = await repo.loadSetupLists()
-      g = [...(gd || [])].filter(x => x.camp_id === campId).sort((x, y) => x.name.localeCompare(y.name))
-      const b = [...(bd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
-      a = (ad || []).filter(x => x.camp_id === campId).map(normalizeActivityEligibility)
-      const anc = (ancd || []).filter(x => x.camp_id === campId)
-      const t = [...(tierd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
-      const sortedTd = [...(td || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
-      d = sortedTd.filter((x, i, arr) => arr.findIndex(y => y.day_of_week === x.day_of_week) === i)
-      const tierOrderMap = new Map(t.map(tier => [tier.id, tier.sort_order ?? 0]))
-      const sortedG = [...g].sort((x, y) => {
-        const ox = tierOrderMap.get(x.tier_id) ?? 999
-        const oy = tierOrderMap.get(y.tier_id) ?? 999
-        return ox !== oy ? ox - oy : x.name.localeCompare(y.name)
+  // loadAll() re-runs on every op-applied event. Defaulting the selection
+  // unconditionally is right on first load and wrong on every reload after it
+  // — it threw the user back to Monday after each drop (T10). Functional
+  // updates so this reads the live value, not a stale closure. `setupLists`
+  // only gets a new identity once per successful load (useScheduleData's
+  // final setSetupLists call), so this does not fire every render.
+  useEffect(() => {
+    if (loading) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSelectedGroup(prev => resolveSelection(prev, groups))
+    setSelectedDay(prev => resolveSelection(prev, days))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setupLists])
+
+  // Both routes are pushed into routeState on every load. `templateData` only
+  // gets a new identity once per successful load, so this effect does not
+  // fire every render. Dismissal reset is hook-external policy (not repo
+  // data, and setRouteData's contract has no `dismissed` key on templateData)
+  // — a fresh load always clears dismissal, matching the pre-extraction
+  // unconditional setDismissedByRoute(EMPTY_BY_ROUTE(...)) reset.
+  useEffect(() => {
+    if (loading) return
+    for (const r of ROUTES) {
+      routeState.setRouteData(r, {
+        slots: templateData.slotsByRoute[r],
+        stats: templateData.statsByRoute[r],
+        findings: templateData.findingsByRoute[r],
+        dismissed: new Set(),
+        overlays: templateData.overlaysByRoute[r],
+        snapshots: templateData.snapshotsByRoute[r],
+        existingTemplate: templateData.existingTemplates[r],
+        templateId: templateData.templateIdByRoute[r],
       })
-      const coh = (cohd || []).filter(x => x.camp_id === campId)
-      setGroups(sortedG); setDays(d); setTimeBlocks(b); setActivities(a); setAnchors(anc); setTiers(t); setCohorts(coh)
-      // loadAll() re-runs on every op-applied event. Defaulting the selection
-      // unconditionally here is right on first load and wrong on every reload
-      // after it — it threw the user back to Monday after each drop (T10).
-      // Functional updates so this reads the live value, not a stale closure.
-      setSelectedGroup(prev => resolveSelection(prev, sortedG))
-      setSelectedDay(prev => resolveSelection(prev, d))
-    } catch {
-      setLoadError('Failed to load schedule data — check your connection and refresh')
-      setLoading(false)
-      return
     }
-    let liveWeekId = weekId
-    try {
-      const weekRows = await repo.loadWeeks()
-      // `weeks` holds every one of this camp's weeks, archived included — the
-      // switcher needs archived ones too, to offer Unarchive. Only ACTIVE
-      // weeks are eligible for `weekId` (a director cannot land on an
-      // archived week by default or via reload).
-      const campWeeks = (weekRows || [])
-        // A blank name is a placeholder a device holds transiently mid-sync
-        // (projections.ensureExists inserts schedule_weeks with name='' when a
-        // field arrives before the name op) — never show it in the switcher or
-        // let weekId land on it; it resolves to a real name once sync catches up.
-        .filter(w => w.camp_id === campId && String(w.name ?? '').trim() !== '')
-        .sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0) || x.name.localeCompare(y.name))
-      let camp = campWeeks.filter(w => String(w.is_archived) !== '1')
-      // Lazy creation, same precedent as ensureTemplateRow: a camp is never
-      // shown with zero weeks to choose from. This only fires for a camp that
-      // predates schedule_weeks entirely and somehow reached this screen before
-      // migration v27 ran (the ordinary path is the v27 migration creating
-      // "Week 1" for every existing camp up front) — not a normal first-run.
-      if (campWeeks.length === 0) {
-        const wid = `schedule-week:${campId}:1`
-        await repo.createWeek(wid, { campId, name: 'Week 1', sortOrder: 0 })
-        camp = [{ id: wid, camp_id: campId, name: 'Week 1', sort_order: 0, is_archived: 0 }]
-        setWeeks(camp)
-      } else {
-        setWeeks(campWeeks)
-      }
-      // Keep the current week if it is still in the list (a mid-switch reload
-      // must not bounce the director back to the first one), otherwise fall to
-      // the first active week. Computed synchronously from the current weekId
-      // so `liveWeekId` is set for the route load BELOW — a functional setState
-      // updater runs asynchronously (React batches it), which would leave
-      // liveWeekId null on first load and skip the whole route load.
-      if (weekId && !camp.some(w => w.id === weekId)) {
-        // S3-6: The current week has disappeared — deleted on another device.
-        const deletedWeek = campWeeks.find(w => w.id === weekId) ?? weeks.find(w => w.id === weekId)
-        const name = deletedWeek?.name ?? 'This week'
-        setWeekDeletedBanner(`${name} was deleted on another device.`)
-      }
-      liveWeekId = weekId && camp.some(w => w.id === weekId) ? weekId : (camp[0]?.id ?? null)
-      setWeekId(liveWeekId)
-    } catch {
-      setLoadError('Failed to load schedule data — check your connection and refresh')
-      setLoading(false)
-      return
-    }
-    if (!liveWeekId) { setLoading(false); return }
-    try {
-      const { activityExclusions: ae, groupExclusions: ge } = await repo.loadWeekExclusions(liveWeekId)
-      setActivityExclusions(ae || [])
-      setGroupExclusions(ge || [])
-    } catch {
-      setActivityExclusions([]); setGroupExclusions([])
-    }
-    // Both routes are refreshed on every load. loadAll() re-runs on every
-    // applied op, and a load that only refreshed the route on screen would
-    // leave the other one showing whatever it held before the op arrived.
-    try {
-      const { templates, slots: allSlots, overlays: overlayData, snapshots: snapData } =
-        await repo.loadTemplateData()
-
-      const exists = {}
-      const nextTids = {}
-      const nextSlots = {}
-      const nextOverlays = {}
-      const nextSnaps = {}
-      const nextStats = {}
-      const nextFindings = {}
-
-      for (const r of ROUTES) {
-        // Resolution is by (week_id, kind), never by week_id alone: a week now
-        // has one row per route, and first-match-wins would silently elect one
-        // of them as "the" schedule. It is NOT by derived id either — see
-        // resolveTemplateId.
-        const tid = resolveTemplateId(templates, liveWeekId, r)
-        nextTids[r] = tid
-        exists[r] = Boolean(templateRowFor(templates, liveWeekId, r))
-        // Gated on the parent row existing: a route with no schedule_templates
-        // row has not been started, whatever orphan child rows may be lying
-        // around.
-        const saved = exists[r] ? allSlots.filter(x => x.template_id === tid) : []
-        nextSlots[r] = saved
-        nextOverlays[r] = (overlayData || []).filter(o => o.template_id === tid)
-        nextStats[r] = statsFor(saved)
-        nextFindings[r] = computeFindings({ slots: saved, groups: g, activities: a, days: d })
-        nextSnaps[r] = (snapData || [])
-          .filter(x => x.template_id === tid)
-          .sort((x, y) => new Date(y.created_at) - new Date(x.created_at))
-          // `restorable` is carried so the Versions list and the restore action
-          // agree — offering a version restore will refuse is the T8 defect.
-          // The payload travels with the row so the Versions list can say,
-          // truthfully and at render time, which version is the week on screen.
-          .map(x => ({
-            id: x.id, template_id: x.template_id, name: x.name,
-            is_auto: x.is_auto, created_at: x.created_at,
-            slots: x.slots, overlays: x.overlays,
-            restorable: isRestorable(x),
-          }))
-      }
-
-      setExistingTemplates(exists)
-      setTemplateIdByRoute(nextTids)
-      setSlotsByRoute(nextSlots)
-      setOverlaysByRoute(nextOverlays)
-      setSnapshotsByRoute(nextSnaps)
-      setStatsByRoute(nextStats)
-      setFindingsByRoute(nextFindings)
-      setDismissedByRoute(EMPTY_BY_ROUTE(() => new Set()))
-    } catch {
-      setTemplateError('Failed to load saved schedule — check your connection and refresh')
-    }
-    setLoading(false)
-  }
-
-  // Placed after loadAll's declaration so the reload effects reference an
-  // already-declared function (react-hooks/immutability). Function hoisting
-  // makes the runtime behaviour identical to declaring them at the top.
-  //
-  // Load-on-mount: loadAll() sets state from its own async body, which is the
-  // canonical data-fetch-on-mount pattern the set-state-in-effect rule allows
-  // an exception for.
-  // eslint-disable-next-line react-hooks/exhaustive-deps, react-hooks/set-state-in-effect
-  useEffect(() => { loadAll() }, [campId, weekId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateData])
 
   // §7.3: Re-run the schedule after any op is applied — this covers conflict
   // resolution (resolveConflict IPC → syncClient.write → server broadcasts
@@ -432,39 +289,39 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // writes from other devices. The op_applied event already fires naturally
   // on those paths; we just need ScheduleScreen to react to it.
   //
-  // This is best-effort / fire-and-forget: a failure in loadAll() surfaces
-  // via setLoadError (the screen's own error banner) rather than crashing
-  // the listener. The reload re-fetches all schedule data and calls
-  // recalcStats(), ensuring the ScheduleScreen's stats/flags reflect the
-  // post-resolution state of the DB.
+  // This is best-effort / fire-and-forget: a failure in reload() surfaces via
+  // loadError (the screen's own error banner) rather than crashing the
+  // listener. The reload re-fetches all schedule data, ensuring the
+  // ScheduleScreen's stats/flags reflect the post-resolution state of the DB.
   useEffect(() => {
     if (typeof localClient.getDeviceId === 'function') {
       localClient.getDeviceId().then(id => { localDeviceIdRef.current = id }).catch(() => {})
     }
   }, [])
 
+  // `reload` (useScheduleData's `load`) gets a new identity whenever campId/
+  // weekId changes, but the listener itself must be registered exactly once
+  // on mount — re-subscribing on every week switch is both unnecessary and,
+  // if the listener registration is itself counted/asserted anywhere, wrong.
+  // A ref always calls the CURRENT reload without resubscribing.
+  const reloadRef = useRef(reload)
+  useEffect(() => { reloadRef.current = reload }, [reload])
+
   useEffect(() => {
     if (typeof localClient.onOpApplied !== 'function') return
     const unsub = localClient.onOpApplied((op) => {
       if (op?.device_id === localDeviceIdRef.current) return
-      loadAll()
+      reloadRef.current()
     })
     return () => { unsub?.() }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  function statsFor(slotList) {
-    return {
-      open: slotList.filter(s => s.is_anchor === false).length,
-      filled: slotList.filter(s => s.is_anchor === false && s.activity_id).length,
-    }
-  }
+  }, [])
 
   function recalcStats(slotList) {
-    setStats(statsFor(slotList))
+    setStats(recalcStatsPure(slotList))
   }
 
   function recalcFindings(slotList) {
-    setFindings(computeFindings({ slots: slotList, groups, activities, days }))
+    setFindings(recalcFindingsPure(slotList, { groups, activities, days }))
   }
 
   // The schedule_templates row for a route is created lazily, on first use.
@@ -498,116 +355,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       next.add(`${groupId}|${activityId}|${kind}`)
       return next
     })
-  }
-
-  // Group-view DnD: covers both expand-drag (ExpandHandle) and palette drops.
-  // DndContext for group view lives in ScheduleScreen so the sidebar palette chips
-  // (outside ScheduleGroupView) share the same DnD context as the droppable cells.
-  function handleGroupDragStart({ active }) {
-    if (active.data.current?.expandDrag) setIsGroupExpandDragActive(true)
-  }
-
-  function handleGroupDragEnd({ active, over }) {
-    setIsGroupExpandDragActive(false)
-    if (!over) return
-
-    const expandDrag = active.data.current?.expandDrag
-    const paletteActivity = active.data.current?.paletteActivity
-
-    if (expandDrag) {
-      const { groupId, dayId, blockId: headBlockId } = expandDrag
-      const overData = over.data.current || {}
-      const tailBlockId = overData.blockId || overData.slot?.blockId
-      const tailGroupId = overData.groupId || overData.slot?.groupId
-      const tailDayId = overData.dayId || overData.slot?.dayId
-
-      if (!tailBlockId || tailGroupId !== groupId || tailDayId !== dayId) return
-
-      const headBlock = timeBlocks.find(b => b.id === headBlockId)
-      const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
-      if (!headBlock || !tailBlock) return
-      if (tailBlock.sort_order !== headBlock.sort_order + 1) return
-
-      const tailSlot = getSlot(slots, groupId, dayId, tailBlockId)
-      if (!tailSlot || !tailSlot.activity_id || tailSlot.is_anchor) return
-
-      const tailActivity = actMap.get(tailSlot.activity_id)
-      const day = days.find(d => d.id === dayId)
-      expandSlot(groupId, dayId, headBlockId, tailBlockId, tailSlot.activity_id, tailActivity?.name || '', tailBlock.name, day?.label ?? dayId)
-      return
-    }
-
-    if (paletteActivity) {
-      const d = over.data.current || {}
-      const groupId = d.groupId ?? d.slot?.groupId
-      const dayId = d.dayId ?? d.slot?.dayId
-      const blockId = d.blockId ?? d.slot?.blockId
-      if (!groupId || !dayId || !blockId) return
-      const targetSlot = getSlot(slots, groupId, dayId, blockId)
-      if (targetSlot?.is_anchor) return
-      placeActivityManual(paletteActivity.id, groupId, dayId, blockId)
-    }
-  }
-
-  // Day-view DnD: covers expand-drag, palette drops, and slot-swap.
-  // DndContext for day view lives in ScheduleScreen so the sidebar palette chips
-  // (outside ScheduleDayView) share the same DnD context as the droppable cells.
-  function handleDayDragStart({ active }) {
-    if (active.data.current?.expandDrag) setIsDayExpandDragActive(true)
-  }
-
-  function handleDayDragEnd({ active, over }) {
-    setIsDayExpandDragActive(false)
-    if (!over) return
-
-    const expandDrag = active.data.current?.expandDrag
-    const paletteActivity = active.data.current?.paletteActivity
-
-    if (expandDrag) {
-      const { groupId, dayId, blockId: headBlockId } = expandDrag
-      const overData = over.data.current || {}
-      const tailBlockId = overData.blockId || overData.slot?.blockId
-      const tailGroupId = overData.groupId || overData.slot?.groupId
-      const tailDayId = overData.dayId || overData.slot?.dayId
-
-      if (!tailBlockId || tailGroupId !== groupId || tailDayId !== dayId) return
-
-      const headBlock = timeBlocks.find(b => b.id === headBlockId)
-      const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
-      if (!headBlock || !tailBlock) return
-      if (tailBlock.sort_order !== headBlock.sort_order + 1) return
-
-      const tailSlot = getSlot(slots, groupId, dayId, tailBlockId)
-      if (!tailSlot || !tailSlot.activity_id || tailSlot.is_anchor) return
-
-      const tailActivity = actMap.get(tailSlot.activity_id)
-      const day = days.find(d => d.id === dayId)
-      expandSlot(groupId, dayId, headBlockId, tailBlockId, tailSlot.activity_id, tailActivity?.name || '', tailBlock.name, day?.label ?? dayId)
-      return
-    }
-
-    if (paletteActivity) {
-      const d = over.data.current || {}
-      const groupId = d.groupId ?? d.slot?.groupId
-      const dayId = d.dayId ?? d.slot?.dayId
-      const blockId = d.blockId ?? d.slot?.blockId
-      if (!groupId || !dayId || !blockId) return
-      const targetSlot = getSlot(slots, groupId, dayId, blockId)
-      if (targetSlot?.is_anchor) return
-      placeActivityManual(paletteActivity.id, groupId, dayId, blockId)
-      return
-    }
-
-    // Slot swap
-    const slotA = active.data.current?.slot
-    const slotB = over.data.current?.slot
-    if (!slotA || !slotB) return
-    if (slotA.groupId === slotB.groupId && slotA.dayId === slotB.dayId && slotA.blockId === slotB.blockId) return
-    if (slotB.type === 'anchor' || slotB.type === 'unavailable') return
-    swapSlots(
-      { groupId: slotA.groupId, dayId: slotA.dayId, blockId: slotA.blockId, activityId: slotA.activity_id },
-      { groupId: slotB.groupId, dayId: slotB.dayId, blockId: slotB.blockId, activityId: slotB.activity_id }
-    )
   }
 
   // T3 — cell selection (single and multi) and paste mode
@@ -750,6 +497,12 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // that assignment (falling back to the bare hash if none is registered).
   const actMap = new Map(activities.map(a => [a.id, { ...a, colorIdx: a.id }]))
   const anchorMap = new Map(anchors.map(a => [a.id, a]))
+
+  // Group-view and day-view DnD share identical expand-drag/palette-drop
+  // branches; group view also allows slot-swap (product decision 2026-08-04).
+  const dragDeps = { timeBlocks, days, slots, actMap, getSlot, expandSlot, placeActivityManual, swapSlots }
+  const groupHandlers = makeDragHandlers({ ...dragDeps, setExpandDragActive: setIsGroupExpandDragActive, allowSwap: true })
+  const dayHandlers = makeDragHandlers({ ...dragDeps, setExpandDragActive: setIsDayExpandDragActive, allowSwap: true })
 
   // Grid geometry (getSlot / tails / rowspans / overlays) lives in the pure
   // ./schedule/gridGeometry module. Bind the current data once so the views and
@@ -919,13 +672,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         <WeekSwitcher
           weeks={weeks}
           weekId={weekId}
-          onSelect={setWeekId}
+          onSelect={setPreferredWeekId}
           onCreate={async (name) => {
             const wid = crypto.randomUUID()
             const sortOrder = weeks.length > 0 ? Math.max(...weeks.map(w => w.sort_order ?? 0)) + 1 : 0
             await repo.createWeek(wid, { campId, name, sortOrder })
             setWeeks(prev => [...prev, { id: wid, camp_id: campId, name, sort_order: sortOrder, is_archived: 0 }])
-            setWeekId(wid)
+            setPreferredWeekId(wid)
           }}
           onRename={async (id, name) => {
             await repo.writeWeekFields(id, { name })
@@ -936,7 +689,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             setWeeks(prev => prev.map(w => (w.id === id ? { ...w, is_archived: 1 } : w)))
             if (weekId === id) {
               const next = weeks.find(w => w.id !== id && String(w.is_archived) !== '1')
-              setWeekId(next ? next.id : null)
+              setPreferredWeekId(next ? next.id : null)
             }
           }}
           onUnarchive={async (id) => {
@@ -1312,8 +1065,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             <DndContext
               key="group"
               sensors={sensors}
-              onDragStart={handleGroupDragStart}
-              onDragEnd={handleGroupDragEnd}
+              onDragStart={groupHandlers.handleDragStart}
+              onDragEnd={groupHandlers.handleDragEnd}
               onDragCancel={() => setIsGroupExpandDragActive(false)}
             >
               {twoCol}
@@ -1325,8 +1078,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             <DndContext
               key="day"
               sensors={sensors}
-              onDragStart={handleDayDragStart}
-              onDragEnd={handleDayDragEnd}
+              onDragStart={dayHandlers.handleDragStart}
+              onDragEnd={dayHandlers.handleDragEnd}
               onDragCancel={() => setIsDayExpandDragActive(false)}
             >
               {twoCol}
@@ -1444,7 +1197,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               const remaining = prev.filter(w => w.id !== deletedWeekId)
               if (weekId === deletedWeekId) {
                 const first = remaining.find(w => String(w.is_archived) !== '1')
-                setWeekId(first?.id ?? remaining[0]?.id ?? null)
+                setPreferredWeekId(first?.id ?? remaining[0]?.id ?? null)
               }
               return remaining
             })

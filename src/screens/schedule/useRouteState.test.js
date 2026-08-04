@@ -79,4 +79,119 @@ describe('useRouteState', () => {
     )
     expect(canonicalKeys).toEqual([])
   })
+
+  it('setRouteData replaces all six atoms for the named route and leaves the other route untouched', () => {
+    const { result } = setup('generated')
+
+    act(() => {
+      result.current.setRouteData('generated', {
+        slots: [{ id: 's1' }],
+        stats: { open: 1, filled: 1 },
+        findings: [{ id: 'f1' }],
+        dismissed: new Set(['k1']),
+        overlays: [{ id: 'o1' }],
+        snapshots: [{ id: 'snap1' }],
+      })
+    })
+
+    expect(result.current.slotsByRoute.generated).toEqual([{ id: 's1' }])
+    expect(result.current.statsByRoute.generated).toEqual({ open: 1, filled: 1 })
+    expect(result.current.findingsByRoute.generated).toEqual([{ id: 'f1' }])
+    expect(result.current.dismissedByRoute.generated).toEqual(new Set(['k1']))
+    expect(result.current.overlaysByRoute.generated).toEqual([{ id: 'o1' }])
+    expect(result.current.snapshotsByRoute.generated).toEqual([{ id: 'snap1' }])
+
+    // Manual route is completely untouched.
+    expect(result.current.slotsByRoute.manual).toEqual([])
+    expect(result.current.statsByRoute.manual).toBe(null)
+    expect(result.current.findingsByRoute.manual).toEqual([])
+    expect(result.current.dismissedByRoute.manual).toEqual(new Set())
+    expect(result.current.overlaysByRoute.manual).toEqual([])
+    expect(result.current.snapshotsByRoute.manual).toEqual([])
+  })
+
+  it('setRouteData throws if any of the six required keys is omitted', () => {
+    const { result } = setup('generated')
+
+    const full = {
+      slots: [], stats: null, findings: [], dismissed: new Set(), overlays: [], snapshots: [],
+    }
+
+    for (const key of Object.keys(full)) {
+      const partial = { ...full }
+      delete partial[key]
+      expect(() => {
+        act(() => { result.current.setRouteData('generated', partial) })
+      }).toThrow()
+    }
+  })
+
+  it('setRouteData replaces dismissed wholesale, never merges across calls', () => {
+    const { result } = setup('generated')
+
+    act(() => {
+      result.current.setRouteData('generated', {
+        slots: [], stats: null, findings: [], overlays: [], snapshots: [],
+        dismissed: new Set(['old-key']),
+      })
+    })
+    expect(result.current.dismissedByRoute.generated).toEqual(new Set(['old-key']))
+
+    act(() => {
+      result.current.setRouteData('generated', {
+        slots: [], stats: null, findings: [], overlays: [], snapshots: [],
+        dismissed: new Set(['new-key']),
+      })
+    })
+
+    // old-key must be GONE, not merged in alongside new-key.
+    expect(result.current.dismissedByRoute.generated).toEqual(new Set(['new-key']))
+  })
+
+  it('setRouteData applies existingTemplate/templateId when present and leaves them untouched when omitted', () => {
+    const { result } = setup('generated')
+
+    act(() => {
+      result.current.setRouteData('generated', {
+        slots: [], stats: null, findings: [], dismissed: new Set(), overlays: [], snapshots: [],
+        existingTemplate: true,
+        templateId: 'tpl-123',
+      })
+    })
+    expect(result.current.existingTemplates.generated).toBe(true)
+    expect(result.current.templateIdByRoute.generated).toBe('tpl-123')
+
+    act(() => {
+      result.current.setRouteData('generated', {
+        slots: [], stats: null, findings: [], dismissed: new Set(), overlays: [], snapshots: [],
+      })
+    })
+    // Omitted -> untouched, still the previously-set values.
+    expect(result.current.existingTemplates.generated).toBe(true)
+    expect(result.current.templateIdByRoute.generated).toBe('tpl-123')
+  })
+
+  it('regression guard: the raw route-explicit setters still work and still target the named route', () => {
+    const { result } = setup('generated')
+
+    // useGeneration/useSnapshots write a NON-current route explicitly via these
+    // raw setters, bypassing the current-route accessors entirely.
+    act(() => {
+      result.current.setSlotsByRoute(prev => ({ ...prev, manual: [{ id: 'man-slot' }] }))
+      result.current.setFindingsByRoute(prev => ({ ...prev, manual: [{ id: 'man-finding' }] }))
+      result.current.setDismissedByRoute(prev => ({ ...prev, manual: new Set(['man-dismissed']) }))
+      result.current.setOverlaysByRoute(prev => ({ ...prev, manual: [{ id: 'man-overlay' }] }))
+      result.current.setStatsByRoute(prev => ({ ...prev, manual: { open: 9 } }))
+      result.current.setSnapshotsByRoute(prev => ({ ...prev, manual: [{ id: 'man-snap' }] }))
+    })
+
+    expect(result.current.slotsByRoute.manual).toEqual([{ id: 'man-slot' }])
+    expect(result.current.findingsByRoute.manual).toEqual([{ id: 'man-finding' }])
+    expect(result.current.dismissedByRoute.manual).toEqual(new Set(['man-dismissed']))
+    expect(result.current.overlaysByRoute.manual).toEqual([{ id: 'man-overlay' }])
+    expect(result.current.statsByRoute.manual).toEqual({ open: 9 })
+    expect(result.current.snapshotsByRoute.manual).toEqual([{ id: 'man-snap' }])
+    // Current route (generated) untouched by these writes.
+    expect(result.current.slotsByRoute.generated).toEqual([])
+  })
 })
