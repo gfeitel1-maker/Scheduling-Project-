@@ -682,6 +682,41 @@ export const mockShoresh = {
     saveState(state)
     return { ok: true }
   },
+
+  // No-op subscribe — the mock has no real full-sync event to fire; mirrors
+  // onOpApplied/onOpConflict's registered-but-inert shape for parity.
+  onFullSyncApplied() {
+    return () => {}
+  },
+
+  // §9 project-file lifecycle stand-ins. Sidebar.jsx actually calls
+  // getCurrentProject and backupProject, so those return a plausible dev
+  // shape; the other six exist only to keep the IPC surface honest in a
+  // plain browser dev server — there is no real filesystem to simulate here.
+  async getCurrentProject() {
+    return { path: '(mock)', isDev: true, build: null }
+  },
+  async backupProject() {
+    return { status: 'ok' }
+  },
+  async createProject() {
+    return { status: 'not-supported-in-browser-dev' }
+  },
+  async openProject() {
+    return { status: 'not-supported-in-browser-dev' }
+  },
+  async exportProject() {
+    return { status: 'not-supported-in-browser-dev' }
+  },
+  async restoreProject() {
+    return { status: 'not-supported-in-browser-dev' }
+  },
+  async listRecentProjects() {
+    return { status: 'not-supported-in-browser-dev' }
+  },
+  async openRecentProject() {
+    return { status: 'not-supported-in-browser-dev' }
+  },
 }
 
 // Dev-only: expose the mock on window so a manual/automated browser session
