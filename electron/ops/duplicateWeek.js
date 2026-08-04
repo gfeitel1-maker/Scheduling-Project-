@@ -64,10 +64,25 @@ export function duplicateWeek(db, { sourceWeekId, campId }, { author_user_id, de
     const cwid = (entity, n) =>
       `dup:${sourceWeekId}:${newWeekId}:${entity}:${n}`
 
-    // Pre-create the schedule_weeks row so child FK references (schedule_templates.week_id)
-    // are satisfied immediately. The row ops are still appended LAST (§3.4) — a partial sync
-    // sees children but not the week in the switcher. applyProjection for the week ops will
-    // find the row already exists and INSERT OR IGNORE is a no-op; the UPDATEs still land.
+    // DELIBERATE op-log invariant deviation, not an oversight: schedule_templates.week_id
+    // carries a NOT NULL FK to schedule_weeks, so the new week's row must exist inside
+    // THIS transaction before any template op below can be appended and applied. A raw
+    // INSERT OR IGNORE (placeholder name='', sort_order=0) is safe because:
+    //   1. It is inside the same db.transaction() as every op below — a rollback here
+    //      rolls back the raw insert too, so no partial state is ever visible.
+    //   2. The ops appended later in this same transaction (the week-row ops near the
+    //      end of this function) UPDATE this row with the real name/sort_order via
+    //      applyProjection, so the creating device's final state is correct.
+    //   3. On a peer device this raw insert is never replicated — only the ops are.
+    //      The peer's own schedule_weeks ensureExists (op replay path) performs the
+    //      equivalent INSERT OR IGNORE from op data, so convergence holds.
+    // The row ops are still appended LAST (§3.4) — a partial sync sees children but not
+    // the week in the switcher.
+    // Cost: the week's row-creation event itself has no op-log entry — an observer
+    // reading the op log sees the first `name` write as if it were the creation. This
+    // is a known, accepted auditability gap, not a correctness gap. Making the op log
+    // auditability-complete would require an explicit creation op — a separate ticket
+    // with a real code change, not a comment.
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     db.prepare(
       "INSERT OR IGNORE INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, '', 0, 0)"
