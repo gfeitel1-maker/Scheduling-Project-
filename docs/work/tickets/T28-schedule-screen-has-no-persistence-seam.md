@@ -73,11 +73,11 @@ module is unit-testable without React or Electron. Rewire every schedule handler
 - Route-state (`byRoute`) encapsulation.
 - Any change to the pure engine, to `PROJECTIONS`, to the IPC surface, or to the sibling screens'
   copy-pasted `writeFields` (their consolidation, if wanted, is a separate follow-up — do not widen
-  this refactor to them under §8).
+  this refactor to them under §9).
 
 **Non-negotiable boundaries** (`ARCHITECTURE_STANDARD.md`): stays behind `localClient`/IPC (§1),
-same op-log primitives and entities (§2), engine stays pure — mapping does not move into it (§7),
-inline styling untouched (§6, N/A here). Zero user-visible behaviour change.
+same op-log primitives and entities (§2), engine stays pure — mapping does not move into it (§8),
+inline styling untouched (§7, N/A here). Zero user-visible behaviour change.
 
 ## Completion evidence
 
