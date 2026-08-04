@@ -32,6 +32,7 @@ function setup(overrides = {}) {
     campId: 'camp-1',
     weekId: 'w1',
     setPreferredWeekId: vi.fn(),
+    setActionError: vi.fn(),
     ...overrides,
   }
   const hook = renderHook((props) => useWeeks(props), { initialProps: p })
@@ -206,5 +207,49 @@ describe('useWeeks', () => {
     act(() => { result.current.confirmDeleteWeek('w2') })
     applyUpdater(props.setWeeks, props.weeks)
     expect(props.setPreferredWeekId).not.toHaveBeenCalled()
+  })
+
+  describe('write failure handling', () => {
+    it('createWeek: rejected write calls setActionError and does not update state', async () => {
+      const repo = makeRepo({ createWeek: vi.fn(async () => { throw new Error('ipc error') }) })
+      const { result, props } = setup({ repo })
+      await act(async () => { await result.current.createWeek('Week 3') })
+      expect(props.setActionError).toHaveBeenCalledWith(expect.any(String))
+      expect(props.setWeeks).not.toHaveBeenCalled()
+      expect(props.setPreferredWeekId).not.toHaveBeenCalled()
+    })
+
+    it('renameWeek: rejected write calls setActionError and does not update state', async () => {
+      const repo = makeRepo({ writeWeekFields: vi.fn(async () => { throw new Error('ipc error') }) })
+      const { result, props } = setup({ repo })
+      await act(async () => { await result.current.renameWeek('w1', 'New Name') })
+      expect(props.setActionError).toHaveBeenCalledWith(expect.any(String))
+      expect(props.setWeeks).not.toHaveBeenCalled()
+    })
+
+    it('archiveWeek: rejected write calls setActionError and does not update state', async () => {
+      const repo = makeRepo({ writeWeekFields: vi.fn(async () => { throw new Error('ipc error') }) })
+      const { result, props } = setup({ repo })
+      await act(async () => { await result.current.archiveWeek('w1') })
+      expect(props.setActionError).toHaveBeenCalledWith(expect.any(String))
+      expect(props.setWeeks).not.toHaveBeenCalled()
+      expect(props.setPreferredWeekId).not.toHaveBeenCalled()
+    })
+
+    it('unarchiveWeek: rejected write calls setActionError and does not update state', async () => {
+      const repo = makeRepo({ writeWeekFields: vi.fn(async () => { throw new Error('ipc error') }) })
+      const { result, props } = setup({ repo })
+      await act(async () => { await result.current.unarchiveWeek('w1') })
+      expect(props.setActionError).toHaveBeenCalledWith(expect.any(String))
+      expect(props.setWeeks).not.toHaveBeenCalled()
+    })
+
+    it('duplicateWeek: rejected localClient call calls setActionError and does not update state', async () => {
+      const localClient = makeLocalClient({ duplicateWeek: vi.fn(async () => { throw new Error('ipc error') }) })
+      const { result, props } = setup({ localClient })
+      await act(async () => { await result.current.duplicateWeek('w1') })
+      expect(props.setActionError).toHaveBeenCalledWith(expect.any(String))
+      expect(props.setWeeks).not.toHaveBeenCalled()
+    })
   })
 })

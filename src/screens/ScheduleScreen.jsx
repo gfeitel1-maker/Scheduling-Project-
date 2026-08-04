@@ -213,7 +213,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
 
   // Week mutation orchestration: create/rename/archive/unarchive/duplicate/delete.
   const weeksHook = useWeeks({
-    weeks, setWeeks, repo, localClient, campId, weekId, setPreferredWeekId,
+    weeks, setWeeks, repo, localClient, campId, weekId, setPreferredWeekId, setActionError,
   })
 
   // Generation: generate / regenerate / place-anchors, over the repo + the pure

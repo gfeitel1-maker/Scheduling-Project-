@@ -1,28 +1,44 @@
+import { describeWriteFailure } from '../../utils/writeErrorMessage'
+
 // Week mutation orchestration: create/rename/archive/unarchive/duplicate/delete,
 // over the T28 repository + localClient (duplicateWeek/deleteWeek are multi-entity
 // cascading Host transactions, not field writes — see docs/adr/2026-08-04-
 // repository-layer-policy.md, hence localClient is injected directly rather than
 // wrapped in a repo pass-through).
-//
-// None of the six handlers below catches a write failure — the optimistic update
-// already lands even if repo.createWeek/writeWeekFields subsequently rejects.
-// Filed as a separate ticket; out of scope for this pure code-motion refactor.
-export function useWeeks({ weeks, setWeeks, repo, localClient, campId, weekId, setPreferredWeekId }) {
+export function useWeeks({ weeks, setWeeks, repo, localClient, campId, weekId, setPreferredWeekId, setActionError }) {
   async function createWeek(name) {
     const wid = crypto.randomUUID()
     const sortOrder = weeks.length > 0 ? Math.max(...weeks.map(w => w.sort_order ?? 0)) + 1 : 0
-    await repo.createWeek(wid, { campId, name, sortOrder })
+    setActionError(null)
+    try {
+      await repo.createWeek(wid, { campId, name, sortOrder })
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That week could not be created.'))
+      return
+    }
     setWeeks(prev => [...prev, { id: wid, camp_id: campId, name, sort_order: sortOrder, is_archived: 0 }])
     setPreferredWeekId(wid)
   }
 
   async function renameWeek(id, name) {
-    await repo.writeWeekFields(id, { name })
+    setActionError(null)
+    try {
+      await repo.writeWeekFields(id, { name })
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That week could not be renamed.'))
+      return
+    }
     setWeeks(prev => prev.map(w => (w.id === id ? { ...w, name } : w)))
   }
 
   async function archiveWeek(id) {
-    await repo.writeWeekFields(id, { is_archived: '1' })
+    setActionError(null)
+    try {
+      await repo.writeWeekFields(id, { is_archived: '1' })
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That week could not be archived.'))
+      return
+    }
     setWeeks(prev => prev.map(w => (w.id === id ? { ...w, is_archived: 1 } : w)))
     if (weekId === id) {
       setPreferredWeekId(fallbackWeekId(weeks.filter(w => w.id !== id), { allowArchived: false }))
@@ -30,12 +46,25 @@ export function useWeeks({ weeks, setWeeks, repo, localClient, campId, weekId, s
   }
 
   async function unarchiveWeek(id) {
-    await repo.writeWeekFields(id, { is_archived: '0' })
+    setActionError(null)
+    try {
+      await repo.writeWeekFields(id, { is_archived: '0' })
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That week could not be unarchived.'))
+      return
+    }
     setWeeks(prev => prev.map(w => (w.id === id ? { ...w, is_archived: 0 } : w)))
   }
 
   async function duplicateWeek(sourceId) {
-    const result = await localClient.duplicateWeek(sourceId, campId)
+    setActionError(null)
+    let result
+    try {
+      result = await localClient.duplicateWeek(sourceId, campId)
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That week could not be duplicated.'))
+      return
+    }
     if (result?.ok) {
       const freshWeeks = await repo.loadWeeks()
       const camp = freshWeeks.filter(w => w.camp_id === campId).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
