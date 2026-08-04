@@ -343,6 +343,13 @@ export const mockShoresh = {
     saveState(state)
     return { status: 'applied' }
   },
+  // localClient.deleteEntity is a convenience wrapper that calls
+  // shoresh.write(...) directly (not shoresh.deleteEntity) — this key exists
+  // purely so the localClient/mock surfaces stay 1:1 for
+  // electron/ipcSurfaceParity.test.js; nothing in localClient.js ever calls it.
+  async deleteEntity({ entity, entity_id } = {}) {
+    return mockShoresh.write({ entity, entity_id, field: '__deleted__', value: 1 })
+  },
   // Wholesale delete-and-reinsert of one scope, mirroring the real
   // bulk_replace primitive (electron/ops/operations.js). The two registered
   // bulk_replace entities (template_slots, template_overlays) are both scoped
