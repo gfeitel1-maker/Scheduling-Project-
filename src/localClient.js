@@ -69,6 +69,10 @@ export const localClient = {
   listDevices: () => shoresh.listDevices(currentToken()),
   revokeDevice: (deviceId, reason) => shoresh.revokeDevice({ token: currentToken(), deviceId, reason }),
   duplicateWeek: (sourceWeekId, campId) => shoresh.duplicateWeek({ sourceWeekId, campId }),
+  // deleteWeekHandler (electron/main.js) destructures { token, weekId } and goes
+  // through authorize() — thread the token the same way every other authorized
+  // wrapper here does via currentToken().
+  deleteWeek: (args) => shoresh.deleteWeek({ token: currentToken(), ...args }),
   onPairingRequest: (cb) => shoresh.onPairingRequest && shoresh.onPairingRequest(cb),
   onPairingApproved: (cb) => shoresh.onPairingApproved && shoresh.onPairingApproved(cb),
   onPairingDenied: (cb) => shoresh.onPairingDenied && shoresh.onPairingDenied(cb),
