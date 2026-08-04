@@ -11,6 +11,29 @@ related: [docs/work/specs/architecture-restructure-proposal.md]
 
 # Target Architecture
 
+> **SUPERSEDED IN PART — read this first (added 2026-08-04, Phase E).**
+>
+> This is a dated findings document, not living law. Its analysis is preserved as evidence; several
+> of its conclusions have since been decided or resolved and must not be read as open questions:
+>
+> - **§8 R5 is CLOSED.** The repository-layer policy was decided in
+>   [ADR 2026-08-04](../../adr/2026-08-04-repository-layer-policy.md) and written into
+>   `ARCHITECTURE_STANDARD.md` §6. A repository is required only where a domain has meaningful
+>   shared persistence mapping to centralize; **there is no mandatory repository tier**. Where this
+>   report frames screens calling `localClient` directly as a gap, violation, or "structural
+>   fiction" (notably rows 3 and 5 of the violations table, and the §8 R5 discussion), that framing
+>   is superseded — those call sites are **conforming**.
+> - **§8 R2 is CLOSED** by
+>   [ADR 2026-08-04](../../adr/2026-08-04-project-lifecycle-authorization-exemption.md) and the IPC
+>   surface parity work.
+> - **§8 R1 is CLOSED** by `electron/ops/projectionsCoverage.test.js`.
+> - **Line references are stale.** `ScheduleScreen.jsx:441, 448, 947` no longer exist;
+>   `duplicateWeek` now lives at `src/screens/schedule/useWeeks.js` as a documented conforming hook
+>   call. `Sidebar.jsx`'s direct `window.shoresh` use is fixed — no `window.shoresh` reference
+>   remains in `src/` outside `localClient.js`.
+> - **"~15 screens" is 13.** See `docs/work/runs/2026-08-04-r5-conformance-summary.md` for the
+>   precise, current enumeration.
+
 **This is not a redesign.** The question answered here is narrower and more useful: if development continued for two more years with the current team, the current constraints, and the current architectural instincts, what would this code naturally become?
 
 The answer is mostly reassuring. The load-bearing decisions — op-log-everything, a pure engine, a hard IPC seam, no router, inline styles, two non-canonical routes — are the kind that get *more* valuable as a codebase grows, not less. The trajectory is not toward a rewrite. It is toward a handful of currently-implicit seams becoming explicit, mostly under pressure from features that already have obvious names.

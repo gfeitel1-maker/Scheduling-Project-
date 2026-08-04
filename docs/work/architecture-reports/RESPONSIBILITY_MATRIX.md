@@ -14,6 +14,12 @@ One row per responsibility, one owner per row. Where a responsibility has more t
 
 Legend: **Owner** is where the decision is made. **Contributors** are files that participate but do not decide.
 
+> **SUPERSEDED IN PART (added 2026-08-04, Phase E).** Rows noting that "no repository exists" for
+> non-schedule entities record a fact, but the implied deficiency is superseded: per
+> [ADR 2026-08-04](../../adr/2026-08-04-repository-layer-policy.md) and `ARCHITECTURE_STANDARD.md`
+> §6, those screens owning their own `localClient` calls is the **conforming simple-domain shape**,
+> not a missing tier.
+
 ---
 
 ## Renderer responsibilities

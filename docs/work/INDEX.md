@@ -39,7 +39,13 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [T37-generated-schedule-post-save-refresh-flicker](../../docs/work/tickets/T37-generated-schedule-post-save-refresh-flicker.md) | open | — |
-| [T39-flaky-schedulescreen-tests](../../docs/work/tickets/T39-flaky-schedulescreen-tests.md) | open | — |
+| [T39-flaky-schedulescreen-tests](../../docs/work/tickets/T39-flaky-schedulescreen-tests.md) | open | [T44-suite-flakiness-recurred-under-load](../../docs/work/tickets/T44-suite-flakiness-recurred-under-load.md) |
+| [T42-mock-allowlist-drift-is-manual](../../docs/work/tickets/T42-mock-allowlist-drift-is-manual.md) | open | [T43-src-imports-electron-code](../../docs/work/tickets/T43-src-imports-electron-code.md) · [T45-schema-sql-is-not-authoritative](../../docs/work/tickets/T45-schema-sql-is-not-authoritative.md) |
+| [T43-src-imports-electron-code](../../docs/work/tickets/T43-src-imports-electron-code.md) | open | [T42-mock-allowlist-drift-is-manual](../../docs/work/tickets/T42-mock-allowlist-drift-is-manual.md) |
+| [T44-suite-flakiness-recurred-under-load](../../docs/work/tickets/T44-suite-flakiness-recurred-under-load.md) | open | — |
+| [T45-schema-sql-is-not-authoritative](../../docs/work/tickets/T45-schema-sql-is-not-authoritative.md) | open | — |
+| [T46-week-crud-has-no-failure-handling](../../docs/work/tickets/T46-week-crud-has-no-failure-handling.md) | open | — |
+| [T47-component-io-outside-the-approved-exception](../../docs/work/tickets/T47-component-io-outside-the-approved-exception.md) | open | [2026-08-04-r5-conformance-summary](../../docs/work/runs/2026-08-04-r5-conformance-summary.md) |
 
 ## Decisions
 
@@ -62,6 +68,8 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [A persistence seam for the schedule screen](../../docs/adr/2026-08-01-schedule-screen-persistence-seam.md) | accepted | implemented | [2026-08-01-t28-schedule-persistence-seam-run](../../docs/work/runs/2026-08-01-t28-schedule-persistence-seam-run.md) · [2026-08-01-schedule-screen-decoupling-design](../../docs/work/specs/2026-08-01-schedule-screen-decoupling-design.md) · [T28-schedule-screen-has-no-persistence-seam](../../docs/work/tickets/T28-schedule-screen-has-no-persistence-seam.md) |
 | [Schedule weeks become a first-class entity (Slice 1)](../../docs/adr/2026-08-02-schedule-weeks-first-class.md) | accepted | in-progress | [multi-week-slices-2-3](../../docs/work/specs/multi-week-slices-2-3.md) |
 | [Per-week activity and group participation, week duplication, and permanent week delete (Slices 2–3)](../../docs/adr/2026-08-03-multi-week-slices-2-3.md) | accepted | in-progress | [multi-week-slices-2-3](../../docs/work/specs/multi-week-slices-2-3.md) |
+| [Project-lifecycle IPC handlers: trusted local-device operations exempt from camp session authorization](../../docs/adr/2026-08-04-project-lifecycle-authorization-exemption.md) | accepted | existing — retroactively documented | — |
+| [Repository-layer policy: repositories where shared persistence mapping exists, localClient otherwise](../../docs/adr/2026-08-04-repository-layer-policy.md) | accepted | existing pattern — policy now explicit | [2026-08-04-r5-conformance-summary](../../docs/work/runs/2026-08-04-r5-conformance-summary.md) · [T42-mock-allowlist-drift-is-manual](../../docs/work/tickets/T42-mock-allowlist-drift-is-manual.md) · [T43-src-imports-electron-code](../../docs/work/tickets/T43-src-imports-electron-code.md) · [T47-component-io-outside-the-approved-exception](../../docs/work/tickets/T47-component-io-outside-the-approved-exception.md) |
 
 ## Runs
 
@@ -70,6 +78,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
+| 2026-08-04 | [Phase E (R5) — verify the code conforms to the amended repository-layer policy and retire stale layering language](../../docs/work/runs/2026-08-04-r5-conformance-summary.md) | architecture | pass | pass |
 | 2026-08-01 | [T28 — extract the schedule persistence seam (scheduleRepository)](../../docs/work/runs/2026-08-01-t28-schedule-persistence-seam-run.md) | architecture | pass | pass |
 | 2026-08-01 | [T29 — extract the schedule grid-geometry module](../../docs/work/runs/2026-08-01-t29-schedule-grid-geometry-run.md) | architecture | pass | pass |
 | 2026-08-01 | [T30 — extract schedule feature hooks](../../docs/work/runs/2026-08-01-t30-schedule-feature-hooks-run.md) | architecture | pass | pass |

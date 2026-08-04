@@ -107,11 +107,38 @@ complexity across call sites, it is earning its keep. `src/data/scheduleReposito
 because it replaced three separately-drifting copies of the same engine-slot → DB-row mapping.
 
 A screen may call `localClient` directly for genuinely simple, screen-owned operations where a hook
-adds no reusable behavior. The ~15 non-schedule screens that do this are conforming under this rule.
+adds no reusable behavior. The 13 non-schedule screens that do this are conforming under this rule,
+as are the hooks (`useCohorts`, `useDeviceMode`, `usePendingConflicts`, `useWeeks`) that do the same.
+
+`src/screens/schedule/useWeeks.js` is the worked example of the no-pass-through half of the rule: it
+calls `localClient.duplicateWeek` directly because wrapping a cascading Host transaction in a
+`repo.duplicateWeek` one-liner would add no mapping and would be exactly the pass-through this rule
+forbids. It cites this ADR in a comment.
+
+### Components and IO
 
 Components (`src/components/**`) are presentational. They receive data and emit callbacks; they do
-not perform IO. Documented exceptions must be approved explicitly and are recorded in the boundary
-audit.
+not perform IO. Exceptions must be approved explicitly and listed here — this register is the record,
+not the boundary audit, which is a dated findings document rather than living law.
+
+**Approved exception — a confirmation dialog may own its own destructive call.** A dialog whose
+entire purpose is to confirm and then execute one destructive action may call `localClient` for that
+action, because routing it back through the parent buys nothing: the parent would immediately call
+the same method with the same arguments, and the dialog is the only thing that knows the user
+confirmed. Current members of this class:
+
+- `src/components/schedule/DeleteWeekDialog.jsx` — `localClient.deleteWeek`, plus repository reads
+  to compute live deletion counts. Receives `localClient` and `repo` as injected props.
+- `src/components/DeleteRecordDialog.jsx` — `localClient.deleteRecord`.
+
+Prefer injecting `localClient` as a prop over importing it at module scope, as `DeleteWeekDialog`
+does — it keeps the component testable without module mocking.
+
+**Not covered by any exception:** `src/components/layout/Sidebar.jsx` and
+`src/components/RecordHistory.jsx` perform domain *reads for display*, which is a different
+justification entirely and one this register does not grant. They are known violations pending
+extraction into hooks — see `docs/work/tickets/T47-component-io-outside-the-approved-exception.md`.
+Do not cite them as precedent.
 
 See [ADR 2026-08-04](../../adr/2026-08-04-repository-layer-policy.md) for the policy rationale.
 
