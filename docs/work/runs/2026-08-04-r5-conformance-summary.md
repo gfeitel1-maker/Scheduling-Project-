@@ -9,27 +9,29 @@ governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/govern
 related_tickets: [docs/work/tickets/T47-component-io-outside-the-approved-exception.md]
 related_specs: []
 related_adrs: [docs/adr/2026-08-04-repository-layer-policy.md]
-selected_agents:
-  - agent: general-purpose
-    reason: exhaustive read-only enumeration of every localClient call site and stale-language sweep
-  - agent: verifier
-    reason: deterministic gate — tests, lint, build, governance check
+selected_agents: [governor, verifier]
 omitted_agents:
-  - agent: maker
+  - agent: architect
     reason: not-applicable
-    note: documentation closure; the only code-adjacent finding was filed as T47 rather than implemented
+    note: nothing to design — the repository-layer policy was already decided in ADR 2026-08-04; this phase only verifies conformance to it. The exhaustive call-site enumeration was run as a read-only general-purpose audit, which is not a roster agent.
   - agent: designer
     reason: not-applicable
     note: no UI surface
-  - agent: red-hat
+  - agent: maker
     reason: not-applicable
-    note: no change to stored shape, op-log, sync, or migrations
-  - agent: security
+    note: documentation-only; git diff main touches no file under src/ or electron/. The one code-level finding was filed as T47 rather than implemented.
+  - agent: code-reviewer
     reason: not-applicable
-    note: no auth, secret, IPC, or packaging change
+    note: no code diff to review for plan alignment or maintainability; the documentation claims are checked by the Verifier's greps instead
   - agent: tester
     reason: no-predicate
     note: no director-visible behavior to evaluate
+  - agent: security
+    reason: not-applicable
+    note: no auth, secret, IPC, or packaging change
+  - agent: red-hat
+    reason: not-applicable
+    note: no change to stored shape, op-log, sync, or migrations
   - agent: grader
     reason: not-applicable
     note: no Tester/Security/RedHat reports exist to consolidate; the verdict rests on the Verifier's deterministic gate, not a score
