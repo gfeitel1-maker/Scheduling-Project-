@@ -130,17 +130,15 @@ export default function Sidebar({ current, onNavigate, campId, role, badges = {}
   }, [campId])
 
   useEffect(() => {
-    if (!window.shoresh?.getCurrentProject) return
-    window.shoresh.getCurrentProject()
+    localClient.getCurrentProject()
       .then(info => { if (info?.path) setProjectPath(info.path); if (info) { setIsDevDb(!!info.isDev); setBuildLabel(info.build || null) } })
       .catch(() => { /* non-fatal */ })
   }, [campId])
 
   const handleBackupNow = useCallback(async () => {
-    if (!window.shoresh?.backupProject) return
     setBackupStatus('running')
     try {
-      const result = await window.shoresh.backupProject()
+      const result = await localClient.backupProject()
       setBackupStatus(result?.error ? 'error' : 'ok')
     } catch {
       setBackupStatus('error')

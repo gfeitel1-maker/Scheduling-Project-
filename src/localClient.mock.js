@@ -165,6 +165,74 @@ let pairingDeniedListeners = []
 let tokenRenewedListeners = []
 let opConflictListeners = []
 
+// Hand-maintained, independent transcription of every PROJECTIONS[entity].fields
+// in electron/ops/projections.js — deliberately NOT an import. src/ must never
+// import from electron/ (that boundary is unbroken across the whole codebase;
+// see CLAUDE.md/ARCHITECTURE_STANDARD.md §6), so this is a verbatim copy kept
+// honest by electron/ipcSurfaceParity.test.js's drift check, not by sharing code.
+// A future agent may be tempted to "just import projections.js" to eliminate
+// this duplication — don't: that would be the first src/ -> electron/ import
+// in the project and the drift test exists specifically so staleness here is
+// loud (a failing test) rather than silent.
+export const MOCK_WRITE_ALLOWLIST = {
+  camps: ['name'],
+  users: ['camp_id', 'name', 'pin_hash', 'pin_salt', 'role'],
+  cohorts: [
+    'camp_id',
+    'name',
+    'session_week_start',
+    'session_week_end',
+    'capacity_source',
+    'anchor_model',
+    'sort_order',
+  ],
+  groups: ['camp_id', 'name', 'tier_id', 'availability'],
+  days_of_operation: ['camp_id', 'label', 'day_of_week', 'sort_order'],
+  time_blocks: ['camp_id', 'cohort_id', 'name', 'start_time', 'end_time', 'part_of_day', 'sort_order'],
+  tiers: ['camp_id', 'cohort_id', 'name', 'sort_order'],
+  activities: [
+    'camp_id',
+    'name',
+    'location',
+    'is_outdoor',
+    'is_locked',
+    'max_groups_per_slot',
+    'min_per_week',
+    'max_per_week',
+    'same_tier_only',
+    'priority',
+    'eligible_tier_ids',
+    'eligible_group_ids',
+    'prefer_before_day',
+    'prefer_before_day_min',
+    'weather_alternative_id',
+    'notes',
+    'span_blocks',
+  ],
+  anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes'],
+  day_override_templates: ['camp_id', 'cohort_id', 'name', 'frequency_mode'],
+  day_override_template_slots: ['day_override_template_id', 'time_block_id', 'activity_id'],
+  week_activity_exclusions: ['week_id', 'activity_id'],
+  week_group_exclusions: ['week_id', 'group_id'],
+  schedule_weeks: ['camp_id', 'name', 'sort_order', 'is_archived'],
+  schedule_templates: ['kind', 'camp_id', 'week_id', 'name'],
+  schedule_snapshots: ['template_id', 'name', 'is_auto', 'created_at', 'slots', 'overlays'],
+  template_overlays: ['template_id', 'unit_id', 'day_id', 'from_block_order', 'to_block_order', 'label'],
+  template_slots: [
+    'template_id',
+    'group_id',
+    'activity_id',
+    'day_id',
+    'time_block_id',
+    'anchor_id',
+    'is_anchor',
+    'is_span_head',
+    'is_released',
+    'flags',
+  ],
+  conflicts: [],
+}
+
 export const mockShoresh = {
   async chooseMode() {
     return { mode: 'host' }
@@ -201,6 +269,28 @@ export const mockShoresh = {
   // Camp Setup end-to-end outside Electron.
   async write({ entity, entity_id, field, value } = {}) {
     if (!entity || !entity_id) return { status: 'applied' }
+
+    // Enforcement is stricter than the real path, deliberately. The real path
+    // is asymmetric: appendOp (electron/ops/operations.js) THROWS for a
+    // registered entity with a bad field, but applyProjection SILENTLY
+    // returns for an unregistered entity/field (electron/ops/projections.js).
+    // Reproducing that silent swallow here would defeat the entire point of
+    // an allowlist meant to catch dev-mode writes that would go nowhere in
+    // the real app — so the mock throws for BOTH cases.
+    if (field !== '__deleted__') {
+      const allowedFields = MOCK_WRITE_ALLOWLIST[entity]
+      if (!allowedFields) {
+        throw new Error(
+          `mockShoresh.write: entity '${entity}' is not in MOCK_WRITE_ALLOWLIST — register it in electron/ops/projections.js and transcribe it here (see electron/ipcSurfaceParity.test.js for the drift check).`
+        )
+      }
+      if (!allowedFields.includes(field)) {
+        throw new Error(
+          `mockShoresh.write: field '${entity}.${field}' is not in MOCK_WRITE_ALLOWLIST — register it in electron/ops/projections.js and transcribe it here (see electron/ipcSurfaceParity.test.js for the drift check).`
+        )
+      }
+    }
+
     const state = loadState()
 
     // `camps` is the singleton stored as state.camp (read by getCamp), not an
@@ -591,6 +681,41 @@ export const mockShoresh = {
 
     saveState(state)
     return { ok: true }
+  },
+
+  // No-op subscribe — the mock has no real full-sync event to fire; mirrors
+  // onOpApplied/onOpConflict's registered-but-inert shape for parity.
+  onFullSyncApplied() {
+    return () => {}
+  },
+
+  // §9 project-file lifecycle stand-ins. Sidebar.jsx actually calls
+  // getCurrentProject and backupProject, so those return a plausible dev
+  // shape; the other six exist only to keep the IPC surface honest in a
+  // plain browser dev server — there is no real filesystem to simulate here.
+  async getCurrentProject() {
+    return { path: '(mock)', isDev: true, build: null }
+  },
+  async backupProject() {
+    return { status: 'ok' }
+  },
+  async createProject() {
+    return { status: 'not-supported-in-browser-dev' }
+  },
+  async openProject() {
+    return { status: 'not-supported-in-browser-dev' }
+  },
+  async exportProject() {
+    return { status: 'not-supported-in-browser-dev' }
+  },
+  async restoreProject() {
+    return { status: 'not-supported-in-browser-dev' }
+  },
+  async listRecentProjects() {
+    return { status: 'not-supported-in-browser-dev' }
+  },
+  async openRecentProject() {
+    return { status: 'not-supported-in-browser-dev' }
   },
 }
 

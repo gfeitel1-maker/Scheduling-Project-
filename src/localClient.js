@@ -69,8 +69,30 @@ export const localClient = {
   listDevices: () => shoresh.listDevices(currentToken()),
   revokeDevice: (deviceId, reason) => shoresh.revokeDevice({ token: currentToken(), deviceId, reason }),
   duplicateWeek: (sourceWeekId, campId) => shoresh.duplicateWeek({ sourceWeekId, campId }),
+  // deleteWeekHandler (electron/main.js) destructures { token, weekId } and goes
+  // through authorize() — thread the token the same way every other authorized
+  // wrapper here does via currentToken(). Fields enumerated explicitly (not
+  // spread) so a caller-supplied token in args can never override the real one.
+  deleteWeek: ({ weekId }) => shoresh.deleteWeek({ token: currentToken(), weekId }),
   onPairingRequest: (cb) => shoresh.onPairingRequest && shoresh.onPairingRequest(cb),
   onPairingApproved: (cb) => shoresh.onPairingApproved && shoresh.onPairingApproved(cb),
   onPairingDenied: (cb) => shoresh.onPairingDenied && shoresh.onPairingDenied(cb),
   onTokenRenewed: (cb) => shoresh.onTokenRenewed && shoresh.onTokenRenewed(cb),
+  // No payload — mirrors onOpApplied's subscribe/unsubscribe shape but the
+  // event carries nothing beyond "it happened". See preload.js.
+  onFullSyncApplied: (cb) => shoresh.onFullSyncApplied(cb),
+
+  // §9 project-file lifecycle (electron/preload.js, ADR
+  // 2026-08-04-project-lifecycle-authorization-exemption.md). These are
+  // trusted local-device operations, exempt from camp session authorization
+  // by recorded decision — no token is threaded through these and none must
+  // be added.
+  getCurrentProject: () => shoresh.getCurrentProject(),
+  createProject: () => shoresh.createProject(),
+  openProject: () => shoresh.openProject(),
+  exportProject: () => shoresh.exportProject(),
+  backupProject: () => shoresh.backupProject(),
+  restoreProject: () => shoresh.restoreProject(),
+  listRecentProjects: () => shoresh.listRecentProjects(),
+  openRecentProject: (targetPath) => shoresh.openRecentProject(targetPath),
 }
