@@ -25,6 +25,7 @@ import { useUndoRedo } from './schedule/useUndoRedo'
 import { useClipboardSelection } from './schedule/useClipboardSelection'
 import { useOverlayFillStamp } from './schedule/useOverlayFillStamp'
 import { useSnapshots } from './schedule/useSnapshots'
+import { useWeeks } from './schedule/useWeeks'
 import DeleteWeekDialog from '../components/schedule/DeleteWeekDialog'
 import { useGeneration } from './schedule/useGeneration'
 import { useSlotMutations } from './schedule/useSlotMutations'
@@ -208,6 +209,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     routeState, repo, setActionError,
     recalcStats, resetUndoRedo,
     groups, activities, days,
+  })
+
+  // Week mutation orchestration: create/rename/archive/unarchive/duplicate/delete.
+  const weeksHook = useWeeks({
+    weeks, setWeeks, repo, localClient, campId, weekId, setPreferredWeekId, setActionError,
   })
 
   // Generation: generate / regenerate / place-anchors, over the repo + the pure
@@ -673,38 +679,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           weeks={weeks}
           weekId={weekId}
           onSelect={setPreferredWeekId}
-          onCreate={async (name) => {
-            const wid = crypto.randomUUID()
-            const sortOrder = weeks.length > 0 ? Math.max(...weeks.map(w => w.sort_order ?? 0)) + 1 : 0
-            await repo.createWeek(wid, { campId, name, sortOrder })
-            setWeeks(prev => [...prev, { id: wid, camp_id: campId, name, sort_order: sortOrder, is_archived: 0 }])
-            setPreferredWeekId(wid)
-          }}
-          onRename={async (id, name) => {
-            await repo.writeWeekFields(id, { name })
-            setWeeks(prev => prev.map(w => (w.id === id ? { ...w, name } : w)))
-          }}
-          onArchive={async (id) => {
-            await repo.writeWeekFields(id, { is_archived: '1' })
-            setWeeks(prev => prev.map(w => (w.id === id ? { ...w, is_archived: 1 } : w)))
-            if (weekId === id) {
-              const next = weeks.find(w => w.id !== id && String(w.is_archived) !== '1')
-              setPreferredWeekId(next ? next.id : null)
-            }
-          }}
-          onUnarchive={async (id) => {
-            await repo.writeWeekFields(id, { is_archived: '0' })
-            setWeeks(prev => prev.map(w => (w.id === id ? { ...w, is_archived: 0 } : w)))
-          }}
-          onDuplicate={async (sourceWeekId) => {
-            const result = await localClient.duplicateWeek(sourceWeekId, campId)
-            if (result?.ok) {
-              const freshWeeks = await repo.loadWeeks()
-              const camp = freshWeeks.filter(w => w.camp_id === campId).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-              setWeeks(camp)
-            }
-            return result
-          }}
+          onCreate={weeksHook.createWeek}
+          onRename={weeksHook.renameWeek}
+          onArchive={weeksHook.archiveWeek}
+          onUnarchive={weeksHook.unarchiveWeek}
+          onDuplicate={weeksHook.duplicateWeek}
           onDelete={(week) => setDeletingWeek(week)}
         />
         {anyRouteStarted && (
@@ -1193,14 +1172,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           repo={repo}
           onConfirm={(deletedWeekId) => {
             setDeletingWeek(null)
-            setWeeks(prev => {
-              const remaining = prev.filter(w => w.id !== deletedWeekId)
-              if (weekId === deletedWeekId) {
-                const first = remaining.find(w => String(w.is_archived) !== '1')
-                setPreferredWeekId(first?.id ?? remaining[0]?.id ?? null)
-              }
-              return remaining
-            })
+            weeksHook.confirmDeleteWeek(deletedWeekId)
           }}
           onCancel={() => setDeletingWeek(null)}
         />
