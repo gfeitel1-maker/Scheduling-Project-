@@ -12,6 +12,15 @@ companions: [DEPENDENCY_FLOW_MAP.md, BOUNDARY_AUDIT.md, RESPONSIBILITY_MATRIX.md
 
 Descriptive, not authoritative. This records what exists on `main` as of 2026-08-04. Where it disagrees with the code, the code is right and this document is stale.
 
+> **SUPERSEDED IN PART (added 2026-08-04, Phase E).** Where this document describes
+> `Screens → Hooks → Repositories → localClient` as a rule "honoured for one domain and structurally
+> unavailable for the rest", that framing is superseded. Per
+> [ADR 2026-08-04](../../adr/2026-08-04-repository-layer-policy.md) and `ARCHITECTURE_STANDARD.md`
+> §6 there is **no mandatory repository tier**: a repository is required only where a domain has
+> meaningful shared persistence mapping to centralize, and screens calling `localClient` directly
+> for simple, screen-owned operations are **conforming**. Also note its `PROJECTIONS` enumeration
+> omits `users` — there are 19 registered entities, not 18.
+
 Scope: every major subsystem, its purpose, responsibilities, public interface, dependencies, and — the section that matters most for keeping boundaries honest — what it must never contain.
 
 ## Process topology

@@ -11,6 +11,29 @@ related: [docs/work/specs/architecture-restructure-proposal.md]
 
 # Boundary Audit
 
+> **SUPERSEDED IN PART — read this first (added 2026-08-04, Phase E).**
+>
+> This is a dated findings document, not living law. Its analysis is preserved as evidence; the
+> following conclusions have since been decided and must not be read as open findings:
+>
+> - **The repository-layer finding is resolved.** Per
+>   [ADR 2026-08-04](../../adr/2026-08-04-repository-layer-policy.md) and `ARCHITECTURE_STANDARD.md`
+>   §6, there is **no mandatory repository tier**. Statements here that non-schedule screens calling
+>   `localClient` directly are "the single largest structural gap", that the pattern is
+>   "half-adopted", or that those screens "necessarily bypass a tier" are superseded — those call
+>   sites are **conforming**. No migration plan is wanted; the ADR is the recorded decision.
+> - **The four-tier chain is not the rule.** Where this document states
+>   `Screens → Hooks → Repositories → localClient` as *the* layering rule, the current rule is the
+>   two approved shapes in `ARCHITECTURE_STANDARD.md` §6.
+> - **`DeleteWeekDialog`'s component IO is an approved exception**, not a finding. The approved
+>   class and its full membership are now registered in `ARCHITECTURE_STANDARD.md` §6 — that
+>   register, not this document, is the record.
+> - **Line references are stale.** `ScheduleScreen.jsx:441, 448, 947` and `:1439-1440` no longer
+>   exist; `ScheduleScreen.jsx` now has zero domain `localClient` calls.
+>
+> Two component-IO violations this audit did not catch (`Sidebar.jsx`, `RecordHistory.jsx`) are
+> tracked in `docs/work/tickets/T47-component-io-outside-the-approved-exception.md`.
+
 Module by module: what it does today, whether that is one job or several, what it holds that belongs elsewhere, and whether newer work is using it or routing around it.
 
 **Working assumption**: the architecture is generally correct. Almost every boundary in this codebase is deliberate and commented. This audit looks for evidence of drift, not for opportunities to redesign. Where a file is large, the question asked is "does it have more than one independent reason to change?" — never "is it over N lines."

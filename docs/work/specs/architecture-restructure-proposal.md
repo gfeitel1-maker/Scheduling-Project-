@@ -1,7 +1,7 @@
 ---
 title: "Architecture restructure proposal — schedule layer deepening (C1, C2, C4, C5, C6)"
 document_type: spec
-status: proposed
+status: implemented
 created: 2026-08-03
 task_class: architecture
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md, docs/governance/constitution/CONSTITUTION.md]
