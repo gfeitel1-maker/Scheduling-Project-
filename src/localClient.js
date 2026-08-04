@@ -77,4 +77,21 @@ export const localClient = {
   onPairingApproved: (cb) => shoresh.onPairingApproved && shoresh.onPairingApproved(cb),
   onPairingDenied: (cb) => shoresh.onPairingDenied && shoresh.onPairingDenied(cb),
   onTokenRenewed: (cb) => shoresh.onTokenRenewed && shoresh.onTokenRenewed(cb),
+  // No payload — mirrors onOpApplied's subscribe/unsubscribe shape but the
+  // event carries nothing beyond "it happened". See preload.js.
+  onFullSyncApplied: (cb) => shoresh.onFullSyncApplied(cb),
+
+  // §9 project-file lifecycle (electron/preload.js, ADR
+  // 2026-08-04-project-lifecycle-authorization-exemption.md). These are
+  // trusted local-device operations, exempt from camp session authorization
+  // by recorded decision — no token is threaded through these and none must
+  // be added.
+  getCurrentProject: () => shoresh.getCurrentProject(),
+  createProject: () => shoresh.createProject(),
+  openProject: () => shoresh.openProject(),
+  exportProject: () => shoresh.exportProject(),
+  backupProject: () => shoresh.backupProject(),
+  restoreProject: () => shoresh.restoreProject(),
+  listRecentProjects: () => shoresh.listRecentProjects(),
+  openRecentProject: (targetPath) => shoresh.openRecentProject(targetPath),
 }
