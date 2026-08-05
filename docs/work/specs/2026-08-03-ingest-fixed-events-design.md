@@ -460,6 +460,19 @@ hundred (ADR 2026-08-01 §4) — bounded and countable, same order as today.
   `inferFixedEvents` and `extractEntities` sharing the naming helpers (§3.2). The extraction of
   those helpers is behaviour-preserving and must be covered by the existing `extractEntities` tests
   plus a new equality assertion (§10).
+- **Partial resolution is written and reported, not silently truncated** (Red Hat round-1, HIGH,
+  fixed). If the director ticks a fixed event but unticks some of its days or groups, the commit
+  writes the resolved subset (an un-imported day legitimately has no anchor) AND records the
+  shortfall in `result.fixedEvents.partial`, surfaced in the import banner. Reporting only *total*
+  non-resolution (the original behaviour) would silently claim more than it created — the ADR §1
+  failure. Asserted by test.
+- **`is_all_groups` comparison is normalized** (Red Hat round-1, LOW, defensively fixed): the
+  every-group check compares `normalizeName` on both sides, consistent with the rest of the
+  pipeline. Residual, not fully solved and out of scope: a group whose *column header is spelled
+  inconsistently across day-pages* in orientation B fragments its per-day tuples (the `occupied`/
+  `operatingDays` maps key on the raw column text), which can split one event below majority. Not
+  triggered by any real sample (all are consistently spelled); a full fix would canonicalize group
+  keys throughout detection and is deferred until a real camp needs it.
 
 ---
 

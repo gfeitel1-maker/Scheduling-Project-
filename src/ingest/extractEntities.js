@@ -92,9 +92,31 @@ function isActivityLike(text) {
 // Titles with no separator (Zahav, Gesher) are bunks with no unit, which is a
 // real shape and not a parse failure.
 // "MONDAY" -> "Monday". Only ever applied to text isDayName already accepted.
-function canonicalDay(text) {
+export function canonicalDay(text) {
   const name = String(text).trim().toLowerCase()
   return name[0].toUpperCase() + name.slice(1)
+}
+
+// A page title that names a day ("Monday — All Camp" -> "Monday"), for the
+// one-page-per-day layout. Returns null when the title names no day. Exported
+// so fixed-event detection spells day names identically to the entity proposal
+// by sharing this code rather than re-deriving it (the name-identity invariant).
+export function dayNameFromTitle(title) {
+  const day = DAY_ORDER.find((d) => String(title ?? '').toLowerCase().includes(d))
+  return day ? day[0].toUpperCase() + day.slice(1) : null
+}
+
+// The activity names a single grid cell holds. A dash left between two names is
+// the seam where a time used to be: "Instructional Swim - Recreational Swim" is
+// two activities, not one. Exported so fixed-event detection reads a cell to the
+// exact same names extractEntities does (the name-identity invariant).
+export function activityNamesFromCell(cell) {
+  const names = []
+  for (const part of cleanCellValue(cell).split(/\s+[-–—]\s+/)) {
+    const value = part.replace(/^[\s\-–—:]+|[\s\-–—:]+$/g, '').trim()
+    if (isActivityLike(value)) names.push(value)
+  }
+  return names
 }
 
 export function splitUnitAndGroup(title) {
@@ -131,7 +153,9 @@ export function inferUnitFromCode(title) {
 
 // "Adom 4's - Matzo Balls Schedule" -> "Adom 4's - Matzo Balls"
 // "Monday — All Camp" -> "Monday"
-function cleanTitle(title) {
+// Exported so fixed-event detection keys a page title into groupNameByTitle the
+// same way extractEntities does.
+export function cleanTitle(title) {
   return String(title ?? '')
     .replace(/\s*[-–—]\s*All Camp\s*$/i, '')
     .replace(/\s+Schedule\s*$/i, '')
@@ -244,8 +268,8 @@ export function extractEntities(parsed) {
       // Columns are group names on this layout, with no unit information.
       groups.push(...page.columns.map((c) => ({ title: c, unit: null, group: c })))
       if (title) {
-        const day = DAY_ORDER.find((d) => title.toLowerCase().includes(d))
-        if (day) days.push(day[0].toUpperCase() + day.slice(1))
+        const day = dayNameFromTitle(title)
+        if (day) days.push(day)
       }
     }
 
@@ -260,11 +284,7 @@ export function extractEntities(parsed) {
         timeBlocks.push(row.label.trim())
       }
       for (const cell of row.cells) {
-        // A dash left between two names is the seam where a time used to be:
-        // "Instructional Swim - Recreational Swim" is two activities, not one.
-        for (const part of cleanCellValue(cell).split(/\s+[-–—]\s+/)) {
-          const value = part.replace(/^[\s\-–—:]+|[\s\-–—:]+$/g, '').trim()
-          if (!isActivityLike(value)) continue
+        for (const value of activityNamesFromCell(cell)) {
           activities.push(value)
           if (pageKey) {
             const key = value.toLowerCase().replace(/\s+/g, ' ')
@@ -345,6 +365,11 @@ export function extractEntities(parsed) {
     orientation,
     entities,
     groupUnits: Object.fromEntries(groupUnits),
+    // Page title -> the group name that title resolves to (short or full),
+    // so fixed-event detection can map a one-page-per-group title to the exact
+    // group name the entity proposal spells. Derived from data already computed,
+    // not new logic.
+    groupNameByTitle: Object.fromEntries(groups.map((g, i) => [g.title, groupNames[i]])),
     seenCounts,
     counts: Object.fromEntries(Object.entries(entities).map(([k, v]) => [k, v.length])),
   }

@@ -388,7 +388,7 @@ export const mockShoresh = {
   // proposal, commit, see the records appear in Units/Groups/etc — be tested at
   // :5200 with hot-reload. It writes to mock state, NOT the op log, so it proves
   // the UI flow, not the real persistence/sync path (that stays electron:dev).
-  async ingestCommit({ approved, links, cohort_id } = {}) {
+  async ingestCommit({ approved, links, cohort_id, fixedEvents } = {}) {
     const ORDER = ['cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'activities']
     const DAY_INDEX = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
     const parseTimeRange = (label) => {
@@ -434,8 +434,56 @@ export const mockShoresh = {
         total += 1
       })
     }
+
+    // Fixed events (T34) — resolve by name against the rows now in state, then
+    // fan out one anchor_activities row per day. Mirrors commitIngest so the
+    // whole import flow, fixed events included, can be exercised at :5200.
+    const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+    const targetCohort = cohort_id ?? 'main'
+    const blockIdByName = new Map()
+    for (const b of state.time_blocks ?? []) if (b.name && (b.cohort_id ?? 'main') === targetCohort) blockIdByName.set(norm(b.name), b.id)
+    const dayIdByName = new Map()
+    for (const d of state.days_of_operation ?? []) if (d.label) dayIdByName.set(norm(d.label), d.id)
+    const groupIdByName = new Map()
+    for (const g of state.groups ?? []) if (g.name) groupIdByName.set(norm(g.name), g.id)
+
+    if (!Array.isArray(state.anchor_activities)) state.anchor_activities = []
+    const fixedCreatedIds = []
+    const fixedSkipped = []
+    const fixedPartial = []
+    for (const fe of Array.isArray(fixedEvents) ? fixedEvents : []) {
+      const tbId = blockIdByName.get(norm(fe.time_block))
+      const requestedDays = (fe.days ?? []).length
+      const dayIds = (fe.days ?? []).map((d) => dayIdByName.get(norm(d))).filter(Boolean)
+      if (!tbId || dayIds.length === 0) { fixedSkipped.push({ name: fe.name, reason: 'time block or day not created' }); continue }
+      const isAll = fe.scope?.is_all_groups ? 1 : 0
+      let groupIds = []
+      const requestedGroups = isAll ? 0 : (fe.scope?.groups ?? []).length
+      if (!isAll) {
+        groupIds = (fe.scope?.groups ?? []).map((g) => groupIdByName.get(norm(g))).filter(Boolean)
+        if (groupIds.length === 0) { fixedSkipped.push({ name: fe.name, reason: 'groups not created' }); continue }
+      }
+      // Partial resolution is written but surfaced, never silently claimed as full (ADR §1).
+      const droppedDays = requestedDays - dayIds.length
+      const droppedGroups = requestedGroups - groupIds.length
+      if (droppedDays > 0 || droppedGroups > 0) {
+        const bits = []
+        if (droppedDays > 0) bits.push(`${droppedDays} of ${requestedDays} day${requestedDays === 1 ? '' : 's'}`)
+        if (droppedGroups > 0) bits.push(`${droppedGroups} of ${requestedGroups} group${requestedGroups === 1 ? '' : 's'}`)
+        fixedPartial.push({ name: fe.name, reason: `${bits.join(' and ')} not imported` })
+      }
+      for (const dayId of dayIds) {
+        const id = randomId()
+        state.anchor_activities.push({
+          id, camp_id: campId, cohort_id: targetCohort, day_id: dayId, time_block_id: tbId,
+          name: String(fe.name ?? '').trim(), is_all_groups: isAll, group_ids: JSON.stringify(isAll ? [] : groupIds),
+        })
+        fixedCreatedIds.push(id)
+      }
+    }
+
     saveState(state)
-    return { created, total }
+    return { created, total, fixedEvents: { created: fixedCreatedIds.length, skipped: fixedSkipped, partial: fixedPartial } }
   },
   async getSyncStatus() {
     return { mode: null, connected: false, state: 'standalone' }

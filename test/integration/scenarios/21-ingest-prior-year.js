@@ -30,6 +30,7 @@ import { openLocalDb } from '../../../electron/db/localDb.js'
 import { commitIngest } from '../../../electron/ops/ingest.js'
 import { parseTextGrid } from '../../../src/ingest/textGrid.js'
 import { extractEntities } from '../../../src/ingest/extractEntities.js'
+import { inferFixedEvents } from '../../../src/ingest/fixedEvents.js'
 import { buildPreview } from '../../../src/ingest/preview.js'
 
 const SAMPLES = path.join(process.cwd(), 'docs/work/specs/samples')
@@ -215,6 +216,55 @@ export async function run() {
       .get('Matzo Balls')
     assert.equal(matzo3?.c, coMain, 'a filed bunk\'s unit lives in the active Program, so both are visible together')
     db3.close()
+
+    // ---- h. a recurring fixed event is created, and still no template_slots (T34) ----
+    // docs/adr/2026-08-03-ingesting-recurring-fixed-events.md — completion
+    // evidence 3 and 4. Camp B pins Mifkad/Carpool/etc. to a period for every
+    // group every day; ingest proposes them as fixed events (anchor_activities),
+    // and a commit that creates one still writes zero template_slots.
+    const dir4 = makeTmpDir()
+    dirs.push(dir4)
+    const db4 = openLocalDb(path.join(dir4, 'shoresh.sqlite'))
+    const camp4 = randomUUID()
+    const dev4 = randomUUID()
+    const coMain4 = randomUUID()
+    db4.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(camp4, 'Camp B', 'd'.repeat(64))
+    db4.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(dev4, 'Host')
+    db4.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run(coMain4, camp4, 'Main')
+
+    const bPreview = buildPreview(campB, {})
+    const { fixedEvents } = inferFixedEvents(
+      parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campB-achva-by-day.txt'), 'utf8')),
+      campB
+    )
+    assert.ok(fixedEvents.length > 0, 'Camp B implies at least one fixed event')
+
+    const result4 = commitIngest(db4, {
+      approved: {
+        groups: bPreview.perEntity.groups.create,
+        days_of_operation: bPreview.perEntity.days_of_operation.create,
+        time_blocks: bPreview.perEntity.time_blocks.create,
+        activities: bPreview.perEntity.activities.create,
+      },
+      fixedEvents,
+      camp_id: camp4, cohort_id: coMain4, device_id: dev4,
+    })
+
+    assert.ok(result4.fixedEvents.created > 0, 'at least one fixed event was written')
+    assert.equal(
+      db4.prepare('SELECT COUNT(*) c FROM anchor_activities').get().c,
+      result4.fixedEvents.created,
+      'every reported fixed-event row is in anchor_activities'
+    )
+    assert.equal(
+      db4.prepare('SELECT COUNT(*) c FROM anchor_activities WHERE cohort_id IS NOT ?').get(coMain4).c, 0,
+      'every fixed event is scoped to the active Program'
+    )
+    assert.equal(
+      db4.prepare('SELECT COUNT(*) c FROM template_slots').get().c, 0,
+      'no template_slots row appears, even with a fixed event created — the standing boundary holds under T34'
+    )
+    db4.close()
 
     db2.close()
     db.close()

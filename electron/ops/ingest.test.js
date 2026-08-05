@@ -278,3 +278,167 @@ describe('filing imported units and time blocks under the active Program', () =>
     expect(db.prepare('SELECT cohort_id FROM time_blocks').get().cohort_id).toBeNull()
   })
 })
+
+// T34 — ingest may propose recurring fixed events, which land as
+// anchor_activities through a dedicated, validated commit branch (never the
+// generic whitelist). docs/adr/2026-08-03-ingesting-recurring-fixed-events.md.
+describe('fixed events land as anchor_activities (T34)', () => {
+  const coMain = 'co-fx'
+  beforeEach(() => {
+    db.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run(coMain, campId, 'Main')
+  })
+
+  it('writes one cohort-scoped anchor per day, referencing the real rows it created', () => {
+    const result = commitIngest(db, {
+      approved: {
+        groups: ['A', 'B'],
+        days_of_operation: ['Monday', 'Tuesday'],
+        time_blocks: ['09:00-09:30'],
+      },
+      fixedEvents: [{
+        name: 'Mifkad', time_block: '09:00-09:30', days: ['Monday', 'Tuesday'],
+        scope: { is_all_groups: true, groups: null },
+      }],
+      camp_id: campId, cohort_id: coMain, device_id: deviceId,
+    })
+
+    // Per-day fan-out: two days -> two rows.
+    expect(result.fixedEvents).toEqual({ created: 2, skipped: [], partial: [] })
+    expect(count('anchor_activities')).toBe(2)
+
+    const tbId = db.prepare('SELECT id FROM time_blocks').get().id
+    const dayIds = db.prepare('SELECT id FROM days_of_operation').all().map((r) => r.id)
+    const rows = db.prepare('SELECT * FROM anchor_activities').all()
+    for (const r of rows) {
+      expect(r.cohort_id).toBe(coMain)
+      expect(r.camp_id).toBe(campId)
+      expect(r.name).toBe('Mifkad')
+      expect(r.time_block_id).toBe(tbId)   // a real, created time_block id
+      expect(dayIds).toContain(r.day_id)   // a real, created day id
+      expect(r.is_all_groups).toBe(1)
+      expect(JSON.parse(r.group_ids)).toEqual([])
+    }
+    expect(new Set(rows.map((r) => r.day_id)).size).toBe(2)  // one per day
+  })
+
+  it('resolves a group-scoped event to the real group ids, serialized as AnchorsScreen does', () => {
+    commitIngest(db, {
+      approved: { groups: ['A', 'B', 'C'], days_of_operation: ['Monday'], time_blocks: ['12:00-12:30'] },
+      fixedEvents: [{
+        name: 'Lunch 1', time_block: '12:00-12:30', days: ['Monday'],
+        scope: { is_all_groups: false, groups: ['A', 'B'] },
+      }],
+      camp_id: campId, cohort_id: coMain, device_id: deviceId,
+    })
+    const row = db.prepare('SELECT is_all_groups, group_ids FROM anchor_activities').get()
+    expect(row.is_all_groups).toBe(0)
+    const aId = db.prepare('SELECT id FROM groups WHERE name = ?').get('A').id
+    const bId = db.prepare('SELECT id FROM groups WHERE name = ?').get('B').id
+    const cId = db.prepare('SELECT id FROM groups WHERE name = ?').get('C').id
+    const ids = JSON.parse(row.group_ids)
+    expect([...ids].sort()).toEqual([aId, bId].sort())
+    expect(ids).not.toContain(cId)  // C was excluded
+  })
+
+  it('resolves against a block already in the camp (a skipped duplicate), not only freshly created ones', () => {
+    // The block exists from a prior import; this run creates nothing new, yet the
+    // fixed event still resolves to the existing row (seed-from-scope, §5.2).
+    commitIngest(db, {
+      approved: { groups: ['A'], days_of_operation: ['Monday'], time_blocks: ['09:00-09:30'] },
+      camp_id: campId, cohort_id: coMain, device_id: deviceId,
+    })
+    const result = commitIngest(db, {
+      approved: {},
+      fixedEvents: [{
+        name: 'Mifkad', time_block: '09:00-09:30', days: ['Monday'],
+        scope: { is_all_groups: false, groups: ['A'] },
+      }],
+      camp_id: campId, cohort_id: coMain, device_id: deviceId,
+    })
+    expect(result.fixedEvents.created).toBe(1)
+    expect(count('anchor_activities')).toBe(1)
+  })
+
+  it('skips and reports an unresolvable event, without aborting the rest of the import', () => {
+    const result = commitIngest(db, {
+      approved: { groups: ['A'], days_of_operation: ['Monday'] },  // note: no time_blocks
+      fixedEvents: [{
+        name: 'Mifkad', time_block: '09:00-09:30', days: ['Monday'],
+        scope: { is_all_groups: true, groups: null },
+      }],
+      camp_id: campId, cohort_id: coMain, device_id: deviceId,
+    })
+    expect(result.fixedEvents.created).toBe(0)
+    expect(result.fixedEvents.skipped).toHaveLength(1)
+    expect(result.fixedEvents.skipped[0].name).toBe('Mifkad')
+    expect(count('anchor_activities')).toBe(0)
+    // The rest of the import still committed.
+    expect(count('groups')).toBe(1)
+    expect(count('days_of_operation')).toBe(1)
+  })
+
+  it('writes the resolved subset but REPORTS the shortfall when only some days/groups were imported', () => {
+    // The director ticked a Mon–Wed all-group event but imported only Mon+Tue
+    // (Wednesday unticked) and only groups A,B (C unticked). Writing the subset
+    // is correct — an un-imported day/group has no anchor — but the result must
+    // say so, or it silently claims more than it created (ADR §1; Red Hat r1).
+    const result = commitIngest(db, {
+      approved: { groups: ['A', 'B'], days_of_operation: ['Monday', 'Tuesday'], time_blocks: ['09:00-09:30'] },
+      fixedEvents: [{
+        name: 'Mifkad', time_block: '09:00-09:30', days: ['Monday', 'Tuesday', 'Wednesday'],
+        scope: { is_all_groups: false, groups: ['A', 'B', 'C'] },
+      }],
+      camp_id: campId, cohort_id: coMain, device_id: deviceId,
+    })
+    // Two days resolved -> two anchor rows (not three); C excluded from group_ids.
+    expect(result.fixedEvents.created).toBe(2)
+    expect(count('anchor_activities')).toBe(2)
+    expect(result.fixedEvents.skipped).toHaveLength(0)
+    // The shortfall is surfaced, not silent.
+    expect(result.fixedEvents.partial).toHaveLength(1)
+    expect(result.fixedEvents.partial[0].name).toBe('Mifkad')
+    expect(result.fixedEvents.partial[0].reason).toMatch(/1 of 3 days/)
+    expect(result.fixedEvents.partial[0].reason).toMatch(/1 of 3 groups/)
+  })
+
+  it('writes zero template_slots even when it creates a fixed event', () => {
+    commitIngest(db, {
+      approved: { groups: ['A'], days_of_operation: ['Monday'], time_blocks: ['09:00-09:30'] },
+      fixedEvents: [{
+        name: 'Mifkad', time_block: '09:00-09:30', days: ['Monday'],
+        scope: { is_all_groups: false, groups: ['A'] },
+      }],
+      camp_id: campId, cohort_id: coMain, device_id: deviceId,
+    })
+    expect(count('anchor_activities')).toBe(1)
+    expect(count('template_slots')).toBe(0)  // the standing boundary holds
+  })
+
+  it('rolls back both entities and anchors when a fixed-event write fails partway', () => {
+    // Atomicity (ADR §4): the fixed-events branch runs in the same transaction,
+    // so a throw while writing an anchor unwinds the entities too. The failure
+    // is injected at the anchor write only.
+    const realPrepare = db.prepare.bind(db)
+    db.prepare = (sql) => {
+      if (/anchor_activities/i.test(sql)) throw new Error('boom: anchor write failed')
+      return realPrepare(sql)
+    }
+    try {
+      expect(() => commitIngest(db, {
+        approved: { groups: ['A'], days_of_operation: ['Monday'], time_blocks: ['09:00-09:30'] },
+        fixedEvents: [{
+          name: 'Mifkad', time_block: '09:00-09:30', days: ['Monday'],
+          scope: { is_all_groups: false, groups: ['A'] },
+        }],
+        camp_id: campId, cohort_id: coMain, device_id: deviceId,
+      })).toThrow(/boom/)
+    } finally {
+      db.prepare = realPrepare
+    }
+    expect(count('groups')).toBe(0)
+    expect(count('days_of_operation')).toBe(0)
+    expect(count('time_blocks')).toBe(0)
+    expect(count('anchor_activities')).toBe(0)
+    expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE entity IN ('groups','anchor_activities')").get().c).toBe(0)
+  })
+})

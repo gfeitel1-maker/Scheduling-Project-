@@ -17,6 +17,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { appendOp } from './operations.js'
+import { normalizeName } from '../../src/ingest/preview.js'
 
 // ADR §2. Kept here rather than imported from the renderer so the guarantee
 // lives with the code that writes; ingest.test.js asserts the two agree.
@@ -89,9 +90,17 @@ function fieldsFor(entity, name, campId, index, cohortId) {
  * asking to ingest placements has misunderstood something, and quietly
  * dropping the request would hide that.
  *
- * Returns `{ created: { [entity]: count }, total }`.
+ * `fixedEvents` is a dedicated payload of proposed recurring fixed events
+ * (docs/adr/2026-08-03-ingesting-recurring-fixed-events.md), NOT a key in
+ * `approved`: the generic whitelist above still rejects `anchor_activities`, and
+ * anchors are writable only through the validated branch below. Each ticked
+ * event fans out to one `anchor_activities` row per resolved day, cohort-scoped,
+ * mirroring the Fixed Events screen's create shape.
+ *
+ * Returns `{ created: { [entity]: count }, total,
+ *            fixedEvents: { created: number, skipped: [{ name, reason }] } }`.
  */
-export function commitIngest(db, { approved, links, camp_id, cohort_id = null, author_user_id, device_id }) {
+export function commitIngest(db, { approved, links, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [] }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -122,6 +131,37 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
   }
   const groupUnits = links?.groups ?? {}
 
+  // Fixed events resolve their block/day/groups BY NAME against rows that exist
+  // in scope OR are created this run. Seed from existing rows first — a block
+  // that was a skipped duplicate (not created this run) still has to resolve to
+  // the row already in the camp — then extend as the entity loop creates rows.
+  //
+  // time_blocks are Program-scoped (seed only this Program's, matching
+  // tierIdByName's cohort filter); days and groups are camp-scoped.
+  const blockIdByName = new Map()
+  for (const row of db.prepare('SELECT id, name, cohort_id FROM time_blocks WHERE camp_id = ?').all(camp_id)) {
+    if (row.name && (row.cohort_id ?? null) === (cohort_id ?? null)) blockIdByName.set(normalizeName(row.name), row.id)
+  }
+  const dayIdByName = new Map()
+  for (const row of db.prepare('SELECT id, label FROM days_of_operation WHERE camp_id = ?').all(camp_id)) {
+    if (row.label) dayIdByName.set(normalizeName(row.label), row.id)
+  }
+  const groupIdByName = new Map()
+  for (const row of db.prepare('SELECT id, name FROM groups WHERE camp_id = ?').all(camp_id)) {
+    if (row.name) groupIdByName.set(normalizeName(row.name), row.id)
+  }
+
+  const fixedCreated = []
+  // Surfaced in the result, never silent (ADR §1): a fixed event whose block,
+  // day, or groups the director did not import is skipped, not fatal (§5.3).
+  const fixedSkipped = []
+  // A fixed event that resolves only PARTIALLY — some of its days or groups
+  // were not imported, but at least one of each was — is written for what
+  // resolved AND its shortfall is reported. Writing the subset is correct (an
+  // un-imported day has no anchor), but claiming full creation would be the
+  // silent omission ADR §1 forbids, so the dropped days/groups are surfaced.
+  const fixedPartial = []
+
   // One transaction for the whole import. Any throw below — a constraint, a
   // bad field, a disk error — rolls back every op and every projected row
   // together, so the camp is either fully imported or untouched.
@@ -136,6 +176,10 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
         const fields = fieldsFor(entity, name, camp_id, index, cohort_id)
 
         if (entity === 'tiers') tierIdByName.set(name.toLowerCase(), entityId)
+        // Extend the fixed-event resolution maps as their target rows are born.
+        if (entity === 'time_blocks') blockIdByName.set(normalizeName(name), entityId)
+        if (entity === 'days_of_operation') dayIdByName.set(normalizeName(name), entityId)
+        if (entity === 'groups') groupIdByName.set(normalizeName(name), entityId)
         if (entity === 'groups') {
           // The file said which unit this bunk is in; file it there rather
           // than leaving the director to assign 33 bunks by hand.
@@ -161,8 +205,72 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
         total += 1
       })
     }
+
+    // Fixed events, after the entity loop and INSIDE the same transaction, so
+    // the whole import stays one atomic unit (ADR §4). anchor_activities is
+    // written here and nowhere else in ingest; the generic whitelist above
+    // never lets it through.
+    for (const fe of Array.isArray(fixedEvents) ? fixedEvents : []) {
+      const tbId = blockIdByName.get(normalizeName(fe.time_block))
+      const requestedDays = (fe.days ?? []).length
+      const dayIds = (fe.days ?? []).map((d) => dayIdByName.get(normalizeName(d))).filter(Boolean)
+      if (!tbId || dayIds.length === 0) {
+        fixedSkipped.push({ name: fe.name, reason: 'time block or day not created' })
+        continue
+      }
+      const isAll = fe.scope?.is_all_groups ? 1 : 0
+      let groupIds = []
+      const requestedGroups = isAll ? 0 : (fe.scope?.groups ?? []).length
+      if (!isAll) {
+        groupIds = (fe.scope?.groups ?? []).map((g) => groupIdByName.get(normalizeName(g))).filter(Boolean)
+        if (groupIds.length === 0) {
+          fixedSkipped.push({ name: fe.name, reason: 'groups not created' })
+          continue
+        }
+      }
+      // Some — but not all — of the event's days or groups were imported. Write
+      // what resolved (the un-imported ones legitimately have no anchor) but
+      // report the shortfall, or the result would silently claim more than it
+      // created (ADR §1; Red Hat round-1).
+      const droppedDays = requestedDays - dayIds.length
+      const droppedGroups = requestedGroups - groupIds.length
+      if (droppedDays > 0 || droppedGroups > 0) {
+        const bits = []
+        if (droppedDays > 0) bits.push(`${droppedDays} of ${requestedDays} day${requestedDays === 1 ? '' : 's'}`)
+        if (droppedGroups > 0) bits.push(`${droppedGroups} of ${requestedGroups} group${requestedGroups === 1 ? '' : 's'}`)
+        fixedPartial.push({ name: fe.name, reason: `${bits.join(' and ')} not imported` })
+      }
+      // Per-day fan-out — one row per resolved day, each its own uuid. Matches
+      // AnchorsScreen: is_all_groups 1|0, group_ids a JSON string.
+      for (const dayId of dayIds) {
+        const anchorId = randomUUID()
+        const fields = {
+          camp_id,
+          cohort_id,
+          day_id: dayId,
+          time_block_id: tbId,
+          name: String(fe.name ?? '').trim(),
+          is_all_groups: isAll,
+          group_ids: JSON.stringify(isAll ? [] : groupIds),
+        }
+        for (const [field, value] of Object.entries(fields)) {
+          if (value === null || value === undefined) continue
+          appendOp(db, {
+            entity: 'anchor_activities',
+            entity_id: anchorId,
+            field,
+            value,
+            author_user_id: author_user_id ?? null,
+            device_id,
+            parent_op_id: null,
+            client_write_id: randomUUID(),
+          })
+        }
+        fixedCreated.push(anchorId)
+      }
+    }
   })
 
   run()
-  return { created, total }
+  return { created, total, fixedEvents: { created: fixedCreated.length, skipped: fixedSkipped, partial: fixedPartial } }
 }

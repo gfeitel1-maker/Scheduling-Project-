@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx'
 import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
+import { inferFixedEvents } from '../ingest/fixedEvents'
 import { buildPreview, describePreview } from '../ingest/preview'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 
@@ -30,6 +31,9 @@ const LABEL = {
   activities: 'Activities',
 }
 
+// Identifies a proposed fixed event for tick toggling (spec §4.1).
+const fixedEventKey = (fe) => `${fe.name} ${fe.time_block} ${fe.days.join(',')}`
+
 export default function ImportScreen({ campId, onNavigate }) {
   // Units and time blocks are scoped to a Program; an import files them under
   // the active one so the setup screens will show them (T33).
@@ -37,6 +41,12 @@ export default function ImportScreen({ campId, onNavigate }) {
   const [fileNames, setFileNames] = useState([])
   const [preview, setPreview] = useState(null)
   const [chosen, setChosen] = useState({})
+  // Proposed recurring fixed events (T34), and which the director has ticked.
+  // High-confidence events start ticked; low-confidence start unticked, mirroring
+  // the rare-entity treatment. operatingDayCount is only for the "every day" hint.
+  const [fixedEvents, setFixedEvents] = useState([])
+  const [chosenFixedEvents, setChosenFixedEvents] = useState(new Set())
+  const [operatingDayCount, setOperatingDayCount] = useState(0)
   const [error, setError] = useState(null)
   const [working, setWorking] = useState(false)
   const [result, setResult] = useState(null)
@@ -58,6 +68,8 @@ export default function ImportScreen({ campId, onNavigate }) {
   async function readFiles(fileList) {
     setError(null)
     setResult(null)
+    setFixedEvents([])
+    setChosenFixedEvents(new Set())
     const files = [...(fileList ?? [])]
     if (files.length === 0) return
     setFileNames(files.map((f) => f.name))
@@ -119,6 +131,15 @@ export default function ImportScreen({ campId, onNavigate }) {
         initial[entity] = new Set(create.filter((n) => !low.has(n)))
       }
       setChosen(initial)
+
+      // Recurring fixed events implied by the grid (T34). High-confidence ones
+      // (holding on every operating day) start ticked; low-confidence ones (a
+      // majority but not all) start unticked — the same treatment rare entities
+      // get. All are shown; ticking is the director's act.
+      const { fixedEvents: inferred } = inferFixedEvents({ pages }, proposal)
+      setFixedEvents(inferred)
+      setChosenFixedEvents(new Set(inferred.filter((fe) => fe.confidence === 'high').map(fixedEventKey)))
+      setOperatingDayCount(proposal.entities.days_of_operation.length)
     } catch (err) {
       setPreview(null)
       setError(describeWriteFailure(err, 'That file could not be read.'))
@@ -131,6 +152,15 @@ export default function ImportScreen({ campId, onNavigate }) {
       if (set.has(name)) set.delete(name)
       else set.add(name)
       return { ...prev, [entity]: set }
+    })
+  }
+
+  function toggleFixedEvent(key) {
+    setChosenFixedEvents(prev => {
+      const set = new Set(prev)
+      if (set.has(key)) set.delete(key)
+      else set.add(key)
+      return set
     })
   }
 
@@ -160,9 +190,13 @@ export default function ImportScreen({ campId, onNavigate }) {
       for (const name of approved.groups ?? []) {
         if (preview.groupUnits?.[name]) groupUnits[name] = preview.groupUnits[name]
       }
-      const outcome = await localClient.ingestCommit(approved, { groups: groupUnits }, activeCohort?.id ?? null)
+      // Only the fixed events the director ticked; unticked ones are not sent.
+      const tickedFixedEvents = fixedEvents.filter((fe) => chosenFixedEvents.has(fixedEventKey(fe)))
+      const outcome = await localClient.ingestCommit(approved, { groups: groupUnits }, activeCohort?.id ?? null, tickedFixedEvents)
       setResult(outcome)
       setPreview(null)
+      setFixedEvents([])
+      setChosenFixedEvents(new Set())
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
@@ -190,9 +224,24 @@ export default function ImportScreen({ campId, onNavigate }) {
           borderLeft: '3px solid var(--success)', borderRadius: 8, padding: '12px 14px',
           marginBottom: 16, fontSize: 13, lineHeight: 1.6,
         }}>
-          <strong>Imported {result.total} {result.total === 1 ? 'record' : 'records'}.</strong>{' '}
+          <strong>
+            Imported {result.total} {result.total === 1 ? 'record' : 'records'}
+            {result.fixedEvents?.created > 0 && `, including ${result.fixedEvents.created} fixed ${result.fixedEvents.created === 1 ? 'event' : 'events'}`}.
+          </strong>{' '}
           They are ordinary records now — edit or delete any of them from the setup screens, and
           anything you delete can be brought back from Trash.
+          {result.fixedEvents?.skipped?.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              {result.fixedEvents.skipped.length} fixed {result.fixedEvents.skipped.length === 1 ? 'event' : 'events'} couldn’t
+              be created because their time block or groups weren’t imported — you can add {result.fixedEvents.skipped.length === 1 ? 'it' : 'them'} on the Fixed Events screen.
+            </div>
+          )}
+          {result.fixedEvents?.partial?.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              Some fixed events were added for fewer days or groups than proposed, because you didn’t import all of them:{' '}
+              {result.fixedEvents.partial.map((p) => `${p.name} (${p.reason})`).join('; ')}. Adjust {result.fixedEvents.partial.length === 1 ? 'it' : 'them'} on the Fixed Events screen.
+            </div>
+          )}
           <div style={{ marginTop: 10 }}>
             <button onClick={() => onNavigate('groups')} style={S.btnSecondary}>Go to Groups</button>
           </div>
@@ -300,6 +349,61 @@ export default function ImportScreen({ campId, onNavigate }) {
               </div>
             )
           })}
+
+          {/* Fixed Events (T34). Activities pinned to the same period across a
+              group's days — Mifkad, Lunch, Swim. Tick-only, like the entity
+              sections: an imported fixed event is an ordinary anchor, so its full
+              editor already exists on the Fixed Events screen (spec §4.2). */}
+          {fixedEvents.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{
+                fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
+                letterSpacing: '0.12em', textTransform: 'uppercase',
+                color: 'var(--text-secondary)', marginBottom: 8,
+              }}>
+                Fixed Events
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
+                These activities sat at the same time across a group’s days, so they look fixed rather
+                than scheduled fresh each day. Ticked ones are added as fixed events you can edit later.
+              </div>
+              {fixedEvents.some((fe) => fe.confidence === 'low') && (
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
+                  Some appeared on a majority of a group’s days but not all, so they are left unticked —
+                  tick any that really are fixed.
+                </div>
+              )}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {fixedEvents.map((fe) => {
+                  const key = fixedEventKey(fe)
+                  const on = chosenFixedEvents.has(key)
+                  const scope = fe.scope.is_all_groups ? 'every group' : fe.scope.groups.join(', ')
+                  const daysLabel = operatingDayCount > 0 && fe.days.length >= operatingDayCount
+                    ? 'every day'
+                    : fe.days.join(', ')
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => toggleFixedEvent(key)}
+                      style={{
+                        fontSize: 12, padding: '5px 10px', borderRadius: 6, cursor: 'pointer',
+                        fontFamily: 'inherit', textAlign: 'left',
+                        background: on ? 'color-mix(in srgb, var(--success) 12%, var(--surface))' : 'var(--bg)',
+                        border: `1px solid ${on ? 'var(--success)' : 'var(--border)'}`,
+                        color: on ? 'var(--text)' : 'var(--text-secondary)',
+                        textDecoration: on ? 'none' : 'line-through',
+                      }}
+                    >
+                      {on ? '✓ ' : ''}{fe.name}
+                      <span style={{ marginLeft: 6, opacity: 0.6, fontSize: 11 }}>
+                        · {fe.time_block} · {scope} · {daysLabel}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Keep-vs-replace. Only asked when the camp already holds setup —
               importing onto an empty camp has nothing to replace. Replace is
