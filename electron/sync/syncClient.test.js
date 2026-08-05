@@ -538,7 +538,19 @@ describe('remote client mode', () => {
       author_user_id: userId,
       serverUrl: `ws://localhost:${idemPort}`,
       token,
-      submitTimeoutMs: 150,
+      // T44: this was 150ms, and that made the *second* flushQueue below a
+      // wall-clock race — the T25 §1 failure class, in a test T25 did not
+      // touch. The first flush must cross this budget (its reply is swallowed
+      // outright, so any budget is crossed and the timeout is deterministic),
+      // but the retry flush runs against a live server and has to come back
+      // inside it. Measured 2026-08-04 over six loaded full-suite runs: that
+      // retry round trip took 3-5ms every time. 150ms was only ~30x that
+      // margin, and this file demonstrably blows past 150ms under starvation
+      // (see the reconnect-catch-up test below, which failed 1-in-6 on a 150ms
+      // wait for a normally-instant replay). 3000ms is ~600x the measured
+      // median, still far below the 20s testTimeout, and still crossed by a
+      // genuine hang — the timeout is what the first flush asserts.
+      submitTimeoutMs: 3000,
     })
     await client.waitUntilConnected()
 
@@ -1391,7 +1403,17 @@ describe('reconnect catch-up (Task 10 round-4 Fix 3)', () => {
       device_id: deviceBId, author_user_id: userId, serverUrl: `ws://localhost:${PORT}`, token: tokenB,
     })
     await clientB2.waitUntilConnected()
-    await new Promise((r) => setTimeout(r, 150))
+
+    // T44: this was `await new Promise((r) => setTimeout(r, 150))` — a fixed
+    // sleep standing in for "wait until the replayed ops have been applied",
+    // which is exactly the T25 root cause that the rest of this file was
+    // converted away from and this line was missed by. Reproduced 2026-08-04:
+    // 1 failure in 6 loaded full-suite runs, `expected [ { type:
+    // 'op_conflict', …(2) } ] to have a length of +0 but got 1` — the replay
+    // simply had not landed within 150ms on a starved event loop.
+    await waitFor(() => listPendingConflicts(dbB).length === 0, {
+      message: 'device B never learned the conflict resolution from the replayed ops',
+    })
 
     expect(listPendingConflicts(dbB)).toHaveLength(0)
 

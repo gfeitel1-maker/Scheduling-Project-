@@ -62,6 +62,68 @@ cause is genuinely test-local timing, fix the tests rather than adding retries.
 **Out:** adding a blanket test-retry mechanism as the primary fix. That hides the very signal this
 ticket needs, and would make the `syncClient` question permanently unanswerable.
 
+## Findings (2026-08-04) — the central question is answered
+
+**Verdict: test-timing artifact. The op-log idempotency invariant is NOT implicated. No production
+code needed to change.** This was the thing worth knowing, and it is now settled by construction
+rather than by sampling.
+
+**The assertion was misread — by its own name.** The failing line
+(`getQueuedOps()` length 0 after the retry flush) encodes **liveness**, not idempotency: it asserts
+the retry drained inside the client's `submitTimeoutMs`, which the test set to **150ms** while the
+retry performs a real WebSocket round trip against a live server. The actual idempotency invariant
+is asserted on the next two lines (one row, matching `client_write_id`) and **never failed**.
+
+**Proof it is benign.** Injecting a reply delayed past the budget reproduces the reported error
+verbatim. In that same injected failure the op log holds `opRows=1, distinctCwid=1` — the write is
+**not duplicated**; it is correctly left queued for another idempotent retry, which is exactly what
+`flushQueue` is supposed to do on a slow reply. So the only observable consequence of crossing the
+budget is a spurious extra retry, which `client_write_id` absorbs by design.
+
+**Measurements.** Over six loaded full-suite runs the retry round trip took **3-5ms every time**
+against a 150ms budget — only ~30x margin, on a file demonstrably capable of blowing past 150ms
+under starvation. Natural reproduction of the originally-reported failure: **0/16**.
+
+**A second, naturally-reproduced flake in the same file** (1-in-6): the reconnect-catch-up test used
+a bare `setTimeout(150)` standing in for "wait until the replayed ops landed" — T25's exact root
+cause, still present in the very file T25 converted.
+
+**Both fixed, test-only** (`syncClient.test.js`): budget raised to 3000ms with the measurement
+recorded in a comment, and the bare sleep converted to `waitFor`. No sleeps added, no retry
+mechanism, no assertion weakened. Verified 30/30 clean under four competing CPU hogs, then
+re-verified on current `main`: 6/6 clean under ambient load (loadavg ~50), full suite
+**94 files / 1431 passed**, lint 0 errors, build clean.
+
+### Why T25's closure was premature (answering completion item 3)
+
+T25's diagnosis was right and its `waitFor` helper is the correct tool. Its **closure** was not sound:
+
+- Its completion evidence was **6/6 green runs** — a sampling result, which cannot distinguish "the
+  sleeps are gone" from "the sleeps didn't fire this time." T25 itself measured a ~50% baseline
+  failure rate, so six clean runs is weak evidence.
+- The conversion was done **by inspection** of arrival-then-assert sites, not structurally, and it
+  missed several.
+- T25 never audited the other half of its own finding: **short production timeouts passed as test
+  options** (`submitTimeoutMs`, `lockTimeoutMs`) racing real I/O. It removed the `elapsed`
+  assertions but left the budgets. That is precisely what recurred here.
+
+## Remaining work (this ticket stays open)
+
+1. **Six bare `setTimeout` sleeps remain in `syncClient.test.js`** (around lines 1372, 1681, 1687,
+   1714, 1717, 1754 after the fix). Their own comments name them — *"Give server a tick to process
+   the pairing_request"*, *"Wait for the message to be processed"*. They are latent flakes of the
+   same class and are not even marked with T25's `sleepBecauseTimeIsUnderTest` convention.
+2. **Enumerate them mechanically, not by inspection** — a lint rule banning bare `setTimeout` sleeps
+   in tests (with an explicit opt-out marker for the legitimate time-under-test cases). Another
+   inspection pass would repeat T25's mistake for the third time.
+3. **Audit the remaining short production timeouts passed as test options** across the sync tests,
+   which T25 never covered.
+4. The ten-consecutive-full-suite-run proof below is not yet met — six file-level runs plus one full
+   suite were done.
+
+`ScheduleScreen.test.jsx` (T39) did **not** reproduce under these load conditions: 0 failures across
+six loaded full-suite runs. Not investigated further — T39's scope.
+
 ## Completion evidence
 
 1. The full suite passes on unchanged code across at least ten consecutive runs, including under
