@@ -25,7 +25,7 @@ export function useWeeks({ weeks, setWeeks, repo, localClient, campId, weekId, s
     try {
       await repo.writeWeekFields(id, { name })
     } catch (err) {
-      setActionError(describeWriteFailure(err, 'That week could not be renamed.'))
+      setActionError(describeWriteFailure(err, 'That name could not be saved.'))
       return
     }
     setWeeks(prev => prev.map(w => (w.id === id ? { ...w, name } : w)))
@@ -50,7 +50,7 @@ export function useWeeks({ weeks, setWeeks, repo, localClient, campId, weekId, s
     try {
       await repo.writeWeekFields(id, { is_archived: '0' })
     } catch (err) {
-      setActionError(describeWriteFailure(err, 'That week could not be unarchived.'))
+      setActionError(describeWriteFailure(err, 'That week could not be brought back.'))
       return
     }
     setWeeks(prev => prev.map(w => (w.id === id ? { ...w, is_archived: 0 } : w)))
@@ -69,6 +69,8 @@ export function useWeeks({ weeks, setWeeks, repo, localClient, campId, weekId, s
       const freshWeeks = await repo.loadWeeks()
       const camp = freshWeeks.filter(w => w.camp_id === campId).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
       setWeeks(camp)
+    } else {
+      setActionError(describeWriteFailure(result?.error ? new Error(result.error) : undefined, 'That week could not be duplicated.'))
     }
     return result
   }

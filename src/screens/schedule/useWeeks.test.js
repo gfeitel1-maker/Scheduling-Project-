@@ -156,13 +156,14 @@ describe('useWeeks', () => {
     expect(ret).toEqual({ ok: true, extra: 'x' })
   })
 
-  it('duplicateWeek on a not-ok result does not reload and does not call setWeeks', async () => {
+  it('duplicateWeek on a not-ok result does not reload, does not call setWeeks, and surfaces an error', async () => {
     const repo = makeRepo()
     const localClient = makeLocalClient({ duplicateWeek: vi.fn(async () => ({ ok: false })) })
     const { result, props } = setup({ repo, localClient })
     await act(async () => { await result.current.duplicateWeek('w1') })
     expect(repo.loadWeeks).not.toHaveBeenCalled()
     expect(props.setWeeks).not.toHaveBeenCalled()
+    expect(props.setActionError).toHaveBeenCalledWith(expect.any(String))
   })
 
   it('confirmDeleteWeek removes the week from state', async () => {
