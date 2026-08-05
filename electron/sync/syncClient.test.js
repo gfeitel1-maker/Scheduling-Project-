@@ -1368,8 +1368,18 @@ describe('reconnect catch-up (Task 10 round-4 Fix 3)', () => {
       device_id: deviceBId, author_user_id: userId, serverUrl: `ws://localhost:${PORT}`, token: tokenB,
     })
     await clientB1.waitUntilConnected()
+    // waitUntilConnected() resolves once the CLIENT sends `authenticate` —
+    // syncClient.js's own comment notes the server sends no ack — so close()
+    // right after it races the server's handleAuthenticate, which is what
+    // actually baselines device B's watermark (last_synced_seq) synchronously
+    // on receipt. Wait for that baseline to land before going "offline",
+    // since the whole test hinges on it having captured "before any
+    // conflict-related op exists yet".
+    await waitFor(
+      () => hostDb.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceBId)?.last_synced_seq !== null,
+      { message: 'Host never baselined device B\'s watermark after authenticate' }
+    )
     clientB1.close()
-    await new Promise((r) => setTimeout(r, 30))
 
     // While B is offline: a conflict is detected on the Host (existingOp is
     // the "losing" write B's conflicts record points at), and B is assumed
@@ -1677,14 +1687,19 @@ describe('pairing_approved / pairing_denied handling (sub-tasks 2 & 3)', () => {
     client.onPairingApproved((msg) => { approvedCallbackArg = msg })
 
     await client.waitUntilConnected()
-    // Give server a tick to process the pairing_request
-    await new Promise((r) => setTimeout(r, 100))
 
     const secret = randomBytes(32).toString('hex')
-    server.sendPairingApproved(pairingDeviceId, secret)
+    // sendPairingApproved returns false (no-op) until the server has
+    // registered this device's pairing_request; polling it IS the wait,
+    // and it only ever sends the approval once, on the poll that succeeds.
+    await waitFor(() => server.sendPairingApproved(pairingDeviceId, secret), {
+      message: 'server never registered the pending pairing_request connection',
+    })
 
-    // Wait for the message to be processed
-    await new Promise((r) => setTimeout(r, 100))
+    await waitFor(
+      () => clientDb.prepare('SELECT device_secret_identifier FROM devices WHERE id = ?').get(pairingDeviceId)?.device_secret_identifier === secret,
+      { message: 'client never processed the pairing_approved message' }
+    )
 
     const row = clientDb.prepare('SELECT device_secret_identifier, pairing_status, authorized_at FROM devices WHERE id = ?').get(pairingDeviceId)
     expect(row.device_secret_identifier).toBe(secret)
@@ -1711,12 +1726,12 @@ describe('pairing_approved / pairing_denied handling (sub-tasks 2 & 3)', () => {
     client.onPairingDenied(() => { deniedCalled = true })
 
     await client.waitUntilConnected()
-    await new Promise((r) => setTimeout(r, 100))
 
-    server.sendPairingDenied(pairingDeviceId)
-    await new Promise((r) => setTimeout(r, 100))
+    await waitFor(() => server.sendPairingDenied(pairingDeviceId), {
+      message: 'server never registered the pending pairing_request connection',
+    })
 
-    expect(deniedCalled).toBe(true)
+    await waitFor(() => deniedCalled, { message: 'onPairingDenied never fired' })
 
     client.close()
   })
@@ -1750,8 +1765,11 @@ describe('token renewal scheduling (sub-task 3)', () => {
     const helperWs = new WebSocket(`ws://localhost:${PORT}`)
     await new Promise((r) => helperWs.once('open', r))
     helperWs.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
-    // Wait for any catch-up messages (full_sync)
-    await new Promise((r) => setTimeout(r, 150))
+    // No wait needed: handleAuthenticate (syncServer.js) sets ws.deviceId/ws.token
+    // synchronously before its only async work (sendFullSyncIfFirstPairing /
+    // sendMissedOps, both fire-and-forget) — and a single WS connection delivers
+    // messages in order, so the server has necessarily finished that synchronous
+    // setup before it can even begin processing the 'renew_token' message sent below.
     helperWs.send(JSON.stringify({ type: 'renew_token', token }))
     const reply = await new Promise((resolve) => {
       helperWs.on('message', (data) => {
