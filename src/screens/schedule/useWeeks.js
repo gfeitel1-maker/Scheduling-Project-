@@ -69,6 +69,8 @@ export function useWeeks({ weeks, setWeeks, repo, localClient, campId, weekId, s
       const freshWeeks = await repo.loadWeeks()
       const camp = freshWeeks.filter(w => w.camp_id === campId).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
       setWeeks(camp)
+    } else {
+      setActionError(describeWriteFailure(result?.error ? new Error(result.error) : undefined, 'That week could not be duplicated.'))
     }
     return result
   }

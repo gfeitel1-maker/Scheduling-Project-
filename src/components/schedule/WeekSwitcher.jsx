@@ -11,6 +11,7 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
   const [renameValue, setRenameValue] = useState('')
   const [creating, setCreating] = useState(false)
   const [newName, setNewName] = useState('')
+  const [creatingInFlight, setCreatingInFlight] = useState(false)
   const [duplicatingId, setDuplicatingId] = useState(null)
   const [successBanner, setSuccessBanner] = useState(null)
   const dropRef = useRef(null)
@@ -185,9 +186,15 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
                   autoFocus
                   value={newName}
                   onChange={e => setNewName(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && newName.trim()) {
-                      onCreate(newName.trim())
+                  onKeyDown={async e => {
+                    if (e.key === 'Enter' && newName.trim() && !creatingInFlight) {
+                      const name = newName.trim()
+                      setCreatingInFlight(true)
+                      try {
+                        await onCreate(name)
+                      } finally {
+                        setCreatingInFlight(false)
+                      }
                       setNewName(''); setCreating(false)
                     }
                     if (e.key === 'Escape') setCreating(false)
@@ -196,17 +203,28 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
                   style={{ ...S.input, fontSize: 12, flex: 1 }}
                 />
                 <button
-                  onClick={() => { if (newName.trim()) { onCreate(newName.trim()); setNewName(''); setCreating(false) } }}
-                  disabled={!newName.trim()}
-                  style={{ ...S.btnPrimary, padding: '3px 10px', fontSize: 11 }}
-                >Add</button>
+                  onClick={async () => {
+                    if (!newName.trim() || creatingInFlight) return
+                    const name = newName.trim()
+                    setCreatingInFlight(true)
+                    try {
+                      await onCreate(name)
+                    } finally {
+                      setCreatingInFlight(false)
+                    }
+                    setNewName(''); setCreating(false)
+                  }}
+                  disabled={!newName.trim() || creatingInFlight}
+                  style={{ ...S.btnPrimary, padding: '3px 10px', fontSize: 11, cursor: creatingInFlight ? 'wait' : undefined }}
+                >{creatingInFlight ? 'Adding…' : 'Add'}</button>
               </div>
             ) : (
               <button
                 onClick={() => { setNewName(`Week ${weeks.length + 1}`); setCreating(true) }}
-                style={{ width: '100%', padding: 6, borderRadius: 7, background: 'var(--primary)', color: '#fff', border: 'none', fontFamily: 'inherit', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                disabled={creatingInFlight}
+                style={{ width: '100%', padding: 6, borderRadius: 7, background: 'var(--primary)', color: '#fff', border: 'none', fontFamily: 'inherit', fontSize: 12, fontWeight: 700, cursor: creatingInFlight ? 'wait' : 'pointer', opacity: creatingInFlight ? 0.7 : 1 }}
               >
-                + New Week
+                {creatingInFlight ? 'Adding…' : '+ New Week'}
               </button>
             )}
           </div>}
