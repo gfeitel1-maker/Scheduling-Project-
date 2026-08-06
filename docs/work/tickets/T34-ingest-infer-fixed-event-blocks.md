@@ -1,7 +1,7 @@
 ---
 title: T34-ingest-infer-fixed-event-blocks
 document_type: ticket
-status: open
+status: closed
 created: 2026-08-02
 task_class: scheduling-engine
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md]
