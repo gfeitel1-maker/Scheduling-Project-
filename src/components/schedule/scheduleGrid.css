@@ -1,0 +1,291 @@
+/* The one stylesheet the T50 CSS Grid migration adds (spec §6, approved
+   2026-08-06). Scope is src/components/schedule/ and nothing else.
+
+   It owns: the grid container rules, cell interaction pseudo-states
+   (:hover, :focus-within), cell data-attribute states, and static structural
+   cell styling. Per-cell computed geometry (grid-row / grid-column) and
+   per-cell data-derived colours stay inline on the element that computes them.
+
+   Every value here is lifted verbatim from the inline objects it replaces
+   (S.th, cellTd, emptyTd, S.cellIdentityChip, S.cellEmptyOutline, the row
+   header's inline block) so the conversion is structural, not visual. The two
+   deliberate exceptions are marked DELTA. */
+
+/* ---------- container ---------- */
+
+/* The framed, scrollable grid. role="grid" lives here; the two
+   role="rowgroup" children below are the actual CSS Grid containers, which is
+   how a sticky day-header row can share one column template with the body
+   without the header consuming a body row track. */
+.schedule-grid-frame {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  min-width: 500px;
+  width: 100%;
+}
+
+.schedule-grid {
+  display: grid;
+  gap: 0;
+  /* grid-template-columns is set inline: it is data (day count), not style. */
+}
+
+.schedule-grid--header {
+  grid-template-rows: auto;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+.schedule-grid--body {
+  grid-template-rows: var(--grid-rows);
+}
+
+/* The role="row" wrappers carry `display: contents` INLINE, exactly as spec §8
+   specifies — it removes the box so cells become direct grid items while the
+   element keeps role="row" in the accessibility tree. It is deliberately not
+   duplicated here: one source of truth, and the inline value is what the
+   structure test asserts. */
+
+/* ---------- cells ---------- */
+
+.cell {
+  position: relative;
+  padding: 8px 6px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.schedule-grid--body .cell {
+  border-bottom: 1px solid var(--border);
+}
+
+.schedule-grid--header .cell {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 12px;
+  font-family: var(--font-condensed);
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--surface-elevated);
+  border-bottom: 1.5px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+
+/* The inner box every cell kind paints into. Its border/background/outline are
+   still composed inline because they are data-derived (locked, unfillable,
+   selected, flagged, drop-target). */
+.cell-inner {
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-height: 56px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---------- row header column ---------- */
+
+.row-header {
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  white-space: nowrap;
+  position: sticky;
+  left: 0;
+  background: var(--surface);
+  z-index: 1;
+  border-right: 1px solid var(--border);
+  cursor: default;
+}
+
+.schedule-grid--header .row-header {
+  background: var(--surface-elevated);
+  z-index: 4;
+}
+
+.block-name {
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.block-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* ---------- cell contents ---------- */
+
+.cell-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  /* DELTA vs the table: was nowrap + ellipsis, which CLIPPED. A long activity
+     name must grow the row instead — that is the minmax(floor, auto) property
+     the ADR bought and the acceptance predicate "zero cells with
+     scrollWidth > clientWidth". T55 switches this back to nowrap + ellipsis
+     for [data-collapsed] cells only, which is the one place truncation is
+     accepted (spec §2). */
+  overflow-wrap: anywhere;
+}
+
+.cell-name[data-unassigned] {
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.identity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: middle;
+  flex-shrink: 0;
+  /* background is inline — it is the activity's identity colour. */
+}
+
+/* pointer-events stays ON for overlap/unfillable — both carry a title tooltip
+   the director relies on. Only the outdoor glyph was inert before. */
+.flag {
+  position: absolute;
+  line-height: 1;
+}
+
+.flag--overlap {
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--surface);
+}
+
+.flag--unfillable {
+  top: 4px;
+  right: 4px;
+  width: 12px;
+  height: 12px;
+  color: var(--danger);
+}
+
+.flag--outdoor {
+  top: 3px;
+  right: 3px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+/* ---------- empty cells (spec §7 — visible, not invisible) ---------- */
+
+.cell-empty {
+  background: var(--surface);
+  border: 1.5px dashed var(--border);
+  border-radius: 6px;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: background 0.1s;
+}
+
+/* ---------- interaction pseudo-states (this is why §6 was relaxed) ---------- */
+
+/* Replaces SlotCell's cellHovered useState + onPointerEnter/onPointerLeave:
+   hovering a cell no longer re-renders React. */
+/* visibility, not opacity: these are real <button>s and dnd-kit gives the
+   expand handle a tabIndex. An opacity-0 control stays focusable and stays in
+   the accessibility tree, which the useState version never did — it was simply
+   not mounted. visibility: hidden reproduces that. */
+.cell-action {
+  visibility: hidden;
+  opacity: 0;
+}
+
+.cell:hover .cell-action {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Replaces splitHovered useState. */
+.cell-action--split:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* Replaces (cellHovered || reasonFocused) on the review reason callout. */
+.cell-reason {
+  display: none;
+}
+
+.cell:hover .cell-reason,
+.cell:focus-within .cell-reason {
+  display: block;
+}
+
+/* Replaces the pasteMode && cellHovered inline branch. */
+.cell[data-paste-target] {
+  cursor: crosshair;
+}
+
+.cell[data-paste-target]:hover .cell-inner {
+  border: 2px dashed var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.expand-handle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 10px;
+  border-radius: 0 0 7px 7px;
+  cursor: row-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, opacity 0.15s;
+  user-select: none;
+  touch-action: none;
+  z-index: 2;
+  visibility: hidden;
+  opacity: 0;
+}
+
+.cell:hover .expand-handle {
+  visibility: visible;
+  opacity: 0.6;
+}
+
+.cell:hover .expand-handle:hover,
+.expand-handle[data-dragging] {
+  visibility: visible;
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .expand-handle,
+  .cell-empty {
+    transition: none;
+  }
+}

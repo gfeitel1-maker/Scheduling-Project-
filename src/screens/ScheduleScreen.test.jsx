@@ -29,12 +29,19 @@ import { localClient } from '../localClient'
 
 const CAMP_ID = 'camp-1'
 
-// An activity name (e.g. "Swim") renders in two places: the schedule cell
-// (inside a <td>) and the always-present ActivityPalette sidebar chip. Plain
-// getByText is therefore ambiguous — scope to the cell, which is the only
-// occurrence inside a <td>.
+// An activity name (e.g. "Swim") renders in two places: the schedule cell and
+// the always-present ActivityPalette sidebar chip. Plain getByText is therefore
+// ambiguous — scope to the cell, which is the only occurrence inside one.
+//
+// T54 converted the GROUP view (the default view these tests render) from a
+// <table> to a CSS Grid, so a schedule cell there is now a
+// <div role="gridcell">. The remaining three views are still tables until T56,
+// and this helper is shared across both, hence the two-part selector. Drop the
+// 'td' half when T56 lands.
+const CELL_SELECTOR = 'td, [role="gridcell"]'
+
 function scheduleCell(name) {
-  return screen.getAllByText(name).find((el) => el.closest('td'))
+  return screen.getAllByText(name).find((el) => el.closest(CELL_SELECTOR))
 }
 
 // Activity names also appear in the palette sidebar, so queries meant for the
@@ -173,9 +180,14 @@ describe('DB-shaped slots (integers, as list() actually returns) drive the span/
 
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
 
-    const cells = screen.getAllByText('Swim').filter((el) => el.closest('td'))
+    const cells = screen.getAllByText('Swim').filter((el) => el.closest(CELL_SELECTOR))
     expect(cells).toHaveLength(1)
-    expect(cells[0].closest('td').rowSpan).toBe(2)
+    // The span is now expressed as `grid-row: <n> / span 2` plus aria-rowspan
+    // rather than the rowSpan attribute (T54). The assertion — one element,
+    // two blocks tall — is unchanged.
+    const cell = cells[0].closest(CELL_SELECTOR)
+    expect(cell.getAttribute('aria-rowspan')).toBe('2')
+    expect(cell.style.gridRow).toMatch(/\/ span 2$/)
   })
 
   it('recalcStats: `is_anchor === false` counts DB-loaded non-anchor slots instead of reporting 0/0 after every reload', async () => {
@@ -826,7 +838,7 @@ describe('separate manual and generated routes', () => {
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={(s) => navigated.push(s)} />)
     await waitFor(() => expect(screen.getByText('Which week do you want to open?')).toBeTruthy())
     // Nothing of either week is on screen until the director picks.
-    expect(screen.queryAllByText('Swim').some(el => el.closest('td'))).toBe(false)
+    expect(screen.queryAllByText('Swim').some(el => el.closest(CELL_SELECTOR))).toBe(false)
 
     fireEvent.click(screen.getByText('Manual'))
     await waitFor(() => expect(screen.getByText('The week you’re building')).toBeTruthy())
@@ -931,7 +943,17 @@ describe('separate manual and generated routes', () => {
     fireEvent.click(boxLabel().parentElement)
 
     await waitFor(() => expect(screen.getByText('Accept')).toBeTruthy())
-    expect(screen.getByText('No activity this group can do fits here')).toBeTruthy()
+    // Two occurrences since T54: the concern list, and the lit cell's own
+    // reason callout. The callout used to be mounted only while hovered; it is
+    // now always mounted and revealed by `.cell:hover .cell-reason` in
+    // scheduleGrid.css, which is also what removes it from the accessibility
+    // tree (display: none) when not shown. jsdom applies no stylesheet, so
+    // both are queryable here.
+    const reasons = screen.getAllByText('No activity this group can do fits here')
+    // Exactly two, and one of each kind — a bare `> 0` would pass if the callout
+    // started rendering on every cell instead of only the lit one.
+    expect(reasons).toHaveLength(2)
+    expect(reasons.filter(el => el.closest('.cell-reason'))).toHaveLength(1)
     expect(boxLabel().parentElement.getAttribute('aria-pressed')).toBe('true')
 
     // Toggling the same box off closes the list.
@@ -1274,7 +1296,7 @@ describe('T4: merging a cell down', () => {
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
 
-    fireEvent.pointerOver(scheduleCell('Swim').closest('td'))
+    fireEvent.pointerOver(scheduleCell('Swim').closest(CELL_SELECTOR))
     const mergeBtn = await screen.findByTitle(/run into the next period/i)
     expect(mergeBtn, 'merge affordance should exist on a cell with a block below it').toBeTruthy()
     fireEvent.click(mergeBtn)
@@ -1296,7 +1318,7 @@ describe('T4: merging a cell down', () => {
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
 
-    fireEvent.pointerOver(scheduleCell('Swim').closest('td'))
+    fireEvent.pointerOver(scheduleCell('Swim').closest(CELL_SELECTOR))
     fireEvent.click(await screen.findByTitle(/run into the next period/i))
 
     await waitFor(() => expect(screen.getByText(/Displaced Activities/i)).toBeTruthy())
@@ -1310,7 +1332,7 @@ describe('T3: selecting, copying and pasting cells', () => {
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
 
-    fireEvent.click(scheduleCell('Swim').closest('td'), { metaKey: true })
+    fireEvent.click(scheduleCell('Swim').closest(CELL_SELECTOR), { metaKey: true })
     // A plain click opens "Assign Activity"; a modified click must not.
     expect(screen.queryByText('Assign Activity')).toBeNull()
   })
@@ -1320,7 +1342,7 @@ describe('T3: selecting, copying and pasting cells', () => {
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
 
-    fireEvent.click(scheduleCell('Swim').closest('td'), { metaKey: true })
+    fireEvent.click(scheduleCell('Swim').closest(CELL_SELECTOR), { metaKey: true })
     fireEvent.keyDown(window, { key: 'c', metaKey: true })
 
     await waitFor(() => expect(screen.getByText(/to paste/i)).toBeTruthy())
@@ -1333,7 +1355,7 @@ describe('T3: selecting, copying and pasting cells', () => {
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
 
-    fireEvent.click(scheduleCell('Swim').closest('td'), { metaKey: true })
+    fireEvent.click(scheduleCell('Swim').closest(CELL_SELECTOR), { metaKey: true })
     fireEvent.keyDown(window, { key: 'c', metaKey: true })
     await waitFor(() => expect(screen.getByText(/to paste/i)).toBeTruthy())
 

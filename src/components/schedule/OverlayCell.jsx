@@ -1,17 +1,42 @@
 import { useState } from 'react'
+import './scheduleGrid.css'
 
 export const OVERLAY_COLOR = 'var(--accent)'
 export const OVERLAY_BG = 'color-mix(in srgb, var(--accent) 9%, transparent)'
 export const OVERLAY_TEXT = 'color-mix(in srgb, var(--accent) 60%, var(--text))'
 export const OVERLAY_BORDER = 'var(--accent)'
 
-export default function OverlayCell({ label, onRemove, rowSpan = 1, showFillHandle = false, fillHandleDirection = 'vertical', onFillStart }) {
+export default function OverlayCell({
+  label, onRemove, rowSpan = 1, showFillHandle = false, fillHandleDirection = 'vertical', onFillStart,
+  // TRANSITIONAL (T54 -> deleted in T56), see SlotCell: ScheduleDayView is
+  // still a <table>, so 'td' must remain the default.
+  renderAs = 'td',
+  gridRow,
+  gridColumn,
+  ariaColIndex,
+  cellKey,
+}) {
   const [showRemoveBtn, setShowRemoveBtn] = useState(false)
+  const isGrid = renderAs === 'gridcell'
+  const Shell = isGrid ? 'div' : 'td'
+
+  const shellProps = isGrid
+    ? {
+        role: 'gridcell',
+        className: 'cell',
+        style: { gridRow, gridColumn },
+        'aria-colindex': ariaColIndex,
+        'aria-rowspan': rowSpan > 1 ? rowSpan : undefined,
+        'data-cell-key': cellKey,
+      }
+    : {
+        rowSpan,
+        style: { padding: '8px 6px', verticalAlign: 'top', cursor: 'pointer' },
+      }
 
   return (
-    <td
-      rowSpan={rowSpan}
-      style={{ padding: '8px 6px', verticalAlign: 'top', cursor: 'pointer' }}
+    <Shell
+      {...shellProps}
       onClick={() => setShowRemoveBtn(v => !v)}
     >
       <div style={{
@@ -82,6 +107,6 @@ export default function OverlayCell({ label, onRemove, rowSpan = 1, showFillHand
           />
         )}
       </div>
-    </td>
+    </Shell>
   )
 }
