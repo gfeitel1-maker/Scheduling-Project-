@@ -134,12 +134,6 @@ confirmed. Current members of this class:
 Prefer injecting `localClient` as a prop over importing it at module scope, as `DeleteWeekDialog`
 does — it keeps the component testable without module mocking.
 
-**Not covered by any exception:** `src/components/layout/Sidebar.jsx` and
-`src/components/RecordHistory.jsx` perform domain *reads for display*, which is a different
-justification entirely and one this register does not grant. They are known violations pending
-extraction into hooks — see `docs/work/tickets/T47-component-io-outside-the-approved-exception.md`.
-Do not cite them as precedent.
-
 See [ADR 2026-08-04](../../adr/2026-08-04-repository-layer-policy.md) for the policy rationale.
 
 ### src/ → electron/ boundary

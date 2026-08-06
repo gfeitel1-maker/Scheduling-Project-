@@ -1,7 +1,6 @@
-import { useEffect, useState } from 'react'
-import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 import { entityLabel, fieldLabel, formatMoment, FK_TARGET } from '../screens/recordLabels'
+import { useRecordHistory } from '../hooks/useRecordHistory'
 
 // Who changed what, and when, for one record. Everything shown here has been
 // in the op log since the first edit; nothing new is stored to produce it.
@@ -11,29 +10,6 @@ import { entityLabel, fieldLabel, formatMoment, FK_TARGET } from '../screens/rec
 // fallback printed the raw id — "changed Unit from 3ac1... to 9df0...", which
 // explains nothing and makes the feature look broken. T18: say what is true
 // instead. Booleans and id lists get the same treatment for the same reason.
-
-function useReferenceNames(history) {
-  const [names, setNames] = useState({})
-
-  useEffect(() => {
-    const targets = [...new Set(history.map((h) => FK_TARGET[h.field]).filter(Boolean))]
-    if (targets.length === 0) return
-    let cancelled = false
-    Promise.all(targets.map((entity) => localClient.list(entity).catch(() => [])))
-      .then((results) => {
-        if (cancelled) return
-        const map = {}
-        results.flat().forEach((row) => {
-          if (row && row.id) map[row.id] = row.name ?? row.label ?? null
-        })
-        setNames(map)
-      })
-      .catch(() => { /* names are a nicety; ids still read */ })
-    return () => { cancelled = true }
-  }, [history])
-
-  return names
-}
 
 // T18 / CONSTITUTION Art. V. A history line is meant to explain a change, so
 // anything it cannot put in words is worse than useless — a raw uuid mid-
@@ -86,30 +62,7 @@ function HistoryLine({ entry, names }) {
 }
 
 export default function RecordHistory({ entity, entityId, name, onClose }) {
-  const [history, setHistory] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      setLoading(true)
-      try {
-        const rows = await localClient.getEntityHistory(entity, entityId)
-        if (cancelled) return
-        setHistory(Array.isArray(rows) ? rows : [])
-        setError(null)
-      } catch {
-        if (!cancelled) setError('This record’s history could not be read just now.')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    load()
-    return () => { cancelled = true }
-  }, [entity, entityId])
-
-  const names = useReferenceNames(history)
+  const { history, loading, error, names } = useRecordHistory(entity, entityId)
   const newestFirst = [...history].reverse()
 
   return (

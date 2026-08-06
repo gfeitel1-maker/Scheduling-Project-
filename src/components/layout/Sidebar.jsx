@@ -1,9 +1,8 @@
-import { useState, useEffect, useCallback } from 'react'
-import { localClient } from '../../localClient'
+import { useState, useCallback } from 'react'
 
-import { NAV_SECTIONS, AREA_TABLE } from './navSections'
+import { NAV_SECTIONS } from './navSections'
 import { getSetupGaps } from '../../engine/readiness'
-import { loadSidebarState, saveSidebarState, sectionRollup, shouldOfferFold, nextFoldStateAfterAnswer, syncStatusLabel } from './sidebarState'
+import { loadSidebarState, saveSidebarState, sectionRollup, nextFoldStateAfterAnswer, syncStatusLabel } from './sidebarState'
 
 // Marks are fixed-width whether or not one is present, so labels stay aligned
 // as ticks appear. Colour is never the only carrier: `!` is a distinct glyph
@@ -27,81 +26,14 @@ const TONE_COLOR = {
   warning: 'var(--warning)', secondary: 'var(--text-secondary)',
 }
 
-export default function Sidebar({ current, onNavigate, campId, role, badges = {} }) {
-  const [campName, setCampName] = useState('')
-  const [projectPath, setProjectPath] = useState(null)
-  // Which database is loaded must be visible, not inferable — see
-  // docs/adr/2026-07-28-explicit-userdata-directory.md.
-  const [isDevDb, setIsDevDb] = useState(false)
-  const [buildLabel, setBuildLabel] = useState(null)
-  const [backupStatus, setBackupStatus] = useState(null) // null | 'running' | 'ok' | 'error'
-  const [counts, setCounts] = useState(null)
+export default function Sidebar({
+  current, onNavigate, campId, role, badges = {},
+  counts, startedRoutes, campName, syncStatus,
+  projectPath, isDevDb, buildLabel,
+  backupStatus, handleBackupNow,
+  offerShown, setOfferShown,
+}) {
   const [sidebar, setSidebar] = useState(() => loadSidebarState(globalThis.localStorage))
-  const [offerShown, setOfferShown] = useState(false)
-  // How many of the two weeks have been started, for the Schedule roll-up.
-  // Counted from the slots themselves, so an empty template does not read as
-  // a started week.
-  const [startedRoutes, setStartedRoutes] = useState(0)
-  // T27 — whether this device can reach the others. Pushed, not polled: a value
-  // read once at mount is wrong within minutes.
-  const [syncStatus, setSyncStatus] = useState(null)
-
-  // Count every area the sidebar marks, then work out whether the last gap has
-  // just closed. Both happen here, in one async step, because this is the only
-  // place the previous and next gap counts are both in hand — the alternative
-  // is an effect comparing renders, which the React compiler rightly objects
-  // to and which would fire an extra render for a once-per-camp event.
-  const refreshCounts = useCallback(async () => {
-    const areas = Object.keys(AREA_TABLE)
-    const results = await Promise.all(
-      areas.map((area) => localClient.list(AREA_TABLE[area]).catch(() => []))
-    )
-    const next = {}
-    areas.forEach((area, i) => {
-      const rows = Array.isArray(results[i]) ? results[i] : []
-      next[area] = campId ? rows.filter((r) => !r.camp_id || r.camp_id === campId).length : rows.length
-    })
-
-    const slots = await localClient.list('template_slots').catch(() => [])
-    setStartedRoutes(new Set((Array.isArray(slots) ? slots : []).map((r) => r.template_id)).size)
-
-    setCounts((prev) => {
-      // `prev === null` is the first count of this session. A camp that was
-      // already complete when the app opened is never asked — the offer is
-      // about the moment setup finishes, not about being finished.
-      if (prev !== null && shouldOfferFold({
-        gaps: countGaps(next),
-        previousGaps: countGaps(prev),
-        alreadyOffered: loadSidebarState(globalThis.localStorage).offered,
-      })) {
-        setOfferShown(true)
-      }
-      return next
-    })
-  }, [campId])
-
-  useEffect(() => {
-    // Wrapped rather than called directly so the lint rule can see that no
-    // state is set synchronously during the effect — every setState in
-    // refreshCounts happens after an await. Same pattern as TrashScreen.
-    void (async () => { await refreshCounts() })()
-  }, [refreshCounts])
-
-  useEffect(() => {
-    let cancelled = false
-    localClient.getSyncStatus?.()
-      .then((s) => { if (!cancelled) setSyncStatus(s) })
-      .catch(() => { /* leave unknown rather than guessing */ })
-    const unsub = localClient.onSyncStatusChanged?.((s) => setSyncStatus(s))
-    return () => { cancelled = true; unsub?.() }
-  }, [])
-
-  // Counts must follow the data, or a tick lags a whole session behind.
-  useEffect(() => {
-    if (typeof localClient.onOpApplied !== 'function') return
-    const unsub = localClient.onOpApplied(() => { refreshCounts() })
-    return () => { unsub?.() }
-  }, [refreshCounts])
 
   const gaps = counts ? countGaps(counts) : []
   const gapAreas = new Set(gaps.map((g) => g.key))
@@ -120,32 +52,6 @@ export default function Sidebar({ current, onNavigate, campId, role, badges = {}
     setOfferShown(false)
     persist({ ...sidebar, ...nextFoldStateAfterAnswer(sidebar.sections, answer) })
   }
-
-
-  useEffect(() => {
-    if (!campId) return
-    localClient.getCamp()
-      .then(data => { if (data) setCampName(data.name) })
-      .catch(() => { /* fail silent — leave campName unset */ })
-  }, [campId])
-
-  useEffect(() => {
-    localClient.getCurrentProject()
-      .then(info => { if (info?.path) setProjectPath(info.path); if (info) { setIsDevDb(!!info.isDev); setBuildLabel(info.build || null) } })
-      .catch(() => { /* non-fatal */ })
-  }, [campId])
-
-  const handleBackupNow = useCallback(async () => {
-    setBackupStatus('running')
-    try {
-      const result = await localClient.backupProject()
-      setBackupStatus(result?.error ? 'error' : 'ok')
-    } catch {
-      setBackupStatus('error')
-    }
-    // Reset status label after 3 s.
-    setTimeout(() => setBackupStatus(null), 3000)
-  }, [])
 
   return (
     <aside style={{
