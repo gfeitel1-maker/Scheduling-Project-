@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, within, configure } from '@testing-library/react'
+
+// loadAll() chains ~12 sequential localClient.list()/listByScope() calls before
+// the grid replaces "Loading…" — comfortably under RTL's 1000ms default when the
+// machine is idle, but not when it isn't. Scoped to this file only (not a vitest
+// global timeout), since this component's initial load is genuinely heavier than
+// most screens' async settle time, not a symptom of a broken query.
+configure({ asyncUtilTimeout: 3000 })
 
 // Captured onOpApplied callbacks so tests can fire synthetic op-applied events.
 const opAppliedListeners = []
