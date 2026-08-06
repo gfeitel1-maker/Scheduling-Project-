@@ -1,7 +1,7 @@
 ---
 title: T33-ingest-creates-cohort-orphaned-entities
 document_type: ticket
-status: open
+status: closed
 created: 2026-08-02
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md]
@@ -52,3 +52,7 @@ director doing anything.
 Database/sync row: ADR + migration/rollback assessment + mandatory integration test. No schema change
 expected (columns already exist) — a projection/write fix, so likely an addendum to ADR 2026-08-01
 rather than a new ADR. Confirm before implementing.
+
+## Closure note
+
+Fixed in commits `d9f34dc` and `4436e42` (already on main). The fix threads `activeCohort.id` from `ImportScreen` through `localClient.ingestCommit` and the IPC handler into `commitIngest`, where `fieldsFor` sets `cohort_id` on tiers and time_blocks (groups and activities are camp-scoped and need none). The existing-unit dedup in `tierIdByName` is cohort-scoped so a "Rimon" in Session 2 no longer matches a "Rimon" being imported into Main. 31/31 ingest tests pass, lint clean. Verified by the Maker on 2026-08-06.
