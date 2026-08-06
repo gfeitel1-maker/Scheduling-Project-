@@ -1,7 +1,7 @@
 ---
 title: T46-week-crud-has-no-failure-handling
 document_type: ticket
-status: open
+status: closed
 created: 2026-08-04
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md]
 related_tickets: [docs/work/tickets/T8-snapshot-restore-silent-noop.md]
@@ -76,3 +76,7 @@ other five update optimistically.
 3. After a failed create, the week switcher does not show a week that is absent from the database.
 4. Tests cover a rejected write for each of the five mutations.
 5. Full `npm run test`, `npm run lint`, `npm run build` pass.
+
+## Closure note
+
+Implemented in commits `68dda2d`, `c76bd68`, `196c775` (on main). All five week mutations surface failures to the director; loading state guards against duplicate in-flight creates; tests pass.
