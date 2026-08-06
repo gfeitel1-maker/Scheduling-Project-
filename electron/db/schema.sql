@@ -1,3 +1,37 @@
+-- BASE SCHEMA ONLY — NOT the current schema shape.
+--
+-- This file is executed unconditionally on every database open (initSchema in
+-- localDb.js). Because every statement is guarded with CREATE TABLE IF NOT
+-- EXISTS / CREATE INDEX IF NOT EXISTS, re-execution on an already-migrated
+-- database is safe and idempotent — it adds nothing, because the table already
+-- exists and SQLite skips the statement entirely.
+--
+-- AUTHORITY: localDb.js migrations are the authoritative source for the
+-- current schema shape. The columns visible in a running database are those
+-- declared here PLUS every ALTER TABLE ADD COLUMN executed by the migration
+-- blocks in localDb.js. A table's CREATE TABLE statement here reflects only
+-- the columns that existed when the table was first introduced; every column
+-- added later appears only in the migration that added it.
+--
+-- To inspect a running database's actual column list:
+--   PRAGMA table_info(table_name);
+-- Run this against a migrated db (after initSchema completes), not a fresh
+-- one, to see all columns including migration-added ones.
+--
+-- INDEX PLACEMENT RULE (empirically derived from this file and localDb.js):
+--   schema.sql  — indexes on columns that are NOT NULL or otherwise present
+--                 in the original CREATE TABLE (i.e. they cannot be missing
+--                 on any database that ran this file). Re-execution is safe
+--                 because IF NOT EXISTS guards them.
+--   localDb.js  — indexes on columns added by ALTER TABLE in a migration, or
+--                 UNIQUE indexes on tables that needed deduplication logic
+--                 before the index could be safely created. These cannot live
+--                 here because re-executing schema.sql against a pre-migration
+--                 db would hit "no such column" before the ALTER TABLE ran.
+--                 Examples: idx_operations_client_write_id (v8, column added
+--                 v8), idx_schedule_templates_week_kind (v27, column added
+--                 v23), idx_week_activity_exclusions_week_activity (v28).
+
 CREATE TABLE IF NOT EXISTS camps (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -66,6 +100,12 @@ CREATE TABLE IF NOT EXISTS host_signing_key (
   created_at TEXT NOT NULL
 );
 
+-- DRIFTED TABLE: a migrated database has one additional column not listed below.
+-- Migration-added columns (see localDb.js):
+--   v8:  client_write_id TEXT  (already present in this CREATE TABLE — added here
+--          after v8 ran on all known devices)
+--   v18: host_seq INTEGER
+-- Use PRAGMA table_info(operations) against a migrated db to see all columns.
 CREATE TABLE IF NOT EXISTS operations (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,
   id TEXT NOT NULL UNIQUE,
@@ -192,6 +232,11 @@ CREATE TABLE IF NOT EXISTS activities (
 -- idx_groups_camp_name (version 12). activities is camp-scoped only (no
 -- cohort_id), matching groups, not tiers/time_blocks.
 
+-- DRIFTED TABLE: a migrated database has 10 columns, not the 6 below.
+-- Migration-added columns (see localDb.js):
+--   v10: flags TEXT, is_released INTEGER, is_span_head INTEGER
+--   v17: anchor_id TEXT, is_anchor INTEGER
+-- Use PRAGMA table_info(template_slots) against a migrated db to see all 10.
 CREATE TABLE IF NOT EXISTS template_slots (
   id TEXT PRIMARY KEY,
   template_id TEXT NOT NULL,
@@ -206,6 +251,10 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
   applied_at TEXT NOT NULL
 );
 
+-- DRIFTED TABLE: a migrated database has one additional column not listed below.
+-- Migration-added columns (see localDb.js):
+--   v22: first_sync_completed_at TEXT
+-- Use PRAGMA table_info(device_identity) against a migrated db to see all columns.
 CREATE TABLE IF NOT EXISTS device_identity (
   id TEXT PRIMARY KEY,
   created_at TEXT NOT NULL
