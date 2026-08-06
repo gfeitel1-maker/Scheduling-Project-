@@ -22,7 +22,10 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   overflow: hidden;
-  min-width: 500px;
+  /* Each view's own minWidth on the horizontal scroll container, carried as a
+     custom property because it is data (group count) in day view. 500px is what
+     group view and manual build's tables used. */
+  min-width: var(--frame-min-width, 500px);
   width: 100%;
 }
 
@@ -109,6 +112,23 @@
 .cell-inner--fill,
 .cell-inner--overlay {
   height: 100%;
+}
+
+/* The activity view's cells were bare table cells: no painted box, gap 2px between
+   the group names they list. The wrapper exists only so T55's collapsed rules
+   (which key off .cell-inner) apply to that view too, so it resets the box. */
+.cell-inner--activity {
+  border-radius: 0;
+  padding: 0;
+  min-height: 0;
+  gap: 2px;
+}
+
+/* Was inline in OverlayCell (OVERLAY_BG / OVERLAY_BORDER). Static, so it moved
+   here in T56 — an inline background is unreachable by any later state rule. */
+.cell-inner--overlay {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  border: 1.5px solid var(--accent);
 }
 
 /* ---------- row header column ---------- */
@@ -364,6 +384,79 @@
 .expand-handle[data-dragging] {
   visibility: visible;
   opacity: 1;
+}
+
+/* Replaces ExpandHandle's own `hovered` useState (T56): the handle's colour and
+   its glyph were the last hover state left in this file's components. Both
+   glyphs are always mounted and one is displayed, because a pseudo-state cannot
+   swap a text node. */
+.expand-handle {
+  background: var(--border);
+}
+
+.expand-handle:hover,
+.expand-handle[data-dragging] {
+  background: var(--primary);
+}
+
+.expand-glyph {
+  font-size: 11px;
+  line-height: 1;
+  pointer-events: none;
+  color: var(--text-secondary);
+}
+
+.expand-glyph--active {
+  display: none;
+  color: #fff;
+}
+
+.expand-handle:hover .expand-glyph--idle,
+.expand-handle[data-dragging] .expand-glyph--idle {
+  display: none;
+}
+
+.expand-handle:hover .expand-glyph--active,
+.expand-handle[data-dragging] .expand-glyph--active {
+  display: block;
+}
+
+/* ---------- overlay cell chrome (was inline in OverlayCell) ---------- */
+
+.overlay-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 10px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-weight: 700;
+  font-family: inherit;
+}
+
+.overlay-fill-handle {
+  position: absolute;
+  bottom: -5px;
+  right: 50%;
+  transform: translateX(50%);
+  width: 12px;
+  height: 12px;
+  background: var(--accent);
+  border: 2px solid white;
+  border-radius: 2px;
+  cursor: s-resize;
+  z-index: 10;
+  user-select: none;
+}
+
+.overlay-fill-handle[data-direction='both'] {
+  right: -5px;
+  transform: none;
+  cursor: se-resize;
 }
 
 /* ---------- collapsed presentation (T55, spec §2) ----------

@@ -8,6 +8,18 @@ export const ROW_FLOOR_NORMAL = 48
 // binding and the row header becomes the constraint (spec §4 D3).
 export const ROW_FLOOR_COMPACT = 40
 
+// Column tracks. The leading 140px is the row-header column that placeCell's
+// `columnIndex + 2` accounts for — the two must agree, so they are stated once
+// here rather than re-typed in each of the four views (T56).
+//
+// minmax(0, 1fr) rather than the spec's minmax(<colFloor>, 1fr): no colFloor
+// value was ever resolved (D1-D3 cover the ROW floors only), and any non-zero
+// floor introduces horizontal scrolling the tables did not have, which would
+// break the visual-parity predicate. Left for whoever resolves colFloor.
+export function columnTracks(columnCount) {
+  return `140px repeat(${columnCount}, minmax(0, 1fr))`
+}
+
 const NONE_COLLAPSED = new Set()
 
 // `collapsedBlockIds` is a Set, not an array — the house shape for an id set

@@ -1,33 +1,47 @@
 import { useDroppable } from '@dnd-kit/core'
 import SlotCell from '../schedule/SlotCell'
-import { emptyTd } from '../schedule/slotCellConstants'
 import OverlayCell from '../schedule/OverlayCell'
-import { S } from '../../styles/shared'
 import { decideCell } from '../../screens/schedule/gridGeometry'
+import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
+import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
+import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
+import './scheduleGrid.css'
 
-// DndContext lives in ScheduleScreen for day view (covers sidebar + grid).
-// isExpandDragActive is passed down from ScheduleScreen's drag-start handler.
-function DroppableEmptyCell({ groupId, dayId, blockId }) {
+const NO_COLLAPSE = new Set()
+
+function DroppableEmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex, collapsed }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `day-drop-${groupId}-${dayId}-${blockId}`,
     data: { groupId, dayId, blockId },
   })
   return (
-    <td
+    <div
       ref={setNodeRef}
-      style={{
-        ...emptyTd,
-        ...S.cellEmptyOutline,
-        background: isOver ? 'var(--primary)22' : S.cellEmptyOutline.background,
-        outline: isOver ? '2px dashed var(--primary)' : 'none',
-        outlineOffset: -2,
-        transition: 'background 0.1s',
-        borderRadius: 6,
-      }}
-    />
+      role="gridcell"
+      className="cell"
+      data-empty=""
+      data-cell-key={`${groupId}|${dayId}|${blockId}`}
+      data-collapsed={collapsed ? '' : undefined}
+      aria-colindex={ariaColIndex}
+      style={{ gridRow, gridColumn }}
+    >
+      {/* isOver is drag state, not hover — it stays inline. Drag is T58. */}
+      <div
+        className="cell-empty"
+        style={isOver
+          ? { background: 'var(--primary)22', outline: '2px dashed var(--primary)', outlineOffset: -2 }
+          : undefined}
+      />
+    </div>
   )
 }
 
+// DndContext lives in ScheduleScreen for day view (covers sidebar + grid).
+// isExpandDragActive is passed down from ScheduleScreen's drag-start handler.
+//
+// The COLUMNS OF THIS VIEW ARE GROUPS, not days. placeCell's columnIndex is
+// column-semantics-agnostic by design, so the group index goes straight in;
+// there is deliberately no second placement helper.
 export default function ScheduleDayView({
   groups, days, timeBlocks, selectedDay, onSelectDay,
   weatherMode, stampMode, actMap, anchorMap,
@@ -41,7 +55,13 @@ export default function ScheduleDayView({
   showIdentityDot = true,
   highlightMap,
   highlightColor = 'var(--danger)',
+  collapsedBlockIds = NO_COLLAPSE,
+  onToggleBlockCollapsed,
 }) {
+  const gridTemplateColumns = columnTracks(groups.length)
+  const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
+  const rowCells = groups.map(g => ({ groupId: g.id, dayId: selectedDay }))
+
   return (
     <div>
       {/* Day pills */}
@@ -59,84 +79,154 @@ export default function ScheduleDayView({
 
       {selectedDay && (
         <div style={{ overflowX: 'auto' }}>
-          <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: '100%', minWidth: 140 + groups.length * 130, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-            <thead>
-              <tr style={{ background: 'var(--surface-elevated)', borderBottom: '1.5px solid var(--border)' }}>
-                <th style={{ ...S.th, whiteSpace: 'nowrap', width: 140, position: 'sticky', top: 0, left: 0, background: 'var(--surface-elevated)', zIndex: 3 }}>Block</th>
-                {groups.map(g => <th key={g.id} style={{ ...S.th, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', position: 'sticky', top: 0, background: 'var(--surface-elevated)', zIndex: 2 }}>{g.name}</th>)}
-              </tr>
-            </thead>
-            <tbody>
-              {timeBlocks.map(block => (
-                <tr
-                  key={block.id}
-                  style={{ borderBottom: '1px solid var(--border)' }}
-                  onPointerEnter={() => {
-                    const b = timeBlocks.find(tb => tb.id === block.id)
-                    if (b && fillState) handleFillEnter(b.sort_order)
-                  }}
-                >
-                  <td style={{ padding: '10px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--surface)', zIndex: 1, borderRight: '1px solid var(--border)' }}>
-                    <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>{block.name}</div>
-                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
-                  </td>
-                  {groups.map(group => {
-                    const decision = decideCell(geometry, group.id, selectedDay, block.id)
-                    if (decision.kind === 'skip') return null
-                    if (decision.kind === 'empty') {
-                      return <DroppableEmptyCell key={group.id} groupId={group.id} dayId={selectedDay} blockId={block.id} />
-                    }
-                    if (decision.kind === 'overlay') {
-                      const { overlay, rowSpan } = decision
+          <div
+            role="grid"
+            className="schedule-grid-frame"
+            aria-rowcount={timeBlocks.length + 1}
+            aria-colcount={groups.length + 1}
+            // This view's own minWidth, unchanged from the table it replaces.
+            style={{ '--frame-min-width': `${140 + groups.length * 130}px` }}
+          >
+            <div role="rowgroup" className="schedule-grid schedule-grid--header" style={{ gridTemplateColumns }}>
+              <div role="row" aria-rowindex={1} style={{ display: 'contents' }}>
+                <div role="columnheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex: 0 })}>Block</div>
+                {groups.map((g, groupIndex) => (
+                  <div
+                    key={g.id}
+                    role="columnheader"
+                    className="cell"
+                    aria-colindex={groupIndex + 2}
+                    style={placeCell({ blockIndex: 0, columnIndex: groupIndex })}
+                  >{g.name}</div>
+                ))}
+              </div>
+            </div>
+
+            <div
+              role="rowgroup"
+              className="schedule-grid schedule-grid--body"
+              style={{ gridTemplateColumns, '--grid-rows': rowTracks }}
+            >
+              {timeBlocks.map((block, blockIndex) => {
+                const isCollapsed = collapsedBlockIds.has(block.id)
+                const flagKind = rowFlagKind(geometry, rowCells, block.id)
+                const toggle = () => onToggleBlockCollapsed?.(block.id)
+                return (
+                  <div
+                    key={block.id}
+                    role="row"
+                    aria-rowindex={blockIndex + 2}
+                    style={{ display: 'contents' }}
+                    onClickCapture={isCollapsed ? (e => { e.stopPropagation(); toggle() }) : undefined}
+                    onPointerEnter={() => {
+                      const b = timeBlocks.find(tb => tb.id === block.id)
+                      if (b && fillState) handleFillEnter(b.sort_order)
+                    }}
+                  >
+                    <div
+                      role="rowheader"
+                      className="cell row-header"
+                      aria-colindex={1}
+                      data-collapsed={isCollapsed ? '' : undefined}
+                      style={placeRowHeader({ blockIndex })}
+                    >
+                      <button
+                        type="button"
+                        className="row-header-toggle"
+                        aria-expanded={!isCollapsed}
+                        onClick={toggle}
+                      >
+                        <span className="block-name">{block.name}</span>
+                        <span className="block-time">{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</span>
+                      </button>
+                    </div>
+                    {groups.map((group, groupIndex) => {
+                      const decision = decideCell(geometry, group.id, selectedDay, block.id)
+                      if (decision.kind === 'skip') return null // tail — covered by the head's grid-row span
+                      const ariaColIndex = groupIndex + 2
+                      const cellKey = `${group.id}|${selectedDay}|${block.id}`
+
+                      if (decision.kind === 'empty') {
+                        return (
+                          <DroppableEmptyCell
+                            key={group.id}
+                            groupId={group.id}
+                            dayId={selectedDay}
+                            blockId={block.id}
+                            ariaColIndex={ariaColIndex}
+                            collapsed={isCollapsed}
+                            {...placeCell({ blockIndex, columnIndex: groupIndex })}
+                          />
+                        )
+                      }
+                      if (decision.kind === 'overlay') {
+                        const { overlay, rowSpan } = decision
+                        return (
+                          <OverlayCell
+                            key={group.id}
+                            label={overlay.label}
+                            rowSpan={rowSpan}
+                            onRemove={() => removeOverlay(overlay.id)}
+                            showFillHandle={true}
+                            fillHandleDirection="both"
+                            onFillStart={() => startFill(overlay)}
+                            ariaColIndex={ariaColIndex}
+                            cellKey={cellKey}
+                            collapsed={isCollapsed}
+                            {...placeCell({ blockIndex, columnIndex: groupIndex, rowSpan })}
+                          />
+                        )
+                      }
+
+                      const { slot, rowSpan, cellType } = decision
+                      const act = slot.activity_id ? actMap.get(slot.activity_id) : null
+                      const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
+                      const actIsLocked = slot.activity_id && act?.is_locked
+                      const isLocked = Boolean(actIsLocked && !slot.is_released)
+                      const cellClickHandler = stampMode
+                        ? () => handleStampClick(group.id, selectedDay, block.id)
+                        : undefined
+
                       return (
-                        <OverlayCell
+                        <SlotCell
                           key={group.id}
-                          label={overlay.label}
                           rowSpan={rowSpan}
-                          onRemove={() => removeOverlay(overlay.id)}
-                          showFillHandle={true}
-                          fillHandleDirection="both"
-                          onFillStart={() => startFill(overlay)}
+                          slot={slot.is_anchor
+                            ? { ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id }
+                            : { ...slot, type: cellType, groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
+                          activity={act}
+                          anchor={anchor}
+                          actColorIdx={act?.colorIdx || 0}
+                          weatherMode={weatherMode}
+                          onEdit={cellClickHandler || (s => onEditSlot(s))}
+                          onRelease={s => releaseCell(s.id)}
+                          isLocked={isLocked}
+                          isDndEnabled={!isLocked && !stampMode}
+                          isExpandDragActive={isExpandDragActive}
+                          showIdentityDot={showIdentityDot}
+                          isFlagHighlighted={highlightMap?.has(slot.id) ?? false}
+                          highlightColor={highlightColor}
+                          highlightReason={highlightMap?.get(slot.id) ?? null}
+                          ariaColIndex={ariaColIndex}
+                          cellKey={cellKey}
+                          collapsed={isCollapsed}
+                          {...placeCell({ blockIndex, columnIndex: groupIndex, rowSpan })}
                         />
                       )
-                    }
-
-                    const { slot, rowSpan, cellType } = decision
-                    const act = slot.activity_id ? actMap.get(slot.activity_id) : null
-                    const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
-                    const actIsLocked = slot.activity_id && act?.is_locked
-                    const isLocked = Boolean(actIsLocked && !slot.is_released)
-                    const cellClickHandler = stampMode
-                      ? () => handleStampClick(group.id, selectedDay, block.id)
-                      : undefined
-
-                    return (
-                      <SlotCell
-                        key={group.id}
-                        rowSpan={rowSpan}
-                        slot={slot.is_anchor
-                          ? { ...slot, type: 'anchor', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id }
-                          : { ...slot, type: cellType, groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
-                        activity={act}
-                        anchor={anchor}
-                        actColorIdx={act?.colorIdx || 0}
-                        weatherMode={weatherMode}
-                        onEdit={cellClickHandler || (s => onEditSlot(s))}
-                        onRelease={s => releaseCell(s.id)}
-                        isLocked={isLocked}
-                        isDndEnabled={!isLocked && !stampMode}
-                        isExpandDragActive={isExpandDragActive}
-                        showIdentityDot={showIdentityDot}
-                        isFlagHighlighted={highlightMap?.has(slot.id) ?? false}
-                        highlightColor={highlightColor}
-                        highlightReason={highlightMap?.get(slot.id) ?? null}
-                      />
-                    )
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                    })}
+                    <div
+                      className="row-flag-dot"
+                      aria-hidden="true"
+                      data-collapsed={isCollapsed ? '' : undefined}
+                      data-flag={flagKind || undefined}
+                      title={flagKind ? ROW_FLAG_TITLE[flagKind] : undefined}
+                      style={placeCell({ blockIndex, columnIndex: groups.length - 1 })}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+          </div>
         </div>
       )}
     </div>

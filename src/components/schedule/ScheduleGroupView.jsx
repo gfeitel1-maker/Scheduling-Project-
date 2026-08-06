@@ -2,39 +2,12 @@ import { useDroppable } from '@dnd-kit/core'
 import SlotCell from '../schedule/SlotCell'
 import OverlayCell from '../schedule/OverlayCell'
 import { decideCell } from '../../screens/schedule/gridGeometry'
-import { buildRowTracks } from '../../screens/schedule/gridTracks'
+import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
+import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
 import './scheduleGrid.css'
 
-// Column geometry, not style: it depends on the day count, so it is computed
-// here and applied inline to both rowgroups so their tracks are identical.
-//
-// minmax(0, 1fr) rather than the spec's minmax(<colFloor>, 1fr): no colFloor
-// value was ever resolved (D1-D3 cover the ROW floors only), and any non-zero
-// floor introduces horizontal scrolling that the table — tableLayout: fixed
-// inside minWidth: 500 — does not have today, which would break the
-// visual-parity predicate. Left for whoever resolves colFloor.
-function columnTemplate(dayCount) {
-  return `140px repeat(${dayCount}, minmax(0, 1fr))`
-}
-
 const NO_COLLAPSE = new Set()
-
-// The one piece of aggregate information a folded row must not swallow: a
-// collapsed row that can hide a conflict turns a scanning aid into a scanning
-// hazard. Derived here, in the pass that already visits every cell of the row —
-// it is never stored, never written to the db, the op-log or PROJECTIONS.
-// UNFILLABLE (danger) outranks OVERLAP (advisory); one dot, not two.
-function rowFlagKind(geometry, groupId, days, blockId) {
-  let advisory = false
-  for (const day of days) {
-    const flags = geometry.getSlot(groupId, day.id, blockId)?.flags
-    if (!flags) continue
-    if (flags.UNFILLABLE && !flags.UNFILLABLE_dismissed) return 'unfillable'
-    if (flags.OVERLAP) advisory = true
-  }
-  return advisory ? 'advisory' : null
-}
 
 function DroppableEmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex, collapsed }) {
   const { setNodeRef, isOver } = useDroppable({
@@ -95,7 +68,8 @@ export default function ScheduleGroupView({
   onToggleBlockCollapsed,
 }) {
   const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
-  const gridTemplateColumns = columnTemplate(days.length)
+  const rowCells = days.map(d => ({ groupId: selectedGroup, dayId: d.id }))
+  const gridTemplateColumns = columnTracks(days.length)
 
   return (
       <div>
@@ -149,7 +123,7 @@ export default function ScheduleGroupView({
                 >
                   {timeBlocks.map((block, blockIndex) => {
                     const isCollapsed = collapsedBlockIds.has(block.id)
-                    const flagKind = rowFlagKind(geometry, selectedGroup, days, block.id)
+                    const flagKind = rowFlagKind(geometry, rowCells, block.id)
                     const toggle = () => onToggleBlockCollapsed?.(block.id)
                     return (
                     <div
@@ -220,7 +194,6 @@ export default function ScheduleGroupView({
                               showFillHandle={true}
                               fillHandleDirection="vertical"
                               onFillStart={() => startFill(overlay)}
-                              renderAs="gridcell"
                               ariaColIndex={ariaColIndex}
                               cellKey={cellKey}
                               collapsed={isCollapsed}
@@ -277,7 +250,6 @@ export default function ScheduleGroupView({
                             isFlagHighlighted={highlightMap?.has(slot.id) ?? false}
                             highlightColor={highlightColor}
                             highlightReason={highlightMap?.get(slot.id) ?? null}
-                            renderAs="gridcell"
                             ariaColIndex={ariaColIndex}
                             cellKey={cellKey}
                             collapsed={isCollapsed}
@@ -295,7 +267,7 @@ export default function ScheduleGroupView({
                         aria-hidden="true"
                         data-collapsed={isCollapsed ? '' : undefined}
                         data-flag={flagKind || undefined}
-                        title={flagKind === 'unfillable' ? 'This period has an unfillable slot' : flagKind ? 'This period has a clash' : undefined}
+                        title={flagKind ? ROW_FLAG_TITLE[flagKind] : undefined}
                         style={placeCell({ blockIndex, columnIndex: days.length - 1 })}
                       />
                     </div>

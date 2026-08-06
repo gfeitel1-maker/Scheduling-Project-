@@ -1,66 +1,33 @@
 import { useState } from 'react'
 import { useDraggable, useDroppable } from '@dnd-kit/core'
 import { S, prefersReducedMotion } from '../../styles/shared'
-import { ANCHOR_COLOR, FLAG_COLORS, activityColor, cellTd, emptyTd } from './slotCellConstants'
+import { ANCHOR_COLOR, FLAG_COLORS, activityColor } from './slotCellConstants'
 import './scheduleGrid.css'
 
-function ExpandHandle({ groupId, dayId, blockId, activityId, cellHovered, cssHover = false }) {
-  const [hovered, setHovered] = useState(false)
+// Hover is a CSS selector (`.cell:hover .expand-handle`, `.expand-handle:hover`)
+// and costs zero JavaScript — that is the payoff of the spec §6 styling
+// relaxation, banked in T56. Both glyphs are always mounted and the stylesheet
+// picks one, because a text swap is the one thing a pseudo-state cannot do to a
+// text node.
+function ExpandHandle({ groupId, dayId, blockId, activityId }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `expand-${groupId}|${dayId}|${blockId}`,
     data: { expandDrag: { groupId, dayId, blockId, activityId } },
     activationConstraint: { distance: 12 },
   })
 
-  const visible = cellHovered || isDragging
-  const active = hovered || isDragging
-
-  // In cssHover mode the .expand-handle class owns geometry and the
-  // cell-hover -> visible gating; only the two data-derived colours stay
-  // inline. That is what removes this handle from the cell's hover re-render.
-  const layout = cssHover ? {} : {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 10,
-    borderRadius: '0 0 7px 7px',
-    cursor: 'row-resize',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    transition: 'background 0.15s, opacity 0.15s',
-    opacity: visible ? (active ? 1 : 0.6) : 0,
-    userSelect: 'none',
-    touchAction: 'none',
-    zIndex: 2,
-    pointerEvents: visible ? 'auto' : 'none',
-  }
-
   return (
     <div
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className={cssHover ? 'expand-handle' : undefined}
-      data-dragging={cssHover && isDragging ? '' : undefined}
-      onPointerEnter={() => setHovered(true)}
-      onPointerLeave={() => setHovered(false)}
+      className="expand-handle"
+      data-dragging={isDragging ? '' : undefined}
       onClick={e => e.stopPropagation()}
-      title={active ? 'Drag to extend' : undefined}
-      style={{
-        ...layout,
-        background: active ? 'var(--primary)' : 'var(--border)',
-      }}
+      title="Drag to extend"
     >
-      <span style={{
-        fontSize: 11,
-        color: active ? '#fff' : 'var(--text-secondary)',
-        lineHeight: 1,
-        pointerEvents: 'none',
-      }}>
-        {active ? '↕' : '─'}
-      </span>
+      <span className="expand-glyph expand-glyph--idle">─</span>
+      <span className="expand-glyph expand-glyph--active">↕</span>
     </div>
   )
 }
@@ -110,12 +77,9 @@ export default function SlotCell({
   isFlagHighlighted = false,
   highlightColor = 'var(--danger)',
   highlightReason = null,
-  // TRANSITIONAL (T54 -> deleted in T56). SlotCell is shared by
-  // ScheduleGroupView, ScheduleDayView and ManualBuildView. The latter two are
-  // still <table>s, and a <div> inside a <tr> is hoisted out of the table by
-  // the browser — so the default must stay 'td' until the last table caller
-  // goes away. Only the converted CSS Grid view passes 'gridcell'.
-  renderAs = 'td',
+  // Placement is computed by placeCell (gridPlacement.js) at the call site and
+  // spread in. A grid child with no explicit grid-column stacks in column 1 and
+  // nothing throws, so no view may inline these strings.
   gridRow,
   gridColumn,
   ariaColIndex,
@@ -126,30 +90,19 @@ export default function SlotCell({
   // it covers. Nothing about mounting, handlers or focusability changes.
   collapsed = false,
 }) {
-  const [cellHovered, setCellHovered] = useState(false)
-  const [splitHovered, setSplitHovered] = useState(false)
+  // The only remaining state in this component. Hover, split-hover and
+  // reason-focus were all deleted in T56: :hover and :focus-within in
+  // scheduleGrid.css do that work now, so hovering a cell re-renders nothing.
   const [pressed, setPressed] = useState(false)
-  const [reasonFocused, setReasonFocused] = useState(false)
-  const isGrid = renderAs === 'gridcell'
 
-  // In the gridcell branch every one of these is a CSS selector instead of
-  // React state (spec §6): cellHovered/splitHovered/reasonFocused are only read
-  // by the 'td' branch below. The useState calls themselves cannot be removed
-  // while that branch exists — hooks are unconditional — but nothing in the
-  // grid path subscribes to them, so hovering a grid cell re-renders nothing.
-  const Shell = isGrid ? 'div' : 'td'
-
-  function shellProps({ tdStyle }) {
-    if (!isGrid) return { style: tdStyle, rowSpan }
-    return {
-      role: 'gridcell',
-      className: 'cell',
-      style: { gridRow, gridColumn },
-      'aria-colindex': ariaColIndex,
-      'aria-rowspan': rowSpan > 1 ? rowSpan : undefined,
-      'data-cell-key': cellKey,
-      'data-collapsed': collapsed ? '' : undefined,
-    }
+  const shellProps = {
+    role: 'gridcell',
+    className: 'cell',
+    style: { gridRow, gridColumn },
+    'aria-colindex': ariaColIndex,
+    'aria-rowspan': rowSpan > 1 ? rowSpan : undefined,
+    'data-cell-key': cellKey,
+    'data-collapsed': collapsed ? '' : undefined,
   }
 
   function triggerPress() {
@@ -174,50 +127,38 @@ export default function SlotCell({
 
   const setRef = el => { setDragRef(el); setDropRef(el) }
 
-  if (!slot) return <Shell {...shellProps({ tdStyle: emptyTd })} />
+  if (!slot) return <div {...shellProps} />
 
   if (slot.type === 'anchor') {
     return (
-      <Shell {...shellProps({ tdStyle: cellTd })} ref={setRef} onClick={() => { triggerPress(); onEdit(slot) }}>
+      <div {...shellProps} ref={setRef} onClick={() => { triggerPress(); onEdit(slot) }}>
         <div
-          className={isGrid ? 'cell-inner cell-inner--anchor' : undefined}
+          className="cell-inner cell-inner--anchor"
           style={{
             ...S.cellStructuralBar(ANCHOR_COLOR),
             background: 'var(--surface)',
-            ...(isGrid ? {} : {
-              borderRadius: 8,
-              padding: '10px 12px',
-              minHeight: 56,
-              display: 'flex',
-              alignItems: 'center',
-            }),
             transform: pressed ? 'scale(0.97)' : 'scale(1)',
             transition: 'transform 0.1s ease',
           }}
         >
           <div
-            className={isGrid ? 'cell-name' : undefined}
+            className="cell-name"
             // The colour rides a custom property rather than `color` so the
             // collapsed rule can recolour it — an inline `color` would win.
-            style={isGrid
-              ? { '--cell-name-color': ANCHOR_COLOR, fontSize: 11 }
-              : { fontSize: 11, fontWeight: 600, color: ANCHOR_COLOR, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+            style={{ '--cell-name-color': ANCHOR_COLOR, fontSize: 11 }}
           >
             {anchor?.name || 'Anchor'}
           </div>
         </div>
-      </Shell>
+      </div>
     )
   }
 
   if (slot.type === 'unavailable') {
     return (
-      <Shell {...shellProps({ tdStyle: emptyTd })} ref={setRef}>
-        <div
-          className={isGrid ? 'cell-inner cell-inner--fill' : undefined}
-          style={isGrid ? S.cellUnavailableFill : { ...S.cellUnavailableFill, borderRadius: 8, minHeight: 56 }}
-        />
-      </Shell>
+      <div {...shellProps} ref={setRef}>
+        <div className="cell-inner cell-inner--fill" style={S.cellUnavailableFill} />
+      </div>
     )
   }
 
@@ -250,24 +191,11 @@ export default function SlotCell({
     onEdit(slot)
   }
 
-  // The static half (radius, padding, min-height, flex box) is owned by
-  // .cell-inner in the stylesheet for the grid branch; the 'td' branch keeps
-  // it inline until T56 deletes that branch.
-  const innerStatic = isGrid ? {} : {
-    borderRadius: 8,
-    padding: '10px 12px',
-    minHeight: 56,
-    position: 'relative',
-    display: 'flex',
-    flexDirection: 'column',
-  }
-
+  // Only data-derived paint composes inline. The static half (radius, padding,
+  // min-height, flex box) is .cell-inner in the stylesheet, and the rowSpan > 1
+  // centring is `.cell[aria-rowspan] .cell-inner` — both because T55's collapsed
+  // rule has to override them and no class can override an inline value.
   const innerStyle = {
-    ...innerStatic,
-    // Grid branch: .cell[aria-rowspan] .cell-inner owns this in the stylesheet,
-    // because the collapsed rule has to override it and an inline value cannot
-    // be overridden by a class.
-    ...(isGrid ? {} : { justifyContent: rowSpan > 1 ? 'center' : 'flex-start' }),
     ...(isLocked
       ? { ...S.cellStructuralBar('var(--accent)'), background: 'var(--surface)' }
       : isUnfillable
@@ -291,55 +219,34 @@ export default function SlotCell({
   }
 
   const tooltipText = activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned')
-
-  const pasteTargetStyle = pasteMode && !slot?.is_anchor
-    ? { cursor: 'crosshair' }
-    : {}
-
   const isPasteTarget = pasteMode && !slot?.is_anchor
 
-  // In the grid branch cursor is the only inline shell style left; hover,
-  // paste-target hover and focus are all selectors.
-  const gridShell = shellProps({ tdStyle: null })
-  const shellStyle = isGrid
-    ? { ...gridShell.style, cursor: canDrag ? (isDragging ? 'grabbing' : 'grab') : undefined }
-    : {
-        ...cellTd,
-        cursor: canDrag ? (isDragging ? 'grabbing' : 'grab') : 'pointer',
-        ...pasteTargetStyle,
-      }
-
   return (
-    <Shell
+    <div
       ref={setRef}
-      {...(isGrid
-        ? { ...gridShell, style: shellStyle, 'data-paste-target': isPasteTarget ? '' : undefined }
-        : { style: shellStyle, rowSpan })}
+      {...shellProps}
+      // cursor is the only inline shell style left; hover, paste-target hover
+      // and focus are all selectors.
+      style={{ ...shellProps.style, cursor: canDrag ? (isDragging ? 'grabbing' : 'grab') : undefined }}
+      data-paste-target={isPasteTarget ? '' : undefined}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
-      {...(isGrid ? {} : {
-        onPointerEnter: () => setCellHovered(true),
-        onPointerLeave: () => setCellHovered(false),
-        onFocus: () => setReasonFocused(true),
-        onBlur: () => setReasonFocused(false),
-      })}
       // Keyboard path to the same reason a mouse gets on hover — a lit cell is
       // focusable only while it is lit, so tab order is unchanged otherwise.
-      // In the grid branch :focus-within on the cell does the revealing.
+      // :focus-within on the cell does the revealing.
       tabIndex={isFlagHighlighted ? 0 : undefined}
       title={tooltipText}
       {...(canDrag ? { ...listeners, ...attributes } : {})}
-      // dnd-kit's `attributes` carry role="button", which on a <td> was inert
+      // dnd-kit's `attributes` carry role="button", which on a table cell was inert
       // but on a grid child silently replaces role="gridcell" and collapses the
       // grid -> row -> gridcell tree. Spec §8 wants the gridcell; dnd-kit's
       // remaining attributes (tabIndex, aria-roledescription, aria-describedby)
       // are what actually carry the drag affordance, and they are kept.
-      {...(isGrid ? { role: 'gridcell' } : {})}
+      role="gridcell"
     >
-      <div className={isGrid ? 'cell-inner' : undefined} style={{
+      <div className="cell-inner" style={{
         ...innerStyle,
-        ...(!isGrid && pasteMode && cellHovered && !slot?.is_anchor ? { border: '2px dashed var(--primary)', background: 'color-mix(in srgb, var(--primary) 12%, transparent)' } : {}),
         // Compose press-scale with the selection "lift" (translateY) carried by
         // innerStyle's S.cellSelected spread instead of clobbering it — both
         // can be true at once (a selected cell being pressed).
@@ -352,72 +259,45 @@ export default function SlotCell({
         {/* Why this cell is lit — shown while the lit cell is hovered or
             focused, per the "track changes" review. Screen-only review chrome;
             never printed. */}
-        {isFlagHighlighted && highlightReason && (isGrid || cellHovered || reasonFocused) && (
-          <div className={isGrid ? 'cell-reason' : undefined} style={S.cellReasonCallout} role="tooltip">{highlightReason}</div>
+        {isFlagHighlighted && highlightReason && (
+          <div className="cell-reason" style={S.cellReasonCallout} role="tooltip">{highlightReason}</div>
         )}
         {/* Merge-down button (T4) */}
-        {(isGrid || cellHovered) && hasMergeDown && !isMerged && (
+        {hasMergeDown && !isMerged && (
           <button
-            className={isGrid ? 'cell-action' : undefined}
-            style={isGrid ? undefined : S.cellActionBtn}
+            className="cell-action"
             title="Let this activity run into the next period"
             onClick={e => { e.stopPropagation(); onMergeDown?.() }}
           >↕</button>
         )}
         {/* Split button (T4) */}
-        {(isGrid || cellHovered) && isMerged && (
+        {isMerged && (
           <button
-            className={isGrid ? 'cell-action cell-action--split' : undefined}
-            style={isGrid ? undefined : {
-              ...S.cellActionBtn,
-              ...(splitHovered ? { borderColor: 'var(--danger)', color: 'var(--danger)' } : {}),
-            }}
+            className="cell-action cell-action--split"
             title="Split this back into two periods"
             onClick={e => { e.stopPropagation(); onSplitSlot?.() }}
-            {...(isGrid ? {} : {
-              onPointerEnter: () => setSplitHovered(true),
-              onPointerLeave: () => setSplitHovered(false),
-            })}
           >↕</button>
         )}
-        <div
-          className={isGrid ? 'cell-name' : undefined}
-          data-unassigned={isGrid && !activity ? '' : undefined}
-          style={isGrid ? undefined : {
-            fontSize: 12,
-            fontWeight: activity ? 600 : 500,
-            color: activity ? 'var(--text)' : 'var(--text-secondary)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            display: 'flex',
-            alignItems: 'center',
-          }}
-        >
+        <div className="cell-name" data-unassigned={!activity ? '' : undefined}>
           {showIdentityDot && activity && (
-            <span className={isGrid ? 'identity-dot' : undefined} style={isGrid ? { background: color } : { ...S.cellIdentityChip, background: color }} />
+            <span className="identity-dot" style={{ background: color }} />
           )}
-          {activity?.name || (isGrid ? (isUnfillable ? 'Unfillable' : 'Unassigned') : <span style={{ fontSize: 11 }}>{isUnfillable ? 'Unfillable' : 'Unassigned'}</span>)}
+          {activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned')}
         </div>
         {isOverlapping && (
           <div
-            className={isGrid ? 'flag flag--overlap' : undefined}
-            style={isGrid ? { background: FLAG_COLORS.OVERLAP } : {
-              position: 'absolute', top: 6, right: 6,
-              width: 7, height: 7, borderRadius: '50%',
-              background: FLAG_COLORS.OVERLAP,
-              boxShadow: '0 0 0 1.5px var(--surface)',
-            }}
+            className="flag flag--overlap"
+            style={{ background: FLAG_COLORS.OVERLAP }}
             title={flags.OVERLAP_reason || 'More groups booked in than this holds'}
           />
         )}
         {isUnfillable && (
-          <div className={isGrid ? 'flag flag--unfillable' : undefined} style={isGrid ? undefined : S.cellUnfillableIconStyle} title="Unfillable">
+          <div className="flag flag--unfillable" title="Unfillable">
             <UnfillableIcon />
           </div>
         )}
         {showOutdoorIcon && (
-          <div className={isGrid ? 'flag flag--outdoor' : undefined} style={isGrid ? undefined : S.cellOutdoorIconStyle} title="Outdoor activity">
+          <div className="flag flag--outdoor" title="Outdoor activity">
             <OutdoorIcon />
           </div>
         )}
@@ -427,11 +307,9 @@ export default function SlotCell({
             dayId={slot.dayId}
             blockId={slot.blockId}
             activityId={slot.activity_id}
-            cellHovered={isGrid ? false : cellHovered}
-            cssHover={isGrid}
           />
         )}
       </div>
-    </Shell>
+    </div>
   )
 }

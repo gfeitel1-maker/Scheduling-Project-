@@ -960,6 +960,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 selectedSlotKeys={selectedSlotKeys}
                 pasteMode={pasteMode}
                 onCellSelect={handleCellSelect}
+                collapsedBlockIds={collapsedBlockIds}
+                onToggleBlockCollapsed={toggleBlockCollapsed}
               />
             )}
 
@@ -1021,6 +1023,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 showIdentityDot={isManual}
                 highlightMap={highlightMap}
                 highlightColor={highlightColor}
+                collapsedBlockIds={collapsedBlockIds}
+                onToggleBlockCollapsed={toggleBlockCollapsed}
               />
             )}
 
@@ -1034,6 +1038,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 slots={slots}
                 selectedActivity={selectedActivity}
                 onSelectActivity={setSelectedActivity}
+                collapsedBlockIds={collapsedBlockIds}
+                onToggleBlockCollapsed={toggleBlockCollapsed}
               />
             )}
 

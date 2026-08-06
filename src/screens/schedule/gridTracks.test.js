@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildRowTracks,
+  columnTracks,
   COLLAPSED_TRACK,
   ROW_FLOOR_NORMAL,
   ROW_FLOOR_COMPACT,
@@ -85,5 +86,15 @@ describe('buildRowTracks', () => {
     expect(tracks).toBe('20px 20px 20px 20px 20px')
     expect(tracks).not.toContain('auto')
     expect(tracks).not.toContain('minmax')
+  })
+})
+
+// The 140px lead track is the row-header column that placeCell's `columnIndex + 2`
+// accounts for. If the two ever disagree every cell in every view is off by one,
+// silently — which is the whole reason both live in one place.
+describe('columnTracks', () => {
+  it('leads with the 140px row-header column and one flexible track per column', () => {
+    expect(columnTracks(5)).toBe('140px repeat(5, minmax(0, 1fr))')
+    expect(columnTracks(1)).toBe('140px repeat(1, minmax(0, 1fr))')
   })
 })
