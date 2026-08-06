@@ -1,10 +1,21 @@
-import { activityColor, cellTd } from '../schedule/slotCellConstants'
+import { activityColor } from '../schedule/slotCellConstants'
+import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
+import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { S } from '../../styles/shared'
+import { cellAccessibleName, blockNamesForSpan } from './cellLabel'
+import useGridKeyboardNav from './useGridKeyboardNav'
+import './scheduleGrid.css'
+
+const NO_COLLAPSE = new Set()
 
 export default function ScheduleActivityView({
   activities, groups, days, timeBlocks, slots,
   selectedActivity, onSelectActivity,
+  // T55/T56. Collapse is per-route state, shared by every view of that route.
+  collapsedBlockIds = NO_COLLAPSE,
+  onToggleBlockCollapsed,
 }) {
+  const gridNav = useGridKeyboardNav()
   return (
     <div>
       {!selectedActivity ? (
@@ -49,6 +60,8 @@ export default function ScheduleActivityView({
         (() => {
           const act = activities.find(a => a.id === selectedActivity)
           const color = activityColor(selectedActivity)
+          const gridTemplateColumns = columnTracks(days.length)
+          const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
           return (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
@@ -64,43 +77,114 @@ export default function ScheduleActivityView({
               </div>
 
               <div style={{ overflowX: 'auto' }}>
-                <table style={{ borderCollapse: 'collapse', tableLayout: 'fixed', width: '100%', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
-                  <thead>
-                    <tr style={{ background: 'var(--surface-elevated)', borderBottom: '1.5px solid var(--border)' }}>
-                      <th style={{ ...S.th, whiteSpace: 'nowrap', width: 140, position: 'sticky', top: 0, left: 0, background: 'var(--surface-elevated)', zIndex: 3 }}>Block</th>
-                      {days.map(d => <th key={d.id} style={{ ...S.th, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', position: 'sticky', top: 0, background: 'var(--surface-elevated)', zIndex: 2 }}>{d.label}</th>)}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {timeBlocks.map(block => (
-                      <tr key={block.id} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '10px 14px', verticalAlign: 'middle', whiteSpace: 'nowrap', position: 'sticky', left: 0, background: 'var(--surface)', zIndex: 1, borderRight: '1px solid var(--border)' }}>
-                          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>{block.name}</div>
-                          <div style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-secondary)', marginTop: 2 }}>{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
-                        </td>
-                        {days.map(day => {
-                          const assigned = slots.filter(s => s.activity_id === selectedActivity && s.day_id === day.id && s.time_block_id === block.id)
-                          return (
-                            <td key={day.id} style={{ ...cellTd, background: assigned.length ? `${color}12` : '', borderLeft: assigned.length ? `3px solid ${color}` : '3px solid transparent', verticalAlign: 'top' }}>
-                              {assigned.length === 0 ? null : (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                <div
+                  role="grid"
+                  className="schedule-grid-frame"
+                  aria-rowcount={timeBlocks.length + 1}
+                  aria-colcount={days.length + 1}
+                  {...gridNav}
+                >
+                  <div role="rowgroup" className="schedule-grid schedule-grid--header" style={{ gridTemplateColumns }}>
+                    <div role="row" aria-rowindex={1} style={{ display: 'contents' }}>
+                      <div role="columnheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex: 0 })}>Block</div>
+                      {days.map((d, dayIndex) => (
+                        <div
+                          key={d.id}
+                          role="columnheader"
+                          className="cell"
+                          aria-colindex={dayIndex + 2}
+                          style={placeCell({ blockIndex: 0, columnIndex: dayIndex })}
+                        >{d.label}</div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div
+                    role="rowgroup"
+                    className="schedule-grid schedule-grid--body"
+                    style={{ gridTemplateColumns, '--grid-rows': rowTracks }}
+                  >
+                    {timeBlocks.map((block, blockIndex) => {
+                      const isCollapsed = collapsedBlockIds.has(block.id)
+                      const toggle = () => onToggleBlockCollapsed?.(block.id)
+                      return (
+                        <div
+                          key={block.id}
+                          role="row"
+                          aria-rowindex={blockIndex + 2}
+                          style={{ display: 'contents' }}
+                        >
+                          <div
+                            role="rowheader"
+                            className="cell row-header"
+                            aria-colindex={1}
+                            data-collapsed={isCollapsed ? '' : undefined}
+                            style={placeRowHeader({ blockIndex })}
+                          >
+                            <button
+                              type="button"
+                              className="row-header-toggle"
+                              aria-expanded={!isCollapsed}
+                              onClick={toggle}
+                            >
+                              <span className="block-name">{block.name}</span>
+                              <span className="block-time">{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</span>
+                            </button>
+                          </div>
+                          {days.map((day, dayIndex) => {
+                            const assigned = slots.filter(s => s.activity_id === selectedActivity && s.day_id === day.id && s.time_block_id === block.id)
+                            return (
+                              <div
+                                key={day.id}
+                                role="gridcell"
+                                className="cell"
+                                aria-colindex={dayIndex + 2}
+                                data-cell-key={`${selectedActivity}|${day.id}|${block.id}`}
+                                data-collapsed={isCollapsed ? '' : undefined}
+                                // T59. This view's cells list the GROUPS doing
+                                // this activity in that slot; an unassigned one
+                                // announces as not scheduled, never as blank.
+                                aria-label={cellAccessibleName({
+                                  subject: assigned.length
+                                    ? assigned.map(s => groups.find(g => g.id === s.group_id)?.name || 'Unknown group').join(', ')
+                                    : 'Not scheduled',
+                                  blockNames: blockNamesForSpan(timeBlocks, blockIndex),
+                                  column: day.label,
+                                })}
+                                style={{
+                                  ...placeCell({ blockIndex, columnIndex: dayIndex }),
+                                  // Data-derived paint (the activity's own hue), so it stays inline.
+                                  background: assigned.length ? `${color}12` : '',
+                                  borderLeft: assigned.length ? `3px solid ${color}` : '3px solid transparent',
+                                  cursor: 'default',
+                                }}
+                              >
+                                {/* The .cell-inner wrapper is what makes T55's
+                                    collapsed rules reach this view unchanged;
+                                    --activity resets the painted box back to
+                                    the bare table cell this replaces. */}
+                                <div className="cell-inner cell-inner--activity">
                                   {assigned.map(s => {
                                     const g = groups.find(g => g.id === s.group_id)
                                     return (
-                                      <span key={s.id} style={{ fontSize: 11, fontWeight: 600, color, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      <div
+                                        key={s.id}
+                                        className="cell-name"
+                                        style={{ '--cell-name-color': color, fontSize: 11 }}
+                                      >
                                         {g?.name || '?'}
-                                      </span>
+                                      </div>
                                     )
                                   })}
                                 </div>
-                              )}
-                            </td>
-                          )
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
           )

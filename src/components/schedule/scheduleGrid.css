@@ -1,0 +1,688 @@
+/* The one stylesheet the T50 CSS Grid migration adds (spec §6, approved
+   2026-08-06). Scope is src/components/schedule/ and nothing else.
+
+   It owns: the grid container rules, cell interaction pseudo-states
+   (:hover, :focus-within), cell data-attribute states, and static structural
+   cell styling. Per-cell computed geometry (grid-row / grid-column) and
+   per-cell data-derived colours stay inline on the element that computes them.
+
+   Every value here is lifted verbatim from the inline objects it replaces
+   (S.th, the retired table-era cell objects, S.cellIdentityChip,
+   S.cellEmptyOutline, the row header's inline block) so the conversion is
+   structural, not visual. The two deliberate exceptions are marked DELTA. */
+
+/* ---------- container ---------- */
+
+/* The framed, scrollable grid. role="grid" lives here; the two
+   role="rowgroup" children below are the actual CSS Grid containers, which is
+   how a sticky day-header row can share one column template with the body
+   without the header consuming a body row track. */
+.schedule-grid-frame {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  /* Each view's own minWidth on the horizontal scroll container, carried as a
+     custom property because it is data (group count) in day view. 500px is what
+     group view and manual build's tables used. */
+  min-width: var(--frame-min-width, 500px);
+  width: 100%;
+}
+
+.schedule-grid {
+  display: grid;
+  gap: 0;
+  /* grid-template-columns is set inline: it is data (day count), not style. */
+}
+
+.schedule-grid--header {
+  grid-template-rows: auto;
+  position: sticky;
+  top: 0;
+  z-index: 3;
+}
+
+.schedule-grid--body {
+  grid-template-rows: var(--grid-rows);
+}
+
+/* The role="row" wrappers carry `display: contents` INLINE, exactly as spec §8
+   specifies — it removes the box so cells become direct grid items while the
+   element keeps role="row" in the accessibility tree. It is deliberately not
+   duplicated here: one source of truth, and the inline value is what the
+   structure test asserts. */
+
+/* ---------- cells ---------- */
+
+.cell {
+  position: relative;
+  padding: 8px 6px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.schedule-grid--body .cell {
+  border-bottom: 1px solid var(--border);
+}
+
+.schedule-grid--header .cell {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 12px;
+  font-family: var(--font-condensed);
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--surface-elevated);
+  border-bottom: 1.5px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+
+/* The inner box every cell kind paints into. Its border/background/outline are
+   still composed inline because they are data-derived (locked, unfillable,
+   selected, flagged, drop-target). */
+.cell-inner {
+  border-radius: 8px;
+  padding: 10px 12px;
+  min-height: 56px;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  box-sizing: border-box;
+}
+
+/* Was inline in SlotCell as `justifyContent: rowSpan > 1 ? 'center' : ...`.
+   It moved here (keyed off aria-rowspan, which is set for exactly rowSpan > 1)
+   because T55's collapsed rule must be able to override it, and no class can
+   override an inline value. */
+.cell[aria-rowspan] .cell-inner {
+  justify-content: center;
+}
+
+.cell-inner--anchor {
+  flex-direction: row;
+  align-items: center;
+}
+
+.cell-inner--fill,
+.cell-inner--overlay {
+  height: 100%;
+}
+
+/* The activity view's cells were bare table cells: no painted box, gap 2px between
+   the group names they list. The wrapper exists only so T55's collapsed rules
+   (which key off .cell-inner) apply to that view too, so it resets the box. */
+.cell-inner--activity {
+  border-radius: 0;
+  padding: 0;
+  min-height: 0;
+  gap: 2px;
+}
+
+/* Was inline in OverlayCell. Static, so it moved here in T56 — an inline
+   background is unreachable by any later state rule. */
+.cell-inner--overlay {
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  border: 1.5px solid var(--accent);
+}
+
+/* ---------- row header column ---------- */
+
+.row-header {
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  white-space: nowrap;
+  position: sticky;
+  left: 0;
+  background: var(--surface);
+  z-index: 1;
+  border-right: 1px solid var(--border);
+  cursor: default;
+}
+
+.schedule-grid--header .row-header {
+  background: var(--surface-elevated);
+  z-index: 4;
+}
+
+/* The collapse toggle fills the row header so the whole header is the hit area.
+   It is a real <button>: Enter/Space and the focus ring come from the platform,
+   and that keyboard path is the equivalent mechanism the accepted WCAG 2.2
+   SC 2.5.8 deviation depends on (a 20px strip is under the 24x24 minimum). */
+.row-header-toggle {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row-header-toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
+.block-name {
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.block-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+/* ---------- cell contents ---------- */
+
+.cell-name {
+  font-size: 12px;
+  font-weight: 600;
+  /* The custom property lets a caller (the anchor cell) supply its own hue
+     without an inline `color`, which no later rule could override. */
+  color: var(--cell-name-color, var(--text));
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  /* DELTA vs the table: was nowrap + ellipsis, which CLIPPED. A long activity
+     name must grow the row instead — that is the minmax(floor, auto) property
+     the ADR bought and the acceptance predicate "zero cells with
+     scrollWidth > clientWidth". T55 switches this back to nowrap + ellipsis
+     for [data-collapsed] cells only, which is the one place truncation is
+     accepted (spec §2). */
+  overflow-wrap: anywhere;
+}
+
+/* Was inline in OverlayCell; it moved here so the collapsed rules can reach it. */
+.cell-name--overlay {
+  display: block;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--accent) 60%, var(--text));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cell-name[data-unassigned] {
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
+.identity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 4px;
+  vertical-align: middle;
+  flex-shrink: 0;
+  /* background is inline — it is the activity's identity colour. */
+}
+
+/* pointer-events stays ON for overlap/unfillable — both carry a title tooltip
+   the director relies on. Only the outdoor glyph was inert before. */
+.flag {
+  position: absolute;
+  line-height: 1;
+}
+
+.flag--overlap {
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--surface);
+}
+
+.flag--unfillable {
+  top: 4px;
+  right: 4px;
+  width: 12px;
+  height: 12px;
+  color: var(--danger);
+}
+
+.flag--outdoor {
+  top: 3px;
+  right: 3px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  pointer-events: none;
+}
+
+/* ---------- empty cells (spec §7 — visible, not invisible) ---------- */
+
+.cell-empty {
+  background: var(--surface);
+  border: 1.5px dashed var(--border);
+  border-radius: 6px;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: background 0.1s;
+}
+
+/* ---------- interaction pseudo-states (this is why §6 was relaxed) ---------- */
+
+/* Replaces SlotCell's cellHovered useState + onPointerEnter/onPointerLeave:
+   hovering a cell no longer re-renders React. */
+/* visibility, not opacity: these are real <button>s and dnd-kit gives the
+   expand handle a tabIndex. An opacity-0 control stays focusable and stays in
+   the accessibility tree, which the useState version never did — it was simply
+   not mounted. visibility: hidden reproduces that. */
+/* Lifted verbatim from S.cellActionBtn (styles/shared.js), which the 'td'
+   branch still applies inline. It has to live here for the grid branch: an
+   inline `display: flex` cannot be overridden by the collapsed rule below, and
+   this absolutely-positioned 16px box is 2px taller than a 20px strip. */
+.cell-action {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--text-secondary);
+  z-index: 3;
+  padding: 0;
+  font-family: inherit;
+  visibility: hidden;
+  opacity: 0;
+}
+
+.cell:hover .cell-action {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Replaces splitHovered useState. */
+.cell-action--split:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+/* Replaces (cellHovered || reasonFocused) on the review reason callout. */
+.cell-reason {
+  display: none;
+}
+
+.cell:hover .cell-reason,
+.cell:focus-within .cell-reason {
+  display: block;
+}
+
+/* T59. Arrow-key navigation lands focus on a cell box, so the cell needs a
+   visible focus indicator (WCAG 2.4.7) — the stylesheet already gives one to
+   .row-header-toggle and this matches it. The negative offset is load-bearing:
+   .schedule-grid-frame is `overflow: hidden`, so an outward ring on an edge
+   cell would be clipped. :focus-visible, not :focus, so a mouse click on a
+   cell does not paint a ring — no visual change to any view under pointer use. */
+.cell:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  border-radius: 4px;
+  z-index: 6;
+}
+
+/* Replaces the pasteMode && cellHovered inline branch. */
+.cell[data-paste-target] {
+  cursor: crosshair;
+}
+
+.cell[data-paste-target]:hover .cell-inner {
+  border: 2px dashed var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+}
+
+.expand-handle {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 10px;
+  border-radius: 0 0 7px 7px;
+  cursor: row-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, opacity 0.15s;
+  user-select: none;
+  touch-action: none;
+  z-index: 2;
+  visibility: hidden;
+  opacity: 0;
+}
+
+.cell:hover .expand-handle {
+  visibility: visible;
+  opacity: 0.6;
+}
+
+.cell:hover .expand-handle:hover,
+.expand-handle[data-dragging] {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Replaces ExpandHandle's own `hovered` useState (T56): the handle's colour and
+   its glyph were the last hover state left in this file's components. Both
+   glyphs are always mounted and one is displayed, because a pseudo-state cannot
+   swap a text node. */
+.expand-handle {
+  background: var(--border);
+}
+
+.expand-handle:hover,
+.expand-handle[data-dragging] {
+  background: var(--primary);
+}
+
+.expand-glyph {
+  font-size: 11px;
+  line-height: 1;
+  pointer-events: none;
+  color: var(--text-secondary);
+}
+
+.expand-glyph--active {
+  display: none;
+  color: #fff;
+}
+
+.expand-handle:hover .expand-glyph--idle,
+.expand-handle[data-dragging] .expand-glyph--idle {
+  display: none;
+}
+
+.expand-handle:hover .expand-glyph--active,
+.expand-handle[data-dragging] .expand-glyph--active {
+  display: block;
+}
+
+/* ---------- overlay cell chrome (was inline in OverlayCell) ---------- */
+
+.overlay-remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  font-size: 10px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-weight: 700;
+  font-family: inherit;
+}
+
+.overlay-fill-handle {
+  position: absolute;
+  bottom: -5px;
+  right: 50%;
+  transform: translateX(50%);
+  width: 12px;
+  height: 12px;
+  background: var(--accent);
+  border: 2px solid white;
+  border-radius: 2px;
+  cursor: s-resize;
+  z-index: 10;
+  user-select: none;
+}
+
+.overlay-fill-handle[data-direction='both'] {
+  right: -5px;
+  transform: none;
+  cursor: se-resize;
+}
+
+/* ---------- collapsed presentation (T55, spec §2) ----------
+
+   Collapse is TWO concerns. The container owns the TRACK (--grid-rows gives a
+   collapsed block the fixed COLLAPSED_TRACK, never `auto`); everything below
+   owns the CONTENT PRESENTATION at that height. A table conflated the two
+   because table cells are content-sized; grid does not, which is why collapse
+   costs one custom-property write instead of a re-render — and why this half
+   has to be authored rather than inherited.
+
+   data-collapsed is set only when the cell's HEAD block is collapsed. A cell
+   spanning ACROSS a collapsed block keeps every rule above: it simply gets
+   shorter, because grid sums the tracks it covers.
+
+   No transition anywhere in this block: collapse is an instant track-height
+   change (spec §5.4, DESIGN_STANDARD §8). */
+
+.cell[data-collapsed] {
+  padding: 0 11px;
+  overflow: hidden;
+}
+
+.cell[data-collapsed] .cell-inner,
+.cell[data-collapsed] .cell-empty {
+  min-height: 0;
+  height: 100%;
+  padding: 0;
+  border-radius: 4px;
+  justify-content: center;
+  flex-direction: row;
+  align-items: center;
+}
+
+/* 11px at FULL opacity, dimmed by the token instead. Measured, not stylistic:
+   --text-secondary #5C6670 on --bg #F4F3EF is 2.51:1 at the mockup's 0.62
+   opacity — under even the 3:1 large-text floor, at the smallest type in the
+   app. No opacity value reaches 4.5:1; opacity 1 measures 5.27:1.
+   DO NOT reintroduce an opacity value on this label. 11px x 1.4 line-height
+   plus the 1px border is 17.4px, which is why COLLAPSED_TRACK is 20px, not 14. */
+.cell[data-collapsed] .cell-name,
+.row-header[data-collapsed] .block-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  /* The one place truncation is accepted: a fixed-height box (spec §2). */
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+  width: 100%;
+}
+
+.cell[data-collapsed] .identity-dot,
+.cell[data-collapsed] .flag,
+.cell[data-collapsed] .expand-handle,
+.cell[data-collapsed] .cell-action,
+.cell[data-collapsed] .cell-reason,
+.cell[data-collapsed] .overlay-remove,
+.cell[data-collapsed] .overlay-fill-handle,
+.row-header[data-collapsed] .block-time {
+  display: none;
+}
+
+.row-header[data-collapsed] {
+  padding: 0 14px;
+}
+
+/* One 6px dot per collapsed row when ANY cell in it is flagged: a folded row
+   that can hide a conflict turns a scanning aid into a scanning hazard. The
+   element is always mounted and gated here, so toggling collapse stays an
+   attribute write and never changes DOM membership. */
+.row-flag-dot {
+  display: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  justify-self: end;
+  align-self: center;
+  margin-right: 8px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.row-flag-dot[data-collapsed][data-flag] {
+  display: block;
+}
+
+.row-flag-dot[data-flag='unfillable'] {
+  background: var(--danger);
+}
+
+.row-flag-dot[data-flag='advisory'] {
+  background: var(--accent);
+}
+
+/* ---------- drag (T58, spec §5.4 / §5.5 / §7) ----------
+
+   Three rules govern everything below.
+
+   1. STATIC ONLY. Atlassian replaced react-beautiful-dnd because animated
+      placement feedback made interfaces feel sluggish — users waited for the
+      animation before they could read intent. Their replacement is "lines,
+      borders and background color changes". So: no transition, no transform, no
+      cell sliding to make room. Nothing here animates, and nothing here touches
+      a cell's layout box, so no cell can reflow during a gesture.
+
+   2. It has to be a PSEUDO-ELEMENT ON .cell, not a rule on .cell-inner.
+      .cell-inner's border/background are composed inline from data (locked,
+      unfillable, flagged) and an inline value beats any rule — the T55 lesson.
+      .cell carries nothing inline but grid placement and cursor, so ::before and
+      ::after are reachable.
+
+   3. The DROP INDICATOR and the DRAG PREVIEW are separate things. The indicator
+      (below) is static and marks WHERE the drop lands. The preview (.drag-ghost)
+      follows the pointer and shows WHAT is moving. */
+
+/* Where it lands — the target box. */
+.cell[data-drag-over]::after {
+  content: '';
+  position: absolute;
+  /* Matches .cell's padding, so the mark frames the painted inner box. */
+  inset: 8px 6px;
+  border-radius: 8px;
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* Which edge of that cell the drop attaches to (closestEdge). A solid bar at the
+   top of the target reads differently from one at its foot at a glance, with no
+   modifier key and no colour difference to depend on. */
+.cell[data-drag-over]::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--primary);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.cell[data-drag-over][data-drop-edge='top']::before {
+  top: 5px;
+}
+
+.cell[data-drag-over][data-drop-edge='bottom']::before {
+  bottom: 5px;
+}
+
+/* Extend-drag kept its own colour and dashed treatment from the inline version
+   it replaces, so the gesture still reads as "grow this" rather than "swap". */
+.cell[data-drag-over][data-drag-kind='expand-drag']::after {
+  outline: 2px dashed var(--success);
+  background: color-mix(in srgb, var(--success) 9%, transparent);
+}
+
+.cell[data-drag-over][data-drag-kind='expand-drag']::before {
+  background: var(--success);
+}
+
+/* The drag preview. One element, moved by one transform write per pointer event,
+   never through React. pointer-events: none is load-bearing — elementFromPoint
+   would otherwise resolve every hit to the ghost. */
+.drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  display: none;
+  pointer-events: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface-elevated);
+  border: 1.5px solid var(--primary);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--text) 22%, transparent);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drag-ghost[data-visible] {
+  display: block;
+}
+
+/* Pick-up / move / drop announcements. Visually hidden, never display:none —
+   a display:none live region is not announced. */
+.drag-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .expand-handle,
+  .cell-empty {
+    transition: none;
+  }
+}

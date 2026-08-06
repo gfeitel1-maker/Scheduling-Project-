@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
+import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { localClient } from '../localClient'
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { getSetupGaps, describeSetupGaps } from '../engine/readiness'
@@ -21,6 +21,8 @@ import { deriveScheduleTemplateId } from '../../electron/ops/scheduleTemplateId'
 import { resolveSelection } from './resolveSelection'
 import { getSlot, makeGridGeometry } from './schedule/gridGeometry'
 import { makeDragHandlers } from './schedule/dragHandlers'
+import { useDragFSM } from './schedule/useDragFSM'
+import GridDragSurface from './schedule/GridDragSurface'
 import { useUndoRedo } from './schedule/useUndoRedo'
 import { useClipboardSelection } from './schedule/useClipboardSelection'
 import { useOverlayFillStamp } from './schedule/useOverlayFillStamp'
@@ -37,6 +39,19 @@ import ScheduleActivityView from '../components/schedule/ScheduleActivityView'
 import ManualBuildView from '../components/schedule/ManualBuildView'
 import ActivityPalette from '../components/schedule/ActivityPalette'
 import DisplacedPalette from '../components/schedule/DisplacedPalette'
+
+// dnd-kit's own announcer describes droppable IDs, which after T58 are one
+// container rather than 480 cells — it would say "over droppable
+// schedule-grid-surface" for every gesture. The FSM's live region announces the
+// actual cell instead, so dnd-kit's is silenced rather than left to contradict
+// it. Returning undefined suppresses the announcement.
+const SILENCE_DNDKIT_ANNOUNCEMENTS = {
+  onDragStart: () => undefined,
+  onDragMove: () => undefined,
+  onDragOver: () => undefined,
+  onDragEnd: () => undefined,
+  onDragCancel: () => undefined,
+}
 
 export default function ScheduleScreen({ campId, role, onNavigate, initialRoute }) {
   // Which route is on screen is driven by the sidebar entry the director
@@ -111,6 +126,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     templateIdFor,
     rawSlots, stats, findings, dismissedFindingKeys, overlays, snapshots,
     setStats, setFindings, setDismissedFindingKeys,
+    collapsedBlockIds, toggleBlockCollapsed,
   } = routeState
   // OVERLAP is derived, never persisted — so it clears from every participating
   // cell the moment any one of them moves, and only on the manual route, where
@@ -142,11 +158,15 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const [deletingWeek, setDeletingWeek] = useState(null)
   const [showVersions, setShowVersions] = useState(false)
   const [showFieldTripDrawer, setShowFieldTripDrawer] = useState(false)
-  const [isDayExpandDragActive, setIsDayExpandDragActive] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [isGroupExpandDragActive, setIsGroupExpandDragActive] = useState(false)
 
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+  // 5px, not 8: Windows uses 4, Unity 5, dnd-kit defaults to 5 (spec §5.6).
+  // The keyboard sensor is the stated reason @dnd-kit is retained at all — the
+  // ADR rejected raw setPointerCapture because it would mean reimplementing it.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor),
+  )
   const localDeviceIdRef = useRef(null)
 
   // T5 — undo/redo lives in its own hook: the two stacks, the push/undo/redo
@@ -507,8 +527,30 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // Group-view and day-view DnD share identical expand-drag/palette-drop
   // branches; group view also allows slot-swap (product decision 2026-08-04).
   const dragDeps = { timeBlocks, days, slots, actMap, getSlot, expandSlot, placeActivityManual, swapSlots }
-  const groupHandlers = makeDragHandlers({ ...dragDeps, setExpandDragActive: setIsGroupExpandDragActive, allowSwap: true })
-  const dayHandlers = makeDragHandlers({ ...dragDeps, setExpandDragActive: setIsDayExpandDragActive, allowSwap: true })
+  const groupHandlers = makeDragHandlers({ ...dragDeps, allowSwap: true })
+  const dayHandlers = makeDragHandlers({ ...dragDeps, allowSwap: true })
+
+  // Announcement copy for the FSM's aria-live region. Both are read only inside
+  // a side effect, never during render.
+  function describeDrag(active) {
+    const data = active?.data?.current || {}
+    if (data.expandDrag) return `${actMap.get(data.expandDrag.activityId)?.name || 'Activity'}, extending`
+    if (data.paletteActivity) return actMap.get(data.paletteActivity.id)?.name || 'Activity'
+    if (data.slot) return actMap.get(data.slot.activity_id)?.name || 'Empty slot'
+    return 'Item'
+  }
+
+  function describeHit(hit) {
+    if (!hit) return 'no target'
+    const group = groups.find(g => g.id === hit.groupId)
+    const day = days.find(d => d.id === hit.dayId)
+    const block = timeBlocks.find(b => b.id === hit.blockId)
+    return [group?.name, day?.label, block?.name].filter(Boolean).join(', ') || hit.cellKey
+  }
+
+  // One FSM per DndContext. Group view's context also covers manual build.
+  const groupDrag = useDragFSM({ commit: groupHandlers.commit, describeDrag, describeHit })
+  const dayDrag = useDragFSM({ commit: dayHandlers.commit, describeDrag, describeHit })
 
   // Grid geometry (getSlot / tails / rowspans / overlays) lives in the pure
   // ./schedule/gridGeometry module. Bind the current data once so the views and
@@ -959,6 +1001,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 selectedSlotKeys={selectedSlotKeys}
                 pasteMode={pasteMode}
                 onCellSelect={handleCellSelect}
+                collapsedBlockIds={collapsedBlockIds}
+                onToggleBlockCollapsed={toggleBlockCollapsed}
               />
             )}
 
@@ -983,13 +1027,14 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 fillState={fillState}
                 onExpandSlot={expandSlot}
                 onSplitSlot={splitSlot}
-                isExpandDragActive={isGroupExpandDragActive}
                 selectedSlotKeys={selectedSlotKeys}
                 pasteMode={pasteMode}
                 onCellSelect={handleCellSelect}
                 showIdentityDot={false}
                 highlightMap={highlightMap}
                 highlightColor={highlightColor}
+                collapsedBlockIds={collapsedBlockIds}
+                onToggleBlockCollapsed={toggleBlockCollapsed}
               />
             )}
 
@@ -1014,10 +1059,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 handleStampClick={handleStampClick}
                 onEditSlot={setEditSlot}
                 fillState={fillState}
-                isExpandDragActive={isDayExpandDragActive}
                 showIdentityDot={isManual}
                 highlightMap={highlightMap}
                 highlightColor={highlightColor}
+                collapsedBlockIds={collapsedBlockIds}
+                onToggleBlockCollapsed={toggleBlockCollapsed}
               />
             )}
 
@@ -1031,6 +1077,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 slots={slots}
                 selectedActivity={selectedActivity}
                 onSelectActivity={setSelectedActivity}
+                collapsedBlockIds={collapsedBlockIds}
+                onToggleBlockCollapsed={toggleBlockCollapsed}
               />
             )}
 
@@ -1051,11 +1099,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             <DndContext
               key="group"
               sensors={sensors}
-              onDragStart={groupHandlers.handleDragStart}
-              onDragEnd={groupHandlers.handleDragEnd}
-              onDragCancel={() => setIsGroupExpandDragActive(false)}
+              accessibility={{ announcements: SILENCE_DNDKIT_ANNOUNCEMENTS }}
+              {...groupDrag.dndProps}
             >
-              {twoCol}
+              <GridDragSurface {...groupDrag.surfaceProps}>{twoCol}</GridDragSurface>
             </DndContext>
           )
         }
@@ -1064,11 +1111,10 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             <DndContext
               key="day"
               sensors={sensors}
-              onDragStart={dayHandlers.handleDragStart}
-              onDragEnd={dayHandlers.handleDragEnd}
-              onDragCancel={() => setIsDayExpandDragActive(false)}
+              accessibility={{ announcements: SILENCE_DNDKIT_ANNOUNCEMENTS }}
+              {...dayDrag.dndProps}
             >
-              {twoCol}
+              <GridDragSurface {...dayDrag.surfaceProps}>{twoCol}</GridDragSurface>
             </DndContext>
           )
         }

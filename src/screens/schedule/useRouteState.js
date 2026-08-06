@@ -45,6 +45,13 @@ export function useRouteState(weekId, route) {
   const [dismissedByRoute, setDismissedByRoute] = useState(() => EMPTY_BY_ROUTE(() => new Set()))
   const [snapshotsByRoute, setSnapshotsByRoute] = useState(() => EMPTY_BY_ROUTE(() => []))
   const [overlaysByRoute, setOverlaysByRoute] = useState(() => EMPTY_BY_ROUTE(() => []))
+  // T55. Which time blocks are folded to a thin strip. View state only: it is
+  // deliberately NOT persisted and NOT part of setRouteData's replace payload —
+  // it never reaches the database, the op-log or PROJECTIONS, and a reload
+  // starts with every period open (see the T55 closure note). It is by-route
+  // for the same reason everything else here is: the two candidates are
+  // independent, and folding Lunch on one must not fold it on the other.
+  const [collapsedByRoute, setCollapsedByRoute] = useState(() => EMPTY_BY_ROUTE(() => new Set()))
 
   // The derived id is only a fallback: two devices that independently create a
   // candidate for the same camp and route must agree on its id or their work
@@ -60,6 +67,7 @@ export function useRouteState(weekId, route) {
   const dismissedFindingKeys = dismissedByRoute[route]
   const overlays = overlaysByRoute[route]
   const snapshots = snapshotsByRoute[route]
+  const collapsedBlockIds = collapsedByRoute[route]
 
   const setSlots = routeSetter(setSlotsByRoute, route)
   const setStats = routeSetter(setStatsByRoute, route)
@@ -67,6 +75,17 @@ export function useRouteState(weekId, route) {
   const setDismissedFindingKeys = routeSetter(setDismissedByRoute, route)
   const setOverlays = routeSetter(setOverlaysByRoute, route)
   const setSnapshots = routeSetter(setSnapshotsByRoute, route)
+  const setCollapsedBlockIds = routeSetter(setCollapsedByRoute, route)
+
+  // A new Set every time: the grid reads it during render and a mutated-in-place
+  // Set would not re-render.
+  function toggleBlockCollapsed(blockId) {
+    setCollapsedBlockIds(prev => {
+      const next = new Set(prev)
+      if (!next.delete(blockId)) next.add(blockId)
+      return next
+    })
+  }
 
   // Bulk per-route replace for loadAll's shape: one call instead of six+
   // scattered setters. This does NOT narrow the interface below — every raw
@@ -109,12 +128,14 @@ export function useRouteState(weekId, route) {
     dismissedByRoute, setDismissedByRoute,
     snapshotsByRoute, setSnapshotsByRoute,
     overlaysByRoute, setOverlaysByRoute,
+    collapsedByRoute, setCollapsedByRoute,
     // Current-route id resolution.
     templateIdFor, templateId,
     // Current-route derived values.
-    rawSlots, stats, findings, dismissedFindingKeys, overlays, snapshots,
+    rawSlots, stats, findings, dismissedFindingKeys, overlays, snapshots, collapsedBlockIds,
     // Current-route setters.
     setSlots, setStats, setFindings, setDismissedFindingKeys, setOverlays, setSnapshots,
+    setCollapsedBlockIds, toggleBlockCollapsed,
     // Bulk per-route replace (see setRouteData above).
     setRouteData,
   }

@@ -15,6 +15,9 @@ function DraggablePaletteItem({ activity, scheduledCount, atMax, draggable, show
   return (
     <div
       ref={setNodeRef}
+      // Lets the FSM name the gesture's kind at pointer-down, before dnd-kit's
+      // threshold has decided anything (T58).
+      data-palette-activity={activity.id}
       {...(draggable ? listeners : {})}
       {...(draggable ? attributes : {})}
       style={{

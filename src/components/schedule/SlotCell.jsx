@@ -1,55 +1,36 @@
 import { useState } from 'react'
-import { useDraggable, useDroppable } from '@dnd-kit/core'
+import { useDraggable } from '@dnd-kit/core'
 import { S, prefersReducedMotion } from '../../styles/shared'
-import { ANCHOR_COLOR, FLAG_COLORS, activityColor, cellTd, emptyTd } from './slotCellConstants'
+import { ANCHOR_COLOR, FLAG_COLORS, activityColor } from './slotCellConstants'
+import { cellAccessibleName } from './cellLabel'
+import './scheduleGrid.css'
 
-function ExpandHandle({ groupId, dayId, blockId, activityId, cellHovered }) {
-  const [hovered, setHovered] = useState(false)
+// Hover is a CSS selector (`.cell:hover .expand-handle`, `.expand-handle:hover`)
+// and costs zero JavaScript — that is the payoff of the spec §6 styling
+// relaxation, banked in T56. Both glyphs are always mounted and the stylesheet
+// picks one, because a text swap is the one thing a pseudo-state cannot do to a
+// text node.
+function ExpandHandle({ groupId, dayId, blockId, activityId }) {
+  // No activationConstraint here: it is a sensor option, never a useDraggable
+  // one, so the value that used to sit here was inert. The threshold is the
+  // PointerSensor's, set once in ScheduleScreen (T58, spec §5.6).
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `expand-${groupId}|${dayId}|${blockId}`,
     data: { expandDrag: { groupId, dayId, blockId, activityId } },
-    activationConstraint: { distance: 12 },
   })
-
-  const visible = cellHovered || isDragging
 
   return (
     <div
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      onPointerEnter={() => setHovered(true)}
-      onPointerLeave={() => setHovered(false)}
+      className="expand-handle"
+      data-dragging={isDragging ? '' : undefined}
       onClick={e => e.stopPropagation()}
-      title={hovered || isDragging ? 'Drag to extend' : undefined}
-      style={{
-        position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: 10,
-        borderRadius: '0 0 7px 7px',
-        background: hovered || isDragging ? 'var(--primary)' : 'var(--border)',
-        cursor: 'row-resize',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        transition: 'background 0.15s, opacity 0.15s',
-        opacity: visible ? (hovered || isDragging ? 1 : 0.6) : 0,
-        userSelect: 'none',
-        touchAction: 'none',
-        zIndex: 2,
-        pointerEvents: visible ? 'auto' : 'none',
-      }}
+      title="Drag to extend"
     >
-      <span style={{
-        fontSize: 11,
-        color: hovered || isDragging ? '#fff' : 'var(--text-secondary)',
-        lineHeight: 1,
-        pointerEvents: 'none',
-      }}>
-        {hovered || isDragging ? '↕' : '─'}
-      </span>
+      <span className="expand-glyph expand-glyph--idle">─</span>
+      <span className="expand-glyph expand-glyph--active">↕</span>
     </div>
   )
 }
@@ -86,7 +67,7 @@ function OutdoorIcon() {
 export default function SlotCell({
   slot, activity, anchor, actColorIdx, weatherMode,
   onEdit, onRelease, onSelect,
-  isLocked, isDndEnabled, rowSpan = 1, isExpandDragActive = false,
+  isLocked, isDndEnabled, rowSpan = 1,
   isSelected = false, isMultiSelected = false, pasteMode = false,
   hasMergeDown = false, isMerged = false,
   onMergeDown, onSplitSlot,
@@ -99,11 +80,46 @@ export default function SlotCell({
   isFlagHighlighted = false,
   highlightColor = 'var(--danger)',
   highlightReason = null,
+  // Placement is computed by placeCell (gridPlacement.js) at the call site and
+  // spread in. A grid child with no explicit grid-column stacks in column 1 and
+  // nothing throws, so no view may inline these strings.
+  gridRow,
+  gridColumn,
+  ariaColIndex,
+  cellKey,
+  // T59. The context half of the accessible name — the block names this cell
+  // covers (one, or its whole extent when it spans) and its column's day or
+  // group. The SUBJECT half is composed here, because which of activity /
+  // anchor / unavailable / unfillable / unassigned applies is this component's
+  // knowledge, not the view's.
+  blockNames,
+  column,
+  // T55. The head block of this cell is collapsed: presentation only. A cell
+  // that merely SPANS ACROSS a collapsed block never receives it — it keeps
+  // normal presentation and simply gets shorter, because grid sums the tracks
+  // it covers. Nothing about mounting, handlers or focusability changes.
+  collapsed = false,
 }) {
-  const [cellHovered, setCellHovered] = useState(false)
-  const [splitHovered, setSplitHovered] = useState(false)
+  // The only remaining state in this component. Hover, split-hover and
+  // reason-focus were all deleted in T56: :hover and :focus-within in
+  // scheduleGrid.css do that work now, so hovering a cell re-renders nothing.
   const [pressed, setPressed] = useState(false)
-  const [reasonFocused, setReasonFocused] = useState(false)
+
+  const nameFor = subject => cellAccessibleName({ subject, blockNames, column })
+
+  const shellProps = {
+    role: 'gridcell',
+    className: 'cell',
+    style: { gridRow, gridColumn },
+    'aria-colindex': ariaColIndex,
+    'aria-rowspan': rowSpan > 1 ? rowSpan : undefined,
+    'data-cell-key': cellKey,
+    'data-collapsed': collapsed ? '' : undefined,
+    // Replaces the old droppable's `disabled: !isDndEnabled || isLocked`. The hit
+    // is now resolved from pointer coordinates, so "not a drop target" has to be
+    // readable off the element itself — resolveHit reads exactly this.
+    'data-drop-disabled': !isDndEnabled || isLocked ? '' : undefined,
+  }
 
   function triggerPress() {
     setPressed(true)
@@ -114,48 +130,56 @@ export default function SlotCell({
   const canDrag = isDndEnabled && slot?.type === 'activity' && !isLocked && Boolean(activity)
   const showExpandHandle = slot?.activity_id && !slot?.is_anchor && !isLocked
 
-  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+  // Drag only. The matching per-cell droppable is gone: one droppable now sits on
+  // the grid surface and the target cell is resolved from pointer coordinates
+  // (spec §5.3), which is what removed up to 480 isOver subscribers.
+  const { attributes: dragAttributes, listeners, setNodeRef: setRef, isDragging } = useDraggable({
     id,
     disabled: !canDrag,
     data: { slot },
   })
-  const { setNodeRef: setDropRef, isOver } = useDroppable({
-    id: `drop-${id}`,
-    disabled: !isDndEnabled || Boolean(isLocked),
-    data: { slot },
-  })
 
-  const setRef = el => { setDragRef(el); setDropRef(el) }
+  // dnd-kit hands every draggable `tabIndex: 0`. On a grid that is up to 480
+  // tab stops, which is precisely what T59's roving tabindex exists to prevent
+  // — the grid must be ONE tab stop. Dropping it here costs nothing: the cell
+  // is still focusable (the roving hook writes 0 or -1, and -1 is focusable),
+  // and dnd-kit's keyboard sensor (T58) fires off keydown on the focused
+  // element, which arrow navigation is what now delivers. The rest of
+  // `attributes` — aria-roledescription, aria-describedby — is kept.
+  const { tabIndex: _dndTabIndex, ...attributes } = dragAttributes
 
-  if (!slot) return <td style={emptyTd} />
+  if (!slot) return <div {...shellProps} aria-label={nameFor('Empty')} />
 
   if (slot.type === 'anchor') {
     return (
-      <td ref={setRef} style={cellTd} rowSpan={rowSpan} onClick={() => { triggerPress(); onEdit(slot) }}>
-        <div style={{
-          ...S.cellStructuralBar(ANCHOR_COLOR),
-          background: 'var(--surface)',
-          borderRadius: 8,
-          padding: '10px 12px',
-          minHeight: 56,
-          display: 'flex',
-          alignItems: 'center',
-          transform: pressed ? 'scale(0.97)' : 'scale(1)',
-          transition: 'transform 0.1s ease',
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: ANCHOR_COLOR, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div {...shellProps} aria-label={nameFor(anchor?.name || 'Anchor')} ref={setRef} onClick={() => { triggerPress(); onEdit(slot) }}>
+        <div
+          className="cell-inner cell-inner--anchor"
+          style={{
+            ...S.cellStructuralBar(ANCHOR_COLOR),
+            background: 'var(--surface)',
+            transform: pressed ? 'scale(0.97)' : 'scale(1)',
+            transition: 'transform 0.1s ease',
+          }}
+        >
+          <div
+            className="cell-name"
+            // The colour rides a custom property rather than `color` so the
+            // collapsed rule can recolour it — an inline `color` would win.
+            style={{ '--cell-name-color': ANCHOR_COLOR, fontSize: 11 }}
+          >
             {anchor?.name || 'Anchor'}
           </div>
         </div>
-      </td>
+      </div>
     )
   }
 
   if (slot.type === 'unavailable') {
     return (
-      <td ref={setRef} style={emptyTd} rowSpan={rowSpan}>
-        <div style={{ ...S.cellUnavailableFill, borderRadius: 8, minHeight: 56 }} />
-      </td>
+      <div {...shellProps} aria-label={nameFor('Unavailable')} ref={setRef}>
+        <div className="cell-inner cell-inner--fill" style={S.cellUnavailableFill} />
+      </div>
     )
   }
 
@@ -188,14 +212,11 @@ export default function SlotCell({
     onEdit(slot)
   }
 
+  // Only data-derived paint composes inline. The static half (radius, padding,
+  // min-height, flex box) is .cell-inner in the stylesheet, and the rowSpan > 1
+  // centring is `.cell[aria-rowspan] .cell-inner` — both because T55's collapsed
+  // rule has to override them and no class can override an inline value.
   const innerStyle = {
-    borderRadius: 8,
-    padding: '10px 12px',
-    minHeight: 56,
-    position: 'relative',
-    display: 'flex',
-    flexDirection: 'column',
-    justifyContent: rowSpan > 1 ? 'center' : 'flex-start',
     ...(isLocked
       ? { ...S.cellStructuralBar('var(--accent)'), background: 'var(--surface)' }
       : isUnfillable
@@ -207,11 +228,10 @@ export default function SlotCell({
     opacity: isDragging ? 0.4 : 1,
     // Weather outline applies first — selection (spread after) wins if both apply.
     ...(isWeatherHighlight ? { outline: '1px solid var(--text-secondary)', outlineOffset: -1 } : {}),
-    ...(isOver && isExpandDragActive
-      ? { border: '2px dashed var(--success)', background: 'color-mix(in srgb, var(--success) 9%, transparent)' }
-      : isOver && isDndEnabled && !isExpandDragActive
-        ? { outline: '2px solid var(--primary)', outlineOffset: -2 }
-        : {}),
+    // The drop target's paint is NOT here any more. It is a static
+    // `.cell[data-drag-over]::before/::after` rule in scheduleGrid.css, written
+    // by one setAttribute — an inline value would both re-render the tree and
+    // beat the rule (the T55 lesson).
     ...(isSelected
       ? (prefersReducedMotion() ? { boxShadow: S.cellSelected.boxShadow, outline: S.cellSelected.outline, outlineOffset: S.cellSelected.outlineOffset } : S.cellSelected)
       : {}),
@@ -219,36 +239,37 @@ export default function SlotCell({
   }
 
   const tooltipText = activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned')
-
-  const pasteTargetStyle = pasteMode && !slot?.is_anchor
-    ? { cursor: 'crosshair' }
-    : {}
+  const isPasteTarget = pasteMode && !slot?.is_anchor
 
   return (
-    <td
+    <div
       ref={setRef}
-      style={{
-        ...cellTd,
-        cursor: canDrag ? (isDragging ? 'grabbing' : 'grab') : 'pointer',
-        ...pasteTargetStyle,
-      }}
-      rowSpan={rowSpan}
+      {...shellProps}
+      // cursor is the only inline shell style left; hover, paste-target hover
+      // and focus are all selectors.
+      style={{ ...shellProps.style, cursor: canDrag ? (isDragging ? 'grabbing' : 'grab') : undefined }}
+      data-paste-target={isPasteTarget ? '' : undefined}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
-      onPointerEnter={() => setCellHovered(true)}
-      onPointerLeave={() => setCellHovered(false)}
-      // Keyboard path to the same reason a mouse gets on hover — a lit cell is
-      // focusable only while it is lit, so tab order is unchanged otherwise.
-      tabIndex={isFlagHighlighted ? 0 : undefined}
-      onFocus={() => setReasonFocused(true)}
-      onBlur={() => setReasonFocused(false)}
+      // No `tabIndex` here any more. It used to be 0 on a flag-highlighted cell
+      // only, as the keyboard path to the reason callout that a mouse gets on
+      // hover. T59's roving tabindex makes EVERY cell reachable by arrow keys
+      // and owns the attribute outright, so a value here would fight it — and
+      // the callout still opens, because :focus-within fires the same either
+      // way. The keyboard path is generalised, not removed.
       title={tooltipText}
+      aria-label={nameFor(activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned'))}
       {...(canDrag ? { ...listeners, ...attributes } : {})}
+      // dnd-kit's `attributes` carry role="button", which on a table cell was inert
+      // but on a grid child silently replaces role="gridcell" and collapses the
+      // grid -> row -> gridcell tree. Spec §8 wants the gridcell; dnd-kit's
+      // remaining attributes (tabIndex, aria-roledescription, aria-describedby)
+      // are what actually carry the drag affordance, and they are kept.
+      role="gridcell"
     >
-      <div style={{
+      <div className="cell-inner" style={{
         ...innerStyle,
-        ...(pasteMode && cellHovered && !slot?.is_anchor ? { border: '2px dashed var(--primary)', background: 'color-mix(in srgb, var(--primary) 12%, transparent)' } : {}),
         // Compose press-scale with the selection "lift" (translateY) carried by
         // innerStyle's S.cellSelected spread instead of clobbering it — both
         // can be true at once (a selected cell being pressed).
@@ -261,61 +282,45 @@ export default function SlotCell({
         {/* Why this cell is lit — shown while the lit cell is hovered or
             focused, per the "track changes" review. Screen-only review chrome;
             never printed. */}
-        {isFlagHighlighted && highlightReason && (cellHovered || reasonFocused) && (
-          <div style={S.cellReasonCallout} role="tooltip">{highlightReason}</div>
+        {isFlagHighlighted && highlightReason && (
+          <div className="cell-reason" style={S.cellReasonCallout} role="tooltip">{highlightReason}</div>
         )}
         {/* Merge-down button (T4) */}
-        {cellHovered && hasMergeDown && !isMerged && (
+        {hasMergeDown && !isMerged && (
           <button
-            style={S.cellActionBtn}
+            className="cell-action"
             title="Let this activity run into the next period"
             onClick={e => { e.stopPropagation(); onMergeDown?.() }}
           >↕</button>
         )}
         {/* Split button (T4) */}
-        {cellHovered && isMerged && (
+        {isMerged && (
           <button
-            style={{
-              ...S.cellActionBtn,
-              ...(splitHovered ? { borderColor: 'var(--danger)', color: 'var(--danger)' } : {}),
-            }}
+            className="cell-action cell-action--split"
             title="Split this back into two periods"
             onClick={e => { e.stopPropagation(); onSplitSlot?.() }}
-            onPointerEnter={() => setSplitHovered(true)}
-            onPointerLeave={() => setSplitHovered(false)}
           >↕</button>
         )}
-        <div style={{
-          fontSize: 12,
-          fontWeight: activity ? 600 : 500,
-          color: activity ? 'var(--text)' : 'var(--text-secondary)',
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-          display: 'flex',
-          alignItems: 'center',
-        }}>
-          {showIdentityDot && activity && <span style={{ ...S.cellIdentityChip, background: color }} />}
-          {activity?.name || <span style={{ fontSize: 11 }}>{isUnfillable ? 'Unfillable' : 'Unassigned'}</span>}
+        <div className="cell-name" data-unassigned={!activity ? '' : undefined}>
+          {showIdentityDot && activity && (
+            <span className="identity-dot" style={{ background: color }} />
+          )}
+          {activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned')}
         </div>
         {isOverlapping && (
           <div
-            style={{
-              position: 'absolute', top: 6, right: 6,
-              width: 7, height: 7, borderRadius: '50%',
-              background: FLAG_COLORS.OVERLAP,
-              boxShadow: '0 0 0 1.5px var(--surface)',
-            }}
+            className="flag flag--overlap"
+            style={{ background: FLAG_COLORS.OVERLAP }}
             title={flags.OVERLAP_reason || 'More groups booked in than this holds'}
           />
         )}
         {isUnfillable && (
-          <div style={S.cellUnfillableIconStyle} title="Unfillable">
+          <div className="flag flag--unfillable" title="Unfillable">
             <UnfillableIcon />
           </div>
         )}
         {showOutdoorIcon && (
-          <div style={S.cellOutdoorIconStyle} title="Outdoor activity">
+          <div className="flag flag--outdoor" title="Outdoor activity">
             <OutdoorIcon />
           </div>
         )}
@@ -325,10 +330,9 @@ export default function SlotCell({
             dayId={slot.dayId}
             blockId={slot.blockId}
             activityId={slot.activity_id}
-            cellHovered={cellHovered}
           />
         )}
       </div>
-    </td>
+    </div>
   )
 }

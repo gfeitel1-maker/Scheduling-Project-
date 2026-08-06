@@ -1,66 +1,75 @@
+// Thin adapter between the drag FSM's `commit` side effect and the op-log
+// mutations. The FSM (dragFSM.js) owns gesture state; this file owns nothing but
+// "given the dragged thing and the resolved target cell, which mutation".
+//
+// It takes a HIT ({ groupId, dayId, blockId }) rather than dnd-kit's `over`,
+// because the target is now resolved from pointer coordinates against
+// data-cell-key, not from a per-cell droppable. The eligibility checks below
+// reproduce exactly what `useDroppable({ disabled })` plus the old
+// `over.data.current.slot` shape used to reject.
 export function makeDragHandlers({
   timeBlocks, days, slots, actMap, getSlot,
   expandSlot, placeActivityManual, swapSlots,
-  setExpandDragActive, allowSwap,
+  allowSwap,
 }) {
-  function handleDragStart({ active }) {
-    if (active.data.current?.expandDrag) setExpandDragActive(true)
+  // A cell was a swap target only when it rendered a SlotCell — i.e. a slot row
+  // exists and it is neither an anchor nor the `unavailable` kind. An empty cell
+  // never was one, and this ticket does not add that capability.
+  function isSwapTarget(slot) {
+    if (!slot || slot.is_anchor) return false
+    const unfillable = Boolean(slot.flags?.UNFILLABLE) && !slot.flags?.UNFILLABLE_dismissed
+    return Boolean(slot.activity_id) || unfillable
   }
 
-  function handleDragEnd({ active, over }) {
-    setExpandDragActive(false)
-    if (!over) return
+  function commit(active, hit) {
+    if (!active || !hit) return
 
-    const expandDrag = active.data.current?.expandDrag
-    const paletteActivity = active.data.current?.paletteActivity
+    const data = active.data.current || {}
+    const { groupId, dayId, blockId } = hit
 
-    if (expandDrag) {
-      const { groupId, dayId, blockId: headBlockId } = expandDrag
-      const overData = over.data.current || {}
-      const tailBlockId = overData.blockId || overData.slot?.blockId
-      const tailGroupId = overData.groupId || overData.slot?.groupId
-      const tailDayId = overData.dayId || overData.slot?.dayId
-
-      if (!tailBlockId || tailGroupId !== groupId || tailDayId !== dayId) return
+    if (data.expandDrag) {
+      const { groupId: headGroupId, dayId: headDayId, blockId: headBlockId } = data.expandDrag
+      if (groupId !== headGroupId || dayId !== headDayId) return
 
       const headBlock = timeBlocks.find(b => b.id === headBlockId)
-      const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
+      const tailBlock = timeBlocks.find(b => b.id === blockId)
       if (!headBlock || !tailBlock) return
       if (tailBlock.sort_order !== headBlock.sort_order + 1) return
 
-      const tailSlot = getSlot(slots, groupId, dayId, tailBlockId)
+      const tailSlot = getSlot(slots, groupId, dayId, blockId)
       if (!tailSlot || !tailSlot.activity_id || tailSlot.is_anchor) return
 
       const tailActivity = actMap.get(tailSlot.activity_id)
       const day = days.find(d => d.id === dayId)
-      expandSlot(groupId, dayId, headBlockId, tailBlockId, tailSlot.activity_id, tailActivity?.name || '', tailBlock.name, day?.label ?? dayId)
+      expandSlot(
+        headGroupId, headDayId, headBlockId, blockId,
+        tailSlot.activity_id, tailActivity?.name || '', tailBlock.name, day?.label ?? dayId
+      )
       return
     }
 
-    if (paletteActivity) {
-      const d = over.data.current || {}
-      const groupId = d.groupId ?? d.slot?.groupId
-      const dayId = d.dayId ?? d.slot?.dayId
-      const blockId = d.blockId ?? d.slot?.blockId
+    if (data.paletteActivity) {
       if (!groupId || !dayId || !blockId) return
       const targetSlot = getSlot(slots, groupId, dayId, blockId)
       if (targetSlot?.is_anchor) return
-      placeActivityManual(paletteActivity.id, groupId, dayId, blockId)
+      placeActivityManual(data.paletteActivity.id, groupId, dayId, blockId)
       return
     }
 
     if (!allowSwap) return
 
-    const slotA = active.data.current?.slot
-    const slotB = over.data.current?.slot
-    if (!slotA || !slotB) return
-    if (slotA.groupId === slotB.groupId && slotA.dayId === slotB.dayId && slotA.blockId === slotB.blockId) return
-    if (slotB.type === 'anchor' || slotB.type === 'unavailable') return
+    const slotA = data.slot
+    if (!slotA) return
+    if (slotA.groupId === groupId && slotA.dayId === dayId && slotA.blockId === blockId) return
+
+    const slotB = getSlot(slots, groupId, dayId, blockId)
+    if (!isSwapTarget(slotB)) return
+
     swapSlots(
       { groupId: slotA.groupId, dayId: slotA.dayId, blockId: slotA.blockId, activityId: slotA.activity_id },
-      { groupId: slotB.groupId, dayId: slotB.dayId, blockId: slotB.blockId, activityId: slotB.activity_id }
+      { groupId, dayId, blockId, activityId: slotB.activity_id ?? null }
     )
   }
 
-  return { handleDragStart, handleDragEnd }
+  return { commit }
 }

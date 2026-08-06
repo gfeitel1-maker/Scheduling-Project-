@@ -172,11 +172,42 @@ live in `src/`. If neither condition holds, the value must move.
 
 To detect violations mechanically: `grep -r "from '.*electron/" src/ --include="*.jsx" --include="*.js" | grep -v ".test."` lists every non-test shipping import across the boundary. Run it before committing a new file under `src/`.
 
-## 7. Styling is inline React style objects
+## 7. Styling is inline React style objects, with one scoped exception
 
-No CSS files for component styling, no `className` used as a styling mechanism. Shared constants
-live in `src/styles/shared.js`. Token values and their meanings are governed by
+**Global design tokens live in CSS.** `src/index.css` defines `--primary` and the whole token set;
+`src/App.css` holds app-shell rules. This has always been true — the pre-2026-08-06 wording of this
+section ("no CSS files for component styling") described a convention that the codebase never
+actually matched.
+
+**Component styles are inline React style objects.** Shared constants live in
+`src/styles/shared.js`. Token values and their meanings are governed by
 [`DESIGN_STANDARD.md`](DESIGN_STANDARD.md), not here.
+
+**One scoped exception: `src/components/schedule/scheduleGrid.css`.** It covers the schedule grid
+container, cell interaction pseudo-states (`:hover`, `:focus-visible`, `:focus-within`), and cell
+data-attribute states (`[data-collapsed]`, `[data-drag-over]`, `[data-drop-edge]`, …).
+
+*The reason, which is mechanical rather than stylistic:* pseudo-classes and attribute selectors do
+not exist in inline styles. On a dense repeated element their absence is paid for with React state
+and re-renders across up to 480 cells. In the withdrawn first revision of
+`docs/work/specs/2026-08-06-schedule-canvas-redesign.md` that cost was about to justify building a
+`<canvas>` ambient layer with a `requestAnimationFrame` paint loop — a parallel renderer, to work
+around a styling convention that had never been argued.
+
+*The boundary:* `src/components/schedule/`, and it does not extend beyond it. **Adding a second
+stylesheet, or converting another component to CSS, is the drift this exception is scoped to
+prevent.** Per-cell computed geometry (`gridRow`, `gridColumn`) and data-derived colours stay inline
+on the element that computes them — they are data, not style.
+
+*Consequence:* a **new** ephemeral cell state in the schedule grid is added as a data attribute plus
+a rule in `scheduleGrid.css`, not as React state. See
+[`docs/adr/2026-08-06-schedule-canvas-visual-layer.md`](../../adr/2026-08-06-schedule-canvas-visual-layer.md)
+"Future constraints".
+
+> **Amendment record.** Amended 2026-08-06 by product owner decision (Art. IV human gate), as part
+> of T60, closing the T50 schedule-grid migration. The previous wording forbade what
+> `scheduleGrid.css` does; leaving it would have left the governing contract contradicting approved,
+> shipped code.
 
 ## 8. The schedule engine is pure
 

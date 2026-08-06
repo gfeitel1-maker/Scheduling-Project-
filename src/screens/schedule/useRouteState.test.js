@@ -80,6 +80,38 @@ describe('useRouteState', () => {
     expect(canonicalKeys).toEqual([])
   })
 
+  // T55. Collapse is view state: a Set of block ids, per route, never persisted.
+  it('toggleBlockCollapsed flips one block, returns a NEW Set, and stays off the other route', () => {
+    const { result } = setup('generated')
+
+    expect(result.current.collapsedBlockIds).toEqual(new Set())
+
+    act(() => { result.current.toggleBlockCollapsed('b2') })
+    const first = result.current.collapsedBlockIds
+    expect(first).toEqual(new Set(['b2']))
+    // A mutated-in-place Set would not re-render the grid.
+    expect(first).not.toBe(result.current.collapsedByRoute.manual)
+    expect(result.current.collapsedByRoute.manual).toEqual(new Set())
+
+    act(() => { result.current.toggleBlockCollapsed('b5') })
+    expect(result.current.collapsedBlockIds).toEqual(new Set(['b2', 'b5']))
+    expect(result.current.collapsedBlockIds).not.toBe(first)
+
+    act(() => { result.current.toggleBlockCollapsed('b2') })
+    expect(result.current.collapsedBlockIds).toEqual(new Set(['b5']))
+  })
+
+  it('setRouteData does not reset collapse — it is view state, not route data', () => {
+    const { result } = setup('generated')
+    act(() => { result.current.toggleBlockCollapsed('b2') })
+    act(() => {
+      result.current.setRouteData('generated', {
+        slots: [], stats: null, findings: [], dismissed: new Set(), overlays: [], snapshots: [],
+      })
+    })
+    expect(result.current.collapsedBlockIds).toEqual(new Set(['b2']))
+  })
+
   it('setRouteData replaces all six atoms for the named route and leaves the other route untouched', () => {
     const { result } = setup('generated')
 

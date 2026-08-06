@@ -42,7 +42,8 @@ You do not have opinions about the design or architecture. Governor and Designer
 ## Hard Constraints (non-negotiable)
 
 ### Styling
-- ALL styles are inline React style objects — no CSS files, no `className` for styling
+- Component styles are inline React style objects; global tokens live in `src/index.css`. No CSS
+  modules. **One** one scoped exception is `src/components/schedule/scheduleGrid.css` (schedule grid container, cell interaction pseudo-states, cell data-attribute states) — see ARCHITECTURE_STANDARD.md §7 for the reason and the boundary, which does not extend beyond `src/components/schedule/`
 - **[`docs/governance/standards/DESIGN_STANDARD.md`](../../docs/governance/standards/DESIGN_STANDARD.md)
   is the contract** for every colour, type, spacing, and motion value, and gives the semantic meaning
   of each token. **Read it before styling anything.** Its values are live in `src/index.css` — use
