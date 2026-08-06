@@ -1,7 +1,7 @@
 ---
 title: T45-schema-sql-is-not-authoritative
 document_type: ticket
-status: open
+status: closed
 created: 2026-08-04
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_tickets: [docs/work/tickets/T42-mock-allowlist-drift-is-manual.md]
@@ -71,3 +71,7 @@ ticket, not a schema change.
 2. Every table whose live shape differs from its `CREATE TABLE` block is either corrected or flagged.
 3. The rule for where a new index belongs (`schema.sql` vs a migration) is stated once, in writing.
 4. `npm run test`, `npm run lint`, `npm run build` pass; no database shape changed.
+
+## Closure note
+
+Closed in commit `e523e8d` on branch `work/t45-schema-sql`. A 31-line header was added to `schema.sql` that explicitly identifies the file as base-schema-only, names `localDb.js` migrations as the authority for the current shape, documents the empirically derived index placement rule (schema.sql for columns present at table creation; migration block for columns added by ALTER TABLE), and directs readers to use `PRAGMA table_info` against a migrated db to see all live columns. Three tables confirmed to have drifted were flagged with inline drift comments: `template_slots` (5 migration-added columns across v10 and v17), `operations` (host_seq, v18), and `device_identity` (first_sync_completed_at, v22). No migration, table shape, or running device schema was changed.
