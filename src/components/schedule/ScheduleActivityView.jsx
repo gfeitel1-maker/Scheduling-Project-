@@ -2,6 +2,8 @@ import { activityColor } from '../schedule/slotCellConstants'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { S } from '../../styles/shared'
+import { cellAccessibleName, blockNamesForSpan } from './cellLabel'
+import useGridKeyboardNav from './useGridKeyboardNav'
 import './scheduleGrid.css'
 
 const NO_COLLAPSE = new Set()
@@ -13,6 +15,7 @@ export default function ScheduleActivityView({
   collapsedBlockIds = NO_COLLAPSE,
   onToggleBlockCollapsed,
 }) {
+  const gridNav = useGridKeyboardNav()
   return (
     <div>
       {!selectedActivity ? (
@@ -79,6 +82,7 @@ export default function ScheduleActivityView({
                   className="schedule-grid-frame"
                   aria-rowcount={timeBlocks.length + 1}
                   aria-colcount={days.length + 1}
+                  {...gridNav}
                 >
                   <div role="rowgroup" className="schedule-grid schedule-grid--header" style={{ gridTemplateColumns }}>
                     <div role="row" aria-rowindex={1} style={{ display: 'contents' }}>
@@ -137,6 +141,16 @@ export default function ScheduleActivityView({
                                 aria-colindex={dayIndex + 2}
                                 data-cell-key={`${selectedActivity}|${day.id}|${block.id}`}
                                 data-collapsed={isCollapsed ? '' : undefined}
+                                // T59. This view's cells list the GROUPS doing
+                                // this activity in that slot; an unassigned one
+                                // announces as not scheduled, never as blank.
+                                aria-label={cellAccessibleName({
+                                  subject: assigned.length
+                                    ? assigned.map(s => groups.find(g => g.id === s.group_id)?.name || 'Unknown group').join(', ')
+                                    : 'Not scheduled',
+                                  blockNames: blockNamesForSpan(timeBlocks, blockIndex),
+                                  column: day.label,
+                                })}
                                 style={{
                                   ...placeCell({ blockIndex, columnIndex: dayIndex }),
                                   // Data-derived paint (the activity's own hue), so it stays inline.

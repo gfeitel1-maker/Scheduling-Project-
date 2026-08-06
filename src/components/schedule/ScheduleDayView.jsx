@@ -4,13 +4,15 @@ import { decideCell } from '../../screens/schedule/gridGeometry'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
+import { cellAccessibleName, blockNamesForSpan } from './cellLabel'
+import useGridKeyboardNav from './useGridKeyboardNav'
 import './scheduleGrid.css'
 
 const NO_COLLAPSE = new Set()
 
 // No per-cell droppable: T58 moved hit resolution to the grid surface, and the
 // drop-target paint to `.cell[data-drag-over]` in scheduleGrid.css.
-function EmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex, collapsed }) {
+function EmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex, collapsed, blockNames, column }) {
   return (
     <div
       role="gridcell"
@@ -19,6 +21,8 @@ function EmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex,
       data-cell-key={`${groupId}|${dayId}|${blockId}`}
       data-collapsed={collapsed ? '' : undefined}
       aria-colindex={ariaColIndex}
+      // T59. An empty cell announces as empty, never as a blank cell.
+      aria-label={cellAccessibleName({ subject: 'Empty', blockNames, column })}
       style={{ gridRow, gridColumn }}
     >
       <div className="cell-empty" />
@@ -51,6 +55,7 @@ export default function ScheduleDayView({
   const gridTemplateColumns = columnTracks(groups.length)
   const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
   const rowCells = groups.map(g => ({ groupId: g.id, dayId: selectedDay }))
+  const gridNav = useGridKeyboardNav()
 
   return (
     <div>
@@ -76,6 +81,7 @@ export default function ScheduleDayView({
             aria-colcount={groups.length + 1}
             // This view's own minWidth, unchanged from the table it replaces.
             style={{ '--frame-min-width': `${140 + groups.length * 130}px` }}
+            {...gridNav}
           >
             <div role="rowgroup" className="schedule-grid schedule-grid--header" style={{ gridTemplateColumns }}>
               <div role="row" aria-rowindex={1} style={{ display: 'contents' }}>
@@ -145,6 +151,8 @@ export default function ScheduleDayView({
                             blockId={block.id}
                             ariaColIndex={ariaColIndex}
                             collapsed={isCollapsed}
+                            blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
+                            column={group.name}
                             {...placeCell({ blockIndex, columnIndex: groupIndex })}
                           />
                         )
@@ -163,6 +171,8 @@ export default function ScheduleDayView({
                             ariaColIndex={ariaColIndex}
                             cellKey={cellKey}
                             collapsed={isCollapsed}
+                            blockNames={blockNamesForSpan(timeBlocks, blockIndex, rowSpan)}
+                            column={group.name}
                             {...placeCell({ blockIndex, columnIndex: groupIndex, rowSpan })}
                           />
                         )
@@ -199,6 +209,8 @@ export default function ScheduleDayView({
                           ariaColIndex={ariaColIndex}
                           cellKey={cellKey}
                           collapsed={isCollapsed}
+                          blockNames={blockNamesForSpan(timeBlocks, blockIndex, rowSpan)}
+                          column={group.name}
                           {...placeCell({ blockIndex, columnIndex: groupIndex, rowSpan })}
                         />
                       )

@@ -346,6 +346,19 @@
   display: block;
 }
 
+/* T59. Arrow-key navigation lands focus on a cell box, so the cell needs a
+   visible focus indicator (WCAG 2.4.7) — the stylesheet already gives one to
+   .row-header-toggle and this matches it. The negative offset is load-bearing:
+   .schedule-grid-frame is `overflow: hidden`, so an outward ring on an edge
+   cell would be clipped. :focus-visible, not :focus, so a mouse click on a
+   cell does not paint a ring — no visual change to any view under pointer use. */
+.cell:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  border-radius: 4px;
+  z-index: 6;
+}
+
 /* Replaces the pasteMode && cellHovered inline branch. */
 .cell[data-paste-target] {
   cursor: crosshair;

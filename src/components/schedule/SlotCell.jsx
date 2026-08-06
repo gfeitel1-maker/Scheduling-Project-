@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { S, prefersReducedMotion } from '../../styles/shared'
 import { ANCHOR_COLOR, FLAG_COLORS, activityColor } from './slotCellConstants'
+import { cellAccessibleName } from './cellLabel'
 import './scheduleGrid.css'
 
 // Hover is a CSS selector (`.cell:hover .expand-handle`, `.expand-handle:hover`)
@@ -86,6 +87,13 @@ export default function SlotCell({
   gridColumn,
   ariaColIndex,
   cellKey,
+  // T59. The context half of the accessible name — the block names this cell
+  // covers (one, or its whole extent when it spans) and its column's day or
+  // group. The SUBJECT half is composed here, because which of activity /
+  // anchor / unavailable / unfillable / unassigned applies is this component's
+  // knowledge, not the view's.
+  blockNames,
+  column,
   // T55. The head block of this cell is collapsed: presentation only. A cell
   // that merely SPANS ACROSS a collapsed block never receives it — it keeps
   // normal presentation and simply gets shorter, because grid sums the tracks
@@ -96,6 +104,8 @@ export default function SlotCell({
   // reason-focus were all deleted in T56: :hover and :focus-within in
   // scheduleGrid.css do that work now, so hovering a cell re-renders nothing.
   const [pressed, setPressed] = useState(false)
+
+  const nameFor = subject => cellAccessibleName({ subject, blockNames, column })
 
   const shellProps = {
     role: 'gridcell',
@@ -123,17 +133,26 @@ export default function SlotCell({
   // Drag only. The matching per-cell droppable is gone: one droppable now sits on
   // the grid surface and the target cell is resolved from pointer coordinates
   // (spec §5.3), which is what removed up to 480 isOver subscribers.
-  const { attributes, listeners, setNodeRef: setRef, isDragging } = useDraggable({
+  const { attributes: dragAttributes, listeners, setNodeRef: setRef, isDragging } = useDraggable({
     id,
     disabled: !canDrag,
     data: { slot },
   })
 
-  if (!slot) return <div {...shellProps} />
+  // dnd-kit hands every draggable `tabIndex: 0`. On a grid that is up to 480
+  // tab stops, which is precisely what T59's roving tabindex exists to prevent
+  // — the grid must be ONE tab stop. Dropping it here costs nothing: the cell
+  // is still focusable (the roving hook writes 0 or -1, and -1 is focusable),
+  // and dnd-kit's keyboard sensor (T58) fires off keydown on the focused
+  // element, which arrow navigation is what now delivers. The rest of
+  // `attributes` — aria-roledescription, aria-describedby — is kept.
+  const { tabIndex: _dndTabIndex, ...attributes } = dragAttributes
+
+  if (!slot) return <div {...shellProps} aria-label={nameFor('Empty')} />
 
   if (slot.type === 'anchor') {
     return (
-      <div {...shellProps} ref={setRef} onClick={() => { triggerPress(); onEdit(slot) }}>
+      <div {...shellProps} aria-label={nameFor(anchor?.name || 'Anchor')} ref={setRef} onClick={() => { triggerPress(); onEdit(slot) }}>
         <div
           className="cell-inner cell-inner--anchor"
           style={{
@@ -158,7 +177,7 @@ export default function SlotCell({
 
   if (slot.type === 'unavailable') {
     return (
-      <div {...shellProps} ref={setRef}>
+      <div {...shellProps} aria-label={nameFor('Unavailable')} ref={setRef}>
         <div className="cell-inner cell-inner--fill" style={S.cellUnavailableFill} />
       </div>
     )
@@ -233,11 +252,14 @@ export default function SlotCell({
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
-      // Keyboard path to the same reason a mouse gets on hover — a lit cell is
-      // focusable only while it is lit, so tab order is unchanged otherwise.
-      // :focus-within on the cell does the revealing.
-      tabIndex={isFlagHighlighted ? 0 : undefined}
+      // No `tabIndex` here any more. It used to be 0 on a flag-highlighted cell
+      // only, as the keyboard path to the reason callout that a mouse gets on
+      // hover. T59's roving tabindex makes EVERY cell reachable by arrow keys
+      // and owns the attribute outright, so a value here would fight it — and
+      // the callout still opens, because :focus-within fires the same either
+      // way. The keyboard path is generalised, not removed.
       title={tooltipText}
+      aria-label={nameFor(activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned'))}
       {...(canDrag ? { ...listeners, ...attributes } : {})}
       // dnd-kit's `attributes` carry role="button", which on a table cell was inert
       // but on a grid child silently replaces role="gridcell" and collapses the

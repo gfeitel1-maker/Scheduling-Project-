@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { cellAccessibleName } from './cellLabel'
 import './scheduleGrid.css'
 
 export const OVERLAY_COLOR = 'var(--accent)'
@@ -13,6 +14,9 @@ export default function OverlayCell({
   gridColumn,
   ariaColIndex,
   cellKey,
+  // T59. Span extent and column, for the accessible name.
+  blockNames,
+  column,
   collapsed = false,
 }) {
   const [showRemoveBtn, setShowRemoveBtn] = useState(false)
@@ -23,6 +27,7 @@ export default function OverlayCell({
       className="cell"
       style={{ gridRow, gridColumn }}
       aria-colindex={ariaColIndex}
+      aria-label={cellAccessibleName({ subject: label, blockNames, column })}
       aria-rowspan={rowSpan > 1 ? rowSpan : undefined}
       data-cell-key={cellKey}
       // An overlay cell never had a droppable, so pointer-resolved hits must be
