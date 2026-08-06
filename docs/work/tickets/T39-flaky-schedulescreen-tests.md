@@ -1,8 +1,9 @@
 ---
 title: T39-flaky-schedulescreen-tests
 document_type: ticket
-status: open
+status: closed
 created: 2026-08-03
+closed: 2026-08-06
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: []
 archive_when: resolved — suite passes reliably across repeated runs
@@ -60,3 +61,39 @@ Synchronous queries (`getByText` / `getByTitle`) run before an async state settl
 
 - `src/screens/ScheduleScreen.test.jsx` — the `scheduleCell` helper usage around `:28`/`:570`, and
   the merge/displaced interaction around `:1263-1266`. **Test-only; no product code.**
+
+---
+
+## Closure note (2026-08-06)
+
+Fixed on `work/t39-flaky-tests`. **The ticket's diagnosis turned out to be stale** — worth recording,
+because the fix is not the one predicted above. Both named seams were re-examined against current
+`main` (`646d951`):
+
+- Seam 1 (`copySwimPasteOntoSoccer`, ~`:570`) is *already* wrapped in `await waitFor(...)` — twice,
+  deliberately, to force a macrotask boundary for the secondary week-scoped `loadAll()`. It was not
+  a missing-await bug.
+- Seam 2 (the `pointerEnter` → `getByTitle(/run into the next period/i)` hover-reveal, ~`:1263`) no
+  longer exists; that interaction was refactored away since the ticket was written.
+
+The real remaining cause is a **timeout budget**, not a missing await. `loadAll()` chains roughly a
+dozen sequential `localClient.list()`/`listByScope()` calls before the grid replaces `Loading…`.
+That fits inside React Testing Library's 1000ms default `asyncUtilTimeout` on an idle machine and
+does not when the machine is loaded — which is exactly why the failure rotated between tests and
+why the observed baseline failure was a `waitFor` *timing out* at `:587`, not a query throwing on a
+missing element. The fix is a file-scoped `configure({ asyncUtilTimeout: 3000 })` in
+`src/screens/ScheduleScreen.test.jsx`. This is not a `sleep`-style fixed delay: `waitFor` still
+polls and returns the instant its condition holds, so the happy path is not slowed at all — only the
+ceiling before it gives up moves. It is scoped to this one file rather than set as a Vitest global,
+because this screen's initial load is genuinely heavier than other screens' and the wider suite
+should keep the stricter default.
+
+**Evidence:** `npx vitest run src/screens/ScheduleScreen.test.jsx` run five consecutive times by the
+Governor with no change between runs — 54/54 passed on all five. A pre-fix baseline failure of this
+same seam was observed on `main` during the full-suite run that preceded the work, confirming the
+flake was real and pre-existing rather than introduced.
+
+**Not addressed here (pre-existing, out of scope, tracked separately):** `test/governance.test.js`
+fails on clean `main` because `.claude/agents/architecture-auditor.md` is absent from the
+CONSTITUTION roster, and `npm run lint` reports 2 `no-unused-vars` errors in
+`src/components/layout/Sidebar.jsx` / `Sidebar.test.jsx`.
