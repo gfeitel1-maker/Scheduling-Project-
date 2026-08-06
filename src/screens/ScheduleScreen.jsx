@@ -907,16 +907,23 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
 
         const gridContent = (
           <div style={{ flex: 1, minWidth: 0 }}>
-            {/* Neither route started: a genuine choice, presented as one. */}
+            {/* Neither route started. If the director arrived via a specific
+                sidebar link (initialRoute set) they already chose — show only
+                that route's offer. If they came via the neutral 'schedule'
+                entry (no initialRoute), present both so they can pick. */}
             {!anyRouteStarted && !generating && (
-              <div style={{ padding: '60px 16px', textAlign: 'center' }}>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>How do you want to build this week?</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6, marginBottom: 20 }}>You can do both. Nothing you build one way affects the other.</div>
-                <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap', textAlign: 'left' }}>
-                  {routeOffer('manual')}
-                  {routeOffer('generated')}
+              initialRoute ? (
+                <div style={{ display: 'flex', marginBottom: 8 }}>{routeOffer(route)}</div>
+              ) : (
+                <div style={{ padding: '60px 16px', textAlign: 'center' }}>
+                  <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>How do you want to build this week?</div>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6, marginBottom: 20 }}>You can do both. Nothing you build one way affects the other.</div>
+                  <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap', textAlign: 'left' }}>
+                    {routeOffer('manual')}
+                    {routeOffer('generated')}
+                  </div>
                 </div>
-              </div>
+              )
             )}
 
             {/* The other route has work, this one does not: the same offer,
