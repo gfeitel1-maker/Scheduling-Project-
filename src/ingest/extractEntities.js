@@ -274,7 +274,14 @@ export function extractEntities(parsed) {
     }
 
     // Which page (bunk) each activity showed up on, so rarity can be judged
-    // within a unit rather than across the whole camp.
+    // within a unit rather than across the whole camp, and so eligibility can
+    // be inferred (T35). On the `days` layout one page IS one group, so every
+    // cell on it shares the page title as its key. On the `groups` layout the
+    // page is a day and the GROUP is the column — page.columns[cellIndex] is
+    // that column's header, which is exactly the title `groups.push` above
+    // filed this same column under, so it resolves through groupNameByTitle
+    // the same way. No new parsing, just reusing the header→group mapping
+    // that already exists for this branch.
     const pageKey = orientation.columns === 'days' ? title : null
 
     for (const row of page.rows) {
@@ -283,16 +290,17 @@ export function extractEntities(parsed) {
       if (row.label && /^\d{1,2}[:.]\d{2}/.test(row.label.trim())) {
         timeBlocks.push(row.label.trim())
       }
-      for (const cell of row.cells) {
+      row.cells.forEach((cell, cellIndex) => {
         for (const value of activityNamesFromCell(cell)) {
           activities.push(value)
-          if (pageKey) {
+          const cellKey = pageKey ?? page.columns[cellIndex] ?? null
+          if (cellKey) {
             const key = value.toLowerCase().replace(/\s+/g, ' ')
             if (!activityPages.has(key)) activityPages.set(key, new Set())
-            activityPages.get(key).add(pageKey)
+            activityPages.get(key).add(cellKey)
           }
         }
-      }
+      })
     }
   }
 
@@ -361,15 +369,28 @@ export function extractEntities(parsed) {
   }
   seenCounts.activityUnitShare = unitShare
 
+  // Page title -> the group name that title resolves to (short or full), so
+  // both fixed-event detection and activity-rule inference can map a
+  // one-page-per-group title to the exact group name the entity proposal
+  // spells. Derived from data already computed, not new logic.
+  const groupNameByTitleMap = new Map(groups.map((g, i) => [g.title, groupNames[i]]))
+
+  // normalized(activity name) -> array of group NAMES (not page titles) that
+  // had it, for T35 rule inference. Serializable (plain object of arrays) so
+  // it can cross the same boundaries seenCounts already does. Titles are
+  // mapped through groupNameByTitle here so activityRules.js stays a pure
+  // function of names and never needs that map itself.
+  const activityPagesOut = {}
+  for (const [key, pageTitles] of activityPages) {
+    activityPagesOut[key] = [...pageTitles].map((title) => groupNameByTitleMap.get(title) ?? title)
+  }
+
   return {
     orientation,
     entities,
     groupUnits: Object.fromEntries(groupUnits),
-    // Page title -> the group name that title resolves to (short or full),
-    // so fixed-event detection can map a one-page-per-group title to the exact
-    // group name the entity proposal spells. Derived from data already computed,
-    // not new logic.
-    groupNameByTitle: Object.fromEntries(groups.map((g, i) => [g.title, groupNames[i]])),
+    groupNameByTitle: Object.fromEntries(groupNameByTitleMap),
+    activityPages: activityPagesOut,
     seenCounts,
     counts: Object.fromEntries(Object.entries(entities).map(([k, v]) => [k, v.length])),
   }

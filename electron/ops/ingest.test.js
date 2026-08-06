@@ -442,3 +442,107 @@ describe('fixed events land as anchor_activities (T34)', () => {
     expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE entity IN ('groups','anchor_activities')").get().c).toBe(0)
   })
 })
+
+describe('activity rules resolved at commit (T35)', () => {
+  it('writes min/max/priority and resolves eligible_group_ids from names to ids', () => {
+    commitIngest(db, {
+      approved: { groups: ['Yeladim', 'Bogrim'], activities: ['Swim'] },
+      activityRules: {
+        Swim: { eligible_group_names: ['Yeladim', 'Bogrim'], min_per_week: 2, max_per_week: 3, priority: 'high' },
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+    const row = db.prepare('SELECT * FROM activities WHERE name = ?').get('Swim')
+    expect(row.min_per_week).toBe(2)
+    expect(row.max_per_week).toBe(3)
+    expect(row.priority).toBe('high')
+    const groupIds = db.prepare('SELECT id, name FROM groups').all()
+    const ids = JSON.parse(row.eligible_group_ids).sort()
+    expect(ids).toEqual(groupIds.map((g) => g.id).sort())
+  })
+
+  it('drops a group name the director unticked, keeping the ones that resolve', () => {
+    commitIngest(db, {
+      approved: { groups: ['Yeladim'], activities: ['Swim'] }, // Bogrim not approved
+      activityRules: {
+        Swim: { eligible_group_names: ['Yeladim', 'Bogrim'], min_per_week: 1, max_per_week: 2, priority: 'low' },
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+    const row = db.prepare('SELECT * FROM activities WHERE name = ?').get('Swim')
+    const yeladim = db.prepare("SELECT id FROM groups WHERE name = 'Yeladim'").get()
+    expect(JSON.parse(row.eligible_group_ids)).toEqual([yeladim.id])
+  })
+
+  it('writes no eligible_group_ids (never "[]") when every name fails to resolve', () => {
+    commitIngest(db, {
+      approved: { activities: ['Swim'] }, // no groups approved at all
+      activityRules: {
+        Swim: { eligible_group_names: ['Yeladim', 'Bogrim'], min_per_week: 1, max_per_week: 2, priority: 'low' },
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+    const row = db.prepare('SELECT * FROM activities WHERE name = ?').get('Swim')
+    expect(row.eligible_group_ids).toBeNull()
+  })
+
+  it('writes no rule fields for an activity absent from activityRules', () => {
+    commitIngest(db, {
+      approved: { activities: ['Drama'] },
+      activityRules: { Swim: { eligible_group_names: null, min_per_week: 1, max_per_week: 2, priority: 'high' } },
+      camp_id: campId, device_id: deviceId,
+    })
+    const row = db.prepare('SELECT * FROM activities WHERE name = ?').get('Drama')
+    expect(row.min_per_week).toBeNull()
+    expect(row.max_per_week).toBeNull()
+    expect(row.priority).toBeNull()
+    expect(row.eligible_group_ids).toBeNull()
+  })
+
+  it('behaves exactly as before when no activityRules is passed at all', () => {
+    const result = commitIngest(db, {
+      approved: { activities: ['Swim'] }, camp_id: campId, device_id: deviceId,
+    })
+    expect(result.total).toBe(1)
+    const row = db.prepare('SELECT * FROM activities WHERE name = ?').get('Swim')
+    expect(row.min_per_week).toBeNull()
+    expect(row.eligible_group_ids).toBeNull()
+  })
+
+  // Round 2 review, Fix 4 — the op log is the boundary that owns validation;
+  // it must never trust a caller's priority/min/max blindly. This test
+  // previously asserted `priority: 2` WAS written, which enshrined the bug
+  // (buildSchedule.js's runRound never matches anything but 'high'/'low', so
+  // that activity would have been silently unplaceable forever).
+  it('writes priority only when it is exactly "high" or "low", ignoring anything else', () => {
+    commitIngest(db, {
+      approved: { activities: ['Swim', 'Drama', 'Archery'] },
+      activityRules: {
+        Swim: { eligible_group_names: null, min_per_week: 1, max_per_week: 2, priority: 2 },
+        Drama: { eligible_group_names: null, min_per_week: 1, max_per_week: 2, priority: 'medium' },
+        Archery: { eligible_group_names: null, min_per_week: 1, max_per_week: 2, priority: 'low' },
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+    expect(db.prepare('SELECT priority FROM activities WHERE name = ?').get('Swim').priority).toBeNull()
+    expect(db.prepare('SELECT priority FROM activities WHERE name = ?').get('Drama').priority).toBeNull()
+    expect(db.prepare('SELECT priority FROM activities WHERE name = ?').get('Archery').priority).toBe('low')
+  })
+
+  it('writes min/max only when they are positive integers, ignoring negative/zero/non-integer values', () => {
+    commitIngest(db, {
+      approved: { activities: ['Swim', 'Drama', 'Archery', 'Ceramics'] },
+      activityRules: {
+        Swim: { eligible_group_names: null, min_per_week: -1, max_per_week: 2, priority: 'high' },
+        Drama: { eligible_group_names: null, min_per_week: 0, max_per_week: 2, priority: 'high' },
+        Archery: { eligible_group_names: null, min_per_week: 1.5, max_per_week: 2, priority: 'high' },
+        Ceramics: { eligible_group_names: null, min_per_week: 2, max_per_week: 3, priority: 'high' },
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+    expect(db.prepare('SELECT min_per_week FROM activities WHERE name = ?').get('Swim').min_per_week).toBeNull()
+    expect(db.prepare('SELECT min_per_week FROM activities WHERE name = ?').get('Drama').min_per_week).toBeNull()
+    expect(db.prepare('SELECT min_per_week FROM activities WHERE name = ?').get('Archery').min_per_week).toBeNull()
+    expect(db.prepare('SELECT min_per_week FROM activities WHERE name = ?').get('Ceramics').min_per_week).toBe(2)
+  })
+})
