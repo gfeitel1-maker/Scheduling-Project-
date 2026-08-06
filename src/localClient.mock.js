@@ -388,7 +388,7 @@ export const mockShoresh = {
   // proposal, commit, see the records appear in Units/Groups/etc — be tested at
   // :5200 with hot-reload. It writes to mock state, NOT the op log, so it proves
   // the UI flow, not the real persistence/sync path (that stays electron:dev).
-  async ingestCommit({ approved, links, cohort_id, fixedEvents } = {}) {
+  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules } = {}) {
     const ORDER = ['cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'activities']
     const DAY_INDEX = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
     const parseTimeRange = (label) => {
@@ -428,7 +428,21 @@ export const mockShoresh = {
         }
         else if (entity === 'days_of_operation') { const dow = DAY_INDEX[name.toLowerCase()]; row = { id, camp_id: campId, label: name, day_of_week: dow ?? index, sort_order: dow ?? index } }
         else if (entity === 'time_blocks') { const { start_time, end_time } = parseTimeRange(name); row = { id, camp_id: campId, cohort_id: cohort_id ?? 'main', name, start_time, end_time, sort_order: index } }
-        else if (entity === 'activities') row = { id, camp_id: campId, name }
+        else if (entity === 'activities') {
+          row = { id, camp_id: campId, name }
+          // T35 — inferred/edited rules, resolved against the groups this same
+          // import just created (mirrors electron/ops/ingest.js's commitIngest,
+          // including its round-2 validation: priority must be exactly
+          // 'high'/'low' — buildSchedule.js's runRound never matches anything
+          // else — and min/max must be positive integers, or the mock could
+          // diverge from what the real write boundary actually accepts).
+          const rule = activityRules?.[name]
+          if (rule) {
+            if (Number.isInteger(rule.min_per_week) && rule.min_per_week >= 1) row.min_per_week = rule.min_per_week
+            if (Number.isInteger(rule.max_per_week) && rule.max_per_week >= 1) row.max_per_week = rule.max_per_week
+            if (rule.priority === 'high' || rule.priority === 'low') row.priority = rule.priority
+          }
+        }
         state[entity].push(row)
         created[entity] += 1
         total += 1
@@ -446,6 +460,19 @@ export const mockShoresh = {
     for (const d of state.days_of_operation ?? []) if (d.label) dayIdByName.set(norm(d.label), d.id)
     const groupIdByName = new Map()
     for (const g of state.groups ?? []) if (g.name) groupIdByName.set(norm(g.name), g.id)
+
+    // T35 — eligible_group_ids can only be resolved once groups exist, so it
+    // happens here rather than in the entity loop above (mirrors
+    // electron/ops/ingest.js). A name that does not resolve is dropped; if
+    // none resolve, no eligible_group_ids is written (null = all groups).
+    for (const activityName of Array.isArray(approved?.activities) ? approved.activities : []) {
+      const rule = activityRules?.[activityName]
+      if (!rule || !Array.isArray(rule.eligible_group_names)) continue
+      const groupIds = rule.eligible_group_names.map((n) => groupIdByName.get(norm(n))).filter(Boolean)
+      if (groupIds.length === 0) continue
+      const row = state.activities.find((a) => a.name === String(activityName).trim())
+      if (row) row.eligible_group_ids = JSON.stringify(groupIds)
+    }
 
     if (!Array.isArray(state.anchor_activities)) state.anchor_activities = []
     const fixedCreatedIds = []

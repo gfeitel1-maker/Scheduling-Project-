@@ -77,6 +77,18 @@ describe('Camp B — one page per day, groups across', () => {
     expect(entities.time_blocks.length).toBeGreaterThan(5)
     expect(entities.time_blocks[0]).toMatch(/08:40/)
   })
+
+  it('populates activityPages with real group names (groups orientation, T35 Fix 2a)', () => {
+    // Regression: before Fix 2, the `columns: 'groups'` layout (Camp B, one
+    // page per day, groups as columns) left activityPages empty for the
+    // WHOLE import, silently marking every activity "all groups" as though
+    // it were a confident inference.
+    const { activityPages, entities: e } = extractEntities(campB)
+    expect(Object.keys(activityPages).length).toBeGreaterThan(0)
+    for (const groupNames of Object.values(activityPages)) {
+      for (const name of groupNames) expect(e.groups).toContain(name)
+    }
+  })
 })
 
 describe('Camp A — one page per group, days across', () => {
@@ -135,6 +147,16 @@ describe('Camp A — one page per group, days across', () => {
 
   it('does not propose "Block 2" as an activity', () => {
     expect(entities.activities.some((a) => /^Block\s*\d*$/i.test(a))).toBe(false)
+  })
+
+  it('populates activityPages with real group names (days orientation, T35 Fix 2a)', () => {
+    const { activityPages, entities: e } = extractEntities(campA)
+    expect(Object.keys(activityPages).length).toBeGreaterThan(0)
+    // Every group name activityPages points at must be a group the entity
+    // proposal actually spells, not a raw page title.
+    for (const groupNames of Object.values(activityPages)) {
+      for (const name of groupNames) expect(e.groups).toContain(name)
+    }
   })
 })
 

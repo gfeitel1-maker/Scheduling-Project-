@@ -97,10 +97,20 @@ function fieldsFor(entity, name, campId, index, cohortId) {
  * event fans out to one `anchor_activities` row per resolved day, cohort-scoped,
  * mirroring the Fixed Events screen's create shape.
  *
+ * `activityRules` is a dedicated payload (T35), NOT a key in `approved`, keyed
+ * by activity name -> `{ eligible_group_names, min_per_week, max_per_week,
+ * priority }`. Rules travel as group NAMES for the same reason fixed events
+ * do — proposed groups have no IDs until this transaction mints them — and
+ * are resolved against `groupIdByName` right here, after that map is fully
+ * populated by the entity loop's `groups` pass (INGESTIBLE_ENTITIES runs
+ * `groups` before `activities`). A name that does not resolve (the director
+ * unticked that group) is dropped; if none resolve, no `eligible_group_ids`
+ * is written at all (null = all groups), never `'[]'`.
+ *
  * Returns `{ created: { [entity]: count }, total,
  *            fixedEvents: { created: number, skipped: [{ name, reason }] } }`.
  */
-export function commitIngest(db, { approved, links, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [] }) {
+export function commitIngest(db, { approved, links, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {} }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -186,6 +196,36 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
           const unit = groupUnits[name]
           const tierId = unit ? tierIdByName.get(String(unit).trim().toLowerCase()) : null
           if (tierId) fields.tier_id = tierId
+        }
+        if (entity === 'activities') {
+          // Inferred (or director-edited) rules, keyed by the exact activity
+          // name the director approved. Absent = no rule was proposed/kept for
+          // this activity, so nothing is written — same as pre-T35 behaviour.
+          //
+          // The op log is the boundary that owns validation here (round 2
+          // review, Fix 4) — a caller is never trusted to have sent something
+          // the engine can act on. buildSchedule.js's runRound only ever
+          // matches priority === 'high' or 'low'; anything else is silently
+          // unplaceable forever with no error, so a non-'high'/'low' value is
+          // dropped rather than written. Same reasoning for min/max: a
+          // negative or non-integer count is nonsense the UI should never
+          // produce, but the write boundary does not trust that it never will.
+          const rule = activityRules?.[name]
+          if (rule) {
+            if (Number.isInteger(rule.min_per_week) && rule.min_per_week >= 1) fields.min_per_week = rule.min_per_week
+            if (Number.isInteger(rule.max_per_week) && rule.max_per_week >= 1) fields.max_per_week = rule.max_per_week
+            if (rule.priority === 'high' || rule.priority === 'low') fields.priority = rule.priority
+            const groupIds = Array.isArray(rule.eligible_group_names)
+              ? rule.eligible_group_names
+                  .map((n) => groupIdByName.get(normalizeName(n)))
+                  .filter(Boolean)
+              : []
+            // Names that failed to resolve (the director unticked that group)
+            // are dropped. If NONE resolved, write nothing rather than '[]' —
+            // an empty JSON array reads as "restricted to nothing", not "all
+            // groups" (src/utils/normalizeActivityEligibility.js).
+            if (groupIds.length > 0) fields.eligible_group_ids = JSON.stringify(groupIds)
+          }
         }
 
         for (const [field, value] of Object.entries(fields)) {

@@ -7,6 +7,7 @@ import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { inferFixedEvents } from '../ingest/fixedEvents'
+import { inferActivityRules } from '../ingest/activityRules'
 import { buildPreview, describePreview } from '../ingest/preview'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 
@@ -34,6 +35,13 @@ const LABEL = {
 // Identifies a proposed fixed event for tick toggling (spec §4.1).
 const fixedEventKey = (fe) => `${fe.name} ${fe.time_block} ${fe.days.join(',')}`
 
+// activities.priority is the engine's two-valued contract — 'high'/'low',
+// never a third value (ActivitiesScreen.jsx, buildSchedule.js's runRound).
+// inferActivityRules already returns exactly one of these two strings, so
+// this screen displays and writes the same value throughout; no conversion
+// at commit (round 2 review, Fix 1 — an earlier 1/2/3 draft was wrong).
+const PRIORITY_LABEL = { high: 'High', low: 'Low' }
+
 export default function ImportScreen({ campId, onNavigate }) {
   // Units and time blocks are scoped to a Program; an import files them under
   // the active one so the setup screens will show them (T33).
@@ -47,6 +55,10 @@ export default function ImportScreen({ campId, onNavigate }) {
   const [fixedEvents, setFixedEvents] = useState([])
   const [chosenFixedEvents, setChosenFixedEvents] = useState(new Set())
   const [operatingDayCount, setOperatingDayCount] = useState(0)
+  // Inferred (or director-edited) rules per activity name (T35). Plain object,
+  // not a Map, so it sits in React state cleanly: name -> { eligible_group_names,
+  // min_per_week, max_per_week, priority, _inferred }.
+  const [activityRules, setActivityRules] = useState({})
   const [error, setError] = useState(null)
   const [working, setWorking] = useState(false)
   const [result, setResult] = useState(null)
@@ -70,6 +82,7 @@ export default function ImportScreen({ campId, onNavigate }) {
     setResult(null)
     setFixedEvents([])
     setChosenFixedEvents(new Set())
+    setActivityRules({})
     const files = [...(fileList ?? [])]
     if (files.length === 0) return
     setFileNames(files.map((f) => f.name))
@@ -140,6 +153,17 @@ export default function ImportScreen({ campId, onNavigate }) {
       setFixedEvents(inferred)
       setChosenFixedEvents(new Set(inferred.filter((fe) => fe.confidence === 'high').map(fixedEventKey)))
       setOperatingDayCount(proposal.entities.days_of_operation.length)
+
+      // Rule inference (T35) — same "propose, director confirms" shape as the
+      // entities and fixed events above.
+      const rules = inferActivityRules(
+        proposal.entities.activities,
+        proposal.activityPages,
+        proposal.seenCounts,
+        proposal.entities.days_of_operation.length,
+        proposal.entities.groups
+      )
+      setActivityRules(Object.fromEntries(rules))
     } catch (err) {
       setPreview(null)
       setError(describeWriteFailure(err, 'That file could not be read.'))
@@ -162,6 +186,36 @@ export default function ImportScreen({ campId, onNavigate }) {
       else set.add(key)
       return set
     })
+  }
+
+  // Editing a field clears `_inferred` for that activity's whole rule, so the
+  // styling reflects it is now the director's value rather than a proposal.
+  function updateActivityRule(name, patch) {
+    setActivityRules((prev) => ({
+      ...prev,
+      [name]: { ...(prev[name] ?? {}), ...patch, _inferred: false },
+    }))
+  }
+
+  function toggleRuleGroup(name, groupName, allGroups) {
+    const current = activityRules[name]?.eligible_group_names
+    // null means "all groups" — the chips all show as on, so the first click
+    // must start from that full set (every OTHER group stays on) rather than
+    // an empty one, or unticking one chip would silently drop every group.
+    const set = new Set(current ?? allGroups)
+    if (set.has(groupName)) set.delete(groupName)
+    else set.add(groupName)
+    // The director just told us which groups directly — this is no longer
+    // the "couldn't tell from the file" state (T35 Fix 2b), whatever it was
+    // before the click.
+    updateActivityRule(name, { eligible_group_names: [...set], eligibility_known: true })
+  }
+
+  // A single global control, not per-activity — simpler, and a director who
+  // wants to start from scratch wants that for every activity, not one at a
+  // time (spec §"Preview UI changes").
+  function clearInferredRules() {
+    setActivityRules({})
   }
 
   const approvedCount = Object.values(chosen).reduce((n, set) => n + set.size, 0)
@@ -192,11 +246,30 @@ export default function ImportScreen({ campId, onNavigate }) {
       }
       // Only the fixed events the director ticked; unticked ones are not sent.
       const tickedFixedEvents = fixedEvents.filter((fe) => chosenFixedEvents.has(fixedEventKey(fe)))
-      const outcome = await localClient.ingestCommit(approved, { groups: groupUnits }, activeCohort?.id ?? null, tickedFixedEvents)
+      // Only rules for activities the director actually approved — an
+      // activity they unticked must not carry a rule into commitIngest, same
+      // principle as groupUnits above. priority is already 'high'/'low', the
+      // same value the activities table reads — no conversion at this
+      // boundary (round 2 review, Fix 1).
+      const outgoingRules = {}
+      for (const name of approved.activities ?? []) {
+        const rule = activityRules[name]
+        if (!rule) continue
+        outgoingRules[name] = {
+          eligible_group_names: rule.eligible_group_names ?? null,
+          min_per_week: rule.min_per_week,
+          max_per_week: rule.max_per_week,
+          priority: rule.priority,
+        }
+      }
+      const outcome = await localClient.ingestCommit(
+        approved, { groups: groupUnits }, activeCohort?.id ?? null, tickedFixedEvents, outgoingRules
+      )
       setResult(outcome)
       setPreview(null)
       setFixedEvents([])
       setChosenFixedEvents(new Set())
+      setActivityRules({})
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
@@ -346,6 +419,33 @@ export default function ImportScreen({ campId, onNavigate }) {
                     {skip.map(s => s.name).join(', ')}.
                   </div>
                 )}
+
+                {/* Inferred scheduling rules (T35) — only for activities the
+                    director has ticked, since an unticked activity is not
+                    being created and a rule for it would have nothing to
+                    attach to. */}
+                {entity === 'activities' && create.some((n) => chosen.activities?.has(n)) && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                        Guessed how often and for whom, from the file. Edit anything that looks wrong.
+                      </div>
+                      <button onClick={clearInferredRules} style={{ ...S.btnSecondary, padding: '4px 10px', fontSize: 11 }}>
+                        Clear inferred rules
+                      </button>
+                    </div>
+                    {create.filter((n) => chosen.activities?.has(n)).map((name) => (
+                      <ActivityRuleRow
+                        key={name}
+                        name={name}
+                        rule={activityRules[name]}
+                        allGroups={preview.perEntity.groups?.create ?? []}
+                        onChange={(patch) => updateActivityRule(name, patch)}
+                        onToggleGroup={(g) => toggleRuleGroup(name, g, preview.perEntity.groups?.create ?? [])}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
             )
           })}
@@ -471,6 +571,91 @@ export default function ImportScreen({ campId, onNavigate }) {
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+// One activity's inferred (or edited) rule: a compact summary line plus
+// inline editing. `rule` is undefined for an activity nothing was inferred
+// for (e.g. it never appeared in a `days`-oriented grid, T35 gotcha) — that
+// activity gets blank inputs, same as before this work, not a crash.
+function ActivityRuleRow({ name, rule, allGroups, onChange, onToggleGroup }) {
+  const inferred = rule?._inferred !== false && rule != null
+  const textColor = inferred ? 'var(--text-secondary)' : 'var(--text)'
+  const groupNames = rule?.eligible_group_names ?? null // null = all groups
+  // T35 Fix 2b — no page-level signal existed for this activity at all, so
+  // "All groups" below would be an absence of evidence dressed as a
+  // conclusion. Full-contrast, not muted like other inferred fields: this is
+  // a thing worth the director's attention, not a confident default.
+  const eligibilityUnknown = rule != null && rule.eligibility_known === false
+
+  return (
+    <div style={{
+      display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
+      padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)',
+      marginBottom: 6, fontSize: 12, background: 'var(--bg)',
+    }}>
+      <span style={{ fontWeight: 600, color: 'var(--text)', minWidth: 110 }}>{name}</span>
+
+      <input
+        type="number" min={1}
+        value={rule?.min_per_week ?? ''}
+        onChange={(e) => onChange({ min_per_week: Math.max(1, Number(e.target.value) || 1) })}
+        style={{ width: 40, padding: '3px 5px', fontSize: 12, borderRadius: 5, border: '1px solid var(--border)', color: textColor, background: 'var(--surface)' }}
+      />
+      <span style={{ color: 'var(--text-secondary)' }}>–</span>
+      <input
+        type="number" min={1}
+        value={rule?.max_per_week ?? ''}
+        onChange={(e) => onChange({ max_per_week: Math.max(1, Number(e.target.value) || 1) })}
+        style={{ width: 40, padding: '3px 5px', fontSize: 12, borderRadius: 5, border: '1px solid var(--border)', color: textColor, background: 'var(--surface)' }}
+      />
+      <span style={{ color: textColor }}>×/wk</span>
+
+      <select
+        value={rule?.priority ?? 'low'}
+        onChange={(e) => onChange({ priority: e.target.value })}
+        style={{ fontSize: 12, padding: '3px 5px', borderRadius: 5, border: '1px solid var(--border)', color: textColor, background: 'var(--surface)', fontFamily: 'inherit' }}
+      >
+        {['high', 'low'].map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
+      </select>
+
+      {eligibilityUnknown ? (
+        <span style={{ color: 'var(--text)' }}>
+          Shoresh couldn’t tell from this file’s layout which groups do which activity, so eligibility
+          is left open. Worth checking.
+        </span>
+      ) : (
+        <span style={{ color: textColor }}>
+          {/* An empty selection and "all groups" (null) both write the same
+              thing — no restriction (T35 Fix 3) — so they must say the same
+              thing, or unticking every chip would silently lie about what
+              gets committed. */}
+          {groupNames === null || groupNames.length === 0
+            ? 'All groups'
+            : `Groups: ${groupNames.join(', ')}`}
+        </span>
+      )}
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+        {allGroups.map((g) => {
+          const on = groupNames === null || groupNames.includes(g)
+          return (
+            <button
+              key={g}
+              onClick={() => onToggleGroup(g)}
+              style={{
+                fontSize: 10, padding: '2px 6px', borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
+                background: on ? 'color-mix(in srgb, var(--success) 12%, var(--surface))' : 'var(--surface)',
+                border: `1px solid ${on ? 'var(--success)' : 'var(--border)'}`,
+                color: on ? 'var(--text)' : 'var(--text-secondary)',
+              }}
+            >
+              {g}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }

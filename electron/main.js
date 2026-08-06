@@ -231,7 +231,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // T16 — commit an import the director approved in the preview. Admin only:
   // it creates setup records in bulk, which is the same authority the setup
   // screens already require.
-  function ingestCommit({ token, approved, links, cohort_id, fixedEvents } = {}) {
+  function ingestCommit({ token, approved, links, cohort_id, fixedEvents, activityRules } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // Admin only. Staff may edit setup records one at a time; creating a
     // camp's whole structure in one action is a different kind of authority,
@@ -252,6 +252,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // Recurring fixed events the director ticked, resolved to real rows and
       // written as anchor_activities (T34). Defaults to none.
       fixedEvents: fixedEvents ?? [],
+      // Inferred/edited activity rules (T35), keyed by activity name. Defaults
+      // to none, preserving pre-T35 behaviour for callers that pass none.
+      activityRules: activityRules ?? {},
     })
   }
 
