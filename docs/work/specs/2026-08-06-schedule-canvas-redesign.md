@@ -13,7 +13,9 @@ affects: [src/components/schedule/ScheduleGroupView.jsx, src/components/schedule
 
 # Schedule grid redesign — CSS Grid as the rendering primitive
 
-**Status:** draft — awaiting product owner approval before any implementation begins.
+**Status: approved** by the product owner 2026-08-06, and **implemented** — T53–T60 all landed and
+merged. The frontmatter is authoritative; this line previously still read "draft — awaiting product
+owner approval," which contradicted it.
 
 **This document is a rewrite.** Its previous revision recommended "keep the HTML `<table>` +
 `rowSpan`, add a `<canvas>` ambient layer." That recommendation is **rejected and withdrawn.**
