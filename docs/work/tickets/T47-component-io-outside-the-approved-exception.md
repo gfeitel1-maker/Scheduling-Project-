@@ -1,7 +1,7 @@
 ---
 title: T47-component-io-outside-the-approved-exception
 document_type: ticket
-status: open
+status: closed
 created: 2026-08-04
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: [docs/adr/2026-08-04-repository-layer-policy.md]
@@ -71,3 +71,7 @@ Sidebar's existing refresh-on-`onOpApplied` behavior.
 4. `ARCHITECTURE_STANDARD.md` §6's "not covered by any exception" paragraph is removed once both are
    resolved.
 5. Full `npm run test`, `npm run lint`, `npm run build` pass.
+
+## Closure
+
+Closed in commit `3dad81c` on branch `work/t47-component-io`. All localClient calls moved out of `Sidebar.jsx` into `src/hooks/useSetupCounts.js` (called by Shell.jsx, which passes data as props to Sidebar) and out of `RecordHistory.jsx` into `src/hooks/useRecordHistory.js` (called internally by the component). The only remaining `localClient` imports in `src/components/**` are the two approved confirm-dialog files. The "Not covered by any exception" paragraph was removed from ARCHITECTURE_STANDARD.md §6. All 19 affected tests pass; lint and build pass.
