@@ -109,7 +109,8 @@ Write the Maker brief. Include:
 - What does NOT count as success
 - Implementation steps in order
 - Files likely to change (from memory + filesystem-context)
-- Styling constraint: inline React style objects only, no CSS files, no className for styling
+- Styling constraint: inline React style objects for component styles (global tokens are in
+  `src/index.css`). **One** one scoped exception is `src/components/schedule/scheduleGrid.css` (schedule grid container, cell interaction pseudo-states, cell data-attribute states) — see ARCHITECTURE_STANDARD.md §7 for the reason and the boundary, which does not extend beyond `src/components/schedule/`
 - If Designer ran: attach Designer's spec as a constraint section titled "DESIGN SPEC — implement exactly as specified"
 - If Architect ran: attach Architect's design as a constraint section titled "ARCHITECTURE — implement exactly as designed"
 - Blocked routes from memory (patterns that failed before)
@@ -192,7 +193,8 @@ Wait for score + justification.
 - **Preview:** `npm run dev` → http://localhost:5200 is the *browser* renderer against a dev mock
   (`src/localClient.mock.js`), not the real stack. `npm run electron:dev` runs the real app.
   Anything involving persistence, auth, or sync must be verified under Electron.
-- **Key constraint:** ALL styles are inline React style objects. No CSS files. No className for styling.
+- **Key constraint:** component styles are inline React style objects; global tokens live in
+  `src/index.css`. **One** one scoped exception is `src/components/schedule/scheduleGrid.css` (schedule grid container, cell interaction pseudo-states, cell data-attribute states) — see ARCHITECTURE_STANDARD.md §7 for the reason and the boundary, which does not extend beyond `src/components/schedule/`.
 - **Design:** [`docs/governance/standards/DESIGN_STANDARD.md`](../../docs/governance/standards/DESIGN_STANDARD.md)
   is the token contract — personality, every colour/type/motion value, and what each token *means*.
   Attach it (or the relevant sections) to every UI-significant Maker/Designer brief. Do not restate

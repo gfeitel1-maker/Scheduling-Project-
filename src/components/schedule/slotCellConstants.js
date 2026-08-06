@@ -37,8 +37,6 @@ export const FLAG_COLORS = {
   OVERLAP: 'var(--accent)',
 }
 
-export const REAL_FLAG_NAMES = new Set(Object.keys(FLAG_COLORS))
-
 // Severity is a distinct lookup from FLAG_COLORS (hue) on purpose — kept
 // separate so a future 4th kind can't silently inherit visual weight from a
 // "similar enough" color. Consumed by both slot flags and findings.
@@ -201,9 +199,6 @@ export function activityColor(activityId) {
   if (assigned) return assigned
   return ACTIVITY_COLORS[djb2(String(activityId)) % ACTIVITY_COLORS.length]
 }
-
-export const cellTd = { padding: '8px 6px', verticalAlign: 'top', cursor: 'pointer' }
-export const emptyTd = { padding: '8px 6px', verticalAlign: 'top' }
 
 // The two routes share a flag VOCABULARY, not an identical flag SET: a word
 // used on both means the same thing on both, but 'Unfillable' does not exist

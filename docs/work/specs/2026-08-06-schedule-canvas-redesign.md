@@ -31,8 +31,9 @@ converges. It does not re-open the direction.
 
 **Success predicate (observable, testable):**
 
-1. The group, day, activity, and manual-build schedule views render from a single CSS Grid
-   container. No `<table>`, `<tr>`, `<td>`, or `rowSpan` attribute remains in the four schedule
+1. The group, day, activity, and manual-build schedule views render from CSS Grid on a single
+   shared column template — a `role="grid"` frame over two `role="rowgroup"` containers (header,
+   body); see §1. No `<table>`, `<tr>`, `<td>`, or `rowSpan` attribute remains in the four schedule
    grid components.
 2. A multi-block activity, anchor, or overlay occupies one DOM element whose height equals the
    sum of the tracks it covers, with no separate elements rendered for the blocks it covers.
@@ -59,9 +60,15 @@ converges. It does not re-open the direction.
 
 ## 1. Rendering layer — CSS Grid
 
-**Decision: the schedule grid is one CSS Grid container. Every slot, overlay, row header, and
-empty placeholder is a direct grid child placed with explicit
-`grid-row: <n> / span <rowSpan>` and `grid-column: <n> / span <colSpan>`.**
+**Decision: the schedule grid is one CSS Grid column template, shared by two grid containers —
+a `role="grid"` frame wrapping two `role="rowgroup"` children (the sticky day-header row and the
+body). Every slot, overlay, row header, and empty placeholder is a direct grid child of one of them,
+placed with explicit `grid-row: <n> / span <rowSpan>` and `grid-column: <n> / span <colSpan>`.**
+
+> **Corrected 2026-08-06 (T60).** This section originally said *one* container. The implementation
+> deliberately uses two, and the implementation is right: a header row inside the same container
+> would consume a time block's row track and push a `+1` offset back into every `placeCell` call
+> site — exactly the duplication `gridPlacement.js` exists to prevent.
 
 ```
 .grid {

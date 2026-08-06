@@ -2,11 +2,6 @@ import { useState } from 'react'
 import { cellAccessibleName } from './cellLabel'
 import './scheduleGrid.css'
 
-export const OVERLAY_COLOR = 'var(--accent)'
-export const OVERLAY_BG = 'color-mix(in srgb, var(--accent) 9%, transparent)'
-export const OVERLAY_TEXT = 'color-mix(in srgb, var(--accent) 60%, var(--text))'
-export const OVERLAY_BORDER = 'var(--accent)'
-
 export default function OverlayCell({
   label, onRemove, rowSpan = 1, showFillHandle = false, fillHandleDirection = 'vertical', onFillStart,
   // Placement comes from placeCell at the call site (gridPlacement.js).

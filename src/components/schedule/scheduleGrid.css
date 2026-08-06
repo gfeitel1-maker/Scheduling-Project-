@@ -7,9 +7,9 @@
    per-cell data-derived colours stay inline on the element that computes them.
 
    Every value here is lifted verbatim from the inline objects it replaces
-   (S.th, cellTd, emptyTd, S.cellIdentityChip, S.cellEmptyOutline, the row
-   header's inline block) so the conversion is structural, not visual. The two
-   deliberate exceptions are marked DELTA. */
+   (S.th, the retired table-era cell objects, S.cellIdentityChip,
+   S.cellEmptyOutline, the row header's inline block) so the conversion is
+   structural, not visual. The two deliberate exceptions are marked DELTA. */
 
 /* ---------- container ---------- */
 
@@ -124,8 +124,8 @@
   gap: 2px;
 }
 
-/* Was inline in OverlayCell (OVERLAY_BG / OVERLAY_BORDER). Static, so it moved
-   here in T56 — an inline background is unreachable by any later state rule. */
+/* Was inline in OverlayCell. Static, so it moved here in T56 — an inline
+   background is unreachable by any later state rule. */
 .cell-inner--overlay {
   background: color-mix(in srgb, var(--accent) 9%, transparent);
   border: 1.5px solid var(--accent);
@@ -215,8 +215,7 @@
   overflow-wrap: anywhere;
 }
 
-/* Was inline in OverlayCell; it moved here so the collapsed rules can reach it.
-   The colour mirrors OVERLAY_TEXT in OverlayCell.jsx. */
+/* Was inline in OverlayCell; it moved here so the collapsed rules can reach it. */
 .cell-name--overlay {
   display: block;
   font-weight: 700;

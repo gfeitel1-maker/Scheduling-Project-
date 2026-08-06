@@ -49,9 +49,18 @@ your spec — cite the token name and let the standard define it. One copy, one 
 **The personality it defines is never violated:** Professional. Grounded. Warm. Quiet. Precise.
 **Never playful.** Colour communicates MEANING, not decoration. The schedule grid is the visual focus.
 
-- **Styles:** All production styles are inline React style objects. Do not spec CSS classes. Your
-  mockups can use any approach, but your written spec must describe styles as inline properties,
-  referencing `var(--token)` rather than hex values.
+- **Styles:** Production component styles are inline React style objects, referencing `var(--token)`
+  rather than hex values. Global design tokens live in CSS (`src/index.css`). Spec styles as inline
+  properties by default; your mockups can use any approach.
+  **One scoped exception:** `src/components/schedule/scheduleGrid.css` — the schedule grid container,
+  cell interaction pseudo-states (`:hover`, `:focus-within`), and cell data-attribute states may be
+  specced as CSS rules, because pseudo-classes and attribute selectors do not exist in inline styles
+  and on a dense repeated element their absence is otherwise paid for with React state and re-renders
+  across up to 480 cells. **The boundary is `src/components/schedule/` and does not extend beyond
+  it** — do not spec CSS classes for any other component, and do not propose a second stylesheet.
+  Per-cell computed geometry (`gridRow`, `gridColumn`) and data-derived colours stay inline.
+  A **new** ephemeral cell state is specced as a data attribute plus a rule in `scheduleGrid.css`,
+  never as React state.
 - **DnD:** Drag interactions use `@dnd-kit/core` with `distance: 8` activation.
 - **Motion** always ships a `prefers-reduced-motion` fallback.
 - If you believe the standard itself should change, that is a **human gate**
