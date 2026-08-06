@@ -73,7 +73,6 @@ function renderView(extra = {}) {
         handleStampClick={noop}
         onEditSlot={noop}
         fillState={null}
-        isExpandDragActive={false}
         {...extra}
       />
     </DndContext>

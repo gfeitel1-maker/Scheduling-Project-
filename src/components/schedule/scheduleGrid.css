@@ -556,6 +556,118 @@
   background: var(--accent);
 }
 
+/* ---------- drag (T58, spec §5.4 / §5.5 / §7) ----------
+
+   Three rules govern everything below.
+
+   1. STATIC ONLY. Atlassian replaced react-beautiful-dnd because animated
+      placement feedback made interfaces feel sluggish — users waited for the
+      animation before they could read intent. Their replacement is "lines,
+      borders and background color changes". So: no transition, no transform, no
+      cell sliding to make room. Nothing here animates, and nothing here touches
+      a cell's layout box, so no cell can reflow during a gesture.
+
+   2. It has to be a PSEUDO-ELEMENT ON .cell, not a rule on .cell-inner.
+      .cell-inner's border/background are composed inline from data (locked,
+      unfillable, flagged) and an inline value beats any rule — the T55 lesson.
+      .cell carries nothing inline but grid placement and cursor, so ::before and
+      ::after are reachable.
+
+   3. The DROP INDICATOR and the DRAG PREVIEW are separate things. The indicator
+      (below) is static and marks WHERE the drop lands. The preview (.drag-ghost)
+      follows the pointer and shows WHAT is moving. */
+
+/* Where it lands — the target box. */
+.cell[data-drag-over]::after {
+  content: '';
+  position: absolute;
+  /* Matches .cell's padding, so the mark frames the painted inner box. */
+  inset: 8px 6px;
+  border-radius: 8px;
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  pointer-events: none;
+  z-index: 4;
+}
+
+/* Which edge of that cell the drop attaches to (closestEdge). A solid bar at the
+   top of the target reads differently from one at its foot at a glance, with no
+   modifier key and no colour difference to depend on. */
+.cell[data-drag-over]::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--primary);
+  pointer-events: none;
+  z-index: 5;
+}
+
+.cell[data-drag-over][data-drop-edge='top']::before {
+  top: 5px;
+}
+
+.cell[data-drag-over][data-drop-edge='bottom']::before {
+  bottom: 5px;
+}
+
+/* Extend-drag kept its own colour and dashed treatment from the inline version
+   it replaces, so the gesture still reads as "grow this" rather than "swap". */
+.cell[data-drag-over][data-drag-kind='expand-drag']::after {
+  outline: 2px dashed var(--success);
+  background: color-mix(in srgb, var(--success) 9%, transparent);
+}
+
+.cell[data-drag-over][data-drag-kind='expand-drag']::before {
+  background: var(--success);
+}
+
+/* The drag preview. One element, moved by one transform write per pointer event,
+   never through React. pointer-events: none is load-bearing — elementFromPoint
+   would otherwise resolve every hit to the ghost. */
+.drag-ghost {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 1000;
+  display: none;
+  pointer-events: none;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface-elevated);
+  border: 1.5px solid var(--primary);
+  box-shadow: 0 4px 14px color-mix(in srgb, var(--text) 22%, transparent);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drag-ghost[data-visible] {
+  display: block;
+}
+
+/* Pick-up / move / drop announcements. Visually hidden, never display:none —
+   a display:none live region is not announced. */
+.drag-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .expand-handle,
   .cell-empty {

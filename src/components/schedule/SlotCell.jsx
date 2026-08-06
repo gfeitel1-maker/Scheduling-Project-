@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useDraggable, useDroppable } from '@dnd-kit/core'
+import { useDraggable } from '@dnd-kit/core'
 import { S, prefersReducedMotion } from '../../styles/shared'
 import { ANCHOR_COLOR, FLAG_COLORS, activityColor } from './slotCellConstants'
 import './scheduleGrid.css'
@@ -10,10 +10,12 @@ import './scheduleGrid.css'
 // picks one, because a text swap is the one thing a pseudo-state cannot do to a
 // text node.
 function ExpandHandle({ groupId, dayId, blockId, activityId }) {
+  // No activationConstraint here: it is a sensor option, never a useDraggable
+  // one, so the value that used to sit here was inert. The threshold is the
+  // PointerSensor's, set once in ScheduleScreen (T58, spec §5.6).
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: `expand-${groupId}|${dayId}|${blockId}`,
     data: { expandDrag: { groupId, dayId, blockId, activityId } },
-    activationConstraint: { distance: 12 },
   })
 
   return (
@@ -64,7 +66,7 @@ function OutdoorIcon() {
 export default function SlotCell({
   slot, activity, anchor, actColorIdx, weatherMode,
   onEdit, onRelease, onSelect,
-  isLocked, isDndEnabled, rowSpan = 1, isExpandDragActive = false,
+  isLocked, isDndEnabled, rowSpan = 1,
   isSelected = false, isMultiSelected = false, pasteMode = false,
   hasMergeDown = false, isMerged = false,
   onMergeDown, onSplitSlot,
@@ -103,6 +105,10 @@ export default function SlotCell({
     'aria-rowspan': rowSpan > 1 ? rowSpan : undefined,
     'data-cell-key': cellKey,
     'data-collapsed': collapsed ? '' : undefined,
+    // Replaces the old droppable's `disabled: !isDndEnabled || isLocked`. The hit
+    // is now resolved from pointer coordinates, so "not a drop target" has to be
+    // readable off the element itself — resolveHit reads exactly this.
+    'data-drop-disabled': !isDndEnabled || isLocked ? '' : undefined,
   }
 
   function triggerPress() {
@@ -114,18 +120,14 @@ export default function SlotCell({
   const canDrag = isDndEnabled && slot?.type === 'activity' && !isLocked && Boolean(activity)
   const showExpandHandle = slot?.activity_id && !slot?.is_anchor && !isLocked
 
-  const { attributes, listeners, setNodeRef: setDragRef, isDragging } = useDraggable({
+  // Drag only. The matching per-cell droppable is gone: one droppable now sits on
+  // the grid surface and the target cell is resolved from pointer coordinates
+  // (spec §5.3), which is what removed up to 480 isOver subscribers.
+  const { attributes, listeners, setNodeRef: setRef, isDragging } = useDraggable({
     id,
     disabled: !canDrag,
     data: { slot },
   })
-  const { setNodeRef: setDropRef, isOver } = useDroppable({
-    id: `drop-${id}`,
-    disabled: !isDndEnabled || Boolean(isLocked),
-    data: { slot },
-  })
-
-  const setRef = el => { setDragRef(el); setDropRef(el) }
 
   if (!slot) return <div {...shellProps} />
 
@@ -207,11 +209,10 @@ export default function SlotCell({
     opacity: isDragging ? 0.4 : 1,
     // Weather outline applies first — selection (spread after) wins if both apply.
     ...(isWeatherHighlight ? { outline: '1px solid var(--text-secondary)', outlineOffset: -1 } : {}),
-    ...(isOver && isExpandDragActive
-      ? { border: '2px dashed var(--success)', background: 'color-mix(in srgb, var(--success) 9%, transparent)' }
-      : isOver && isDndEnabled && !isExpandDragActive
-        ? { outline: '2px solid var(--primary)', outlineOffset: -2 }
-        : {}),
+    // The drop target's paint is NOT here any more. It is a static
+    // `.cell[data-drag-over]::before/::after` rule in scheduleGrid.css, written
+    // by one setAttribute — an inline value would both re-render the tree and
+    // beat the rule (the T55 lesson).
     ...(isSelected
       ? (prefersReducedMotion() ? { boxShadow: S.cellSelected.boxShadow, outline: S.cellSelected.outline, outlineOffset: S.cellSelected.outlineOffset } : S.cellSelected)
       : {}),

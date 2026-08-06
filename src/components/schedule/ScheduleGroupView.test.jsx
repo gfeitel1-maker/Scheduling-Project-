@@ -73,7 +73,6 @@ function renderView(extra = {}) {
         fillState={null}
         onExpandSlot={noop}
         onSplitSlot={noop}
-        isExpandDragActive={false}
         selectedSlotKeys={new Set()}
         pasteMode={false}
         onCellSelect={noop}

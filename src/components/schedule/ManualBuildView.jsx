@@ -1,4 +1,3 @@
-import { useDroppable } from '@dnd-kit/core'
 import SlotCell from './SlotCell'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
@@ -7,14 +6,11 @@ import './scheduleGrid.css'
 
 const NO_COLLAPSE = new Set()
 
+// No per-cell droppable: T58 moved hit resolution to the grid surface, and the
+// drop-target paint to `.cell[data-drag-over]` in scheduleGrid.css.
 function EmptyDropCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex, collapsed }) {
-  const { setNodeRef, isOver } = useDroppable({
-    id: `drop-${groupId}-${dayId}-${blockId}`,
-    data: { groupId, dayId, blockId },
-  })
   return (
     <div
-      ref={setNodeRef}
       role="gridcell"
       className="cell"
       data-empty=""
@@ -23,20 +19,13 @@ function EmptyDropCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIn
       aria-colindex={ariaColIndex}
       style={{ gridRow, gridColumn }}
     >
-      {/* isOver is drag state, not hover — it stays inline. The drag layer is
-          T58; nothing about it changes here. */}
-      <div
-        className="cell-empty"
-        style={isOver
-          ? { background: 'color-mix(in srgb, var(--primary) 13%, transparent)', border: '2px dashed var(--primary)' }
-          : undefined}
-      />
+      <div className="cell-empty" />
     </div>
   )
 }
 
-// DndContext lives in ScheduleScreen (for manual mode). This component is
-// just the grid — group pills + droppable slot grid.
+// DndContext and the one grid-surface droppable live in ScheduleScreen (for
+// manual mode). This component is just the grid — group pills + slot grid.
 export default function ManualBuildView({
   groups, days, timeBlocks,
   selectedGroup, onSelectGroup,

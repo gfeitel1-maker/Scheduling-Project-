@@ -1,4 +1,3 @@
-import { useDroppable } from '@dnd-kit/core'
 import SlotCell from '../schedule/SlotCell'
 import OverlayCell from '../schedule/OverlayCell'
 import { decideCell } from '../../screens/schedule/gridGeometry'
@@ -9,14 +8,12 @@ import './scheduleGrid.css'
 
 const NO_COLLAPSE = new Set()
 
-function DroppableEmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex, collapsed }) {
-  const { setNodeRef, isOver } = useDroppable({
-    id: `grp-drop-${groupId}-${dayId}-${blockId}`,
-    data: { groupId, dayId, blockId },
-  })
+// No per-cell droppable: T58 moved hit resolution to the grid surface, and the
+// drop-target paint to `.cell[data-drag-over]` in scheduleGrid.css. data-cell-key
+// is what makes this cell findable from pointer coordinates.
+function EmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex, collapsed }) {
   return (
     <div
-      ref={setNodeRef}
       role="gridcell"
       className="cell"
       data-empty=""
@@ -25,23 +22,15 @@ function DroppableEmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, aria
       aria-colindex={ariaColIndex}
       style={{ gridRow, gridColumn }}
     >
-      {/* isOver is drag state, not hover — it stays inline. The drag layer is
-          T57/T58; nothing about it changes here. */}
-      <div
-        className="cell-empty"
-        style={isOver
-          ? { background: 'var(--primary)22', outline: '2px dashed var(--primary)', outlineOffset: -2 }
-          : undefined}
-      >
-        Empty
-      </div>
+      <div className="cell-empty">Empty</div>
     </div>
   )
 }
 
 
-// DndContext lives in ScheduleScreen for group view (covers sidebar + grid).
-// isExpandDragActive is passed down from ScheduleScreen's drag-start handler.
+// DndContext and the one grid-surface droppable live in ScheduleScreen (they
+// cover sidebar + grid). Drag state is the FSM's and reaches cells as data
+// attributes written directly to the DOM — no drag prop is threaded through here.
 export default function ScheduleGroupView({
   groups, days, timeBlocks, selectedGroup, onSelectGroup,
   weatherMode, stampMode, actMap, anchorMap,
@@ -51,7 +40,6 @@ export default function ScheduleGroupView({
   onEditSlot, fillState,
   onExpandSlot,
   onSplitSlot,
-  isExpandDragActive,
   selectedSlotKeys,
   pasteMode,
   onCellSelect,
@@ -172,7 +160,7 @@ export default function ScheduleGroupView({
 
                         if (decision.kind === 'empty') {
                           return (
-                            <DroppableEmptyCell
+                            <EmptyCell
                               key={day.id}
                               groupId={selectedGroup}
                               dayId={day.id}
@@ -238,7 +226,6 @@ export default function ScheduleGroupView({
                             isLocked={isLocked}
                             onSelect={!stampMode && !slot.is_anchor ? onCellSelect : undefined}
                             isDndEnabled={!stampMode && !slot.is_anchor && !isLocked}
-                            isExpandDragActive={isExpandDragActive}
                             isSelected={isSelected}
                             isMultiSelected={isMultiSelected}
                             pasteMode={pasteMode}

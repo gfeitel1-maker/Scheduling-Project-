@@ -1,4 +1,3 @@
-import { useDroppable } from '@dnd-kit/core'
 import SlotCell from '../schedule/SlotCell'
 import OverlayCell from '../schedule/OverlayCell'
 import { decideCell } from '../../screens/schedule/gridGeometry'
@@ -9,14 +8,11 @@ import './scheduleGrid.css'
 
 const NO_COLLAPSE = new Set()
 
-function DroppableEmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex, collapsed }) {
-  const { setNodeRef, isOver } = useDroppable({
-    id: `day-drop-${groupId}-${dayId}-${blockId}`,
-    data: { groupId, dayId, blockId },
-  })
+// No per-cell droppable: T58 moved hit resolution to the grid surface, and the
+// drop-target paint to `.cell[data-drag-over]` in scheduleGrid.css.
+function EmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex, collapsed }) {
   return (
     <div
-      ref={setNodeRef}
       role="gridcell"
       className="cell"
       data-empty=""
@@ -25,19 +21,14 @@ function DroppableEmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, aria
       aria-colindex={ariaColIndex}
       style={{ gridRow, gridColumn }}
     >
-      {/* isOver is drag state, not hover — it stays inline. Drag is T58. */}
-      <div
-        className="cell-empty"
-        style={isOver
-          ? { background: 'var(--primary)22', outline: '2px dashed var(--primary)', outlineOffset: -2 }
-          : undefined}
-      />
+      <div className="cell-empty" />
     </div>
   )
 }
 
-// DndContext lives in ScheduleScreen for day view (covers sidebar + grid).
-// isExpandDragActive is passed down from ScheduleScreen's drag-start handler.
+// DndContext and the one grid-surface droppable live in ScheduleScreen (they
+// cover sidebar + grid). Drag state is the FSM's and reaches cells as data
+// attributes written directly to the DOM — no drag prop is threaded through here.
 //
 // The COLUMNS OF THIS VIEW ARE GROUPS, not days. placeCell's columnIndex is
 // column-semantics-agnostic by design, so the group index goes straight in;
@@ -49,7 +40,6 @@ export default function ScheduleDayView({
   geometry,
   handleFillEnter, startFill, removeOverlay, handleStampClick,
   onEditSlot, fillState,
-  isExpandDragActive,
   // Generated "track changes" review; empty/true on the manual route so its
   // day view is unchanged. highlightMap is Map<slotId, reason>.
   showIdentityDot = true,
@@ -148,7 +138,7 @@ export default function ScheduleDayView({
 
                       if (decision.kind === 'empty') {
                         return (
-                          <DroppableEmptyCell
+                          <EmptyCell
                             key={group.id}
                             groupId={group.id}
                             dayId={selectedDay}
@@ -202,7 +192,6 @@ export default function ScheduleDayView({
                           onRelease={s => releaseCell(s.id)}
                           isLocked={isLocked}
                           isDndEnabled={!isLocked && !stampMode}
-                          isExpandDragActive={isExpandDragActive}
                           showIdentityDot={showIdentityDot}
                           isFlagHighlighted={highlightMap?.has(slot.id) ?? false}
                           highlightColor={highlightColor}

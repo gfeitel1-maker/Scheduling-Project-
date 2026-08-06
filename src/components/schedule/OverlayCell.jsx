@@ -25,6 +25,9 @@ export default function OverlayCell({
       aria-colindex={ariaColIndex}
       aria-rowspan={rowSpan > 1 ? rowSpan : undefined}
       data-cell-key={cellKey}
+      // An overlay cell never had a droppable, so pointer-resolved hits must be
+      // rejected here the same way (T58, resolveHit).
+      data-cell-kind="overlay"
       data-collapsed={collapsed ? '' : undefined}
       onClick={() => setShowRemoveBtn(v => !v)}
     >
