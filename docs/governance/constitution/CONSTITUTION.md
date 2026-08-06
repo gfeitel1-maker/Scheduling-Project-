@@ -136,7 +136,7 @@ Three consequences that bind design and engineering work:
 
 ## Article VI — The agent team
 
-Ten agents. This roster is authoritative; `.claude/agents/` must match it exactly, and each agent's
+Eleven agents. This roster is authoritative; `.claude/agents/` must match it exactly, and each agent's
 `name:` frontmatter must equal its filename.
 
 | Agent | The one thing only this role does |
@@ -151,6 +151,7 @@ Ten agents. This roster is authoritative; `.claude/agents/` must match it exactl
 | **Security** | Confirmed vulnerabilities against the real threat surface. |
 | **Red Hat** | Broken assumptions and edge cases. Explicitly not bugs and not vulnerabilities. |
 | **Grader** | Calibrated score from the four opinion reports. Runs nothing, decides nothing. |
+| **Architecture Auditor** | Periodic codebase depth audit. Runs independently — does not plug into the Governor/Maker/Verifier loop. Invoked after significant feature work or on demand. |
 
 **Deprecated terms.** "Reviewer" is an informal alias for **Code Reviewer** — there is no separate
 role. "Styler" names no role in this repository; visual work is specified by **Designer** before

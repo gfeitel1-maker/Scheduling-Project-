@@ -27,7 +27,7 @@ const TONE_COLOR = {
 }
 
 export default function Sidebar({
-  current, onNavigate, campId, role, badges = {},
+  current, onNavigate, role, badges = {},
   counts, startedRoutes, campName, syncStatus,
   projectPath, isDevDb, buildLabel,
   backupStatus, handleBackupNow,
