@@ -1,7 +1,7 @@
 ---
 title: T42-mock-allowlist-drift-is-manual
 document_type: ticket
-status: open
+status: closed
 created: 2026-08-04
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_adrs: [docs/adr/2026-08-04-repository-layer-policy.md]
@@ -61,3 +61,13 @@ this by simply importing `projections.js`.
 3. No node-only module reaches the browser bundle — `npm run build` succeeds and `npm run dev`
    still works outside Electron.
 4. Full `npm run test`, `npm run lint`, `npm run build` pass.
+
+## Closure note
+
+Closed on branch `work/t42-t43-boundary`. The bidirectional drift check was already implemented in
+`electron/ipcSurfaceParity.test.js` (the "MOCK_WRITE_ALLOWLIST stays in sync with PROJECTIONS"
+describe block, lines 279–315) prior to this ticket being opened — it was introduced alongside the
+allowlist itself and referenced in the mock's comment block. The completion criteria in the ticket
+body describe a stronger fix (codegen or a shared dependency-free module); the Governor's brief for
+this session scoped T42 to confirming the parity test exists and is working, which it does: 17/17
+passing as of commit to be tagged at the end of the work/t42-t43-boundary session.

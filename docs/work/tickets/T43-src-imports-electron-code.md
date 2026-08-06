@@ -1,7 +1,7 @@
 ---
 title: T43-src-imports-electron-code
 document_type: ticket
-status: open
+status: closed
 created: 2026-08-04
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: [docs/adr/2026-08-04-repository-layer-policy.md]
@@ -63,3 +63,25 @@ so explicitly is a valid outcome.
 3. If any exception remains, a check exists that prevents a *fourth* appearing unnoticed.
 4. `npm run build` succeeds and `npm run dev` still works outside Electron.
 5. Full `npm run test`, `npm run lint`, `npm run build` pass.
+
+## Closure note
+
+Closed on branch `work/t42-t43-boundary`. All three imports examined and dispositioned:
+
+1. **`src/screens/ScheduleScreen.jsx`** and **`src/screens/schedule/useRouteState.js`** both import
+   `deriveScheduleTemplateId` from `electron/ops/scheduleTemplateId.js`. This is an intentional,
+   documented exception: the module lives under `electron/` because electron-builder ships
+   `electron/**` but not `src/`, so an electron-side import of a `src/` utility fails in the
+   installed app at migration time (the v21 migration uses this function against real databases).
+   The renderer importing in the opposite direction is safe because Vite bundles whatever `src/`
+   imports into `dist/`, which does ship. The module's own header documents this reasoning fully.
+   Recorded as an approved exception in `docs/governance/standards/ARCHITECTURE_STANDARD.md` §6.
+
+2. **`src/utils/ensureCohort.race.test.js`** imports `openLocalDb` and `appendOp` from
+   `electron/`. This is a test file that never reaches the browser bundle. The standard was updated
+   to clarify that test files under `src/` are exempt from the src/ → electron/ prohibition, with
+   the requirement that the import be narrowly scoped to the utility under test.
+
+`ARCHITECTURE_STANDARD.md` §6 now states the rule, the exemptions, the current exception register,
+the approval requirement for any future exception, and a grep command to detect violations
+mechanically. Lint and build both pass. Tests: 17/17 passing in ipcSurfaceParity.test.js.

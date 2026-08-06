@@ -142,6 +142,42 @@ Do not cite them as precedent.
 
 See [ADR 2026-08-04](../../adr/2026-08-04-repository-layer-policy.md) for the policy rationale.
 
+### src/ → electron/ boundary
+
+**Shipping code under `src/` must not import from `electron/`.** The boundary is what makes the
+browser bundle safe to build: Vite bundles `src/` into `dist/` for the renderer, while
+`electron/` is main-process code that may pull in node-only natives (`better-sqlite3`,
+`node:crypto`, etc.) the moment a maintainer adds them. An import that happens to be safe today
+becomes a build-time failure or a browser crash the instant any transitive dependency crosses that
+line, with nothing to catch it ahead of time.
+
+**Test files under `src/` are exempt from this rule.** A file that ends in `.test.js` or
+`.test.jsx` is never bundled for the browser — Vitest runs it directly under Node, where
+node-only dependencies are available. A test-only import from `electron/` is therefore harmless
+as long as the import is narrowly scoped to the specific utility under test. Current examples:
+
+- `src/utils/ensureCohort.race.test.js` imports `openLocalDb` and `appendOp` from
+  `electron/db/localDb.js` and `electron/ops/operations.js` to exercise the real write path in
+  a temporary in-memory database.
+
+**One documented exception for shipping code:** `electron/ops/scheduleTemplateId.js` is a pure,
+dependency-free utility (no imports at all) that must live under `electron/` because
+electron-builder ships `electron/**` but not `src/`. An electron-side import of a `src/` module
+works in `npm run electron:dev` and fails in the installed app at migration time. The renderer
+may import this module in the opposite direction safely: Vite bundles whatever it imports into
+`dist/`, so `dist/` ships. The module's own header documents this reasoning. Current importers:
+
+- `src/screens/ScheduleScreen.jsx`
+- `src/screens/schedule/useRouteState.js`
+
+**A new `src/` → `electron/` import in shipping code requires explicit approval here.** Before
+adding one, check: (a) does the module have any imports of its own — if yes, stop and move the
+value to `src/utils/` instead; (b) if the module is provably dependency-free forever, document
+it in this register with the same three fields: what is imported, from where, and why it cannot
+live in `src/`. If neither condition holds, the value must move.
+
+To detect violations mechanically: `grep -r "from '.*electron/" src/ --include="*.jsx" --include="*.js" | grep -v ".test."` lists every non-test shipping import across the boundary. Run it before committing a new file under `src/`.
+
 ## 7. Styling is inline React style objects
 
 No CSS files for component styling, no `className` used as a styling mechanism. Shared constants
