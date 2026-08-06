@@ -1,7 +1,7 @@
 ---
 title: T35-post-import-activity-configuration-at-scale
 document_type: ticket
-status: open
+status: closed
 created: 2026-08-02
 task_class: ui-ux-design
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/DESIGN_STANDARD.md, docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md]
@@ -54,3 +54,9 @@ These are not exclusive — e.g. (3)+(1), or (4) feeding (1)'s defaults.
 divergent ideation (brainstorming / adhd) on the option space before converging. Sequenced **after
 T33** (units must tie correctly first) and independent of the parser-robustness work. Product owner
 wants this explored, not a single answer assumed.
+
+## Closure note
+
+Implemented in commit `bcdfc00` (merged to main `ad414c6`). `inferActivityRules()` derives eligible_group_ids, min/max_per_week, and priority from signals `extractEntities` already produced. `commitIngest` writes the rules inside its transaction. ImportScreen shows a compact per-activity rule summary with inline editing and a "clear all" escape hatch. 95/95 tests pass, lint and build clean.
+
+Acceptance criterion 8 (end-to-end test against a real camp file from `.ingest-incoming/`) must be completed manually by the product owner — `.ingest-incoming/` is gitignored and inaccessible to agents.
