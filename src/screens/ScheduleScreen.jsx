@@ -111,6 +111,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     templateIdFor,
     rawSlots, stats, findings, dismissedFindingKeys, overlays, snapshots,
     setStats, setFindings, setDismissedFindingKeys,
+    collapsedBlockIds, toggleBlockCollapsed,
   } = routeState
   // OVERLAP is derived, never persisted — so it clears from every participating
   // cell the moment any one of them moves, and only on the manual route, where
@@ -990,6 +991,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 showIdentityDot={false}
                 highlightMap={highlightMap}
                 highlightColor={highlightColor}
+                collapsedBlockIds={collapsedBlockIds}
+                onToggleBlockCollapsed={toggleBlockCollapsed}
               />
             )}
 

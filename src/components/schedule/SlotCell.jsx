@@ -120,6 +120,11 @@ export default function SlotCell({
   gridColumn,
   ariaColIndex,
   cellKey,
+  // T55. The head block of this cell is collapsed: presentation only. A cell
+  // that merely SPANS ACROSS a collapsed block never receives it — it keeps
+  // normal presentation and simply gets shorter, because grid sums the tracks
+  // it covers. Nothing about mounting, handlers or focusability changes.
+  collapsed = false,
 }) {
   const [cellHovered, setCellHovered] = useState(false)
   const [splitHovered, setSplitHovered] = useState(false)
@@ -143,6 +148,7 @@ export default function SlotCell({
       'aria-colindex': ariaColIndex,
       'aria-rowspan': rowSpan > 1 ? rowSpan : undefined,
       'data-cell-key': cellKey,
+      'data-collapsed': collapsed ? '' : undefined,
     }
   }
 
@@ -173,18 +179,30 @@ export default function SlotCell({
   if (slot.type === 'anchor') {
     return (
       <Shell {...shellProps({ tdStyle: cellTd })} ref={setRef} onClick={() => { triggerPress(); onEdit(slot) }}>
-        <div style={{
-          ...S.cellStructuralBar(ANCHOR_COLOR),
-          background: 'var(--surface)',
-          borderRadius: 8,
-          padding: '10px 12px',
-          minHeight: 56,
-          display: 'flex',
-          alignItems: 'center',
-          transform: pressed ? 'scale(0.97)' : 'scale(1)',
-          transition: 'transform 0.1s ease',
-        }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: ANCHOR_COLOR, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+        <div
+          className={isGrid ? 'cell-inner cell-inner--anchor' : undefined}
+          style={{
+            ...S.cellStructuralBar(ANCHOR_COLOR),
+            background: 'var(--surface)',
+            ...(isGrid ? {} : {
+              borderRadius: 8,
+              padding: '10px 12px',
+              minHeight: 56,
+              display: 'flex',
+              alignItems: 'center',
+            }),
+            transform: pressed ? 'scale(0.97)' : 'scale(1)',
+            transition: 'transform 0.1s ease',
+          }}
+        >
+          <div
+            className={isGrid ? 'cell-name' : undefined}
+            // The colour rides a custom property rather than `color` so the
+            // collapsed rule can recolour it — an inline `color` would win.
+            style={isGrid
+              ? { '--cell-name-color': ANCHOR_COLOR, fontSize: 11 }
+              : { fontSize: 11, fontWeight: 600, color: ANCHOR_COLOR, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+          >
             {anchor?.name || 'Anchor'}
           </div>
         </div>
@@ -195,7 +213,10 @@ export default function SlotCell({
   if (slot.type === 'unavailable') {
     return (
       <Shell {...shellProps({ tdStyle: emptyTd })} ref={setRef}>
-        <div style={{ ...S.cellUnavailableFill, borderRadius: 8, minHeight: 56 }} />
+        <div
+          className={isGrid ? 'cell-inner cell-inner--fill' : undefined}
+          style={isGrid ? S.cellUnavailableFill : { ...S.cellUnavailableFill, borderRadius: 8, minHeight: 56 }}
+        />
       </Shell>
     )
   }
@@ -243,7 +264,10 @@ export default function SlotCell({
 
   const innerStyle = {
     ...innerStatic,
-    justifyContent: rowSpan > 1 ? 'center' : 'flex-start',
+    // Grid branch: .cell[aria-rowspan] .cell-inner owns this in the stylesheet,
+    // because the collapsed rule has to override it and an inline value cannot
+    // be overridden by a class.
+    ...(isGrid ? {} : { justifyContent: rowSpan > 1 ? 'center' : 'flex-start' }),
     ...(isLocked
       ? { ...S.cellStructuralBar('var(--accent)'), background: 'var(--surface)' }
       : isUnfillable
@@ -335,7 +359,7 @@ export default function SlotCell({
         {(isGrid || cellHovered) && hasMergeDown && !isMerged && (
           <button
             className={isGrid ? 'cell-action' : undefined}
-            style={S.cellActionBtn}
+            style={isGrid ? undefined : S.cellActionBtn}
             title="Let this activity run into the next period"
             onClick={e => { e.stopPropagation(); onMergeDown?.() }}
           >↕</button>
@@ -344,9 +368,9 @@ export default function SlotCell({
         {(isGrid || cellHovered) && isMerged && (
           <button
             className={isGrid ? 'cell-action cell-action--split' : undefined}
-            style={{
+            style={isGrid ? undefined : {
               ...S.cellActionBtn,
-              ...(!isGrid && splitHovered ? { borderColor: 'var(--danger)', color: 'var(--danger)' } : {}),
+              ...(splitHovered ? { borderColor: 'var(--danger)', color: 'var(--danger)' } : {}),
             }}
             title="Split this back into two periods"
             onClick={e => { e.stopPropagation(); onSplitSlot?.() }}

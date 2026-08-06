@@ -8,15 +8,19 @@ export const ROW_FLOOR_NORMAL = 48
 // binding and the row header becomes the constraint (spec §4 D3).
 export const ROW_FLOOR_COMPACT = 40
 
-export function buildRowTracks({ timeBlocks, collapsedBlockIds = [], density = 'normal' }) {
+const NONE_COLLAPSED = new Set()
+
+// `collapsedBlockIds` is a Set, not an array — the house shape for an id set
+// (see dismissedFindingKeys in ScheduleScreen). T53 accepted either; T55 pinned
+// it, because "accepts either" is permanent ambiguity nobody revisits.
+export function buildRowTracks({ timeBlocks, collapsedBlockIds = NONE_COLLAPSED, density = 'normal' }) {
   if (timeBlocks.length === 0) return 'none'
 
-  const collapsed = collapsedBlockIds instanceof Set ? collapsedBlockIds : new Set(collapsedBlockIds)
   const floor = density === 'compact' ? ROW_FLOOR_COMPACT : ROW_FLOOR_NORMAL
 
   // A collapsed track is a fixed length, never `auto` — an auto max would let cell
   // content re-expand the row and defeat the collapse.
   return timeBlocks
-    .map(block => (collapsed.has(block.id) ? `${COLLAPSED_TRACK}px` : `minmax(${floor}px, auto)`))
+    .map(block => (collapsedBlockIds.has(block.id) ? `${COLLAPSED_TRACK}px` : `minmax(${floor}px, auto)`))
     .join(' ')
 }

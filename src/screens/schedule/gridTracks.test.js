@@ -22,49 +22,52 @@ describe('constants', () => {
 
 describe('buildRowTracks', () => {
   it('gives every block the normal floor when nothing is collapsed', () => {
-    expect(buildRowTracks({ timeBlocks: blocks, collapsedBlockIds: [], density: 'normal' }))
+    expect(buildRowTracks({ timeBlocks: blocks, collapsedBlockIds: new Set(), density: 'normal' }))
       .toBe(Array(5).fill(NORMAL).join(' '))
   })
 
   it('uses the compact floor in compact density', () => {
-    expect(buildRowTracks({ timeBlocks: blocks, collapsedBlockIds: [], density: 'compact' }))
+    expect(buildRowTracks({ timeBlocks: blocks, collapsedBlockIds: new Set(), density: 'compact' }))
       .toBe(Array(5).fill(COMPACT).join(' '))
   })
 
   it('replaces one collapsed block track', () => {
-    expect(buildRowTracks({ timeBlocks: blocks, collapsedBlockIds: ['b2'], density: 'normal' }))
+    expect(buildRowTracks({ timeBlocks: blocks, collapsedBlockIds: new Set(['b2']), density: 'normal' }))
       .toBe([NORMAL, COLLAPSED, NORMAL, NORMAL, NORMAL].join(' '))
   })
 
   // Non-adjacent collapses are the case an index-range implementation gets wrong.
   it('replaces several non-adjacent collapsed block tracks', () => {
-    expect(buildRowTracks({ timeBlocks: blocks, collapsedBlockIds: ['b1', 'b3', 'b5'], density: 'normal' }))
+    expect(buildRowTracks({ timeBlocks: blocks, collapsedBlockIds: new Set(['b1', 'b3', 'b5']), density: 'normal' }))
       .toBe([COLLAPSED, NORMAL, COLLAPSED, NORMAL, COLLAPSED].join(' '))
   })
 
   it('collapses every block when all are collapsed', () => {
-    expect(buildRowTracks({ timeBlocks: blocks, collapsedBlockIds: blocks.map(b => b.id), density: 'normal' }))
+    expect(buildRowTracks({ timeBlocks: blocks, collapsedBlockIds: new Set(blocks.map(b => b.id)), density: 'normal' }))
       .toBe(Array(5).fill(COLLAPSED).join(' '))
   })
 
   it('collapse wins over density — a collapsed track is identical in both modes', () => {
-    const args = { timeBlocks: blocks, collapsedBlockIds: ['b2'] }
+    const args = { timeBlocks: blocks, collapsedBlockIds: new Set(['b2']) }
     expect(buildRowTracks({ ...args, density: 'compact' }))
       .toBe([COMPACT, COLLAPSED, COMPACT, COMPACT, COMPACT].join(' '))
   })
 
-  it('accepts collapsedBlockIds as a Set', () => {
-    expect(buildRowTracks({ timeBlocks: blocks, collapsedBlockIds: new Set(['b2']), density: 'normal' }))
-      .toBe([NORMAL, COLLAPSED, NORMAL, NORMAL, NORMAL].join(' '))
+  // T55 pinned the contract to a Set. An array is no longer accepted: Array has
+  // no .has, so a caller that regresses to one throws here rather than silently
+  // rendering every row uncollapsed.
+  it('requires collapsedBlockIds to be a Set — an array is not silently tolerated', () => {
+    expect(() => buildRowTracks({ timeBlocks: blocks, collapsedBlockIds: ['b2'], density: 'normal' }))
+      .toThrow()
   })
 
   it('ignores collapsed ids that match no block', () => {
-    expect(buildRowTracks({ timeBlocks: blocks, collapsedBlockIds: ['nope'], density: 'normal' }))
+    expect(buildRowTracks({ timeBlocks: blocks, collapsedBlockIds: new Set(['nope']), density: 'normal' }))
       .toBe(Array(5).fill(NORMAL).join(' '))
   })
 
   it('returns none for empty timeBlocks', () => {
-    expect(buildRowTracks({ timeBlocks: [], collapsedBlockIds: [], density: 'normal' })).toBe('none')
+    expect(buildRowTracks({ timeBlocks: [], collapsedBlockIds: new Set(), density: 'normal' })).toBe('none')
   })
 
   it('defaults to no collapse and normal density', () => {
@@ -76,7 +79,7 @@ describe('buildRowTracks', () => {
   it('emits a collapsed track as the literal 20px, never auto and never a minmax', () => {
     const tracks = buildRowTracks({
       timeBlocks: blocks,
-      collapsedBlockIds: blocks.map(b => b.id),
+      collapsedBlockIds: new Set(blocks.map(b => b.id)),
       density: 'compact',
     })
     expect(tracks).toBe('20px 20px 20px 20px 20px')

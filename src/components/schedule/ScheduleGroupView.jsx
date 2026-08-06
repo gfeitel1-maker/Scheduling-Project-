@@ -18,7 +18,25 @@ function columnTemplate(dayCount) {
   return `140px repeat(${dayCount}, minmax(0, 1fr))`
 }
 
-function DroppableEmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex }) {
+const NO_COLLAPSE = new Set()
+
+// The one piece of aggregate information a folded row must not swallow: a
+// collapsed row that can hide a conflict turns a scanning aid into a scanning
+// hazard. Derived here, in the pass that already visits every cell of the row —
+// it is never stored, never written to the db, the op-log or PROJECTIONS.
+// UNFILLABLE (danger) outranks OVERLAP (advisory); one dot, not two.
+function rowFlagKind(geometry, groupId, days, blockId) {
+  let advisory = false
+  for (const day of days) {
+    const flags = geometry.getSlot(groupId, day.id, blockId)?.flags
+    if (!flags) continue
+    if (flags.UNFILLABLE && !flags.UNFILLABLE_dismissed) return 'unfillable'
+    if (flags.OVERLAP) advisory = true
+  }
+  return advisory ? 'advisory' : null
+}
+
+function DroppableEmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex, collapsed }) {
   const { setNodeRef, isOver } = useDroppable({
     id: `grp-drop-${groupId}-${dayId}-${blockId}`,
     data: { groupId, dayId, blockId },
@@ -30,6 +48,7 @@ function DroppableEmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, aria
       className="cell"
       data-empty=""
       data-cell-key={`${groupId}|${dayId}|${blockId}`}
+      data-collapsed={collapsed ? '' : undefined}
       aria-colindex={ariaColIndex}
       style={{ gridRow, gridColumn }}
     >
@@ -68,9 +87,14 @@ export default function ScheduleGroupView({
   showIdentityDot = true,
   highlightMap,
   highlightColor = 'var(--danger)',
+  // T55. A Set of collapsed time-block ids and the toggle for it. Collapse is
+  // two concerns: the TRACK (this string, on the container) and the CONTENT
+  // PRESENTATION (data-collapsed on the row's cells, styled by scheduleGrid.css).
+  // Neither implies the other, which is why both are written here.
+  collapsedBlockIds = NO_COLLAPSE,
+  onToggleBlockCollapsed,
 }) {
-  // Collapse is T55; this view passes the empty set deliberately.
-  const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds: [] })
+  const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
   const gridTemplateColumns = columnTemplate(days.length)
 
   return (
@@ -123,20 +147,48 @@ export default function ScheduleGroupView({
                   className="schedule-grid schedule-grid--body"
                   style={{ gridTemplateColumns, '--grid-rows': rowTracks }}
                 >
-                  {timeBlocks.map((block, blockIndex) => (
+                  {timeBlocks.map((block, blockIndex) => {
+                    const isCollapsed = collapsedBlockIds.has(block.id)
+                    const flagKind = rowFlagKind(geometry, selectedGroup, days, block.id)
+                    const toggle = () => onToggleBlockCollapsed?.(block.id)
+                    return (
                     <div
                       key={block.id}
                       role="row"
                       aria-rowindex={blockIndex + 2}
                       style={{ display: 'contents' }}
+                      // The whole 20px strip is the re-expand target — that is
+                      // half of the accepted WCAG 2.5.8 deviation (the row
+                      // header's aria-expanded button is the other half). Capture
+                      // phase, so a click on a folded cell re-expands instead of
+                      // opening its editor; the cell keeps every handler it had,
+                      // they simply do not fire at 20px. Nothing is unmounted.
+                      onClickCapture={isCollapsed ? (e => { e.stopPropagation(); toggle() }) : undefined}
                       onPointerEnter={() => {
                         const b = timeBlocks.find(tb => tb.id === block.id)
                         if (b && fillState) handleFillEnter(b.sort_order)
                       }}
                     >
-                      <div role="rowheader" className="cell row-header" aria-colindex={1} style={placeRowHeader({ blockIndex })}>
-                        <div className="block-name">{block.name}</div>
-                        <div className="block-time">{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</div>
+                      <div
+                        role="rowheader"
+                        className="cell row-header"
+                        aria-colindex={1}
+                        data-collapsed={isCollapsed ? '' : undefined}
+                        style={placeRowHeader({ blockIndex })}
+                      >
+                        {/* A real <button>: Enter and Space come free, and that
+                            keyboard path is what makes the 20px target's
+                            deviation an accepted equivalent mechanism rather
+                            than a plain conformance failure. */}
+                        <button
+                          type="button"
+                          className="row-header-toggle"
+                          aria-expanded={!isCollapsed}
+                          onClick={toggle}
+                        >
+                          <span className="block-name">{block.name}</span>
+                          <span className="block-time">{block.start_time?.slice(0,5)}–{block.end_time?.slice(0,5)}</span>
+                        </button>
                       </div>
                       {days.map((day, dayIndex) => {
                         const decision = decideCell(geometry, selectedGroup, day.id, block.id)
@@ -152,6 +204,7 @@ export default function ScheduleGroupView({
                               dayId={day.id}
                               blockId={block.id}
                               ariaColIndex={ariaColIndex}
+                              collapsed={isCollapsed}
                               {...placeCell({ blockIndex, columnIndex: dayIndex })}
                             />
                           )
@@ -170,6 +223,7 @@ export default function ScheduleGroupView({
                               renderAs="gridcell"
                               ariaColIndex={ariaColIndex}
                               cellKey={cellKey}
+                              collapsed={isCollapsed}
                               {...placeCell({ blockIndex, columnIndex: dayIndex, rowSpan })}
                             />
                           )
@@ -226,12 +280,27 @@ export default function ScheduleGroupView({
                             renderAs="gridcell"
                             ariaColIndex={ariaColIndex}
                             cellKey={cellKey}
+                            collapsed={isCollapsed}
                             {...placeCell({ blockIndex, columnIndex: dayIndex, rowSpan })}
                           />
                         )
                       })}
+                      {/* Always mounted, shown by CSS only when the row is both
+                          collapsed and flagged — so toggling collapse stays an
+                          attribute write and never changes DOM membership.
+                          Decorative: every flagged cell keeps its own title and
+                          glyph, which is where a screen reader gets the detail. */}
+                      <div
+                        className="row-flag-dot"
+                        aria-hidden="true"
+                        data-collapsed={isCollapsed ? '' : undefined}
+                        data-flag={flagKind || undefined}
+                        title={flagKind === 'unfillable' ? 'This period has an unfillable slot' : flagKind ? 'This period has a clash' : undefined}
+                        style={placeCell({ blockIndex, columnIndex: days.length - 1 })}
+                      />
                     </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             </div>

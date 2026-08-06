@@ -89,6 +89,26 @@
   position: relative;
   display: flex;
   flex-direction: column;
+  justify-content: flex-start;
+  box-sizing: border-box;
+}
+
+/* Was inline in SlotCell as `justifyContent: rowSpan > 1 ? 'center' : ...`.
+   It moved here (keyed off aria-rowspan, which is set for exactly rowSpan > 1)
+   because T55's collapsed rule must be able to override it, and no class can
+   override an inline value. */
+.cell[aria-rowspan] .cell-inner {
+  justify-content: center;
+}
+
+.cell-inner--anchor {
+  flex-direction: row;
+  align-items: center;
+}
+
+.cell-inner--fill,
+.cell-inner--overlay {
+  height: 100%;
 }
 
 /* ---------- row header column ---------- */
@@ -112,6 +132,35 @@
   z-index: 4;
 }
 
+/* The collapse toggle fills the row header so the whole header is the hit area.
+   It is a real <button>: Enter/Space and the focus ring come from the platform,
+   and that keyboard path is the equivalent mechanism the accepted WCAG 2.2
+   SC 2.5.8 deviation depends on (a 20px strip is under the 24x24 minimum). */
+.row-header-toggle {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: flex-start;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  overflow: hidden;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row-header-toggle:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+
 .block-name {
   font-family: var(--font-condensed);
   font-weight: 600;
@@ -131,7 +180,9 @@
 .cell-name {
   font-size: 12px;
   font-weight: 600;
-  color: var(--text);
+  /* The custom property lets a caller (the anchor cell) supply its own hue
+     without an inline `color`, which no later rule could override. */
+  color: var(--cell-name-color, var(--text));
   display: flex;
   align-items: center;
   min-width: 0;
@@ -142,6 +193,17 @@
      for [data-collapsed] cells only, which is the one place truncation is
      accepted (spec §2). */
   overflow-wrap: anywhere;
+}
+
+/* Was inline in OverlayCell; it moved here so the collapsed rules can reach it.
+   The colour mirrors OVERLAY_TEXT in OverlayCell.jsx. */
+.cell-name--overlay {
+  display: block;
+  font-weight: 700;
+  color: color-mix(in srgb, var(--accent) 60%, var(--text));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .cell-name[data-unassigned] {
@@ -217,7 +279,28 @@
    expand handle a tabIndex. An opacity-0 control stays focusable and stays in
    the accessibility tree, which the useState version never did — it was simply
    not mounted. visibility: hidden reproduces that. */
+/* Lifted verbatim from S.cellActionBtn (styles/shared.js), which the 'td'
+   branch still applies inline. It has to live here for the grid branch: an
+   inline `display: flex` cannot be overridden by the collapsed rule below, and
+   this absolutely-positioned 16px box is 2px taller than a 20px strip. */
 .cell-action {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface-elevated);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--text-secondary);
+  z-index: 3;
+  padding: 0;
+  font-family: inherit;
   visibility: hidden;
   opacity: 0;
 }
@@ -281,6 +364,103 @@
 .expand-handle[data-dragging] {
   visibility: visible;
   opacity: 1;
+}
+
+/* ---------- collapsed presentation (T55, spec §2) ----------
+
+   Collapse is TWO concerns. The container owns the TRACK (--grid-rows gives a
+   collapsed block the fixed COLLAPSED_TRACK, never `auto`); everything below
+   owns the CONTENT PRESENTATION at that height. A table conflated the two
+   because table cells are content-sized; grid does not, which is why collapse
+   costs one custom-property write instead of a re-render — and why this half
+   has to be authored rather than inherited.
+
+   data-collapsed is set only when the cell's HEAD block is collapsed. A cell
+   spanning ACROSS a collapsed block keeps every rule above: it simply gets
+   shorter, because grid sums the tracks it covers.
+
+   No transition anywhere in this block: collapse is an instant track-height
+   change (spec §5.4, DESIGN_STANDARD §8). */
+
+.cell[data-collapsed] {
+  padding: 0 11px;
+  overflow: hidden;
+}
+
+.cell[data-collapsed] .cell-inner,
+.cell[data-collapsed] .cell-empty {
+  min-height: 0;
+  height: 100%;
+  padding: 0;
+  border-radius: 4px;
+  justify-content: center;
+  flex-direction: row;
+  align-items: center;
+}
+
+/* 11px at FULL opacity, dimmed by the token instead. Measured, not stylistic:
+   --text-secondary #5C6670 on --bg #F4F3EF is 2.51:1 at the mockup's 0.62
+   opacity — under even the 3:1 large-text floor, at the smallest type in the
+   app. No opacity value reaches 4.5:1; opacity 1 measures 5.27:1.
+   DO NOT reintroduce an opacity value on this label. 11px x 1.4 line-height
+   plus the 1px border is 17.4px, which is why COLLAPSED_TRACK is 20px, not 14. */
+.cell[data-collapsed] .cell-name,
+.row-header[data-collapsed] .block-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  letter-spacing: 0.02em;
+  line-height: 1.4;
+  /* The one place truncation is accepted: a fixed-height box (spec §2). */
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+  width: 100%;
+}
+
+.cell[data-collapsed] .identity-dot,
+.cell[data-collapsed] .flag,
+.cell[data-collapsed] .expand-handle,
+.cell[data-collapsed] .cell-action,
+.cell[data-collapsed] .cell-reason,
+.cell[data-collapsed] .overlay-remove,
+.cell[data-collapsed] .overlay-fill-handle,
+.row-header[data-collapsed] .block-time {
+  display: none;
+}
+
+.row-header[data-collapsed] {
+  padding: 0 14px;
+}
+
+/* One 6px dot per collapsed row when ANY cell in it is flagged: a folded row
+   that can hide a conflict turns a scanning aid into a scanning hazard. The
+   element is always mounted and gated here, so toggling collapse stays an
+   attribute write and never changes DOM membership. */
+.row-flag-dot {
+  display: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  justify-self: end;
+  align-self: center;
+  margin-right: 8px;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.row-flag-dot[data-collapsed][data-flag] {
+  display: block;
+}
+
+.row-flag-dot[data-flag='unfillable'] {
+  background: var(--danger);
+}
+
+.row-flag-dot[data-flag='advisory'] {
+  background: var(--accent);
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -15,6 +15,7 @@ export default function OverlayCell({
   gridColumn,
   ariaColIndex,
   cellKey,
+  collapsed = false,
 }) {
   const [showRemoveBtn, setShowRemoveBtn] = useState(false)
   const isGrid = renderAs === 'gridcell'
@@ -28,6 +29,7 @@ export default function OverlayCell({
         'aria-colindex': ariaColIndex,
         'aria-rowspan': rowSpan > 1 ? rowSpan : undefined,
         'data-cell-key': cellKey,
+        'data-collapsed': collapsed ? '' : undefined,
       }
     : {
         rowSpan,
@@ -39,29 +41,38 @@ export default function OverlayCell({
       {...shellProps}
       onClick={() => setShowRemoveBtn(v => !v)}
     >
-      <div style={{
-        background: OVERLAY_BG,
-        border: `1.5px solid ${OVERLAY_BORDER}`,
-        borderRadius: 8,
-        padding: '10px 12px',
-        minHeight: 56,
-        height: '100%',
-        position: 'relative',
-        boxSizing: 'border-box',
-      }}>
-        <div style={{
-          fontSize: 12,
-          fontWeight: 700,
-          color: OVERLAY_TEXT,
-          overflow: 'hidden',
-          textOverflow: 'ellipsis',
-          whiteSpace: 'nowrap',
-        }}>
+      <div
+        className={isGrid ? 'cell-inner cell-inner--overlay' : undefined}
+        style={{
+          background: OVERLAY_BG,
+          border: `1.5px solid ${OVERLAY_BORDER}`,
+          ...(isGrid ? {} : {
+            borderRadius: 8,
+            padding: '10px 12px',
+            minHeight: 56,
+            height: '100%',
+            position: 'relative',
+            boxSizing: 'border-box',
+          }),
+        }}
+      >
+        <div
+          className={isGrid ? 'cell-name cell-name--overlay' : undefined}
+          style={isGrid ? undefined : {
+            fontSize: 12,
+            fontWeight: 700,
+            color: OVERLAY_TEXT,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
           {label}
         </div>
 
         {showRemoveBtn && (
           <button
+            className={isGrid ? 'overlay-remove' : undefined}
             onClick={e => { e.stopPropagation(); onRemove() }}
             style={{
               position: 'absolute',
@@ -84,6 +95,7 @@ export default function OverlayCell({
 
         {showFillHandle && (
           <div
+            className={isGrid ? 'overlay-fill-handle' : undefined}
             title="Drag to make this field trip longer"
             onPointerDown={e => {
               e.preventDefault()
