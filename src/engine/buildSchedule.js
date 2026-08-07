@@ -103,6 +103,10 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
   // Build anchor lookup from legacy anchors (flat signature) or preplacedSlots
   const anchorLookup = new Map() // "groupId|dayId|blockId" → anchor
   const anchors = _legacyAnchors || []
+  const anchoredActivityIds = new Set()
+  for (const anchor of anchors) {
+    if (anchor.activity_id != null) anchoredActivityIds.add(anchor.activity_id)
+  }
   for (const anchor of anchors) {
     // Scope resolution order: unit_id > is_all_groups > group_ids
     let groupList
@@ -164,7 +168,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
           continue
         }
 
-        const eligibleActs = activities.filter(a => (eligibility.get(a.id) || new Set()).has(group.id))
+        const eligibleActs = activities.filter(a => !anchoredActivityIds.has(a.id) && (eligibility.get(a.id) || new Set()).has(group.id))
         openSlots.push({ groupId: group.id, dayId: day.id, blockId: block.id, eligibleActs })
       }
     }

@@ -18,6 +18,29 @@ function minimal(overrides = {}) {
   }
 }
 
+describe('anchored activities excluded from regular placement', () => {
+  it('never places an anchored activity as a regular slot, only via its anchor', () => {
+    const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
+    const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
+    const lunch = { id: 'lunch', name: 'Lunch', priority: 'high', max_per_week: 10, min_per_week: 2, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const anchor = { id: 'anc1', activity_id: 'lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+    const { slots } = buildSchedule(minimal({ days: [baseDay, day2], timeBlocks: [baseBlock, block2], activities: [lunch], anchors: [anchor] }))
+
+    const regularLunchSlots = slots.filter(s => s.type === 'activity' && s.activityId === 'lunch')
+    expect(regularLunchSlots).toHaveLength(0)
+
+    const anchorSlots = slots.filter(s => s.type === 'anchor' && s.anchorId === 'anc1')
+    expect(anchorSlots.length).toBeGreaterThan(0)
+  })
+
+  it('still places an activity not referenced by any anchor', () => {
+    const archery = { id: 'archery', name: 'Archery', priority: 'low', max_per_week: 5, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const { slots } = buildSchedule(minimal({ activities: [archery], anchors: [] }))
+    const placed = slots.filter(s => s.type === 'activity' && s.activityId === 'archery')
+    expect(placed.length).toBeGreaterThan(0)
+  })
+})
+
 describe('UNFILLABLE flag', () => {
   it('sets UNFILLABLE_reason when no activities are eligible', () => {
     const { slots } = buildSchedule(minimal({ activities: [] }))
