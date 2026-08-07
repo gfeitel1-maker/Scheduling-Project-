@@ -102,6 +102,7 @@
    override an inline value. */
 .cell[aria-rowspan] .cell-inner {
   justify-content: center;
+  height: 100%;
 }
 
 .cell-inner--anchor {

@@ -111,7 +111,9 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
     } else if (anchor.is_all_groups) {
       groupList = groups.map(g => g.id)
     } else {
-      groupList = anchor.group_ids || []
+      groupList = typeof anchor.group_ids === 'string'
+        ? JSON.parse(anchor.group_ids || '[]')
+        : (anchor.group_ids || [])
     }
 
     // day_id null/undefined means every day

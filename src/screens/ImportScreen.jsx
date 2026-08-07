@@ -234,6 +234,13 @@ export default function ImportScreen({ campId, onNavigate }) {
             await localClient.deleteEntity(token, entity, row.id)
           }
         }
+        // Fixed events (anchor_activities) are not in REPLACEABLE because they
+        // are not imported through the entity path, but they must be cleared too
+        // or a re-import creates duplicates on top of the prior year's anchors.
+        const existingAnchors = await localClient.list('anchor_activities').catch(() => [])
+        for (const row of existingAnchors) {
+          await localClient.deleteEntity(token, 'anchor_activities', row.id)
+        }
       }
 
       const approved = {}
