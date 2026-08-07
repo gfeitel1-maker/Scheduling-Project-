@@ -229,17 +229,26 @@ export default function ImportScreen({ campId, onNavigate }) {
       // before the import so a clean slate is what the new records land on.
       if (importMode === 'replace' && existingCount > 0) {
         const token = localStorage.getItem('shoresh-token')
+        // Deletion order matters: schedule data references entities, and
+        // anchor_activities references days_of_operation. Clear dependents first
+        // or SQLite's FK enforcement throws.
+        // 1. Schedule canvas rows (reference groups, activities, days_of_operation)
+        for (const scheduleEntity of ['template_slots', 'template_overlays', 'week_activity_exclusions', 'week_group_exclusions']) {
+          const rows = await localClient.list(scheduleEntity).catch(() => [])
+          for (const row of rows) {
+            await localClient.deleteEntity(token, scheduleEntity, row.id)
+          }
+        }
+        // 2. Fixed events (anchor_activities.day_id references days_of_operation)
+        const existingAnchors = await localClient.list('anchor_activities').catch(() => [])
+        for (const row of existingAnchors) {
+          await localClient.deleteEntity(token, 'anchor_activities', row.id)
+        }
+        // 3. Now safe to delete the REPLACEABLE setup entities
         for (const entity of REPLACEABLE) {
           for (const row of existingRecords[entity] ?? []) {
             await localClient.deleteEntity(token, entity, row.id)
           }
-        }
-        // Fixed events (anchor_activities) are not in REPLACEABLE because they
-        // are not imported through the entity path, but they must be cleared too
-        // or a re-import creates duplicates on top of the prior year's anchors.
-        const existingAnchors = await localClient.list('anchor_activities').catch(() => [])
-        for (const row of existingAnchors) {
-          await localClient.deleteEntity(token, 'anchor_activities', row.id)
         }
       }
 
