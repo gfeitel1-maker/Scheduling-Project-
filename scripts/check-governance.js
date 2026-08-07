@@ -40,7 +40,7 @@ const OMISSION_REASONS = ['no-predicate', 'not-applicable', 'human-waived']
 // was genuinely a defect (a dangling path, a bare string) it is still reported.
 const STATUS_BY_TYPE = {
   run: ['in-progress', 'pass', 'retry', 'escalated', 'abandoned'],
-  ticket: ['open', 'in-progress', 'completed', 'parked', 'wont-fix'],
+  ticket: ['open', 'in-progress', 'completed', 'parked', 'wont-fix', 'closed'],
   spec: ['draft', 'active', 'approved', 'implemented', 'superseded'],
   adr: ['proposed', 'accepted', 'superseded', 'rejected'],
   plan: ['draft', 'approved', 'complete', 'abandoned'],

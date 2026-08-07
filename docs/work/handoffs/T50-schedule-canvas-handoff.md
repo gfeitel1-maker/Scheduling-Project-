@@ -3,7 +3,8 @@ title: T50-schedule-canvas-handoff
 document_type: handoff
 status: active
 created: 2026-08-06
-ticket: docs/work/tickets/T50-schedule-canvas-rebuild.md
+task: docs/work/tickets/T50-schedule-canvas-rebuild.md
+archive_when: T50 and its child tickets T53–T60 are all closed
 worktree: ../shoresh-canvas  (branch: work/t50-schedule-canvas)
 ---
 

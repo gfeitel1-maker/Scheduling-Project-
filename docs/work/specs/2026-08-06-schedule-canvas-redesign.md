@@ -4,6 +4,8 @@ document_type: spec
 authority: normative
 status: approved
 date: 2026-08-06
+created: 2026-08-06
+archive_when: T53–T60 are all closed and the schedule canvas rebuild is complete
 authors: [architect]
 supersedes: []
 ticket_size: large

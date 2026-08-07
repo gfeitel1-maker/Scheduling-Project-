@@ -1,7 +1,7 @@
 ---
 title: "T35 — Post-import activity rules: smart defaults and eligibility inference"
 document_type: spec
-status: draft-for-approval
+status: draft
 created: 2026-08-06
 task_class: ui-ux-design
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md]

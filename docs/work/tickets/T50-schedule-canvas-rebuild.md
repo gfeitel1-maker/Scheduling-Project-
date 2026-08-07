@@ -1,7 +1,7 @@
 ---
 title: T50-schedule-canvas-rebuild
 document_type: ticket
-status: parent
+status: completed
 created: 2026-08-05
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 related_adrs: [docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md, docs/adr/2026-08-06-schedule-canvas-visual-layer.md]

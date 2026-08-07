@@ -2,13 +2,14 @@
 title: "Multi-week Slices 2 and 3 — duplicate, per-week participation, permanent delete"
 document_type: spec
 authority: proposed
-status: awaiting-approval
-date: 2026-08-03
+status: draft
+created: 2026-08-03
 governing_docs: [docs/adr/2026-08-03-multi-week-slices-2-3.md, docs/adr/2026-08-02-schedule-weeks-first-class.md]
 depends_on:
   - docs/adr/2026-08-02-schedule-weeks-first-class.md
   - docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md
   - docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md
+archive_when: implemented and the three multi-week slice features are live
 ---
 
 # Multi-week Slices 2 and 3

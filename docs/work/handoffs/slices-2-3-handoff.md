@@ -4,6 +4,9 @@ document_type: handoff
 authority: descriptive
 status: active
 date: 2026-08-03
+created: 2026-08-03
+task: docs/work/specs/multi-week-slices-2-3.md
+archive_when: multi-week slices 2 and 3 are implemented and merged
 spec: docs/workflow/specs/multi-week-slices-2-3.md
 ---
 
