@@ -1,7 +1,7 @@
 ---
 title: T56-convert-remaining-schedule-views
 document_type: ticket
-status: open
+status: closed
 created: 2026-08-06
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_adrs: [docs/adr/2026-08-06-schedule-canvas-visual-layer.md]

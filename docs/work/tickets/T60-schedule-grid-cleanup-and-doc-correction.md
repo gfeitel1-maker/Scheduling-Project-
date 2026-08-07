@@ -1,7 +1,7 @@
 ---
 title: T60-schedule-grid-cleanup-and-doc-correction
 document_type: ticket
-status: open
+status: closed
 created: 2026-08-06
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: [docs/adr/2026-08-06-schedule-canvas-visual-layer.md]
