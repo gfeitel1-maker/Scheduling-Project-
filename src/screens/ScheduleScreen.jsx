@@ -5,6 +5,7 @@ import { createScheduleRepository } from '../data/scheduleRepository'
 import { getSetupGaps, describeSetupGaps } from '../engine/readiness'
 import { S } from '../styles/shared'
 import StatBadge from '../components/schedule/StatBadge'
+import ErrorBanner from '../components/schedule/ErrorBanner'
 import { legendEntriesFor, FLAG_SEVERITY, setActivityPalette } from '../components/schedule/slotCellConstants'
 import FindingsRail from '../components/schedule/FindingsRail'
 import { highlightMapForKind } from './schedule/findingHighlight'
@@ -692,25 +693,27 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   return (
     <div style={{ maxWidth: '100%' }}>
       {weekDeletedBanner && (
-        <div style={{ ...S.errorBanner, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <ErrorBanner
+          onDismiss={() => setWeekDeletedBanner(null)}
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+        >
           <span>{weekDeletedBanner}</span>
-          <button onClick={() => setWeekDeletedBanner(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 16, lineHeight: 1 }}>×</button>
-        </div>
+        </ErrorBanner>
       )}
       {loadError && (
-        <div style={S.errorBanner}>
+        <ErrorBanner>
           {loadError}
-        </div>
+        </ErrorBanner>
       )}
       {templateError && (
-        <div style={S.errorBanner}>
+        <ErrorBanner>
           {templateError}
-        </div>
+        </ErrorBanner>
       )}
       {actionError && (
-        <div style={S.errorBanner}>
+        <ErrorBanner>
           {actionError}
-        </div>
+        </ErrorBanner>
       )}
       {/* Controls bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -748,7 +751,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 is gone from here: it was never a view, it was a route. */}
             <div style={{ display: 'flex', gap: 2, background: 'var(--border)', borderRadius: 8, padding: 3 }}>
               {[['group','Group View'],['day','Daily View'],['activity','Activity View']].map(([v, label]) => (
-                <button key={v} onClick={() => { setView(v); if (v !== 'activity') setSelectedActivity(null) }} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', borderBottom: view === v ? '2px solid var(--primary)' : '2px solid transparent', cursor: 'pointer', fontSize: 12, fontWeight: view === v ? 700 : 600, fontFamily: 'var(--font-sans)', background: view === v ? 'var(--surface)' : 'none', color: view === v ? 'var(--primary)' : 'var(--text-secondary)', boxShadow: view === v ? '0 1px 4px rgba(0,0,0,0.12)' : 'none', transition: 'color 0.12s, background 0.12s' }}>{label}</button>
+                <button key={v} onClick={() => { setView(v); if (v !== 'activity') setSelectedActivity(null) }} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', borderBottom: view === v ? '2px solid var(--primary)' : '2px solid transparent', cursor: 'pointer', fontSize: 12, fontWeight: view === v ? 700 : 600, fontFamily: 'var(--font-sans)', background: view === v ? 'var(--surface)' : 'none', color: view === v ? 'var(--primary)' : 'var(--text-secondary)', boxShadow: view === v ? '0 1px 4px rgba(0,0,0,0.12)' : 'none', transition: 'color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)' }}>{label}</button>
               ))}
             </div>
 

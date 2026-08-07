@@ -32,7 +32,7 @@ function DraggablePaletteItem({ activity, scheduledCount, atMax, draggable, show
         opacity: atMax ? 0.45 : isDragging ? 0.6 : 1,
         userSelect: 'none',
         touchAction: draggable ? 'none' : undefined,
-        transition: 'opacity 0.15s',
+        transition: 'opacity var(--motion-fast) var(--ease-out)',
       }}
     >
       <span style={{

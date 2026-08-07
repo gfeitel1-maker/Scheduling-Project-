@@ -146,13 +146,13 @@ export const S = {
     padding: 16,
   },
   errorBanner: {
-    background: 'color-mix(in srgb, var(--warning) 8%, var(--surface))',
-    border: '1px solid color-mix(in srgb, var(--warning) 35%, var(--border))',
+    background: 'color-mix(in srgb, var(--danger) 8%, var(--surface))',
+    border: '1px solid color-mix(in srgb, var(--danger) 35%, var(--border))',
     borderRadius: 6,
     padding: '10px 14px',
     marginBottom: 16,
     fontSize: 13,
-    color: 'var(--warning)',
+    color: 'var(--danger)',
   },
 
   // --- Auth / onboarding shared primitives ---
@@ -305,7 +305,7 @@ export const S = {
     cursor: 'pointer',
     width: '100%',
     marginBottom: 12,
-    transition: 'box-shadow 0.15s, border-color 0.15s',
+    transition: 'box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out)',
     fontFamily: 'inherit',
   },
   authChoiceIcon: {
@@ -348,7 +348,7 @@ export const S = {
     borderRadius: 8,
     marginBottom: 8,
     cursor: 'pointer',
-    transition: 'border-color 0.15s, background 0.15s',
+    transition: 'border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)',
     background: 'var(--surface)',
     width: '100%',
     textAlign: 'left',
@@ -574,7 +574,7 @@ export const S = {
     padding: '18px 20px',
     marginBottom: 14,
     overflow: 'hidden',
-    transition: 'max-height 0.35s ease, opacity 0.35s ease, margin 0.35s ease, padding 0.35s ease, border-color 0.35s ease',
+    transition: 'max-height var(--motion-settle) var(--ease-out), opacity var(--motion-settle) var(--ease-out), margin var(--motion-settle) var(--ease-out), padding var(--motion-settle) var(--ease-out), border-color var(--motion-settle) var(--ease-out)',
   },
   mergeChoiceBox: {
     flex: 1,
@@ -585,7 +585,7 @@ export const S = {
     borderColor: 'var(--border)',
     borderRadius: 9,
     padding: 14,
-    transition: 'border-color 0.15s',
+    transition: 'border-color var(--motion-fast) var(--ease-out)',
   },
   mergeChoiceBoxHover: {
     borderColor: 'var(--primary)',
@@ -609,7 +609,7 @@ export const S = {
     fontFamily: 'inherit',
     width: '100%',
     marginTop: 12,
-    transition: 'background 0.12s, color 0.12s',
+    transition: 'background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out)',
   },
   mergePinLock: {
     textAlign: 'center',
@@ -628,7 +628,7 @@ export const S = {
     fontFamily: 'var(--font-condensed)',
     fontWeight: 700,
     fontSize: 15,
-    transition: 'opacity 0.15s',
+    transition: 'opacity var(--motion-fast) var(--ease-out)',
   },
 
   // --- Empty / loading / error state primitives ---

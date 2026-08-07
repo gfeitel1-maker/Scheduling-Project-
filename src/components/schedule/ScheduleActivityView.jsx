@@ -32,7 +32,7 @@ export default function ScheduleActivityView({
                 style={{
                   background: 'var(--surface)', border: `1px solid var(--border)`,
                   borderRadius: 8, padding: '14px 16px', textAlign: 'left',
-                  cursor: 'pointer', transition: 'border-color 0.15s, box-shadow 0.15s',
+                  cursor: 'pointer', transition: 'border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out)',
                   borderTop: `4px solid ${color}`,
                 }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = color; e.currentTarget.style.boxShadow = `0 2px 8px ${color}30` }}

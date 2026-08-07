@@ -20,7 +20,7 @@ export default function StatBadge({ label, value, color, onClick, active = false
         border: `1px solid ${active ? accent : (clickable ? accent : 'var(--border)')}`,
         borderRadius: 8, padding: '8px 14px', textAlign: 'center', minWidth: 90,
         cursor: clickable ? 'pointer' : 'default',
-        transition: 'border-color 0.15s, background 0.15s',
+        transition: 'border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)',
       }}
       title={clickable ? (active ? 'Reviewing — click to stop' : 'Click to review these') : undefined}
     >
