@@ -39,8 +39,13 @@ export const localClient = {
   getSyncStatus: () => shoresh.getSyncStatus(),
   // T16 — commit an approved import proposal. The preview is built in the
   // renderer; only the confirmed list crosses this boundary.
-  ingestCommit: (approved, links, cohort_id, fixedEvents, activityRules) =>
-    shoresh.ingestCommit({ token: currentToken(), approved, links, cohort_id, fixedEvents, activityRules }),
+  // One options object rather than six positional arguments: `mode` (T61) is
+  // the one that decides whether the camp's existing setup is destroyed, and
+  // it must not be reachable by miscounting commas. Fields are enumerated
+  // explicitly, never spread, so a caller-supplied token cannot override the
+  // real one — same rule as deleteWeek below.
+  ingestCommit: ({ approved, links, cohort_id, fixedEvents, activityRules, mode } = {}) =>
+    shoresh.ingestCommit({ token: currentToken(), approved, links, cohort_id, fixedEvents, activityRules, mode }),
   onSyncStatusChanged: (cb) => shoresh.onSyncStatusChanged?.(cb) ?? (() => {}),
   onOpConflict: (cb) => shoresh.onOpConflict(cb),
   getCamp: () => shoresh.getCamp(),

@@ -16,13 +16,36 @@
 //     provided every write goes through this one function.
 
 import { randomUUID } from 'node:crypto'
-import { appendOp } from './operations.js'
+import { appendOp, DELETE_FIELD } from './operations.js'
+import { PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 import { normalizeName } from '../../src/ingest/preview.js'
 
 // ADR §2. Kept here rather than imported from the renderer so the guarantee
 // lives with the code that writes; ingest.test.js asserts the two agree.
 export const INGESTIBLE_ENTITIES = Object.freeze([
   'cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'activities',
+])
+
+// What a Replace clears: everything an import can create except Programs.
+// cohorts is never deleted — tiers and time_blocks reference it and Programs
+// are not part of a year's schedule.
+//
+// The order is normative and belongs here rather than in a caller's payload:
+// it is a property of the schema, and PRAGMA foreign_keys is ON, so a wrong
+// order throws. docs/work/specs/S-replace-ingest-atomic-transaction.md
+// §"Deletion order".
+const REPLACEABLE_ENTITIES = Object.freeze([
+  'activities', 'groups', 'time_blocks', 'days_of_operation', 'tiers',
+])
+
+// Dependents, cleared first, each scoped to the camp through its parent by
+// PARENT_SCOPED_ENTITIES rather than a join written out a second time here.
+const PARENT_SCOPED_DEPENDENTS = Object.freeze([
+  'template_slots',
+  'template_overlays',
+  'week_activity_exclusions',
+  'week_group_exclusions',
+  'day_override_template_slots',
 ])
 
 const DAY_INDEX = {
@@ -82,6 +105,98 @@ function fieldsFor(entity, name, campId, index, cohortId) {
 }
 
 /**
+ * Clear the camp's importable setup and everything that points at it.
+ *
+ * Called ONLY as the first statement inside commitIngest's transaction, so the
+ * teardown and the create half share one rollback boundary — that is the whole
+ * of T61. Exported for the tests that prove the ordering, not as a second
+ * write path.
+ *
+ * Every removal is an ordinary `__deleted__` op, so each cleared row stays
+ * restorable from Trash and replicates to peers. Deliberately NOT a raw SQL
+ * DELETE and NOT `ON DELETE CASCADE`: a cascade writes no ops, and the op log
+ * is the replication mechanism
+ * (docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md).
+ *
+ * Returns `{ entities: { [entity]: count }, dependents: { [table]: count } }`.
+ */
+export function replaceScope(db, { camp_id, author_user_id = null, device_id }) {
+  const entities = {}
+  const dependents = {}
+
+  const remove = (entity, entity_id) => appendOp(db, {
+    entity,
+    entity_id,
+    field: DELETE_FIELD,
+    value: 1,
+    author_user_id: author_user_id ?? null,
+    device_id,
+    parent_op_id: null,
+    client_write_id: randomUUID(),
+  })
+
+  // Steps 1–5. Table and column names come from the frozen registries above
+  // and from campScopedEntities.js — never from a caller — so the only
+  // caller-supplied value in these statements is the bound camp_id.
+  for (const entity of PARENT_SCOPED_DEPENDENTS) {
+    const { table, parentTable, parentKey } = PARENT_SCOPED_ENTITIES[entity]
+    const rows = db.prepare(
+      `SELECT child.id AS id FROM ${table} child
+         JOIN ${parentTable} parent ON parent.id = child.${parentKey}
+        WHERE parent.camp_id = ?`
+    ).all(camp_id)
+    for (const row of rows) remove(entity, row.id)
+    dependents[entity] = rows.length
+  }
+
+  // Step 6 — anchors are camp-scoped directly, and anchor_activities.day_id
+  // references days_of_operation, so they must go before step 8.
+  const anchors = db.prepare('SELECT id FROM anchor_activities WHERE camp_id = ?').all(camp_id)
+  for (const row of anchors) remove('anchor_activities', row.id)
+  dependents.anchor_activities = anchors.length
+
+  // Step 7 — unhook the activity self-reference before deleting activities.
+  // schema.sql declares weather_alternative_id plain TEXT, but deleteRecord.js
+  // treats it as blocking and a db migrated through localDb.js v15 may carry
+  // the real FK. Nulling first makes the delete order independent of which
+  // schema variant this file is on — and a mutually-referencing pair (A→B,
+  // B→A) has no safe order at all otherwise.
+  const linked = db.prepare(
+    'SELECT id FROM activities WHERE camp_id = ? AND weather_alternative_id IS NOT NULL'
+  ).all(camp_id)
+  for (const row of linked) {
+    appendOp(db, {
+      entity: 'activities',
+      entity_id: row.id,
+      field: 'weather_alternative_id',
+      value: null,
+      author_user_id: author_user_id ?? null,
+      device_id,
+      parent_op_id: null,
+      client_write_id: randomUUID(),
+    })
+  }
+
+  // Step 8.
+  for (const entity of REPLACEABLE_ENTITIES) {
+    const rows = db.prepare(`SELECT id FROM ${entity} WHERE camp_id = ?`).all(camp_id)
+    for (const row of rows) remove(entity, row.id)
+    entities[entity] = rows.length
+  }
+
+  // A violation here means the clearing above missed a table, and committing
+  // would leave a torn camp. It covers REAL foreign keys only — it says
+  // nothing about the plain-TEXT soft references (day_override_template_slots
+  // .activity_id, template_overlays.unit_id) or the snapshot JSON blobs.
+  const violations = db.pragma('foreign_key_check')
+  if (violations.length > 0) {
+    throw new Error(`ingest: replace left ${violations.length} foreign key violation(s); nothing was imported`)
+  }
+
+  return { entities, dependents }
+}
+
+/**
  * Create the approved records, all together or not at all.
  *
  * `approved` is `{ [entity]: [name, ...] }` — exactly what the director
@@ -110,7 +225,7 @@ function fieldsFor(entity, name, campId, index, cohortId) {
  * Returns `{ created: { [entity]: count }, total,
  *            fixedEvents: { created: number, skipped: [{ name, reason }] } }`.
  */
-export function commitIngest(db, { approved, links, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {} }) {
+export function commitIngest(db, { approved, links, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add' }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -134,11 +249,6 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
   // cohort is given (older callers), every existing unit is null-cohort too, so
   // the match still holds and behaviour is unchanged.
   const tierIdByName = new Map()
-  for (const row of db.prepare('SELECT id, name, cohort_id FROM tiers WHERE camp_id = ?').all(camp_id)) {
-    if (row.name && (row.cohort_id ?? null) === (cohort_id ?? null)) {
-      tierIdByName.set(String(row.name).trim().toLowerCase(), row.id)
-    }
-  }
   const groupUnits = links?.groups ?? {}
 
   // Fixed events resolve their block/day/groups BY NAME against rows that exist
@@ -149,16 +259,28 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
   // time_blocks are Program-scoped (seed only this Program's, matching
   // tierIdByName's cohort filter); days and groups are camp-scoped.
   const blockIdByName = new Map()
-  for (const row of db.prepare('SELECT id, name, cohort_id FROM time_blocks WHERE camp_id = ?').all(camp_id)) {
-    if (row.name && (row.cohort_id ?? null) === (cohort_id ?? null)) blockIdByName.set(normalizeName(row.name), row.id)
-  }
   const dayIdByName = new Map()
-  for (const row of db.prepare('SELECT id, label FROM days_of_operation WHERE camp_id = ?').all(camp_id)) {
-    if (row.label) dayIdByName.set(normalizeName(row.label), row.id)
-  }
   const groupIdByName = new Map()
-  for (const row of db.prepare('SELECT id, name FROM groups WHERE camp_id = ?').all(camp_id)) {
-    if (row.name) groupIdByName.set(normalizeName(row.name), row.id)
+
+  // Populated INSIDE the transaction, after any teardown: in replace mode the
+  // rows these maps would name are about to be destroyed, and seeding first
+  // would file a new bunk under a unit that no longer exists. In add mode
+  // nothing has changed — the same queries, the same results.
+  function seedNameMaps() {
+    for (const row of db.prepare('SELECT id, name, cohort_id FROM tiers WHERE camp_id = ?').all(camp_id)) {
+      if (row.name && (row.cohort_id ?? null) === (cohort_id ?? null)) {
+        tierIdByName.set(String(row.name).trim().toLowerCase(), row.id)
+      }
+    }
+    for (const row of db.prepare('SELECT id, name, cohort_id FROM time_blocks WHERE camp_id = ?').all(camp_id)) {
+      if (row.name && (row.cohort_id ?? null) === (cohort_id ?? null)) blockIdByName.set(normalizeName(row.name), row.id)
+    }
+    for (const row of db.prepare('SELECT id, label FROM days_of_operation WHERE camp_id = ?').all(camp_id)) {
+      if (row.label) dayIdByName.set(normalizeName(row.label), row.id)
+    }
+    for (const row of db.prepare('SELECT id, name FROM groups WHERE camp_id = ?').all(camp_id)) {
+      if (row.name) groupIdByName.set(normalizeName(row.name), row.id)
+    }
   }
 
   const fixedCreated = []
@@ -171,11 +293,24 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
   // un-imported day has no anchor), but claiming full creation would be the
   // silent omission ADR §1 forbids, so the dropped days/groups are surfaced.
   const fixedPartial = []
+  // Absent in add mode — there is nothing to report having destroyed.
+  let replaced = null
 
   // One transaction for the whole import. Any throw below — a constraint, a
   // bad field, a disk error — rolls back every op and every projected row
   // together, so the camp is either fully imported or untouched.
   const run = db.transaction(() => {
+    // T61. Anything that is not the literal 'replace' is an add, so every
+    // pre-T61 caller keeps working untouched. This runs FIRST and inside the
+    // existing transaction — better-sqlite3 nests as savepoints, so the one
+    // outer transaction stays the rollback boundary for teardown and create
+    // alike. Deletes precede creates, which is also what lets the new records
+    // reuse the old names against UNIQUE(camp_id, name).
+    if (mode === 'replace') {
+      replaced = replaceScope(db, { camp_id, author_user_id, device_id })
+    }
+    seedNameMaps()
+
     for (const entity of INGESTIBLE_ENTITIES) {
       const names = Array.isArray(approved[entity]) ? approved[entity] : []
       created[entity] = 0
@@ -225,6 +360,14 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
             // an empty JSON array reads as "restricted to nothing", not "all
             // groups" (src/utils/normalizeActivityEligibility.js).
             if (groupIds.length > 0) fields.eligible_group_ids = JSON.stringify(groupIds)
+            // T61. An activity somebody is eligible for, asked for zero times
+            // a week, is scheduled zero times — correct and silently useless.
+            // Observed as every Friday slot UNFILLABLE after an import. Data
+            // normalization, not a scheduler rule, and applied on both import
+            // paths so the invariant holds however the camp was set up.
+            if (groupIds.length > 0 && !(Number.isInteger(fields.min_per_week) && fields.min_per_week >= 1)) {
+              fields.min_per_week = 1
+            }
           }
         }
 
@@ -312,5 +455,7 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
   })
 
   run()
-  return { created, total, fixedEvents: { created: fixedCreated.length, skipped: fixedSkipped, partial: fixedPartial } }
+  const outcome = { created, total, fixedEvents: { created: fixedCreated.length, skipped: fixedSkipped, partial: fixedPartial } }
+  if (replaced) outcome.replaced = replaced
+  return outcome
 }

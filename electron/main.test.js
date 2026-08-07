@@ -1470,3 +1470,88 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
     fakeSyncServer.wss.clients.delete(fakeClient)
   })
 })
+
+// T61 — the handler-level half of "Replace runs in one main-process
+// transaction". The data guarantees live in electron/ops/ingest.test.js; what
+// is on trial here is the gate in front of them: admin only, Host only, and
+// that `mode` actually reaches commitIngest without colliding with the
+// closure's device-mode variable of the same name.
+// docs/work/specs/S-replace-ingest-atomic-transaction.md
+describe('ingestCommit: who may import, and from where', () => {
+  async function adminToken(handlers) {
+    await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
+    const { token } = await handlers.login({ name: 'Ruth', pin: '4321' })
+    return token
+  }
+
+  it('refuses a staff token before a single row is touched', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await seedCampAndUser({ name: 'Alice', pin: '1234', role: 'staff' })
+    const { token } = await handlers.login({ name: 'Alice', pin: '1234' })
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)')
+      .run(randomUUID(), db.prepare('SELECT id FROM camps LIMIT 1').get().id, 'Swim')
+
+    expect(() => handlers.ingestCommit({ token, mode: 'replace', approved: { activities: ['Archery'] } }))
+      .toThrow(/admin role required/i)
+
+    // 'groups.import' is absent from the staff permission list, so the refusal
+    // comes from default-deny — and it comes before the transaction opens.
+    expect(db.prepare('SELECT COUNT(*) c FROM activities').get().c).toBe(1)
+    expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE field = '__deleted__'").get().c).toBe(0)
+  })
+
+  it('refuses a Replace on a device in Client mode, and writes nothing', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    const token = await adminToken(handlers)
+    const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campIdHere, 'Swim')
+    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+
+    // commitIngest appends straight to THIS device's sqlite; on a Client the
+    // Host would never see it and the camp would silently fork.
+    expect(() => handlers.ingestCommit({ token, mode: 'replace', approved: { activities: ['Archery'] } }))
+      .toThrow('Replace can only be run on the main computer.')
+
+    expect(db.prepare('SELECT COUNT(*) c FROM activities').get().c).toBe(1)
+    expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE entity = 'activities' AND field = '__deleted__'").get().c).toBe(0)
+  })
+
+  it('refuses an Add on a device in Client mode too, with its own wording', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    const token = await adminToken(handlers)
+    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+
+    expect(() => handlers.ingestCommit({ token, approved: { activities: ['Archery'] } }))
+      .toThrow('Import can only be run on the main computer.')
+    expect(db.prepare('SELECT COUNT(*) c FROM activities').get().c).toBe(0)
+  })
+
+  it('runs a Replace on the Host, clearing the old setup and creating the new', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7191 })
+    const token = await adminToken(handlers)
+    const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campIdHere, 'Swim')
+
+    const result = handlers.ingestCommit({ token, mode: 'replace', approved: { activities: ['Archery'] } })
+
+    expect(result.replaced.entities.activities).toBe(1)
+    expect(db.prepare('SELECT name FROM activities').all().map((r) => r.name)).toEqual(['Archery'])
+  })
+
+  it('leaves the camp alone when no mode is given — the device mode is not mistaken for the import mode', async () => {
+    // The handler's `mode` parameter and the closure's device `mode` share a
+    // name; the parameter is renamed on the way in so this cannot regress into
+    // "we are the Host, therefore replace".
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7192 })
+    const token = await adminToken(handlers)
+    const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campIdHere, 'Swim')
+
+    const result = handlers.ingestCommit({ token, approved: { activities: ['Archery'] } })
+
+    expect(result.replaced).toBeUndefined()
+    expect(db.prepare('SELECT COUNT(*) c FROM activities').get().c).toBe(2)
+  })
+})

@@ -42,6 +42,8 @@ const fixedEventKey = (fe) => `${fe.name} ${fe.time_block} ${fe.days.join(',')}`
 // at commit (round 2 review, Fix 1 — an earlier 1/2/3 draft was wrong).
 const PRIORITY_LABEL = { high: 'High', low: 'Low' }
 
+const sumCounts = (counts) => Object.values(counts ?? {}).reduce((n, c) => n + c, 0)
+
 export default function ImportScreen({ campId, onNavigate }) {
   // Units and time blocks are scoped to a Program; an import files them under
   // the active one so the setup screens will show them (T33).
@@ -62,16 +64,32 @@ export default function ImportScreen({ campId, onNavigate }) {
   const [error, setError] = useState(null)
   const [working, setWorking] = useState(false)
   const [result, setResult] = useState(null)
-  // What the camp already holds, and whether to keep it or clear it first.
-  // Captured when the preview is built so the keep-vs-replace choice can show a
-  // real count. 'add' keeps everything; 'replace' deletes the existing setup
-  // (recoverable from Trash) before importing. Programs/"Main" is never deleted
-  // — it is structural, auto-created, and not part of a year's schedule.
-  const [existingRecords, setExistingRecords] = useState({})
+  // Camp-wide counts of the same entities, unfiltered by Program. Replace
+  // (electron/ops/ingest.js's replaceScope) deletes WHERE camp_id = ? with no
+  // cohort filter — every Program's rows, not just the active one's — so the
+  // confirmation must count camp-wide too, or a multi-Program camp sees a
+  // small Program-scoped number while everything is destroyed underneath it.
+  const [existingRecordsAll, setExistingRecordsAll] = useState({})
   const [importMode, setImportMode] = useState('add')
+  // What Replace destroys that Trash cannot bring back, read in the same
+  // pre-confirm pass as the Program-filtered duplicate-check set so the
+  // warning can state real numbers.
+  // Saved versions survive the delete but their slots name group/activity ids
+  // that no longer exist, so restoring one fails; Day Override templates
+  // survive as named shells with nothing in them.
+  const [snapshotCount, setSnapshotCount] = useState(0)
+  const [dayOverrideCount, setDayOverrideCount] = useState(0)
+  // Slots placed on EITHER schedule route, camp-wide. replaceScope tears down
+  // template_slots and template_overlays for both Manual Build and Generated
+  // Schedule (FK ordering forces it), and the director sees the count only
+  // in the success banner today — after it has already happened. This reads
+  // it pre-confirm instead (Red Hat, T61 round 3).
+  const [slotCount, setSlotCount] = useState(0)
 
   const REPLACEABLE = INGESTIBLE_ENTITIES.filter((e) => e !== 'cohorts')
-  const existingCount = REPLACEABLE.reduce((n, e) => n + (existingRecords[e]?.length ?? 0), 0)
+  // Camp-wide count — what Replace actually deletes. This drives the
+  // confirmation copy the director sees before committing.
+  const existingCountAll = REPLACEABLE.reduce((n, e) => n + (existingRecordsAll[e]?.length ?? 0), 0)
 
   // A camp's schedule can arrive as several files — Camp Mindy exports one
   // spreadsheet per group. They are one camp and must be read as one import,
@@ -119,17 +137,22 @@ export default function ImportScreen({ campId, onNavigate }) {
 
       const proposal = extractEntities({ pages })
       const existing = {}
+      const existingAll = {}
       for (const entity of INGESTIBLE_ENTITIES) {
-        let rows = await localClient.list(entity).catch(() => [])
+        const rows = await localClient.list(entity).catch(() => [])
+        existingAll[entity] = rows
         // Duplicate-detection for the Program-scoped entities is scoped to the
         // active Program, or a re-import into a different Program would skip a
-        // unit/time-block that only exists in another one (T33).
-        if ((entity === 'tiers' || entity === 'time_blocks') && activeCohort) {
-          rows = rows.filter((r) => r.cohort_id === activeCohort.id)
-        }
-        existing[entity] = rows
+        // unit/time-block that only exists in another one (T33). This is
+        // deliberately narrower than existingAll above — see existingCountAll.
+        existing[entity] = (entity === 'tiers' || entity === 'time_blocks') && activeCohort
+          ? rows.filter((r) => r.cohort_id === activeCohort.id)
+          : rows
       }
-      setExistingRecords(existing)
+      setExistingRecordsAll(existingAll)
+      setSnapshotCount((await localClient.list('schedule_snapshots').catch(() => [])).length)
+      setDayOverrideCount((await localClient.list('day_override_templates').catch(() => [])).length)
+      setSlotCount((await localClient.list('template_slots').catch(() => [])).length)
       setImportMode('add')
       const next = buildPreview(proposal, existing)
       setPreview(next)
@@ -224,34 +247,6 @@ export default function ImportScreen({ campId, onNavigate }) {
     setWorking(true)
     setError(null)
     try {
-      // Replace = clear the existing setup first. Deletes go to Trash (the
-      // director can bring anything back), and "Main" is left alone. Done
-      // before the import so a clean slate is what the new records land on.
-      if (importMode === 'replace' && existingCount > 0) {
-        const token = localStorage.getItem('shoresh-token')
-        // Deletion order matters: schedule data references entities, and
-        // anchor_activities references days_of_operation. Clear dependents first
-        // or SQLite's FK enforcement throws.
-        // 1. Schedule canvas rows (reference groups, activities, days_of_operation)
-        for (const scheduleEntity of ['template_slots', 'template_overlays', 'week_activity_exclusions', 'week_group_exclusions']) {
-          const rows = await localClient.list(scheduleEntity).catch(() => [])
-          for (const row of rows) {
-            await localClient.deleteEntity(token, scheduleEntity, row.id)
-          }
-        }
-        // 2. Fixed events (anchor_activities.day_id references days_of_operation)
-        const existingAnchors = await localClient.list('anchor_activities').catch(() => [])
-        for (const row of existingAnchors) {
-          await localClient.deleteEntity(token, 'anchor_activities', row.id)
-        }
-        // 3. Now safe to delete the REPLACEABLE setup entities
-        for (const entity of REPLACEABLE) {
-          for (const row of existingRecords[entity] ?? []) {
-            await localClient.deleteEntity(token, entity, row.id)
-          }
-        }
-      }
-
       const approved = {}
       for (const entity of INGESTIBLE_ENTITIES) approved[entity] = [...(chosen[entity] ?? [])]
       // Only the units of groups actually being created are sent, so a bunk
@@ -278,18 +273,32 @@ export default function ImportScreen({ campId, onNavigate }) {
           priority: rule.priority,
         }
       }
-      const outcome = await localClient.ingestCommit(
-        approved, { groups: groupUnits }, activeCohort?.id ?? null, tickedFixedEvents, outgoingRules
-      )
+      // T61 — Replace is ONE awaited call. The teardown that used to run here,
+      // one IPC round trip per row with no atomicity across them, now happens
+      // inside the same main-process transaction as the create half, which is
+      // what finally makes the catch below's promise true.
+      const outcome = await localClient.ingestCommit({
+        approved,
+        links: { groups: groupUnits },
+        cohort_id: activeCohort?.id ?? null,
+        fixedEvents: tickedFixedEvents,
+        activityRules: outgoingRules,
+        mode: importMode === 'replace' ? 'replace' : 'add',
+      })
       setResult(outcome)
       setPreview(null)
       setFixedEvents([])
       setChosenFixedEvents(new Set())
       setActivityRules({})
     } catch (err) {
+      const message = err?.message ?? ''
+      // The main-process host-only refusal (T61) already says the one thing the
+      // director can act on. Passed through rather than mapped, or
+      // describeWriteFailure's honest "not something the app recognised"
+      // fallback would bury it.
       setError(
-        /admin role required/i.test(err?.message ?? '')
-          ? 'Only an admin can import a schedule.'
+        /admin role required/i.test(message) ? 'Only an admin can import a schedule.'
+          : /can only be run on the main computer/i.test(message) ? `${message} Nothing was imported.`
           : describeWriteFailure(err, 'Nothing was imported. Your camp is exactly as it was.')
       )
     } finally {
@@ -329,6 +338,14 @@ export default function ImportScreen({ campId, onNavigate }) {
             <div style={{ marginTop: 8 }}>
               Some fixed events were added for fewer days or groups than proposed, because you didn’t import all of them:{' '}
               {result.fixedEvents.partial.map((p) => `${p.name} (${p.reason})`).join('; ')}. Adjust {result.fixedEvents.partial.length === 1 ? 'it' : 'them'} on the Fixed Events screen.
+            </div>
+          )}
+          {/* What the Replace destroyed, stated rather than implied — an
+              import never silently omits (ADR §1), and that cuts both ways. */}
+          {result.replaced && (
+            <div style={{ marginTop: 8 }}>
+              {sumCounts(result.replaced.entities)} old setup {sumCounts(result.replaced.entities) === 1 ? 'record was' : 'records were'} cleared first,
+              along with {sumCounts(result.replaced.dependents)} schedule {sumCounts(result.replaced.dependents) === 1 ? 'row' : 'rows'} that used {sumCounts(result.replaced.entities) === 1 ? 'it' : 'them'}.
             </div>
           )}
           <div style={{ marginTop: 10 }}>
@@ -523,18 +540,23 @@ export default function ImportScreen({ campId, onNavigate }) {
 
           {/* Keep-vs-replace. Only asked when the camp already holds setup —
               importing onto an empty camp has nothing to replace. Replace is
-              recoverable (Trash), so it is a plain choice, not a scary gate. */}
-          {existingCount > 0 && (
+              recoverable (Trash), so it is a plain choice, not a scary gate.
+              Both counts here are existingCountAll (camp-wide), because
+              replaceScope (electron/ops/ingest.js) deletes WHERE camp_id = ?
+              with no cohort filter — every Program's setup, not just the
+              active one's — and the director must confirm the number that
+              actually gets deleted, not the Program-scoped one. */}
+          {existingCountAll > 0 && (
             <div style={{
               marginTop: 20, padding: '14px 16px', background: 'var(--surface)',
               border: '1px solid var(--border)', borderRadius: 8,
             }}>
               <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 10 }}>
-                Your camp already has <strong>{existingCount}</strong> {existingCount === 1 ? 'item' : 'items'} set up. What should happen to {existingCount === 1 ? 'it' : 'them'}?
+                Your camp already has <strong>{existingCountAll}</strong> {existingCountAll === 1 ? 'item' : 'items'} set up across the entire camp. What should happen to {existingCountAll === 1 ? 'it' : 'them'}?
               </div>
               {[
                 { key: 'add', title: 'Keep them', sub: 'Add what I import alongside what’s already here.' },
-                { key: 'replace', title: 'Replace them', sub: `Clear the ${existingCount} existing ${existingCount === 1 ? 'item' : 'items'} first, then import. You can bring anything back from Trash.` },
+                { key: 'replace', title: 'Replace them', sub: `This will replace all Units, Groups, Days, Time Blocks, and Activities across the entire camp — every Program, not just this one. Clear the ${existingCountAll} existing ${existingCountAll === 1 ? 'item' : 'items'} first, then import. These are ordinary records — anything replaced can be brought back from Trash.` },
               ].map(opt => {
                 const on = importMode === opt.key
                 return (
@@ -556,6 +578,49 @@ export default function ImportScreen({ campId, onNavigate }) {
                   </button>
                 )
               })}
+
+              {/* What Replace destroys beyond the setup records above, said
+                  before the confirm rather than discovered weeks later.
+                  Slots: replaceScope tears down template_slots/overlays for
+                  BOTH routes camp-wide (FK ordering forces it) — the biggest
+                  practical loss, previously visible only in the after-the-fact
+                  success banner (Red Hat, T61 round 3). Snapshots: a saved
+                  version's rows name groups and activities by id, so once
+                  those are gone, restoring it fails — genuinely NOT
+                  Trash-restorable, unlike the setup records above, which is
+                  why this says so explicitly rather than leaving the earlier
+                  "brought back from Trash" line looking like a retraction.
+                  Day Override templates keep their names but lose everything
+                  in them. Spec §MEDIUM-HIGH and §LOW. */}
+              {importMode === 'replace' && (slotCount > 0 || snapshotCount > 0 || dayOverrideCount > 0) && (
+                <div style={{
+                  marginTop: 10, padding: '10px 12px', borderRadius: 7,
+                  background: 'color-mix(in srgb, var(--danger) 8%, var(--surface))',
+                  border: '1px solid color-mix(in srgb, var(--danger) 40%, var(--border))',
+                  fontSize: 12, lineHeight: 1.6, color: 'var(--text)',
+                }}>
+                  {slotCount > 0 && (
+                    <div>
+                      Both your <strong>Manual Build</strong> and <strong>Generated Schedule</strong> will
+                      be cleared ({slotCount} {slotCount === 1 ? 'slot' : 'slots'}).
+                    </div>
+                  )}
+                  {snapshotCount > 0 && (
+                    <div style={{ marginTop: slotCount > 0 ? 6 : 0 }}>
+                      You have <strong>{snapshotCount}</strong> saved schedule {snapshotCount === 1 ? 'version' : 'versions'}.
+                      Unlike the setup records above, {snapshotCount === 1 ? 'this is' : 'these are'} not Trash-restorable —
+                      {snapshotCount === 1 ? ' it names' : ' they name'} groups and activities that will no longer exist,
+                      so replacing makes {snapshotCount === 1 ? 'it' : 'them'} permanently unrestorable.
+                    </div>
+                  )}
+                  {dayOverrideCount > 0 && (
+                    <div style={{ marginTop: (slotCount > 0 || snapshotCount > 0) ? 6 : 0 }}>
+                      Your {dayOverrideCount} Day Override {dayOverrideCount === 1 ? 'template keeps its name' : 'templates keep their names'} but
+                      {dayOverrideCount === 1 ? ' is' : ' are'} emptied — you will need to fill {dayOverrideCount === 1 ? 'it' : 'them'} in again.
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
@@ -577,7 +642,7 @@ export default function ImportScreen({ campId, onNavigate }) {
             >
               {working
                 ? 'Importing…'
-                : importMode === 'replace' && existingCount > 0
+                : importMode === 'replace' && existingCountAll > 0
                   ? `Replace with ${approvedCount} ${approvedCount === 1 ? 'record' : 'records'}`
                   : `Add ${approvedCount} ${approvedCount === 1 ? 'record' : 'records'}`}
             </button>

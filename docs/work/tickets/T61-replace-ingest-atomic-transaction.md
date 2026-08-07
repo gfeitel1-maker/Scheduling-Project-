@@ -1,7 +1,7 @@
 ---
 title: T61-replace-ingest-atomic-transaction
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-07
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/work/specs/S-replace-ingest-atomic-transaction.md]
 related_adrs: [docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md, docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md]

@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
-import { commitIngest, INGESTIBLE_ENTITIES } from './ingest.js'
+import { commitIngest, replaceScope, INGESTIBLE_ENTITIES } from './ingest.js'
 import { INGESTIBLE_ENTITIES as RENDERER_WHITELIST } from '../../src/ingest/extractEntities.js'
 
 // docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md §2, §4.
@@ -544,5 +544,416 @@ describe('activity rules resolved at commit (T35)', () => {
     expect(db.prepare('SELECT min_per_week FROM activities WHERE name = ?').get('Drama').min_per_week).toBeNull()
     expect(db.prepare('SELECT min_per_week FROM activities WHERE name = ?').get('Archery').min_per_week).toBeNull()
     expect(db.prepare('SELECT min_per_week FROM activities WHERE name = ?').get('Ceramics').min_per_week).toBe(2)
+  })
+})
+
+// T61 — Replace-mode ingest runs in one main-process transaction.
+// docs/work/specs/S-replace-ingest-atomic-transaction.md
+//
+// Two things are on trial here: that a Replace clears the camp's REPLACEABLE
+// entities AND every dependent row that points at them, and that a failure
+// anywhere after the first delete leaves the camp byte-for-byte as it was.
+
+// Tables whose row counts must be identical before and after a failed Replace.
+// Deliberately a literal list rather than sqlite_master: a table added later
+// without being considered here should make someone read this test.
+const ALL_TABLES = [
+  'operations', 'groups', 'tiers', 'activities', 'cohorts', 'days_of_operation',
+  'time_blocks', 'anchor_activities', 'schedule_templates', 'schedule_weeks',
+  'day_override_templates', 'template_slots', 'template_overlays',
+  'schedule_snapshots', 'day_override_template_slots',
+  'week_activity_exclusions', 'week_group_exclusions',
+]
+const snapshotCounts = () => Object.fromEntries(ALL_TABLES.map((t) => [t, count(t)]))
+
+// A camp with a real schedule hanging off it: rows in all six dependent
+// tables the teardown has to clear, plus a snapshot (which survives) and a
+// day-override template (whose slots go but whose shell survives).
+function seedCampWithSchedule() {
+  const id = (p) => `${p}-${randomUUID()}`
+  const cohortId = 'co-seed'
+  db.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run(cohortId, campId, 'Main')
+
+  const tierId = id('tier')
+  db.prepare('INSERT INTO tiers (id, camp_id, name, cohort_id) VALUES (?, ?, ?, ?)').run(tierId, campId, 'Lavan', cohortId)
+  const groupId = id('grp')
+  db.prepare('INSERT INTO groups (id, camp_id, name, tier_id) VALUES (?, ?, ?, ?)').run(groupId, campId, 'Bunk 1', tierId)
+  const dayId = id('day')
+  db.prepare('INSERT INTO days_of_operation (id, camp_id, label, day_of_week) VALUES (?, ?, ?, ?)').run(dayId, campId, 'Monday', 1)
+  const blockId = id('tb')
+  db.prepare('INSERT INTO time_blocks (id, camp_id, name, cohort_id) VALUES (?, ?, ?, ?)').run(blockId, campId, 'Period 1', cohortId)
+  const activityId = id('act')
+  db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(activityId, campId, 'Swim')
+
+  const weekId = id('week')
+  db.prepare('INSERT INTO schedule_weeks (id, camp_id, name) VALUES (?, ?, ?)').run(weekId, campId, 'Week 1')
+  const templateId = id('tpl')
+  db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind, week_id) VALUES (?, ?, ?, ?, ?)')
+    .run(templateId, campId, 'Generated', 'generated', weekId)
+
+  db.prepare('INSERT INTO template_slots (id, template_id, group_id, activity_id, day_id, time_block_id) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id('slot'), templateId, groupId, activityId, dayId, blockId)
+  db.prepare('INSERT INTO template_overlays (id, template_id, day_id, label) VALUES (?, ?, ?, ?)')
+    .run(id('ovl'), templateId, dayId, 'Rain')
+  db.prepare('INSERT INTO week_activity_exclusions (id, week_id, activity_id) VALUES (?, ?, ?)')
+    .run(id('wax'), weekId, activityId)
+  db.prepare('INSERT INTO week_group_exclusions (id, week_id, group_id) VALUES (?, ?, ?)')
+    .run(id('wgx'), weekId, groupId)
+
+  const overrideId = id('dot')
+  db.prepare('INSERT INTO day_override_templates (id, camp_id, cohort_id, name) VALUES (?, ?, ?, ?)')
+    .run(overrideId, campId, cohortId, 'Rainy Day')
+  db.prepare('INSERT INTO day_override_template_slots (id, day_override_template_id, time_block_id, activity_id) VALUES (?, ?, ?, ?)')
+    .run(id('dots'), overrideId, blockId, activityId)
+
+  db.prepare('INSERT INTO anchor_activities (id, camp_id, cohort_id, day_id, time_block_id, name) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id('anc'), campId, cohortId, dayId, blockId, 'Mifkad')
+
+  db.prepare('INSERT INTO schedule_snapshots (id, template_id, name, created_at, slots, overlays) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id('snap'), templateId, 'Before', new Date().toISOString(), '[]', '[]')
+
+  return { cohortId, tierId, groupId, dayId, blockId, activityId, weekId, templateId, overrideId }
+}
+
+describe('replace mode tears the camp down inside the import transaction (T61)', () => {
+  it('clears every dependent row and every REPLACEABLE entity, then creates the new set', () => {
+    const seeded = seedCampWithSchedule()
+
+    const result = commitIngest(db, {
+      mode: 'replace',
+      approved: { groups: ['Bunk 1'], activities: ['Swim'], days_of_operation: ['Monday'], time_blocks: ['Period 1'], tiers: ['Lavan'] },
+      camp_id: campId, cohort_id: seeded.cohortId, author_user_id: 'u1', device_id: deviceId,
+    })
+
+    // Dependents: gone.
+    expect(count('template_slots')).toBe(0)
+    expect(count('template_overlays')).toBe(0)
+    expect(count('week_activity_exclusions')).toBe(0)
+    expect(count('week_group_exclusions')).toBe(0)
+    expect(count('day_override_template_slots')).toBe(0)
+    expect(count('anchor_activities')).toBe(0)
+
+    // Entities: exactly the new set, none of the old ids.
+    expect(count('groups')).toBe(1)
+    expect(db.prepare('SELECT id FROM groups').get().id).not.toBe(seeded.groupId)
+    expect(count('activities')).toBe(1)
+    expect(count('days_of_operation')).toBe(1)
+    expect(count('time_blocks')).toBe(1)
+    expect(count('tiers')).toBe(1)
+    // cohorts is never deleted — Programs are not part of the import's scope.
+    expect(count('cohorts')).toBe(1)
+    // The parents of the cleared dependents survive; only their rows went.
+    expect(count('schedule_templates')).toBe(1)
+    expect(count('schedule_weeks')).toBe(1)
+    expect(count('day_override_templates')).toBe(1)
+    expect(count('schedule_snapshots')).toBe(1)
+
+    expect(result.total).toBe(5)
+    expect(db.pragma('foreign_key_check')).toEqual([])
+  })
+
+  it('reports what it destroyed, per entity and per dependent table', () => {
+    seedCampWithSchedule()
+    const result = commitIngest(db, {
+      mode: 'replace', approved: { activities: ['Archery'] },
+      camp_id: campId, author_user_id: 'u1', device_id: deviceId,
+    })
+    expect(result.replaced.entities).toEqual({
+      activities: 1, groups: 1, time_blocks: 1, days_of_operation: 1, tiers: 1,
+    })
+    expect(result.replaced.dependents).toEqual({
+      template_slots: 1, template_overlays: 1, week_activity_exclusions: 1,
+      week_group_exclusions: 1, day_override_template_slots: 1, anchor_activities: 1,
+    })
+  })
+
+  it('deletes through the op log, so every cleared row is in Trash and replicates', () => {
+    seedCampWithSchedule()
+    commitIngest(db, {
+      mode: 'replace', approved: {}, camp_id: campId, author_user_id: 'u1', device_id: deviceId,
+    })
+    const deletes = db.prepare("SELECT entity FROM operations WHERE field = '__deleted__'").all()
+    // 5 entities + 6 dependent rows.
+    expect(deletes.length).toBe(11)
+    expect(new Set(deletes.map((d) => d.entity))).toContain('day_override_template_slots')
+  })
+
+  it('unhooks weather_alternative_id before deleting activities, including a mutual A→B/B→A pair', () => {
+    // schema.sql declares this column plain TEXT, but deleteRecord.js treats it
+    // as a blocking self-reference and a migrated db may carry the real FK. A
+    // mutual pair has no safe deletion order at all unless it is nulled first.
+    const a = randomUUID()
+    const b = randomUUID()
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(a, campId, 'Swim')
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(b, campId, 'Gaga')
+    db.prepare('UPDATE activities SET weather_alternative_id = ? WHERE id = ?').run(b, a)
+    db.prepare('UPDATE activities SET weather_alternative_id = ? WHERE id = ?').run(a, b)
+
+    commitIngest(db, {
+      mode: 'replace', approved: { activities: ['Swim'] },
+      camp_id: campId, author_user_id: 'u1', device_id: deviceId,
+    })
+
+    expect(count('activities')).toBe(1)
+    expect(db.prepare('SELECT weather_alternative_id FROM activities').get().weather_alternative_id).toBeNull()
+    // The unhook is an ordinary op, not a raw UPDATE — peers must replay it.
+    const nulls = db.prepare("SELECT COUNT(*) c FROM operations WHERE field = 'weather_alternative_id' AND value IS NULL").get().c
+    expect(nulls).toBe(2)
+    expect(db.pragma('foreign_key_check')).toEqual([])
+  })
+
+  it('is a plain create on an empty camp — the teardown finds nothing and reports zeroes', () => {
+    const result = commitIngest(db, {
+      mode: 'replace', approved: { activities: ['Swim', 'Drama'] },
+      camp_id: campId, author_user_id: 'u1', device_id: deviceId,
+    })
+    expect(result.total).toBe(2)
+    expect(count('activities')).toBe(2)
+    expect(result.replaced.entities.activities).toBe(0)
+    expect(result.replaced.dependents.template_slots).toBe(0)
+  })
+
+  it('creates records with the same names the camp already had — the deletes precede the creates', () => {
+    // UNIQUE(camp_id, name) is only satisfied because both halves are in one
+    // transaction, in this order. A second transaction would collide.
+    seedCampWithSchedule()
+    commitIngest(db, {
+      mode: 'replace', approved: { groups: ['Bunk 1'], activities: ['Swim'] },
+      camp_id: campId, author_user_id: 'u1', device_id: deviceId,
+    })
+    expect(count('groups')).toBe(1)
+    expect(db.prepare('SELECT name FROM groups').get().name).toBe('Bunk 1')
+  })
+
+  it('does not reuse an id from the set it is about to destroy when filing a bunk under its unit', () => {
+    // The name->id maps are seeded AFTER the teardown; seeding them before it
+    // would file a new bunk under a tier that no longer exists.
+    const seeded = seedCampWithSchedule()
+    commitIngest(db, {
+      mode: 'replace', approved: { tiers: ['Lavan'], groups: ['Bunk 1'] },
+      links: { groups: { 'Bunk 1': 'Lavan' } },
+      camp_id: campId, cohort_id: seeded.cohortId, author_user_id: 'u1', device_id: deviceId,
+    })
+    const row = db.prepare('SELECT tier_id FROM groups').get()
+    expect(row.tier_id).not.toBe(seeded.tierId)
+    expect(count('tiers')).toBe(1)
+    expect(db.prepare('SELECT id FROM tiers').get().id).toBe(row.tier_id)
+  })
+
+  it('leaves EVERY table exactly as it was when the create half throws after the deletes', () => {
+    // The whole point of T61. The failure is injected in the create half, i.e.
+    // after hundreds of delete ops have already been appended.
+    seedCampWithSchedule()
+    const before = snapshotCounts()
+
+    const realPrepare = db.prepare.bind(db)
+    db.prepare = (sql) => {
+      if (/INSERT OR IGNORE INTO groups/i.test(sql)) throw new Error('boom: create half failed')
+      return realPrepare(sql)
+    }
+    try {
+      expect(() => commitIngest(db, {
+        mode: 'replace', approved: { groups: ['Bunk 9'], activities: ['Swim'] },
+        camp_id: campId, author_user_id: 'u1', device_id: deviceId,
+      })).toThrow(/boom/)
+    } finally {
+      db.prepare = realPrepare
+    }
+
+    expect(snapshotCounts()).toEqual(before)
+  })
+
+  it('leaves EVERY table exactly as it was when a delete partway through the teardown throws', () => {
+    seedCampWithSchedule()
+    const before = snapshotCounts()
+
+    const realPrepare = db.prepare.bind(db)
+    db.prepare = (sql) => {
+      if (/DELETE FROM anchor_activities/i.test(sql)) throw new Error('boom: teardown failed')
+      return realPrepare(sql)
+    }
+    try {
+      expect(() => commitIngest(db, {
+        mode: 'replace', approved: { activities: ['Swim'] },
+        camp_id: campId, author_user_id: 'u1', device_id: deviceId,
+      })).toThrow(/boom/)
+    } finally {
+      db.prepare = realPrepare
+    }
+
+    expect(snapshotCounts()).toEqual(before)
+  })
+
+  it('aborts rather than committing a torn camp when a foreign key survives the teardown', () => {
+    // replaceScope's own backstop: if a future dependent table is added and
+    // not cleared here, the FK check inside the transaction must stop the
+    // import rather than let it commit.
+    seedCampWithSchedule()
+    const before = snapshotCounts()
+    const realPragma = db.pragma.bind(db)
+    db.pragma = (sql, opts) => {
+      if (/foreign_key_check/i.test(sql)) return [{ table: 'template_slots', rowid: 1, parent: 'groups', fkid: 0 }]
+      return realPragma(sql, opts)
+    }
+    try {
+      expect(() => commitIngest(db, {
+        mode: 'replace', approved: { activities: ['Swim'] },
+        camp_id: campId, author_user_id: 'u1', device_id: deviceId,
+      })).toThrow(/foreign key/i)
+    } finally {
+      db.pragma = realPragma
+    }
+    expect(snapshotCounts()).toEqual(before)
+  })
+
+  it('never touches a thing in add mode, however much schedule data the camp holds', () => {
+    // The Add-mode regression guard: `mode` omitted must be byte-identical to
+    // the behaviour before T61.
+    const seeded = seedCampWithSchedule()
+    const result = commitIngest(db, {
+      approved: { activities: ['Archery'] },
+      camp_id: campId, cohort_id: seeded.cohortId, author_user_id: 'u1', device_id: deviceId,
+    })
+    expect(result.replaced).toBeUndefined()
+    expect(count('activities')).toBe(2)
+    expect(count('template_slots')).toBe(1)
+    expect(count('anchor_activities')).toBe(1)
+    expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE field = '__deleted__'").get().c).toBe(0)
+  })
+
+  it('treats any mode that is not the literal "replace" as add', () => {
+    seedCampWithSchedule()
+    for (const mode of ['add', 'REPLACE', 'Replace', null, undefined, 'nonsense']) {
+      const result = commitIngest(db, {
+        mode, approved: {}, camp_id: campId, author_user_id: 'u1', device_id: deviceId,
+      })
+      expect(result.replaced).toBeUndefined()
+    }
+    expect(count('template_slots')).toBe(1)
+  })
+
+  it('replaceScope on its own clears the camp and reports the counts', () => {
+    seedCampWithSchedule()
+    const replaced = db.transaction(() =>
+      replaceScope(db, { camp_id: campId, author_user_id: 'u1', device_id: deviceId })
+    )()
+    expect(replaced.entities.groups).toBe(1)
+    expect(count('groups')).toBe(0)
+    expect(count('template_slots')).toBe(0)
+  })
+})
+
+describe('replace mode on a camp big enough to hurt (T61 perf gate)', () => {
+  it('finishes a 400-group camp inside the wall-clock budget', () => {
+    // better-sqlite3 transactions are synchronous on the main-process thread,
+    // which also serves the sync server's message loop — a Replace that takes
+    // minutes stalls every connected staff device.
+    //
+    // MEASURED, not guessed, 2026-08-07. The cost is ~15ms of blocked main
+    // thread per row, essentially all of it inside appendOp (~4 db.prepare()
+    // calls per op at ~1.3ms each). That is a pre-existing property of the
+    // op-log write path, shared with deleteRecord.js — replaceScope adds no
+    // per-row work of its own beyond one enumerating SELECT per table.
+    //
+    // Scale note: a 400-group camp with a FULL five-day schedule (2000 slots)
+    // measured ~37s, and as a test it exceeded this repo's 20s testTimeout
+    // under full-suite contention. Raising that timeout is explicitly not the
+    // fix (see vite.config.js), so this gate keeps the 400 groups and uses one
+    // day of slots. It still exercises the same per-row path and still catches
+    // an order-of-magnitude regression; it is NOT a claim that a real Replace
+    // is fast. See the spec's §"MEDIUM — transaction size blocks the main
+    // process"; making appendOp cheaper is its own ticket.
+    const weekId = randomUUID()
+    const templateId = randomUUID()
+    db.prepare('INSERT INTO schedule_weeks (id, camp_id, name) VALUES (?, ?, ?)').run(weekId, campId, 'Week 1')
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind, week_id) VALUES (?, ?, ?, ?, ?)')
+      .run(templateId, campId, 'Generated', 'generated', weekId)
+
+    const insertGroup = db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)')
+    const insertDay = db.prepare('INSERT INTO days_of_operation (id, camp_id, label, day_of_week) VALUES (?, ?, ?, ?)')
+    const insertActivity = db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)')
+    const insertSlot = db.prepare('INSERT INTO template_slots (id, template_id, group_id, activity_id, day_id, time_block_id) VALUES (?, ?, ?, ?, ?, ?)')
+
+    db.transaction(() => {
+      const dayIds = []
+      for (let d = 0; d < 1; d += 1) {
+        const dayId = randomUUID()
+        insertDay.run(dayId, campId, `Day ${d}`, d)
+        dayIds.push(dayId)
+      }
+      const activityId = randomUUID()
+      insertActivity.run(activityId, campId, 'Swim')
+      for (let g = 0; g < 400; g += 1) {
+        const groupId = randomUUID()
+        insertGroup.run(groupId, campId, `Bunk ${g}`)
+        for (const dayId of dayIds) {
+          insertSlot.run(randomUUID(), templateId, groupId, activityId, dayId, 'tb-1')
+        }
+      }
+    })()
+    expect(count('template_slots')).toBe(400)
+
+    const startedAt = Date.now()
+    const result = commitIngest(db, {
+      mode: 'replace',
+      approved: { groups: Array.from({ length: 400 }, (_, i) => `Bunk ${i}`), activities: ['Swim'] },
+      camp_id: campId, author_user_id: 'u1', device_id: deviceId,
+    })
+    const elapsed = Date.now() - startedAt
+
+    expect(result.replaced.dependents.template_slots).toBe(400)
+    expect(count('template_slots')).toBe(0)
+    expect(count('groups')).toBe(400)
+    expect(elapsed).toBeLessThan(15000)
+  })
+})
+
+describe('an imported activity that somebody can do runs at least once a week (T61)', () => {
+  it('floors min_per_week to 1 when the activity has eligible groups and the rule says 0', () => {
+    // min_per_week 0 with eligible groups schedules the activity zero times —
+    // correct and silently useless. Observed as every Friday slot UNFILLABLE.
+    commitIngest(db, {
+      approved: { groups: ['Yeladim'], activities: ['Swim'] },
+      activityRules: { Swim: { eligible_group_names: ['Yeladim'], min_per_week: 0, max_per_week: 2, priority: 'high' } },
+      camp_id: campId, device_id: deviceId,
+    })
+    expect(db.prepare('SELECT min_per_week FROM activities WHERE name = ?').get('Swim').min_per_week).toBe(1)
+  })
+
+  it('floors a null min_per_week the same way', () => {
+    commitIngest(db, {
+      approved: { groups: ['Yeladim'], activities: ['Swim'] },
+      activityRules: { Swim: { eligible_group_names: ['Yeladim'], min_per_week: null, max_per_week: 2, priority: 'high' } },
+      camp_id: campId, device_id: deviceId,
+    })
+    expect(db.prepare('SELECT min_per_week FROM activities WHERE name = ?').get('Swim').min_per_week).toBe(1)
+  })
+
+  it('applies in replace mode too', () => {
+    commitIngest(db, {
+      mode: 'replace',
+      approved: { groups: ['Yeladim'], activities: ['Swim'] },
+      activityRules: { Swim: { eligible_group_names: ['Yeladim'], min_per_week: 0, max_per_week: 2, priority: 'low' } },
+      camp_id: campId, author_user_id: 'u1', device_id: deviceId,
+    })
+    expect(db.prepare('SELECT min_per_week FROM activities WHERE name = ?').get('Swim').min_per_week).toBe(1)
+  })
+
+  it('leaves min_per_week unwritten when no group resolved — nobody can do it, so it needs no floor', () => {
+    commitIngest(db, {
+      approved: { activities: ['Swim'] },
+      activityRules: { Swim: { eligible_group_names: ['Nobody'], min_per_week: 0, max_per_week: 2, priority: 'high' } },
+      camp_id: campId, device_id: deviceId,
+    })
+    expect(db.prepare('SELECT min_per_week FROM activities WHERE name = ?').get('Swim').min_per_week).toBeNull()
+  })
+
+  it('does not lower a min_per_week the director actually set', () => {
+    commitIngest(db, {
+      approved: { groups: ['Yeladim'], activities: ['Swim'] },
+      activityRules: { Swim: { eligible_group_names: ['Yeladim'], min_per_week: 3, max_per_week: 4, priority: 'high' } },
+      camp_id: campId, device_id: deviceId,
+    })
+    expect(db.prepare('SELECT min_per_week FROM activities WHERE name = ?').get('Swim').min_per_week).toBe(3)
   })
 })

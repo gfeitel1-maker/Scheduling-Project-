@@ -231,13 +231,33 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // T16 — commit an import the director approved in the preview. Admin only:
   // it creates setup records in bulk, which is the same authority the setup
   // screens already require.
-  function ingestCommit({ token, approved, links, cohort_id, fixedEvents, activityRules } = {}) {
+  // `mode` is renamed on the way in. The closure already has a `mode` — this
+  // device's sync mode — and the guard below reads it; a shadowing parameter
+  // would silently turn the Host check into a comparison against the import
+  // mode instead.
+  function ingestCommit({ token, approved, links, cohort_id, fixedEvents, activityRules, mode: ingestMode } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // Admin only. Staff may edit setup records one at a time; creating a
     // camp's whole structure in one action is a different kind of authority,
     // and 'groups.import' is deliberately absent from the staff permission
     // list so admin: ['*'] is what grants it.
     const session = requireAuthorized(db, { token, action: 'groups.import' })
+    // HOST ONLY, both modes (T61). commitIngest appends every op straight to
+    // THIS device's SQLite; it never routes through syncClient.write, so an
+    // import run on a Client is invisible to the Host and every peer — under
+    // Replace that silently forks the whole camp while showing a success
+    // banner. Same gate as deleteRecordHandler and restoreEntityHandler, and
+    // for the same reason (electron/ops/deleteRecord.js): a Client cannot
+    // express a multi-op atomic transaction over submit_op. Refused outright
+    // rather than routed to the Host — a Client→Host requestReplace is a
+    // separate decision, not something to invent here.
+    if (mode === 'client') {
+      throw new Error(
+        ingestMode === 'replace'
+          ? 'Replace can only be run on the main computer.'
+          : 'Import can only be run on the main computer.'
+      )
+    }
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) throw new Error('no camp on this device')
     return commitIngest(db, {
@@ -255,6 +275,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // Inferred/edited activity rules (T35), keyed by activity name. Defaults
       // to none, preserving pre-T35 behaviour for callers that pass none.
       activityRules: activityRules ?? {},
+      // T61 — 'replace' clears the camp's importable setup and its dependent
+      // rows first, in the same transaction. Anything else is an add.
+      mode: ingestMode === 'replace' ? 'replace' : 'add',
     })
   }
 

@@ -388,7 +388,7 @@ export const mockShoresh = {
   // proposal, commit, see the records appear in Units/Groups/etc — be tested at
   // :5200 with hot-reload. It writes to mock state, NOT the op log, so it proves
   // the UI flow, not the real persistence/sync path (that stays electron:dev).
-  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules } = {}) {
+  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode } = {}) {
     const ORDER = ['cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'activities']
     const DAY_INDEX = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
     const parseTimeRange = (label) => {
@@ -401,6 +401,31 @@ export const mockShoresh = {
     if (!state.camp) throw new Error('ingest: no camp')
     const campId = state.camp.id
     const groupUnits = links?.groups ?? {}
+
+    // T61 replace mode. The mock has no transaction and no op log, so this
+    // simulates only the VISIBLE outcome — the old setup and everything
+    // hanging off it are gone before the new records land — so that :5200 does
+    // not show a camp with two of everything where Electron shows one.
+    // Atomicity and rollback are the real thing's job and are verified under
+    // Electron only (CLAUDE.md). cohorts is never cleared, matching
+    // replaceScope's REPLACEABLE set.
+    let replaced = null
+    if (mode === 'replace') {
+      const entityTables = ['activities', 'groups', 'time_blocks', 'days_of_operation', 'tiers']
+      const dependentTables = [
+        'template_slots', 'template_overlays', 'week_activity_exclusions',
+        'week_group_exclusions', 'day_override_template_slots', 'anchor_activities',
+      ]
+      replaced = { entities: {}, dependents: {} }
+      for (const table of dependentTables) {
+        replaced.dependents[table] = (state[table] ?? []).length
+        state[table] = []
+      }
+      for (const table of entityTables) {
+        replaced.entities[table] = (state[table] ?? []).length
+        state[table] = []
+      }
+    }
 
     // Unit name -> tier id, seeded from existing tiers so a second import reuses
     // them rather than duplicating (matches the real commitIngest).
@@ -471,7 +496,12 @@ export const mockShoresh = {
       const groupIds = rule.eligible_group_names.map((n) => groupIdByName.get(norm(n))).filter(Boolean)
       if (groupIds.length === 0) continue
       const row = state.activities.find((a) => a.name === String(activityName).trim())
-      if (row) row.eligible_group_ids = JSON.stringify(groupIds)
+      if (!row) continue
+      row.eligible_group_ids = JSON.stringify(groupIds)
+      // T61 — an activity somebody is eligible for runs at least once a week,
+      // or the engine places it zero times and every slot it should have
+      // filled comes back UNFILLABLE. Mirrors commitIngest.
+      if (!(Number.isInteger(row.min_per_week) && row.min_per_week >= 1)) row.min_per_week = 1
     }
 
     if (!Array.isArray(state.anchor_activities)) state.anchor_activities = []
@@ -510,7 +540,9 @@ export const mockShoresh = {
     }
 
     saveState(state)
-    return { created, total, fixedEvents: { created: fixedCreatedIds.length, skipped: fixedSkipped, partial: fixedPartial } }
+    const outcome = { created, total, fixedEvents: { created: fixedCreatedIds.length, skipped: fixedSkipped, partial: fixedPartial } }
+    if (replaced) outcome.replaced = replaced
+    return outcome
   },
   async getSyncStatus() {
     return { mode: null, connected: false, state: 'standalone' }
