@@ -50,6 +50,16 @@ describe('UNFILLABLE flag', () => {
   })
 })
 
+describe("'unavailable' slot type", () => {
+  it('emits type "unavailable" for a group whose availability excludes the block\'s part_of_day', () => {
+    const restrictedGroup = { id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'afternoon' }
+    const { slots } = buildSchedule(minimal({ groups: [restrictedGroup], activities: [] }))
+    const unavailable = slots.filter(s => s.type === 'unavailable')
+    expect(unavailable.length).toBe(1)
+    expect(unavailable[0]).toMatchObject({ groupId: 'g1', activityId: null, anchorId: null })
+  })
+})
+
 describe('WEATHER_RISK', () => {
   it('is no longer emitted anywhere in flags — outdoor exposure is read at render time from activity.is_outdoor', () => {
     const act = { id: 'a1', name: 'Swimming', priority: 'low', max_per_week: 5, min_per_week: 0, is_outdoor: true, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }

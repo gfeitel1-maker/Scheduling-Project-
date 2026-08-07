@@ -26,10 +26,26 @@ function resolveTemplateId(templates, weekId, kind) {
 // count needs nothing beyond the slot list itself) but kept as a parameter for
 // symmetry with recalcFindings and so a future stat that needs more data
 // doesn't change the call signature.
+// The `type !== 'unavailable'` guard is NOT what fixes T65, and it does not
+// fire on the live path. Every caller today feeds this DB-loaded rows, and
+// normalizeSlots (src/utils/normalizeSlots.js) never yields a `type` field —
+// `type` is not a template_slots column — so `s.type` is always undefined
+// here. The actual fix is at the persistence boundary in
+// scheduleRepository.js's replaceWeek, which drops 'unavailable' engine slots
+// before they are ever written; an unavailable block is then simply an absent
+// row. The guard exists only so that passing raw engine slots straight in
+// (no such call site today) could not silently reinflate the denominator.
+//
+// Consequence worth knowing: because the fix is at write time, it is
+// PROSPECTIVE. A camp that generated before this change keeps its stale rows,
+// and its denominator stays inflated, until the next Generate — bulkReplace
+// replaces the whole template scope, so one regenerate cleans it. Restoring a
+// pre-fix snapshot likewise reintroduces them (restoreSnapshotRows is
+// deliberately unfiltered, and those rows carry no `type` to filter on).
 export function recalcStats(slotList) {
   return {
-    open: slotList.filter(s => s.is_anchor === false).length,
-    filled: slotList.filter(s => s.is_anchor === false && s.activity_id).length,
+    open: slotList.filter(s => s.is_anchor === false && s.type !== 'unavailable').length,
+    filled: slotList.filter(s => s.is_anchor === false && s.type !== 'unavailable' && s.activity_id).length,
   }
 }
 

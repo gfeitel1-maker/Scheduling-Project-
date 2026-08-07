@@ -200,7 +200,17 @@ export function createScheduleRepository({
     // from engine slots. Identical operation, one method.
     async replaceWeek(templateId, engineSlots) {
       const token = getToken()
-      const rows = engineSlots.map(s => mapSlotToRow(s, templateId, { spanHead: true }))
+      // 'unavailable' engine slots (group availability excludes the block's
+      // part_of_day, buildSchedule.js) are dropped here, not persisted. `type`
+      // is not a template_slots column, so once loaded such a row is
+      // byte-identical to an empty placeable slot — it renders as empty
+      // (gridGeometry.js's decideCell falls into the empty branch before the
+      // unreachable 'unavailable' cellType) and rejects drops either way
+      // (dragHandlers.js's isSwapTarget). Persisting it only inflates the
+      // Placed denominator (T65) with time that is always re-derivable from
+      // group.availability vs block.part_of_day — no data is lost by omitting it.
+      const placeableSlots = engineSlots.filter(s => s.type !== 'unavailable')
+      const rows = placeableSlots.map(s => mapSlotToRow(s, templateId, { spanHead: true }))
       await localClient.bulkReplace(token, 'template_overlays', templateId, [])
       await localClient.bulkReplace(token, 'template_slots', templateId, rows)
     },

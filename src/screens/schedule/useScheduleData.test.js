@@ -232,6 +232,14 @@ describe('recalcStats (pure)', () => {
   it('returns zeroes for an empty slot list', () => {
     expect(recalcStats([])).toEqual({ open: 0, filled: 0 })
   })
+
+  it('excludes unavailable-typed slots from open (they are permanently unplaceable time, not open time)', () => {
+    const slots = [
+      slotRow({ is_anchor: false, activity_id: 'act-1' }),
+      slotRow({ is_anchor: false, activity_id: null, type: 'unavailable' }),
+    ]
+    expect(recalcStats(slots)).toEqual({ open: 1, filled: 1 })
+  })
 })
 
 describe('recalcFindings (pure)', () => {

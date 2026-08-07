@@ -190,6 +190,21 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
     })
   })
 
+  it('replaceWeek drops "unavailable"-typed engine slots instead of persisting them (T65 — they would inflate the Placed denominator)', async () => {
+    const client = makeFakeClient()
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    const unavailableSlot = {
+      groupId: 'g1', dayId: 'd3', blockId: 'b3', cohort_id: 'coh',
+      type: 'unavailable', activityId: null, anchorId: null, is_span_head: true, flags: {},
+    }
+    await repo.replaceWeek('tid', [engineOpenSlot, unavailableSlot, engineAnchorSlot])
+
+    const rows = client.calls.bulkReplace[1][3]
+    expect(rows).toHaveLength(2)
+    expect(rows.some(r => r.day_id === 'd3')).toBe(false)
+    expect(rows.map(r => r.day_id)).toEqual(['d1', 'd2'])
+  })
+
   it('replaceWeek maps a slot missing is_span_head as span-head "1" (undefined !== false)', async () => {
     const client = makeFakeClient()
     const repo = createScheduleRepository({ localClient: client, getToken })

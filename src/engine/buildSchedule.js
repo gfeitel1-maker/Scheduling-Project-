@@ -9,12 +9,14 @@
 //   LEGACY (single-cohort, backward compat):
 //   buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId, preplacedSlots })
 //
-// Output: { slots, stats, conflicts, findings }
+// Output: { slots, conflicts, findings }
 //   slots     — array of scheduled slot objects (cohort_id and is_span_head added).
 //               Per-slot flags carry only UNFILLABLE now — UNDERSERVED/DISTRIBUTION
 //               moved to `findings` and WEATHER_RISK was removed entirely (outdoor
 //               exposure is read at render time from activity.is_outdoor).
-//   stats     — coverage stats
+//               (T65: a coverage `stats` object was removed here — nothing outside
+//               this file ever read it; the renderer computes its own stats from
+//               DB rows via recalcStats in src/screens/schedule/useScheduleData.js.)
 //   conflicts — cross-cohort resource conflicts (always [] until multi-cohort engine in Sub-project 3)
 //   findings  — aggregate, one entry per (groupId, activityId, kind) for
 //               UNDERSERVED/DISTRIBUTION. Never persisted — recomputed fresh
@@ -399,15 +401,8 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
     }
   }
 
-  const openCount = resultSlots.filter(s => s.type === 'activity').length
-  const filledCount = resultSlots.filter(s => s.type === 'activity' && s.activityId).length
-  const unfillableCount = resultSlots.filter(s => s.flags?.UNFILLABLE).length
-  const underservedCount = new Set(underserved.map(u => `${u.groupId}|${u.activityId}`)).size
-  const totalFlags = unfillableCount + findings.length
-
   return {
     slots: resultSlots,
-    stats: { openCount, filledCount, unfillableCount, underservedCount, totalFlags },
     findings,
   }
 }
@@ -507,31 +502,19 @@ function buildSchedule(input) {
   // Pass 1: schedule each cohort independently
   // (multi-cohort cross-resource conflict detection is Sub-project 3)
   const allSlots = []
-  const allStats = []
   const allFindings = []
 
   for (let idx = 0; idx < cohorts.length; idx++) {
     const cohortEntry = cohorts[idx]
     const cohortSeed = campId + (cohortEntry.cohort?.id || String(idx))
     const rand = mulberry32(djb2(cohortSeed))
-    const { slots, stats, findings } = scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly })
+    const { slots, findings } = scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly })
     allSlots.push(...slots)
-    allStats.push(stats)
     allFindings.push(...findings)
   }
 
-  // Combine stats across cohorts
-  const combined = allStats.reduce((acc, s) => ({
-    openCount: acc.openCount + s.openCount,
-    filledCount: acc.filledCount + s.filledCount,
-    unfillableCount: acc.unfillableCount + s.unfillableCount,
-    underservedCount: acc.underservedCount + s.underservedCount,
-    totalFlags: acc.totalFlags + s.totalFlags,
-  }), { openCount: 0, filledCount: 0, unfillableCount: 0, underservedCount: 0, totalFlags: 0 })
-
   return {
     slots: allSlots,
-    stats: cohorts.length === 1 ? allStats[0] : { ...combined, per_cohort: allStats },
     conflicts: [], // Sub-project 3: cross-cohort conflict detection
     findings: allFindings,
   }

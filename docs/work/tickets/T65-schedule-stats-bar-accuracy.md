@@ -1,7 +1,7 @@
 ---
 title: T65-schedule-stats-bar-accuracy
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-07
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_tickets: [docs/work/tickets/T62-engine-schedules-anchor-activities-as-regular-slots.md]
@@ -123,12 +123,63 @@ to rise by the same amount, with `open` (525) unchanged.
 - Redesigning the stats bar or adding stats.
 - The T62 fix itself.
 
-## Acceptance
+---
 
-- [ ] `'unavailable'` slots excluded from the Placed denominator, with a failing-then-passing test
-- [ ] Exactly one definition of these quantities exists in the codebase
-- [ ] All four counts re-read after T62, before/after numbers recorded
-- [ ] `npm run test`, `npm run lint` pass
+## Phase 2 outcome (2026-08-07)
+
+### Correction to Phase 1's proposed fix #1
+
+Phase 1 proposed filtering `recalcStats` on `type === 'unavailable'`. **That alone is a no-op.**
+`type` is not a `template_slots` column — `mapSlotToRow` (`src/data/scheduleRepository.js:36-53`)
+persists only id/template_id/group_id/day_id/time_block_id/activity_id/anchor_id/is_anchor/
+is_span_head/flags, and `normalizeSlots` adds nothing. Every `recalcStats` caller is fed DB-loaded
+rows, on which `s.type` is always `undefined`.
+
+Verified that an unavailable row is already behaviorally identical to no row at all:
+`decideCell` (`gridGeometry.js`) returns `{kind:'empty'}` one line *before* the `cellType =
+'unavailable'` expression, making that branch — and `SlotCell.jsx:178`'s `type === 'unavailable'`
+branch — unreachable; `isSwapTarget` (`dragHandlers.js`) rejects it either way. Its only live
+effect was inflating the denominator.
+
+**Fix as shipped:** `replaceWeek` drops `type === 'unavailable'` engine slots before writing.
+`restoreSnapshotRows` deliberately left unfiltered (snapshot slots carry `is_anchor`, not `type`).
+A defensive guard remains in `recalcStats` for raw-engine-slot callers, documented as not the fix.
+
+**The fix is prospective.** A camp that generated before this change keeps its stale rows until
+the next Generate (`bulkReplace` replaces the whole template scope, so one regenerate cleans it).
+Restoring a pre-fix snapshot reintroduces them. Neither is a regression; both are now documented
+at `useScheduleData.js:recalcStats`.
+
+### Acceptance
+
+- [x] `'unavailable'` slots excluded from the Placed denominator, with a failing-then-passing test
+      (`scheduleRepository.test.js`, `useScheduleData.test.js`, `buildSchedule.test.js`)
+- [x] Exactly one definition of these quantities exists — engine `stats` deleted
+      (`buildSchedule` output is now `{ slots, conflicts, findings }`); grep for
+      `openCount|filledCount|unfillableCount|underservedCount|totalFlags|per_cohort` across
+      `src/` + `electron/` returns nothing
+- [ ] **NOT DONE — all four counts re-read after T62, before/after numbers recorded.** Requires a
+      real camp database under `npm run electron:dev`; no agent in this loop had access to one, and
+      no numbers were fabricated. **Human step:** open the Generated route on a real camp, record
+      Placed / Unfillable / Still needed / Spread, and compare against the pre-T62 reading
+      (`390 of 525`, `135`, `0`, `0`). Phase 1 predicted `open` holds at 525, `filled` falls by
+      0–60, and `Unfillable` rises by the same amount.
+- [x] `npm run test` (1739 passed, 1 skipped), `npm run lint` (0 errors) pass
+
+### Escalated, not decided (per Phase 2 "Out")
+
+- **"Still needed" label.** Counts (group × activity) pairs, not sessions — a group needing 2 with
+  0 placed yields one finding. The count is defensible; the label is not. Product-judgement gate:
+  wording raised, not chosen.
+- **Per-cohort aggregation bugs** (`underservedCount` double-counting across cohorts, the
+  `per_cohort` omission on the single-cohort branch). Moot — that code is now deleted. If
+  multi-cohort stats are ever reintroduced, do not restore this shape.
+- **Dead render branches.** `gridGeometry.js`'s `cellType = 'unavailable'` and `SlotCell.jsx:178`
+  are unreachable. Separate cleanup ticket: delete them, or wire unavailable cells up to render
+  distinctly (the state is always re-derivable from `group.availability` vs `block.part_of_day`).
+- **Dropping onto an unavailable cell is permitted**, and was before this change — the row's `type`
+  was never load-bearing at the render boundary. Pre-existing gap, not introduced here. Ticket
+  separately if blocking those drops is a real product requirement.
 
 ## Dependencies
 
