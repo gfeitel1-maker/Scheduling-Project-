@@ -9,9 +9,12 @@ export default function StatBadge({ label, value, color, onClick, active = false
   const clickable = onClick && value > 0
   const accent = color || 'var(--border)'
   return (
-    <div
+    <button
+      type="button"
       onClick={clickable ? onClick : undefined}
+      disabled={!clickable}
       aria-pressed={clickable ? active : undefined}
+      className={clickable ? 'press-98' : undefined}
       style={{
         // Active box carries the concern colour on its border AND a faint fill,
         // so the one being reviewed reads as pressed at a glance — the same
@@ -20,6 +23,10 @@ export default function StatBadge({ label, value, color, onClick, active = false
         border: `1px solid ${active ? accent : (clickable ? accent : 'var(--border)')}`,
         borderRadius: 8, padding: '8px 14px', textAlign: 'center', minWidth: 90,
         cursor: clickable ? 'pointer' : 'default',
+        font: 'inherit',
+        color: 'inherit',
+        display: 'block',
+        width: 'auto',
         transition: 'border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)',
       }}
       title={clickable ? (active ? 'Reviewing — click to stop' : 'Click to review these') : undefined}
@@ -33,6 +40,6 @@ export default function StatBadge({ label, value, color, onClick, active = false
       <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
         {label}{clickable ? (active ? ' ▾' : ' ↗') : ''}
       </div>
-    </div>
+    </button>
   )
 }

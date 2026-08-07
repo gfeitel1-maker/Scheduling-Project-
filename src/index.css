@@ -79,3 +79,12 @@ a { text-decoration: none; color: inherit; }
     width: 100% !important;
   }
 }
+
+/* Activity card hover — gated to real pointers so a touch tap does not
+   leave a stuck highlight. Colour arrives per-card via --activity-color. */
+@media (hover: hover) and (pointer: fine) {
+  .activity-card:hover {
+    border-color: var(--activity-color);
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--activity-color) 19%, transparent);
+  }
+}

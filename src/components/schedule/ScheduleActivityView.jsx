@@ -29,20 +29,20 @@ export default function ScheduleActivityView({
               <button
                 key={act.id}
                 onClick={() => onSelectActivity(act.id)}
+                className="activity-card press-97"
                 style={{
+                  '--activity-color': color,
                   background: 'var(--surface)', border: `1px solid var(--border)`,
                   borderRadius: 8, padding: '14px 16px', textAlign: 'left',
                   cursor: 'pointer', transition: 'border-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out)',
                   borderTop: `4px solid ${color}`,
                 }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = color; e.currentTarget.style.boxShadow = `0 2px 8px ${color}30` }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.borderTopColor = color }}
               >
-                <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)', marginBottom: 6, lineHeight: 1.3 }}>{act.name}</div>
+                <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 6, lineHeight: 1.3 }}>{act.name}</div>
                 {act.location && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>{act.location}</div>}
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                   {act.priority === 'high' && (
-                    <span style={{ fontSize: 10, background: color, color: '#fff', borderRadius: 3, padding: '1px 6px', fontWeight: 700 }}>HIGH</span>
+                    <span style={{ fontSize: 10, background: color, color: '#fff', borderRadius: 3, padding: '1px 6px', fontWeight: 600 }}>HIGH</span>
                   )}
                   {act.is_outdoor && (
                     <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 600 }}>OUTDOOR</span>
@@ -70,9 +70,9 @@ export default function ScheduleActivityView({
                   style={{ ...S.btnSecondary, padding: '5px 12px', fontSize: 12 }}
                 >← All Activities</button>
                 <span style={{ width: 12, height: 12, borderRadius: '50%', background: color, display: 'inline-block' }} />
-                <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, color: 'var(--text)' }}>{act?.name}</span>
+                <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 18, color: 'var(--text)' }}>{act?.name}</span>
                 {act?.location && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{act.location}</span>}
-                {act?.priority === 'high' && <span style={{ fontSize: 11, background: color, color: '#fff', borderRadius: 3, padding: '2px 8px', fontWeight: 700 }}>HIGH PRIORITY</span>}
+                {act?.priority === 'high' && <span style={{ fontSize: 11, background: color, color: '#fff', borderRadius: 3, padding: '2px 8px', fontWeight: 600 }}>HIGH PRIORITY</span>}
                 {act?.is_outdoor && <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>OUTDOOR</span>}
               </div>
 

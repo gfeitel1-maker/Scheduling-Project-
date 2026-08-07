@@ -5,6 +5,8 @@ import { createScheduleRepository } from '../data/scheduleRepository'
 import { getSetupGaps, describeSetupGaps } from '../engine/readiness'
 import { S } from '../styles/shared'
 import StatBadge from '../components/schedule/StatBadge'
+import ScheduleSkeleton from '../components/schedule/ScheduleSkeleton'
+import IndeterminateBar from '../components/schedule/IndeterminateBar'
 import ErrorBanner from '../components/schedule/ErrorBanner'
 import { legendEntriesFor, FLAG_SEVERITY, setActivityPalette } from '../components/schedule/slotCellConstants'
 import FindingsRail from '../components/schedule/FindingsRail'
@@ -562,7 +564,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // inline check of a different four areas — see src/engine/readiness.js.
   const setupGaps = getSetupGaps({ cohorts, tiers, groups, days, timeBlocks, activities })
 
-  if (loading) return <div style={S.stateLoading}>Loading…</div>
+  if (loading) return <ScheduleSkeleton />
 
   if (setupGaps.length > 0) {
     return (
@@ -951,7 +953,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         )
 
         const gridContent = (
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+            {generating && <IndeterminateBar />}
             {/* Neither route started. If the director arrived via a specific
                 sidebar link (initialRoute set) they already chose — show only
                 that route's offer. If they came via the neutral 'schedule'
