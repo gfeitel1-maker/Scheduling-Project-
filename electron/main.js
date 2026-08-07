@@ -1351,6 +1351,9 @@ if (isElectronEntryPoint()) {
     mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
       console.error('PRELOAD ERROR', preloadPath, error)
     })
+    if (!app.isPackaged) {
+      mainWindow.setTitle('Shoresh [DEV]')
+    }
     const devServerUrl = process.env.VITE_DEV_SERVER_URL
     if (devServerUrl) {
       mainWindow.loadURL(devServerUrl)

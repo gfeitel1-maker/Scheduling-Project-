@@ -450,6 +450,28 @@ describe('anchor unit_id scope', () => {
   })
 })
 
+describe('anchor group_ids scope', () => {
+  const g1 = { id: 'g1', name: 'Aleph', tier_id: 'unit1', availability: 'all' }
+  const g2 = { id: 'g2', name: 'Bet', tier_id: 'unit1', availability: 'all' }
+  const g3 = { id: 'g3', name: 'Gimel', tier_id: 'unit2', availability: 'all' }
+
+  it('scopes to the groups named in a raw array group_ids, with no string handling', () => {
+    const anchor = { id: 'anc1', name: 'Swim', unit_id: null, is_all_groups: false, group_ids: ['g1', 'g3'], day_id: 'd1', time_block_id: 'bA', span_blocks: 1 }
+    const result = buildSchedule({
+      groups: [g1, g2, g3],
+      tiers: [{ id: 'unit1', name: 'Unit 1' }, { id: 'unit2', name: 'Unit 2' }],
+      days: [baseDay],
+      timeBlocks: [blockA],
+      activities: [],
+      anchors: [anchor],
+      campId: 'test',
+    })
+    const anchorSlots = result.slots.filter(s => s.type === 'anchor')
+    expect(anchorSlots.map(s => s.groupId).sort()).toEqual(['g1', 'g3'])
+    expect(anchorSlots.some(s => s.groupId === 'g2')).toBe(false)
+  })
+})
+
 // ── Anchor span_blocks ────────────────────────────────────────────────────────
 
 describe('anchor span_blocks', () => {

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { computeFindings } from '../../engine/buildSchedule'
-import { normalizeActivityEligibility } from '../../utils/normalizeActivityEligibility'
+import { normalizeActivityEligibility, parseIdList } from '../../utils/normalizeActivityEligibility'
 import { isRestorable } from '../snapshotRestore'
 import { deriveScheduleTemplateId } from '../../../electron/ops/scheduleTemplateId'
 
@@ -98,7 +98,12 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes 
       g = [...(gd || [])].filter(x => x.camp_id === campId).sort((x, y) => x.name.localeCompare(y.name))
       const b = [...(bd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
       a = (ad || []).filter(x => x.camp_id === campId).map(normalizeActivityEligibility)
+      // anchor_activities.group_ids is a JSON-stringified array (same storage
+      // shape as activities.eligible_group_ids) — normalize once here, at the
+      // IPC read boundary, so buildSchedule's pure engine only ever sees a
+      // real array. See T63.
       const anc = (ancd || []).filter(x => x.camp_id === campId)
+        .map(x => ({ ...x, group_ids: parseIdList(x.group_ids) }))
       const t = [...(tierd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
       const sortedTd = [...(td || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
       d = sortedTd.filter((x, i, arr) => arr.findIndex(y => y.day_of_week === x.day_of_week) === i)

@@ -13,6 +13,7 @@
     "test": "vitest run",
     "preelectron:dev": "node scripts/ensure-abi.js electron",
     "electron:dev": "concurrently -k \"vite\" \"cross-env VITE_DEV_SERVER_URL=http://localhost:5200 electron electron/main.js\"",
+    "electron:dev:fresh": "pkill -x Electron; sleep 1 && npm run electron:dev",
     "electron:build": "node scripts/write-build-info.js && vite build && electron-builder",
     "install:mac": "bash scripts/install-macos.sh",
     "index:work": "node scripts/build-work-index.js",

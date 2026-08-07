@@ -19,12 +19,18 @@ Three things worth knowing before you read anything else here:
 ```bash
 npm run dev            # Vite dev server at http://localhost:5200
 npm run electron:dev   # Vite + Electron together (real app, local-first stack)
+npm run electron:dev:fresh  # kills a stale Electron process first, then electron:dev
 npm run build           # Production build
 npm run electron:build  # Vite build + electron-builder (packaged app)
 npm run lint            # ESLint
 npm run test             # Run all Vitest tests
 npm test -- src/path/to/file.test.js  # Run a single test file
 ```
+
+**`electron:dev:fresh` uses `pkill -x Electron`, which kills every Electron process owned by the
+user, not just this project's** — a dev server for another Electron app will be killed too, without
+warning. The packaged Shoresh app is unaffected (its process is named `Shoresh`, not `Electron`).
+Accepted tradeoff for a convenience script a developer opts into by name; see T64.
 
 **Dev and packaged builds use separate databases, deliberately.** `npm run electron:dev` reads
 `~/Library/Application Support/shoresh-dev`; the installed app reads `.../shoresh`. Development work

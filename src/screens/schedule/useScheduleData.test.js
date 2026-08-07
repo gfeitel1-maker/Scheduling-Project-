@@ -77,6 +77,34 @@ describe('useScheduleData', () => {
     expect(result.current.weekId).toBe('week-2')
   })
 
+  // T63: anchor_activities.group_ids is stored as a JSON-stringified array
+  // (same shape as activities.eligible_group_ids). buildSchedule is a pure
+  // engine and must never see the raw string — this hook is the IPC read
+  // boundary, so normalization to a real array belongs here.
+  it('normalizes a string-encoded anchor group_ids into an array', async () => {
+    const repo = makeRepo({
+      loadSetupLists: vi.fn(async () => ({
+        groups: [{ id: 'g1', camp_id: CAMP_ID, name: 'Bears', tier_id: 't1' }],
+        days_of_operation: [{ id: 'd1', camp_id: CAMP_ID, day_of_week: 1, sort_order: 0 }],
+        time_blocks: [{ id: 'b1', camp_id: CAMP_ID, sort_order: 0 }],
+        activities: [{ id: 'act-1', camp_id: CAMP_ID, name: 'Swim' }],
+        anchor_activities: [
+          { id: 'anc-1', camp_id: CAMP_ID, name: 'Flag', group_ids: '["g1","g2"]', unit_id: null, is_all_groups: false, day_id: 'd1', time_block_id: 'b1', span_blocks: 1 },
+        ],
+        tiers: [{ id: 't1', camp_id: CAMP_ID, sort_order: 0 }],
+        cohorts: [{ id: 'coh-1', camp_id: CAMP_ID }],
+      })),
+    })
+    const { result } = renderHook(() =>
+      useScheduleData({ campId: CAMP_ID, weekId: null, repo, routes: ROUTES })
+    )
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    expect(result.current.setupLists.anchors).toHaveLength(1)
+    expect(result.current.setupLists.anchors[0].group_ids).toEqual(['g1', 'g2'])
+  })
+
   // Scenario 2: repo.loadTemplateData throwing sets templateError while
   // leaving setupLists populated from the earlier successful block — proves
   // the error partitioning survived the move.
