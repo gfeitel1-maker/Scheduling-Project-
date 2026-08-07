@@ -42,3 +42,40 @@ html, body, #root {
 button { cursor: pointer; font-family: inherit; }
 input, select, textarea { font-family: inherit; }
 a { text-decoration: none; color: inherit; }
+
+/* ---------- Global motion primitives (design audit 2026-08-07) ---------- */
+/* Press feedback. No hover-scale anywhere — press only. Personality is
+   "quiet, precise": the button acknowledges the finger, it does not perform. */
+
+.press-97,
+.press-98 {
+  transition: transform var(--motion-fast) var(--ease-out);
+}
+.press-97:active:not(:disabled) { transform: scale(0.97); }
+.press-98:active:not(:disabled) { transform: scale(0.98); }
+
+/* Skeleton shimmer — DESIGN_STANDARD §5b, 1200ms linear infinite. */
+@keyframes shoresh-skeleton-shimmer {
+  from { background-position: -160% 0; }
+  to   { background-position: 260% 0; }
+}
+
+/* Indeterminate progress bar travel — DESIGN_STANDARD §5b blocking action.
+   Linear is correct for indeterminate progress: an eased loop reads as a
+   repeating gesture, a linear one reads as ongoing work. */
+@keyframes shoresh-indeterminate {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(350%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .press-97, .press-98 { transition: none; }
+  .press-97:active:not(:disabled),
+  .press-98:active:not(:disabled) { transform: none; }
+  .shoresh-skeleton-block { animation: none !important; background-image: none !important; }
+  .shoresh-indeterminate-fill {
+    animation: none !important;
+    transform: none !important;
+    width: 100% !important;
+  }
+}

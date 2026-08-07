@@ -1,9 +1,52 @@
 // Shared inline style constants — import as: import { S } from '../styles/shared'
+import { useState, useEffect } from 'react'
 
-// No CSS files in this codebase, so prefers-reduced-motion fallbacks are
-// read via matchMedia at render time rather than a @media block.
+// Reduced-motion fallbacks for inline-styled elements are read via
+// matchMedia at render time; global motion primitives live in src/index.css.
 export function prefersReducedMotion() {
   return typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+}
+
+/**
+ * Mount transition for inline-styled elements. Returns a style fragment to
+ * spread onto the animated element. Renders one frame in the "from" state,
+ * then flips to the "to" state on the next animation frame.
+ *
+ * variant:
+ *   'slideFade' — translateY(-4px)->0 + opacity 0->1, --motion-base   (§5c error banners)
+ *   'liftFade'  — translateY(8px)->0  + opacity 0->1, --motion-base   (modals)
+ *   'popFade'   — scale(0.97)->1      + opacity 0->1, 180ms           (anchored popovers)
+ *
+ * Under prefers-reduced-motion the transform is dropped entirely and only
+ * opacity crossfades, per DESIGN_STANDARD §8.
+ */
+export function useEnterTransition(variant, { transformOrigin } = {}) {
+  const reduced = prefersReducedMotion()
+  const [entered, setEntered] = useState(false)
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setEntered(true))
+    return () => cancelAnimationFrame(id)
+  }, [])
+
+  const FROM = {
+    slideFade: 'translateY(-4px)',
+    liftFade: 'translateY(8px)',
+    popFade: 'scale(0.97)',
+  }
+  const DURATION = variant === 'popFade' ? '180ms' : 'var(--motion-base)'
+
+  if (reduced) {
+    return {
+      opacity: entered ? 1 : 0,
+      transition: `opacity ${DURATION} var(--ease-out)`,
+    }
+  }
+  return {
+    opacity: entered ? 1 : 0,
+    transform: entered ? 'none' : FROM[variant],
+    transformOrigin,
+    transition: `opacity ${DURATION} var(--ease-out), transform ${DURATION} var(--ease-out)`,
+  }
 }
 
 export const S = {

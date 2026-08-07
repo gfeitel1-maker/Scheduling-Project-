@@ -144,7 +144,7 @@ Twelve agents. This roster is authoritative; `.claude/agents/` must match it exa
 | **Governor** | Routing, classification, briefing, stopping rules, escalation. Never implements, never reviews. |
 | **Architect** | Technical structure before code: schema, module boundaries, wire/IPC shape. Writes the ADR. |
 | **Designer** | Visual and interaction specification before code. Never technical structure. Accepts either a Governor brief or a Design Auditor report (Mode B). |
-| **Design Auditor** | Read-only UI sweep: animation opportunities and polish gaps → ranked DESIGN AUDIT REPORT. Invoked by `/design-audit` skill. Does not spec or implement. |
+| **Design Auditor** | Read-only UI sweep: animation opportunities and polish gaps → ranked DESIGN AUDIT REPORT that feeds Designer Mode B. Invoked by the `/design-audit` skill. Never specs, never proposes implementation, never writes CSS. |
 | **Maker** | The only agent that writes production code. |
 | **Code Reviewer** | Plan alignment and maintainability, by reading. |
 | **Verifier** | Executes gates, reports raw results, forms no opinion. The only deterministic evidence source. |
