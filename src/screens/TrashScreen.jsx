@@ -168,14 +168,14 @@ export default function TrashScreen({ role }) {
             {childOffer.parent.name || 'it'}: {childOffer.children.map((c) => c.name || `an unnamed ${entityLabel(c.entity).toLowerCase()}`).join(', ')}.
             They are still deleted.
           </div>
-          <button
+          <button className="press-97"
             style={S.btnSecondary}
             disabled={busyId !== null}
             onClick={() => restoreChildren(childOffer)}
           >
             Bring those back too
           </button>{' '}
-          <button style={S.btnSecondary} onClick={() => setChildOffer(null)}>Leave them</button>
+          <button className="press-97" style={S.btnSecondary} onClick={() => setChildOffer(null)}>Leave them</button>
         </Notice>
       )}
 
@@ -231,14 +231,14 @@ export default function TrashScreen({ role }) {
                       {row.deleted_on_device_name ? ` · ${row.deleted_on_device_name}` : ''}
                     </td>
                     <td style={{ ...S.td, textAlign: 'right', whiteSpace: 'nowrap' }}>
-                      <button
+                      <button className="press-97"
                         style={S.btnSecondary}
                         onClick={() => setHistoryFor(row)}
                       >
                         History
                       </button>{' '}
                       {isAdmin && (
-                        <button
+                        <button className="press-97"
                           style={{ ...S.btnPrimary, ...(busyId ? S.buttonDisabled : {}) }}
                           disabled={busyId !== null}
                           onClick={() => restore(row)}

@@ -65,7 +65,7 @@ export default function ScheduleActivityView({
           return (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
-                <button
+                <button className="press-97"
                   onClick={() => onSelectActivity(null)}
                   style={{ ...S.btnSecondary, padding: '5px 12px', fontSize: 12 }}
                 >← All Activities</button>

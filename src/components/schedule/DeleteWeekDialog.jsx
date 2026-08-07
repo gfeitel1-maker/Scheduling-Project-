@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { S } from '../../styles/shared'
+import { S, useEnterTransition } from '../../styles/shared'
 
 // Confirmation dialog for permanently deleting a week.
 // Queries real counts before rendering and shows only clauses whose count > 0.
@@ -8,6 +8,7 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
   const [counts, setCounts] = useState(null)
   const [confirming, setConfirming] = useState(false)
   const [deleteError, setDeleteError] = useState(null)
+  const enterStyle = useEnterTransition('liftFade')
 
   useEffect(() => {
     if (!week) return
@@ -56,7 +57,7 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
 
   if (!counts) {
     return (
-      <div style={overlayStyle}>
+      <div style={{ ...overlayStyle, ...enterStyle }}>
         <div style={dialogStyle}>
           <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Loading…</p>
         </div>
@@ -83,7 +84,7 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
     : `Deleting it removes all of that permanently — this cannot be undone.`
 
   return (
-    <div style={overlayStyle}>
+    <div style={{ ...overlayStyle, ...enterStyle }}>
       <div style={dialogStyle}>
         <h3 style={{ margin: '0 0 12px', fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
           Permanently delete "{week.name}"?
@@ -102,7 +103,7 @@ export default function DeleteWeekDialog({ week, campId, localClient, repo, onCo
           </p>
         )}
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button
+          <button className="press-97"
             onClick={onCancel}
             disabled={confirming}
             style={{ ...S.btnSecondary, fontSize: 13 }}

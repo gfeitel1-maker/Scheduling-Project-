@@ -90,10 +90,10 @@ function CohortRow({ cohort, onSave, onDelete }) {
             style={{ ...S.input, width: 60 }} />
         </td>
         <td style={{ ...S.td, textAlign: 'right' }}>
-          <button onClick={save} disabled={saving} style={S.btnPrimary}>
+          <button className="press-97" onClick={save} disabled={saving} style={S.btnPrimary}>
             {saving ? 'Saving…' : 'Save'}
           </button>
-          <button onClick={cancel} style={{ ...S.btnSecondary, marginLeft: 6 }}>Cancel</button>
+          <button className="press-97" onClick={cancel} style={{ ...S.btnSecondary, marginLeft: 6 }}>Cancel</button>
         </td>
       </tr>
     )
@@ -116,7 +116,7 @@ function CohortRow({ cohort, onSave, onDelete }) {
       </td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{cohort.sort_order}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
-        <button onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
+        <button className="press-97" onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
         <button onClick={() => onDelete(cohort.id)} style={{ ...S.btnDanger, marginLeft: 6 }}>Delete</button>
       </td>
     </tr>
@@ -320,7 +320,7 @@ export default function CohortsScreen({ campId }) {
             style={{ ...S.input, flex: '1 1 200px' }}>
             {CAPACITY_SOURCES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <button onClick={addCohort} disabled={adding || !newName.trim()}
+          <button className="press-97" onClick={addCohort} disabled={adding || !newName.trim()}
             style={{ ...S.btnPrimary, flexShrink: 0 }}>
             {adding ? 'Adding…' : '+ Add Program'}
           </button>

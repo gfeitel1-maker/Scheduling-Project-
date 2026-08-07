@@ -107,7 +107,7 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
                           style={{ ...S.input, padding: '3px 6px', fontSize: 12, width: '100%' }}
                           placeholder="Version name…"
                         />
-                        <button
+                        <button className="press-97"
                           onClick={() => {
                             if (renameValue.trim()) onRenameAutoSave(snap.id, renameValue.trim())
                             setRenamingId(null)

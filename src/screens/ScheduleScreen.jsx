@@ -584,7 +584,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               </li>
             ))}
           </ul>
-          <button onClick={() => onNavigate(setupGaps[0].screen)} style={{ ...S.btnPrimary, marginTop: 12 }}>
+          <button className="press-97" onClick={() => onNavigate(setupGaps[0].screen)} style={{ ...S.btnPrimary, marginTop: 12 }}>
             Set up {setupGaps[0].label}
           </button>
         </div>
@@ -629,7 +629,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6, marginBottom: 20 }}>You have both. Opening one changes nothing about the other, and you can switch any time from the left.</div>
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
           {ROUTES.map(r => (
-            <button
+            <button className="press-97"
               key={r}
               onClick={() => { setRoute(r); onNavigate?.(`schedule:${r}`) }}
               style={{ ...S.btnSecondary, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, padding: '12px 18px' }}
@@ -677,7 +677,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>{copy.offerTitle}</div>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{copy.offerBody}</div>
-        <button
+        <button className="press-97"
           onClick={() => { setRoute(r); onNavigate?.(`schedule:${r}`); startRoute[r]() }}
           disabled={generating || role !== 'admin'}
           title={role !== 'admin' ? 'Admin only' : undefined}
@@ -820,7 +820,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             {/* Export must act on exactly ONE schedule, and the app does not get
                 to pick. With both routes started it asks, every time, and never
                 remembers the answer. */}
-            <button onClick={handleExportClick} style={S.btnSecondary}>Export to Excel</button>
+            <button className="press-97" onClick={handleExportClick} style={S.btnSecondary}>Export to Excel</button>
             {!isManual && (
               <button
                 onClick={() => setConfirmRegen(true)}

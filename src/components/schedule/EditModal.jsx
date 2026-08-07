@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { ANCHOR_COLOR, activityColor } from './slotCellConstants'
-import { S } from '../../styles/shared'
+import { S, useEnterTransition } from '../../styles/shared'
 
 export default function EditModal({ slot, eligibleActivities, currentActivity, currentAnchor, weatherAlt, weatherMode, onSave, onClose }) {
   // The slot threaded in from the grid carries the DB-shaped `activity_id`
@@ -9,23 +9,24 @@ export default function EditModal({ slot, eligibleActivities, currentActivity, c
   // sat on "Clear slot" and an unchanged Save blanked the cell. Preselect the
   // current activity from whichever key is present.
   const [selected, setSelected] = useState(slot.activity_id ?? slot.activityId ?? '')
+  const enterStyle = useEnterTransition('liftFade')
 
   if (slot.type === 'anchor') {
     return (
-      <div style={S.overlay}>
+      <div style={{ ...S.overlay, ...enterStyle }}>
         <div style={S.modalLg}>
           <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8, color: ANCHOR_COLOR }}>
             ⚓ Anchor: {currentAnchor?.name}
           </div>
           <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>Anchors are fixed and cannot be changed here.</div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button onClick={onClose} style={S.btnPrimary}>Close</button></div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button className="press-97" onClick={onClose} style={S.btnPrimary}>Close</button></div>
         </div>
       </div>
     )
   }
 
   return (
-    <div style={S.overlay}>
+    <div style={{ ...S.overlay, ...enterStyle }}>
       <div style={S.modalLg}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Assign Activity</div>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 16, fontFamily: 'var(--font-mono)' }}>
@@ -35,7 +36,7 @@ export default function EditModal({ slot, eligibleActivities, currentActivity, c
         {weatherMode && weatherAlt && (
           <div style={{ background: 'color-mix(in srgb, var(--accent) 9%, var(--surface))', border: '1px solid var(--accent)', borderRadius: 6, padding: '8px 12px', marginBottom: 12, fontSize: 13 }}>
             <span style={{ color: 'var(--accent)', fontWeight: 600 }}>Weather alternative: </span>{weatherAlt.name}
-            <button onClick={() => { setSelected(weatherAlt.id); setTimeout(() => onSave(weatherAlt.id), 50) }} style={{ ...S.btnPrimary, padding: '4px 10px', marginLeft: 10, fontSize: 12 }}>Swap</button>
+            <button className="press-97" onClick={() => { setSelected(weatherAlt.id); setTimeout(() => onSave(weatherAlt.id), 50) }} style={{ ...S.btnPrimary, padding: '4px 10px', marginLeft: 10, fontSize: 12 }}>Swap</button>
           </div>
         )}
 
@@ -62,8 +63,8 @@ export default function EditModal({ slot, eligibleActivities, currentActivity, c
         </div>
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={S.btnSecondary}>Cancel</button>
-          <button onClick={() => onSave(selected || null)} style={S.btnPrimary}>Save</button>
+          <button className="press-97" onClick={onClose} style={S.btnSecondary}>Cancel</button>
+          <button className="press-97" onClick={() => onSave(selected || null)} style={S.btnPrimary}>Save</button>
         </div>
       </div>
     </div>

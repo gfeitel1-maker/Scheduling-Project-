@@ -56,7 +56,7 @@ export const S = {
     color: '#fff',
     border: 'none',
     borderRadius: 7,
-    fontWeight: 700,
+    fontWeight: 600,
     fontSize: 13,
     cursor: 'pointer',
     fontFamily: 'inherit',

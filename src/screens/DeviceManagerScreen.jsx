@@ -118,7 +118,7 @@ export default function DeviceManagerScreen({ campId, role }) {
                   <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{device.id.slice(0, 8)}</td>
                   <td style={S.td}>
                     <div style={styles.actions}>
-                      <button
+                      <button className="press-97"
                         style={busy[device.id] ? { ...S.btnPrimary, ...S.buttonDisabled } : S.btnPrimary}
                         disabled={!!busy[device.id]}
                         onClick={() => handleApprove(device.id)}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 
@@ -52,6 +52,7 @@ function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
   const [loadError, setLoadError] = useState(null)
   // slots: { [blockId]: activityId | '' }  (presence = overridden, '' = clear block)
   const [slots, setSlots] = useState({})
+  const enterStyle = useEnterTransition('liftFade')
 
   async function loadResources() {
     setLoadError(null)
@@ -197,7 +198,7 @@ function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
   }
 
   return (
-    <div style={S.overlay}>
+    <div style={{ ...S.overlay, ...enterStyle }}>
       <div style={{ ...S.modalLg, width: 560 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, marginBottom: 20 }}>
           {isNew ? 'New Override Template' : `Edit: ${template.name}`}
@@ -262,8 +263,8 @@ function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
         {saveError && <div style={S.errorBanner}>{saveError}</div>}
 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
-          <button onClick={onClose} style={S.btnSecondary}>Cancel</button>
-          <button onClick={save} disabled={saving || !name.trim()}
+          <button className="press-97" onClick={onClose} style={S.btnSecondary}>Cancel</button>
+          <button className="press-97" onClick={save} disabled={saving || !name.trim()}
             style={{ ...S.btnPrimary, opacity: (!name.trim() || saving) ? 0.5 : 1 }}>
             {saving ? 'Saving…' : isNew ? 'Create Template' : 'Save Changes'}
           </button>
@@ -357,7 +358,7 @@ export default function DayOverridesScreen({ campId, role }) {
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           {templates.length} template{templates.length !== 1 ? 's' : ''}
         </div>
-        <button onClick={() => setModal({ template: null })} style={S.btnPrimary}>+ New Template</button>
+        <button className="press-97" onClick={() => setModal({ template: null })} style={S.btnPrimary}>+ New Template</button>
       </div>
 
       {loading ? (
@@ -392,7 +393,7 @@ export default function DayOverridesScreen({ campId, role }) {
                     {t.day_override_template_slots?.length ?? 0} block{(t.day_override_template_slots?.length ?? 0) !== 1 ? 's' : ''}
                   </td>
                   <td style={{ ...S.td, textAlign: 'right' }}>
-                    <button onClick={() => setModal({ template: t })} style={S.btnSecondary}>Edit</button>
+                    <button className="press-97" onClick={() => setModal({ template: t })} style={S.btnSecondary}>Edit</button>
                     <button
                       onClick={() => deleteTemplate(t.id)}
                       disabled={role !== 'admin'}
