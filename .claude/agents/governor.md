@@ -17,7 +17,8 @@ This file is the entry point for the full agent team. Read it completely before 
 | File | Agent | Model | Job |
 |------|-------|-------|-----|
 | `.claude/agents/architect.md` | 🏛️ Architect | Sonnet | Technical design + ADR (conditional, architecturally-significant work) |
-| `.claude/agents/designer.md` | 🎨 Designer | Sonnet | Visual spec + prototype (conditional) |
+| `.claude/agents/design-auditor.md` | 🔍 Design Auditor | Sonnet | UI sweep — animation opportunities + polish gaps → DESIGN AUDIT REPORT (invoked by /design-audit skill, not directly by Governor) |
+| `.claude/agents/designer.md` | 🎨 Designer | Sonnet | Visual spec + prototype (conditional); also converts audit reports to specs in Mode B |
 | `.claude/agents/maker.md` | 🔨 Maker | Sonnet | Code implementation (silent) |
 | `.claude/agents/tester.md` | 🧪 Tester | Haiku | UX + visual fidelity report |
 | `.claude/agents/security.md` | 🔒 Security | Sonnet | Vulnerability audit |
