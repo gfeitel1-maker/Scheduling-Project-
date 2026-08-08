@@ -49,14 +49,32 @@ together** (an emitted-but-unconsumed plan is busywork that drifts). The gate is
 proving byte-identical `appendOp` sequences on both real camp corpora — the plan changes the internal
 shape, not the observable output.
 
-### S1 + S2 — One gated deliverable
+### S1 — split into S1a (recognition) and S1b (alias memory)
 
-- **S1:** surface matches (UUID + alias), upgrade the preview's `skip` into `unchanged`/`matched`;
-  still **no field writes**.
-- **S2:** add the update / clear / conflict field-merge, the full **New / Updated / Unchanged / Clear /
-  Conflict** preview, and the T36 residual report.
+S1 was split after adversarial (Red Hat) + Security review found real, code-verified problems that
+cluster into two independent groups: recognition-path issues (no schema) and `source_aliases`
+machinery issues (schema/sync/migration/divergence/atomicity/permissions). The two ship separately.
 
-S1 and S2 ship as **one gated deliverable** because S1 has nothing to update until S2 exists.
+- **S1a — Recognition** (ADR `docs/adr/2026-08-08-s1a-import-recognizes-existing-entities.md`, proposed):
+  wire the real `existing` snapshot into `buildPlan` at commit so an exact-normalized-name match becomes
+  `unchanged` (zero ops) **in the plan**; add commit-time re-resolution so a concurrent same-name row or
+  a deleted recognized row becomes a **gated `conflict`** (surfaced, no op) instead of a `UNIQUE` throw
+  that aborts the whole import; `ambiguous_identity` is live (from the `normalizeName`/raw-`UNIQUE`
+  mismatch) with no alias machinery. **No `source_aliases`, no schema change, no sync/migration.** F4 is
+  scoped to the six ingestible entities; fixed-event re-import idempotency is deferred to ticket
+  **T72**. Shippable safely on its own.
+- **S1b — Alias memory** (ADR `docs/adr/2026-08-08-s1b-source-aliases.md`, **design not yet complete**):
+  the synced `source_aliases` table, the confirmed-alias tier, and alias-divergence detection **and
+  convergent resolution**, with all the sync/migration/atomicity/permission fixes the review raised
+  (parked as explicit open obligations in that ADR). Alias writes are **ADMIN-ONLY**. This is where every
+  review finding except the two recognition-path ones (R4, R5) lives. Design round + re-review required
+  before code.
+
+### S2 — field-merge (update / clear / conflict)
+
+Add the update / clear / conflict field-merge, the full **New / Updated / Unchanged / Clear /
+Conflict** preview, and the T36 residual report. S2 depends on S1a's recognition; it no longer needs to
+ship jointly with S1 now that recognition (S1a) stands alone.
 
 ### S3 — Location first-class (engine work)
 
