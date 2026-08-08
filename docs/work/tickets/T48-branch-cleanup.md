@@ -1,7 +1,7 @@
 ---
 title: T48-branch-cleanup
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-05
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 related_adrs: []

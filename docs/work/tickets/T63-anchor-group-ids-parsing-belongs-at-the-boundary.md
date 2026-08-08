@@ -1,7 +1,7 @@
 ---
 title: T63-anchor-group-ids-parsing-belongs-at-the-boundary
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-07
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_tickets: [docs/work/tickets/T62-engine-schedules-anchor-activities-as-regular-slots.md]

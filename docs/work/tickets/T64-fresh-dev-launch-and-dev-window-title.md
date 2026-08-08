@@ -1,7 +1,7 @@
 ---
 title: T64-fresh-dev-launch-and-dev-window-title
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-07
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_adrs: [docs/adr/2026-07-28-explicit-userdata-directory.md]
