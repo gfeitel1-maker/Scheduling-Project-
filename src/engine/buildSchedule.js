@@ -77,15 +77,13 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
   const blockOrder = new Map(timeBlocksSorted.map((b, i) => [b.id, i]))
 
   // ── Pass 0: resolve eligibility ──────────────────────────────────────────
-  function parseIds(v) {
-    if (Array.isArray(v)) return v
-    if (typeof v === 'string') { try { return JSON.parse(v) } catch { return [] } }
-    return []
-  }
   const eligibility = new Map() // activityId → Set<groupId>
   for (const act of activities) {
-    const tierIds = parseIds(act.eligible_tier_ids)
-    const groupIds = parseIds(act.eligible_group_ids)
+    // Contract: eligible_tier_ids / eligible_group_ids are arrays of ids.
+    // Callers normalize — this engine does not deserialize; see
+    // src/utils/normalizeActivityEligibility.js.
+    const tierIds = act.eligible_tier_ids || []
+    const groupIds = act.eligible_group_ids || []
     let eligible = new Set()
     if (tierIds.length === 0 && groupIds.length === 0) {
       for (const g of groups) eligible.add(g.id)
@@ -414,20 +412,17 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
 // findings must reflect what's on screen, not just what the last generate()
 // happened to compute. Mirrors the aggregate-findings logic in scheduleCohort's
 // Pass 3, but reads counts off `slots` instead of the live placement maps.
-function parseIdsField(v) {
-  if (Array.isArray(v)) return v
-  if (typeof v === 'string') { try { return JSON.parse(v) } catch { return [] } }
-  return []
-}
-
 export function computeFindings({ slots, groups, activities, days }) {
   const findings = []
   if (!slots || !groups || !activities || !days) return findings
 
   const eligibility = new Map()
   for (const act of activities) {
-    const tierIds = parseIdsField(act.eligible_tier_ids)
-    const groupIds = parseIdsField(act.eligible_group_ids)
+    // Contract: eligible_tier_ids / eligible_group_ids are arrays of ids.
+    // Callers normalize — this engine does not deserialize; see
+    // src/utils/normalizeActivityEligibility.js.
+    const tierIds = act.eligible_tier_ids || []
+    const groupIds = act.eligible_group_ids || []
     const eligible = new Set()
     if (tierIds.length === 0 && groupIds.length === 0) {
       for (const g of groups) eligible.add(g.id)

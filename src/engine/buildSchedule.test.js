@@ -695,3 +695,143 @@ describe('session counting (span = one session)', () => {
       .toEqual(findings.filter(f => f.kind === 'DISTRIBUTION').map(f => f.beforeCount))
   })
 })
+
+// ── Activity eligibility is array-only (T69) ──────────────────────────────────
+// The engine reads `eligible_tier_ids` / `eligible_group_ids` as real arrays and
+// does not deserialize; the boundary (useScheduleData.js →
+// normalizeActivityEligibility) owns that. These pin both the restricting case
+// and the "both lists empty means unrestricted" semantics, so a future
+// serialized column cannot quietly reintroduce a parallel parser.
+
+describe('activity eligible_group_ids as a raw array (T69)', () => {
+  const eg1 = { id: 'g1', name: 'Aleph', tier_id: 't1', availability: 'all' }
+  const eg2 = { id: 'g2', name: 'Bet', tier_id: 't1', availability: 'all' }
+  const eg3 = { id: 'g3', name: 'Gimel', tier_id: 't2', availability: 'all' }
+  const tiers = [{ id: 't1', name: 'Junior' }, { id: 't2', name: 'Senior' }]
+
+  function build(activities) {
+    return buildSchedule({
+      groups: [eg1, eg2, eg3],
+      tiers,
+      days: [baseDay],
+      timeBlocks: [blockA, blockB],
+      activities,
+      anchors: [],
+      campId: 'test',
+    })
+  }
+
+  it('restricts placement to exactly the groups listed in the array', () => {
+    const act = { ...baseAct, id: 'drama', eligible_tier_ids: [], eligible_group_ids: ['g1', 'g3'] }
+    const { slots } = build([act])
+
+    const placedGroups = new Set(slots.filter(s => s.activityId === 'drama').map(s => s.groupId))
+    expect(placedGroups.has('g1')).toBe(true)
+    expect(placedGroups.has('g3')).toBe(true)
+    expect(placedGroups.has('g2')).toBe(false)
+
+    // g2 has no eligible activity at all, so its cells come back unfillable.
+    const g2Filled = slots.filter(s => s.groupId === 'g2' && s.activityId != null)
+    expect(g2Filled).toHaveLength(0)
+  })
+
+  it('treats empty eligible_tier_ids + empty eligible_group_ids as unrestricted', () => {
+    const act = { ...baseAct, id: 'drama', eligible_tier_ids: [], eligible_group_ids: [] }
+    const { slots } = build([act])
+
+    const placedGroups = new Set(slots.filter(s => s.activityId === 'drama').map(s => s.groupId))
+    expect([...placedGroups].sort()).toEqual(['g1', 'g2', 'g3'])
+  })
+
+  // The `|| []` in Pass 0 is load-bearing for a real DB state: both columns are
+  // nullable, and normalizeActivityEligibility passes NULL through as null. If
+  // the `|| []` were dropped, `null.length` throws — so these discriminate the
+  // null-safety half of the contract, which the array fixtures above cannot.
+  it('treats null eligibility lists as unrestricted, identically to []', () => {
+    const act = { ...baseAct, id: 'drama', eligible_tier_ids: null, eligible_group_ids: null }
+    const { slots } = build([act])
+
+    const placedGroups = new Set(slots.filter(s => s.activityId === 'drama').map(s => s.groupId))
+    expect([...placedGroups].sort()).toEqual(['g1', 'g2', 'g3'])
+  })
+
+  it('treats omitted eligibility fields as unrestricted, identically to []', () => {
+    const act = { ...baseAct, id: 'drama' }
+    delete act.eligible_tier_ids
+    delete act.eligible_group_ids
+    const { slots } = build([act])
+
+    const placedGroups = new Set(slots.filter(s => s.activityId === 'drama').map(s => s.groupId))
+    expect([...placedGroups].sort()).toEqual(['g1', 'g2', 'g3'])
+  })
+
+  it('unions tier eligibility with the group array', () => {
+    const act = { ...baseAct, id: 'drama', eligible_tier_ids: ['t2'], eligible_group_ids: ['g1'] }
+    const { slots } = build([act])
+
+    const placedGroups = new Set(slots.filter(s => s.activityId === 'drama').map(s => s.groupId))
+    expect([...placedGroups].sort()).toEqual(['g1', 'g3'])
+  })
+})
+
+describe('computeFindings eligible_group_ids as a raw array (T69)', () => {
+  // computeFindings resolves eligibility in its own code path, separate from
+  // scheduleCohort's Pass 0 — pin the same contract here.
+  const eg1 = { id: 'g1', name: 'Aleph', tier_id: 't1' }
+  const eg2 = { id: 'g2', name: 'Bet', tier_id: 't1' }
+  const eg3 = { id: 'g3', name: 'Gimel', tier_id: 't2' }
+  const groups = [eg1, eg2, eg3]
+  const days = [baseDay]
+
+  it('only reports UNDERSERVED for the groups listed in the array', () => {
+    const act = {
+      id: 'a1', name: 'Archery', min_per_week: 2,
+      eligible_tier_ids: [], eligible_group_ids: ['g1', 'g3'],
+      prefer_before_day: null, prefer_before_day_min: null,
+    }
+    const findings = computeFindings({ slots: [], groups, activities: [act], days })
+    expect(findings.map(f => f.groupId).sort()).toEqual(['g1', 'g3'])
+  })
+
+  it('treats both lists empty as unrestricted', () => {
+    const act = {
+      id: 'a1', name: 'Archery', min_per_week: 2,
+      eligible_tier_ids: [], eligible_group_ids: [],
+      prefer_before_day: null, prefer_before_day_min: null,
+    }
+    const findings = computeFindings({ slots: [], groups, activities: [act], days })
+    expect(findings.map(f => f.groupId).sort()).toEqual(['g1', 'g2', 'g3'])
+  })
+
+  // Same null-safety pin for computeFindings' own eligibility resolution — it is
+  // a separate `|| []` pair and would otherwise be uncovered against NULL columns.
+  it('treats null eligibility lists as unrestricted, identically to []', () => {
+    const act = {
+      id: 'a1', name: 'Archery', min_per_week: 2,
+      eligible_tier_ids: null, eligible_group_ids: null,
+      prefer_before_day: null, prefer_before_day_min: null,
+    }
+    const findings = computeFindings({ slots: [], groups, activities: [act], days })
+    expect(findings.map(f => f.groupId).sort()).toEqual(['g1', 'g2', 'g3'])
+  })
+
+  it('treats omitted eligibility fields as unrestricted, identically to []', () => {
+    const act = {
+      id: 'a1', name: 'Archery', min_per_week: 2,
+      prefer_before_day: null, prefer_before_day_min: null,
+    }
+    const findings = computeFindings({ slots: [], groups, activities: [act], days })
+    expect(findings.map(f => f.groupId).sort()).toEqual(['g1', 'g2', 'g3'])
+  })
+
+  it('respects the array when suppressing a DISTRIBUTION finding', () => {
+    const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
+    const act = {
+      id: 'a1', name: 'Arts', min_per_week: 0,
+      eligible_tier_ids: [], eligible_group_ids: ['g2'],
+      prefer_before_day: 2, prefer_before_day_min: 1,
+    }
+    const findings = computeFindings({ slots: [], groups, activities: [act], days: [baseDay, day2] })
+    expect(findings.filter(f => f.kind === 'DISTRIBUTION').map(f => f.groupId)).toEqual(['g2'])
+  })
+})
