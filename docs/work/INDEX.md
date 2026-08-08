@@ -20,13 +20,6 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [T36-ingest-unlabeled-path-residuals](../../docs/work/tickets/T36-ingest-unlabeled-path-residuals.md) | open | — |
-| [T66-appendop-prepares-statements-per-op](../../docs/work/tickets/T66-appendop-prepares-statements-per-op.md) | open | — |
-
-### ui-ux-design
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [T68-replace-confirmation-omits-fixed-events](../../docs/work/tickets/T68-replace-confirmation-omits-fixed-events.md) | open | — |
 
 ### unclassified
 
