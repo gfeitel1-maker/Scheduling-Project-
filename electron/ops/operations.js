@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
 import { PROJECTIONS, applyProjection } from './projections.js'
+import { getStmt } from './stmtCache.js'
 
 // Sentinel field name for a row-delete op. Deliberately routed through the
 // SAME appendOp/detectConflict/appendOp-log path as every other field-level
@@ -84,14 +85,13 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
   const storedValue = coerceOpValue(value)
 
   const run = db.transaction(() => {
-    const result = db
-      .prepare(
-        `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(id, entity, entity_id, field, storedValue, author_user_id ?? null, device_id, timestamp, parent_op_id ?? null, client_write_id ?? null)
+    const result = getStmt(
+      db,
+      `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, entity, entity_id, field, storedValue, author_user_id ?? null, device_id, timestamp, parent_op_id ?? null, client_write_id ?? null)
 
-    const op = db.prepare('SELECT * FROM operations WHERE seq = ?').get(result.lastInsertRowid)
+    const op = getStmt(db, 'SELECT * FROM operations WHERE seq = ?').get(result.lastInsertRowid)
     // applyProjection returns false only for a rejected camp_id write (see
     // projections.js) — every other rejection (unregistered entity/field) is
     // a legitimate silent no-op. appendOp is called both for genuinely local
@@ -118,7 +118,7 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
 // always does, since op ids are server-assigned per submission).
 export function findOpByClientWriteId(db, client_write_id) {
   if (typeof client_write_id !== 'string' || client_write_id.length === 0) return null
-  return db.prepare('SELECT * FROM operations WHERE client_write_id = ?').get(client_write_id) || null
+  return getStmt(db, 'SELECT * FROM operations WHERE client_write_id = ?').get(client_write_id) || null
 }
 
 // --- Bulk-replace op-log primitive ---------------------------------------
@@ -312,13 +312,12 @@ export function latestScopeOpSeq(db, entity, scope_id) {
   // version 18) — raw seq there is a locally-minted AUTOINCREMENT value in
   // an unrelated numbering space. On the Host's own db this is a no-op
   // (host_seq is always NULL there), so this degenerates to plain seq.
-  const row = db
-    .prepare(
-      `SELECT MAX(COALESCE(host_seq, seq)) as maxSeq FROM operations
-       WHERE entity = ?
-         AND (entity_id = ? OR entity_id IN (SELECT id FROM ${config.table} WHERE ${config.scopeColumn} = ?))`
-    )
-    .get(entity, scope_id, scope_id)
+  const row = getStmt(
+    db,
+    `SELECT MAX(COALESCE(host_seq, seq)) as maxSeq FROM operations
+     WHERE entity = ?
+       AND (entity_id = ? OR entity_id IN (SELECT id FROM ${config.table} WHERE ${config.scopeColumn} = ?))`
+  ).get(entity, scope_id, scope_id)
   return row && Number.isInteger(row.maxSeq) ? row.maxSeq : 0
 }
 
@@ -342,7 +341,7 @@ export function detectBulkReplaceConflict(db, { entity, scope_id, based_on_seq }
     // host_seq is always NULL on the Host's own rows. Do not reuse this
     // `WHERE seq = ?` pattern against a Client db; there currentSeq may be a
     // Host-canonical value that only matches via host_seq, not seq.
-    const existingOp = db.prepare('SELECT * FROM operations WHERE seq = ?').get(currentSeq)
+    const existingOp = getStmt(db, 'SELECT * FROM operations WHERE seq = ?').get(currentSeq)
     return { conflict: true, existingOp }
   }
   return { conflict: false, currentSeq }
@@ -360,23 +359,23 @@ export function appendBulkReplaceOp(db, { entity, scope_id, rows, author_user_id
   const value = JSON.stringify(rows)
 
   const run = db.transaction(() => {
-    db.prepare(`DELETE FROM ${config.table} WHERE ${config.scopeColumn} = ?`).run(scope_id)
+    getStmt(db, `DELETE FROM ${config.table} WHERE ${config.scopeColumn} = ?`).run(scope_id)
 
-    const insert = db.prepare(
+    const insert = getStmt(
+      db,
       `INSERT INTO ${config.table} (${config.columns.join(', ')}) VALUES (${config.columns.map(() => '?').join(', ')})`
     )
     for (const row of rows) {
       insert.run(...config.columns.map((col) => (col in row ? row[col] : null)))
     }
 
-    const result = db
-      .prepare(
-        `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      )
-      .run(id, entity, scope_id, BULK_REPLACE_FIELD, value, author_user_id ?? null, device_id, timestamp, parent_op_id ?? null, client_write_id ?? null)
+    const result = getStmt(
+      db,
+      `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, entity, scope_id, BULK_REPLACE_FIELD, value, author_user_id ?? null, device_id, timestamp, parent_op_id ?? null, client_write_id ?? null)
 
-    return db.prepare('SELECT * FROM operations WHERE seq = ?').get(result.lastInsertRowid)
+    return getStmt(db, 'SELECT * FROM operations WHERE seq = ?').get(result.lastInsertRowid)
   })
 
   return run()
@@ -407,8 +406,9 @@ export function applyBulkReplaceProjection(db, op) {
   if (!validation.valid) return
 
   const run = db.transaction(() => {
-    db.prepare(`DELETE FROM ${config.table} WHERE ${config.scopeColumn} = ?`).run(op.entity_id)
-    const insert = db.prepare(
+    getStmt(db, `DELETE FROM ${config.table} WHERE ${config.scopeColumn} = ?`).run(op.entity_id)
+    const insert = getStmt(
+      db,
       `INSERT INTO ${config.table} (${config.columns.join(', ')}) VALUES (${config.columns.map(() => '?').join(', ')})`
     )
     for (const row of rows) {
@@ -419,11 +419,10 @@ export function applyBulkReplaceProjection(db, op) {
 }
 
 export function latestOp(db, entity, entity_id, field) {
-  return db
-    .prepare(
-      `SELECT * FROM operations WHERE entity = ? AND entity_id = ? AND field = ? ORDER BY seq DESC LIMIT 1`
-    )
-    .get(entity, entity_id, field)
+  return getStmt(
+    db,
+    `SELECT * FROM operations WHERE entity = ? AND entity_id = ? AND field = ? ORDER BY seq DESC LIMIT 1`
+  ).get(entity, entity_id, field)
 }
 
 // Latest op for an entity_id across ALL fields, regardless of which field
@@ -434,9 +433,10 @@ export function latestOp(db, entity, entity_id, field) {
 // concurrent delete even though a delete's field literally never matches a
 // real field name.
 function latestOpForEntity(db, entity, entity_id) {
-  return db
-    .prepare(`SELECT * FROM operations WHERE entity = ? AND entity_id = ? ORDER BY seq DESC LIMIT 1`)
-    .get(entity, entity_id)
+  return getStmt(
+    db,
+    `SELECT * FROM operations WHERE entity = ? AND entity_id = ? ORDER BY seq DESC LIMIT 1`
+  ).get(entity, entity_id)
 }
 
 // Round 2 Security MEDIUM #2 fix (Sub-plan B Task 3): detectConflict used to

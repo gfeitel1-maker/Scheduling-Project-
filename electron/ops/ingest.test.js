@@ -849,20 +849,25 @@ describe('replace mode on a camp big enough to hurt (T61 perf gate)', () => {
     // which also serves the sync server's message loop — a Replace that takes
     // minutes stalls every connected staff device.
     //
-    // MEASURED, not guessed, 2026-08-07. The cost is ~15ms of blocked main
+    // MEASURED, not guessed, 2026-08-07. The cost was ~15ms of blocked main
     // thread per row, essentially all of it inside appendOp (~4 db.prepare()
-    // calls per op at ~1.3ms each). That is a pre-existing property of the
+    // calls per op at ~1.3ms each). That was a pre-existing property of the
     // op-log write path, shared with deleteRecord.js — replaceScope adds no
     // per-row work of its own beyond one enumerating SELECT per table.
     //
+    // FIXED by T66 (electron/ops/stmtCache.js): appendOp and applyProjection
+    // now prepare each statement once per db handle per process instead of
+    // once per op, so this budget is tightened from the original 15000ms to
+    // reflect the new floor — see the T66 gate below for the full-schedule
+    // (~2400-op) scale test this repo couldn't run before the fix without
+    // exceeding its 20s testTimeout under full-suite contention.
+    //
     // Scale note: a 400-group camp with a FULL five-day schedule (2000 slots)
-    // measured ~37s, and as a test it exceeded this repo's 20s testTimeout
-    // under full-suite contention. Raising that timeout is explicitly not the
-    // fix (see vite.config.js), so this gate keeps the 400 groups and uses one
-    // day of slots. It still exercises the same per-row path and still catches
-    // an order-of-magnitude regression; it is NOT a claim that a real Replace
-    // is fast. See the spec's §"MEDIUM — transaction size blocks the main
-    // process"; making appendOp cheaper is its own ticket.
+    // measured ~37s pre-fix. This gate deliberately keeps the 400 groups and
+    // uses one day of slots so it still exercises the same per-row path and
+    // still catches an order-of-magnitude regression, without needing the
+    // 20s+ testTimeout the full-schedule scale requires — see the T66 gate
+    // below for that scale.
     const weekId = randomUUID()
     const templateId = randomUUID()
     db.prepare('INSERT INTO schedule_weeks (id, camp_id, name) VALUES (?, ?, ?)').run(weekId, campId, 'Week 1')
@@ -904,8 +909,77 @@ describe('replace mode on a camp big enough to hurt (T61 perf gate)', () => {
     expect(result.replaced.dependents.template_slots).toBe(400)
     expect(count('template_slots')).toBe(0)
     expect(count('groups')).toBe(400)
-    expect(elapsed).toBeLessThan(15000)
+    // Tightened from 15000ms (T66). Clean-machine measurement post-fix is
+    // under 1s; observed up to ~6.5s under this sandbox's own full-suite
+    // contention (this repo has a documented history of load flakiness —
+    // T25/T44). 10000ms keeps meaningful headroom over the worst loaded
+    // reading actually observed while still catching a regression back
+    // toward the old per-op-prepare cost, which pushed this same scale past
+    // 15s even before hitting the discontinued 37s full-schedule scale.
+    expect(elapsed).toBeLessThan(10000)
   })
+
+  it('finishes a 400-group camp with a FULL five-day schedule inside a tight wall-clock budget (T66)', () => {
+    // T66: the scenario the 400-group/one-day gate above deliberately did NOT
+    // cover, because at full 5-day scale (~2400 ops through appendOp) it took
+    // 37s pre-fix — and as a TEST, that exceeded this repo's global 20s
+    // testTimeout (vite.config.js) before the assertion below could even run,
+    // so a regression would have surfaced as an illegible framework timeout
+    // rather than a clean "took Nms, budget was Mms" failure. Fixed by giving
+    // THIS test its own longer per-test timeout (3rd arg to `it`, below) —
+    // the assertion's budget stays well under that timeout, not equal to it,
+    // so the assertion is what actually fails on a regression.
+    //
+    // MEASURED post-fix, clean single run (no contention): ~1.6s. Under this
+    // sandbox's own documented load-flakiness (T25/T44 — full-suite
+    // contention observed pushing the SAME 2400-op run as high as ~10.2s),
+    // 30000ms keeps ~3x headroom over the worst reading actually observed
+    // while still catching an order-of-magnitude regression back toward the
+    // pre-fix per-op-prepare cost (which was 37s at this exact scale).
+    const weekId = randomUUID()
+    const templateId = randomUUID()
+    db.prepare('INSERT INTO schedule_weeks (id, camp_id, name) VALUES (?, ?, ?)').run(weekId, campId, 'Week 1')
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name, kind, week_id) VALUES (?, ?, ?, ?, ?)')
+      .run(templateId, campId, 'Generated', 'generated', weekId)
+
+    const insertGroup = db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)')
+    const insertDay = db.prepare('INSERT INTO days_of_operation (id, camp_id, label, day_of_week) VALUES (?, ?, ?, ?)')
+    const insertActivity = db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)')
+    const insertSlot = db.prepare('INSERT INTO template_slots (id, template_id, group_id, activity_id, day_id, time_block_id) VALUES (?, ?, ?, ?, ?, ?)')
+
+    db.transaction(() => {
+      const dayIds = []
+      for (let d = 0; d < 5; d += 1) {
+        const dayId = randomUUID()
+        insertDay.run(dayId, campId, `Day ${d}`, d)
+        dayIds.push(dayId)
+      }
+      const activityId = randomUUID()
+      insertActivity.run(activityId, campId, 'Swim')
+      for (let g = 0; g < 400; g += 1) {
+        const groupId = randomUUID()
+        insertGroup.run(groupId, campId, `Bunk ${g}`)
+        for (const dayId of dayIds) {
+          insertSlot.run(randomUUID(), templateId, groupId, activityId, dayId, 'tb-1')
+        }
+      }
+    })()
+    expect(count('template_slots')).toBe(2000)
+
+    const startedAt = Date.now()
+    const result = commitIngest(db, {
+      mode: 'replace',
+      approved: { groups: Array.from({ length: 400 }, (_, i) => `Bunk ${i}`), activities: ['Swim'] },
+      camp_id: campId, author_user_id: 'u1', device_id: deviceId,
+    })
+    const elapsed = Date.now() - startedAt
+
+    expect(result.replaced.dependents.template_slots).toBe(2000)
+    expect(count('template_slots')).toBe(0)
+    expect(count('groups')).toBe(400)
+    console.log(`T66 2400-op scale: ${elapsed}ms`)
+    expect(elapsed).toBeLessThan(30000)
+  }, 60000)
 })
 
 describe('an imported activity that somebody can do runs at least once a week (T61)', () => {
