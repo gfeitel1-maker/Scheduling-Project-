@@ -552,7 +552,14 @@ function handleSubmitOp(db, wss, ws, msg) {
     sendError(ws)
     return
   }
-  const incomingOp = { ...msg.op, device_id: ws.deviceId }
+  // S2a Security V1 (CRITICAL): the Host is the originator of record for a
+  // peer's submitted field write. FORCE source:'human' and NEVER copy
+  // msg.op.source — a submitted op must never be able to introduce 'import'
+  // provenance (which would flip a victim's hand-edited field to import-owned
+  // and let the next import silently overwrite it, bypassing the S2b gate).
+  // 'import' is producible ONLY by host-local commitPlan. Unlike author_user_id
+  // (which IS client-asserted on this path), source is host-derived here.
+  const incomingOp = { ...msg.op, device_id: ws.deviceId, source: 'human' }
 
   // Task 10 round-5 Fix 3: idempotency-at-the-logical-write-level. If a
   // submit_op carrying this client_write_id was already applied (e.g. the

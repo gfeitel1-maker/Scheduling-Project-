@@ -96,6 +96,28 @@ export function lastKnownFields(db, entity, entity_id) {
   return values
 }
 
+// S2a: the provenance (`source`) of the last op that wrote each field — same
+// last-write-wins scan as lastKnownFields. restoreEntity carries this forward
+// so a trash->restore cycle does not LAUNDER an import-owned field into a
+// human-owned (NULL) one, which would silently convert Policy A into Policy B
+// for any restored entity (ADR §2, R2). A field whose last op has no recorded
+// source (all pre-v29 history) maps to NULL — the documented, deliberate
+// over-protection (a false "protect" costs a review click, never a lost edit).
+export function lastKnownFieldSources(db, entity, entity_id) {
+  const projection = PROJECTIONS[entity]
+  const allowed = new Set(projection ? projection.fields : [])
+  const sources = new Map()
+  const rows = db
+    .prepare('SELECT field, source FROM operations WHERE entity = ? AND entity_id = ? ORDER BY seq ASC')
+    .all(entity, entity_id)
+  for (const row of rows) {
+    if (row.field === DELETE_FIELD || row.field === BULK_REPLACE_FIELD) continue
+    if (!allowed.has(row.field)) continue
+    sources.set(row.field, row.source ?? null)
+  }
+  return sources
+}
+
 export function isDeleted(db, entity, entity_id) {
   const latest = latestOpForEntity(db, entity, entity_id)
   return !!latest && latest.field === DELETE_FIELD
@@ -149,6 +171,10 @@ export function restoreEntity(db, { entity, entity_id, author_user_id, device_id
   if (!isDeleted(db, entity, entity_id)) return { error: 'not-deleted' }
 
   const fields = lastKnownFields(db, entity, entity_id)
+  // S2a: preserve each restored field's ORIGINAL provenance (R2). Recoverable
+  // here because restore already reads the op history; a field with no recorded
+  // source maps to NULL (human) — the documented over-protection.
+  const sources = lastKnownFieldSources(db, entity, entity_id)
   // Every restorable entity's projection registers camp_id, and every create
   // path writes it — so its absence means this device does not hold the
   // record's creation, and restoring would produce a shell.
@@ -161,7 +187,7 @@ export function restoreEntity(db, { entity, entity_id, author_user_id, device_id
 
   const ops = db.transaction(() =>
     ordered.map(([field, value]) =>
-      appendOp(db, { entity, entity_id, field, value, author_user_id, device_id })
+      appendOp(db, { entity, entity_id, field, value, author_user_id, device_id, source: sources.get(field) ?? null })
     )
   )()
 
