@@ -123,22 +123,33 @@ describe('all or nothing (ADR §4)', () => {
     // T16: "a partial ingest that half-populates a camp is worse than one that
     // fails cleanly."
     //
-    // The failure injected here is a real one rather than a mock: an activity
-    // that already exists collides with UNIQUE(camp_id, name). That is not
-    // hypothetical — it is what happens when someone adds a record in another
-    // window between the preview and the confirm.
-    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(randomUUID(), campId, 'Drama')
+    // S1a note: a pre-existing same-name row is no longer the way to force this
+    // — it is now RECOGNIZED (unchanged) or surfaced as a held conflict, never a
+    // UNIQUE crash (that was the R4 defect S1a fixes; see ingestRecognition.test
+    // .js). So the failure injected here is a genuine mid-write error: the second
+    // activity's op-write throws after the groups and the first activity have
+    // already been appended. Atomicity must still unwind all of it.
+    const realPrepare = db.prepare.bind(db)
+    // Groups are created before activities (INGESTIBLE_ENTITIES order), so
+    // throwing on the first activity projection write injects the failure AFTER
+    // the groups' ops are already appended — a genuine partway failure.
+    db.prepare = (sql) => {
+      if (/INSERT OR IGNORE INTO activities/i.test(sql)) throw new Error('boom: create half failed')
+      return realPrepare(sql)
+    }
+    try {
+      expect(() => commitIngest(db, {
+        approved: { groups: ['Bunk 1', 'Bunk 2'], activities: ['Swim', 'Archery', 'Drama'] },
+        camp_id: campId, device_id: deviceId,
+      })).toThrow(/boom/)
+    } finally {
+      db.prepare = realPrepare
+    }
 
-    expect(() => commitIngest(db, {
-      approved: { groups: ['Bunk 1', 'Bunk 2'], activities: ['Swim', 'Archery', 'Drama'] },
-      camp_id: campId, device_id: deviceId,
-    })).toThrow()
-
-    // Nothing at all — not the groups, not the two activities that would have
-    // succeeded, not the ops. Only the row that was there before.
+    // Nothing at all — not the groups, not the activity that would have
+    // succeeded, not the ops.
     expect(count('groups')).toBe(0)
-    expect(count('activities')).toBe(1)
-    expect(db.prepare("SELECT name FROM activities").get().name).toBe('Drama')
+    expect(count('activities')).toBe(0)
     expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE entity IN ('groups','activities')").get().c).toBe(0)
   })
 

@@ -141,6 +141,35 @@ export function replaceScope(db, { camp_id, author_user_id = null, device_id }) 
   return { entities, dependents }
 }
 
+// The name column each ingestible entity carries. Only days_of_operation names
+// its label something other than `name`.
+const NAME_COLUMN = Object.freeze({ days_of_operation: 'label' })
+const nameColumnFor = (entity) => NAME_COLUMN[entity] ?? 'name'
+
+// Program-scoped for duplicate-recognition, exactly as ImportScreen treats them.
+const COHORT_SCOPED = Object.freeze(new Set(['tiers', 'time_blocks']))
+
+/**
+ * The `existing` snapshot buildPlan recognizes against (S1a §1), read from the
+ * live DB — the same shape ImportScreen builds for `buildPreview`: rows carry
+ * `{ id, name }` (days expose their `label` AS `name` so `normalizeName` sees
+ * it), and tiers/time_blocks are filtered to the active Program when one is
+ * given, camp-wide otherwise. Entity names come from the frozen whitelist, never
+ * a caller, so interpolating them into the query is safe.
+ */
+function buildExistingSnapshot(db, camp_id, cohort_id) {
+  const existing = {}
+  for (const entity of INGESTIBLE_ENTITIES) {
+    const scoped = COHORT_SCOPED.has(entity)
+    const cols = scoped
+      ? `id, ${nameColumnFor(entity)} AS name, cohort_id`
+      : `id, ${nameColumnFor(entity)} AS name`
+    const rows = db.prepare(`SELECT ${cols} FROM ${entity} WHERE camp_id = ?`).all(camp_id)
+    existing[entity] = scoped && cohort_id ? rows.filter((r) => r.cohort_id === cohort_id) : rows
+  }
+  return existing
+}
+
 /**
  * Commit an approved import proposal, or commit nothing.
  *
@@ -178,13 +207,20 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
     }
   }
 
-  // The PURE decision layer (ADR §1). buildPlan holds no DB handle and writes
-  // nothing; `existing` is null so every approved name is a `create` — the
-  // importer's blind-create path, where a same-name collision surfaces at the
-  // UNIQUE constraint inside commitPlan's transaction exactly as before.
+  // The PURE decision layer (ADR §1). buildPlan holds no DB handle; we hand it
+  // the SAME `existing` snapshot ImportScreen builds for preview (S1a §1), so a
+  // name the camp already has becomes `unchanged` (zero ops) IN THE PLAN, not a
+  // blind create de-duped downstream. tiers/time_blocks are scoped to the active
+  // Program exactly as ImportScreen.jsx ~150–153; everything else is camp-wide.
+  // Replace mode intentionally wipes the camp's setup and recreates it, so
+  // recognition does not apply — a null snapshot keeps the blind-create path and
+  // its byte-identical op sequence. The pre-teardown rows the snapshot would see
+  // are about to be deleted anyway; recognizing them here would falsely hold
+  // every item once teardown removed the rows the `unchanged` items point at.
+  const existing = mode === 'replace' ? null : buildExistingSnapshot(db, camp_id, cohort_id)
   const plan = buildPlan(
     { approved, links, activityRules, fixedEvents, camp_id, cohort_id, mode },
-    null,
+    existing,
   )
 
   return commitPlan(db, plan, { author_user_id: author_user_id ?? null, device_id })
@@ -247,6 +283,59 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
       if (row.name) groupIdByName.set(normalizeName(row.name), row.id)
     }
   }
+
+  // Recognition maps for commit-time re-resolution (S1a §2): per entity, a
+  // normalized-name -> SET of live row ids. A SET (not a single id) so fact 3's
+  // "Art"/"art " collision is visible. Cohort-scoped for tiers/time_blocks
+  // EXACTLY as buildExistingSnapshot scopes them, so the two layers cannot
+  // disagree about "the same name". Built once from the LIVE DB after teardown.
+  function seedRecognitionMaps() {
+    const maps = {}
+    for (const entity of INGESTIBLE_ENTITIES) maps[entity] = new Map()
+    const add = (entity, key, id) => {
+      if (!key) return
+      if (!maps[entity].has(key)) maps[entity].set(key, new Set())
+      maps[entity].get(key).add(id)
+    }
+    for (const entity of INGESTIBLE_ENTITIES) {
+      const scoped = COHORT_SCOPED.has(entity)
+      const cols = scoped
+        ? `id, ${nameColumnFor(entity)} AS name, cohort_id`
+        : `id, ${nameColumnFor(entity)} AS name`
+      for (const row of db.prepare(`SELECT ${cols} FROM ${entity} WHERE camp_id = ?`).all(camp_id)) {
+        if (scoped && cohort_id && row.cohort_id !== cohort_id) continue
+        add(entity, normalizeName(row.name), row.id)
+      }
+    }
+    return maps
+  }
+
+  const liveName = (entity, id) => {
+    const row = db.prepare(`SELECT ${nameColumnFor(entity)} AS name FROM ${entity} WHERE id = ?`).get(id)
+    return row ? row.name : null
+  }
+  const idExists = (entity, id) =>
+    !!db.prepare(`SELECT 1 FROM ${entity} WHERE id = ? AND camp_id = ?`).get(id, camp_id)
+  const makeConflict = (item, candidateIds) => ({
+    op: 'conflict',
+    entity: item.entity,
+    entity_id: null,
+    reason: 'ambiguous_identity',
+    fields: {},
+    evidence: {
+      tier: 'exact_name',
+      candidates: candidateIds.map((id) => ({ id, name: liveName(item.entity, id) })),
+    },
+    _name: item._name,
+  })
+
+  // Held-import sentinel (S1a §2). A conflict must NOT throw a plain error (that
+  // reads as a crash) but the whole import must still write nothing. Throwing a
+  // marked error rolls the transaction back atomically — teardown included — so
+  // the held path leaves the DB byte-identical; we catch it outside and return a
+  // held outcome instead of re-throwing.
+  const HELD = Symbol('held')
+  const conflicts = []
 
   const fixedCreated = []
   const fixedSkipped = []
@@ -334,27 +423,72 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
     }
     seedNameMaps()
 
-    // Plan items are emitted in INGESTIBLE_ENTITIES order, so tiers land before
-    // groups (tier_id resolvable) and groups before activities (group ids
-    // resolvable) — the same registration-before-use the pre-S0 loop relied on.
+    // Commit-time re-resolution (S1a §2). buildPlan set each item's identity
+    // from the snapshot it saw at emit time; the review window between preview
+    // and commit is exactly where a peer device can create or delete a same-name
+    // row, so FINAL identity binding happens here, against the live DB. We
+    // decide every item and collect conflicts BEFORE writing anything — nothing
+    // is created until we know the import is not held.
+    const recognition = seedRecognitionMaps()
+    const toCreate = []
     for (const item of plan.items) {
       switch (item.op) {
-        case 'create':
-          commitCreate(item)
+        case 'create': {
+          const ids = recognition[item.entity].get(normalizeName(item._name))
+          if (ids && ids.size >= 1) {
+            // A peer created this same-name entity (one row), or the camp holds
+            // two rows that normalize alike (>1). Either way the world changed
+            // under the plan — never commitCreate (that throws at UNIQUE),
+            // never auto-pick. Surface the colliding row(s) for review.
+            conflicts.push(makeConflict(item, [...ids]))
+          } else {
+            toCreate.push(item)
+          }
           break
-        case 'unchanged':
-          // Resolved to a live entity, nothing to write (type doc b).
+        }
+        case 'unchanged': {
+          // Its recognized identity must still name a live row. If a peer
+          // deleted it in the window, whether to re-create is a human decision,
+          // never a silent re-mint — hold it as a conflict, carrying any
+          // now-competing same-name row as a candidate.
+          if (!idExists(item.entity, item.entity_id)) {
+            const ids = recognition[item.entity].get(normalizeName(item._name))
+            conflicts.push(makeConflict(item, ids ? [...ids] : []))
+          }
+          break
+        }
+        case 'conflict':
+          // buildPlan already surfaced this (ambiguous_identity, §3). Any other
+          // reason is an S2+ arm that cannot be produced by S1a's buildPlan;
+          // reaching one is a bug.
+          if (item.reason === 'ambiguous_identity') conflicts.push(item)
+          else throw new Error(`commitPlan: conflict reason "${item.reason}" is not implemented at S1a`)
           break
         case 'update':
         case 'clear':
-        case 'conflict':
-          // S1+. The type carries these arms; their merge/staleness/alias
-          // semantics are built in later slices. Reaching one at S0 is a bug.
-          throw new Error(`commitPlan: op "${item.op}" is not implemented at S0`)
+          // S2+. The type carries these arms; their merge/staleness semantics
+          // are built in later slices. Reaching one now is a bug.
+          throw new Error(`commitPlan: op "${item.op}" is not implemented at S1a`)
         default:
           throw new Error(`commitPlan: unknown op "${item.op}"`)
       }
     }
+
+    // Hold-the-whole-import (product owner, 2026-08-08): any conflict means the
+    // WHOLE commit writes nothing. Throwing the sentinel rolls back everything —
+    // including replace-mode teardown — so a held import is atomically a no-op,
+    // distinguishable from a real error by the marker (caught below).
+    if (conflicts.length > 0) {
+      const held = new Error('commitPlan: import held for review')
+      held[HELD] = true
+      throw held
+    }
+
+    // No conflicts — commit the plan in full. Items are emitted in
+    // INGESTIBLE_ENTITIES order, so tiers land before groups (tier_id
+    // resolvable) and groups before activities (group ids resolvable) — the
+    // same registration-before-use the pre-S0 loop relied on.
+    for (const item of toCreate) commitCreate(item)
 
     // Fixed events, after the entity loop and INSIDE the same transaction, so
     // the whole import stays one atomic unit (ADR §4). anchor_activities is
@@ -420,8 +554,33 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
     }
   })
 
-  run()
-  const outcome = { created, total, fixedEvents: { created: fixedCreated.length, skipped: fixedSkipped, partial: fixedPartial } }
+  let held = false
+  try {
+    run()
+  } catch (e) {
+    if (e && e[HELD]) held = true // the transaction rolled back; nothing written
+    else throw e
+  }
+
+  if (held) {
+    // Everything rolled back — no rows, no ops, no teardown. Report the held
+    // conflicts for the director to resolve, clearly NOT a thrown error.
+    return {
+      held: true,
+      conflicts,
+      created,
+      total,
+      fixedEvents: { created: 0, skipped: [], partial: [] },
+    }
+  }
+
+  const outcome = {
+    held: false,
+    conflicts: [],
+    created,
+    total,
+    fixedEvents: { created: fixedCreated.length, skipped: fixedSkipped, partial: fixedPartial },
+  }
   if (replaced) outcome.replaced = replaced
   return outcome
 }
