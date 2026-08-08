@@ -1,4 +1,4 @@
-import { S, prefersReducedMotion } from '../../styles/shared'
+import { S, useEnterTransition } from '../../styles/shared'
 import { SEVERITY_BAR_COLOR } from './slotCellConstants'
 
 // Popover anchored under the header badges — the single discoverable surface
@@ -8,7 +8,7 @@ import { SEVERITY_BAR_COLOR } from './slotCellConstants'
 // docs/superpowers/specs/2026-07-28-schedule-grid-decolorization-design.md
 // §"Reasons surface — Findings & Flags rail"
 export default function FindingsRail({ rows, onDismiss, onLocate, onClose, intro, emptyText }) {
-  const reduced = prefersReducedMotion()
+  const enter = useEnterTransition('popFade', { transformOrigin: 'top left' })
 
   return (
     <div
@@ -17,10 +17,7 @@ export default function FindingsRail({ rows, onDismiss, onLocate, onClose, intro
         top: '100%',
         left: 0,
         marginTop: 6,
-        animation: reduced
-          ? 'none'
-          : undefined,
-        opacity: 1,
+        ...enter,
       }}
     >
       {intro && (
@@ -69,7 +66,7 @@ export default function FindingsRail({ rows, onDismiss, onLocate, onClose, intro
         ))
       )}
       <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 10px' }}>
-        <button onClick={onClose} style={{ ...S.btnSecondary, padding: '4px 10px', fontSize: 11 }}>Close</button>
+        <button className="press-97" onClick={onClose} style={{ ...S.btnSecondary, padding: '4px 10px', fontSize: 11 }}>Close</button>
       </div>
     </div>
   )

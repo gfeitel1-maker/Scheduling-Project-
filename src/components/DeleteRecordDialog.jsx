@@ -105,7 +105,7 @@ export default function DeleteRecordDialog({ preview, onCancel, onDeleted }) {
         {error && <div style={{ ...S.errorBanner, marginTop: 14, marginBottom: 0 }}>{error}</div>}
 
         <div style={actions}>
-          <button onClick={onCancel} disabled={working} style={S.btnSecondary}>
+          <button className="press-97" onClick={onCancel} disabled={working} style={S.btnSecondary}>
             Cancel
           </button>
           <button onClick={confirm} disabled={working} style={S.btnDanger}>

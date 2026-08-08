@@ -51,8 +51,8 @@ function GroupRow({ group, tiers, role, onSave, onDelete, onHistory, weekToggle 
           </select>
         </td>
         <td style={{ ...S.td, textAlign: 'right' }}>
-          <button onClick={save} disabled={saving} style={S.btnPrimary}>{saving ? 'Saving…' : 'Save'}</button>
-          <button onClick={() => { setName(group.name); setTierId(group.tier_id||''); setAvail(group.availability); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>Cancel</button>
+          <button className="press-97" onClick={save} disabled={saving} style={S.btnPrimary}>{saving ? 'Saving…' : 'Save'}</button>
+          <button className="press-97" onClick={() => { setName(group.name); setTierId(group.tier_id||''); setAvail(group.availability); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>Cancel</button>
         </td>
       </tr>
     )
@@ -68,8 +68,8 @@ function GroupRow({ group, tiers, role, onSave, onDelete, onHistory, weekToggle 
       <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{AVAIL_OPTIONS.find(o => o.value === group.availability)?.label || '—'}</td>
       {weekToggle}
       <td style={{ ...S.td, textAlign: 'right', borderLeft: weekToggle ? '1px solid var(--border)' : undefined }}>
-        <button onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
-        <button onClick={() => onHistory(group)} style={{ ...S.btnSecondary, marginLeft: 6 }}>History</button>
+        <button className="press-97" onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
+        <button className="press-97" onClick={() => onHistory(group)} style={{ ...S.btnSecondary, marginLeft: 6 }}>History</button>
         <button
           onClick={() => onDelete(group.id)}
           disabled={role !== 'admin'}
@@ -407,8 +407,8 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
           {groups.length} group{groups.length !== 1 ? 's' : ''}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
-          <button onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
+          <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
+          <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
           <button
             onClick={deleteAll}
@@ -487,7 +487,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
           <select value={newAvail} onChange={e => setNewAvail(e.target.value)} style={{ ...S.input, flex: '0 0 150px' }}>
             {AVAIL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <button onClick={addGroup} disabled={adding || !newName.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>
+          <button className="press-97" onClick={addGroup} disabled={adding || !newName.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>
             {adding ? 'Adding…' : '+ Add'}
           </button>
         </div>
@@ -516,8 +516,8 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
                   </tbody>
                 </table>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
-                  <button onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
+                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
+                  <button className="press-97" onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
                 </div>
               </>
             )}
@@ -529,7 +529,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
                   {importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped</span>}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
+                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
                 </div>
               </>
             )}
@@ -538,7 +538,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       )}
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button onClick={() => onNavigate('days')} style={S.btnPrimary}>Next: Days →</button>
+        <button className="press-97" onClick={() => onNavigate('days')} style={S.btnPrimary}>Next: Days →</button>
       </div>
 
       {pendingDelete && (

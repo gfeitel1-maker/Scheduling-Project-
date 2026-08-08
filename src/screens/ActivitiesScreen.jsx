@@ -226,8 +226,8 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
           </div>
         )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
-          <button onClick={onClose} style={S.btnSecondary}>Cancel</button>
-          <button onClick={save} disabled={saving || !name.trim()} style={S.btnPrimary}>{saving ? 'Saving…' : isNew ? 'Add Activity' : 'Save Changes'}</button>
+          <button className="press-97" onClick={onClose} style={S.btnSecondary}>Cancel</button>
+          <button className="press-97" onClick={save} disabled={saving || !name.trim()} style={S.btnPrimary}>{saving ? 'Saving…' : isNew ? 'Add Activity' : 'Save Changes'}</button>
         </div>
       </div>
     </div>
@@ -632,8 +632,8 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
           {activities.length} activit{activities.length !== 1 ? 'ies' : 'y'}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
-          <button onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
+          <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
+          <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
           <button
             onClick={deleteAll}
@@ -641,7 +641,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
             title={role !== 'admin' ? 'Admin only' : undefined}
             style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
           >Delete All</button>
-          <button onClick={() => setModal({ activity: null })} style={S.btnPrimary}>+ Add Activity</button>
+          <button className="press-97" onClick={() => setModal({ activity: null })} style={S.btnPrimary}>+ Add Activity</button>
         </div>
       </div>
 
@@ -701,8 +701,8 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                           </td>
                         )}
                         <td style={{ ...S.td, textAlign: 'right', borderLeft: weekId ? '1px solid var(--border)' : undefined }}>
-                          <button onClick={() => setModal({ activity: a })} style={S.btnSecondary}>Edit</button>
-                          <button onClick={() => duplicateActivity(a)} style={{ ...S.btnSecondary, marginLeft: 6 }}>Duplicate</button>
+                          <button className="press-97" onClick={() => setModal({ activity: a })} style={S.btnSecondary}>Edit</button>
+                          <button className="press-97" onClick={() => duplicateActivity(a)} style={{ ...S.btnSecondary, marginLeft: 6 }}>Duplicate</button>
                           <button
                             onClick={() => deleteActivity(a.id)}
                             disabled={role !== 'admin'}
@@ -752,8 +752,8 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                   </tbody>
                 </table>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
-                  <button onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
+                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
+                  <button className="press-97" onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
                 </div>
               </>
             )}
@@ -762,7 +762,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 12 }}>Import Complete</div>
                 <div style={{ fontSize: 14 }}><span style={{ color: 'var(--success)', fontWeight: 600 }}>{importResult.added} added</span>{importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped</span>}</div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
+                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
                 </div>
               </>
             )}
@@ -771,7 +771,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       )}
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button onClick={() => onNavigate('anchors')} style={S.btnPrimary}>Next: Fixed Events →</button>
+        <button className="press-97" onClick={() => onNavigate('anchors')} style={S.btnPrimary}>Next: Fixed Events →</button>
       </div>
       {pendingDelete && (
         <DeleteRecordDialog

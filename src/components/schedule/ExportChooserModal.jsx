@@ -1,4 +1,4 @@
-import { S } from '../../styles/shared'
+import { S, useEnterTransition } from '../../styles/shared'
 
 // A camp can hold two schedules and NEITHER is the real one — that decision
 // belongs to the director, not to us. Export is the one place the app must act
@@ -9,8 +9,9 @@ import { S } from '../../styles/shared'
 // The counts are the whole point of the screen — they let a director tell two
 // ideas apart without opening both.
 export default function ExportChooserModal({ options, onChoose, onCancel }) {
+  const enterStyle = useEnterTransition('liftFade')
   return (
-    <div style={S.overlay}>
+    <div style={{ ...S.overlay, ...enterStyle }}>
       <div style={{ ...S.modalLg, maxWidth: 460 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Which schedule do you want to export?</div>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 18 }}>
@@ -43,7 +44,7 @@ export default function ExportChooserModal({ options, onChoose, onCancel }) {
         </div>
 
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button onClick={onCancel} style={S.btnSecondary}>Cancel</button>
+          <button className="press-97" onClick={onCancel} style={S.btnSecondary}>Cancel</button>
         </div>
       </div>
     </div>

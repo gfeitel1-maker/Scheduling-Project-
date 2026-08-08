@@ -1,4 +1,4 @@
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import { entityLabel, fieldLabel, formatMoment, FK_TARGET } from '../screens/recordLabels'
 import { useRecordHistory } from '../hooks/useRecordHistory'
 
@@ -64,15 +64,16 @@ function HistoryLine({ entry, names }) {
 export default function RecordHistory({ entity, entityId, name, onClose }) {
   const { history, loading, error, names } = useRecordHistory(entity, entityId)
   const newestFirst = [...history].reverse()
+  const enterStyle = useEnterTransition('liftFade')
 
   return (
-    <div style={S.overlay} onClick={onClose}>
+    <div style={{ ...S.overlay, ...enterStyle }} onClick={onClose}>
       <div style={{ ...S.modalLg, maxHeight: '80vh', overflowY: 'auto' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 4 }}>
           <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, color: 'var(--text)' }}>
             History
           </div>
-          <button onClick={onClose} style={S.btnSecondary}>Close</button>
+          <button className="press-97" onClick={onClose} style={S.btnSecondary}>Close</button>
         </div>
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14 }}>
           {entityLabel(entity)}{name ? ` · ${name}` : ''}

@@ -1,5 +1,5 @@
 import React from 'react'
-import { S } from '../../styles/shared'
+import { S, useEnterTransition } from '../../styles/shared'
 
 // Copy rules (CONSTITUTION.md Art. V): the director's nouns only — schedule,
 // week, activity — never template/slot/candidate/route/kind. It says what will
@@ -12,8 +12,9 @@ import { S } from '../../styles/shared'
 // merged-block and released markers, so no copy may promise a perfect restore.
 export default function ConfirmRegenModal({ role, onConfirm, onCancel }) {
   const isAdmin = role === 'admin'
+  const enterStyle = useEnterTransition('liftFade')
   return (
-    <div style={S.overlay}>
+    <div style={{ ...S.overlay, ...enterStyle }}>
       <div style={{ ...S.modalLg, maxWidth: 420 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>Rebuild this schedule?</div>
         <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 8 }}>
@@ -26,7 +27,7 @@ export default function ConfirmRegenModal({ role, onConfirm, onCancel }) {
           You can get this one back from Versions.
         </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onCancel} style={S.btnSecondary}>Cancel</button>
+          <button className="press-97" onClick={onCancel} style={S.btnSecondary}>Cancel</button>
           <button
             onClick={onConfirm}
             disabled={!isAdmin}

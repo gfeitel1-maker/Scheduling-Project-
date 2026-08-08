@@ -349,7 +349,7 @@ export default function ImportScreen({ campId, onNavigate }) {
             </div>
           )}
           <div style={{ marginTop: 10 }}>
-            <button onClick={() => onNavigate('groups')} style={S.btnSecondary}>Go to Groups</button>
+            <button className="press-97" onClick={() => onNavigate('groups')} style={S.btnSecondary}>Go to Groups</button>
           </div>
         </div>
       )}
@@ -463,7 +463,7 @@ export default function ImportScreen({ campId, onNavigate }) {
                       <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
                         Guessed how often and for whom, from the file. Edit anything that looks wrong.
                       </div>
-                      <button onClick={clearInferredRules} style={{ ...S.btnSecondary, padding: '4px 10px', fontSize: 11 }}>
+                      <button className="press-97" onClick={clearInferredRules} style={{ ...S.btnSecondary, padding: '4px 10px', fontSize: 11 }}>
                         Clear inferred rules
                       </button>
                     </div>
@@ -635,7 +635,7 @@ export default function ImportScreen({ campId, onNavigate }) {
           )}
 
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginTop: 24, paddingTop: 18, borderTop: '1px solid var(--border)' }}>
-            <button
+            <button className="press-97"
               onClick={commit}
               disabled={working || approvedCount === 0 || !activeCohort}
               style={{ ...S.btnPrimary, opacity: working || approvedCount === 0 || !activeCohort ? 0.45 : 1 }}
@@ -646,7 +646,7 @@ export default function ImportScreen({ campId, onNavigate }) {
                   ? `Replace with ${approvedCount} ${approvedCount === 1 ? 'record' : 'records'}`
                   : `Add ${approvedCount} ${approvedCount === 1 ? 'record' : 'records'}`}
             </button>
-            <button onClick={() => { setPreview(null); setFileNames([]) }} disabled={working} style={S.btnSecondary}>
+            <button className="press-97" onClick={() => { setPreview(null); setFileNames([]) }} disabled={working} style={S.btnSecondary}>
               Cancel
             </button>
           </div>

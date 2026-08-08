@@ -184,8 +184,8 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
           </div>
         )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
-          <button onClick={onClose} style={S.btnSecondary}>Cancel</button>
-          <button onClick={save} disabled={saving || !canSave} style={{ ...S.btnPrimary, opacity: (!canSave || saving) ? 0.5 : 1 }}>
+          <button className="press-97" onClick={onClose} style={S.btnSecondary}>Cancel</button>
+          <button className="press-97" onClick={save} disabled={saving || !canSave} style={{ ...S.btnPrimary, opacity: (!canSave || saving) ? 0.5 : 1 }}>
             {saving ? 'Saving…' : isNew ? `Add Fixed Event${selectedDays.length > 1 ? ` (×${selectedDays.length})` : ''}` : 'Save Changes'}
           </button>
         </div>
@@ -567,8 +567,8 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
           {anchors.length} fixed event{anchors.length !== 1 ? 's' : ''}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
-          <button onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
+          <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
+          <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
           <button
             onClick={deleteAll}
@@ -576,7 +576,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
             title={role !== 'admin' ? 'Admin only' : undefined}
             style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
           >Delete All</button>
-          <button onClick={() => setModal({ anchor: null })} style={S.btnPrimary}>+ Add Fixed Event</button>
+          <button className="press-97" onClick={() => setModal({ anchor: null })} style={S.btnPrimary}>+ Add Fixed Event</button>
         </div>
       </div>
 
@@ -613,7 +613,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
                   <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)' }}>{blockMap[a.time_block_id] || '—'}</td>
                   <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{anchorTierLabel(a)}</td>
                   <td style={{ ...S.td, textAlign: 'right' }}>
-                    <button onClick={() => setModal({ anchor: a })} style={S.btnSecondary}>Edit</button>
+                    <button className="press-97" onClick={() => setModal({ anchor: a })} style={S.btnSecondary}>Edit</button>
                     <button
                       onClick={() => deleteAnchor(a.id)}
                       disabled={role !== 'admin'}
@@ -662,8 +662,8 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
                   </tbody>
                 </table>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
-                  <button onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
+                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
+                  <button className="press-97" onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
                 </div>
               </>
             )}
@@ -680,7 +680,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
                   )}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
+                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
                 </div>
               </>
             )}
@@ -689,7 +689,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       )}
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button onClick={() => onNavigate('schedule')} style={S.btnPrimary}>Next: Schedule →</button>
+        <button className="press-97" onClick={() => onNavigate('schedule')} style={S.btnPrimary}>Next: Schedule →</button>
       </div>
     </div>
   )

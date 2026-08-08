@@ -1,9 +1,52 @@
 // Shared inline style constants — import as: import { S } from '../styles/shared'
+import { useState, useEffect } from 'react'
 
-// No CSS files in this codebase, so prefers-reduced-motion fallbacks are
-// read via matchMedia at render time rather than a @media block.
+// Reduced-motion fallbacks for inline-styled elements are read via
+// matchMedia at render time; global motion primitives live in src/index.css.
 export function prefersReducedMotion() {
   return typeof window !== 'undefined' && Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)
+}
+
+/**
+ * Mount transition for inline-styled elements. Returns a style fragment to
+ * spread onto the animated element. Renders one frame in the "from" state,
+ * then flips to the "to" state on the next animation frame.
+ *
+ * variant:
+ *   'slideFade' — translateY(-4px)->0 + opacity 0->1, --motion-base   (§5c error banners)
+ *   'liftFade'  — translateY(8px)->0  + opacity 0->1, --motion-base   (modals)
+ *   'popFade'   — scale(0.97)->1      + opacity 0->1, 180ms           (anchored popovers)
+ *
+ * Under prefers-reduced-motion the transform is dropped entirely and only
+ * opacity crossfades, per DESIGN_STANDARD §8.
+ */
+export function useEnterTransition(variant, { transformOrigin } = {}) {
+  const reduced = prefersReducedMotion()
+  const [entered, setEntered] = useState(false)
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setEntered(true))
+    return () => cancelAnimationFrame(id)
+  }, [])
+
+  const FROM = {
+    slideFade: 'translateY(-4px)',
+    liftFade: 'translateY(8px)',
+    popFade: 'scale(0.97)',
+  }
+  const DURATION = variant === 'popFade' ? '180ms' : 'var(--motion-base)'
+
+  if (reduced) {
+    return {
+      opacity: entered ? 1 : 0,
+      transition: `opacity ${DURATION} var(--ease-out)`,
+    }
+  }
+  return {
+    opacity: entered ? 1 : 0,
+    transform: entered ? 'none' : FROM[variant],
+    transformOrigin,
+    transition: `opacity ${DURATION} var(--ease-out), transform ${DURATION} var(--ease-out)`,
+  }
 }
 
 export const S = {
@@ -13,7 +56,7 @@ export const S = {
     color: '#fff',
     border: 'none',
     borderRadius: 7,
-    fontWeight: 700,
+    fontWeight: 600,
     fontSize: 13,
     cursor: 'pointer',
     fontFamily: 'inherit',
@@ -103,13 +146,13 @@ export const S = {
     padding: 16,
   },
   errorBanner: {
-    background: 'color-mix(in srgb, var(--warning) 8%, var(--surface))',
-    border: '1px solid color-mix(in srgb, var(--warning) 35%, var(--border))',
+    background: 'color-mix(in srgb, var(--danger) 8%, var(--surface))',
+    border: '1px solid color-mix(in srgb, var(--danger) 35%, var(--border))',
     borderRadius: 6,
     padding: '10px 14px',
     marginBottom: 16,
     fontSize: 13,
-    color: 'var(--warning)',
+    color: 'var(--danger)',
   },
 
   // --- Auth / onboarding shared primitives ---
@@ -262,7 +305,7 @@ export const S = {
     cursor: 'pointer',
     width: '100%',
     marginBottom: 12,
-    transition: 'box-shadow 0.15s, border-color 0.15s',
+    transition: 'box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out)',
     fontFamily: 'inherit',
   },
   authChoiceIcon: {
@@ -305,7 +348,7 @@ export const S = {
     borderRadius: 8,
     marginBottom: 8,
     cursor: 'pointer',
-    transition: 'border-color 0.15s, background 0.15s',
+    transition: 'border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)',
     background: 'var(--surface)',
     width: '100%',
     textAlign: 'left',
@@ -531,7 +574,7 @@ export const S = {
     padding: '18px 20px',
     marginBottom: 14,
     overflow: 'hidden',
-    transition: 'max-height 0.35s ease, opacity 0.35s ease, margin 0.35s ease, padding 0.35s ease, border-color 0.35s ease',
+    transition: 'max-height var(--motion-settle) var(--ease-out), opacity var(--motion-settle) var(--ease-out), margin var(--motion-settle) var(--ease-out), padding var(--motion-settle) var(--ease-out), border-color var(--motion-settle) var(--ease-out)',
   },
   mergeChoiceBox: {
     flex: 1,
@@ -542,7 +585,7 @@ export const S = {
     borderColor: 'var(--border)',
     borderRadius: 9,
     padding: 14,
-    transition: 'border-color 0.15s',
+    transition: 'border-color var(--motion-fast) var(--ease-out)',
   },
   mergeChoiceBoxHover: {
     borderColor: 'var(--primary)',
@@ -566,7 +609,7 @@ export const S = {
     fontFamily: 'inherit',
     width: '100%',
     marginTop: 12,
-    transition: 'background 0.12s, color 0.12s',
+    transition: 'background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out)',
   },
   mergePinLock: {
     textAlign: 'center',
@@ -585,7 +628,7 @@ export const S = {
     fontFamily: 'var(--font-condensed)',
     fontWeight: 700,
     fontSize: 15,
-    transition: 'opacity 0.15s',
+    transition: 'opacity var(--motion-fast) var(--ease-out)',
   },
 
   // --- Empty / loading / error state primitives ---

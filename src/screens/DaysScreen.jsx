@@ -33,8 +33,8 @@ function DayRow({ day, role, onSave, onDelete }) {
         </td>
         <td style={S.td}><input type="number" value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{ ...S.input, width: 70 }} /></td>
         <td style={{ ...S.td, textAlign: 'right' }}>
-          <button onClick={save} disabled={saving} style={S.btnPrimary}>{saving ? 'Saving…' : 'Save'}</button>
-          <button onClick={() => { setLabel(day.label); setDow(day.day_of_week); setSortOrder(day.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>Cancel</button>
+          <button className="press-97" onClick={save} disabled={saving} style={S.btnPrimary}>{saving ? 'Saving…' : 'Save'}</button>
+          <button className="press-97" onClick={() => { setLabel(day.label); setDow(day.day_of_week); setSortOrder(day.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>Cancel</button>
         </td>
       </tr>
     )
@@ -49,7 +49,7 @@ function DayRow({ day, role, onSave, onDelete }) {
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{DOW[day.day_of_week]}</td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{day.sort_order}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
-        <button onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
+        <button className="press-97" onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
         <button
           onClick={() => onDelete(day.id)}
           disabled={role !== 'admin'}
@@ -267,8 +267,8 @@ export default function DaysScreen({ campId, role, onNavigate }) {
           {days.length} day{days.length !== 1 ? 's' : ''}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
-          <button onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
+          <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
+          <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
         </div>
       </div>
@@ -306,7 +306,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
             {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
           </select>
           <input type="number" placeholder="Order" value={newSort} onChange={e => setNewSort(e.target.value)} style={{ ...S.input, flex: '0 0 80px' }} />
-          <button onClick={addDay} disabled={adding || !newLabel.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
+          <button className="press-97" onClick={addDay} disabled={adding || !newLabel.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
         </div>
       </div>
 
@@ -331,8 +331,8 @@ export default function DaysScreen({ campId, role, onNavigate }) {
                   </tbody>
                 </table>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
-                  <button onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
+                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
+                  <button className="press-97" onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
                 </div>
               </>
             )}
@@ -341,7 +341,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 12 }}>Import Complete</div>
                 <div style={{ fontSize: 14 }}><span style={{ color: 'var(--success)', fontWeight: 600 }}>{importResult.added} added</span>{importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped</span>}</div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
+                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
                 </div>
               </>
             )}
@@ -350,7 +350,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       )}
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button onClick={() => onNavigate('timeblocks')} style={S.btnPrimary}>Next: Time Blocks →</button>
+        <button className="press-97" onClick={() => onNavigate('timeblocks')} style={S.btnPrimary}>Next: Time Blocks →</button>
       </div>
       {pendingDelete && (
         <DeleteRecordDialog

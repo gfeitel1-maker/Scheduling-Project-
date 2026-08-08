@@ -48,10 +48,10 @@ function TierRow({ tier, groupCount, role, onSave, onDelete }) {
         </td>
         <td style={S.td}>{groupCount}</td>
         <td style={{ ...S.td, textAlign: 'right' }}>
-          <button onClick={save} disabled={saving} style={S.btnPrimary}>
+          <button className="press-97" onClick={save} disabled={saving} style={S.btnPrimary}>
             {saving ? 'Saving…' : 'Save'}
           </button>
-          <button onClick={() => { setName(tier.name); setSortOrder(tier.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>
+          <button className="press-97" onClick={() => { setName(tier.name); setSortOrder(tier.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>
             Cancel
           </button>
         </td>
@@ -68,7 +68,7 @@ function TierRow({ tier, groupCount, role, onSave, onDelete }) {
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{tier.sort_order}</td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{groupCount}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
-        <button onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
+        <button className="press-97" onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
         <button onClick={() => onDelete(tier.id)}
           style={groupCount > 0 || role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
           disabled={groupCount > 0 || role !== 'admin'}
@@ -369,8 +369,8 @@ export default function TiersScreen({ campId, role, onNavigate }) {
           {tiers.length} unit{tiers.length !== 1 ? 's' : ''}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
-          <button onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
+          <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
+          <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
           <button
             onClick={deleteAll}
@@ -441,7 +441,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
             onChange={e => setNewSort(e.target.value)}
             style={{ ...S.input, width: 80 }}
           />
-          <button onClick={addTier} disabled={adding || !newName.trim() || !activeCohort} style={S.btnPrimary}>
+          <button className="press-97" onClick={addTier} disabled={adding || !newName.trim() || !activeCohort} style={S.btnPrimary}>
             {adding ? 'Adding…' : '+ Add'}
           </button>
         </div>
@@ -480,8 +480,8 @@ export default function TiersScreen({ campId, role, onNavigate }) {
                   </tbody>
                 </table>
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
-                  <button onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>
+                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
+                  <button className="press-97" onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>
                     {importing ? 'Importing…' : `Import ${readyRows.length} unit${readyRows.length !== 1 ? 's' : ''}`}
                   </button>
                 </div>
@@ -495,7 +495,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
                   {importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped (duplicate or invalid)</span>}
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
+                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
                 </div>
               </>
             )}
@@ -504,7 +504,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       )}
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button onClick={() => onNavigate('groups')} style={S.btnPrimary}>Next: Groups →</button>
+        <button className="press-97" onClick={() => onNavigate('groups')} style={S.btnPrimary}>Next: Groups →</button>
       </div>
     </div>
   )

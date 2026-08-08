@@ -62,7 +62,7 @@ export default function ScheduleDayView({
       {/* Day pills */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         {days.map(d => (
-          <button key={d.id} onClick={() => onSelectDay(d.id)} style={{
+          <button key={d.id} onClick={() => onSelectDay(d.id)} className="press-98" style={{
             padding: '5px 16px', borderRadius: 20,
             border: `1.5px solid ${selectedDay === d.id ? 'var(--primary)' : 'var(--border)'}`,
             background: selectedDay === d.id ? 'var(--primary)' : 'var(--surface)',

@@ -5,6 +5,9 @@ import { createScheduleRepository } from '../data/scheduleRepository'
 import { getSetupGaps, describeSetupGaps } from '../engine/readiness'
 import { S } from '../styles/shared'
 import StatBadge from '../components/schedule/StatBadge'
+import ScheduleSkeleton from '../components/schedule/ScheduleSkeleton'
+import IndeterminateBar from '../components/schedule/IndeterminateBar'
+import ErrorBanner from '../components/schedule/ErrorBanner'
 import { legendEntriesFor, FLAG_SEVERITY, setActivityPalette } from '../components/schedule/slotCellConstants'
 import FindingsRail from '../components/schedule/FindingsRail'
 import { highlightMapForKind } from './schedule/findingHighlight'
@@ -561,7 +564,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // inline check of a different four areas — see src/engine/readiness.js.
   const setupGaps = getSetupGaps({ cohorts, tiers, groups, days, timeBlocks, activities })
 
-  if (loading) return <div style={S.stateLoading}>Loading…</div>
+  if (loading) return <ScheduleSkeleton />
 
   if (setupGaps.length > 0) {
     return (
@@ -581,7 +584,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               </li>
             ))}
           </ul>
-          <button onClick={() => onNavigate(setupGaps[0].screen)} style={{ ...S.btnPrimary, marginTop: 12 }}>
+          <button className="press-97" onClick={() => onNavigate(setupGaps[0].screen)} style={{ ...S.btnPrimary, marginTop: 12 }}>
             Set up {setupGaps[0].label}
           </button>
         </div>
@@ -626,7 +629,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 6, marginBottom: 20 }}>You have both. Opening one changes nothing about the other, and you can switch any time from the left.</div>
         <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
           {ROUTES.map(r => (
-            <button
+            <button className="press-97"
               key={r}
               onClick={() => { setRoute(r); onNavigate?.(`schedule:${r}`) }}
               style={{ ...S.btnSecondary, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 2, padding: '12px 18px' }}
@@ -674,7 +677,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 15, color: 'var(--text)' }}>{copy.offerTitle}</div>
         <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.5 }}>{copy.offerBody}</div>
-        <button
+        <button className="press-97"
           onClick={() => { setRoute(r); onNavigate?.(`schedule:${r}`); startRoute[r]() }}
           disabled={generating || role !== 'admin'}
           title={role !== 'admin' ? 'Admin only' : undefined}
@@ -692,25 +695,27 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   return (
     <div style={{ maxWidth: '100%' }}>
       {weekDeletedBanner && (
-        <div style={{ ...S.errorBanner, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <ErrorBanner
+          onDismiss={() => setWeekDeletedBanner(null)}
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+        >
           <span>{weekDeletedBanner}</span>
-          <button onClick={() => setWeekDeletedBanner(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 16, lineHeight: 1 }}>×</button>
-        </div>
+        </ErrorBanner>
       )}
       {loadError && (
-        <div style={S.errorBanner}>
+        <ErrorBanner>
           {loadError}
-        </div>
+        </ErrorBanner>
       )}
       {templateError && (
-        <div style={S.errorBanner}>
+        <ErrorBanner>
           {templateError}
-        </div>
+        </ErrorBanner>
       )}
       {actionError && (
-        <div style={S.errorBanner}>
+        <ErrorBanner>
           {actionError}
-        </div>
+        </ErrorBanner>
       )}
       {/* Controls bar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -748,7 +753,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 is gone from here: it was never a view, it was a route. */}
             <div style={{ display: 'flex', gap: 2, background: 'var(--border)', borderRadius: 8, padding: 3 }}>
               {[['group','Group View'],['day','Daily View'],['activity','Activity View']].map(([v, label]) => (
-                <button key={v} onClick={() => { setView(v); if (v !== 'activity') setSelectedActivity(null) }} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', borderBottom: view === v ? '2px solid var(--primary)' : '2px solid transparent', cursor: 'pointer', fontSize: 12, fontWeight: view === v ? 700 : 600, fontFamily: 'var(--font-sans)', background: view === v ? 'var(--surface)' : 'none', color: view === v ? 'var(--primary)' : 'var(--text-secondary)', boxShadow: view === v ? '0 1px 4px rgba(0,0,0,0.12)' : 'none', transition: 'color 0.12s, background 0.12s' }}>{label}</button>
+                <button key={v} onClick={() => { setView(v); if (v !== 'activity') setSelectedActivity(null) }} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', borderBottom: view === v ? '2px solid var(--primary)' : '2px solid transparent', cursor: 'pointer', fontSize: 12, fontWeight: view === v ? 700 : 600, fontFamily: 'var(--font-sans)', background: view === v ? 'var(--surface)' : 'none', color: view === v ? 'var(--primary)' : 'var(--text-secondary)', boxShadow: view === v ? '0 1px 4px rgba(0,0,0,0.12)' : 'none', transition: 'color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)' }}>{label}</button>
               ))}
             </div>
 
@@ -815,7 +820,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             {/* Export must act on exactly ONE schedule, and the app does not get
                 to pick. With both routes started it asks, every time, and never
                 remembers the answer. */}
-            <button onClick={handleExportClick} style={S.btnSecondary}>Export to Excel</button>
+            <button className="press-97" onClick={handleExportClick} style={S.btnSecondary}>Export to Excel</button>
             {!isManual && (
               <button
                 onClick={() => setConfirmRegen(true)}
@@ -948,7 +953,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         )
 
         const gridContent = (
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, position: 'relative' }}>
+            {generating && <IndeterminateBar />}
             {/* Neither route started. If the director arrived via a specific
                 sidebar link (initialRoute set) they already chose — show only
                 that route's offer. If they came via the neutral 'schedule'

@@ -86,7 +86,7 @@ export default function CampScreen({ campId }) {
           }}
           placeholder="Camp name"
         />
-        <button
+        <button className="press-97"
           onClick={saveName}
           disabled={saving || !campName.trim() || campName === savedName}
           style={{

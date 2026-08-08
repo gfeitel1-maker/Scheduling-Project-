@@ -5,7 +5,7 @@ authority: normative
 status: active
 applies_to: [design]
 supersedes: [docs/superpowers/specs/design-system.md]
-last_reviewed: 2026-07-28
+last_reviewed: 2026-08-07
 review_trigger: any change to a token value, the activity palette, or the motion vocabulary
 ---
 
@@ -75,24 +75,69 @@ Every current `:root` variable in `src/index.css` is covered, plus three new tok
 Six muted, professional colors for schedule activity types. Replaces the vivid
 `['#00ADBB','#2F7DE1','#00AA59','#A63595','#F0585D','#7DC433']`.
 
-**New palette:**
+**Current palette** (live in `src/components/schedule/slotCellConstants.js`):
 
 ```js
-const ACTIVITY_COLORS = ['#3F6690','#3C8C86','#5F8A5A','#8C6F26','#B26B47','#7C5E86']
+const ACTIVITY_COLORS = ['#305C7B','#3D7D84','#4B8C60','#B6A050','#B68B6B','#BE6BC7']
 ```
 
-| # | Name | Hex | White-label contrast | Rationale / distinctness |
-|---|---|---|---|---|
-| 1 | Slate Blue | `#3F6690` | ~6.0:1 | Coolest, darkest-reading blue. Far from every warm hue. Separates from `--primary` navy by value (navy ~3× darker) and from `--anchor` slate by chroma. |
-| 2 | Muted Teal | `#3C8C86` | ~4.0:1 | Blue-green ~175°. Lightest of the six, still clears bold-white legibility. Separated from Sage by ~60° hue. |
-| 3 | Sage Green | `#5F8A5A` | ~4.0:1 | Yellow-green ~113°. Same value band as Teal but clearly warmer/greener — hue carries the distinction. |
-| 4 | Ochre | `#8C6F26` | ~4.75:1 | Deepened from an earlier `#A8842F` proposal, which was nearly identical to `--accent` bronze `#B8833A` — an activity cell would have read as the UI accent. Deepening drops value below bronze (clean separation from chrome) *and* raises contrast. Unmistakably ochre. |
-| 5 | Clay Terracotta | `#B26B47` | ~4.1:1 | Orange-brown ~19°. Separated from Ochre by both hue (~27°) and value (Clay lighter). Warmer/greener and lighter than `--danger` brick (near-pure red, used only as chrome), so no data-grid confusion. |
-| 6 | Dusty Plum | `#7C5E86` | ~5.5:1 | Muted violet ~285°. The only purple-family hue; no neighbor competes. |
+Six hues on six rungs of a lightness ladder — hue carries identity for most people, lightness
+carries it for everyone else.
 
-**Validated:** all six are white-label legible (≥ ~4.0:1 for bold white chip labels; Slate/Plum/Ochre exceed 4.5:1) and mutually separable by hue and/or value at a ~28px cell. Every color is desaturated/professional — "color communicates meaning, not decoration."
+| # | Name | Hex | Rationale / distinctness |
+|---|---|---|---|
+| 1 | Deep Slate Blue | `#305C7B` | Coolest, darkest-reading blue. Far from every warm hue; separates from `--primary` navy by value and from `--anchor` slate by chroma. |
+| 2 | Teal | `#3D7D84` | Blue-green. Separated from Green by hue, and pushed bluer than the previous proposal to widen the greyscale gap against the greens. |
+| 3 | Green | `#4B8C60` | Mid-green. Clearly warmer/greener than Teal; hue carries the distinction. |
+| 4 | Ochre | `#B6A050` | Yellow-warm. Lightest member — the top of the greyscale ladder, which is what separates it from Clay in print. |
+| 5 | Clay | `#B68B6B` | Orange-brown. Separated from Ochre by hue and saturation, and from Plum by hue. |
+| 6 | Plum | `#BE6BC7` | Muted violet — the only purple-family hue; no neighbour competes. Deliberately the most chromatic of the six, because violet is the hue most at risk of collapsing into blue under common colour-vision deficiencies. |
 
-**If larger safety margin is wanted** on the three ~4.0:1 members (Teal, Sage, Clay): add a 1px inner border at `color-mix(in srgb, #000 18%, transparent)` on filled cells plus semibold labels. **Do NOT re-saturate** the palette — that breaks the "quiet" personality.
+(Names are descriptive labels for discussion; `slotCellConstants.js` records the values
+positionally and carries no names of its own.)
+
+**Why these values and not the 2026-07-28 proposal.** The previous set was chosen for hue alone,
+and three of its six collapsed into one colour for anyone with red-green colour blindness (~6% of
+men). Measured as the smallest distance between any two entries:
+
+```
+                    normal  deuteranopia  protanopia  greyscale
+  was                   39             6           5          2
+  now                   34            20          17         17
+```
+
+Slightly less separation for normal vision, several times more for everyone else — and the
+greyscale figure is the one that matters most in practice, because camps print schedules. At 2, a
+printed dot was indistinguishable from any other.
+
+1. **Colour-vision separation.** The original six clustered under deuteranopia and protanopia
+   simulation. The current six are chosen so that every pair remains distinguishable under
+   simulation, not only under normal trichromatic vision.
+2. **Greyscale separation for print.** The original palette was selected for white-label contrast,
+   which optimises each colour against white independently and says nothing about how the six
+   separate *from each other* in monochrome. The current palette spreads the six across the
+   luminance range so that a printed grid stays readable without colour.
+
+This is a token-value change and the aesthetic call is the director's; the constraint that must
+survive any reshuffle is the one in `slotCellConstants.test.js`, not these exact values.
+**The test is the normative guarantee** — any future re-pick must keep it passing. Do not adjust
+these hexes without re-running it, and do not re-derive them from white-label contrast ratios
+alone; that was the metric that produced the superseded set.
+
+**Usage note — the palette is no longer a fill.** After the 2026-07-28 grid decolorization pass,
+activity colour paints only a small (~6–8px) identity dot on the cell (`SlotCell.jsx`), not the
+cell background. The grid reads as calm paper with colour as a compact identity channel. Two
+consequences:
+
+- **White-label contrast is no longer the governing metric.** No bold white label is set on these
+  colours any more, so the ≥4.5:1 white-contrast target that shaped the superseded palette no
+  longer applies. Mutual separability at dot scale is the metric that does.
+- **Do not reintroduce filled activity cells** without reopening this section. A palette tuned for
+  a 6–8px dot on `--surface` is not the same palette a full 28px cell fill would want, and
+  restoring the fill would silently invalidate the separation work.
+
+**Do NOT re-saturate the palette** to gain margin — that breaks the "quiet" personality (§1). If
+more separation is ever needed, add a non-colour channel (shape, a hairline, position), not chroma.
 
 ---
 
@@ -224,9 +269,11 @@ CSS vars (new):
   --purple / --yellow-green: DEPRECATED
 Fonts:
   --font-sans 'Inter' · --font-condensed 'IBM Plex Sans' · --font-mono 'IBM Plex Mono'
-Activity palette:
-  ['#3F6690','#3C8C86','#5F8A5A','#8C6F26','#B26B47','#7C5E86']
-  (Slate Blue, Muted Teal, Sage Green, Ochre, Clay Terracotta, Dusty Plum)
+Activity palette (source of truth: src/components/schedule/slotCellConstants.js,
+                  separation locked by slotCellConstants.test.js):
+  ['#305C7B','#3D7D84','#4B8C60','#B6A050','#B68B6B','#BE6BC7']
+  (Deep Slate Blue, Teal, Green, Ochre, Clay, Plum)
+  Painted as a ~6-8px identity dot, not a cell fill — see §3.
 Motion:
   --motion-fast 140ms · --motion-base 220ms · --motion-settle 340ms
   --ease-out cubic-bezier(0.22,1,0.36,1) · no bounce, no elastic

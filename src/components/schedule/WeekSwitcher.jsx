@@ -202,7 +202,7 @@ export default function WeekSwitcher({ weeks, weekId, onSelect, onCreate, onRena
                   placeholder="Week name…"
                   style={{ ...S.input, fontSize: 12, flex: 1 }}
                 />
-                <button
+                <button className="press-97"
                   onClick={async () => {
                     if (!newName.trim() || creatingInFlight) return
                     const name = newName.trim()

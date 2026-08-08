@@ -288,7 +288,7 @@
   font-size: 11px;
   font-weight: 500;
   color: var(--text-secondary);
-  transition: background 0.1s;
+  transition: background var(--motion-fast) var(--ease-out);
 }
 
 /* ---------- interaction pseudo-states (this is why §6 was relaxed) ---------- */
@@ -380,7 +380,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background 0.15s, opacity 0.15s;
+  transition: background var(--motion-fast) var(--ease-out), opacity var(--motion-fast) var(--ease-out);
   user-select: none;
   touch-action: none;
   z-index: 2;

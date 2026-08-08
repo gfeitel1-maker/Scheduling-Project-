@@ -69,7 +69,7 @@ export default function ScheduleGroupView({
         {/* Group pills */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
           {groups.map(g => (
-            <button key={g.id} onClick={() => onSelectGroup(g.id)} style={{
+            <button key={g.id} onClick={() => onSelectGroup(g.id)} className="press-98" style={{
               padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${selectedGroup === g.id ? 'var(--primary)' : 'var(--border)'}`,
               background: selectedGroup === g.id ? 'var(--primary)' : 'var(--surface)',
               color: selectedGroup === g.id ? '#fff' : 'var(--text)',

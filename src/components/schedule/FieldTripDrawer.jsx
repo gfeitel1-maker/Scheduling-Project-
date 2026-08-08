@@ -46,7 +46,7 @@ export default function FieldTripDrawer({ isOpen, onClose, activeStamp, onSelect
         boxShadow: '-4px 0 16px rgba(0,0,0,0.08)',
         zIndex: 50,
         transform: isOpen ? 'translateX(0)' : 'translateX(100%)',
-        transition: 'transform 0.22s ease-out',
+        transition: 'transform var(--motion-base) var(--ease-out)',
         display: 'flex',
         flexDirection: 'column',
         padding: '20px 16px',
@@ -95,7 +95,7 @@ export default function FieldTripDrawer({ isOpen, onClose, activeStamp, onSelect
               fontWeight: activeStamp === label ? 700 : 500,
               cursor: 'pointer',
               fontFamily: 'inherit',
-              transition: 'border-color 0.15s, background 0.15s',
+              transition: 'border-color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)',
             }}
           >
             {label}

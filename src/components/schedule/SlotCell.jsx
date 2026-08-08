@@ -159,7 +159,7 @@ export default function SlotCell({
             ...S.cellStructuralBar(ANCHOR_COLOR),
             background: 'var(--surface)',
             transform: pressed ? 'scale(0.97)' : 'scale(1)',
-            transition: 'transform 0.1s ease',
+            transition: 'transform var(--motion-fast) var(--ease-out)',
           }}
         >
           <div
