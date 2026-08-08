@@ -16,7 +16,7 @@
 //     provided every write goes through this one function.
 
 import { randomUUID } from 'node:crypto'
-import { appendOp, DELETE_FIELD } from './operations.js'
+import { appendOp, DELETE_FIELD, latestOp } from './operations.js'
 import { PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 import { normalizeName } from '../../src/ingest/preview.js'
 import { buildPlan } from '../../src/ingest/buildPlan.js'
@@ -155,6 +155,21 @@ const nameColumnFor = (entity) => NAME_COLUMN[entity] ?? 'name'
 // Program-scoped for duplicate-recognition, exactly as ImportScreen treats them.
 const COHORT_SCOPED = Object.freeze(new Set(['tiers', 'time_blocks']))
 
+// S2b: the comparable value columns buildPlan diffs a recognized entity's
+// proposed fields against (beyond id + name, and the cohort_id already carried
+// for scoped entities). These are exactly the columns commitCreate writes and
+// fieldsFor derives, so a re-import can tell a changed field from an unchanged
+// one. camp_id is deliberately absent — it never changes and would only add
+// noise to the diff.
+const COMPARABLE_COLUMNS = Object.freeze({
+  cohorts: [],
+  tiers: ['sort_order'],
+  groups: ['availability'],
+  days_of_operation: ['day_of_week', 'sort_order'],
+  time_blocks: ['start_time', 'end_time', 'sort_order'],
+  activities: [],
+})
+
 /**
  * The `existing` snapshot buildPlan recognizes against (S1a §1), read from the
  * live DB — the same shape ImportScreen builds for `buildPreview`: rows carry
@@ -167,9 +182,12 @@ function buildExistingSnapshot(db, camp_id, cohort_id) {
   const existing = {}
   for (const entity of INGESTIBLE_ENTITIES) {
     const scoped = COHORT_SCOPED.has(entity)
-    const cols = scoped
-      ? `id, ${nameColumnFor(entity)} AS name, cohort_id`
-      : `id, ${nameColumnFor(entity)} AS name`
+    const cols = [
+      'id',
+      `${nameColumnFor(entity)} AS name`,
+      ...(scoped ? ['cohort_id'] : []),
+      ...(COMPARABLE_COLUMNS[entity] ?? []),
+    ].join(', ')
     const rows = db.prepare(`SELECT ${cols} FROM ${entity} WHERE camp_id = ?`).all(camp_id)
     existing[entity] = scoped && cohort_id ? rows.filter((r) => r.cohort_id === cohort_id) : rows
   }
@@ -265,6 +283,10 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
   const created = {}
   for (const entity of INGESTIBLE_ENTITIES) created[entity] = 0
   let total = 0
+  // S2b: field-level writes to an existing (recognized) entity. Distinct from
+  // `total`, which counts newly-created entities — an update writes ops to a row
+  // that already exists, not a new row.
+  let updated = 0
 
   // Unit name -> tier id, so a group created in this same transaction can be
   // filed under a unit created moments earlier; seeded (below) with units the
@@ -339,6 +361,37 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
       tier: 'exact_name',
       candidates: candidateIds.map((id) => ({ id, name: liveName(item.entity, id) })),
     },
+    _name: item._name,
+  })
+
+  // S2b: a protected (human-authored) field on an `update` item becomes a gated
+  // `stale` FieldConflict — surfaced, never written — collected into the SAME
+  // conflicts array S1a uses, so it trips the SAME hold-the-whole sentinel. The
+  // decision for a raw source is made by provenance (latestOp.source); the clock
+  // is carried only as evidence (field_last_seq shows WHEN the human wrote), so
+  // the shape stays forward-compatible with S4. Shape is RECONCILIATION_PLAN_TYPE
+  // §2(e), unchanged.
+  const makeStaleConflict = (item, field, delta, latest) => ({
+    op: 'conflict',
+    entity: item.entity,
+    entity_id: item.entity_id,
+    reason: 'stale',
+    fields: {
+      [field]: {
+        from: delta.from ?? null,
+        to: delta.to,
+        source: 'import',
+        conflict: {
+          reason: 'stale',
+          clock: { field_last_seq: latest.seq, source_base_seq: plan.base_generation ?? 0 },
+          competing: [
+            { value: delta.from ?? null, source: 'human', seq: latest.seq },
+            { value: delta.to, source: 'import' },
+          ],
+        },
+      },
+    },
+    evidence: { tier: 'exact_name', matched_name: item.evidence?.matched_name ?? item._name },
     _name: item._name,
   })
 
@@ -423,6 +476,27 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
     total += 1
   }
 
+  // S2b: write ONE unprotected FieldDelta of an `update` item. The Policy A gate
+  // (in the re-resolution loop) has already confirmed this field is import-owned
+  // or never-set, so it writes freely: value = delta.to, source = 'import', and
+  // parent_op_id = the field's prior op id (null only when the field had no prior
+  // op). Direct appendOp — the same host-local committer path commitCreate uses;
+  // detectConflict runs only on the WS submit_op path, not here (ADR §2 R6).
+  const commitUpdate = ({ item, field, delta, parent_op_id }) => {
+    appendOp(db, {
+      entity: item.entity,
+      entity_id: item.entity_id,
+      field,
+      value: delta.to,
+      author_user_id: author_user_id ?? null,
+      device_id,
+      parent_op_id,
+      client_write_id: randomUUID(),
+      source: IMPORT_SOURCE,
+    })
+    updated += 1
+  }
+
   // One transaction for the whole import. Any throw below rolls back every op
   // and every projected row together, so the camp is either fully imported or
   // untouched (ADR §4).
@@ -445,6 +519,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
     // is created until we know the import is not held.
     const recognition = seedRecognitionMaps()
     const toCreate = []
+    const toUpdate = []
     for (const item of plan.items) {
       switch (item.op) {
         case 'create': {
@@ -471,17 +546,41 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
           }
           break
         }
+        case 'update': {
+          // S2b. Its recognized identity must still name a live row (a peer may
+          // have deleted it in the window) — same guard as `unchanged`.
+          if (!idExists(item.entity, item.entity_id)) {
+            const ids = recognition[item.entity].get(normalizeName(item._name))
+            conflicts.push(makeConflict(item, ids ? [...ids] : []))
+            break
+          }
+          // Policy A protection gate, per FieldDelta, against the authoritative
+          // op-log (ADR §2). Protected iff the field's latest op EXISTS and its
+          // source is not 'import' (i.e. 'human' or NULL — S2a's NULL=human). A
+          // field with no prior op, or whose last op is import-authored, is
+          // unprotected and writes freely.
+          for (const [field, delta] of Object.entries(item.fields)) {
+            const latest = latestOp(db, item.entity, item.entity_id, field)
+            const isProtected = !!latest && latest.source !== 'import'
+            if (isProtected) {
+              conflicts.push(makeStaleConflict(item, field, delta, latest))
+            } else {
+              toUpdate.push({ item, field, delta, parent_op_id: latest ? latest.id : null })
+            }
+          }
+          break
+        }
         case 'conflict':
-          // buildPlan already surfaced this (ambiguous_identity, §3). Any other
-          // reason is an S2+ arm that cannot be produced by S1a's buildPlan;
-          // reaching one is a bug.
-          if (item.reason === 'ambiguous_identity') conflicts.push(item)
+          // buildPlan surfaces ambiguous_identity (§3); commitPlan itself may
+          // produce a `stale` conflict (the update gate above). Both are gated
+          // into `conflicts` (no op, no throw). cross_source (S7) and any other
+          // reason cannot be produced yet — reaching one is a bug.
+          if (item.reason === 'ambiguous_identity' || item.reason === 'stale') conflicts.push(item)
           else throw new Error(`commitPlan: conflict reason "${item.reason}" is not implemented at S1a`)
           break
-        case 'update':
         case 'clear':
-          // S2+. The type carries these arms; their merge/staleness semantics
-          // are built in later slices. Reaching one now is a bug.
+          // S4. A raw source cannot express an explicit clear (a blank is
+          // "preserve", never "remove") — reaching this arm now is a bug.
           throw new Error(`commitPlan: op "${item.op}" is not implemented at S1a`)
         default:
           throw new Error(`commitPlan: unknown op "${item.op}"`)
@@ -503,6 +602,9 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
     // resolvable) and groups before activities (group ids resolvable) — the
     // same registration-before-use the pre-S0 loop relied on.
     for (const item of toCreate) commitCreate(item)
+    // S2b: unprotected field updates, after creates. commitUpdate targets rows
+    // that already exist, so ordering against creates is immaterial.
+    for (const u of toUpdate) commitUpdate(u)
 
     // Fixed events, after the entity loop and INSIDE the same transaction, so
     // the whole import stays one atomic unit (ADR §4). anchor_activities is
@@ -585,6 +687,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
       conflicts,
       created,
       total,
+      updated: 0,
       fixedEvents: { created: 0, skipped: [], partial: [] },
     }
   }
@@ -594,6 +697,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
     conflicts: [],
     created,
     total,
+    updated,
     fixedEvents: { created: fixedCreated.length, skipped: fixedSkipped, partial: fixedPartial },
   }
   if (replaced) outcome.replaced = replaced

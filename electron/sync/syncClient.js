@@ -146,7 +146,7 @@ export function createSyncClient(
       // Trash and record history said "Unknown" for almost everything.
       // The closure value remains the fallback for callers with no user, such
       // as bootstrap and pairing, which are honestly unattributed.
-      async write({ entity, entity_id, field, value, parent_op_id = null, author_user_id: opAuthor }) {
+      async write({ entity, entity_id, field, value, parent_op_id = null, author_user_id: opAuthor, source = 'human' }) {
         const op = appendOp(db, {
           entity,
           entity_id,
@@ -155,10 +155,14 @@ export function createSyncClient(
           author_user_id: opAuthor ?? author_user_id,
           device_id,
           parent_op_id,
-          // S2a: this is an interactive edit seam — hard-set human provenance
-          // so a hand-edit is protected on re-import even though NULL would
-          // also decode to human (ADR §2).
-          source: 'human',
+          // S2a: this is an interactive edit seam — DEFAULTS to human provenance
+          // so a hand-edit is protected on re-import even though NULL would also
+          // decode to human (ADR §2). S2b R1: a `stale`-accept resolution passes
+          // source:'import' so the director's acceptance of an import value is
+          // recorded import-owned and future re-imports update it quietly (§3a).
+          // This is a HOST-LOCAL write (no-serverUrl client), so stamping
+          // 'import' here is legitimate — the Host owns import provenance.
+          source,
         })
         notifyOpApplied(op)
         return { status: 'applied', op }
@@ -779,7 +783,7 @@ export function createSyncClient(
 
   // T22: the remote path dropped the caller's author for the same reason the
   // local one did — it was never a parameter.
-  async function performWrite({ entity, entity_id, field, value, parent_op_id = null, client_write_id = null, author_user_id: opAuthor }) {
+  async function performWrite({ entity, entity_id, field, value, parent_op_id = null, client_write_id = null, author_user_id: opAuthor, source = 'human' }) {
     const lockResult = await acquireLockRemote(entity, entity_id, field)
     if (lockResult.status === 'disconnected' || lockResult.status === 'timeout') {
       return { status: lockResult.status }
@@ -796,10 +800,13 @@ export function createSyncClient(
       return { status: 'lock_contention', holder_device_id: lockResult.holder_device_id }
     }
 
-    // S2a: interactive edit seam — hard-set human provenance. The Host also
+    // S2a: interactive edit seam — DEFAULTS to human provenance. The Host also
     // FORCES 'human' in handleSubmitOp (Security V1) and never trusts a
-    // submitted source, so this is the legible intent, not the trust boundary.
-    const op = { entity, entity_id, field, value, author_user_id: opAuthor ?? author_user_id, parent_op_id, client_write_id, source: 'human' }
+    // submitted source, so a client can never forge 'import' over the wire; this
+    // is the legible intent, not the trust boundary. (S2b R1's import-provenance
+    // resolution only matters on the host-local no-serverUrl path above, where
+    // import ownership is genuinely stamped.)
+    const op = { entity, entity_id, field, value, author_user_id: opAuthor ?? author_user_id, parent_op_id, client_write_id, source }
     const submitResult = await submitOpRemote(op)
     if (submitResult.status === 'disconnected' || submitResult.status === 'timeout' || submitResult.status === 'error') {
       return submitResult

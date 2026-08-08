@@ -145,7 +145,7 @@ describe('R4 — peer-created same-name row in the review window holds the impor
   })
 })
 
-describe('conflict gates; update/clear/stale/cross_source still throw (§4)', () => {
+describe('conflict gates; clear/cross_source still throw, update/stale go live (S2b §4)', () => {
   const base = (item) => ({
     plan_version: 1, camp_id: campId, cohort_id: null, base_generation: 0,
     sources: [{ source: 'import', family: 'schedule' }], mode: 'add', fixedEvents: [],
@@ -162,9 +162,18 @@ describe('conflict gates; update/clear/stale/cross_source still throw (§4)', ()
     expect(opCount()).toBe(before)
   })
 
-  it('throws on op:update', () => {
-    expect(() => commitPlan(db, base({ op: 'update', entity: 'activities', entity_id: 'x', fields: {} }),
-      { author_user_id: 'u1', device_id: deviceId })).toThrow(/not implemented/)
+  it('op:update no longer throws — an update whose row was deleted holds as ambiguous_identity', () => {
+    // S2b: `update` is live. An update pointing at a non-existent row cannot
+    // resolve its identity, so it holds (no op, no throw), exactly like a
+    // deleted `unchanged` — it does NOT throw "not implemented".
+    const before = opCount()
+    const result = commitPlan(db, base({
+      op: 'update', entity: 'activities', entity_id: 'no-such-row',
+      fields: { name: { from: 'A', to: 'B', source: 'import' } }, _name: 'A',
+    }), { author_user_id: 'u1', device_id: deviceId })
+    expect(result.held).toBe(true)
+    expect(result.conflicts[0].reason).toBe('ambiguous_identity')
+    expect(opCount()).toBe(before)
   })
 
   it('throws on op:clear', () => {
@@ -172,11 +181,18 @@ describe('conflict gates; update/clear/stale/cross_source still throw (§4)', ()
       { author_user_id: 'u1', device_id: deviceId })).toThrow(/not implemented/)
   })
 
-  it('throws on a stale / cross_source conflict reason', () => {
-    for (const reason of ['stale', 'cross_source']) {
-      expect(() => commitPlan(db, base({ op: 'conflict', entity: 'activities', entity_id: null, reason, fields: {}, evidence: {} }),
-        { author_user_id: 'u1', device_id: deviceId })).toThrow(/not implemented/)
-    }
+  it('a stale conflict item gates (no throw); cross_source still throws', () => {
+    // S2b: `stale` is a real, gated reason now — collected into conflicts, held,
+    // no throw. cross_source (S7) is still unbuilt and throws.
+    const before = opCount()
+    const stale = commitPlan(db, base({
+      op: 'conflict', entity: 'activities', entity_id: null, reason: 'stale', fields: {}, evidence: {},
+    }), { author_user_id: 'u1', device_id: deviceId })
+    expect(stale.held).toBe(true)
+    expect(opCount()).toBe(before)
+
+    expect(() => commitPlan(db, base({ op: 'conflict', entity: 'activities', entity_id: null, reason: 'cross_source', fields: {}, evidence: {} }),
+      { author_user_id: 'u1', device_id: deviceId })).toThrow(/not implemented/)
   })
 })
 
