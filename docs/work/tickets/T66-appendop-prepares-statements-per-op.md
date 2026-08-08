@@ -1,7 +1,7 @@
 ---
 title: T66-appendop-prepares-statements-per-op
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-07
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]

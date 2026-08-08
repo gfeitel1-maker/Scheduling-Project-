@@ -1,7 +1,7 @@
 ---
 title: T68-replace-confirmation-omits-fixed-events
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-07
 task_class: ui-ux-design
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/DESIGN_STANDARD.md, docs/governance/constitution/CONSTITUTION.md]
