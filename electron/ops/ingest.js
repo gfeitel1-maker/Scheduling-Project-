@@ -221,7 +221,7 @@ function buildExistingSnapshot(db, camp_id, cohort_id) {
  * Returns `{ created: { [entity]: count }, total,
  *            fixedEvents: { created, skipped, partial }, replaced? }`.
  */
-export function commitIngest(db, { approved, links, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add' }) {
+export function commitIngest(db, { approved, links, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [] }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -245,9 +245,12 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
   const plan = buildPlan(
     { approved, links, activityRules, fixedEvents, camp_id, cohort_id, mode },
     existing,
+    // T73: a director's per-conflict decisions from a prior held commit. buildPlan
+    // consumes only the ambiguous_identity picks; stale picks flow to commitPlan.
+    resolutions,
   )
 
-  return commitPlan(db, plan, { author_user_id: author_user_id ?? null, device_id })
+  return commitPlan(db, plan, { author_user_id: author_user_id ?? null, device_id, resolutions })
 }
 
 /**
@@ -268,10 +271,23 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
  * @param {import('../../src/ingest/buildPlan.js').ReconciliationPlan} plan
  * @param {{ author_user_id: string|null, device_id: string }} actor
  */
-export function commitPlan(db, plan, { author_user_id = null, device_id }) {
+export function commitPlan(db, plan, { author_user_id = null, device_id, resolutions = [] }) {
   const camp_id = plan.camp_id
   const cohort_id = plan.cohort_id ?? null
   const mode = plan.mode ?? 'add'
+
+  // T73: a director's per-conflict decisions, indexed by entity|normalizeName(name)
+  // |field?, using the SAME normalizeName the rest of the path uses so the key
+  // cannot disagree about "the same name" (ADR §2). buildPlan already consumed the
+  // ambiguous_identity picks (pinning identity / forcing create); commitPlan honors
+  // the ambiguous 'create' pick's collision bypass here, and the stale picks below.
+  const resIndex = new Map()
+  for (const r of Array.isArray(resolutions) ? resolutions : []) {
+    if (!r || !r.entity) continue
+    resIndex.set(`${r.entity}|${normalizeName(r.name)}|${r.field ?? ''}`, r)
+  }
+  const resolutionFor = (entity, name, field = '') =>
+    resIndex.get(`${entity}|${normalizeName(name)}|${field ?? ''}`)
 
   // S2a: every field-value op this committer writes is import-authored. Set once
   // here and threaded into EVERY appendOp commitPlan makes — commitCreate's
@@ -525,11 +541,24 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
         case 'create': {
           const ids = recognition[item.entity].get(normalizeName(item._name))
           if (ids && ids.size >= 1) {
-            // A peer created this same-name entity (one row), or the camp holds
-            // two rows that normalize alike (>1). Either way the world changed
-            // under the plan — never commitCreate (that throws at UNIQUE),
-            // never auto-pick. Surface the colliding row(s) for review.
-            conflicts.push(makeConflict(item, [...ids]))
+            // T73: a director who resolved an ambiguity to "create new" pinned
+            // this create; honor it by bypassing the normalize-collision→conflict
+            // conversion — UNLESS a candidate now shares the RAW name (UNIQUE
+            // would throw). A raw-name duplicate re-holds rather than throwing
+            // (ADR §2/§4); a genuinely-new raw name (the "Art" vs "art " case)
+            // creates cleanly.
+            const res = resolutionFor(item.entity, item._name)
+            const pinnedCreate = res?.reason === 'ambiguous_identity' && res.choice === 'create'
+            const rawDuplicate = pinnedCreate && [...ids].some((id) => liveName(item.entity, id) === item._name)
+            if (pinnedCreate && !rawDuplicate) {
+              toCreate.push(item)
+            } else {
+              // A peer created this same-name entity (one row), or the camp holds
+              // two rows that normalize alike (>1). Either way the world changed
+              // under the plan — never commitCreate (that throws at UNIQUE),
+              // never auto-pick. Surface the colliding row(s) for review.
+              conflicts.push(makeConflict(item, [...ids]))
+            }
           } else {
             toCreate.push(item)
           }
@@ -563,7 +592,20 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
             const latest = latestOp(db, item.entity, item.entity_id, field)
             const isProtected = !!latest && latest.source !== 'import'
             if (isProtected) {
-              conflicts.push(makeStaleConflict(item, field, delta, latest))
+              // T73: a director may have resolved this stale field. 'accept'
+              // bypasses the Policy-A gate and writes via commitUpdate — which
+              // stamps source:'import' and parents on the live human op, exactly
+              // S2b's stale_accept semantics, reached through commitPlan (the door
+              // that fits a held import). 'keep' drops the FieldDelta entirely (no
+              // op). No resolution → the field re-holds as a stale conflict.
+              const res = resolutionFor(item.entity, item._name, field)
+              if (res?.reason === 'stale' && res.choice === 'accept') {
+                toUpdate.push({ item, field, delta, parent_op_id: latest.id })
+              } else if (res?.reason === 'stale' && res.choice === 'keep') {
+                // dropped — the director keeps their hand-edit, nothing written
+              } else {
+                conflicts.push(makeStaleConflict(item, field, delta, latest))
+              }
             } else {
               toUpdate.push({ item, field, delta, parent_op_id: latest ? latest.id : null })
             }

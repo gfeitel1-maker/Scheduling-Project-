@@ -68,6 +68,18 @@ a { text-decoration: none; color: inherit; }
   to   { transform: translateX(350%); }
 }
 
+/* T73 held-import resolution — motion explains state, never decorates
+   (design spec §6). Slide+fade for the held banner (an attention state, not an
+   alarm) and lift+fade for a mounting decision/finish card. */
+@keyframes importHeldIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes importCardIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .press-97, .press-98 { transition: none; }
   .press-97:active:not(:disabled),
@@ -78,6 +90,9 @@ a { text-decoration: none; color: inherit; }
     transform: none !important;
     width: 100% !important;
   }
+  /* T73 — the auto-advance/mount animations degrade to an instant swap, or a
+     reduced-motion user gets a freeze with no cue (design spec §6, §9). */
+  [style*="importHeldIn"], [style*="importCardIn"] { animation: none !important; }
 }
 
 /* Activity card hover — gated to real pointers so a touch tap does not

@@ -235,7 +235,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // device's sync mode — and the guard below reads it; a shadowing parameter
   // would silently turn the Host check into a comparison against the import
   // mode instead.
-  function ingestCommit({ token, approved, links, cohort_id, fixedEvents, activityRules, mode: ingestMode } = {}) {
+  function ingestCommit({ token, approved, links, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // Admin only. Staff may edit setup records one at a time; creating a
     // camp's whole structure in one action is a different kind of authority,
@@ -278,6 +278,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // T61 — 'replace' clears the camp's importable setup and its dependent
       // rows first, in the same transaction. Anything else is an add.
       mode: ingestMode === 'replace' ? 'replace' : 'add',
+      // T73 — a director's per-conflict decisions when re-committing a held
+      // import. Empty/absent on a first commit, so behavior is unchanged.
+      resolutions: resolutions ?? [],
     })
   }
 

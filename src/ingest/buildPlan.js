@@ -87,9 +87,17 @@ export function fieldsFor(entity, name, campId, index, cohortId) {
  *     approved name is a `create`, which preserves the importer's blind-create
  *     path (a same-name collision surfaces at the UNIQUE constraint at commit,
  *     exactly as today).
+ *   @param {Array} resolutions  T73 — a director's per-conflict decisions from a
+ *     prior held commit. Only `ambiguous_identity` decisions are consumed here
+ *     (they change which identity a label binds to, the pure-diff's concern);
+ *     `stale` decisions are a commit-gate concern and are honored in commitPlan.
+ *     Each is `{ entity, name, reason:'ambiguous_identity', choice:'existing',
+ *     entity_id }` or `{ ..., choice:'create' }`. Indexed by the SAME
+ *     normalizeName the rest of the path uses, so the key cannot disagree about
+ *     "the same name" (ADR §2).
  *   @returns {ReconciliationPlan}
  */
-export function buildPlan(source, existing = null) {
+export function buildPlan(source, existing = null, resolutions = []) {
   const approved = source?.approved ?? {}
   const links = source?.links ?? {}
   const activityRules = source?.activityRules ?? {}
@@ -97,6 +105,14 @@ export function buildPlan(source, existing = null) {
   const campId = source?.camp_id ?? null
   const cohortId = source?.cohort_id ?? null
   const have = existing ?? {}
+
+  // T73: index the ambiguous-identity resolutions by entity|normalizeName(name).
+  const ambiguousRes = new Map()
+  for (const r of Array.isArray(resolutions) ? resolutions : []) {
+    if (!r || r.reason !== 'ambiguous_identity') continue
+    ambiguousRes.set(`${r.entity}|${normalizeName(r.name)}`, r)
+  }
+  const resolutionFor = (entity, name) => ambiguousRes.get(`${entity}|${normalizeName(name)}`)
 
   const items = []
 
@@ -123,31 +139,12 @@ export function buildPlan(source, existing = null) {
       const name = String(rawName ?? '').trim()
       if (!name) return
 
-      const matches = already.get(normalizeName(name)) ?? []
-      if (matches.length > 1) {
-        // One incoming label, more than one live row normalize-matching it.
-        // Never auto-pick (§3); surface every candidate for review.
-        items.push({
-          op: 'conflict',
-          entity,
-          entity_id: null,
-          reason: 'ambiguous_identity',
-          fields: {},
-          evidence: {
-            tier: 'exact_name',
-            candidates: matches.map((m) => ({ id: m.id, name: m.name })),
-          },
-          _name: name,
-        })
-        return
-      }
-      if (matches.length === 1) {
-        const match = matches[0]
-        // S2b: a recognized entity is no longer blindly `unchanged`. Diff the
-        // proposed field values against the live snapshot row; a field that
-        // DIFFERS becomes a FieldDelta and turns the item into an `update`,
-        // carrying ONLY the changed fields. An entity all of whose comparable
-        // fields equal live stays `unchanged` (zero ops), preserving F4.
+      // S2b: a recognized entity is no longer blindly `unchanged`. Diff the
+      // proposed field values against the live snapshot row; a field that
+      // DIFFERS becomes a FieldDelta and turns the item into an `update`,
+      // carrying ONLY the changed fields. An entity all of whose comparable
+      // fields equal live stays `unchanged` (zero ops), preserving F4.
+      const emitRecognized = (match) => {
         const raw = fieldsFor(entity, name, campId, index, cohortId)
         const nameCol = entity === 'days_of_operation' ? 'label' : 'name'
         const fields = {}
@@ -192,28 +189,62 @@ export function buildPlan(source, existing = null) {
           // live DB (the review window may have deleted match.id).
           _name: name,
         })
+      }
+
+      const emitCreate = () => {
+        const raw = fieldsFor(entity, name, campId, index, cohortId)
+        const fields = {}
+        for (const [field, value] of Object.entries(raw)) {
+          fields[field] = { from: null, to: value, source: 'import' }
+        }
+        const item = {
+          op: 'create',
+          entity,
+          entity_id: null,
+          fields,
+          evidence: { tier: 'new' },
+          // Commit-resolution inputs — pure data the committer binds against the
+          // live name->id maps (ADR §4). buildPlan cannot resolve them (no DB).
+          _name: name,
+        }
+        if (entity === 'groups') item._link_unit = groupUnits[name]
+        if (entity === 'activities') item._rule = activityRules?.[name]
+        items.push(item)
+      }
+
+      const matches = already.get(normalizeName(name)) ?? []
+      if (matches.length > 1) {
+        // One incoming label, more than one live row normalize-matching it.
+        // T73: if the director already resolved this ambiguity, honor the pick
+        // through the SAME pure diff (pin to the chosen row) or the create arm,
+        // so no re-ambiguation. Otherwise never auto-pick (§3); surface every
+        // candidate for review.
+        const res = resolutionFor(entity, name)
+        if (res?.choice === 'existing' && res.entity_id) {
+          const pinned = matches.find((m) => m.id === res.entity_id)
+          if (pinned) { emitRecognized(pinned); return }
+          // The pinned candidate is gone from the live snapshot (peer deleted
+          // it in the window) — fall through to re-hold as a fresh conflict.
+        } else if (res?.choice === 'create') {
+          emitCreate()
+          return
+        }
+        items.push({
+          op: 'conflict',
+          entity,
+          entity_id: null,
+          reason: 'ambiguous_identity',
+          fields: {},
+          evidence: {
+            tier: 'exact_name',
+            candidates: matches.map((m) => ({ id: m.id, name: m.name })),
+          },
+          _name: name,
+        })
         return
       }
-
-      const raw = fieldsFor(entity, name, campId, index, cohortId)
-      const fields = {}
-      for (const [field, value] of Object.entries(raw)) {
-        fields[field] = { from: null, to: value, source: 'import' }
-      }
-
-      const item = {
-        op: 'create',
-        entity,
-        entity_id: null,
-        fields,
-        evidence: { tier: 'new' },
-        // Commit-resolution inputs — pure data the committer binds against the
-        // live name->id maps (ADR §4). buildPlan cannot resolve them (no DB).
-        _name: name,
-      }
-      if (entity === 'groups') item._link_unit = groupUnits[name]
-      if (entity === 'activities') item._rule = activityRules?.[name]
-      items.push(item)
+      if (matches.length === 1) { emitRecognized(matches[0]); return }
+      emitCreate()
     })
   }
 
