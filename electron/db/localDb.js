@@ -13,7 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 28
+export const CURRENT_SCHEMA_VERSION = 29
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1344,6 +1344,32 @@ export function initSchema(db) {
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (28, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v29 — per-field provenance: operations.source
+  // (docs/adr/2026-08-08-s2a-field-provenance-and-hand-edit-protection.md).
+  // A single nullable TEXT column recording whether a field write came from an
+  // import ('import') or a human ('human'); NULL decodes to human (§3). It is
+  // added ONLY here (not in schema.sql's CREATE TABLE) so that on both a fresh
+  // install and a 28->29 migrated db it is appended LAST — after the
+  // migration-only host_seq (v18) — keeping PRAGMA table_info(operations)
+  // byte-identical across the two (see the note in schema.sql).
+  //
+  // NULLABLE is a hard requirement, not a convenience (ADR §5 guardrail 1): a
+  // NOT NULL constraint would reject provenance-less ops replicated by a peer
+  // that predates this column and would break the NULL=human decode.
+  //
+  // Gated `>= 28` (matching how v28 gates `>= 27`) so it runs only once v28 has
+  // completed, including in the same fresh-install pass right after v28 stamps.
+  if (getSchemaVersion(db) >= 28 && getSchemaVersion(db) < 29) {
+    db.transaction(() => {
+      const hasSource = db.pragma('table_info(operations)').some((c) => c.name === 'source')
+      if (!hasSource) db.exec('ALTER TABLE operations ADD COLUMN source TEXT')
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (29, ?)').run(
       new Date().toISOString()
     )
   }

@@ -65,7 +65,12 @@ const PARENT_SCOPED_DEPENDENTS = Object.freeze([
  *
  * Returns `{ entities: { [entity]: count }, dependents: { [table]: count } }`.
  */
-export function replaceScope(db, { camp_id, author_user_id = null, device_id }) {
+// `source` (S2a) tags the field-value writes this teardown makes as import
+// provenance. Only the weather_alternative_id null-out below is a field-value
+// write; the `__deleted__` tombstone ops carry no field value and stay NULL
+// (ADR §2 census). Passed by commitPlan as 'import'; defaults to null so a
+// direct/test caller behaves as before.
+export function replaceScope(db, { camp_id, author_user_id = null, device_id, source = null }) {
   const entities = {}
   const dependents = {}
 
@@ -119,6 +124,7 @@ export function replaceScope(db, { camp_id, author_user_id = null, device_id }) 
       device_id,
       parent_op_id: null,
       client_write_id: randomUUID(),
+      source,
     })
   }
 
@@ -248,6 +254,13 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
   const camp_id = plan.camp_id
   const cohort_id = plan.cohort_id ?? null
   const mode = plan.mode ?? 'add'
+
+  // S2a: every field-value op this committer writes is import-authored. Set once
+  // here and threaded into EVERY appendOp commitPlan makes — commitCreate's
+  // field loop, the fixed-events anchor writes, and replaceScope's field-value
+  // write (its `__deleted__` tombstones stay NULL). This is the commitPlan-WIDE
+  // seam the ADR §2 census requires: 'import' is producible ONLY from here.
+  const IMPORT_SOURCE = 'import'
 
   const created = {}
   for (const entity of INGESTIBLE_ENTITIES) created[entity] = 0
@@ -403,6 +416,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
         device_id,
         parent_op_id: null,
         client_write_id: randomUUID(),
+        source: IMPORT_SOURCE,
       })
     }
     created[entity] += 1
@@ -419,7 +433,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
     // creates, which also lets the new records reuse the old names against
     // UNIQUE(camp_id, name).
     if (mode === 'replace') {
-      replaced = replaceScope(db, { camp_id, author_user_id, device_id })
+      replaced = replaceScope(db, { camp_id, author_user_id, device_id, source: IMPORT_SOURCE })
     }
     seedNameMaps()
 
@@ -547,6 +561,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id }) {
             device_id,
             parent_op_id: null,
             client_write_id: randomUUID(),
+            source: IMPORT_SOURCE,
           })
         }
         fixedCreated.push(anchorId)

@@ -74,7 +74,13 @@ export function coerceOpValue(value) {
   return value
 }
 
-export function appendOp(db, { entity, entity_id, field, value, author_user_id, device_id, parent_op_id, client_write_id }) {
+// `source` (S2a) is the per-field provenance marker: 'import' (written by the
+// host-local reconciliation committer), 'human' (an interactive edit), or NULL
+// (decoded as human, §3). It defaults to null and is set STRUCTURALLY by each
+// writer from where the code is — never copied from a client-submitted op (that
+// would let a peer forge 'import'; handleSubmitOp forces 'human'). See the ADR
+// §2 writer census.
+export function appendOp(db, { entity, entity_id, field, value, author_user_id, device_id, parent_op_id, client_write_id, source = null }) {
   const projection = PROJECTIONS[entity]
   if (projection && field !== DELETE_FIELD && !projection.fields.includes(field)) {
     throw new Error('field not allowed for entity')
@@ -87,9 +93,9 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
   const run = db.transaction(() => {
     const result = getStmt(
       db,
-      `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, entity, entity_id, field, storedValue, author_user_id ?? null, device_id, timestamp, parent_op_id ?? null, client_write_id ?? null)
+      `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id, source)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, entity, entity_id, field, storedValue, author_user_id ?? null, device_id, timestamp, parent_op_id ?? null, client_write_id ?? null, source ?? null)
 
     const op = getStmt(db, 'SELECT * FROM operations WHERE seq = ?').get(result.lastInsertRowid)
     // applyProjection returns false only for a rejected camp_id write (see

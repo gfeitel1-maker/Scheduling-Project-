@@ -155,6 +155,10 @@ export function createSyncClient(
           author_user_id: opAuthor ?? author_user_id,
           device_id,
           parent_op_id,
+          // S2a: this is an interactive edit seam — hard-set human provenance
+          // so a hand-edit is protected on re-import even though NULL would
+          // also decode to human (ADR §2).
+          source: 'human',
         })
         notifyOpApplied(op)
         return { status: 'applied', op }
@@ -397,11 +401,14 @@ export function createSyncClient(
     const insert = db.transaction(() => {
       const result = db
         .prepare(
-          `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id, host_seq)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id, host_seq, source)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(id) DO NOTHING`
         )
-        .run(op.id, op.entity, op.entity_id, op.field, op.value, op.author_user_id ?? null, op.device_id, op.timestamp, op.parent_op_id ?? null, op.client_write_id ?? null, op.seq)
+        // S2a: PRESERVE the replicated op's stored source (§4) — this is copying
+        // an already-committed op's provenance, not stamping a new write. A
+        // 'human' op replicates as 'human', an 'import' op as 'import'.
+        .run(op.id, op.entity, op.entity_id, op.field, op.value, op.author_user_id ?? null, op.device_id, op.timestamp, op.parent_op_id ?? null, op.client_write_id ?? null, op.seq, op.source ?? null)
       return result.changes
     })
     const changes = insert()
@@ -789,7 +796,10 @@ export function createSyncClient(
       return { status: 'lock_contention', holder_device_id: lockResult.holder_device_id }
     }
 
-    const op = { entity, entity_id, field, value, author_user_id: opAuthor ?? author_user_id, parent_op_id, client_write_id }
+    // S2a: interactive edit seam — hard-set human provenance. The Host also
+    // FORCES 'human' in handleSubmitOp (Security V1) and never trusts a
+    // submitted source, so this is the legible intent, not the trust boundary.
+    const op = { entity, entity_id, field, value, author_user_id: opAuthor ?? author_user_id, parent_op_id, client_write_id, source: 'human' }
     const submitResult = await submitOpRemote(op)
     if (submitResult.status === 'disconnected' || submitResult.status === 'timeout' || submitResult.status === 'error') {
       return submitResult

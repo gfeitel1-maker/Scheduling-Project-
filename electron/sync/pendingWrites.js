@@ -12,6 +12,17 @@
 // coerced (coerceOpValue) by the caller: syncClient.write() does it once, so
 // the durable row here and the in-memory queue item hold the identical value.
 // This stays a dumb writer — coercing here too would let those two diverge.
+//
+// S2a provenance (ADR §4, R4): pending_writes deliberately does NOT carry a
+// `source` column. Every write that lands here comes from the interactive edit
+// seam, whose provenance is 'human'; on reload the queued write re-enters the
+// submit path (performWrite -> handleSubmitOp), which FORCES source:'human'
+// regardless. A human->NULL degradation would also be safe (NULL decodes to
+// human, §3), so nothing here can ever reload as 'import'. Adding a column
+// would buy no correctness — the DECIDED choice is the documented degradation:
+// pending_writes stores no source and the reloaded write is re-stamped 'human'
+// by the submit path. 'import' writes never reach this queue (they are
+// host-local commitPlan writes, never queued offline client edits).
 export function insertPendingWrite(db, { pendingId, client_write_id, entity, entity_id, field, value, parent_op_id }) {
   db.prepare(
     `INSERT INTO pending_writes (pending_id, client_write_id, entity, entity_id, field, value, parent_op_id, created_at)
