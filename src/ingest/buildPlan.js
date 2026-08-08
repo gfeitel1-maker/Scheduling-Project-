@@ -143,7 +143,45 @@ export function buildPlan(source, existing = null) {
       }
       if (matches.length === 1) {
         const match = matches[0]
-        // Resolved to a live entity, nothing to write. Zero-op arm (type doc b).
+        // S2b: a recognized entity is no longer blindly `unchanged`. Diff the
+        // proposed field values against the live snapshot row; a field that
+        // DIFFERS becomes a FieldDelta and turns the item into an `update`,
+        // carrying ONLY the changed fields. An entity all of whose comparable
+        // fields equal live stays `unchanged` (zero ops), preserving F4.
+        const raw = fieldsFor(entity, name, campId, index, cohortId)
+        const nameCol = entity === 'days_of_operation' ? 'label' : 'name'
+        const fields = {}
+        for (const [field, proposed] of Object.entries(raw)) {
+          // Blank/absent in the source → preserve, never diff and never clear
+          // (MATCH_AND_MERGE_SEMANTICS §3): an empty cell means "I don't carry
+          // this", so it stays out of the delta entirely.
+          if (proposed === null || proposed === undefined || proposed === '') continue
+          // Only fields the snapshot actually carries are comparable; a column
+          // absent from the snapshot can't be diffed, so it is preserved.
+          if (!(field in match)) continue
+          const live = match[field]
+          // The identity name/label matched via normalizeName, so a raw-form
+          // difference ('art ' vs 'Art') is the SAME entity, not an update.
+          const same = field === nameCol
+            ? normalizeName(String(live)) === normalizeName(String(proposed))
+            : live === proposed
+          if (same) continue
+          fields[field] = { from: live ?? null, to: proposed, source: 'import' }
+        }
+
+        if (Object.keys(fields).length > 0) {
+          items.push({
+            op: 'update',
+            entity,
+            entity_id: match.id,
+            fields,
+            evidence: { tier: 'exact_name', matched_name: match.name },
+            _name: name,
+          })
+          return
+        }
+
+        // Resolved to a live entity, nothing differs. Zero-op arm (type doc b).
         items.push({
           op: 'unchanged',
           entity,

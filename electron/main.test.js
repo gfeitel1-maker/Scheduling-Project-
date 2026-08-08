@@ -52,7 +52,7 @@ vi.mock('./sync/syncClient.js', () => ({
       // Mirrors real local-mode syncClient behavior (appendOp + projection) so
       // that tests exercising createUser/bootstrapCamp through this mocked
       // syncClient still end up with a real, queryable users row.
-      write: vi.fn(async ({ entity, entity_id, field, value, author_user_id }) => {
+      write: vi.fn(async ({ entity, entity_id, field, value, author_user_id, parent_op_id = null, source = 'human' }) => {
         const op = appendOp(mockDb, {
           entity,
           entity_id,
@@ -60,7 +60,10 @@ vi.mock('./sync/syncClient.js', () => ({
           value,
           author_user_id: author_user_id ?? opts.author_user_id ?? null,
           device_id: opts.device_id,
-          parent_op_id: null,
+          parent_op_id,
+          // Mirror the real client seam (S2a/S2b R1): default 'human', but honor
+          // an explicit source (a stale-accept passes 'import') and parent_op_id.
+          source,
         })
         return { status: 'applied', op }
       }),
@@ -109,7 +112,7 @@ vi.mock('./sync/syncClient.js', () => ({
 import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
 import { createUser, attemptLogin, ensureHostSigningKey } from './auth/localAuth.js'
 let attemptLoginRef = (args) => attemptLogin(db, args)
-import { appendOp, appendBulkReplaceOp } from './ops/operations.js'
+import { appendOp, appendBulkReplaceOp, latestOp } from './ops/operations.js'
 import { makeHandlers, sanitizeConflictForIpc } from './main.js'
 import { startSyncServer } from './sync/syncServer.js'
 import { advertiseHost } from './sync/discovery.js'
@@ -1275,6 +1278,41 @@ describe('resolveConflict handler (conflicts.resolve, staff+admin)', () => {
     expect(() =>
       handlers.resolveConflict({ token, entity: 'groups', entity_id: 'g1', field: 'name', chosen_op_id: 'does-not-exist' })
     ).toThrow('chosen operation not found')
+  })
+
+  // S2b R1 (§3a): the source-aware stale-accept path. Accepting an import value
+  // must stamp source:'import' so the acceptance sticks and future re-imports
+  // update quietly; any other resolution stays 'human'.
+  it('stale_accept:true stamps source=import on the resolution write; default stays human', async () => {
+    await seedCampAndUser({ name: 'AdminResolver', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7305 })
+    const { token } = await handlers.login({ name: 'AdminResolver', pin: '1234' })
+
+    // A group whose name was hand-edited (human), plus an op holding the value
+    // the director will ACCEPT from the import.
+    const gid = randomUUID()
+    appendOp(db, { entity: 'groups', entity_id: gid, field: 'camp_id', value: db.prepare('SELECT id FROM camps LIMIT 1').get().id, device_id: deviceId, source: 'import' })
+    const humanOp = appendOp(db, { entity: 'groups', entity_id: gid, field: 'name', value: 'Hand Edited', device_id: deviceId, source: 'human' })
+    const importOp = appendOp(db, { entity: 'groups', entity_id: gid, field: 'name', value: 'Imported Value', device_id: deviceId, source: 'import' })
+
+    // Accept the import value → source:'import'.
+    handlers.resolveConflict({
+      token, entity: 'groups', entity_id: gid, field: 'name',
+      chosen_op_id: importOp.id, parent_op_id: humanOp.id, stale_accept: true,
+    })
+    let latest = latestOp(db, 'groups', gid, 'name')
+    expect(latest.value).toBe('Imported Value')
+    expect(latest.source).toBe('import')
+
+    // A NON-accept resolution (default) stays human.
+    handlers.resolveConflict({
+      token, entity: 'groups', entity_id: gid, field: 'name',
+      chosen_op_id: humanOp.id, parent_op_id: latest.id,
+    })
+    latest = latestOp(db, 'groups', gid, 'name')
+    expect(latest.value).toBe('Hand Edited')
+    expect(latest.source).toBe('human')
   })
 })
 
