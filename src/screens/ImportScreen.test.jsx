@@ -52,6 +52,18 @@ beforeEach(() => {
   localClient.ingestCommit.mockResolvedValue({ total: 3, fixedEvents: { created: 0, skipped: [], partial: [] } })
 })
 
+// The Replace warning sentences use JSX fragments with a <strong> in the
+// middle, so their text is split across sibling text nodes — screen.getByText
+// with a plain regex can't span that. This matches the deepest element whose
+// full text satisfies the regex, the pattern RTL's own docs recommend for
+// text broken up by markup.
+function textNode(regex) {
+  return (_, element) => {
+    const hasText = (node) => regex.test(node.textContent ?? '')
+    return hasText(element) && Array.from(element.children).every((child) => !hasText(child))
+  }
+}
+
 async function uploadFile() {
   render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
   const input = document.querySelector('input[type="file"]')
@@ -191,5 +203,116 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     for (const name of ['Units', 'Groups', 'Days', 'Time Blocks', 'Activities']) {
       expect(replaceSentence.textContent).toContain(name)
     }
+  })
+})
+
+// T68 — Fixed Events (anchor_activities) were destroyed by Replace but never
+// named pre-confirm; the director found out only after committing, buried in
+// the aggregate success total. This also covers the split into a recoverable
+// (--accent) sub-block and an irreversible (--danger) sub-block, since both
+// regressed together would look identical to the old single-box warning.
+describe('ImportScreen — Replace warning names Fixed Events and separates the irreversible item (T68)', () => {
+  it('warns about cleared Fixed Events with a live count when the camp has anchors, and never says "anchor"', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
+      if (entity === 'anchor_activities') return Promise.resolve([{ id: 'a1' }, { id: 'a2' }, { id: 'a3' }])
+      return Promise.resolve([])
+    })
+    const { container } = render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant, parseTextGrid is mocked'], 'schedule.txt', { type: 'text/plain' })
+    await userEvent.upload(input, file)
+    await waitFor(() => expect(screen.getAllByText(/Swim/).length).toBeGreaterThan(0))
+    await userEvent.click(screen.getByText(/Replace them/))
+    expect(screen.getByText(textNode(/Your\s*3\s*Fixed Events will/))).toBeTruthy()
+    expect(screen.getByText(/They are recoverable from Trash/)).toBeTruthy()
+    expect(container.textContent).not.toMatch(/anchor/i)
+  })
+
+  it('does not warn about Fixed Events when the camp has none', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
+      return Promise.resolve([])
+    })
+    await uploadFile()
+    await userEvent.click(screen.getByText(/Replace them/))
+    expect(screen.queryByText(/Fixed Event/)).toBeNull()
+  })
+
+  it('uses singular phrasing for exactly one Fixed Event', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
+      if (entity === 'anchor_activities') return Promise.resolve([{ id: 'a1' }])
+      return Promise.resolve([])
+    })
+    await uploadFile()
+    await userEvent.click(screen.getByText(/Replace them/))
+    expect(screen.getByText(textNode(/Your\s*1\s*Fixed Event will/))).toBeTruthy()
+    expect(screen.getByText(/It is recoverable from Trash/)).toBeTruthy()
+    expect(screen.queryByText(/Fixed Events will/)).toBeNull()
+  })
+
+  it('renders the recoverable and irreversible warnings in two separate bordered containers', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
+      if (entity === 'anchor_activities') return Promise.resolve([{ id: 'a1' }])
+      if (entity === 'schedule_snapshots') return Promise.resolve([{ id: 'v1' }])
+      return Promise.resolve([])
+    })
+    await uploadFile()
+    await userEvent.click(screen.getByText(/Replace them/))
+
+    const irreversibleLabel = screen.getByText('Cannot be undone')
+    // Walk up to the bordered container the spec requires — the one painted
+    // with --danger — and confirm it holds the snapshot sentence but not the
+    // Fixed Events sentence, i.e. the two are not sharing one box.
+    let dangerContainer = irreversibleLabel.parentElement
+    while (dangerContainer && !/color-mix\(in srgb, var\(--danger\)/.test(dangerContainer.getAttribute('style') || '')) {
+      dangerContainer = dangerContainer.parentElement
+    }
+    expect(dangerContainer).toBeTruthy()
+    expect(dangerContainer.textContent).toMatch(/saved schedule version/)
+    expect(dangerContainer.textContent).not.toMatch(/Fixed Event/)
+
+    const fixedEventsLine = screen.getByText(/Fixed Event will/)
+    let accentContainer = fixedEventsLine.parentElement
+    while (accentContainer && !/color-mix\(in srgb, var\(--accent\)/.test(accentContainer.getAttribute('style') || '')) {
+      accentContainer = accentContainer.parentElement
+    }
+    expect(accentContainer).toBeTruthy()
+    expect(accentContainer.textContent).not.toMatch(/saved schedule version/)
+    expect(accentContainer).not.toBe(dangerContainer)
+  })
+
+  it('still shows the irreversible block with its "Cannot be undone" label when it is the only sub-block present', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
+      if (entity === 'schedule_snapshots') return Promise.resolve([{ id: 'v1' }])
+      // slots, anchors, day overrides all empty — the recoverable sub-block
+      // must not render, but the irreversible one must still stand alone
+      // rather than degrading to plain unlabeled text.
+      return Promise.resolve([])
+    })
+    await uploadFile()
+    await userEvent.click(screen.getByText(/Replace them/))
+    expect(screen.getByText('Cannot be undone')).toBeTruthy()
+    expect(screen.getByText(/saved schedule version/)).toBeTruthy()
+    expect(screen.queryByText(/Manual Build/)).toBeNull()
+    expect(screen.queryByText(/Fixed Event/)).toBeNull()
+    expect(screen.queryByText(/Day Override/)).toBeNull()
+  })
+
+  it('renders no warning block at all when slots, anchors, snapshots, and day overrides are all zero', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
+      return Promise.resolve([])
+    })
+    await uploadFile()
+    await userEvent.click(screen.getByText(/Replace them/))
+    expect(screen.queryByText('Cannot be undone')).toBeNull()
+    expect(screen.queryByText(/Manual Build/)).toBeNull()
+    expect(screen.queryByText(/Fixed Event/)).toBeNull()
+    expect(screen.queryByText(/saved schedule version/)).toBeNull()
+    expect(screen.queryByText(/Day Override/)).toBeNull()
   })
 })

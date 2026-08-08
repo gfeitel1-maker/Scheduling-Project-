@@ -85,6 +85,11 @@ export default function ImportScreen({ campId, onNavigate }) {
   // in the success banner today — after it has already happened. This reads
   // it pre-confirm instead (Red Hat, T61 round 3).
   const [slotCount, setSlotCount] = useState(0)
+  // Fixed Events (anchor_activities) — director-authored content with its own
+  // nav screen, deleted by replaceScope step 6 because anchors reference
+  // days_of_operation, which step 8 also deletes. Recoverable from Trash,
+  // same as slots (T68).
+  const [anchorCount, setAnchorCount] = useState(0)
 
   const REPLACEABLE = INGESTIBLE_ENTITIES.filter((e) => e !== 'cohorts')
   // Camp-wide count — what Replace actually deletes. This drives the
@@ -153,6 +158,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       setSnapshotCount((await localClient.list('schedule_snapshots').catch(() => [])).length)
       setDayOverrideCount((await localClient.list('day_override_templates').catch(() => [])).length)
       setSlotCount((await localClient.list('template_slots').catch(() => [])).length)
+      setAnchorCount((await localClient.list('anchor_activities').catch(() => [])).length)
       setImportMode('add')
       const next = buildPreview(proposal, existing)
       setPreview(next)
@@ -581,46 +587,75 @@ export default function ImportScreen({ campId, onNavigate }) {
 
               {/* What Replace destroys beyond the setup records above, said
                   before the confirm rather than discovered weeks later.
-                  Slots: replaceScope tears down template_slots/overlays for
-                  BOTH routes camp-wide (FK ordering forces it) — the biggest
-                  practical loss, previously visible only in the after-the-fact
-                  success banner (Red Hat, T61 round 3). Snapshots: a saved
-                  version's rows name groups and activities by id, so once
-                  those are gone, restoring it fails — genuinely NOT
-                  Trash-restorable, unlike the setup records above, which is
-                  why this says so explicitly rather than leaving the earlier
-                  "brought back from Trash" line looking like a retraction.
-                  Day Override templates keep their names but lose everything
-                  in them. Spec §MEDIUM-HIGH and §LOW. */}
-              {importMode === 'replace' && (slotCount > 0 || snapshotCount > 0 || dayOverrideCount > 0) && (
-                <div style={{
-                  marginTop: 10, padding: '10px 12px', borderRadius: 7,
-                  background: 'color-mix(in srgb, var(--danger) 8%, var(--surface))',
-                  border: '1px solid color-mix(in srgb, var(--danger) 40%, var(--border))',
-                  fontSize: 12, lineHeight: 1.6, color: 'var(--text)',
-                }}>
-                  {slotCount > 0 && (
-                    <div>
-                      Both your <strong>Manual Build</strong> and <strong>Generated Schedule</strong> will
-                      be cleared ({slotCount} {slotCount === 1 ? 'slot' : 'slots'}).
-                    </div>
-                  )}
-                  {snapshotCount > 0 && (
-                    <div style={{ marginTop: slotCount > 0 ? 6 : 0 }}>
-                      You have <strong>{snapshotCount}</strong> saved schedule {snapshotCount === 1 ? 'version' : 'versions'}.
-                      Unlike the setup records above, {snapshotCount === 1 ? 'this is' : 'these are'} not Trash-restorable —
+                  Split into two sub-blocks (T68): recoverable items — slots,
+                  Fixed Events, Day Override templates — share one bordered
+                  container in --accent (temporary/recoverable per
+                  DESIGN_STANDARD); saved versions get their own --danger
+                  container, always last, because they are the one item that
+                  is NOT Trash-restorable and must not read as a peer of the
+                  others. Rendered as arrays with index-based spacing rather
+                  than pairwise marginTop conditionals, which stop being
+                  eyeball-verifiable past three items (Code Reviewer, T61). */}
+              {importMode === 'replace' && (() => {
+                const recoverableWarnings = [
+                  { key: 'slots', count: slotCount, render: () => (
+                      <>Both your <strong>Manual Build</strong> and <strong>Generated Schedule</strong> will
+                      be cleared ({slotCount} {slotCount === 1 ? 'slot' : 'slots'}).</>) },
+                  { key: 'anchors', count: anchorCount, render: () => (
+                      <>Your <strong>{anchorCount}</strong> Fixed {anchorCount === 1 ? 'Event' : 'Events'} will
+                      be cleared. {anchorCount === 1 ? 'It is' : 'They are'} recoverable from Trash.</>) },
+                  { key: 'dayOverrides', count: dayOverrideCount, render: () => (
+                      <>Your {dayOverrideCount} Day Override {dayOverrideCount === 1 ? 'template keeps its name' : 'templates keep their names'} but
+                      {dayOverrideCount === 1 ? ' is' : ' are'} emptied — you will need to fill {dayOverrideCount === 1 ? 'it' : 'them'} in again.</>) },
+                ].filter((w) => w.count > 0)
+
+                const irreversibleWarnings = [
+                  { key: 'snapshots', count: snapshotCount, render: () => (
+                      <>You have <strong>{snapshotCount}</strong> saved schedule {snapshotCount === 1 ? 'version' : 'versions'}.
+                      Unlike the items above, {snapshotCount === 1 ? 'this is' : 'these are'} not Trash-restorable —
                       {snapshotCount === 1 ? ' it names' : ' they name'} groups and activities that will no longer exist,
-                      so replacing makes {snapshotCount === 1 ? 'it' : 'them'} permanently unrestorable.
-                    </div>
-                  )}
-                  {dayOverrideCount > 0 && (
-                    <div style={{ marginTop: (slotCount > 0 || snapshotCount > 0) ? 6 : 0 }}>
-                      Your {dayOverrideCount} Day Override {dayOverrideCount === 1 ? 'template keeps its name' : 'templates keep their names'} but
-                      {dayOverrideCount === 1 ? ' is' : ' are'} emptied — you will need to fill {dayOverrideCount === 1 ? 'it' : 'them'} in again.
-                    </div>
-                  )}
-                </div>
-              )}
+                      so replacing makes {snapshotCount === 1 ? 'it' : 'them'} permanently unrestorable.</>) },
+                ].filter((w) => w.count > 0)
+
+                if (recoverableWarnings.length === 0 && irreversibleWarnings.length === 0) return null
+
+                return (
+                  <div>
+                    {recoverableWarnings.length > 0 && (
+                      <div style={{
+                        marginTop: 10, padding: '10px 12px', borderRadius: 7,
+                        background: 'color-mix(in srgb, var(--accent) 8%, var(--surface))',
+                        border: '1px solid color-mix(in srgb, var(--accent) 40%, var(--border))',
+                        fontSize: 12, lineHeight: 1.6, color: 'var(--text)',
+                      }}>
+                        {recoverableWarnings.map((w, i) => (
+                          <div key={w.key} style={{ marginTop: i === 0 ? 0 : 6 }}>{w.render()}</div>
+                        ))}
+                      </div>
+                    )}
+                    {irreversibleWarnings.length > 0 && (
+                      <div style={{
+                        marginTop: recoverableWarnings.length > 0 ? 8 : 10, padding: '10px 12px', borderRadius: 7,
+                        background: 'color-mix(in srgb, var(--danger) 8%, var(--surface))',
+                        border: '1px solid color-mix(in srgb, var(--danger) 40%, var(--border))',
+                        fontSize: 12, lineHeight: 1.6, color: 'var(--text)',
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--danger)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                            <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+                            <line x1="12" y1="9" x2="12" y2="13" />
+                            <line x1="12" y1="17" x2="12.01" y2="17" />
+                          </svg>
+                          <span style={{ fontWeight: 600, color: 'var(--danger)' }}>Cannot be undone</span>
+                        </div>
+                        {irreversibleWarnings.map((w) => (
+                          <div key={w.key} style={{ marginTop: 6 }}>{w.render()}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           )}
 
