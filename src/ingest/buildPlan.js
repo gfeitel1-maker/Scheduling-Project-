@@ -102,11 +102,19 @@ export function buildPlan(source, existing = null) {
 
   for (const entity of INGESTIBLE_ENTITIES) {
     const names = Array.isArray(approved[entity]) ? approved[entity] : []
-    const already = new Map(
-      (Array.isArray(have[entity]) ? have[entity] : [])
-        .filter((r) => r && r.name)
-        .map((r) => [normalizeName(r.name), r])
-    )
+    // A LIST of rows per normalized key, not a single row (S1a §3). Two live
+    // rows whose raw names differ but normalize to the same string ("Art" /
+    // "art ") both legally exist under UNIQUE(camp_id, name); the old single-
+    // valued Map let the last one silently overwrite the first, auto-picking an
+    // identity no human saw. Keeping every colliding row makes the ambiguity a
+    // detectable conflict instead.
+    const already = new Map()
+    for (const r of Array.isArray(have[entity]) ? have[entity] : []) {
+      if (!r || !r.name) continue
+      const key = normalizeName(r.name)
+      if (!already.has(key)) already.set(key, [])
+      already.get(key).push(r)
+    }
 
     // `index` is the raw position in the approved array — blanks consume an
     // index but produce no item, matching commitIngest's forEach (sort_order
@@ -115,8 +123,26 @@ export function buildPlan(source, existing = null) {
       const name = String(rawName ?? '').trim()
       if (!name) return
 
-      const match = already.get(normalizeName(name))
-      if (match) {
+      const matches = already.get(normalizeName(name)) ?? []
+      if (matches.length > 1) {
+        // One incoming label, more than one live row normalize-matching it.
+        // Never auto-pick (§3); surface every candidate for review.
+        items.push({
+          op: 'conflict',
+          entity,
+          entity_id: null,
+          reason: 'ambiguous_identity',
+          fields: {},
+          evidence: {
+            tier: 'exact_name',
+            candidates: matches.map((m) => ({ id: m.id, name: m.name })),
+          },
+          _name: name,
+        })
+        return
+      }
+      if (matches.length === 1) {
+        const match = matches[0]
         // Resolved to a live entity, nothing to write. Zero-op arm (type doc b).
         items.push({
           op: 'unchanged',
@@ -124,6 +150,9 @@ export function buildPlan(source, existing = null) {
           entity_id: match.id,
           fields: {},
           evidence: { tier: 'exact_name', matched_name: match.name },
+          // Carried so the committer can re-resolve this identity against the
+          // live DB (the review window may have deleted match.id).
+          _name: name,
         })
         return
       }
