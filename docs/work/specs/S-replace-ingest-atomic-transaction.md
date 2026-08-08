@@ -142,15 +142,23 @@ Every step is an ordinary op append (`field: '__deleted__', value: 1`) via `appe
 each deleted row is restorable from Trash and replicates to peers. `PRAGMA foreign_keys`
 is ON, so order is enforced by the database and a wrong order throws.
 
-1. **`template_slots`** — references `groups(id)`, `activities(id)`; `day_id`/
-   `time_block_id` are plain TEXT. Delete all rows for this camp's templates.
-2. **`template_overlays`** — references `days_of_operation(id)`.
-3. **`week_activity_exclusions`** — references `activities(id)`.
-4. **`week_group_exclusions`** — references `groups(id)`.
-5. **`day_override_template_slots`** — `activity_id`/`time_block_id` are plain TEXT in
-   `schema.sql` and therefore do not block, but rows left behind point at destroyed
-   activities. Delete them. *(New relative to today's renderer code, which misses this.)*
-6. **`anchor_activities`** — references `days_of_operation(id)`.
+1. **`template_slots`** — scoped through `schedule_templates` via `template_id`, per
+   `PARENT_SCOPED_ENTITIES`. FK note: references `groups(id)`, `activities(id)`; `day_id`/
+   `time_block_id` are plain TEXT.
+2. **`template_overlays`** — scoped through `schedule_templates` via `template_id`, per
+   `PARENT_SCOPED_ENTITIES`. FK note: references `days_of_operation(id)`.
+3. **`week_activity_exclusions`** — scoped through `schedule_weeks` via `week_id`, per
+   `PARENT_SCOPED_ENTITIES`. FK note: references `activities(id)`.
+4. **`week_group_exclusions`** — scoped through `schedule_weeks` via `week_id`, per
+   `PARENT_SCOPED_ENTITIES`. FK note: references `groups(id)`.
+5. **`day_override_template_slots`** — scoped through `day_override_templates` via
+   `day_override_template_id`, per `PARENT_SCOPED_ENTITIES`. `activity_id`/`time_block_id`
+   are plain TEXT in `schema.sql` and therefore do not block, but rows left behind point at
+   destroyed activities. Delete them. *(New relative to today's renderer code, which misses
+   this.)*
+6. **`anchor_activities`** — camp-scoped directly (`WHERE camp_id = ?`), not through a
+   parent table. FK note: references `days_of_operation(id)`, which is why this step must
+   run before step 8.
 7. **Null out `activities.weather_alternative_id`** for every activity in the camp, as a
    `weather_alternative_id → null` op, **before** step 8. `schema.sql` declares this
    column as plain TEXT, but `deleteRecord.js` treats it as a blocking self-reference and

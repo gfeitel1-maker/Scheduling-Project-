@@ -1,7 +1,7 @@
 ---
 title: T67-ingest-spec-deletion-step-2-wording
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-07
 task_class: documentation-governance
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
