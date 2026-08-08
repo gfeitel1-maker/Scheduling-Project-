@@ -25,11 +25,12 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [T44-suite-flakiness-recurred-under-load](../../docs/work/tickets/T44-suite-flakiness-recurred-under-load.md) | open | — |
+| [T44-suite-flakiness-recurred-under-load](../../docs/work/tickets/T44-suite-flakiness-recurred-under-load.md) | open | [T70-sync-test-sleep-marker-laundering](../../docs/work/tickets/T70-sync-test-sleep-marker-laundering.md) |
 | [T49-finish-ingestion](../../docs/work/tickets/T49-finish-ingestion.md) | open | — |
 | [T51-mcp-cli-ingestion](../../docs/work/tickets/T51-mcp-cli-ingestion.md) | open | — |
 | [T52-activity-colors-tokenization](../../docs/work/tickets/T52-activity-colors-tokenization.md) | open | [T50-schedule-canvas-rebuild](../../docs/work/tickets/T50-schedule-canvas-rebuild.md) |
 | [T70-dev-only-shape-assertion-at-engine-id-list-inputs](../../docs/work/tickets/T70-dev-only-shape-assertion-at-engine-id-list-inputs.md) | open | [2026-08-08-t69-engine-id-list-purity](../../docs/work/runs/2026-08-08-t69-engine-id-list-purity.md) · [T69-engine-still-tolerates-json-stringified-id-lists](../../docs/work/tickets/T69-engine-still-tolerates-json-stringified-id-lists.md) |
+| [T70-sync-test-sleep-marker-laundering](../../docs/work/tickets/T70-sync-test-sleep-marker-laundering.md) | open | — |
 
 ## Decisions
 

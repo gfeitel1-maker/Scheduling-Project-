@@ -1,3 +1,5 @@
+import { assertIdListShape } from './assertIdListShape.js'
+
 // Pure function — zero React dependencies, zero Supabase calls.
 //
 // Supports two call signatures:
@@ -82,6 +84,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
     // Contract: eligible_tier_ids / eligible_group_ids are arrays of ids.
     // Callers normalize — this engine does not deserialize; see
     // src/utils/normalizeActivityEligibility.js.
+    if (import.meta.env.DEV) assertIdListShape(act.eligible_group_ids, 'eligible_group_ids', act.id)
     const tierIds = act.eligible_tier_ids || []
     const groupIds = act.eligible_group_ids || []
     let eligible = new Set()
@@ -117,6 +120,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
     } else {
       // Contract: group_ids is an array of ids. Callers normalize — this
       // engine does not deserialize; see src/screens/schedule/useScheduleData.js.
+      if (import.meta.env.DEV) assertIdListShape(anchor.group_ids, 'group_ids', anchor.id)
       groupList = anchor.group_ids || []
     }
 
@@ -421,6 +425,7 @@ export function computeFindings({ slots, groups, activities, days }) {
     // Contract: eligible_tier_ids / eligible_group_ids are arrays of ids.
     // Callers normalize — this engine does not deserialize; see
     // src/utils/normalizeActivityEligibility.js.
+    if (import.meta.env.DEV) assertIdListShape(act.eligible_group_ids, 'eligible_group_ids', act.id)
     const tierIds = act.eligible_tier_ids || []
     const groupIds = act.eligible_group_ids || []
     const eligible = new Set()

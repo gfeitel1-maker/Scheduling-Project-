@@ -1,7 +1,7 @@
 ---
 title: T71-dev-shape-assertion-at-engine-id-list-inputs
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-08
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_tickets: [docs/work/tickets/T69-engine-still-tolerates-json-stringified-id-lists.md, docs/work/tickets/T63-anchor-group-ids-parsing-belongs-at-the-boundary.md]
