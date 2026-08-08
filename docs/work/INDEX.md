@@ -22,12 +22,6 @@ Regenerate with `npm run index:work`.
 | [T36-ingest-unlabeled-path-residuals](../../docs/work/tickets/T36-ingest-unlabeled-path-residuals.md) | open | — |
 | [T66-appendop-prepares-statements-per-op](../../docs/work/tickets/T66-appendop-prepares-statements-per-op.md) | open | — |
 
-### documentation-governance
-
-| Ticket | Status | Referenced by |
-|---|---|---|
-| [T67-ingest-spec-deletion-step-2-wording](../../docs/work/tickets/T67-ingest-spec-deletion-step-2-wording.md) | open | — |
-
 ### ui-ux-design
 
 | Ticket | Status | Referenced by |
@@ -39,13 +33,10 @@ Regenerate with `npm run index:work`.
 | Ticket | Status | Referenced by |
 |---|---|---|
 | [T44-suite-flakiness-recurred-under-load](../../docs/work/tickets/T44-suite-flakiness-recurred-under-load.md) | open | — |
-| [T48-branch-cleanup](../../docs/work/tickets/T48-branch-cleanup.md) | open | — |
 | [T49-finish-ingestion](../../docs/work/tickets/T49-finish-ingestion.md) | open | — |
 | [T51-mcp-cli-ingestion](../../docs/work/tickets/T51-mcp-cli-ingestion.md) | open | — |
 | [T52-activity-colors-tokenization](../../docs/work/tickets/T52-activity-colors-tokenization.md) | open | [T50-schedule-canvas-rebuild](../../docs/work/tickets/T50-schedule-canvas-rebuild.md) |
-| [T63-anchor-group-ids-parsing-belongs-at-the-boundary](../../docs/work/tickets/T63-anchor-group-ids-parsing-belongs-at-the-boundary.md) | open | [T62-engine-schedules-anchor-activities-as-regular-slots](../../docs/work/tickets/T62-engine-schedules-anchor-activities-as-regular-slots.md) |
-| [T64-fresh-dev-launch-and-dev-window-title](../../docs/work/tickets/T64-fresh-dev-launch-and-dev-window-title.md) | open | — |
-| [T65-schedule-stats-bar-accuracy](../../docs/work/tickets/T65-schedule-stats-bar-accuracy.md) | open | — |
+| [T70-dev-only-shape-assertion-at-engine-id-list-inputs](../../docs/work/tickets/T70-dev-only-shape-assertion-at-engine-id-list-inputs.md) | open | [2026-08-08-t69-engine-id-list-purity](../../docs/work/runs/2026-08-08-t69-engine-id-list-purity.md) · [T69-engine-still-tolerates-json-stringified-id-lists](../../docs/work/tickets/T69-engine-still-tolerates-json-stringified-id-lists.md) |
 
 ## Decisions
 
@@ -81,6 +72,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
+| 2026-08-08 | [T69 — the engine layer still tolerates JSON-stringified id lists](../../docs/work/runs/2026-08-08-t69-engine-id-list-purity.md) | scheduling-engine | pass | pass |
 | 2026-08-04 | [Phase E (R5) — verify the code conforms to the amended repository-layer policy and retire stale layering language](../../docs/work/runs/2026-08-04-r5-conformance-summary.md) | architecture | pass | pass |
 | 2026-08-01 | [T28 — extract the schedule persistence seam (scheduleRepository)](../../docs/work/runs/2026-08-01-t28-schedule-persistence-seam-run.md) | architecture | pass | pass |
 | 2026-08-01 | [T29 — extract the schedule grid-geometry module](../../docs/work/runs/2026-08-01-t29-schedule-grid-geometry-run.md) | architecture | pass | pass |

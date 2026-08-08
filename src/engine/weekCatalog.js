@@ -39,17 +39,11 @@ export function resolveWeekCatalog({
       continue
     }
 
-    // anchor.group_ids is a JSON string or array of group ids, or is_all_groups.
+    // Contract: group_ids is an array of ids. Callers normalize — this engine
+    // does not deserialize; see src/screens/schedule/useScheduleData.js.
     // Only suppress if EVERY group in the anchor's group list is excluded.
     if (!anchor.is_all_groups) {
-      let anchorGroupIds
-      try {
-        anchorGroupIds = Array.isArray(anchor.group_ids)
-          ? anchor.group_ids
-          : JSON.parse(anchor.group_ids || '[]')
-      } catch {
-        anchorGroupIds = []
-      }
+      const anchorGroupIds = anchor.group_ids || []
 
       if (
         anchorGroupIds.length > 0 &&

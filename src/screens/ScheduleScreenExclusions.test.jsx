@@ -25,6 +25,7 @@ const CAMP_ID = 'camp-excl'
 const WEEK_ID = CAMP_ID
 const ARCHERY_ID = 'act-archery'
 const SWIM_ID = 'act-swim'
+const ANCHOR_ID = 'anc-flagpole'
 
 const TEMPLATE_ID = deriveScheduleTemplateId(WEEK_ID, 'generated')
 
@@ -34,9 +35,16 @@ function getSlotsBulkReplaceArgs() {
   return localClient.bulkReplace.mock.calls.find(([, entity]) => entity === 'template_slots')
 }
 
-function makeBase({ withArcheryExclusion = false } = {}) {
+function makeBase({ withArcheryExclusion = false, anchorGroupIds = null, excludedGroupIds = [] } = {}) {
   return {
-    groups: [{ id: 'g1', camp_id: CAMP_ID, name: 'Bunk A', tier_id: 't1', availability: 'all' }],
+    groups: [
+      { id: 'g1', camp_id: CAMP_ID, name: 'Bunk A', tier_id: 't1', availability: 'all' },
+      // A second group only exists for the anchor-scope cases, so the existing
+      // exclusion tests keep their original single-group grid.
+      ...(anchorGroupIds
+        ? [{ id: 'g2', camp_id: CAMP_ID, name: 'Bunk B', tier_id: 't1', availability: 'all' }]
+        : []),
+    ],
     days_of_operation: [{ id: 'd1', camp_id: CAMP_ID, day_of_week: 1, sort_order: 1, label: 'Monday' }],
     time_blocks: [
       { id: 'b1', camp_id: CAMP_ID, name: 'Morning', sort_order: 1, start_time: '09:00:00', end_time: '10:00:00' },
@@ -48,14 +56,29 @@ function makeBase({ withArcheryExclusion = false } = {}) {
     ],
     tiers: [{ id: 't1', camp_id: CAMP_ID, name: 'Tier 1', sort_order: 1 }],
     cohorts: [{ id: 'coh-1', camp_id: CAMP_ID, name: 'Main' }],
-    anchor_activities: [],
+    // group_ids arrives as JSON TEXT — the real DB/IPC shape (see
+    // localClient.mock.js's JSON.stringify). useScheduleData normalizes it to a
+    // real array before either resolveWeekCatalog or buildSchedule sees it.
+    anchor_activities: anchorGroupIds
+      ? [{
+          // A real activity_id, as the app produces: buildSchedule reads
+          // `activity_id ?? unit_id` (:108), so without it the anchor row would
+          // never register in anchoredActivityIds.
+          id: ANCHOR_ID, camp_id: CAMP_ID, name: 'Flagpole',
+          activity_id: SWIM_ID, unit_id: null,
+          is_all_groups: 0, group_ids: JSON.stringify(anchorGroupIds),
+          day_id: 'd1', time_block_id: 'b1', span_blocks: 1,
+        }]
+      : [],
     schedule_weeks: [
       { id: WEEK_ID, camp_id: CAMP_ID, name: 'Week 2', sort_order: 0, is_archived: 0 },
     ],
     week_activity_exclusions: withArcheryExclusion
       ? [{ id: 'excl-1', week_id: WEEK_ID, activity_id: ARCHERY_ID }]
       : [],
-    week_group_exclusions: [],
+    week_group_exclusions: excludedGroupIds.map((gid, i) => ({
+      id: `gex-${i}`, week_id: WEEK_ID, group_id: gid,
+    })),
     schedule_templates: [
       { id: TEMPLATE_ID, camp_id: CAMP_ID, name: 'Generated', kind: 'generated', week_id: WEEK_ID },
     ],
@@ -154,5 +177,55 @@ describe('S2-9: generated rebuild respects week exclusions', () => {
     // This is the persistence-across-rebuilds assertion.
     const postGenerateExclusions = await localClient.list('week_activity_exclusions')
     expect(postGenerateExclusions.some(e => e.activity_id === ARCHERY_ID && e.week_id === WEEK_ID)).toBe(true)
+  })
+})
+
+// T69 — the normalizer → resolveWeekCatalog seam.
+//
+// useScheduleData.test.js pins that the hook turns anchor_activities.group_ids
+// from JSON TEXT into an array; weekCatalog.test.js pins that the engine reads
+// it as an array. Nothing used to join them. Now that the engine has no
+// string tolerance left, a regression at useScheduleData.js's parseIdList would
+// otherwise be silent, so this case drives the whole path from the mocked IPC row
+// (a real JSON string) through to the persisted slot rows.
+//
+// It discriminates: if the string reached the engine
+// unnormalized, resolveWeekCatalog would throw before buildSchedule ever ran —
+// `anchor.group_ids || []` on a non-empty string passes the `.length > 0` gate
+// and then `TypeError: anchorGroupIds.every is not a function`
+// (weekCatalog.js:55). generate() calls resolveWeekCatalog outside any try, so
+// the throw surfaces as a never-resolving generate and the assertion below
+// times out rather than mismatching.
+describe('T69: anchor group_ids crosses the IPC → engine boundary as an array', () => {
+  function mount(base) {
+    localClient.list.mockImplementation((entity) => Promise.resolve(base[entity] ?? []))
+    localClient.listByScope.mockImplementation((entity, scopeId) => {
+      const key = entity === 'week_activity_exclusions' || entity === 'week_group_exclusions' ? 'week_id' : 'template_id'
+      return Promise.resolve((base[entity] ?? []).filter((row) => row[key] === scopeId))
+    })
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="generated" />)
+  }
+
+  async function generatedAnchorSlots() {
+    await waitFor(() => expect(screen.getByText('Generate a schedule')).toBeTruthy())
+    fireEvent.click(screen.getByText('Generate a schedule'))
+    await waitFor(() => expect(getSlotsBulkReplaceArgs()).toBeDefined())
+    const rows = getSlotsBulkReplaceArgs()[3]
+    return rows.filter(r => r.anchor_id === ANCHOR_ID)
+  }
+
+  // A fully-suppressed-anchor case used to live here. It is not observable
+  // through the screen: `suppressedAnchors` has no consumer anywhere in src/,
+  // and the excluded group is already dropped from `filteredGroups`
+  // (weekCatalog.js:31), so zero anchor slots is the outcome whether or not
+  // suppression fires. Suppression is pinned at the unit level instead —
+  // weekCatalog.test.js:107.
+
+  it('anchor scoped to two groups, one excluded, still anchors the surviving group', async () => {
+    mount(makeBase({ anchorGroupIds: ['g1', 'g2'], excludedGroupIds: ['g1'] }))
+    const anchorSlots = await generatedAnchorSlots()
+    expect(anchorSlots.map(r => r.group_id)).toEqual(['g2'])
+    expect(anchorSlots[0].is_anchor).toBe('1')
+    expect(anchorSlots[0].time_block_id).toBe('b1')
   })
 })
