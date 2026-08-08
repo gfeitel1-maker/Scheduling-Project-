@@ -42,7 +42,59 @@ const fixedEventKey = (fe) => `${fe.name} ${fe.time_block} ${fe.days.join(',')}`
 // at commit (round 2 review, Fix 1 — an earlier 1/2/3 draft was wrong).
 const PRIORITY_LABEL = { high: 'High', low: 'Low' }
 
+// T73 — a plain-camp phrase for each field a stale conflict can name, so the
+// kept-change card never shows a raw column name (design spec §9). Unknowns fall
+// back to a humanized column name.
+const FIELD_LABEL = {
+  location: 'where it happens',
+  sort_order: 'the order it appears in',
+  day_of_week: 'which day of the week it is',
+  start_time: 'when it starts',
+  end_time: 'when it ends',
+  availability: 'when it’s available',
+  min_per_week: 'how many times a week (fewest)',
+  max_per_week: 'how many times a week (most)',
+  priority: 'how important it is',
+  name: 'its name',
+  label: 'its name',
+}
+const fieldLabel = (f) => FIELD_LABEL[f] ?? String(f).replace(/_/g, ' ')
+
 const sumCounts = (counts) => Object.values(counts ?? {}).reduce((n, c) => n + c, 0)
+
+// T73 — a stable per-conflict id for the resolution queue. Derived from the
+// fields the conflict already carries, so it survives a re-derive after a peer
+// race (design spec §9). normalizeName-free (renderer-local) but lower-cased so
+// the same name keys the same item across renders.
+const conflictKey = (entity, name, reason, field) =>
+  `${entity}|${String(name).trim().toLowerCase()}|${reason}|${field ?? ''}`
+
+// Flatten held `conflicts[]` into one queue item per decision the director must
+// make: one per ambiguous_identity, one per stale FIELD. Ordered most-fundamental
+// first — identity questions before kept-change, then INGESTIBLE_ENTITIES order —
+// computed once and stable (design spec §2.3).
+function deriveQueue(conflicts) {
+  const items = []
+  for (const c of conflicts ?? []) {
+    if (c.reason === 'ambiguous_identity') {
+      items.push({
+        id: conflictKey(c.entity, c._name, 'ambiguous_identity', ''),
+        kind: 'identity', entity: c.entity, name: c._name, conflict: c,
+      })
+    } else if (c.reason === 'stale') {
+      for (const field of Object.keys(c.fields ?? {})) {
+        items.push({
+          id: conflictKey(c.entity, c._name, 'stale', field),
+          kind: 'stale', entity: c.entity, name: c._name, field, delta: c.fields[field], conflict: c,
+        })
+      }
+    }
+  }
+  const rank = (it) => (it.kind === 'identity' ? 0 : 1000) + INGESTIBLE_ENTITIES.indexOf(it.entity)
+  return items
+    .map((it, i) => ({ ...it, _i: i }))
+    .sort((a, b) => rank(a) - rank(b) || a._i - b._i)
+}
 
 export default function ImportScreen({ campId, onNavigate }) {
   // Units and time blocks are scoped to a Program; an import files them under
@@ -64,6 +116,10 @@ export default function ImportScreen({ campId, onNavigate }) {
   const [error, setError] = useState(null)
   const [working, setWorking] = useState(false)
   const [result, setResult] = useState(null)
+  // T73 — a held import: { conflicts, context } where context is the exact
+  // inputs to re-submit. `resolving` toggles the entry banner → resolution queue.
+  const [held, setHeld] = useState(null)
+  const [resolving, setResolving] = useState(false)
   // Camp-wide counts of the same entities, unfiltered by Program. Replace
   // (electron/ops/ingest.js's replaceScope) deletes WHERE camp_id = ? with no
   // cohort filter — every Program's rows, not just the active one's — so the
@@ -103,6 +159,8 @@ export default function ImportScreen({ campId, onNavigate }) {
   async function readFiles(fileList) {
     setError(null)
     setResult(null)
+    setHeld(null)
+    setResolving(false)
     setFixedEvents([])
     setChosenFixedEvents(new Set())
     setActivityRules({})
@@ -249,67 +307,128 @@ export default function ImportScreen({ campId, onNavigate }) {
 
   const approvedCount = Object.values(chosen).reduce((n, set) => n + set.size, 0)
 
+  // The exact inputs a commit sends — built once here so a held re-commit (T73)
+  // re-sends the SAME inputs plus the director's resolutions (ADR §1).
+  function buildCommitInputs() {
+    const approved = {}
+    for (const entity of INGESTIBLE_ENTITIES) approved[entity] = [...(chosen[entity] ?? [])]
+    // Only the units of groups actually being created are sent, so a bunk
+    // the director unticked cannot drag a unit in behind it.
+    const groupUnits = {}
+    for (const name of approved.groups ?? []) {
+      if (preview.groupUnits?.[name]) groupUnits[name] = preview.groupUnits[name]
+    }
+    // Only the fixed events the director ticked; unticked ones are not sent.
+    const tickedFixedEvents = fixedEvents.filter((fe) => chosenFixedEvents.has(fixedEventKey(fe)))
+    // Only rules for activities the director actually approved — an
+    // activity they unticked must not carry a rule into commitIngest, same
+    // principle as groupUnits above. priority is already 'high'/'low', the
+    // same value the activities table reads — no conversion at this
+    // boundary (round 2 review, Fix 1).
+    const outgoingRules = {}
+    for (const name of approved.activities ?? []) {
+      const rule = activityRules[name]
+      if (!rule) continue
+      outgoingRules[name] = {
+        eligible_group_names: rule.eligible_group_names ?? null,
+        min_per_week: rule.min_per_week,
+        max_per_week: rule.max_per_week,
+        priority: rule.priority,
+      }
+    }
+    return {
+      approved,
+      links: { groups: groupUnits },
+      cohort_id: activeCohort?.id ?? null,
+      fixedEvents: tickedFixedEvents,
+      activityRules: outgoingRules,
+      mode: importMode === 'replace' ? 'replace' : 'add',
+    }
+  }
+
+  // Held is NOT an error (design spec §1.1): a held return wrote nothing, so it
+  // must not route through the catch or S.errorBanner. A real thrown failure
+  // still does.
+  function mapCommitError(err) {
+    const message = err?.message ?? ''
+    // The main-process host-only refusal (T61) already says the one thing the
+    // director can act on. Passed through rather than mapped, or
+    // describeWriteFailure's honest "not something the app recognised"
+    // fallback would bury it.
+    return /admin role required/i.test(message) ? 'Only an admin can import a schedule.'
+      : /can only be run on the main computer/i.test(message) ? `${message} Nothing was imported.`
+      : describeWriteFailure(err, 'Nothing was imported. Your camp is exactly as it was.')
+  }
+
   async function commit() {
     setWorking(true)
     setError(null)
     try {
-      const approved = {}
-      for (const entity of INGESTIBLE_ENTITIES) approved[entity] = [...(chosen[entity] ?? [])]
-      // Only the units of groups actually being created are sent, so a bunk
-      // the director unticked cannot drag a unit in behind it.
-      const groupUnits = {}
-      for (const name of approved.groups ?? []) {
-        if (preview.groupUnits?.[name]) groupUnits[name] = preview.groupUnits[name]
-      }
-      // Only the fixed events the director ticked; unticked ones are not sent.
-      const tickedFixedEvents = fixedEvents.filter((fe) => chosenFixedEvents.has(fixedEventKey(fe)))
-      // Only rules for activities the director actually approved — an
-      // activity they unticked must not carry a rule into commitIngest, same
-      // principle as groupUnits above. priority is already 'high'/'low', the
-      // same value the activities table reads — no conversion at this
-      // boundary (round 2 review, Fix 1).
-      const outgoingRules = {}
-      for (const name of approved.activities ?? []) {
-        const rule = activityRules[name]
-        if (!rule) continue
-        outgoingRules[name] = {
-          eligible_group_names: rule.eligible_group_names ?? null,
-          min_per_week: rule.min_per_week,
-          max_per_week: rule.max_per_week,
-          priority: rule.priority,
-        }
-      }
+      const inputs = buildCommitInputs()
       // T61 — Replace is ONE awaited call. The teardown that used to run here,
       // one IPC round trip per row with no atomicity across them, now happens
-      // inside the same main-process transaction as the create half, which is
-      // what finally makes the catch below's promise true.
-      const outcome = await localClient.ingestCommit({
-        approved,
-        links: { groups: groupUnits },
-        cohort_id: activeCohort?.id ?? null,
-        fixedEvents: tickedFixedEvents,
-        activityRules: outgoingRules,
-        mode: importMode === 'replace' ? 'replace' : 'add',
-      })
+      // inside the same main-process transaction as the create half.
+      const outcome = await localClient.ingestCommit(inputs)
+      if (outcome.held) {
+        // A pause, not a failure — surface the held items for resolution (T73).
+        setHeld({ conflicts: outcome.conflicts, context: inputs })
+        setResolving(false)
+        setPreview(null)
+        return
+      }
       setResult(outcome)
+      setHeld(null)
       setPreview(null)
       setFixedEvents([])
       setChosenFixedEvents(new Set())
       setActivityRules({})
     } catch (err) {
-      const message = err?.message ?? ''
-      // The main-process host-only refusal (T61) already says the one thing the
-      // director can act on. Passed through rather than mapped, or
-      // describeWriteFailure's honest "not something the app recognised"
-      // fallback would bury it.
-      setError(
-        /admin role required/i.test(message) ? 'Only an admin can import a schedule.'
-          : /can only be run on the main computer/i.test(message) ? `${message} Nothing was imported.`
-          : describeWriteFailure(err, 'Nothing was imported. Your camp is exactly as it was.')
-      )
+      setError(mapCommitError(err))
     } finally {
       setWorking(false)
     }
+  }
+
+  // T73 — the director resolved every held item and clicked Finish. Re-submit the
+  // SAME original inputs (minus any skipped identity names) plus the resolutions.
+  // Returns the outcome so the queue can honestly re-enter on a peer-race re-hold
+  // (design spec §4.3). On success, tears the surface down to the normal result.
+  async function finishHeld(resolutions, skips) {
+    const base = held.context
+    const approved = {}
+    for (const entity of INGESTIBLE_ENTITIES) approved[entity] = [...(base.approved[entity] ?? [])]
+    for (const s of skips ?? []) {
+      approved[s.entity] = (approved[s.entity] ?? []).filter((n) => n !== s.name)
+    }
+    setWorking(true)
+    setError(null)
+    try {
+      const outcome = await localClient.ingestCommit({ ...base, approved, resolutions })
+      if (outcome.held) return outcome
+      setResult(outcome)
+      setHeld(null)
+      setResolving(false)
+      setPreview(null)
+      setFixedEvents([])
+      setChosenFixedEvents(new Set())
+      setActivityRules({})
+      return outcome
+    } catch (err) {
+      setError(mapCommitError(err))
+      return null
+    } finally {
+      setWorking(false)
+    }
+  }
+
+  function dismissHeld() {
+    setHeld(null)
+    setResolving(false)
+    setPreview(null)
+    setFileNames([])
+    setFixedEvents([])
+    setChosenFixedEvents(new Set())
+    setActivityRules({})
   }
 
   return (
@@ -380,6 +499,45 @@ export default function ImportScreen({ campId, onNavigate }) {
           </div>
         )}
       </div>
+
+      {held && (() => {
+        const heldQueue = deriveQueue(held.conflicts)
+        const n = heldQueue.length
+        if (!resolving) {
+          return (
+            <div style={{
+              background: 'color-mix(in srgb, var(--accent) 6%, var(--surface))',
+              border: '1px solid var(--border)', borderLeft: '3px solid var(--accent)',
+              borderRadius: 8, padding: '12px 14px', marginBottom: 16, fontSize: 13, lineHeight: 1.6,
+              animation: 'importHeldIn var(--motion-base) var(--ease-out)',
+            }}>
+              <strong>
+                Almost there — your import is ready except for {n} {n === 1 ? 'item' : 'items'} I need you on.
+              </strong>
+              <div style={{ marginTop: 8 }}>
+                Nothing has been added or changed yet. Once you’ve answered {n === 1 ? 'it' : `these ${n}`}, the whole import goes in together.
+              </div>
+              <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
+                <button className="press-97" onClick={() => setResolving(true)} style={S.btnPrimary}>
+                  Review the {n} {n === 1 ? 'item' : 'items'}
+                </button>
+                <button className="press-97" onClick={dismissHeld} disabled={working} style={S.btnSecondary}>
+                  Not now
+                </button>
+              </div>
+            </div>
+          )
+        }
+        return (
+          <HeldResolution
+            key={held.conflicts}
+            conflicts={held.conflicts}
+            working={working}
+            onFinish={finishHeld}
+            onLeave={dismissHeld}
+          />
+        )
+      })()}
 
       {preview && (
         <>
@@ -687,6 +845,344 @@ export default function ImportScreen({ campId, onNavigate }) {
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+// T73 — the held-import resolution surface: one focused decision at a time with
+// a slim orientation rail (design spec §2). Owns only its own queue UI state;
+// the re-commit itself is the parent's finishHeld (the single privileged
+// committer, re-run with resolutions). Renderer state only — leaving loses it,
+// and that is honest because the backend wrote nothing (spec §5).
+function HeldResolution({ conflicts: initialConflicts, working, onFinish, onLeave }) {
+  const [conflicts, setConflicts] = useState(initialConflicts)
+  const queue = deriveQueue(conflicts)
+  // answers[id] = { choice, entity_id? }. A stale item is answered once SEEN
+  // (keep-mine is the safe default, spec §4.1); an identity item only by an
+  // explicit click.
+  const [answers, setAnswers] = useState({})
+  const [seen, setSeen] = useState(() => (queue.length ? new Set([queue[0].id]) : new Set()))
+  const [currentId, setCurrentId] = useState(queue.length ? queue[0].id : null)
+  const [raceNote, setRaceNote] = useState(false)
+  const [leaving, setLeaving] = useState(false)
+
+  const isAnswered = (it, ans = answers, sn = seen) =>
+    it.kind === 'identity' ? !!ans[it.id] : sn.has(it.id)
+  const answeredCount = queue.filter((it) => isAnswered(it)).length
+  const waiting = queue.length - answeredCount
+  const allAnswered = queue.length > 0 && waiting === 0
+  const current = queue.find((it) => it.id === currentId) ?? queue[0]
+
+  function focus(id) {
+    setCurrentId(id)
+    setSeen((s) => { const n = new Set(s); n.add(id); return n })
+  }
+
+  function advanceFrom(fromId, nextAns, nextSeen) {
+    const idx = queue.findIndex((q) => q.id === fromId)
+    const order = [...queue.slice(idx + 1), ...queue.slice(0, idx)]
+    const next = order.find((q) => !isAnswered(q, nextAns, nextSeen))
+    if (next) focus(next.id)
+  }
+
+  function answer(item, value) {
+    const nextAns = { ...answers, [item.id]: value }
+    setAnswers(nextAns)
+    // Stale items are already in `seen` (they were focused); identity items get
+    // marked seen too so the gate math is uniform.
+    const nextSeen = new Set(seen); nextSeen.add(item.id)
+    setSeen(nextSeen)
+    advanceFrom(item.id, nextAns, nextSeen)
+  }
+
+  const staleChoice = (id) => answers[id]?.choice ?? 'keep'
+
+  async function finish() {
+    const resolutions = []
+    const skips = []
+    for (const item of queue) {
+      if (item.kind === 'identity') {
+        const a = answers[item.id]
+        if (!a) continue
+        if (a.choice === 'same') resolutions.push({ entity: item.entity, name: item.name, reason: 'ambiguous_identity', choice: 'existing', entity_id: a.entity_id })
+        else if (a.choice === 'new') resolutions.push({ entity: item.entity, name: item.name, reason: 'ambiguous_identity', choice: 'create' })
+        else if (a.choice === 'skip') skips.push({ entity: item.entity, name: item.name })
+      } else {
+        resolutions.push({ entity: item.entity, name: item.name, reason: 'stale', field: item.field, choice: staleChoice(item.id) })
+      }
+    }
+    const outcome = await onFinish(resolutions, skips)
+    if (outcome?.held) {
+      // Peer race (spec §4.3): a new held item appeared while resolving. Keep the
+      // answers already given, fold the new conflict into the queue, and say so.
+      setConflicts(outcome.conflicts)
+      setRaceNote(true)
+      const newQueue = deriveQueue(outcome.conflicts)
+      const firstUnanswered = newQueue.find((q) => !isAnswered(q, answers, seen))
+      if (firstUnanswered) focus(firstUnanswered.id)
+    }
+  }
+
+  // A choice echo for the rail (spec §2.2).
+  function echo(item) {
+    if (item.kind === 'identity') {
+      const a = answers[item.id]
+      if (!a) return null
+      if (a.choice === 'same') return `→ using your existing ${item.name}`
+      if (a.choice === 'new') return `→ added as new`
+      if (a.choice === 'skip') return `→ skipped, not added`
+    }
+    return staleChoice(item.id) === 'accept' ? `→ using the file’s value` : `→ kept yours`
+  }
+
+  const surface = { background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 18px', marginBottom: 16 }
+  const cardStyle = { background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: 10, padding: '16px 18px', animation: 'importCardIn var(--motion-base) var(--ease-out)' }
+
+  if (queue.length === 0) return null
+
+  return (
+    <div style={{ ...surface, animation: 'importCardIn var(--motion-base) var(--ease-out)' }}>
+      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)' }}>
+        A few things to sort out before this import goes in
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4, marginBottom: 14 }}>
+        {allAnswered ? `All ${queue.length} answered.` : `You’re on ${Math.min(answeredCount + 1, queue.length)} of ${queue.length}.`}
+      </div>
+
+      {raceNote && (
+        <div style={{
+          background: 'color-mix(in srgb, var(--accent) 6%, var(--surface))',
+          border: '1px solid color-mix(in srgb, var(--accent) 40%, var(--border))',
+          borderRadius: 7, padding: '8px 10px', fontSize: 12, lineHeight: 1.6, color: 'var(--text)', marginBottom: 12,
+        }}>
+          One more came up while you were working — someone else made a change. Just answer it too, and the whole import goes in together.
+        </div>
+      )}
+
+      {/* Orientation rail — glyph + word + colour, never colour alone (spec §2.2). */}
+      <div style={{ borderBottom: '1px solid var(--border)', paddingBottom: 12, marginBottom: 14 }}>
+        {queue.map((it) => {
+          const answered = isAnswered(it)
+          const isCurrent = it.id === current?.id
+          const glyph = answered ? '✓' : isCurrent ? '●' : '○'
+          const color = answered ? 'var(--success)' : isCurrent ? 'var(--accent)' : 'var(--text-secondary)'
+          const question = it.kind === 'identity'
+            ? `Is “${it.name}” the same as before?`
+            : `${it.name} — ${fieldLabel(it.field)}`
+          return (
+            <button
+              key={it.id}
+              onClick={() => focus(it.id)}
+              style={{
+                display: 'flex', alignItems: 'baseline', gap: 8, width: '100%', textAlign: 'left',
+                background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
+                padding: '4px 0', fontSize: 13, lineHeight: 1.5,
+                color: answered || isCurrent ? 'var(--text)' : 'var(--text-secondary)',
+                fontWeight: isCurrent ? 600 : 400,
+              }}
+            >
+              <span style={{ color, fontSize: 13 }}>{glyph}</span>
+              <span style={{ flex: 1 }}>{question}</span>
+              {answered && <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{echo(it)}</span>}
+              {isCurrent && !answered && <span style={{ color: 'var(--accent)', fontSize: 12 }}>← now</span>}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Focused slot: the current decision card, or the Finish card once all answered. */}
+      {allAnswered
+        ? <FinishCard queue={queue} answers={answers} staleChoice={staleChoice} working={working} onFinish={finish} />
+        : current?.kind === 'identity'
+          ? <IdentityCard key={current.id} item={current} answer={answers[current.id]} onAnswer={(v) => answer(current, v)} style={cardStyle} />
+          : <StaleCard key={current.id} item={current} choice={staleChoice(current.id)} onChoose={(c) => answer(current, { kind: 'stale', choice: c })} style={cardStyle} />}
+
+      {/* Footer gate — hold-the-whole made visible (spec §4.2). */}
+      {!allAnswered && (
+        <div style={{ borderTop: '1px solid var(--border)', marginTop: 14, paddingTop: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            Nothing goes in until all {queue.length} are answered.
+            {waiting > 0 && <span> Waiting on {waiting}.</span>}
+          </div>
+          <button className="press-97" onClick={() => setLeaving(true)} disabled={working} style={{ ...S.btnSecondary, fontSize: 12, padding: '5px 10px' }}>
+            Leave
+          </button>
+        </div>
+      )}
+
+      {leaving && (
+        <div style={{
+          marginTop: 14, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', fontSize: 13, lineHeight: 1.6,
+        }}>
+          <strong>Leave without finishing?</strong>
+          <div style={{ marginTop: 6, color: 'var(--text-secondary)' }}>
+            Your import hasn’t gone in yet, and the answers you’ve given won’t be saved. You can start it again anytime from the same file — nothing in your camp has changed.
+          </div>
+          <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
+            <button className="press-97" onClick={() => setLeaving(false)} style={S.btnPrimary}>Stay and finish</button>
+            <button className="press-97" onClick={onLeave} style={S.btnSecondary}>Leave</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Equal-weight, no-default choice button (spec §3.1). Selected = 1.5px primary
+// border + 8% navy tint + leading ●, matching the keep-vs-replace selector.
+function ChoiceButton({ selected, onClick, disabled, children }) {
+  return (
+    <button
+      className="press-97"
+      onClick={onClick}
+      disabled={disabled}
+      style={{
+        display: 'block', width: '100%', textAlign: 'left', cursor: disabled ? 'not-allowed' : 'pointer',
+        padding: '10px 12px', borderRadius: 7, fontFamily: 'inherit',
+        background: selected ? 'color-mix(in srgb, var(--primary) 8%, var(--surface))' : 'var(--surface)',
+        border: `1.5px solid ${selected ? 'var(--primary)' : 'var(--border)'}`,
+        opacity: disabled ? 0.5 : 1,
+      }}
+    >
+      {children}
+    </button>
+  )
+}
+
+// Confirm-identity card (spec §3.1). Two named things joined by ≟ (asking, not
+// proposing), three equal-weight choices, no pre-selection. "Create new" is
+// suppressed when a candidate shares the incoming raw name (UNIQUE would re-hold).
+function IdentityCard({ item, answer, onAnswer, style }) {
+  const candidates = item.conflict.evidence?.candidates ?? []
+  const rawDup = candidates.some((c) => c.name === item.name)
+  const chosenId = answer?.choice === 'same' ? answer.entity_id : null
+
+  return (
+    <div style={style}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 4 }}>
+        {candidates.length > 1 ? 'Which one is this?' : 'Is this the same thing?'}
+      </div>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 14 }}>
+        In this file: <strong style={{ color: 'var(--text)' }}>“{item.name}”</strong>
+        {candidates.length > 1 && <> — you already have {candidates.length} things this could be. <span style={{ fontFamily: 'var(--font-mono)' }}>≟</span></>}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {candidates.map((c) => (
+          <ChoiceButton key={c.id} selected={chosenId === c.id} onClick={() => onAnswer({ kind: 'identity', choice: 'same', entity_id: c.id })}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+              {chosenId === c.id ? '● ' : '○ '}{candidates.length > 1 ? `Use “${c.name}”` : `Same thing — use my existing “${c.name}”`}
+            </div>
+          </ChoiceButton>
+        ))}
+
+        {!rawDup && (
+          <ChoiceButton selected={answer?.choice === 'new'} onClick={() => onAnswer({ kind: 'identity', choice: 'new' })}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+              {answer?.choice === 'new' ? '● ' : '○ '}A different, new one — add “{item.name}” as new
+            </div>
+          </ChoiceButton>
+        )}
+
+        <ChoiceButton selected={answer?.choice === 'skip'} onClick={() => onAnswer({ kind: 'identity', choice: 'skip' })}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+            {answer?.choice === 'skip' ? '● ' : '○ '}Skip this for now
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2, marginLeft: 16 }}>
+            Leave this one out — everything else still goes in.
+          </div>
+        </ChoiceButton>
+      </div>
+    </div>
+  )
+}
+
+// Kept-change card (spec §3.2). The director hand-edited a value; the file would
+// overwrite it. Keep-mine is the safe pre-selected default; the FULL-CONTRAST
+// value is always the one that will take effect (the emphasis swaps on toggle).
+function StaleCard({ item, choice, onChoose, style }) {
+  const mine = item.delta?.from ?? null      // the value the director typed (from)
+  const theirs = item.delta?.to               // the file's value (to)
+  const keeping = choice !== 'accept'
+  const fmt = (v) => (v === null || v === undefined || v === '' ? '(empty)' : String(v))
+
+  return (
+    <div style={style}>
+      <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>
+        You changed this by hand
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--text)', marginBottom: 12 }}>
+        {item.name} — {fieldLabel(item.field)}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: 14, fontSize: 13 }}>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <span style={{ color: 'var(--text-secondary)', fontSize: 12, width: 96 }}>You set this to</span>
+          <span style={{ color: keeping ? 'var(--text)' : 'var(--text-secondary)', fontWeight: keeping ? 600 : 400, textDecoration: keeping ? 'none' : 'line-through' }}>{fmt(mine)}</span>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <span style={{ color: 'var(--text-secondary)', fontSize: 12, width: 96 }}>The file says</span>
+          <span style={{ color: keeping ? 'var(--text-secondary)' : 'var(--text)', fontWeight: keeping ? 400 : 600 }}>{fmt(theirs)}</span>
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <ChoiceButton selected={keeping} onClick={() => onChoose('keep')}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+            {keeping ? '● ' : '○ '}Keep mine ({fmt(mine)})
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2, marginLeft: 16 }}>
+            The file’s value won’t be applied.
+          </div>
+        </ChoiceButton>
+        <ChoiceButton selected={!keeping} onClick={() => onChoose('accept')}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
+            {!keeping ? '● ' : '○ '}Use the file’s ({fmt(theirs)})
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2, marginLeft: 16 }}>
+            Replace what I typed.
+          </div>
+        </ChoiceButton>
+      </div>
+    </div>
+  )
+}
+
+// Pre-commit summary (spec §4.2): a quiet green-forward echo of every decision,
+// with the outcome-counting Finish button. On click → the atomic re-commit.
+function FinishCard({ queue, answers, staleChoice, working, onFinish }) {
+  const added = queue.filter((it) => it.kind === 'identity' && answers[it.id]?.choice === 'new').length
+  const lines = queue.map((it) => {
+    if (it.kind === 'identity') {
+      const a = answers[it.id]
+      if (a?.choice === 'same') return `“${it.name}” — using your existing one`
+      if (a?.choice === 'new') return `“${it.name}” — added as new`
+      return `${it.name} — skipped, not added`
+    }
+    return `${it.name}’s ${fieldLabel(it.field)} — ${staleChoice(it.id) === 'accept' ? 'using the file’s value' : 'kept yours'}`
+  })
+
+  return (
+    <div style={{
+      background: 'color-mix(in srgb, var(--success) 6%, var(--surface))',
+      border: '1px solid var(--border)', borderLeft: '3px solid var(--success)',
+      borderRadius: 10, padding: '16px 18px', fontSize: 13, lineHeight: 1.6,
+      animation: 'importCardIn var(--motion-settle) var(--ease-out)',
+    }}>
+      <strong>All sorted. Here’s what will go in:</strong>
+      <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {lines.map((l, i) => (
+          <div key={i} style={{ display: 'flex', gap: 8 }}>
+            <span style={{ color: 'var(--success)' }}>✓</span>
+            <span style={{ color: 'var(--text)' }}>{l}</span>
+          </div>
+        ))}
+      </div>
+      <div style={{ marginTop: 14 }}>
+        <button className="press-97" onClick={onFinish} disabled={working} style={{ ...S.btnPrimary, opacity: working ? 0.45 : 1 }}>
+          {working ? 'Finishing…' : `Finish import${added > 0 ? ` — add ${added} new ${added === 1 ? 'item' : 'items'}` : ''}`}
+        </button>
+      </div>
     </div>
   )
 }
