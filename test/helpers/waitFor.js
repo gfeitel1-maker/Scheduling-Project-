@@ -61,6 +61,9 @@ export async function waitFor(predicate, { timeout = DEFAULT_TIMEOUT_MS, interva
  * thing under test — proving a timeout fires, or that nothing arrives within a
  * window. Named so those uses stay visibly distinct from the ones that should
  * be `waitFor`.
+ *
+ * Every call site must carry a `// time-under-test: <elapsed-assertion|crossing-interval|proving-absence>`
+ * tag (same line or the line above), enforced by `electron/sync/noBareSleeps.test.js`.
  */
 export function sleepBecauseTimeIsUnderTest(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
