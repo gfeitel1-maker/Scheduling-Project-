@@ -48,13 +48,11 @@ describe('eslint: active Supabase imports are banned', () => {
       .filter((m) => m.ruleId === 'no-restricted-imports')
 
     expect(restrictedImportHits).toEqual([])
-    // 240s, not 60s. This lints the whole project through ESLint's API and
-    // takes ~55s on an idle machine — inside a 60s budget only just, and over it
-    // whenever anything else is running (a dev server, a packaged app, another
-    // suite). It failed exactly that way on 2026-07-29 with the dev app up.
-    // The generous budget is the fix for a genuinely slow test, not cover for a
-    // slow one that should be fast: it walks every file on purpose.
-  }, 240000)
+    // 480s (T44): this lints the whole project via ESLint's API. The codebase
+    // has grown since the original 240s budget was set; measured at ~296s under
+    // load (2026-08-08). Doubled to 480s to give headroom without making the
+    // test vacuous — it still catches a real hang.
+  }, 480000)
 
   it('does not flag legacy/supabase/ (excluded from the rule by scope)', async () => {
     const results = await eslint.lintFiles(['legacy/supabase/**/*.js'])

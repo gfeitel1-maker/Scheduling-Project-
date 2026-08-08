@@ -1072,14 +1072,21 @@ describe('remote client mode', () => {
   //
   // The timeouts are set far above any plausible healthy round trip so that
   // crossing one still means something is genuinely stuck.
+  //
+  // Raised from 5000ms to 60000ms on 2026-08-08 — T44 found this was the one
+  // remaining load-unsafe site in this file: a starved round trip crossing
+  // 5000ms flips `result.status` from 'applied' to 'timeout' and fails the
+  // assertion below, the same shape as the failure already documented at the
+  // 60000ms budget further down this file. 60000ms is not plausibly reachable
+  // under load either, for the same reason that budget isn't.
   it('a normal successful write goes through the normal path and is not caught by the timeout safety net', async () => {
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
       author_user_id: userId,
       serverUrl: `ws://localhost:${PORT}`,
       token,
-      lockTimeoutMs: 5000,
-      submitTimeoutMs: 5000,
+      lockTimeoutMs: 60000,
+      submitTimeoutMs: 60000,
     })
     await client.waitUntilConnected()
 
