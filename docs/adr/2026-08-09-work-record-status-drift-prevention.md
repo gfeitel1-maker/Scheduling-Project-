@@ -2,7 +2,7 @@
 title: "Work-record status drift prevention"
 document_type: adr
 authority: normative
-status: accepted
+status: proposed
 date: 2026-08-09
 supersedes: []
 implementation_state: not-started
@@ -214,19 +214,20 @@ This decision changes the contract of an existing checker other work already dep
 the gate catching drift, removing it silently reintroduces exactly the failure this program fixed.
 Filed at `docs/adr/2026-08-09-work-record-status-drift-prevention.md`.
 
-## Open questions for Governor / product owner
+## Product-owner decisions (2026-08-09)
 
-1. **Regex vocabulary lock-in.** The `closes T##` / `Merge S##` pattern is inferred from this
-   repo's actual commit history, not prescribed by any existing standard. Confirm this is the
-   vocabulary to freeze, or whether `WORK_RECORD_STANDARD.md` should formally define it in the same
-   change (recommended: yes, define it there so the regex has a normative source instead of being
-   inferred from git log a second time by whoever reads the script later).
-2. **Unresolvable-reference severity.** The design treats a commit that says `closes T99` where
-   `T99` doesn't exist as a blocking finding, same severity as a real drift. Confirm that's the
-   intended failure mode rather than a warning — it's a stricter bar than the audit asked for, but
-   it's the same shape of defect as the T70 duplicate/collision the audit already found by hand.
-3. **Sequencing.** This ADR should land and be built as its own ticket-sized Maker slice (test-first
-   on `checkStatusDrift`), separate from any future feature work — recommend Governor open one
-   ticket covering parts 1+2 together (they ship as a pair per Consequences) and, if the product
-   owner wants part 3's process line at all, a second, much smaller ticket for the
-   `WORK_RECORD_STANDARD.md`/`GOVERNANCE_INDEX.md` one-liner.
+1. **Regex vocabulary — DECIDED: formally define it.** `WORK_RECORD_STANDARD.md` will normatively
+   define the `closes T##` / `Merge S##` completion-reference vocabulary, and `checkStatusDrift`'s
+   regex derives from that standard rather than being re-inferred from git log. The standard is the
+   source of truth; the script implements it.
+2. **Unresolvable-reference severity — DECIDED: hard-fail CI.** A commit that references a
+   nonexistent ticket ID (e.g. `closes T99` with no `T99`) is a blocking CI failure, same severity
+   as a real status drift — it is the same shape of defect as the T70 duplicate/collision the audit
+   found by hand.
+
+## Remaining sequencing recommendation (Governor)
+
+3. Build this as its own ticket-sized, test-first Maker slice (on `checkStatusDrift`), separate from
+   feature work: one ticket covering parts 1+2 together (they ship as a pair per Consequences), plus
+   a second small ticket for the `WORK_RECORD_STANDARD.md` vocabulary definition + `GOVERNANCE_INDEX.md`
+   pointer. Status stays `proposed` until the product owner gives final sign-off to open those tickets.
