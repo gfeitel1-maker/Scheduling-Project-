@@ -1460,6 +1460,34 @@ if (isElectronEntryPoint()) {
   const initialHandlers = makeHandlers(db, deviceId, { getMainWindow: () => mainWindow, dbPath, userDataPath })
   registerHandlers(initialHandlers, db)
 
+  // Deploy smoke-test heartbeat (scripts/deploy-local.sh). The RENDERER invokes
+  // `shoresh:smoke-ready` from App's mount effect; only then do we write the
+  // marker. Reaching this handler proves three things at once that a window
+  // event cannot: React actually mounted (the effect ran), the preload bridge
+  // is intact, and a renderer→main IPC round-trip works. A build whose main
+  // process crashes, whose renderer shell loads but React throws (blank white
+  // screen), or whose IPC is broken never gets here, so the gate fails and the
+  // deploy rolls back. Entirely gated behind SHORESH_SMOKE_NONCE, so normal
+  // dev/test/production runs still call it but write nothing. A write failure
+  // must never take startup down over a smoke-test convenience file.
+  function writeSmokeMarker() {
+    const nonce = process.env.SHORESH_SMOKE_NONCE
+    if (!nonce) return
+    try {
+      const buildInfo = readBuildInfo(__dirname, app.isPackaged)
+      const markerPath = path.join(userDataPath, 'deploy-smoke-marker.json')
+      const tmpPath = `${markerPath}.tmp`
+      fs.writeFileSync(tmpPath, JSON.stringify({ commit: buildInfo.commit, nonce, pid: process.pid, ts: Date.now() }))
+      fs.renameSync(tmpPath, markerPath)
+    } catch (err) {
+      console.error('deploy smoke marker write failed (non-fatal)', err)
+    }
+  }
+  ipcMain.handle('shoresh:smoke-ready', () => {
+    writeSmokeMarker()
+    return { ok: true }
+  })
+
   function createWindow() {
     mainWindow = new BrowserWindow({
       width: 1400,
@@ -1472,34 +1500,12 @@ if (isElectronEntryPoint()) {
     mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
       console.error('PRELOAD ERROR', preloadPath, error)
     })
-    // Deploy smoke test heartbeat (scripts/deploy-local.sh). Written only when
-    // SHORESH_SMOKE_NONCE is set, which gates this out of every dev/test/normal
-    // run entirely. Written once the renderer's DOM is ready, so a main-process
-    // crash that Electron keeps alive behind its own error dialog never produces
-    // one — "process still alive" used to false-pass exactly that case.
-    //
-    // Deliberately `dom-ready`, NOT `did-finish-load`: index.html pulls a
-    // render-blocking stylesheet from fonts.googleapis.com, and the `load` event
-    // (which drives did-finish-load) blocks on that external request. On a fresh
-    // smoke profile with a cold cache — or an offline/slow network — that request
-    // stalls, so did-finish-load fired late or never and the gate FALSE-FAILED
-    // good builds non-deterministically. `dom-ready` fires when the document is
-    // parsed and does not wait on subresources, which is all the smoke test
-    // needs: proof the renderer process booted. Failure to write must never take
-    // startup down over a smoke-test convenience file.
-    mainWindow.webContents.on('dom-ready', () => {
-      const nonce = process.env.SHORESH_SMOKE_NONCE
-      if (!nonce) return
-      try {
-        const buildInfo = readBuildInfo(__dirname, app.isPackaged)
-        const markerPath = path.join(userDataPath, 'deploy-smoke-marker.json')
-        const tmpPath = `${markerPath}.tmp`
-        fs.writeFileSync(tmpPath, JSON.stringify({ commit: buildInfo.commit, nonce, pid: process.pid, ts: Date.now() }))
-        fs.renameSync(tmpPath, markerPath)
-      } catch (err) {
-        console.error('deploy smoke marker write failed (non-fatal)', err)
-      }
-    })
+    // NOTE: the deploy smoke-test heartbeat is NOT written here. It is written
+    // when the RENDERER calls the `shoresh:smoke-ready` IPC channel from App's
+    // mount effect — see writeSmokeMarker() / the handler registration below.
+    // That proves React actually mounted AND a main round-trip works, which a
+    // `dom-ready` window event (shell parsed, but React may have thrown) does
+    // not. A blank-white-screen build therefore fails the gate.
     if (!app.isPackaged) {
       mainWindow.setTitle('Shoresh [DEV]')
     }

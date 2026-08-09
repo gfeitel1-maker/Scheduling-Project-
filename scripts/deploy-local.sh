@@ -125,8 +125,11 @@ echo "==> Launch smoke test ($EXECUTABLE_NAME)"
 # "process still alive after N seconds" used to pass even when the main
 # process had crashed, because Electron keeps the process alive behind its
 # own uncaught-exception error dialog. Instead, wait for a positive heartbeat:
-# electron/main.js writes deploy-smoke-marker.json only after the renderer's
-# dom-ready fires on a real window, which a crashed/undialoged app never reaches.
+# the RENDERER invokes shoresh:smoke-ready from App's mount effect and only then
+# does electron/main.js write deploy-smoke-marker.json. Reaching that point proves
+# React mounted AND a renderer->main IPC round-trip works — a crashed main
+# process, or a shell that loads but whose React throws (blank white screen),
+# never gets there.
 #
 # The app is launched against a throwaway userData directory
 # (SHORESH_SMOKE_USERDATA), never the machine's real one, so the smoke run can
@@ -171,9 +174,10 @@ fi
 SHORESH_SMOKE_NONCE="$SMOKE_NONCE" SHORESH_SMOKE_USERDATA="$SMOKE_USERDATA" "$EXECUTABLE_PATH" &
 APP_PID=$!
 
-# KNOWN CEILING: dom-ready only proves the renderer shell loaded, not that React
-# mounted or that IPC works end to end. A renderer-mount+IPC heartbeat is a
-# planned follow-up.
+# CEILING: the heartbeat proves React mounted and one IPC round-trip works. It
+# does not exercise deeper flows (login, a specific screen's data load), so a
+# build that mounts but breaks a later screen still passes. That is an
+# acceptable boundary for a boot smoke test.
 elapsed=0
 smoke_passed=0
 while [ "$elapsed" -lt "$SMOKE_TIMEOUT_S" ]; do

@@ -135,6 +135,16 @@ function AppShell({ campId, role, onLogout }) {
 export default function App() {
   const device = useDeviceMode()
 
+  // Deploy smoke-test heartbeat: proof React actually mounted and a renderer→
+  // main IPC round-trip works. Main writes the smoke marker only when the deploy
+  // set SHORESH_SMOKE_NONCE; every other run is a harmless no-op round-trip.
+  // Placed before any conditional return so it obeys the Rules of Hooks and
+  // fires on mount regardless of phase. Optional-chained so the browser mock
+  // (no window.shoresh) simply skips it.
+  useEffect(() => {
+    window.shoresh?.reportSmokeReady?.()
+  }, [])
+
   if (device.phase === 'loading') return null
 
   if (device.phase === 'error') {

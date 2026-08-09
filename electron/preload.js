@@ -9,6 +9,10 @@ contextBridge.exposeInMainWorld('shoresh', {
   write: (args) => ipcRenderer.invoke('shoresh:write', args),
   bulkReplace: (args) => ipcRenderer.invoke('shoresh:bulk-replace', args),
   verifySession: (args) => ipcRenderer.invoke('shoresh:verify-session', args),
+  // Deploy smoke-test heartbeat. Called once from App's mount effect; main
+  // writes the smoke marker only when SHORESH_SMOKE_NONCE is set (a no-op
+  // round-trip otherwise). See electron/main.js and scripts/deploy-local.sh.
+  reportSmokeReady: () => ipcRenderer.invoke('shoresh:smoke-ready'),
   onOpApplied: (callback) => {
     const wrapped = (_event, op) => callback(op)
     ipcRenderer.on('shoresh:op-applied', wrapped)
