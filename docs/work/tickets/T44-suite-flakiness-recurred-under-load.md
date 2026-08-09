@@ -1,7 +1,7 @@
 ---
 title: T44-suite-flakiness-recurred-under-load
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-04
 governing_docs: [docs/governance/standards/TESTING_STANDARD.md, docs/governance/constitution/CONSTITUTION.md]
 related_tickets: [docs/work/tickets/T25-the-test-suite-fails-under-load.md, docs/work/tickets/T39-flaky-schedulescreen-tests.md]

@@ -75,6 +75,31 @@ const PORT = 8237
 const FLUSH_PORT = 8238
 const FLUSH_PORT_TIMEOUT = 8239
 
+// Waits until `ws.send` is called with a message matching `predicate`,
+// by temporarily wrapping `send` rather than sleeping a guessed duration.
+// Used where a test needs to inject a synthetic message only after a real
+// write's own request (e.g. submit_op) has genuinely gone out over the
+// socket — the resolver for that request is pushed onto its queue array
+// before the send call (see withResolverTimeout in syncClient.js), so
+// observing the send proves the resolver is already in place.
+function waitForSend(ws, predicate, options) {
+  const originalSend = ws.send.bind(ws)
+  let seen = false
+  ws.send = (data, ...rest) => {
+    if (!seen) {
+      try {
+        if (predicate(JSON.parse(data.toString()))) seen = true
+      } catch {
+        // not JSON or didn't match — fall through to the real send
+      }
+    }
+    return originalSend(data, ...rest)
+  }
+  return waitFor(() => seen, options).finally(() => {
+    ws.send = originalSend
+  })
+}
+
 let hostDb, hostFile, clientDb, clientFile, server, campId, userId, deviceId, token
 
 beforeEach(async () => {
@@ -558,7 +583,7 @@ describe('remote client mode', () => {
     // generated once, reused on every retry below) instead of going through
     // the normal connected path.
     client.__getWs().terminate()
-    await sleepBecauseTimeIsUnderTest(50)
+    await waitFor(() => !client.isConnected(), { message: 'ws never reported closed after terminate()' })
 
     const queuedResult = await client.write({ entity: 'template_slots', entity_id: 's-idem', field: 'activity_id', value: 'archery' })
     expect(queuedResult.status).toBe('queued')
@@ -787,11 +812,12 @@ describe('remote client mode', () => {
     const freshUserId = randomUUID()
     const writePromise = client.write({ entity: 'users', entity_id: freshUserId, field: 'name', value: 'Someone' })
 
-    // Wait a tick so the write's acquire_lock/submit_op round trip is in flight,
-    // then intercept by emitting a hand-crafted op_applied directly for the same device.
-    // Instead of trying to race the real server flow, we directly emit a malformed
-    // op_applied response as if it were the server's reply to our own submitted op.
-    await sleepBecauseTimeIsUnderTest(50)
+    // Wait until the write's submit_op has genuinely gone out (proving its
+    // resolver is registered — see waitForSend), then intercept by emitting a
+    // hand-crafted op_applied directly for the same device. Instead of trying
+    // to race the real server flow, we directly emit a malformed op_applied
+    // response as if it were the server's reply to our own submitted op.
+    await waitForSend(ws, (msg) => msg.type === 'submit_op', { message: "write's submit_op was never sent" })
 
     const badOpMsg = JSON.stringify({
       type: 'op_applied',
@@ -833,7 +859,7 @@ describe('remote client mode', () => {
     // write still resolves with a defined status either way.
     const opId = randomUUID()
     const writePromise = client.write({ entity: 'users', entity_id: userId, field: 'name', value: 'Bob' })
-    await sleepBecauseTimeIsUnderTest(50)
+    await waitForSend(ws, (msg) => msg.type === 'submit_op', { message: "write's submit_op was never sent" })
 
     ws.emit(
       'message',
@@ -890,7 +916,7 @@ describe('remote client mode', () => {
 
     // Start our own write, which pushes a resolver for THIS device's op.
     const writePromise = client.write({ entity: 'template_slots', entity_id: 's12', field: 'activity_id', value: 'soccer' })
-    await sleepBecauseTimeIsUnderTest(20)
+    await waitForSend(ws, (msg) => msg.type === 'submit_op', { message: "write's submit_op was never sent" })
 
     // Emit a peer op_applied with an invalid field (not this device's op).
     // This must not drain/resolve our own pending resolver.
@@ -971,8 +997,11 @@ describe('remote client mode', () => {
         parent_op_id: null,
       },
     })
+    // No wait needed: ws.emit('message', ...) is a synchronous EventEmitter
+    // dispatch straight into the op_applied handler, and applyRemoteOp is a
+    // synchronous better-sqlite3 write — the row (or its rejection) is
+    // already settled by the time emit() returns.
     ws.emit('message', Buffer.from(replayMsg))
-    await sleepBecauseTimeIsUnderTest(50)
 
     clientRow = clientDb.prepare('SELECT * FROM users WHERE id = ?').get(userId)
     expect(clientRow.name).toBe('FirstValue')
@@ -1278,8 +1307,9 @@ describe('full_sync handling', () => {
       ...EMPTY_DOMAIN_SNAPSHOT_TABLES,
     })
 
+    // No wait needed: the full_sync handler runs applyFullSync synchronously
+    // (a single better-sqlite3 transaction) before ws.emit() returns.
     ws.emit('message', Buffer.from(msg))
-    await sleepBecauseTimeIsUnderTest(50)
 
     expect(clientDb.prepare('SELECT * FROM camps WHERE id = ?').get(missingSecretCampId)).toBeFalsy()
     expect(clientDb.prepare('SELECT * FROM camps WHERE id = ?').get(nullSecretCampId)).toBeFalsy()
@@ -1320,8 +1350,9 @@ describe('full_sync handling', () => {
       ...EMPTY_DOMAIN_SNAPSHOT_TABLES,
     })
 
+    // No wait needed — same synchronous full_sync handling as above; the
+    // rollback (or lack of one) is already committed once emit() returns.
     expect(() => ws.emit('message', Buffer.from(msg))).not.toThrow()
-    await sleepBecauseTimeIsUnderTest(50)
 
     const rolledBackCamp = clientDb.prepare('SELECT * FROM camps WHERE id = ?').get(validCampId)
     expect(rolledBackCamp).toBeFalsy()
@@ -1349,7 +1380,6 @@ describe('full_sync handling', () => {
     const msg = JSON.stringify({ type: 'full_sync', users: 'not-an-array', camps: null })
 
     expect(() => ws.emit('message', Buffer.from(msg))).not.toThrow()
-    await sleepBecauseTimeIsUnderTest(20)
 
     client.close()
   })
@@ -1516,6 +1546,8 @@ describe('remote login (fresh client, no local token yet)', () => {
     // per 300ms per connection (Task 2 round-2 fix). Without this delay the
     // retry below would be silently throttled rather than genuinely
     // re-verified, so a short wait is inserted here before retrying.
+    // 350ms clears the Host's 300ms per-connection login throttle.
+    // time-under-test: crossing-interval
     await sleepBecauseTimeIsUnderTest(350)
 
     const retry = await client.loginRemote({ name: 'Alice', pin: '1234' })
@@ -1541,12 +1573,14 @@ describe('remote login (fresh client, no local token yet)', () => {
     // attempt acquireLockRemote against an unauthenticated connection the
     // Host silently ignores, hanging for the full lockTimeoutMs (10s) before
     // resolving 'timeout'. It must instead queue immediately.
-    const start = Date.now()
+    // No wall-clock upper bound here (T70): the queued-vs-hung distinction is
+    // carried by `status === 'queued'` plus the op actually landing in
+    // getQueuedOps(), together with vitest's own test timeout as the backstop
+    // against a genuine hang — not by asserting elapsed time stayed under a
+    // machine-speed-dependent guess.
     const result = await client.write({ entity: 'activities', entity_id: 'a-early', field: 'name', value: 'Early Write' })
-    const elapsedMs = Date.now() - start
 
     expect(result.status).toBe('queued')
-    expect(elapsedMs).toBeLessThan(1000)
     expect(client.getQueuedOps().some((q) => q.entity_id === 'a-early')).toBe(true)
 
     client.close()
@@ -1656,7 +1690,10 @@ describe('remote login (fresh client, no local token yet)', () => {
 
     // Wait for full-sync to populate the local camps row (including the
     // now-shared signing_secret) before attempting local verification.
-    await sleepBecauseTimeIsUnderTest(200)
+    await waitFor(
+      () => freshClientDb.prepare('SELECT signing_secret FROM camps LIMIT 1').get()?.signing_secret,
+      { message: 'full_sync never populated the local camps row with a signing_secret' }
+    )
 
     // Explicitly confirm full-sync actually carried the secret through and
     // it matches the Host's, not just that verification happens to work.

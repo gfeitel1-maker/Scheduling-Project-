@@ -963,6 +963,9 @@ describe('unauthenticated login message', () => {
     for (let i = 0; i < 5; i++) {
       ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: 'wrong', device_secret_identifier: loginDeviceSecret }))
       await onceMessage(ws)
+      // 310ms clears the 300ms per-connection login throttle so each
+      // iteration reaches attemptLogin.
+      // time-under-test: crossing-interval
       await sleepBecauseTimeIsUnderTest(310)
     }
     ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: '1234', device_secret_identifier: loginDeviceSecret }))
@@ -1059,6 +1062,8 @@ describe('unauthenticated login message', () => {
     // throttle. The only way this misreads is if the machine is so slow that
     // 300ms elapses between two back-to-back sends, at which point the send
     // itself outlasted the window it is testing.
+    // The second login reply must never arrive within the throttle window.
+    // time-under-test: proving-absence
     await sleepBecauseTimeIsUnderTest(200)
     expect(replies).toHaveLength(1)
 
@@ -1075,6 +1080,7 @@ describe('unauthenticated login message', () => {
 
     // A real user retrying after seeing "wrong pin" comfortably clears the
     // 300ms throttle window; this attempt must not be dropped.
+    // time-under-test: crossing-interval — 350ms clears the 300ms throttle.
     await sleepBecauseTimeIsUnderTest(350)
     ws.send(JSON.stringify({ type: 'login', device_id: loginDeviceId, name: 'Alice', pin: '1234', device_secret_identifier: loginDeviceSecret }))
     const reply2 = await onceMessage(ws)
@@ -1095,6 +1101,8 @@ describe('unauthenticated login message', () => {
     ws.send(JSON.stringify({ type: 'acquire_lock', entity: 'x', entity_id: 'y', field: 'z' }))
     let gotReply = false
     ws.once('message', () => { gotReply = true })
+    // An unauthenticated acquire_lock must never get a reply.
+    // time-under-test: proving-absence
     await sleepBecauseTimeIsUnderTest(200)
     expect(gotReply).toBe(false)
 
@@ -1238,6 +1246,8 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
     )
     let gotReply = false
     ws.once('message', () => { gotReply = true })
+    // An unauthenticated submit_op must never get a reply.
+    // time-under-test: proving-absence
     await sleepBecauseTimeIsUnderTest(200)
     expect(gotReply).toBe(false)
 

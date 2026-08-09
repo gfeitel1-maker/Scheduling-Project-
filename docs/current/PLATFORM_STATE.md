@@ -1,6 +1,6 @@
 # Shoresh — Platform State
 
-_Last updated: 2026-07-26 (schema v20, 16 integration scenarios; schedule generation end-to-end verified)_
+_Last updated: 2026-08-08 (schedule canvas rebuild complete; atomic ingest; design polish; engine purity; test suite stabilised)_
 
 ---
 
@@ -200,6 +200,24 @@ Not role-differentiated at the top level — `setup` (`CampSetup.jsx`) is the fi
 
 ---
 
+## What's changed since 2026-07-26
+
+**Schedule canvas rebuild (T50–T60, merged 2026-08-01).** `ScheduleScreen.jsx` migrated from a hand-rolled CSS table to a true CSS Grid canvas (`role="grid"` frame, `grid-row: span N` for merged cells). The grid is the source of truth for layout; `scheduleGrid.css` covers cell pseudo-states and data-attribute states (one scoped stylesheet exception, boundary is `src/components/schedule/`). Three post-canvas bugs fixed: anchor double-scheduling (T62 — engine now excludes anchor-referenced activity_ids from the placement pass), JSON-string group_ids parsed at the IPC boundary not inside the engine (T63, T69 — engine contract is array-only, enforced by a DEV-only `assertIdListShape` assertion, T71), and stats bar accuracy (T65 — `'unavailable'` slots excluded from Placed denominator, dead engine `stats` object deleted).
+
+**Atomic replace-ingest (T61, 2026-08-07).** `commitIngest` runs entirely inside one `db.transaction()`. Teardown order is normative (8 steps, spec at `docs/work/specs/S-replace-ingest-atomic-transaction.md`), `PRAGMA foreign_key_check` runs after deletes, rollback is proven by test. Host-only guard on both Add and Replace modes. Activity `min_per_week` floored to 1 for eligible activities on import. Replace confirmation names every category of director-authored content destroyed: schedule slots, Fixed Events (T68 — with live count, recoverable from Trash), saved versions (irreversible, visually distinguished in `--danger`), Day Override templates. Warning block is a rendered array, not pairwise `marginTop` conditionals.
+
+**`appendOp` performance (T66, 2026-08-08).** Four `db.prepare()` calls per op (~1.3ms each, ~15ms/row) now prepared once per `db` handle via `WeakMap<db, Map<sql, Statement>>` in `electron/ops/stmtCache.js`. A 2400-op Replace ingest dropped from ~37s to non-blocking. Op-log semantics unchanged.
+
+**Design polish pass (design/polish-20260807, merged 2026-08-07).** Schedule screen conformance to `DESIGN_STANDARD.md §5/§8`: global motion tokens (`--motion-quick`, `--motion-base`, `--motion-slow`, `--ease-out`, `--ease-in-out`) in `src/index.css`, `useEnterTransition` hook, error banner entry motion, activity palette token reconciliation, and cross-screen polish (Waves 0–4).
+
+**Dev environment (T64, 2026-08-07).** `npm run electron:dev:fresh` script kills a stale Electron process before relaunching. Window title is `Shoresh [DEV]` when `!app.isPackaged`. Dev and packaged databases remain separate.
+
+**Test suite stability (T44/T70/T44-closure, 2026-08-08).** `scripts/ensure-abi.js` now probes the actual compiled binary before trusting the `.abi-target` marker (fixes the root cause of phantom 47-failure cascades when the binary vanished under concurrent sessions). `sleepBecauseTimeIsUnderTest` arrival-waits in `syncClient.test.js` converted to `waitFor`; wall-clock upper-bound assertions removed; `noBareSleeps` guard requires a tagged comment at every marker site. Five consecutive clean full-suite runs recorded on 2026-08-08 (113 files, 1784 tests).
+
+**Engine purity (T69, 2026-08-08).** Remaining JSON-string tolerance deleted from `buildSchedule.js` and `weekCatalog.js`. Array-only contract enforced at every engine input; normalization belongs at the IPC read boundary (`useScheduleData.js:117–122`). DEV-only `assertIdListShape` (T71) makes a violation loud rather than a silent spinner.
+
+---
+
 ## Known Issues and Open Items
 
 - **RESOLVED 2026-07-26 (Schedule generation end-to-end — three bugs).** "Generate Schedule" button appeared to do nothing (button stayed stuck on "Generating…" indefinitely). Three root causes found and fixed in commits `0ca1198` / `a03b1ee`:
@@ -208,7 +226,9 @@ Not role-differentiated at the top level — `setup` (`CampSetup.jsx`) is the fi
   3. **`useDeviceMode.js` — `chooseHost()` didn't trigger `init()` re-run** (`src/hooks/useDeviceMode.js`): `init()` is gated on `initNonce` changes. `chooseHost()` set localStorage and React state but never incremented `initNonce`, so when the app started with no persisted mode, `chooseMode` IPC was never called, `syncClient` stayed `null`, and every subsequent `write` IPC threw "sync not initialized". Fixed by adding `setInitNonce((n) => n + 1)` to `chooseHost()`.
 - **RESOLVED 2026-07-26 (Camp Setup local-dev blocker + DaysScreen wiring + sidebar grouping).** The reported "unsatisfiable Cohorts prerequisite with no reachable UI path" was a mis-diagnosis: `cohorts` is reachable in the sidebar as "Programs" (commit `68bc36d`) and `ensureCohort` auto-creates a "Main" cohort. A navigation audit (read-through + live walk at localhost:5200) found the real root cause was the **write-blind dev mock**: `src/localClient.mock.js`'s `write()` returned `{status:'applied'}` without persisting, and `list()` read a store `write` never populated — so in the only UI-testable environment (`npm run dev`, no Electron/`window.shoresh`) every create was a silent no-op and no entity (Program/Unit/Group/Time Block/Activity/Anchor) could ever be built. Fixes: (1) the mock now persists field-level writes, `bulkReplace`, and `__deleted__` deletes, and emulates the real `UNIQUE(...)` indexes so it faithfully reproduces the app's collision paths; (2) `DaysScreen.jsx` wired into `App.jsx` `SCREENS` + `Sidebar` (key `days`); (3) an `App.jsx` ref-guard makes the AppShell bootstrap effect (`seedDays`/`ensureCohort`) run once per camp, neutralizing React StrictMode's dev-mode double-invocation (which otherwise double-seeded Mon–Fri → 10 days, since `days_of_operation` has no UNIQUE constraint); (4) sidebar regrouped into labelled "Setup"/"Operations" sections with Conflicts moved to Operations; (5) friendlier CampSetup load-error banner with an inline Retry. Verified end-to-end live at localhost:5200: full Camp Setup → real Schedule grid. Note: all mock changes are dev-only (`window.shoresh` bypasses the mock entirely in Electron).
 - **`days_of_operation` has no UNIQUE constraint** — `seedDays.js`'s repair logic works around this, but `electron/db/schema.sql` and `electron/db/localDb.js` have stale comments incorrectly claiming a UNIQUE constraint exists on this table. Low-severity documentation inconsistency, not yet fixed.
+- **`sleepBecauseTimeIsUnderTest` guard covers `electron/sync/` only** — bare `setTimeout` sleeps remain unguarded in `electron/main.test.js`, `ScheduleScreen.test.jsx`, `useScheduleData.test.js`, and `ensureCohort.race.test.js`. Tracked in T70's follow-up scope; not a current failure source.
 - **Two pre-existing flaky tests** under full-suite parallel load: `electron/sync/discovery.test.js` ("finds an advertised host on the LAN" — passes reliably in isolation) and `electron/sync/syncServer.test.js` ("throttles a burst of rapid login messages" — timing-sensitive under CPU contention). Neither is related to any recent change; both are out of scope until they become reliably reproducible.
+- **`import.meta.env.DEV` in the pure engine** (T71) — if the engine is ever called from `electron/main.js` or a plain-Node script, `import.meta.env.DEV` becomes a production `TypeError`. All current callers go through Vite/Vitest so it is defined today. Document any new engine call site that bypasses the Vite build.
 - **No TLS on the sync connection** (`ws://`, not `wss://`) — explicitly accepted under the trusted-LAN threat model. See `SECURITY.md`.
 - **ESLint's Supabase-import ban covers ES `import` only**, not CommonJS `require()` — narrow theoretical bypass in an `electron/**` file. The codebase is ESM-first; `require()` is currently confined to `electron/preload.js`. Low priority.
 - **`.env` (gitignored)** contains a local Supabase demo JWT left over from the pre-rebuild setup. Not read by any active code; documented in `.env.example` as legacy/dead.

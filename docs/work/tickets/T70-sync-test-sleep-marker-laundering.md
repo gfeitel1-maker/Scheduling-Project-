@@ -1,7 +1,7 @@
 ---
 title: T70-sync-test-sleep-marker-laundering
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-08
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/TESTING_STANDARD.md]
 related_tickets: [docs/work/tickets/T44-suite-flakiness-recurred-under-load.md, docs/work/tickets/T25-the-test-suite-fails-under-load.md]
@@ -77,6 +77,28 @@ fail by construction and their failure is noise, not signal.
 - `npm run test` and `npm run lint` pass.
 - Full suite passes at least 3 consecutive times on unchanged code without the syncClient
   failures reproduced on 2026-08-08.
+
+## Outcome (2026-08-08)
+
+Two corrections to this ticket's own claims, found during the work:
+
+- The `expect(elapsed).toBeLessThan(10000)` asserted to survive at ~line 919 **did not exist** —
+  it had already been removed, and the comments at lines 1066/1151 record its removal. Only the
+  `toBeLessThan(1000)` at ~1549 survived, and is now deleted.
+- The proposed guard rule ("marker requires an elapsed-time assertion in the same test block")
+  was **not implemented literally**, because it would reject the six legitimate sites — the
+  throttle-crossing and proving-absence sleeps, which correctly have no elapsed assertion.
+  Implemented instead: a closed-vocabulary `// time-under-test: <reason>` tag
+  (`elapsed-assertion` | `crossing-interval` | `proving-absence`), with `elapsed-assertion`
+  mechanically requiring an elapsed assertion in the enclosing `it()` block. The closed
+  vocabulary means a new arrival-wait cannot land silently — it takes a consciously false tag.
+
+The two failures "lost to log truncation" on 2026-08-08 **did not reproduce**: `syncClient.test.js`
+ran 47/47 green four times under 12x CPU load. A full-suite run under heavy load produced only
+indiscriminate 20-25s timeouts across `syncServer.test.js` — starvation noise from the load
+harness, not signal. The 13-site audit stood in for that enumeration.
+
+Verified: lint clean; full suite green on 3 consecutive runs (113 files, 1785 tests).
 
 ## Notes
 
