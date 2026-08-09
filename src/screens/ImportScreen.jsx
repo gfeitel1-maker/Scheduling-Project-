@@ -11,7 +11,8 @@ import { inferActivityRules } from '../ingest/activityRules'
 import { buildPreview, describePreview } from '../ingest/preview'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../utils/exportSanitize.js'
-import { downloadWorkbook } from '../utils/exportWorkbook.js'
+import { downloadWorkbook, META_SHEET } from '../utils/exportWorkbook.js'
+import { workbookToSource } from '../ingest/workbookToSource.js'
 
 // Read last year's schedule and propose the camp's setup from it.
 //
@@ -184,6 +185,14 @@ export default function ImportScreen({ campId, onNavigate }) {
           assertImportFileSize(file.size)
           const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
           assertWorkbookComplexity(wb)
+          // S4b — a Shoresh enrichment workbook (carries the hidden metadata
+          // sheet) is a round-trip, NOT a raw schedule. It re-enters through the
+          // SAME buildPlan→commit pipeline via the id-match tier, not entity
+          // inference. Short-circuit the schedule reader entirely.
+          if (wb.SheetNames.includes(META_SHEET)) {
+            await handleWorkbookReimport(wb)
+            return
+          }
           const sheets = wb.SheetNames.map((name) => ({
             name,
             // raw:false so Excel formats each cell the way the sheet displays it.
@@ -265,6 +274,41 @@ export default function ImportScreen({ campId, onNavigate }) {
     }
   }
 
+  // S4b — a Shoresh enrichment workbook re-import. Parse it back into a buildPlan
+  // source via the hardened adapter (allowlist, baseline-diff, fail-closed
+  // metadata, forced add-mode), then commit through the SAME pipeline as the
+  // schedule preview — the two import faces unified (ADR §2). The workbook is
+  // already director-edited, so there is no per-entity tick step: it goes straight
+  // to commit, which surfaces held/T73 exactly as the schedule path does.
+  async function handleWorkbookReimport(wb) {
+    const camp = await localClient.getCamp().catch(() => null)
+    let source
+    try {
+      source = workbookToSource(wb, { camp_id: camp?.id ?? null, cohort_id: activeCohort?.id ?? null })
+    } catch (err) {
+      // A fail-closed reject (missing/edited metadata, camp/cohort mismatch) is a
+      // clear user-facing message, not a crash — nothing was imported.
+      setPreview(null)
+      setError(err?.message ?? 'That worksheet could not be read.')
+      return
+    }
+    if (!activeCohort) {
+      setError('Waiting for a Program to load before importing. Try again in a moment.')
+      return
+    }
+    await runCommit({
+      approved: source.approved,
+      links: { groups: {} },
+      cohort_id: activeCohort?.id ?? null,
+      fixedEvents: [],
+      activityRules: {},
+      mode: 'add',
+      // The staleness clock is the workbook's EXPORTED generation (ADR §4), not
+      // the current op-seq — a field written after the export is what makes it stale.
+      base_generation: source.base_generation,
+    })
+  }
+
   // S4a — the enrichment-workbook EXPORT. A read-only download: read the camp's
   // current entities and produce a pre-populated xlsx the director can edit and
   // re-import (S4b). Writes nothing to the camp.
@@ -282,11 +326,14 @@ export default function ImportScreen({ campId, onNavigate }) {
       for (const entity of INGESTIBLE_ENTITIES) {
         entities[entity] = await localClient.list(entity).catch(() => [])
       }
+      // S4b §4 — stamp the REAL op-log generation so a re-import can detect a
+      // workbook filled against a stale export (import-over-import staleness).
+      const base_generation = await localClient.latestOpSeq().catch(() => 0)
       downloadWorkbook({
         ...entities,
         camp_id: camp?.id ?? null,
         cohort_id: activeCohort?.id ?? null,
-        base_generation: null,
+        base_generation,
       })
     } catch (err) {
       setError(describeWriteFailure(err, 'The worksheet could not be created.'))
@@ -398,14 +445,14 @@ export default function ImportScreen({ campId, onNavigate }) {
       : describeWriteFailure(err, 'Nothing was imported. Your camp is exactly as it was.')
   }
 
-  async function commit() {
+  // The one commit path (T61/T73). Both the schedule preview and the S4b workbook
+  // round-trip funnel their inputs through here — the SAME ingestCommit, the SAME
+  // held/T73 surface. `inputs` is stored as held.context so a re-commit re-sends
+  // the identical inputs (including a workbook's base_generation) plus resolutions.
+  async function runCommit(inputs) {
     setWorking(true)
     setError(null)
     try {
-      const inputs = buildCommitInputs()
-      // T61 — Replace is ONE awaited call. The teardown that used to run here,
-      // one IPC round trip per row with no atomicity across them, now happens
-      // inside the same main-process transaction as the create half.
       const outcome = await localClient.ingestCommit(inputs)
       if (outcome.held) {
         // A pause, not a failure — surface the held items for resolution (T73).
@@ -425,6 +472,13 @@ export default function ImportScreen({ campId, onNavigate }) {
     } finally {
       setWorking(false)
     }
+  }
+
+  async function commit() {
+    // T61 — Replace is ONE awaited call. The teardown that used to run here,
+    // one IPC round trip per row with no atomicity across them, now happens
+    // inside the same main-process transaction as the create half.
+    await runCommit(buildCommitInputs())
   }
 
   // T73 — the director resolved every held item and clicked Finish. Re-submit the

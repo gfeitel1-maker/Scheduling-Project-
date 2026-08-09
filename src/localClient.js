@@ -44,8 +44,11 @@ export const localClient = {
   // it must not be reachable by miscounting commas. Fields are enumerated
   // explicitly, never spread, so a caller-supplied token cannot override the
   // real one — same rule as deleteWeek below.
-  ingestCommit: ({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions } = {}) =>
-    shoresh.ingestCommit({ token: currentToken(), approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions }),
+  ingestCommit: ({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation } = {}) =>
+    shoresh.ingestCommit({ token: currentToken(), approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation }),
+  // S4b §4 — the op-log generation S4a's export stamps as base_generation so the
+  // round-trip's staleness gate has a real clock. Read-only; 0 on the dev mock.
+  latestOpSeq: () => (shoresh.latestOpSeq ? shoresh.latestOpSeq() : Promise.resolve(0)),
   onSyncStatusChanged: (cb) => shoresh.onSyncStatusChanged?.(cb) ?? (() => {}),
   onOpConflict: (cb) => shoresh.onOpConflict(cb),
   getCamp: () => shoresh.getCamp(),

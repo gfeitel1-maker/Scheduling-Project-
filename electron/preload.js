@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('shoresh', {
   // once at mount is wrong within minutes: a laptop closes, wifi drops.
   getSyncStatus: () => ipcRenderer.invoke('shoresh:get-sync-status'),
   ingestCommit: (args) => ipcRenderer.invoke('shoresh:ingest-commit', args),
+  latestOpSeq: () => ipcRenderer.invoke('shoresh:latest-op-seq'),
   onSyncStatusChanged: (cb) => {
     const listener = (_e, status) => cb(status)
     ipcRenderer.on('shoresh:sync-status-changed', listener)

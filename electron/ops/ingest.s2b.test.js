@@ -262,9 +262,14 @@ describe('R1 decay — the NULL trap is escapable (evidence #2a)', () => {
 // #5 — clear still throws; a blank source cell never clears; stale emits no op.
 // ---------------------------------------------------------------------------
 describe('scope fence (evidence #5)', () => {
-  it('op:clear still throws', () => {
-    expect(() => commitPlan(db, plan({ op: 'clear', entity: 'activities', entity_id: 'x', fields: {} }),
-      { author_user_id: 'u1', device_id: deviceId })).toThrow(/not implemented/)
+  it('op:clear is now live (S4b): an empty clear item on a missing target holds, never throws', () => {
+    // S4b turned the clear arm on. A clear whose target row does not exist holds
+    // as a conflict (missing target), not a thrown crash. Superseded the pre-S4b
+    // "clear throws" fence.
+    const res = commitPlan(db, plan({ op: 'clear', entity: 'activities', entity_id: 'x', fields: {}, evidence: { tier: 'uuid' }, _name: 'x' }),
+      { author_user_id: 'u1', device_id: deviceId })
+    expect(res.held).toBe(true)
+    expect(res.conflicts.some((c) => c.reason === 'missing_target')).toBe(true)
   })
 
   it('a blank source cell produces no op (never clears the live value)', () => {

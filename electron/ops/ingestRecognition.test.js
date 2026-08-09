@@ -176,9 +176,13 @@ describe('conflict gates; clear/cross_source still throw, update/stale go live (
     expect(opCount()).toBe(before)
   })
 
-  it('throws on op:clear', () => {
-    expect(() => commitPlan(db, base({ op: 'clear', entity: 'activities', entity_id: 'x', fields: {} }),
-      { author_user_id: 'u1', device_id: deviceId })).toThrow(/not implemented/)
+  it('op:clear is live (S4b): a clear on a missing target holds, never throws', () => {
+    // S4b turned the clear arm on. It no longer throws; a clear whose target row
+    // is absent holds as missing_target (uuid tier), atomically writing nothing.
+    const res = commitPlan(db, base({ op: 'clear', entity: 'activities', entity_id: 'x', fields: {}, evidence: { tier: 'uuid' }, _name: 'x' }),
+      { author_user_id: 'u1', device_id: deviceId })
+    expect(res.held).toBe(true)
+    expect(res.conflicts.some((c) => c.reason === 'missing_target')).toBe(true)
   })
 
   it('a stale conflict item gates (no throw); cross_source still throws', () => {
