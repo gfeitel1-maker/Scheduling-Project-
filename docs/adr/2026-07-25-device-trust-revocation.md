@@ -18,7 +18,7 @@ affects: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 Today any device that discovers the Host via mDNS and sends a correct PIN over
 the unauthenticated `login` WebSocket message becomes permanently, universally
 trusted: it receives a session token HMAC-signed with `camps.signing_secret`
-(docs/archive/completed-specs/2026-07-20-shared-camp-signing-secret-design.md), a
+(the now-superseded docs/archive/completed-specs/2026-07-20-shared-camp-signing-secret-design.md), a
 secret every device in the camp holds locally once synced. That ADR already
 flagged this explicitly as an accepted-for-now tradeoff: *"a compromised
 device can forge a session token... for any userId/deviceId pair... flagged
