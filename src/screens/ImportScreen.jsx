@@ -13,6 +13,11 @@ import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../utils/exportSanitize.js'
 import { downloadWorkbook, META_SHEET } from '../utils/exportWorkbook.js'
 import { workbookToSource } from '../ingest/workbookToSource.js'
+import { buildPlan } from '../ingest/buildPlan.js'
+import { foldApprovedToRecords } from '../ingest/fieldUpdate.js'
+import { buildExistingSnapshot } from '../ingest/existingSnapshot.js'
+import { fieldLabel } from '../ingest/fieldLabels.js'
+import { ReconciliationLedger } from './ReconciliationLedger.jsx'
 
 // Read last year's schedule and propose the camp's setup from it.
 //
@@ -45,23 +50,8 @@ const fixedEventKey = (fe) => `${fe.name} ${fe.time_block} ${fe.days.join(',')}`
 // at commit (round 2 review, Fix 1 — an earlier 1/2/3 draft was wrong).
 const PRIORITY_LABEL = { high: 'High', low: 'Low' }
 
-// T73 — a plain-camp phrase for each field a stale conflict can name, so the
-// kept-change card never shows a raw column name (design spec §9). Unknowns fall
-// back to a humanized column name.
-const FIELD_LABEL = {
-  location: 'where it happens',
-  sort_order: 'the order it appears in',
-  day_of_week: 'which day of the week it is',
-  start_time: 'when it starts',
-  end_time: 'when it ends',
-  availability: 'when it’s available',
-  min_per_week: 'how many times a week (fewest)',
-  max_per_week: 'how many times a week (most)',
-  priority: 'how important it is',
-  name: 'its name',
-  label: 'its name',
-}
-const fieldLabel = (f) => FIELD_LABEL[f] ?? String(f).replace(/_/g, ' ')
+// T73/S5b — FIELD_LABEL and fieldLabel now live in src/ingest/fieldLabels.js so
+// this screen and ReconciliationLedger share ONE camp-language map (design §7.3).
 
 const sumCounts = (counts) => Object.values(counts ?? {}).reduce((n, c) => n + c, 0)
 
@@ -123,6 +113,12 @@ export default function ImportScreen({ campId, onNavigate }) {
   // inputs to re-submit. `resolving` toggles the entry banner → resolution queue.
   const [held, setHeld] = useState(null)
   const [resolving, setResolving] = useState(false)
+  // S5b/T75 — a staged reconciliation plan awaiting the director's confirm from
+  // the ledger. `{ plan, context, fileName }`: `plan` is the renderer-side dry-run
+  // (buildPlan over the same enriched snapshot commit uses), `context` is the exact
+  // commit inputs the ledger's Commit re-sends. Nothing is written while this is
+  // set — the ledger IS the "nothing saved until you commit" surface both paths share.
+  const [ledger, setLedger] = useState(null)
   // Camp-wide counts of the same entities, unfiltered by Program. Replace
   // (electron/ops/ingest.js's replaceScope) deletes WHERE camp_id = ? with no
   // cohort filter — every Program's rows, not just the active one's — so the
@@ -164,6 +160,7 @@ export default function ImportScreen({ campId, onNavigate }) {
     setResult(null)
     setHeld(null)
     setResolving(false)
+    setLedger(null)
     setFixedEvents([])
     setChosenFixedEvents(new Set())
     setActivityRules({})
@@ -190,7 +187,7 @@ export default function ImportScreen({ campId, onNavigate }) {
           // SAME buildPlan→commit pipeline via the id-match tier, not entity
           // inference. Short-circuit the schedule reader entirely.
           if (wb.SheetNames.includes(META_SHEET)) {
-            await handleWorkbookReimport(wb)
+            await handleWorkbookReimport(wb, file.name)
             return
           }
           const sheets = wb.SheetNames.map((name) => ({
@@ -277,10 +274,11 @@ export default function ImportScreen({ campId, onNavigate }) {
   // S4b — a Shoresh enrichment workbook re-import. Parse it back into a buildPlan
   // source via the hardened adapter (allowlist, baseline-diff, fail-closed
   // metadata, forced add-mode), then commit through the SAME pipeline as the
-  // schedule preview — the two import faces unified (ADR §2). The workbook is
-  // already director-edited, so there is no per-entity tick step: it goes straight
-  // to commit, which surfaces held/T73 exactly as the schedule path does.
-  async function handleWorkbookReimport(wb) {
+  // schedule preview — the two import faces unified (ADR §2). T75 — the workbook
+  // no longer bypasses the preview: it stages the SAME reconciliation ledger the
+  // schedule path does, the director confirms from it, and only then does the
+  // atomic ingestCommit run, surfacing held/T73 exactly as the schedule path does.
+  async function handleWorkbookReimport(wb, fileName) {
     const camp = await localClient.getCamp().catch(() => null)
     let source
     try {
@@ -296,7 +294,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       setError('Waiting for a Program to load before importing. Try again in a moment.')
       return
     }
-    await runCommit({
+    await stageLedger({
       approved: source.approved,
       links: { groups: {} },
       cohort_id: activeCohort?.id ?? null,
@@ -306,7 +304,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       // The staleness clock is the workbook's EXPORTED generation (ADR §4), not
       // the current op-seq — a field written after the export is what makes it stale.
       base_generation: source.base_generation,
-    })
+    }, fileName)
   }
 
   // S4a — the enrichment-workbook EXPORT. A read-only download: read the camp's
@@ -456,14 +454,17 @@ export default function ImportScreen({ campId, onNavigate }) {
       const outcome = await localClient.ingestCommit(inputs)
       if (outcome.held) {
         // A pause, not a failure — surface the held items for resolution (T73).
+        // The ledger stands down; the held-resolution surface takes over.
         setHeld({ conflicts: outcome.conflicts, context: inputs })
         setResolving(false)
         setPreview(null)
+        setLedger(null)
         return
       }
       setResult(outcome)
       setHeld(null)
       setPreview(null)
+      setLedger(null)
       setFixedEvents([])
       setChosenFixedEvents(new Set())
       setActivityRules({})
@@ -474,11 +475,32 @@ export default function ImportScreen({ campId, onNavigate }) {
     }
   }
 
+  // S5b/T75 — build the renderer-side dry-run plan and stage the ledger. Mirrors
+  // how commitIngest builds `existing` (buildExistingSnapshot + foldApprovedToRecords
+  // + the PURE buildPlan) so the ledger's New/Updated/Unchanged/Clear/Conflict
+  // counts match what the atomic commit will do — commit re-runs buildPlan against
+  // its own live snapshot (Article V), so the two agree. Replace mode passes a null
+  // snapshot exactly as the committer does, keeping the blind-create path.
+  async function stageLedger(inputs, fileName) {
+    const existing = inputs.mode === 'replace'
+      ? null
+      : await buildExistingSnapshot(localClient.list, inputs.cohort_id)
+    const recordApproved = foldApprovedToRecords(inputs.approved, inputs.activityRules, inputs.links)
+    const plan = buildPlan(
+      { ...inputs, approved: recordApproved, camp_id: campId },
+      existing,
+      inputs.resolutions ?? [],
+    )
+    setPreview(null)
+    setLedger({ plan, context: inputs, fileName })
+  }
+
   async function commit() {
-    // T61 — Replace is ONE awaited call. The teardown that used to run here,
-    // one IPC round trip per row with no atomicity across them, now happens
-    // inside the same main-process transaction as the create half.
-    await runCommit(buildCommitInputs())
+    // S5b — the tick-preview no longer commits directly; it stages the shared
+    // ledger. The director confirms from the ledger, and only THEN does the
+    // single atomic ingestCommit run (T61 — one awaited call, teardown+create in
+    // one main-process transaction).
+    await stageLedger(buildCommitInputs(), fileNames.join(', '))
   }
 
   // T73 — the director resolved every held item and clicked Finish. Re-submit the
@@ -501,6 +523,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       setHeld(null)
       setResolving(false)
       setPreview(null)
+      setLedger(null)
       setFixedEvents([])
       setChosenFixedEvents(new Set())
       setActivityRules({})
@@ -517,6 +540,7 @@ export default function ImportScreen({ campId, onNavigate }) {
     setHeld(null)
     setResolving(false)
     setPreview(null)
+    setLedger(null)
     setFileNames([])
     setFixedEvents([])
     setChosenFixedEvents(new Set())
@@ -641,6 +665,20 @@ export default function ImportScreen({ campId, onNavigate }) {
           />
         )
       })()}
+
+      {/* S5b/T75 — the shared reconciliation ledger. Both the schedule tick-preview
+          and the workbook re-import stage a plan here; the director confirms from
+          it and only then does the atomic ingestCommit run. Nothing is written
+          while this is shown. */}
+      {ledger && (
+        <ReconciliationLedger
+          plan={ledger.plan}
+          fileName={ledger.fileName}
+          working={working}
+          onCommit={() => runCommit(ledger.context)}
+          onDiscard={() => { setLedger(null); setFileNames([]) }}
+        />
+      )}
 
       {preview && (
         <>
