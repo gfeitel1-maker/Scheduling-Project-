@@ -2,10 +2,10 @@
 title: "Shared export formula/CSV-injection sanitizer"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-08-08
 supersedes: []
-implementation_state: not_started
+implementation_state: implemented
 program: onboarding-reconciliation
 affects:
   - src/utils/exportSchedule.js

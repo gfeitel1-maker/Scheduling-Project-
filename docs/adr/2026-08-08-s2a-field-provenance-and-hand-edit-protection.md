@@ -2,10 +2,10 @@
 title: "Field provenance: the import-vs-human bit (S2a)"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-08-08
 supersedes: []
-implementation_state: not_started
+implementation_state: implemented
 affects:
   - docs/adr/2026-08-08-reconciliation-plan-as-commit-input.md
   - docs/adr/2026-08-08-s1a-import-recognizes-existing-entities.md

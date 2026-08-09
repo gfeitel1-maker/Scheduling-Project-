@@ -1,7 +1,7 @@
 ---
 title: T75-workbook-reconciliation-preview
 document_type: ticket
-status: done
+status: completed
 created: 2026-08-08
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 related_adrs:

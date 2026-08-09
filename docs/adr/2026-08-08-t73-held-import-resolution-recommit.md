@@ -2,10 +2,10 @@
 title: "Resolving a held import by re-submitting a resolved plan (T73)"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-08-08
 supersedes: []
-implementation_state: not_started
+implementation_state: implemented
 affects:
   - docs/adr/2026-08-08-s1a-import-recognizes-existing-entities.md
   - docs/adr/2026-08-08-s2b-field-level-update-and-stale-conflict.md

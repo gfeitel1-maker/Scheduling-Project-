@@ -2,9 +2,10 @@
 title: "Fixed-event (anchor) re-import is idempotent (T72)"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-08-08
 supersedes: []
+implementation_state: implemented
 affects:
   - docs/adr/2026-08-08-s1a-import-recognizes-existing-entities.md
   - docs/adr/2026-08-03-ingesting-recurring-fixed-events.md

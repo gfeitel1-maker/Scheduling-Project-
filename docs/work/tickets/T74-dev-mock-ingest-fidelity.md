@@ -1,7 +1,7 @@
 ---
 title: T74-dev-mock-ingest-fidelity
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-08
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/TESTING_STANDARD.md]
 related_adrs:

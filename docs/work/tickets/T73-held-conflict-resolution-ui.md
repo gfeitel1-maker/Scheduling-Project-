@@ -1,7 +1,7 @@
 ---
 title: T73-held-conflict-resolution-ui
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-08
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 related_adrs:

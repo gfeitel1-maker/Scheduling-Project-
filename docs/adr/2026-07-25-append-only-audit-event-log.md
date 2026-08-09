@@ -11,7 +11,7 @@ affects: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
 
 # Append-only audit event log, hooked into authorize()
 
-**Status:** proposed
+**Status:** accepted
 
 ## Context
 
