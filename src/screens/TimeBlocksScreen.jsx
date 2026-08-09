@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
+import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
@@ -282,7 +283,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
   }
 
   function downloadTemplate() {
-    const ws = XLSX.utils.aoa_to_sheet([
+    const ws = aoaToSanitizedSheet([
       ['name', 'start_time', 'end_time', 'part_of_day', 'sort_order'],
       ['Block 1', '09:45', '10:25', 'morning', 1],
     ])
@@ -296,7 +297,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
     const reader = new FileReader()
     reader.onload = ev => {
       const wb = XLSX.read(ev.target.result, { type: 'array' })
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' })
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(unescapeRow)
       const parsed = rows.map(r => {
         const name = String(r.name || '').trim()
         const start_time = String(r.start_time || '').trim()

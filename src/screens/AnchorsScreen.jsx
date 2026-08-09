@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
+import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
@@ -395,7 +396,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
   }
 
   function downloadTemplate() {
-    const ws = XLSX.utils.aoa_to_sheet([
+    const ws = aoaToSanitizedSheet([
       ['name', 'day_label', 'time_block_name', 'is_all_tiers', 'tier_names', 'notes'],
       ['Mifkad', 'Monday,Tuesday,Wednesday,Thursday,Friday', 'Mifkad Block', 'TRUE', '', ''],
       ['Swim', 'Monday,Wednesday,Friday', 'Afternoon Swim', 'FALSE', 'Yeladim,Tzofim', ''],
@@ -441,7 +442,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
 
       const buffer = await file.arrayBuffer()
       const wb = XLSX.read(buffer, { type: 'array' })
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' })
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(unescapeRow)
 
       // Expand each row into one record per day
       const parsed = []

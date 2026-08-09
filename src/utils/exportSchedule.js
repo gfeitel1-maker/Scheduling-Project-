@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx'
+import { aoaToSanitizedSheet } from './exportSanitize.js'
 
 export function exportToExcel({ slots, activities, anchors, groups, days, timeBlocks }) {
   const wb = XLSX.utils.book_new()
@@ -19,8 +20,8 @@ export function exportToExcel({ slots, activities, anchors, groups, days, timeBl
       }
       return row
     })
-    const ws = XLSX.utils.aoa_to_sheet([header, ...dataRows])
-    // Column widths
+    const ws = aoaToSanitizedSheet([header, ...dataRows])
+    // Column widths — layered on top of the already-sanitized sheet (ADR §2a).
     ws['!cols'] = [{ wch: 22 }, ...groups.map(() => ({ wch: 16 }))]
     XLSX.utils.book_append_sheet(wb, ws, day.label)
   }
@@ -40,7 +41,7 @@ export function exportToExcel({ slots, activities, anchors, groups, days, timeBl
       }
     }
   }
-  const masterWs = XLSX.utils.aoa_to_sheet([masterHeader, ...masterRows])
+  const masterWs = aoaToSanitizedSheet([masterHeader, ...masterRows])
   masterWs['!cols'] = [{ wch: 16 }, { wch: 12 }, { wch: 22 }, { wch: 20 }]
   XLSX.utils.book_append_sheet(wb, masterWs, 'All Groups')
 
