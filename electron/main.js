@@ -1467,12 +1467,20 @@ if (isElectronEntryPoint()) {
     })
     // Deploy smoke test heartbeat (scripts/deploy-local.sh). Written only when
     // SHORESH_SMOKE_NONCE is set, which gates this out of every dev/test/normal
-    // run entirely. Written only once the renderer has actually finished
-    // loading, so a main-process crash that Electron keeps alive behind its own
-    // error dialog never produces one — "process still alive" used to
-    // false-pass exactly that case. Failure to write must never take startup
-    // down over a smoke-test convenience file.
-    mainWindow.webContents.on('did-finish-load', () => {
+    // run entirely. Written once the renderer's DOM is ready, so a main-process
+    // crash that Electron keeps alive behind its own error dialog never produces
+    // one — "process still alive" used to false-pass exactly that case.
+    //
+    // Deliberately `dom-ready`, NOT `did-finish-load`: index.html pulls a
+    // render-blocking stylesheet from fonts.googleapis.com, and the `load` event
+    // (which drives did-finish-load) blocks on that external request. On a fresh
+    // smoke profile with a cold cache — or an offline/slow network — that request
+    // stalls, so did-finish-load fired late or never and the gate FALSE-FAILED
+    // good builds non-deterministically. `dom-ready` fires when the document is
+    // parsed and does not wait on subresources, which is all the smoke test
+    // needs: proof the renderer process booted. Failure to write must never take
+    // startup down over a smoke-test convenience file.
+    mainWindow.webContents.on('dom-ready', () => {
       const nonce = process.env.SHORESH_SMOKE_NONCE
       if (!nonce) return
       try {
