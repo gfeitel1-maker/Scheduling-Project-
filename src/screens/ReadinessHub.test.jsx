@@ -41,7 +41,7 @@ vi.mock('../engine/readiness', async (importOriginal) => {
 })
 
 import ReadinessHub from './ReadinessHub'
-import { buildHubRows, STATE_VISUAL, verdictState } from './readinessHubModel'
+import { buildHubRows, STATE_VISUAL, verdictState, rowAction } from './readinessHubModel'
 import { getReadiness } from '../engine/readiness'
 
 const FULL = { cohorts: 1, tiers: 6, groups: 18, days: 5, timeblocks: 8, activities: 12, anchors: 0, dayoverrides: 0 }
@@ -55,19 +55,51 @@ describe('buildHubRows: the grouped presentation model', () => {
   it('never gives a non-required category a Missing (red) state', () => {
     const readiness = getReadiness({}) // empty camp — everything required is missing
     const { required, optional, programs } = buildHubRows(readiness, {})
-    const nonRequired = [...optional, ...programs, required.find((r) => r.key === 'activityrules')]
+    const activityRules = required.find((r) => r.key === 'activities').subRow
+    const nonRequired = [...optional, ...programs, activityRules]
     for (const r of nonRequired) expect(r.state).not.toBe('missing')
+  })
+
+  it('nests Activity Rules under Activities as a subRow, not a standalone required row', () => {
+    const { required } = buildHubRows(getReadiness({}), {})
+    expect(required.find((r) => r.key === 'activityrules')).toBeUndefined()
+    expect(required.find((r) => r.key === 'activities').subRow.key).toBe('activityrules')
   })
 
   it('renders Activity Rules Not-applicable when Activities is empty, Ready when present', () => {
     const empty = buildHubRows(getReadiness({}), {})
-    expect(empty.required.find((r) => r.key === 'activityrules').state).toBe('not-applicable')
+    expect(empty.required.find((r) => r.key === 'activities').subRow.state).toBe('not-applicable')
     const full = buildHubRows(getReadiness({ activities: [{}] }), {})
-    expect(full.required.find((r) => r.key === 'activityrules').state).toBe('ready')
+    expect(full.required.find((r) => r.key === 'activities').subRow.state).toBe('ready')
   })
 
   it('Programs is always Ready', () => {
     expect(buildHubRows(getReadiness({}), {}).programs[0].state).toBe('ready')
+  })
+})
+
+describe('rowAction: the single tested source of truth for row affordances', () => {
+  it('ready and not-applicable rows never get an action', () => {
+    expect(rowAction({ state: 'ready', doors: 'two' })).toBe('none')
+    expect(rowAction({ state: 'not-applicable', doors: 'two' })).toBe('none')
+    expect(rowAction({ state: 'ready', doors: 'review' })).toBe('none')
+    expect(rowAction({ state: 'not-applicable', doors: 'review' })).toBe('none')
+  })
+
+  it('missing, needs-attention, and in-progress rows get review', () => {
+    for (const state of ['missing', 'needs-attention', 'in-progress']) {
+      expect(rowAction({ state, doors: 'two' })).toBe('review')
+    }
+  })
+
+  it('optional rows with doors:review and not-ready get review', () => {
+    expect(rowAction({ state: 'optional', doors: 'review' })).toBe('review')
+  })
+
+  it('doors:none rows never get an action, regardless of state', () => {
+    for (const state of ['ready', 'not-applicable', 'missing', 'needs-attention', 'in-progress', 'optional']) {
+      expect(rowAction({ state, doors: 'none' })).toBe('none')
+    }
   })
 })
 
@@ -107,34 +139,50 @@ describe('ReadinessHub render', () => {
     expect(screen.queryByText('Ready to build a week.')).toBeNull()
   })
 
-  it('renders the blocking headline and a brick "needed" row when a required area is empty', () => {
+  it('renders a fixed blocked headline (no named-list prose) with specifics in aria-label/title', () => {
     mockCounts = { ...FULL, activities: 0 }
     render(<ReadinessHub campId="camp-1" onNavigate={() => {}} />)
-    expect(screen.getByText(/still needed before you can build a week: Activities/)).toBeTruthy()
+    expect(screen.queryByText(/still needed before you can build a week: Activities/)).toBeNull()
+    const headline = screen.getByText('A few things need your attention before this camp can build a week.')
+    expect(headline).toBeTruthy()
+    expect(headline.title).toMatch(/still needed before you can build a week: Activities/)
+    const status = screen.getByRole('status')
+    expect(status.getAttribute('aria-label')).toMatch(/still needed before you can build a week: Activities/)
     const brick = screen.getAllByText('needed').find((el) => el.getAttribute('data-state') === 'missing')
     expect(brick).toBeTruthy()
     expect(brick.style.color).toBe('var(--danger)')
   })
 
-  it('renders the Ready headline and per-category counts when setup is complete', () => {
+  it('renders the Ready headline and per-category counts, with no action button on a Ready row', () => {
     mockCounts = FULL
     render(<ReadinessHub campId="camp-1" onNavigate={() => {}} />)
     expect(screen.getByText('Ready to build a week.')).toBeTruthy()
-    expect(screen.getByText('18')).toBeTruthy() // Groups count
+    const groupsCount = screen.getByText('18') // Groups count
+    expect(groupsCount).toBeTruthy()
+    const groupsRow = groupsCount.closest('div')
+    expect(groupsRow.querySelector('button')).toBeNull()
   })
 
-  it('Review on screen navigates to the category screen', () => {
-    mockCounts = FULL
+  it('a missing/needs-attention row renders exactly one "Review" button', () => {
+    mockCounts = { ...FULL, activities: 0 }
+    render(<ReadinessHub campId="camp-1" onNavigate={() => {}} />)
+    expect(screen.getAllByText('Review').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Download worksheet')).toBeNull()
+  })
+
+  it('Review navigates to the category screen', () => {
+    mockCounts = { ...FULL, tiers: 0 }
     const onNavigate = vi.fn()
     render(<ReadinessHub campId="camp-1" onNavigate={onNavigate} />)
-    fireEvent.click(screen.getAllByText('Review on screen')[0])
+    fireEvent.click(screen.getAllByText('Review')[0])
     expect(onNavigate).toHaveBeenCalledWith('tiers')
   })
 
-  it('Download worksheet triggers the workbook export', async () => {
-    mockCounts = FULL
+  it('the overflow download icon triggers the workbook export via aria-label, with no visible label text', async () => {
+    mockCounts = { ...FULL, tiers: 0 }
     render(<ReadinessHub campId="camp-1" onNavigate={() => {}} />)
-    fireEvent.click(screen.getAllByText('Download worksheet')[0])
+    expect(screen.queryByText('Download worksheet')).toBeNull()
+    fireEvent.click(screen.getByLabelText('Download worksheet'))
     await vi.waitFor(() => expect(downloadWorkbook).toHaveBeenCalled())
   })
 

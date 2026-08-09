@@ -20,7 +20,7 @@ import { getReadiness, describeReadiness } from '../engine/readiness'
 import { downloadWorkbook } from '../utils/exportWorkbook.js'
 import { INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
-import { STATE_VISUAL, statusWord, buildHubRows, verdictState } from './readinessHubModel'
+import { STATE_VISUAL, statusWord, buildHubRows, verdictState, rowAction } from './readinessHubModel'
 
 export default function ReadinessHub({ campId, onNavigate }) {
   const { counts } = useSetupCounts(campId)
@@ -113,6 +113,13 @@ export default function ReadinessHub({ campId, onNavigate }) {
 // counterpart to reuse, so it lives here as a local override.
 const NEEDS_ATTENTION_HEADLINE = 'Ready to build a week, with a few things to check.'
 
+// The blocked headline no longer restates the blocked category names in
+// prose — that reads as louder than the state deserves, and the state-matched
+// row rail (below) already points at exactly which rows earned it. The named
+// list (`blocking`, from describeReadiness) stays available via aria-label /
+// title for screen readers and hover.
+const BLOCKED_HEADLINE = 'A few things need your attention before this camp can build a week.'
+
 // Bridges the verdict's three-state enum to the six-state glyph grammar —
 // 'blocked' maps to the same visual as 'missing'. Kept explicit (rather than
 // indexing STATE_VISUAL[state] directly) so an unrecognized state falls back
@@ -125,7 +132,11 @@ const HEADLINE_VISUAL = {
 
 function Headline({ state, blocking, attention }) {
   const visual = HEADLINE_VISUAL[state] ?? STATE_VISUAL.missing
-  const headline = state === 'needs-attention' ? NEEDS_ATTENTION_HEADLINE : blocking
+  const headline = state === 'needs-attention'
+    ? NEEDS_ATTENTION_HEADLINE
+    : state === 'blocked'
+      ? BLOCKED_HEADLINE
+      : blocking
   const attentionLine = state === 'needs-attention'
     ? { fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 500, color: 'var(--accent)', marginTop: 3 }
     : { fontFamily: 'var(--font-sans)', fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }
@@ -133,7 +144,7 @@ function Headline({ state, blocking, attention }) {
   const fade = useCrossFade()
 
   return (
-    <div role="status" aria-live="polite">
+    <div role="status" aria-live="polite" aria-label={state === 'blocked' ? blocking : undefined}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, ...fade }}>
         <span
           aria-hidden="true"
@@ -142,7 +153,10 @@ function Headline({ state, blocking, attention }) {
           {visual.glyph}
         </span>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 20, color: 'var(--text)', lineHeight: '28px' }}>
+          <div
+            title={state === 'blocked' ? blocking : undefined}
+            style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 20, color: 'var(--text)', lineHeight: '28px' }}
+          >
             {headline}
           </div>
           {attention && (
@@ -199,8 +213,14 @@ function Group({ label, rows, onNavigate, onDownload, preparing, muted }) {
   )
 }
 
+// State-matched left rail on rows that earned it. An inset box-shadow keeps
+// it flush with the Group container's left edge without disturbing layout
+// width (no extra border to account for in padding).
+const RAIL_COLOR = { missing: 'var(--danger)', 'needs-attention': 'var(--accent)' }
+
 function CategoryRow({ row, last, onNavigate, onDownload, preparing }) {
   const [hover, setHover] = useState(false)
+  const reduced = prefersReducedMotion()
   const visual = STATE_VISUAL[row.state]
   const word = statusWord(row)
   const wordColor = row.state === 'missing'
@@ -208,6 +228,23 @@ function CategoryRow({ row, last, onNavigate, onDownload, preparing }) {
     : row.state === 'needs-attention' || row.state === 'in-progress'
       ? 'var(--accent)'
       : 'var(--text-secondary)'
+  const action = rowAction(row)
+  const railColor = RAIL_COLOR[row.state]
+  const reviewButtonStyle = row.doors === 'review'
+    ? {
+        background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+        color: 'var(--text-secondary)', fontSize: 12, fontFamily: 'inherit', textDecoration: 'none',
+      }
+    : {
+        // Neutral chrome for EVERY urgent state. The accent/danger already lives
+        // in the row's glyph and status word; tinting the button text bronze
+        // (accent-on-surface ≈3.2:1) failed WCAG AA on the very rows the design
+        // most wants readable. The button's insistence comes from its presence
+        // (Ready rows have none) + the rail, not from its colour.
+        ...S.btnSecondary,
+        fontSize: 12,
+        padding: '4px 10px',
+      }
 
   return (
     <div
@@ -218,6 +255,7 @@ function CategoryRow({ row, last, onNavigate, onDownload, preparing }) {
         borderBottom: last ? 'none' : '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
         background: hover ? 'var(--bg)' : 'transparent',
         transition: 'background var(--motion-fast) var(--ease-out)',
+        boxShadow: railColor ? `inset 2px 0 0 0 ${railColor}` : 'none',
       }}
     >
       <span
@@ -229,8 +267,15 @@ function CategoryRow({ row, last, onNavigate, onDownload, preparing }) {
       >
         {visual.glyph}
       </span>
-      <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 500, color: 'var(--text)' }}>
-        {row.label}
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 500, color: 'var(--text)' }}>
+          {row.label}
+        </span>
+        {row.subRow && (
+          <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+            {'↳ '}{row.subRow.label} · {statusWord(row.subRow)}
+          </span>
+        )}
       </span>
       <span
         data-state={row.state}
@@ -238,30 +283,29 @@ function CategoryRow({ row, last, onNavigate, onDownload, preparing }) {
       >
         {word}
       </span>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12, marginLeft: 12, flexShrink: 0 }}>
-        {row.screen && (
-          <button
-            onClick={() => onNavigate(row.screen)}
-            style={{ ...S.btnSecondary, fontSize: 12, padding: '4px 10px' }}
-          >
-            Review on screen
+      {action === 'review' && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 16, marginLeft: 12, flexShrink: 0 }}>
+          <button onClick={() => onNavigate(row.screen)} style={reviewButtonStyle}>
+            Review
           </button>
-        )}
-        {row.doors === 'two' && (
-          <button
-            onClick={onDownload}
-            disabled={preparing}
-            style={{
-              background: 'none', border: 'none', padding: 0, cursor: preparing ? 'wait' : 'pointer',
-              color: 'var(--primary)', fontSize: 12, fontFamily: 'inherit', textDecoration: 'none',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline' }}
-            onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none' }}
-          >
-            {preparing ? 'Preparing…' : 'Download worksheet'}
-          </button>
-        )}
-      </span>
+          {row.doors === 'two' && (
+            <button
+              onClick={onDownload}
+              disabled={preparing}
+              aria-label="Download worksheet"
+              title="Download worksheet"
+              style={{
+                background: 'none', border: 'none', padding: 0, cursor: preparing ? 'wait' : 'pointer',
+                color: 'var(--text-secondary)', fontSize: 11, fontFamily: 'inherit',
+                opacity: reduced ? 1 : (hover ? 1 : 0.6),
+                transition: reduced ? 'none' : 'opacity var(--motion-fast) var(--ease-out)',
+              }}
+            >
+              {preparing ? '…' : '↓'}
+            </button>
+          )}
+        </span>
+      )}
     </div>
   )
 }
