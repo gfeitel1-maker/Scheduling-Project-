@@ -108,6 +108,89 @@ ADRs additionally require `authority` (`normative`) and `implementation_state`
 `implementation_state` is deliberately separate from `status`. An ADR can be `accepted` and
 `not-started` for weeks — that gap is real, and collapsing the two fields would hide it.
 
+### 3.1 A ticket or ADR closes in the same change that closes it
+
+> A ticket or ADR closes in the same change that closes it. If a commit message references a
+> ticket or ADR (`closes T##`, `Merge S##`, or an equivalent the team adopts), the frontmatter
+> `status` (and, for ADRs, `implementation_state`) of every document so referenced must already
+> read as closed in that same commit or an earlier one on the same branch. A merge commit is not
+> the place to discover the status is still wrong — `scripts/check-governance.js` enforces this
+> automatically and blocks `npm run verify` when it isn't true.
+
+---
+
+## 3.2 Completion references and the status-drift gate
+
+`scripts/check-governance.js`'s `checkStatusDrift` enforces §3.1. This section is that check's
+source of truth — the script derives its regex and resolution rules from the definitions below; if
+the two ever disagree, this standard governs and the script is wrong.
+
+**Vocabulary.** A completion reference is a keyword, whitespace, then an ID, found anywhere in a
+commit subject:
+
+- Keyword (case-insensitive): `closes` or `Merge`.
+- ID: an optional `T` or `S` prefix followed by digits and an optional single lowercase suffix
+  letter, e.g. `T76`, `S5b`.
+- Regex: `/(?:closes|merge)\s+([TS]\d+[a-z]?)/gi`, applied per subject, collecting every match.
+  **The regex is authoritative** — the prose above only describes it; the optional lowercase
+  suffix letter applies to the whole `[TS]\d+` token, for both tickets and slices, not only
+  slices.
+
+This is deliberately narrow. A bare mention — `relates to T40, see also...` — has no `closes`/
+`Merge` keyword and must not match. Widening the regex without a corresponding audit of the commit
+vocabulary actually in use is how a gate stops meaning anything.
+
+**Multi-ID closure.** A single commit closing more than one ID must repeat the keyword per ID —
+`closes T12` `closes T13` — not `closes T12, T13`. A comma-separated list only captures the first
+ID, since the regex requires the keyword immediately before each ID. This is the required
+convention; the regex is not widened to parse lists.
+
+**Revert commits are excluded.** A commit subject beginning with `Revert "` (git's default revert
+subject format) is skipped entirely before completion references are parsed — a revert re-opens
+whatever it reverted, so its original `closes`/`Merge` reference must not re-fire the gate.
+
+**ID resolution.** Applied over the document set `readDocs()` already produces (no separate
+filesystem walk):
+
+- `T<n>` (ticket): a document under `docs/work/tickets/` whose basename starts with `T<n>`
+  immediately followed by `-` or `.` — `T7` matches `T7-thing.md` and never matches `T70-other.md`.
+  The number is matched case-sensitively.
+- `S<n><letter?>` (slice): a document under `docs/adr/` **or** `docs/work/specs/` whose basename,
+  lowercased, contains the token as a hyphen-delimited segment — matching a leading `s5b-`/`s5b.md`
+  or an embedded `-s5b-`/`-s5b.md`. **`S` is not a filename prefix the way `T` is** — slices are
+  recorded as ADRs or specs, and their id sits wherever the slug puts it (e.g.
+  `2026-08-09-onboarding-s5b-conflict-ui.md`). The match is case-insensitive.
+- An ID may resolve to more than one document. The closed-state predicate below is applied to
+  every match, not just the first.
+
+**Closed-state predicate, by `document_type` of the matched document:**
+
+| `document_type` | Closed when |
+|---|---|
+| `ticket` | `status` is one of `completed`, `closed`, `wont-fix` |
+| `adr` | `status` is `superseded` or `rejected` (terminal — closed regardless of `implementation_state`); otherwise `status` is `accepted` **and** `implementation_state` is `implemented` |
+| `spec` | `status` is one of `approved`, `implemented`, `superseded` |
+| anything else | never closed — a completion reference is expected to resolve to a ticket, ADR, or spec |
+
+**Findings:**
+
+- `status-drift` — a referenced ID resolves to at least one document that is not closed. One
+  finding per (id, unclosed document) pair, naming the ID, the document's path, and its current
+  `status` (plus `implementation_state` for an ADR).
+- `status-drift-unresolvable-reference` — a referenced ID resolves to zero documents. This is a
+  **hard failure**, the same severity as `status-drift`, not a silent pass — an ID typo or a
+  document rename that leaves an old reference dangling is the same defect class this gate exists
+  to catch.
+
+**Scope.** The check only looks at commit subjects reachable from `HEAD` but not from
+`origin/main` (`git log origin/main..HEAD --format=%s`) — it is a going-forward gate over the
+current branch, not a re-audit of history. If that `git log` call fails for any reason (no
+`origin/main` to diff against — a fresh clone, a checkout without the base ref fetched), the check
+is skipped entirely for that run rather than failing `npm run verify` for an unrelated environment
+reason. The skip is not silent: `check:governance` prints one line to stderr
+(`check:governance — status-drift check skipped (no origin/main to diff against)`) so a real
+finding-free pass stays distinguishable from a run where the check did not execute.
+
 ---
 
 ## 4. `task_class`
@@ -220,7 +303,9 @@ stale.
 ## 7. Enforcement
 
 `npm run check:governance` is **blocking**, and `npm run verify` runs it after `lint` and `test`.
-A finding fails the build.
+A finding fails the build. This includes `checkStatusDrift` (§3.2): a commit on the current branch
+that claims to close a ticket or ADR while its frontmatter still reads open is a finding, same as
+any other.
 
 `CHECK_GOVERNANCE_WARN=1` downgrades it to print-and-exit-0 for a local sweep. It is not a way to
 get a branch through.

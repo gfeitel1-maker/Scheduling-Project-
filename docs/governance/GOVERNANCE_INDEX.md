@@ -50,6 +50,11 @@ specs and ADRs, and gives `CONSTITUTION.md` Article VII's requirement to record 
 and omissions a checkable shape. The `task_class` values in that standard are the rows of this
 table.
 
+Routing on **documentation / governance**, and specifically on completion-reference vocabulary
+(`closes T##` / `Merge S##`) or the status-drift gate: see
+[`standards/WORK_RECORD_STANDARD.md`](standards/WORK_RECORD_STANDARD.md) §3.2, enforced by
+`checkStatusDrift` in `scripts/check-governance.js`.
+
 **[`standards/TESTING_STANDARD.md`](standards/TESTING_STANDARD.md) owns the gate list** and defines
 when the integration harness is mandatory (any change touching sync, auth, or schema) and which
 environment a completion claim requires (`electron:dev`, not the `:5200` dev mock, for anything

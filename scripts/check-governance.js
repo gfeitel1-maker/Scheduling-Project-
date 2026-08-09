@@ -13,6 +13,7 @@
 // getting a branch through.
 
 import { existsSync, readFileSync } from 'node:fs'
+import { execSync } from 'node:child_process'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { asList } from './frontmatter.js'
@@ -200,13 +201,105 @@ export function checkIndexFreshness(committed, generated) {
   return []
 }
 
-export function checkAll(root) {
+/**
+ * WORK_RECORD_STANDARD.md §3.1 — a completion reference is `closes`/`Merge`
+ * followed by a ticket (`T\d+`) or slice/ADR/spec id (`S\d+[a-z]?`). Deliberately
+ * narrow: a bare mention like "relates to T40" must not match.
+ */
+const COMPLETION_REF = /(?:closes|merge)\s+([TS]\d+[a-z]?)/gi
+
+export function parseCompletionRefs(subject) {
+  return [...subject.matchAll(COMPLETION_REF)].map((m) => m[1])
+}
+
+/**
+ * @param id   e.g. "T76" or "S5b"
+ * @param docs the readDocs() shape: {path, data, error}
+ */
+export function resolveIds(id, docs) {
+  if (id[0] === 'T' || id[0] === 't') {
+    const n = id.slice(1)
+    return docs.filter((d) =>
+      d.path.startsWith('docs/work/tickets/') &&
+      new RegExp(`/T${n}[-.]`).test(d.path))
+  }
+
+  const token = id.toLowerCase()
+  const segment = new RegExp(`(^|-)${token}(-|\\.)`)
+  return docs.filter((d) =>
+    (d.path.startsWith('docs/adr/') || d.path.startsWith('docs/work/specs/')) &&
+    segment.test(d.path.split('/').pop().toLowerCase()))
+}
+
+export function isClosed(doc) {
+  switch (doc.document_type) {
+    case 'ticket':
+      return ['completed', 'closed', 'wont-fix'].includes(doc.status)
+    case 'adr':
+      // superseded/rejected are terminal, end-of-life states — the work either
+      // shipped-then-superseded or was rejected; a completion reference to it is not drift.
+      if (doc.status === 'superseded' || doc.status === 'rejected') return true
+      return doc.status === 'accepted' && doc.implementation_state === 'implemented'
+    case 'spec':
+      return ['approved', 'implemented', 'superseded'].includes(doc.status)
+    default:
+      return false
+  }
+}
+
+export function checkStatusDrift(subjects, docs) {
+  const out = []
+  // WORK_RECORD_STANDARD.md §3.2 — a `Revert "..."` subject quotes a prior
+  // commit's message, it does not make a fresh closure claim. Skip it wherever
+  // subjects come from, so a direct caller gets the same behaviour as checkAll.
+  const claims = subjects.filter((s) => !s.startsWith('Revert "'))
+  const ids = claims.flatMap((s) => parseCompletionRefs(s))
+
+  for (const id of ids) {
+    const matches = resolveIds(id, docs)
+    if (!matches.length) {
+      const subject = claims.find((s) => parseCompletionRefs(s).includes(id))
+      out.push(finding('status-drift-unresolvable-reference',
+        `'${id}' referenced in commit "${subject}" does not resolve to any known document`))
+      continue
+    }
+    for (const doc of matches) {
+      if (isClosed(doc.data)) continue
+      const state = doc.data.document_type === 'adr' ? `, implementation_state '${doc.data.implementation_state}'` : ''
+      out.push(finding('status-drift',
+        `'${id}' is referenced as closed by a commit but ${doc.path} still has status '${doc.data.status}'${state}`))
+    }
+  }
+
+  return out
+}
+
+function gatherCompletionSubjects(root, execFn) {
+  try {
+    return execFn(`git -C ${root} log origin/main..HEAD --format=%s`)
+      .split('\n')
+      .map((s) => s.trim())
+      .filter(Boolean)
+  } catch {
+    return null
+  }
+}
+
+export function checkAll(root, execFn = (cmd) => execSync(cmd, { encoding: 'utf8' })) {
   const exists = (p) => existsSync(join(root, p))
-  const findings = readDocs(root).flatMap((doc) => checkDoc(doc, exists))
+  const docs = readDocs(root)
+  const findings = docs.flatMap((doc) => checkDoc(doc, exists))
 
   const path = join(root, INDEX_PATH)
   const committed = existsSync(path) ? readFileSync(path, 'utf8') : null
   findings.push(...checkIndexFreshness(committed, generate(root)))
+
+  const subjects = gatherCompletionSubjects(root, execFn)
+  if (subjects !== null) {
+    findings.push(...checkStatusDrift(subjects, docs))
+  } else {
+    console.warn('check:governance — status-drift check skipped (no origin/main to diff against)')
+  }
 
   return findings
 }

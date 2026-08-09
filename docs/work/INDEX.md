@@ -69,7 +69,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Alias divergence — one predicate, convergent resolution (S1b-divergence)](../../docs/adr/2026-08-09-s1b-alias-divergence.md) | superseded | not-started | [2026-08-09-s1b-host-local-aliases](../../docs/adr/2026-08-09-s1b-host-local-aliases.md) |
 | [Source aliases — host-local table, no sync (S1b revised)](../../docs/adr/2026-08-09-s1b-host-local-aliases.md) | accepted | implemented | — |
 | [Source aliases — durable alias memory and the confirmed-alias tier (S1b-core)](../../docs/adr/2026-08-09-s1b-source-aliases.md) | superseded | not-started | [2026-08-09-s1b-host-local-aliases](../../docs/adr/2026-08-09-s1b-host-local-aliases.md) |
-| [Work-record status drift prevention](../../docs/adr/2026-08-09-work-record-status-drift-prevention.md) | proposed | not-started | — |
+| [Work-record status drift prevention](../../docs/adr/2026-08-09-work-record-status-drift-prevention.md) | accepted | implemented | [2026-08-09-status-drift-gate](../../docs/work/runs/2026-08-09-status-drift-gate.md) · [T76-status-drift-commit-gate](../../docs/work/tickets/T76-status-drift-commit-gate.md) · [T77-completion-reference-vocabulary](../../docs/work/tickets/T77-completion-reference-vocabulary.md) |
 
 ## Runs
 
@@ -78,6 +78,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
+| 2026-08-09 | [T76+T77 — work-record status-drift commit gate](../../docs/work/runs/2026-08-09-status-drift-gate.md) | documentation-governance | pass | pass |
 | 2026-08-08 | [T69 — the engine layer still tolerates JSON-stringified id lists](../../docs/work/runs/2026-08-08-t69-engine-id-list-purity.md) | scheduling-engine | pass | pass |
 | 2026-08-04 | [Phase E (R5) — verify the code conforms to the amended repository-layer policy and retire stale layering language](../../docs/work/runs/2026-08-04-r5-conformance-summary.md) | architecture | pass | pass |
 | 2026-08-01 | [T28 — extract the schedule persistence seam (scheduleRepository)](../../docs/work/runs/2026-08-01-t28-schedule-persistence-seam-run.md) | architecture | pass | pass |

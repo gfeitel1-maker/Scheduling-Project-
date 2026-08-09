@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { checkDoc, checkIndexFreshness, AGENTS } from './check-governance.js'
+import {
+  checkDoc, checkIndexFreshness, AGENTS,
+  parseCompletionRefs, resolveIds, isClosed, checkStatusDrift, checkAll,
+} from './check-governance.js'
 
 // The checker's whole job is to fail on things a human reading one file would
 // not notice. These tests are therefore written as "the defect it must catch",
@@ -167,6 +170,160 @@ describe('checkDoc — corrections found by running it on the real corpus', () =
       error: null,
     }
     expect(checkDoc(template, exists)).toEqual([])
+  })
+})
+
+describe('parseCompletionRefs', () => {
+  it('matches "closes T##"', () => {
+    expect(parseCompletionRefs('closes T76')).toEqual(['T76'])
+  })
+
+  it('matches "Merge S##" with optional slice letter', () => {
+    expect(parseCompletionRefs('Merge S5b: onboarding')).toEqual(['S5b'])
+  })
+
+  it('is case-insensitive on the keyword', () => {
+    expect(parseCompletionRefs('CLOSES t76')).toEqual(['t76'])
+  })
+
+  it('does not match a bare mention without a completion keyword', () => {
+    expect(parseCompletionRefs('relates to T40 see also')).toEqual([])
+  })
+
+  it('collects every match in one subject', () => {
+    expect(parseCompletionRefs('Merge S5: x (closes T75)')).toEqual(['S5', 'T75'])
+  })
+})
+
+describe('isClosed', () => {
+  it('a ticket is closed when status is completed, closed, or wont-fix', () => {
+    expect(isClosed({ document_type: 'ticket', status: 'completed' })).toBe(true)
+    expect(isClosed({ document_type: 'ticket', status: 'closed' })).toBe(true)
+    expect(isClosed({ document_type: 'ticket', status: 'wont-fix' })).toBe(true)
+    expect(isClosed({ document_type: 'ticket', status: 'open' })).toBe(false)
+  })
+
+  it('an adr is closed only when implemented and not proposed', () => {
+    expect(isClosed({ document_type: 'adr', status: 'accepted', implementation_state: 'implemented' })).toBe(true)
+    expect(isClosed({ document_type: 'adr', status: 'proposed', implementation_state: 'implemented' })).toBe(false)
+    expect(isClosed({ document_type: 'adr', status: 'accepted', implementation_state: 'not-started' })).toBe(false)
+  })
+
+  it('adr — terminal statuses (superseded, rejected) are closed regardless of implementation_state', () => {
+    expect(isClosed({ document_type: 'adr', status: 'superseded', implementation_state: 'not-started' })).toBe(true)
+    expect(isClosed({ document_type: 'adr', status: 'superseded', implementation_state: null })).toBe(true)
+    expect(isClosed({ document_type: 'adr', status: 'rejected', implementation_state: 'not-started' })).toBe(true)
+    expect(isClosed({ document_type: 'adr', status: 'proposed', implementation_state: 'not-started' })).toBe(false)
+  })
+
+  it('a spec is closed when approved, implemented, or superseded', () => {
+    expect(isClosed({ document_type: 'spec', status: 'approved' })).toBe(true)
+    expect(isClosed({ document_type: 'spec', status: 'implemented' })).toBe(true)
+    expect(isClosed({ document_type: 'spec', status: 'superseded' })).toBe(true)
+    expect(isClosed({ document_type: 'spec', status: 'draft' })).toBe(false)
+  })
+
+  it('treats any other document_type as not closed', () => {
+    expect(isClosed({ document_type: 'run', status: 'pass' })).toBe(false)
+  })
+})
+
+describe('checkStatusDrift', () => {
+  const ticketDoc = (id, status, path) => ({
+    path: path || `docs/work/tickets/${id}-thing.md`,
+    data: { title: id, document_type: 'ticket', status, created: '2026-08-01', archive_when: 'x' },
+    error: null,
+  })
+
+  const adrDoc = (path, status, implementation_state) => ({
+    path,
+    data: { title: path, document_type: 'adr', status, date: '2026-08-01', authority: 'normative', implementation_state },
+    error: null,
+  })
+
+  it('reports ticket drift when the referenced ticket is not closed', () => {
+    const docs = [ticketDoc('T76', 'open')]
+    const findings = checkStatusDrift(['closes T76'], docs)
+    expect(findings.map((f) => f.code)).toContain('status-drift')
+  })
+
+  it('reports slice drift when the referenced adr is not closed', () => {
+    const docs = [adrDoc('docs/adr/2026-08-01-thing-s5.md', 'proposed', 'not-started')]
+    const findings = checkStatusDrift(['Merge S5: x'], docs)
+    expect(findings.map((f) => f.code)).toContain('status-drift')
+  })
+
+  it('reports an unresolvable reference when no doc matches the id', () => {
+    const findings = checkStatusDrift(['closes T99'], [])
+    expect(findings.map((f) => f.code)).toContain('status-drift-unresolvable-reference')
+  })
+
+  it('passes when every referenced id resolves to a closed doc', () => {
+    const docs = [
+      ticketDoc('T76', 'completed'),
+      adrDoc('docs/adr/2026-08-01-thing-s5.md', 'accepted', 'implemented'),
+    ]
+    expect(checkStatusDrift(['closes T76', 'Merge S5: x'], docs)).toEqual([])
+  })
+
+  it('does not flag a bare mention with no completion keyword', () => {
+    const findings = checkStatusDrift(['refactor grid', 'relates to T40 see also'], [])
+    expect(findings).toEqual([])
+  })
+
+  it('disambiguates T7 from T70 — a T7 reference must not match a T70 doc', () => {
+    const docs = [ticketDoc('T70', 'open')]
+    const findings = checkStatusDrift(['closes T7'], docs)
+    expect(findings.map((f) => f.code)).toEqual(['status-drift-unresolvable-reference'])
+  })
+
+  it('reports drift when an id resolves to multiple docs and one is unclosed', () => {
+    const docs = [
+      adrDoc('docs/adr/2026-08-01-a-s5.md', 'accepted', 'implemented'),
+      adrDoc('docs/adr/2026-08-02-b-s5.md', 'proposed', 'not-started'),
+    ]
+    const findings = checkStatusDrift(['Merge S5: x'], docs)
+    expect(findings.map((f) => f.code)).toEqual(['status-drift'])
+  })
+
+  it('ignores a revert subject when called directly, not only via checkAll', () => {
+    const docs = [{ path: 'docs/work/tickets/T76-a.md', data: { document_type: 'ticket', status: 'open' }, error: null }]
+    expect(checkStatusDrift(['Revert "feat: x (closes T76)"'], docs)).toEqual([])
+  })
+})
+
+describe('checkAll — git subject gathering', () => {
+  it('ignores a revert commit subject so it does not re-fire the gate', () => {
+    const execFn = () => 'Revert "feat: x (closes T76)"'
+    const findings = checkAll('/fake/root', execFn)
+    expect(findings.filter((f) => f.code.startsWith('status-drift'))).toEqual([])
+  })
+
+  it('when the git log call throws, skips silently on findings (no status-drift findings) without throwing', () => {
+    const execFn = () => { throw new Error('no origin/main') }
+    expect(() => checkAll('/fake/root', execFn)).not.toThrow()
+    const findings = checkAll('/fake/root', execFn)
+    expect(findings.filter((f) => f.code.startsWith('status-drift'))).toEqual([])
+  })
+})
+
+describe('resolveIds', () => {
+  it('matches a ticket by T-number prefix, not a numeric substring', () => {
+    const docs = [
+      { path: 'docs/work/tickets/T7-thing.md', data: { document_type: 'ticket' }, error: null },
+      { path: 'docs/work/tickets/T70-other.md', data: { document_type: 'ticket' }, error: null },
+    ]
+    const matches = resolveIds('T7', docs)
+    expect(matches.map((d) => d.path)).toEqual(['docs/work/tickets/T7-thing.md'])
+  })
+
+  it('matches a slice id as a hyphen-delimited filename segment', () => {
+    const docs = [
+      { path: 'docs/adr/2026-08-01-thing-s5b.md', data: { document_type: 'adr' }, error: null },
+      { path: 'docs/adr/2026-08-01-thing-s5.md', data: { document_type: 'adr' }, error: null },
+    ]
+    const matches = resolveIds('S5b', docs)
+    expect(matches.map((d) => d.path)).toEqual(['docs/adr/2026-08-01-thing-s5b.md'])
   })
 })
 
