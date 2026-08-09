@@ -196,8 +196,8 @@ describe('conflict gates; clear/cross_source still throw, update/stale go live (
   })
 })
 
-describe('fixed events still re-emit on re-import (documented, NOT idempotent — T72)', () => {
-  it('duplicates anchors on identical re-import, while the six entities stay unchanged', () => {
+describe('fixed events are idempotent on re-import (T72)', () => {
+  it('recognizes anchors on identical re-import, alongside the six entities staying unchanged', () => {
     const coMain = 'co-fx'
     db.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run(coMain, campId, 'Main')
     const payload = {
@@ -210,11 +210,11 @@ describe('fixed events still re-emit on re-import (documented, NOT idempotent �
     expect(count('anchor_activities')).toBe(1)
 
     const second = commitIngest(db, payload)
-    // The six entities recognized (zero) — but the fixed-event loop is NOT part
-    // of F4 and re-emits (T72). This test PINS that documented behavior; it does
-    // NOT assert anchor idempotency.
+    // The six entities recognized (zero) AND the fixed-event loop now recognizes
+    // the live anchor by slot identity — F4 idempotency extends to fixed events.
     expect(second.total).toBe(0)
-    expect(second.fixedEvents.created).toBe(1)
-    expect(count('anchor_activities')).toBe(2)
+    expect(second.fixedEvents.created).toBe(0)
+    expect(second.fixedEvents.unchanged).toBe(1)
+    expect(count('anchor_activities')).toBe(1)
   })
 })

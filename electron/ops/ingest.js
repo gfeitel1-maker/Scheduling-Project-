@@ -422,6 +422,14 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   const fixedCreated = []
   const fixedSkipped = []
   const fixedPartial = []
+  const fixedUnchanged = []
+
+  // T72: slot identity of a fixed-event occurrence — "this activity, in this
+  // block, on this day, for this cohort." is_all_groups/group_ids are attributes
+  // of the occurrence, deliberately NOT part of the key (ADR §1). camp is fixed
+  // by the camp-scoped query. Used to recognize-then-skip an anchor already live.
+  const anchorSlotKey = (cohortId, dayId, tbId, name) =>
+    `${cohortId ?? ''}|${dayId}|${tbId}|${normalizeName(name)}`
   let replaced = null
 
   // The write of one PlanItem: mint the row id, extract each FieldDelta's `to`
@@ -534,6 +542,17 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // decide every item and collect conflicts BEFORE writing anything — nothing
     // is created until we know the import is not held.
     const recognition = seedRecognitionMaps()
+
+    // T72 anchor recognition set: slot keys of every live anchor row in the camp
+    // (ADR §2). Built once, after teardown, inside the transaction — same
+    // discipline as seedRecognitionMaps. A held import rolls this back with all.
+    const anchorSlots = new Set()
+    for (const row of db
+      .prepare('SELECT cohort_id, day_id, time_block_id, name FROM anchor_activities WHERE camp_id = ?')
+      .all(camp_id)) {
+      anchorSlots.add(anchorSlotKey(row.cohort_id, row.day_id, row.time_block_id, row.name))
+    }
+
     const toCreate = []
     const toUpdate = []
     for (const item of plan.items) {
@@ -684,6 +703,17 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       // Per-day fan-out — one row per resolved day, each its own uuid. Matches
       // AnchorsScreen: is_all_groups 1|0, group_ids a JSON string.
       for (const dayId of dayIds) {
+        // T72: recognize-then-skip. If this slot is already live (or was just
+        // created by an earlier day-row this same import), emit no ops and mint
+        // no id — the occurrence is unchanged. Group-scope changes on an existing
+        // slot are recognized here and left untouched (anchor updates are out of
+        // scope per ADR §4).
+        const slotKey = anchorSlotKey(cohort_id, dayId, tbId, fe.name)
+        if (anchorSlots.has(slotKey)) {
+          fixedUnchanged.push({ name: fe.name })
+          continue
+        }
+        anchorSlots.add(slotKey)
         const anchorId = randomUUID()
         const fields = {
           camp_id,
@@ -730,7 +760,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       created,
       total,
       updated: 0,
-      fixedEvents: { created: 0, skipped: [], partial: [] },
+      fixedEvents: { created: 0, unchanged: 0, skipped: [], partial: [] },
     }
   }
 
@@ -740,7 +770,12 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     created,
     total,
     updated,
-    fixedEvents: { created: fixedCreated.length, skipped: fixedSkipped, partial: fixedPartial },
+    fixedEvents: {
+      created: fixedCreated.length,
+      unchanged: fixedUnchanged.length,
+      skipped: fixedSkipped,
+      partial: fixedPartial,
+    },
   }
   if (replaced) outcome.replaced = replaced
   return outcome
