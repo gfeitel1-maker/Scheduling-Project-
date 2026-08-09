@@ -168,9 +168,15 @@ runs. This directly targets research finding 3 (parallel fan-in forces an explic
 merge decision or it silently corrupts) — today the "merge" is Grader freehand-reading
 five prose reports; under Model A it's a typed `GateReport` object a reducer assembles,
 with an explicit rule for what happens if a gate's report is missing or contradictory
-(currently: undefined behavior; under Model A: a declared `INCOMPLETE` state that blocks
-Grader from running, matching the constitution's "missing evidence is never converted to
-a passing result").
+(currently: undefined behavior; under Model A: a declared `INCOMPLETE` state).
+**Per owner decision (2026-08-09, open question 1 — see §13), `INCOMPLETE` does NOT
+hard-halt: it is recorded in the durable `GateReport` and Governor retains discretion to
+proceed with the documented gap.** This is bounded — `verifier_pass = false` remains an
+absolute hard block regardless, and the discretion covers only a *missing* opinion
+report, never a gate that returned FAIL — so the constitution's "missing evidence is
+never converted *silently* to a passing result" still holds: the gap is persisted and
+shown to the human at promotion, making a proceed-with-gap an auditable judgment rather
+than an undefined-behavior pass.
 
 ### Edges — what's fixed vs. what stays dynamic
 - **Fixed:** Maker → gate-fan-out (always all five gates, always parallel, always
@@ -269,9 +275,14 @@ at the promotion gate — noted here as a candidate follow-up, not adopted in th
 Per the constitution, three points are reserved to the human: spec approval, ADR
 acceptance, promotion/merge. Under Model A these are represented as **durable PAUSE
 nodes** (research finding 4 — HITL is a pause primitive, not a code branch):
-persist `{task_id, artifact_ref (spec/ADR/diff), score_context}`, suspend indefinitely,
-resume only on an explicit external human event carrying `{decision: APPROVE|REJECT,
-comments}`. A human REJECT is a **first-class edge back to Governor/spec-clarify**, not
+persist `{task_id, artifact_ref (spec/ADR/diff), score_context, gate_report_ref}`,
+suspend indefinitely, resume only on an explicit external human event carrying
+`{decision: APPROVE|REJECT, comments}`. **`gate_report_ref` was added per owner decision
+(2026-08-09, open question 3): the persisted `GateReport` is surfaced to the human at
+this promotion pause** — the human reviews the five-gate verdicts, `blocking_findings`,
+and the `incomplete` flag (with any documented gap) as part of approving promotion, not
+as an internal-only artifact. A human REJECT is a **first-class edge back to
+Governor/spec-clarify**, not
 a silent fallthrough — it carries the same typed shape as a gate FAIL, so "human said no"
 and "Verifier said no" are both representable, auditable transitions, not one written
 into prose and the other invisible.
@@ -432,7 +443,10 @@ Designer fires; matches the codebase's existing per-cell data-attribute pattern 
     gate-fan-out edge fires again.
 11. **Gate-fan-out round 2**: `GateReport {verifier_pass: true, gate_scores: avg 4.3, blocking_findings: [], incomplete: false}`.
 12. **Grader → Governor**: `overall_score: 4.3, no dim < 3` → **PASS**.
-13. **Human gate (promotion)** — first-class pause node: `{task_id, diff_ref: <sha2>, artifact_ref: none (no ADR)}` → suspend → human reviews and either `{decision: APPROVE}` (merge proceeds) or `{decision: REJECT, comments}` (first-class backward edge to
+13. **Human gate (promotion)** — first-class pause node: `{task_id, diff_ref: <sha2>, artifact_ref: none (no ADR), gate_report_ref: <round-2 GateReport>}` → suspend → human
+    reviews the diff **and the surfaced `GateReport`** (per owner decision 2026-08-09, Q3:
+    the human sees the five-gate verdicts and `incomplete` flag here) and either
+    `{decision: APPROVE}` (merge proceeds) or `{decision: REJECT, comments}` (first-class backward edge to
     Governor/spec-clarify, per §4 — not modeled in this trace since the task is small,
     but structurally identical to the RETRY edge in step 9).
 
@@ -492,12 +506,17 @@ Constraints that must survive if this is later implemented:
 typed graph node), plus persist the resulting `GateReport` as a durable record (a light
 borrow from Model C, without adopting Model C's full scope).**
 
-**Confidence: medium — qualitative, not numeric (Round 2 review MEDIUM-5: the earlier
-"~60%" attached false precision with no evidentiary basis; no session-history review
-was actually performed).** The fix is cheap and reversible, which supports acting now,
-but the target failure it addresses is unverified against this project's actual session
-history — see "Evidence against" below for the concrete evidence step that would raise
-or lower this.
+**Confidence: medium — qualitative, not numeric.** The earlier "~60%" was dropped as
+false precision (Round 2 MEDIUM-5). **The session-history review the confidence was
+waiting on has now been performed (owner decision b, 2026-08-09) — see §14.** It does not
+move confidence off medium, but it corrects what medium *means* here: the review found no
+observed mis-merge and no observed in-the-moment RETRY opacity (so this is not "fixes a
+live failure"), while the run-record corpus shows the gate-merge/`incomplete` reducer
+discipline is real, recurring, and currently performed by hand every run (so it is not
+"not yet"). The corrected framing: Model A **formalizes a merge-and-record discipline the
+team already practices manually and reinvents per run** — cheaper insurance than a bug
+fix, more grounded than a hypothetical. The fix is cheap and reversible, which supports
+acting now.
 
 **Evidence for:**
 - Research finding 3 (parallel fan-in forces an explicit merge decision or silently
@@ -535,14 +554,130 @@ and reversible enough, to be worth doing now rather than waiting for an incident
 
 ---
 
-## 13. Open questions for Governor (product decisions, not technical ones)
+## 13. Open questions for Governor — RESOLVED by product owner (2026-08-09)
 
-1. Should the `INCOMPLETE` hard-block state (a gate's report is missing) actually halt
-   the pipeline, or should Governor retain discretion to proceed with a documented gap?
-   This is a risk-tolerance call, not an architecture call.
-2. Is there appetite to spend the migration-path step-4 evidence-gathering window (§10)
-   before deciding on Model B/C, or does the product owner want a firmer timeline for
-   extending structure upstream regardless of what step 3 shows?
-3. Should the persisted `GateReport` records be visible to the human at the promotion
-   gate as part of what they review, or kept as an internal audit artifact only? Affects
-   what "the human owns promotion" means in practice.
+All three reserved decisions were answered by the product owner on 2026-08-09. They are
+recorded here as closed, with the answer and its consequence.
+
+1. **Missing/`INCOMPLETE` gate report — halt or discretion? → RESOLVED: Governor
+   discretion, not hard-halt (2026-08-09).** A missing/`incomplete` opinion-gate report
+   does not halt the pipeline; Governor may proceed past it *provided the gap is
+   documented in the durable `GateReport` record*. This reverses the design's earlier
+   hard-halt default. It is bounded so it does not erode "deterministic evidence over
+   opinion": it applies only to a *missing* opinion report (not a gate that returned
+   FAIL); `verifier_pass = false` remains an absolute hard block untouched by the
+   discretion; and the gap is persisted and surfaced to the human at promotion (see Q3),
+   so a proceed-with-gap is auditable and human-reviewed, never silent. The mild widening
+   of Governor authority this represents, and the residual accepted risk, are flagged
+   explicitly in the ADR's Consequences ("Human-gate / evidence-erosion tension,
+   flagged"). See ADR Decision point 3.
+2. **Spend the evidence-gathering window before Model B/C? → RESOLVED: yes, gather
+   session-log evidence first (2026-08-09).** That evidence-gathering step has now been
+   executed — see §14 below. Its outcome does not change the Model A recommendation or its
+   medium confidence, but corrects the *character* of that confidence (§14, §12).
+3. **`GateReport` visible to the human at promotion, or internal-audit-only? → RESOLVED:
+   visible at the promotion gate (2026-08-09).** The persisted `GateReport` is part of
+   what the human reviews when approving promotion/merge. The promotion PAUSE node's
+   payload carries a `gate_report_ref` (see §4 update below), so the human sees the same
+   five-gate verdicts, `blocking_findings`, and `incomplete` flag that Grader and Governor
+   saw. This is also what makes the Q1 discretion honest — a documented gap is placed in
+   front of the human who owns the final gate, not merely logged. See ADR Decision point 6.
+
+---
+
+## 14. Evidence findings — session-history review (owner decision b, 2026-08-09)
+
+This section executes the evidence-gathering step the product owner asked for before
+committing to Model A. It tests the two failure hypotheses that were capping confidence,
+against whatever durable evidence this project actually retains.
+
+### 14.1 What durable evidence exists
+
+The relevant durable record is **`docs/work/runs/`** — typed run records written *before
+dispatch* and updated as agents return (per `WORK_RECORD_STANDARD.md`). Each carries a
+`## Gates` table, a `## Verifier verdict`, a `## Grader score`, `## Findings carried
+forward`, and a `## Decision` (PASS/RETRY/ESCALATE) with the round number. This is the
+closest thing the project has to a structured gate/merge/retry log. Nine substantive run
+records exist (2026-07-26 → 2026-08-08), plus git history of the corresponding commits.
+There is **no** separate machine-queryable gate-outcome store — which is itself part of
+the finding (§14.4).
+
+Caveat on corpus size: nine records over roughly two weeks of a single project is a small,
+young sample. The findings below are honest about what that can and cannot support.
+
+### 14.2 Hypothesis (i) — has Grader mis-merged or glossed conflicting gate reports?
+
+**Verdict: no observed mis-merge; but the undeclared reducer it predicts is real and is
+being absorbed by hand each run.**
+
+- No run record shows Grader reading conflicting gate reports into an unjustified score.
+  In that literal sense, the failure has **not** been observed.
+- But the records repeatedly show Grader performing exactly the *undeclared merge* Model A
+  targets, and getting it right only through careful ad-hoc reasoning:
+  - `2026-08-08-t69`: "Grader scored UX Friction, Security, and Visual Fidelity as **N/A
+    rather than 5**, declining to invent numbers for correctly-omitted agents — so the
+    average rests on a single dimension. Read it as 'Resilience passed at 4.5', not
+    'averaged 4.5 across a panel'." That is a reducer rule (how to fold N/A gates, how to
+    interpret an average over a partial panel) being **reinvented in prose, per run**.
+  - `t28`–`t32`: each folds `Security/UX/Visual N/A` into an average by hand, with a
+    one-off sentence explaining the fold each time.
+  - `2026-07-30-typed-run-records`: the full suite was recorded as **UNVERIFIED, not
+    PASS** — the `incomplete`/missing-evidence case *did* occur and was handled correctly,
+    again by hand, with a paragraph of justification rather than a declared rule.
+- So hypothesis (i) is **refuted in its strong form** (no wrong merge happened) and
+  **confirmed in its weak, architectural form**: the merge is undeclared, recurs on
+  essentially every mixed-panel run, and is currently held together by Grader/Governor
+  writing a bespoke justification each time. That is drift-prone (nothing pins the rule;
+  two runs can fold N/A differently) even though it has not yet drifted into a wrong score.
+
+### 14.3 Hypothesis (ii) — have RETRY causes actually been opaque?
+
+**Verdict: refuted in the moment, confirmed as a queryability gap.**
+
+- Round-2 retries did happen (`t32`: "PASS, round 2"; `t69`: "PASS, round 2"). Their
+  causes were **not opaque at the time** — they are written out plainly: `t69` has an
+  explicit "A note on the round-2 red runs" explaining the `better-sqlite3` ABI mismatch
+  and load-flakiness; `t32` records "CONCERNS closed" with the specific findings.
+- But that clarity exists *because a diligent Governor hand-wrote it into a prose run
+  record*. The cause lives in freeform `## Findings carried forward` / `## Decision`
+  prose, **not** in any structured, queryable field. The template's `## Gates` table
+  captures pass/fail but not "which gate caused this round's RETRY and why."
+- So the brief's original worry ("was it unclear which gate blocked and why") is **not**
+  borne out — the discipline of writing run records prevented it. What *is* borne out is
+  the §8.2 claim: a month later you cannot ask "how often does Security block vs. Red Hat"
+  without re-reading every record's prose. The **durable-queryable** gap is real; the
+  **in-the-moment-opacity** gap is not.
+
+### 14.4 What this does to confidence in Model A
+
+**Confidence stays medium/qualitative — unchanged in level, corrected in character.**
+
+- It does **not** rise to "fixing a live failure": neither hypothesis produced a concrete
+  incident of a wrong outcome. Nobody got a bad score merged, nobody was left unable to
+  tell why a retry happened.
+- It does **not** fall to "not yet": the run-record corpus shows the merge-and-record
+  discipline Model A formalizes is **real, recurring, and currently manual** — Grader
+  reinvents the reducer rule per run, and the retry/`incomplete` cause is captured only as
+  hand-written prose. The project has, in effect, been implementing Model A *by hand and
+  informally* via `WORK_RECORD_STANDARD.md`. Formalizing it as a typed `GateReport` +
+  declared reducer removes the per-run reinvention (drift risk) and makes the record
+  queryable (closes §8.2) — without inventing a need that wasn't already being met
+  manually.
+- Net framing, now evidence-backed rather than inferred: **Model A is not a fix to an
+  observed bug and not speculative insurance — it is the formalization of a discipline the
+  team already performs by hand every run.** That is a stronger and more honest case than
+  the pre-review "my architectural inference" framing in §8, and it is why the
+  recommendation (§12) is unchanged.
+
+### 14.5 Honesty caveats
+
+- The corpus is small (nine records, ~two weeks, one project). Absence of an observed
+  mis-merge is weak evidence of its impossibility — it may simply not have happened *yet*
+  at this scale.
+- Run records are written by the same agents whose merges they document; a mis-merge that
+  the author didn't notice would also not appear in the record. The evidence can show the
+  discipline *working*, but cannot fully rule out a silent error it failed to catch — which
+  is itself a mild point in favor of a declared, independently-checkable reducer.
+- No evidence was found *against* Model A (nothing suggests the gate stack is the wrong
+  seam or that a typed contract would hurt). The review neither manufactured support nor
+  found a reason to retreat.
