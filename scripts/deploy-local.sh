@@ -119,12 +119,46 @@ if [ "$DEPLOYED_COMMIT" != "$EXPECTED_COMMIT" ]; then
 fi
 
 echo "==> Launch smoke test ($EXECUTABLE_NAME)"
+# "process still alive after N seconds" used to pass even when the main
+# process had crashed, because Electron keeps the process alive behind its
+# own uncaught-exception error dialog. Instead, wait for a positive heartbeat:
+# electron/main.js writes deploy-smoke-marker.json only after did-finish-load
+# fires on a real window, which a crashed/undialoged app never reaches.
+MARKER_PATH="$HOME/Library/Application Support/shoresh/deploy-smoke-marker.json"
+rm -f "$MARKER_PATH"
+
 "$EXECUTABLE_PATH" &
 APP_PID=$!
-sleep 3
-if ! kill -0 "$APP_PID" 2>/dev/null; then
-  fail "installed app exited within 3 seconds of launch (likely a DB-open/ABI crash)"
+
+SMOKE_TIMEOUT_S=12
+SMOKE_POLL_S=0.2
+elapsed=0
+smoke_passed=0
+while [ "$(echo "$elapsed < $SMOKE_TIMEOUT_S" | bc)" -eq 1 ]; do
+  if [ -f "$MARKER_PATH" ]; then
+    # MARKER_COMMIT is compared against DEPLOYED_COMMIT (read from the bundle's
+    # own build-info.json above), not EXPECTED_COMMIT — both are the same
+    # plain git sha with no "-dirty" suffix, so a dirty-tree deploy can never
+    # false-fail here on a suffix mismatch that was already reconciled above.
+    MARKER_COMMIT="$(node -e "try { console.log(JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).commit ?? '') } catch { console.log('') }" "$MARKER_PATH")"
+    if [ "$MARKER_COMMIT" = "$DEPLOYED_COMMIT" ]; then
+      smoke_passed=1
+      break
+    else
+      fail "smoke marker commit mismatch: marker has '$MARKER_COMMIT', expected '$DEPLOYED_COMMIT' (stale or racing marker from a different launch)"
+    fi
+  fi
+  if ! kill -0 "$APP_PID" 2>/dev/null; then
+    fail "installed app exited before finishing load (likely a DB-open/ABI crash)"
+  fi
+  sleep "$SMOKE_POLL_S"
+  elapsed="$(echo "$elapsed + $SMOKE_POLL_S" | bc)"
+done
+
+if [ "$smoke_passed" -ne 1 ]; then
+  fail "app did not finish loading within ${SMOKE_TIMEOUT_S}s (no smoke marker) — likely a main-process crash held alive by Electron's error dialog, or a renderer load failure"
 fi
+
 kill "$APP_PID" 2>/dev/null || true
 wait "$APP_PID" 2>/dev/null || true
 

@@ -1436,6 +1436,20 @@ if (isElectronEntryPoint()) {
     mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
       console.error('PRELOAD ERROR', preloadPath, error)
     })
+    // Deploy smoke test heartbeat (scripts/deploy-local.sh). Written only once
+    // the renderer has actually finished loading, so a main-process crash that
+    // Electron keeps alive behind its own error dialog never produces one —
+    // "process still alive" used to false-pass exactly that case. Failure to
+    // write must never take startup down over a smoke-test convenience file.
+    mainWindow.webContents.on('did-finish-load', () => {
+      try {
+        const buildInfo = readBuildInfo(__dirname, app.isPackaged)
+        const markerPath = path.join(userDataPath, 'deploy-smoke-marker.json')
+        fs.writeFileSync(markerPath, JSON.stringify({ commit: buildInfo.commit, pid: process.pid, ts: Date.now() }))
+      } catch (err) {
+        console.error('deploy smoke marker write failed (non-fatal)', err)
+      }
+    })
     if (!app.isPackaged) {
       mainWindow.setTitle('Shoresh [DEV]')
     }
