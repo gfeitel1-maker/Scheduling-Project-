@@ -149,8 +149,14 @@ export function buildPlan(source, existing = null, resolutions = []) {
     // identity no human saw. Keeping every colliding row makes the ambiguity a
     // detectable conflict instead.
     const already = new Map()
+    // S4b §2: a live-row index by id, for the top-of-hierarchy uuid match. A
+    // workbook row carrying a `shoresh_id` matches its entity directly here and
+    // never re-runs name ambiguity — the round-trip guarantee.
+    const byId = new Map()
     for (const r of Array.isArray(have[entity]) ? have[entity] : []) {
-      if (!r || !r.name) continue
+      if (!r) continue
+      if (r.id != null) byId.set(String(r.id), r)
+      if (!r.name) continue
       const key = normalizeName(r.name)
       if (!already.has(key)) already.set(key, [])
       already.get(key).push(r)
@@ -177,7 +183,15 @@ export function buildPlan(source, existing = null, resolutions = []) {
       // so no index-derived field (sort_order) can enter a recognized diff: a
       // re-order produces no delta (RISK E). An entity whose supplied fields all
       // equal live stays `unchanged` (zero ops), preserving F4.
-      const emitRecognized = (match) => {
+      // S4b §3: explicit `<clear>` tokens the workbook adapter recorded on this
+      // record. Each names an editable field to remove (to: CLEAR). A never-set
+      // field is no-op'd at commit (it has no live value to remove) — buildPlan
+      // still emits the delta; commitPlan decides the no-op against the op-log.
+      const recClears = Array.isArray(record.clears) ? record.clears : []
+
+      // `tier` is 'exact_name' for a name-matched row and 'uuid' for an
+      // id-matched (round-trip) row — the evidence tag the plan carries.
+      const emitRecognized = (match, tier = 'exact_name') => {
         const nameCol = entity === 'days_of_operation' ? 'label' : 'name'
         const fields = {}
         for (const [field, proposed] of Object.entries(recFields)) {
@@ -208,13 +222,40 @@ export function buildPlan(source, existing = null, resolutions = []) {
           fields[field] = { from: live ?? null, to: proposed, source: 'import' }
         }
 
-        if (Object.keys(fields).length > 0) {
+        // S4b §3: fold the `<clear>` tokens into CLEAR deltas. The delta's `from`
+        // is the live value (FK fields diff against their snapshot label form).
+        // The commit gate decides per field: a never-set field no-ops, a
+        // human-authored field holds (a clear is gated ≥ an update).
+        for (const cf of recClears) {
+          const snapKey = SNAPSHOT_KEY[cf] ?? cf
+          const live = snapKey in match ? match[snapKey] : null
+          fields[cf] = { from: live ?? null, to: CLEAR, source: 'import' }
+        }
+
+        const hasRegular = Object.values(fields).some((d) => d.to !== CLEAR)
+        const hasClear = Object.values(fields).some((d) => d.to === CLEAR)
+
+        if (hasRegular) {
           items.push({
             op: 'update',
             entity,
             entity_id: match.id,
             fields,
-            evidence: { tier: 'exact_name', matched_name: match.name },
+            evidence: { tier, matched_name: match.name },
+            _name: name,
+          })
+          return
+        }
+
+        // A row whose ONLY deltas are clears is op:'clear' (ADR §3); commitPlan
+        // routes it through the same per-field gate as update.
+        if (hasClear) {
+          items.push({
+            op: 'clear',
+            entity,
+            entity_id: match.id,
+            fields,
+            evidence: { tier, matched_name: match.name },
             _name: name,
           })
           return
@@ -226,7 +267,7 @@ export function buildPlan(source, existing = null, resolutions = []) {
           entity,
           entity_id: match.id,
           fields: {},
-          evidence: { tier: 'exact_name', matched_name: match.name },
+          evidence: { tier, matched_name: match.name },
           // Carried so the committer can re-resolve this identity against the
           // live DB (the review window may have deleted match.id).
           _name: name,
@@ -273,6 +314,47 @@ export function buildPlan(source, existing = null, resolutions = []) {
         items.push(item)
       }
 
+      // S4b §2: workbook-detected id hazards the adapter flagged (duplicate
+      // shoresh_id / a blank-id row whose name was an exported entity). Held,
+      // never matched or created — the accepted-reason set in commitPlan routes
+      // them to conflicts (no throw).
+      if (record._workbookConflict) {
+        items.push({
+          op: 'conflict',
+          entity,
+          entity_id: null,
+          reason: record._workbookConflict.reason,
+          fields: {},
+          evidence: { tier: 'uuid' },
+          _name: name,
+        })
+        return
+      }
+
+      // S4b §2: the uuid match tier, AHEAD of the name hierarchy. A row carrying
+      // a `shoresh_id`:
+      //   - present in the snapshot  → matched directly (field diff → unchanged/
+      //     update/clear), evidence.tier 'uuid'. No name-ambiguity is ever run.
+      //   - NOT in the snapshot      → op:'conflict' reason 'missing_target'
+      //     (surfaced, never silently downgraded to a create — that would
+      //     duplicate an entity the director meant to edit).
+      const recId = record.id != null && String(record.id).trim() !== ''
+        ? String(record.id).trim() : null
+      if (recId) {
+        const match = byId.get(recId)
+        if (match) { emitRecognized(match, 'uuid'); return }
+        items.push({
+          op: 'conflict',
+          entity,
+          entity_id: recId,
+          reason: 'missing_target',
+          fields: {},
+          evidence: { tier: 'uuid' },
+          _name: name,
+        })
+        return
+      }
+
       const matches = already.get(normalizeName(name)) ?? []
       if (matches.length > 1) {
         // One incoming label, more than one live row normalize-matching it.
@@ -313,7 +395,10 @@ export function buildPlan(source, existing = null, resolutions = []) {
     plan_version: 1,
     camp_id: campId,
     cohort_id: cohortId,
-    base_generation: 0, // foundation D (staleness) is a later slice
+    // S4b §4: the workbook's exported base_generation (op-log seq at export) so
+    // commitPlan can gate import-over-import staleness. 0 for a raw schedule
+    // source, which keeps the clock gate inert exactly as before.
+    base_generation: source?.base_generation ?? 0,
     sources: [{ source: 'import', family: 'schedule' }],
     items,
     unresolved: [],

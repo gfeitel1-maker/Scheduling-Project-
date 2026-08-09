@@ -19,7 +19,7 @@ import { randomUUID } from 'node:crypto'
 import { appendOp, DELETE_FIELD, latestOp } from './operations.js'
 import { PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 import { normalizeName } from '../../src/ingest/preview.js'
-import { buildPlan } from '../../src/ingest/buildPlan.js'
+import { buildPlan, CLEAR } from '../../src/ingest/buildPlan.js'
 import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor } from '../../src/ingest/fieldUpdate.js'
 
 // ADR §2. Kept here rather than imported from the renderer so the guarantee
@@ -243,7 +243,7 @@ function buildExistingSnapshot(db, camp_id, cohort_id) {
  * Returns `{ created: { [entity]: count }, total,
  *            fixedEvents: { created, skipped, partial }, replaced? }`.
  */
-export function commitIngest(db, { approved, links, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [] }) {
+export function commitIngest(db, { approved, links, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0 }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -269,7 +269,10 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
   // passed for the create path's back-compat fallback (a bare-string caller).
   const recordApproved = foldApprovedToRecords(approved, activityRules, links)
   const plan = buildPlan(
-    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode },
+    // S4b §4: base_generation (the workbook's exported op-log seq) flows into the
+    // plan so commitPlan can gate import-over-import staleness. 0 for the raw
+    // schedule/clipboard path leaves the clock gate inert.
+    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode, base_generation },
     existing,
     // T73: a director's per-conflict decisions from a prior held commit. buildPlan
     // consumes only the ambiguous_identity picks; stale picks flow to commitPlan.
@@ -459,6 +462,20 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     _name: item._name,
   })
 
+  // S4b §2 (RISK H). A uuid-matched row whose target is absent from the live camp
+  // (a foreign/hand-mangled id, or an entity a peer deleted in the review window):
+  // surfaced as `missing_target`, never silently downgraded to a create (that would
+  // duplicate an entity the director meant to edit). Gated into `conflicts` → HELD.
+  const makeMissingTarget = (item) => ({
+    op: 'conflict',
+    entity: item.entity,
+    entity_id: item.entity_id ?? null,
+    reason: 'missing_target',
+    fields: {},
+    evidence: { tier: 'uuid' },
+    _name: item._name,
+  })
+
   // Held-import sentinel (S1a §2). A conflict must NOT throw a plain error (that
   // reads as a crash) but the whole import must still write nothing. Throwing a
   // marked error rolls the transaction back atomically — teardown included — so
@@ -557,11 +574,16 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // S2c §4: `field`/`value` are already the STORED column and the
   // validated/resolved value (resolveFieldWrite), so this stays a thin writer.
   const commitUpdate = ({ item, field, value, parent_op_id }) => {
+    // S4b §3 (RISK I): the CLEAR sentinel must NEVER reach appendOp as a value —
+    // that would append a Symbol and corrupt the op. A clear writes ONE field-null
+    // op (the same field-null path replaceScope uses for weather_alternative_id).
+    // The decide-phase already translates CLEAR→null, so this is belt-and-braces.
+    const storedValue = value === CLEAR ? null : value
     appendOp(db, {
       entity: item.entity,
       entity_id: item.entity_id,
       field,
-      value,
+      value: storedValue,
       author_user_id: author_user_id ?? null,
       device_id,
       parent_op_id,
@@ -605,6 +627,59 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
 
     const toCreate = []
     const toUpdate = []
+
+    // S2b/S2c/S4b: decide one `update` OR `clear` item's field writes. A clear
+    // carries `to: CLEAR` deltas; both flow through the SAME per-field gate.
+    const decideFieldItem = (item) => {
+      // Its recognized identity must still name a live row (a peer may have
+      // deleted it in the window). A uuid-matched row re-holds as missing_target;
+      // a name-matched row re-holds as ambiguous, carrying any competing row.
+      if (!idExists(item.entity, item.entity_id)) {
+        if (item.evidence?.tier === 'uuid') { conflicts.push(makeMissingTarget(item)); return }
+        const ids = recognition[item.entity].get(normalizeName(item._name))
+        conflicts.push(makeConflict(item, ids ? [...ids] : []))
+        return
+      }
+      for (const [field, delta] of Object.entries(item.fields)) {
+        const isClear = delta.to === CLEAR
+        // S2c §4: provenance + parent op read against the STORED column
+        // (eligible_groups -> eligible_group_ids, unit -> tier_id).
+        const dbField = dbFieldFor(field)
+        const latest = latestOp(db, item.entity, item.entity_id, dbField)
+        // S4b §3: a clear on a NEVER-SET field is a no-op — nothing to remove, no
+        // spurious null op (prevents a wall of empty clears becoming empty ops).
+        if (isClear && !latest) continue
+        const res = resolutionFor(item.entity, item._name, field)
+        // S4b §4 (RISK C): the ACTIVE base_generation staleness gate. For a
+        // workbook (base_generation > 0), a field written AFTER the workbook was
+        // exported (its op seq > base_generation) is stale — held — EVEN when the
+        // field is import-owned, which Policy-A alone waves through. For a raw
+        // schedule (base_generation 0) this is inert.
+        const staleByClock = !!(plan.base_generation && latest && latest.seq > plan.base_generation)
+        // Policy A protection gate: protected iff the field's latest op EXISTS and
+        // its source is not 'import' (human/NULL). A clear on a human-authored
+        // field is the most destructive delta, so it is gated ≥ an update (§3).
+        const isProtected = !!latest && latest.source !== 'import'
+        // S2c §4 / S4b §3: enqueue the write. A clear writes null (no validation);
+        // a value is validated/resolved, a failure holds the field.
+        const enqueue = (parent_op_id) => {
+          if (isClear) { toUpdate.push({ item, field: dbField, value: null, parent_op_id }); return }
+          const resolved = resolveFieldWrite(field, delta.to, { groupIdByName, tierIdByName })
+          if (!resolved.ok) conflicts.push(makeFieldConflict(item, resolved.reason, field, delta, resolved.detail))
+          else toUpdate.push({ item, field: resolved.field, value: resolved.value, parent_op_id })
+        }
+        if (isProtected || staleByClock) {
+          // T73: 'accept' bypasses the gate (stamps source:'import', parents on the
+          // live op); 'keep' drops the delta; no resolution → re-hold as stale.
+          if (res?.reason === 'stale' && res.choice === 'accept') enqueue(latest.id)
+          else if (res?.reason === 'stale' && res.choice === 'keep') { /* dropped — hand-edit kept */ }
+          else conflicts.push(makeStaleConflict(item, field, delta, latest))
+        } else {
+          enqueue(latest ? latest.id : null)
+        }
+      }
+    }
+
     for (const item of plan.items) {
       switch (item.op) {
         case 'create': {
@@ -636,74 +711,30 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         case 'unchanged': {
           // Its recognized identity must still name a live row. If a peer
           // deleted it in the window, whether to re-create is a human decision,
-          // never a silent re-mint — hold it as a conflict, carrying any
-          // now-competing same-name row as a candidate.
+          // never a silent re-mint — hold it as a conflict. A uuid-matched row
+          // re-holds as missing_target (S4b); a name-matched row as ambiguous,
+          // carrying any now-competing same-name row as a candidate.
           if (!idExists(item.entity, item.entity_id)) {
+            if (item.evidence?.tier === 'uuid') { conflicts.push(makeMissingTarget(item)); break }
             const ids = recognition[item.entity].get(normalizeName(item._name))
             conflicts.push(makeConflict(item, ids ? [...ids] : []))
           }
           break
         }
-        case 'update': {
-          // S2b. Its recognized identity must still name a live row (a peer may
-          // have deleted it in the window) — same guard as `unchanged`.
-          if (!idExists(item.entity, item.entity_id)) {
-            const ids = recognition[item.entity].get(normalizeName(item._name))
-            conflicts.push(makeConflict(item, ids ? [...ids] : []))
-            break
-          }
-          // Policy A protection gate, per FieldDelta, against the authoritative
-          // op-log (ADR §2). Protected iff the field's latest op EXISTS and its
-          // source is not 'import' (i.e. 'human' or NULL — S2a's NULL=human). A
-          // field with no prior op, or whose last op is import-authored, is
-          // unprotected and writes freely.
-          for (const [field, delta] of Object.entries(item.fields)) {
-            // S2c §4: provenance + parent op are read against the STORED column
-            // (eligible_groups -> eligible_group_ids, unit -> tier_id).
-            const dbField = dbFieldFor(field)
-            const latest = latestOp(db, item.entity, item.entity_id, dbField)
-            const isProtected = !!latest && latest.source !== 'import'
-            // T73: a director may have resolved this field (protected or not is a
-            // Policy-A concern; validation/resolution runs on whatever will write).
-            const res = resolutionFor(item.entity, item._name, field)
-            // S2c §4: validate + resolve the value; a failure holds this field.
-            const enqueue = (parent_op_id) => {
-              const resolved = resolveFieldWrite(field, delta.to, { groupIdByName, tierIdByName })
-              if (!resolved.ok) conflicts.push(makeFieldConflict(item, resolved.reason, field, delta, resolved.detail))
-              else toUpdate.push({ item, field: resolved.field, value: resolved.value, parent_op_id })
-            }
-            if (isProtected) {
-              // T73: 'accept' bypasses the Policy-A gate and writes via commitUpdate
-              // (stamps source:'import', parents on the live human op) — S2b's
-              // stale_accept semantics. 'keep' drops the FieldDelta (no op). No
-              // resolution → the field re-holds as a stale conflict.
-              if (res?.reason === 'stale' && res.choice === 'accept') {
-                enqueue(latest.id)
-              } else if (res?.reason === 'stale' && res.choice === 'keep') {
-                // dropped — the director keeps their hand-edit, nothing written
-              } else {
-                conflicts.push(makeStaleConflict(item, field, delta, latest))
-              }
-            } else {
-              enqueue(latest ? latest.id : null)
-            }
-          }
+        // S2b/S2c update AND S4b clear share the same per-field gate (decideFieldItem).
+        case 'update':
+        case 'clear':
+          decideFieldItem(item)
           break
-        }
         case 'conflict':
-          // buildPlan surfaces ambiguous_identity (§3); commitPlan itself may
-          // produce a `stale` conflict (the update gate above). Both are gated
-          // into `conflicts` (no op, no throw). cross_source (S7) and any other
-          // reason cannot be produced yet — reaching one is a bug.
-          // S2c §4 adds validation / eligibility_unresolved / unit_unresolved to
-          // the accepted set (held, never thrown), alongside S1a/S2b's reasons.
-          if (['ambiguous_identity', 'stale', 'validation', 'eligibility_unresolved', 'unit_unresolved'].includes(item.reason)) conflicts.push(item)
+          // buildPlan surfaces ambiguous_identity (§3) and, at S4b, the id-tier's
+          // missing_target plus the workbook adapter's duplicate_id/possible_lost_id;
+          // commitPlan itself may produce a `stale` conflict (the field gate above).
+          // All are gated into `conflicts` (no op, no throw). S2c §4 adds validation
+          // / eligibility_unresolved / unit_unresolved. Any other reason is a bug.
+          if (['ambiguous_identity', 'stale', 'validation', 'eligibility_unresolved', 'unit_unresolved', 'missing_target', 'duplicate_id', 'possible_lost_id'].includes(item.reason)) conflicts.push(item)
           else throw new Error(`commitPlan: conflict reason "${item.reason}" is not implemented at S1a`)
           break
-        case 'clear':
-          // S4. A raw source cannot express an explicit clear (a blank is
-          // "preserve", never "remove") — reaching this arm now is a bug.
-          throw new Error(`commitPlan: op "${item.op}" is not implemented at S1a`)
         default:
           throw new Error(`commitPlan: unknown op "${item.op}"`)
       }

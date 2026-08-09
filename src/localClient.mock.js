@@ -7,7 +7,7 @@
 // field-update, hand-edit protection, and the T73 held-conflict resolution flow —
 // can be exercised truthfully at localhost:5200. buildPlan is renderer-side (src/),
 // same side as this mock, so importing it crosses no boundary.
-import { buildPlan } from './ingest/buildPlan.js'
+import { buildPlan, CLEAR } from './ingest/buildPlan.js'
 import { INGESTIBLE_ENTITIES } from './ingest/extractEntities.js'
 import { normalizeName } from './ingest/preview.js'
 // S2c: the SAME pure field-update helpers the real committer uses, so the mock's
@@ -453,11 +453,10 @@ export const mockShoresh = {
   // resolution queue — be exercised at :5200. It writes to mock state, NOT the op
   // log, so it proves the UI flow, not the real persistence/sync path (that stays
   // electron:dev): no transaction/atomicity, no seq clock.
-  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions } = {}) {
+  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation } = {}) {
     const state = loadState()
     if (!state.camp) throw new Error('ingest: no camp')
     const campId = state.camp.id
-    const groupUnits = links?.groups ?? {}
     const cohortId = cohort_id ?? null
     for (const entity of INGESTIBLE_ENTITIES) if (!Array.isArray(state[entity])) state[entity] = []
 
@@ -522,7 +521,7 @@ export const mockShoresh = {
     // buildPlan consumes the ambiguous_identity resolutions itself (pin identity /
     // force create); the stale resolutions are honored below in the Policy-A gate.
     const plan = buildPlan(
-      { approved: recordApproved, links, activityRules, fixedEvents, camp_id: campId, cohort_id: cohortId, mode },
+      { approved: recordApproved, links, activityRules, fixedEvents, camp_id: campId, cohort_id: cohortId, mode, base_generation: base_generation ?? 0 },
       existing,
       Array.isArray(resolutions) ? resolutions : [],
     )
@@ -630,8 +629,13 @@ export const mockShoresh = {
           }
           break
         }
-        case 'update': {
+        case 'update':
+        case 'clear': {
           if (!idExists(item.entity, item.entity_id)) {
+            if (item.evidence?.tier === 'uuid') {
+              conflicts.push({ op: 'conflict', entity: item.entity, entity_id: item.entity_id ?? null, reason: 'missing_target', fields: {}, evidence: { tier: 'uuid' }, _name: item._name })
+              break
+            }
             const ids = recognition[item.entity].get(normalizeName(item._name))
             conflicts.push(makeConflict(item, ids ? [...ids] : []))
             break
@@ -643,11 +647,17 @@ export const mockShoresh = {
           // (eligible_groups -> eligible_group_ids, unit -> tier_id), and the
           // value is validated/resolved via the shared resolveFieldWrite.
           for (const [field, delta] of Object.entries(item.fields)) {
+            const isClear = delta.to === CLEAR
             const dbField = dbFieldFor(field)
+            const row = (state[item.entity] ?? []).find((x) => x.id === item.entity_id)
             const src = getSource(state, item.entity, item.entity_id, dbField)
+            // S4b §3: a clear on a never-set field (no provenance, no live value)
+            // is a no-op — nothing to remove.
+            if (isClear && src === undefined && (row?.[dbField] == null)) continue
             const isProtected = src !== undefined && src !== 'import'
             const res = resolutionFor(item.entity, item._name, field)
             const enqueue = () => {
+              if (isClear) { toUpdate.push({ item, field: dbField, value: null }); return }
               const resolved = resolveFieldWrite(field, delta.to, { groupIdByName: groupIdByNameRun, tierIdByName })
               if (!resolved.ok) conflicts.push(makeFieldConflict(item, resolved.reason, field, delta, resolved.detail))
               else toUpdate.push({ item, field: resolved.field, value: resolved.value })
@@ -663,7 +673,7 @@ export const mockShoresh = {
           break
         }
         case 'conflict':
-          if (['ambiguous_identity', 'stale', 'validation', 'eligibility_unresolved', 'unit_unresolved'].includes(item.reason)) conflicts.push(item)
+          if (['ambiguous_identity', 'stale', 'validation', 'eligibility_unresolved', 'unit_unresolved', 'missing_target', 'duplicate_id', 'possible_lost_id'].includes(item.reason)) conflicts.push(item)
           else throw new Error(`mock ingestCommit: conflict reason "${item.reason}" is not implemented`)
           break
         default:
@@ -795,6 +805,9 @@ export const mockShoresh = {
     if (replaced) outcome.replaced = replaced
     return outcome
   },
+  // S4b §4 — the dev mock has no op log/seq clock, so the export stamps 0 and
+  // the staleness gate is inert at :5200 (the real clock lives under electron:dev).
+  async latestOpSeq() { return 0 },
   async getSyncStatus() {
     return { mode: null, connected: false, state: 'standalone' }
   },

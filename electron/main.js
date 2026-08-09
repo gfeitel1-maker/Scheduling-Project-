@@ -9,7 +9,7 @@ import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey } fr
 import { startSyncServer } from './sync/syncServer.js'
 import { createSyncClient } from './sync/syncClient.js'
 import { advertiseHost, discoverHosts } from './sync/discovery.js'
-import { listPendingConflicts } from './ops/operations.js'
+import { listPendingConflicts, latestOpSeq } from './ops/operations.js'
 import { authorize } from './auth/authorize.js'
 import { applyUserDataPath } from './db/userDataPath.js'
 import { readBuildInfo, formatBuildLabel, readAppVersion } from './buildInfo.js'
@@ -235,7 +235,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // device's sync mode — and the guard below reads it; a shadowing parameter
   // would silently turn the Host check into a comparison against the import
   // mode instead.
-  function ingestCommit({ token, approved, links, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions } = {}) {
+  function ingestCommit({ token, approved, links, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // Admin only. Staff may edit setup records one at a time; creating a
     // camp's whole structure in one action is a different kind of authority,
@@ -281,7 +281,17 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // T73 — a director's per-conflict decisions when re-committing a held
       // import. Empty/absent on a first commit, so behavior is unchanged.
       resolutions: resolutions ?? [],
+      // S4b §4 — the enrichment workbook's exported op-log generation, so the
+      // commit can gate import-over-import staleness. Absent (0) for the raw
+      // schedule/clipboard path, leaving the clock gate inert.
+      base_generation: base_generation ?? 0,
     })
+  }
+
+  // S4b §4 — the op-log's current generation, so S4a's export can stamp a real
+  // base_generation the round-trip's staleness gate reads. Read-only.
+  function latestOpSeqHandler() {
+    return latestOpSeq(db)
   }
 
   // T27 — what this device IS right now, as opposed to chooseMode, which sets
@@ -965,6 +975,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     getDeviceId,
     getSyncStatus,
     ingestCommit,
+    latestOpSeq: latestOpSeqHandler,
     resolveConflict,
     listPendingConflicts: listPendingConflictsHandler,
     getDevicePairingStatus,
@@ -1021,6 +1032,7 @@ if (isElectronEntryPoint()) {
     'shoresh:get-device-id',
     'shoresh:get-sync-status',
     'shoresh:ingest-commit',
+    'shoresh:latest-op-seq',
     'shoresh:resolve-conflict',
     'shoresh:list-conflicts',
     'shoresh:list-deleted',
@@ -1067,6 +1079,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:get-device-id', (_event, args) => handlers.getDeviceId(args && args.token))
     ipcMain.handle('shoresh:get-sync-status', () => handlers.getSyncStatus())
     ipcMain.handle('shoresh:ingest-commit', (_event, args) => handlers.ingestCommit(args))
+    ipcMain.handle('shoresh:latest-op-seq', () => handlers.latestOpSeq())
     ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
     ipcMain.handle('shoresh:list-conflicts', (_event, args) => handlers.listPendingConflicts(args && args.token))
     ipcMain.handle('shoresh:list-deleted', (_event, args) => handlers.listDeleted(args && args.token))

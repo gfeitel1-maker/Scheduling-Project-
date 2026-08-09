@@ -424,6 +424,16 @@ export function applyBulkReplaceProjection(db, op) {
   run()
 }
 
+// S4b §4: the op-log's current generation — the MAX op seq across the whole log.
+// Read-only. S4a's export stamps it as `base_generation` so a re-import can gate
+// import-over-import staleness (a field written after the export is stale). Uses
+// COALESCE(host_seq, seq) for the same reason latestScopeOpSeq does — a Client db
+// carries the Host's canonical seq in host_seq. Returns 0 for an empty log.
+export function latestOpSeq(db) {
+  const row = getStmt(db, 'SELECT MAX(COALESCE(host_seq, seq)) AS maxSeq FROM operations').get()
+  return row && Number.isInteger(row.maxSeq) ? row.maxSeq : 0
+}
+
 export function latestOp(db, entity, entity_id, field) {
   return getStmt(
     db,
