@@ -1,5 +1,5 @@
 ---
-title: T76-declare-gatereport-schema-and-reducer-spec
+title: T79-declare-gatereport-schema-and-reducer-spec
 document_type: ticket
 status: completed
 created: 2026-08-09
@@ -10,7 +10,12 @@ related_specs: [docs/work/specs/2026-08-09-gatereport-schema-and-reducer.md]
 archive_when: "the GateReport spec at docs/work/specs/2026-08-09-gatereport-schema-and-reducer.md exists, has passed a Red Hat adversarial review on the reducer + discretion rule with all findings resolved, and is consistent with (does not contradict) the ADR and exploration doc"
 ---
 
-# T76 — Declare the GateReport schema + reducer as a spec
+# T79 — Declare the GateReport schema + reducer as a spec
+
+> **Renumbered T76 → T79 (2026-08-09):** while this work was isolated on a branch, `main` merged
+> a different, unrelated T76 (`T76-status-drift-commit-gate`) plus T77/T78. This ticket took the
+> next free number to resolve the collision. Earlier commit messages on this branch reference
+> "T76" for this work — they predate the rename.
 
 **Risk:** Low. Documents only — no code, no harness change. The risk is spec ambiguity,
 not runtime behaviour.

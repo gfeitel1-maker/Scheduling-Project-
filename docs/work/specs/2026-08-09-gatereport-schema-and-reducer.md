@@ -4,7 +4,7 @@ document_type: spec
 status: draft
 created: 2026-08-09
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/GOVERNANCE_INDEX.md]
-related_tickets: [docs/work/tickets/T76-declare-gatereport-schema-and-reducer-spec.md]
+related_tickets: [docs/work/tickets/T79-declare-gatereport-schema-and-reducer-spec.md]
 related_adrs: [docs/adr/2026-08-09-gate-stack-as-fixed-fanin-graph.md]
 related_specs: [docs/work/2026-08-09-graph-engineering-exploration.md]
 archive_when: superseded by an approved implementation plan that codes this contract
@@ -17,7 +17,7 @@ archive_when: superseded by an approved implementation plan that codes this cont
 node/edge/state model in `docs/work/2026-08-09-graph-engineering-exploration.md` §3. It is
 the first ticket-sized migration move (exploration §10, step 1) for the bounded Model A
 decision: **declare the contract that already exists implicitly; change nothing about how
-gates run today.** No code, no harness change (see T76 non-goals).
+gates run today.** No code, no harness change (see T79 non-goals).
 
 Where this spec and the ADR could appear to differ, the ADR's Decision points 1–6 govern
 and this document is the wrong one. It is written not to differ.
@@ -41,7 +41,7 @@ an `incomplete` panel is treated). This spec replaces the per-run reinvention wi
 6. **promotion-gate surfacing** via `gate_report_ref` (§8, owner decision c);
 7. the **durable record shape** that makes it queryable (§9).
 
-Out of scope, restated from T76: any code, any change to how gates are dispatched or to
+Out of scope, restated from T79: any code, any change to how gates are dispatched or to
 Governor's routing, and any Model B/C decision.
 
 ## 2. Terms
@@ -447,7 +447,7 @@ Degenerate edges, each with a defined result:
 Nothing in this spec changes Governor's routing, the round-1/round-2 cap, or the agent
 roster (ADR "Decision", closing paragraph; exploration §11).
 
-## 13. Required harness properties and owner judgment before code (carried to T76 return)
+## 13. Required harness properties and owner judgment before code (carried to T79 return)
 
 **Required harness property (must be satisfied by the implementing session, not optional):**
 
