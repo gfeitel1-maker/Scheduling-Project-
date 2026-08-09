@@ -105,6 +105,17 @@ CREATE TABLE IF NOT EXISTS host_signing_key (
 --   v8:  client_write_id TEXT  (already present in this CREATE TABLE — added here
 --          after v8 ran on all known devices)
 --   v18: host_seq INTEGER
+--   v29: source TEXT  (per-field provenance: 'import' | 'human' | NULL=human;
+--          docs/adr/2026-08-08-s2a-field-provenance-and-hand-edit-protection.md)
+-- source is DELIBERATELY NOT in the CREATE TABLE below, unlike client_write_id.
+-- It is added by the v29 ALTER (localDb.js) only. Reason (fresh-vs-migrated
+-- column-order equivalence, ADR completion evidence #1): host_seq is a
+-- migration-only column (v18) that is appended to a FRESH install's operations
+-- table AFTER client_write_id. If source were declared in this CREATE TABLE it
+-- would sit BEFORE host_seq on a fresh install (...client_write_id, source,
+-- host_seq) but AFTER it on a 28->29 migrated db (...client_write_id, host_seq,
+-- source), so PRAGMA table_info would differ. Adding source via the v29 ALTER
+-- on both paths appends it last on both, keeping the two byte-identical.
 -- Use PRAGMA table_info(operations) against a migrated db to see all columns.
 CREATE TABLE IF NOT EXISTS operations (
   seq INTEGER PRIMARY KEY AUTOINCREMENT,

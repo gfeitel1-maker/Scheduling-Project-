@@ -44,8 +44,8 @@ export const localClient = {
   // it must not be reachable by miscounting commas. Fields are enumerated
   // explicitly, never spread, so a caller-supplied token cannot override the
   // real one — same rule as deleteWeek below.
-  ingestCommit: ({ approved, links, cohort_id, fixedEvents, activityRules, mode } = {}) =>
-    shoresh.ingestCommit({ token: currentToken(), approved, links, cohort_id, fixedEvents, activityRules, mode }),
+  ingestCommit: ({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions } = {}) =>
+    shoresh.ingestCommit({ token: currentToken(), approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions }),
   onSyncStatusChanged: (cb) => shoresh.onSyncStatusChanged?.(cb) ?? (() => {}),
   onOpConflict: (cb) => shoresh.onOpConflict(cb),
   getCamp: () => shoresh.getCamp(),

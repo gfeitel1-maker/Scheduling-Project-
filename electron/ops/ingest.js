@@ -16,9 +16,10 @@
 //     provided every write goes through this one function.
 
 import { randomUUID } from 'node:crypto'
-import { appendOp, DELETE_FIELD } from './operations.js'
+import { appendOp, DELETE_FIELD, latestOp } from './operations.js'
 import { PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 import { normalizeName } from '../../src/ingest/preview.js'
+import { buildPlan } from '../../src/ingest/buildPlan.js'
 
 // ADR §2. Kept here rather than imported from the renderer so the guarantee
 // lives with the code that writes; ingest.test.js asserts the two agree.
@@ -48,62 +49,6 @@ const PARENT_SCOPED_DEPENDENTS = Object.freeze([
   'day_override_template_slots',
 ])
 
-const DAY_INDEX = {
-  sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
-}
-
-// "08:40–09:00" / "9:15-9:40" -> { start_time, end_time }. Returns nulls when
-// the label is not a range, which is normal — a period may be named "Block 2".
-function parseTimeRange(label) {
-  const match = String(label ?? '').match(/(\d{1,2})[:.](\d{2})\s*[-–—]\s*(\d{1,2})[:.](\d{2})/)
-  if (!match) return { start_time: null, end_time: null }
-  const pad = (h, m) => `${String(h).padStart(2, '0')}:${m}`
-  return { start_time: pad(match[1], match[2]), end_time: pad(match[3], match[4]) }
-}
-
-// The fields each entity needs beyond its name, derived rather than guessed.
-// A director approved a list of names; they did not approve a day-of-week
-// number, so it is computed from the name and nothing else is invented.
-//
-// `cohortId` is the Program the director is importing into. Units and time
-// blocks are scoped to a Program in this app — the Units and Time Blocks
-// screens only show rows whose `cohort_id` matches the active Program
-// (TiersScreen/TimeBlocksScreen), so an import that left it null created rows
-// that existed but were invisible, and a unit the director could not see could
-// not appear tied to its groups (T33). A null `cohortId` is skipped by the
-// op-writer below, preserving the pre-T33 behaviour for callers that pass none.
-// Groups, activities and days are camp-scoped in the UI, so they take no
-// cohort_id — matching how GroupsScreen/ActivitiesScreen/DaysScreen create them.
-function fieldsFor(entity, name, campId, index, cohortId) {
-  switch (entity) {
-    case 'cohorts':
-      return { camp_id: campId, name }
-    case 'tiers':
-      return { camp_id: campId, name, sort_order: index, cohort_id: cohortId }
-    case 'groups':
-      return { camp_id: campId, name, availability: 'all' }
-    case 'days_of_operation': {
-      const dow = DAY_INDEX[String(name).trim().toLowerCase()]
-      return {
-        camp_id: campId,
-        label: name,
-        day_of_week: dow ?? index,
-        sort_order: dow ?? index,
-      }
-    }
-    case 'time_blocks': {
-      const { start_time, end_time } = parseTimeRange(name)
-      return { camp_id: campId, name, start_time, end_time, sort_order: index, cohort_id: cohortId }
-    }
-    case 'activities':
-      return { camp_id: campId, name }
-    default:
-      // Unreachable — commitIngest rejects before this point. Kept as a second
-      // gate so a future caller cannot slip past by adding a case above.
-      throw new Error(`ingest: ${entity} is not an ingestible entity`)
-  }
-}
-
 /**
  * Clear the camp's importable setup and everything that points at it.
  *
@@ -120,7 +65,12 @@ function fieldsFor(entity, name, campId, index, cohortId) {
  *
  * Returns `{ entities: { [entity]: count }, dependents: { [table]: count } }`.
  */
-export function replaceScope(db, { camp_id, author_user_id = null, device_id }) {
+// `source` (S2a) tags the field-value writes this teardown makes as import
+// provenance. Only the weather_alternative_id null-out below is a field-value
+// write; the `__deleted__` tombstone ops carry no field value and stay NULL
+// (ADR §2 census). Passed by commitPlan as 'import'; defaults to null so a
+// direct/test caller behaves as before.
+export function replaceScope(db, { camp_id, author_user_id = null, device_id, source = null }) {
   const entities = {}
   const dependents = {}
 
@@ -174,6 +124,7 @@ export function replaceScope(db, { camp_id, author_user_id = null, device_id }) 
       device_id,
       parent_op_id: null,
       client_write_id: randomUUID(),
+      source,
     })
   }
 
@@ -196,8 +147,55 @@ export function replaceScope(db, { camp_id, author_user_id = null, device_id }) 
   return { entities, dependents }
 }
 
+// The name column each ingestible entity carries. Only days_of_operation names
+// its label something other than `name`.
+const NAME_COLUMN = Object.freeze({ days_of_operation: 'label' })
+const nameColumnFor = (entity) => NAME_COLUMN[entity] ?? 'name'
+
+// Program-scoped for duplicate-recognition, exactly as ImportScreen treats them.
+const COHORT_SCOPED = Object.freeze(new Set(['tiers', 'time_blocks']))
+
+// S2b: the comparable value columns buildPlan diffs a recognized entity's
+// proposed fields against (beyond id + name, and the cohort_id already carried
+// for scoped entities). These are exactly the columns commitCreate writes and
+// fieldsFor derives, so a re-import can tell a changed field from an unchanged
+// one. camp_id is deliberately absent — it never changes and would only add
+// noise to the diff.
+const COMPARABLE_COLUMNS = Object.freeze({
+  cohorts: [],
+  tiers: ['sort_order'],
+  groups: ['availability'],
+  days_of_operation: ['day_of_week', 'sort_order'],
+  time_blocks: ['start_time', 'end_time', 'sort_order'],
+  activities: [],
+})
+
 /**
- * Create the approved records, all together or not at all.
+ * The `existing` snapshot buildPlan recognizes against (S1a §1), read from the
+ * live DB — the same shape ImportScreen builds for `buildPreview`: rows carry
+ * `{ id, name }` (days expose their `label` AS `name` so `normalizeName` sees
+ * it), and tiers/time_blocks are filtered to the active Program when one is
+ * given, camp-wide otherwise. Entity names come from the frozen whitelist, never
+ * a caller, so interpolating them into the query is safe.
+ */
+function buildExistingSnapshot(db, camp_id, cohort_id) {
+  const existing = {}
+  for (const entity of INGESTIBLE_ENTITIES) {
+    const scoped = COHORT_SCOPED.has(entity)
+    const cols = [
+      'id',
+      `${nameColumnFor(entity)} AS name`,
+      ...(scoped ? ['cohort_id'] : []),
+      ...(COMPARABLE_COLUMNS[entity] ?? []),
+    ].join(', ')
+    const rows = db.prepare(`SELECT ${cols} FROM ${entity} WHERE camp_id = ?`).all(camp_id)
+    existing[entity] = scoped && cohort_id ? rows.filter((r) => r.cohort_id === cohort_id) : rows
+  }
+  return existing
+}
+
+/**
+ * Commit an approved import proposal, or commit nothing.
  *
  * `approved` is `{ [entity]: [name, ...] }` — exactly what the director
  * confirmed in the preview, not the raw proposal. Anything outside
@@ -208,24 +206,22 @@ export function replaceScope(db, { camp_id, author_user_id = null, device_id }) 
  * `fixedEvents` is a dedicated payload of proposed recurring fixed events
  * (docs/adr/2026-08-03-ingesting-recurring-fixed-events.md), NOT a key in
  * `approved`: the generic whitelist above still rejects `anchor_activities`, and
- * anchors are writable only through the validated branch below. Each ticked
- * event fans out to one `anchor_activities` row per resolved day, cohort-scoped,
- * mirroring the Fixed Events screen's create shape.
+ * anchors are writable only through commitPlan's validated fixed-event branch.
  *
  * `activityRules` is a dedicated payload (T35), NOT a key in `approved`, keyed
  * by activity name -> `{ eligible_group_names, min_per_week, max_per_week,
- * priority }`. Rules travel as group NAMES for the same reason fixed events
- * do — proposed groups have no IDs until this transaction mints them — and
- * are resolved against `groupIdByName` right here, after that map is fully
- * populated by the entity loop's `groups` pass (INGESTIBLE_ENTITIES runs
- * `groups` before `activities`). A name that does not resolve (the director
- * unticked that group) is dropped; if none resolve, no `eligible_group_ids`
- * is written at all (null = all groups), never `'[]'`.
+ * priority }`.
+ *
+ * S0 (ADR 2026-08-08): commitIngest is now a THIN adapter. It validates the
+ * whitelist, then produces a pure `ReconciliationPlan` via `buildPlan` (renderer
+ * side, no DB) and hands it to `commitPlan` — the single privileged committer
+ * that resolves against the live DB and writes. The op sequence is byte-identical
+ * to the pre-S0 importer, proven by the golden-ops characterization test.
  *
  * Returns `{ created: { [entity]: count }, total,
- *            fixedEvents: { created: number, skipped: [{ name, reason }] } }`.
+ *            fixedEvents: { created, skipped, partial }, replaced? }`.
  */
-export function commitIngest(db, { approved, links, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add' }) {
+export function commitIngest(db, { approved, links, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [] }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -235,36 +231,92 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
     }
   }
 
+  // The PURE decision layer (ADR §1). buildPlan holds no DB handle; we hand it
+  // the SAME `existing` snapshot ImportScreen builds for preview (S1a §1), so a
+  // name the camp already has becomes `unchanged` (zero ops) IN THE PLAN, not a
+  // blind create de-duped downstream. tiers/time_blocks are scoped to the active
+  // Program exactly as ImportScreen.jsx ~150–153; everything else is camp-wide.
+  // Replace mode intentionally wipes the camp's setup and recreates it, so
+  // recognition does not apply — a null snapshot keeps the blind-create path and
+  // its byte-identical op sequence. The pre-teardown rows the snapshot would see
+  // are about to be deleted anyway; recognizing them here would falsely hold
+  // every item once teardown removed the rows the `unchanged` items point at.
+  const existing = mode === 'replace' ? null : buildExistingSnapshot(db, camp_id, cohort_id)
+  const plan = buildPlan(
+    { approved, links, activityRules, fixedEvents, camp_id, cohort_id, mode },
+    existing,
+    // T73: a director's per-conflict decisions from a prior held commit. buildPlan
+    // consumes only the ambiguous_identity picks; stale picks flow to commitPlan.
+    resolutions,
+  )
+
+  return commitPlan(db, plan, { author_user_id: author_user_id ?? null, device_id, resolutions })
+}
+
+/**
+ * The SINGLE privileged committer (ADR 2026-08-08 §1). commitPlan is the only
+ * writer of field-delta ops in the reconciliation path: it resolves the plan
+ * against the LIVE db (extending seedNameMaps: name->id, cohort filter) and
+ * translates each FieldDelta 1:1 into an `appendOp`, inside one
+ * `db.transaction()`. The only other appendOp caller reachable from here is
+ * `replaceScope`, the replace-mode teardown, preserved verbatim (its
+ * `__deleted__` tombstone ops are not field deltas).
+ *
+ * S0 exercises only the `create` and `unchanged` arms. `update`/`clear`/
+ * `conflict` are typed by the plan but rejected here until their later slices
+ * build the merge/staleness/alias semantics — routing one to commit today is a
+ * programming error, not a runtime input, so it throws.
+ *
+ * @param {import('better-sqlite3').Database} db
+ * @param {import('../../src/ingest/buildPlan.js').ReconciliationPlan} plan
+ * @param {{ author_user_id: string|null, device_id: string }} actor
+ */
+export function commitPlan(db, plan, { author_user_id = null, device_id, resolutions = [] }) {
+  const camp_id = plan.camp_id
+  const cohort_id = plan.cohort_id ?? null
+  const mode = plan.mode ?? 'add'
+
+  // T73: a director's per-conflict decisions, indexed by entity|normalizeName(name)
+  // |field?, using the SAME normalizeName the rest of the path uses so the key
+  // cannot disagree about "the same name" (ADR §2). buildPlan already consumed the
+  // ambiguous_identity picks (pinning identity / forcing create); commitPlan honors
+  // the ambiguous 'create' pick's collision bypass here, and the stale picks below.
+  const resIndex = new Map()
+  for (const r of Array.isArray(resolutions) ? resolutions : []) {
+    if (!r || !r.entity) continue
+    resIndex.set(`${r.entity}|${normalizeName(r.name)}|${r.field ?? ''}`, r)
+  }
+  const resolutionFor = (entity, name, field = '') =>
+    resIndex.get(`${entity}|${normalizeName(name)}|${field ?? ''}`)
+
+  // S2a: every field-value op this committer writes is import-authored. Set once
+  // here and threaded into EVERY appendOp commitPlan makes — commitCreate's
+  // field loop, the fixed-events anchor writes, and replaceScope's field-value
+  // write (its `__deleted__` tombstones stay NULL). This is the commitPlan-WIDE
+  // seam the ADR §2 census requires: 'import' is producible ONLY from here.
+  const IMPORT_SOURCE = 'import'
+
   const created = {}
+  for (const entity of INGESTIBLE_ENTITIES) created[entity] = 0
   let total = 0
+  // S2b: field-level writes to an existing (recognized) entity. Distinct from
+  // `total`, which counts newly-created entities — an update writes ops to a row
+  // that already exists, not a new row.
+  let updated = 0
 
   // Unit name -> tier id, so a group created in this same transaction can be
-  // filed under a unit created moments earlier. Seeded with the units the camp
-  // already has, because a second import must reuse them rather than making a
-  // duplicate the director then has to merge by hand.
-  //
-  // Seeded only from units in the SAME Program we are importing into: a "Rimon"
-  // in another Program is a different unit, and reusing it would file this
-  // import's bunks under a unit the director cannot see here (T33). When no
-  // cohort is given (older callers), every existing unit is null-cohort too, so
-  // the match still holds and behaviour is unchanged.
+  // filed under a unit created moments earlier; seeded (below) with units the
+  // camp already has, in the SAME Program only (T33). blockIdByName/dayIdByName/
+  // groupIdByName resolve fixed events by name against rows in scope OR born
+  // this run.
   const tierIdByName = new Map()
-  const groupUnits = links?.groups ?? {}
-
-  // Fixed events resolve their block/day/groups BY NAME against rows that exist
-  // in scope OR are created this run. Seed from existing rows first — a block
-  // that was a skipped duplicate (not created this run) still has to resolve to
-  // the row already in the camp — then extend as the entity loop creates rows.
-  //
-  // time_blocks are Program-scoped (seed only this Program's, matching
-  // tierIdByName's cohort filter); days and groups are camp-scoped.
   const blockIdByName = new Map()
   const dayIdByName = new Map()
   const groupIdByName = new Map()
 
-  // Populated INSIDE the transaction, after any teardown: in replace mode the
-  // rows these maps would name are about to be destroyed, and seeding first
-  // would file a new bunk under a unit that no longer exists. In add mode
+  // Populated INSIDE the transaction, after any teardown (ADR §4): in replace
+  // mode the rows these maps would name are about to be destroyed, and seeding
+  // first would file a new bunk under a unit that no longer exists. In add mode
   // nothing has changed — the same queries, the same results.
   function seedNameMaps() {
     for (const row of db.prepare('SELECT id, name, cohort_id FROM tiers WHERE camp_id = ?').all(camp_id)) {
@@ -283,117 +335,324 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
     }
   }
 
+  // Recognition maps for commit-time re-resolution (S1a §2): per entity, a
+  // normalized-name -> SET of live row ids. A SET (not a single id) so fact 3's
+  // "Art"/"art " collision is visible. Cohort-scoped for tiers/time_blocks
+  // EXACTLY as buildExistingSnapshot scopes them, so the two layers cannot
+  // disagree about "the same name". Built once from the LIVE DB after teardown.
+  function seedRecognitionMaps() {
+    const maps = {}
+    for (const entity of INGESTIBLE_ENTITIES) maps[entity] = new Map()
+    const add = (entity, key, id) => {
+      if (!key) return
+      if (!maps[entity].has(key)) maps[entity].set(key, new Set())
+      maps[entity].get(key).add(id)
+    }
+    for (const entity of INGESTIBLE_ENTITIES) {
+      const scoped = COHORT_SCOPED.has(entity)
+      const cols = scoped
+        ? `id, ${nameColumnFor(entity)} AS name, cohort_id`
+        : `id, ${nameColumnFor(entity)} AS name`
+      for (const row of db.prepare(`SELECT ${cols} FROM ${entity} WHERE camp_id = ?`).all(camp_id)) {
+        if (scoped && cohort_id && row.cohort_id !== cohort_id) continue
+        add(entity, normalizeName(row.name), row.id)
+      }
+    }
+    return maps
+  }
+
+  const liveName = (entity, id) => {
+    const row = db.prepare(`SELECT ${nameColumnFor(entity)} AS name FROM ${entity} WHERE id = ?`).get(id)
+    return row ? row.name : null
+  }
+  const idExists = (entity, id) =>
+    !!db.prepare(`SELECT 1 FROM ${entity} WHERE id = ? AND camp_id = ?`).get(id, camp_id)
+  const makeConflict = (item, candidateIds) => ({
+    op: 'conflict',
+    entity: item.entity,
+    entity_id: null,
+    reason: 'ambiguous_identity',
+    fields: {},
+    evidence: {
+      tier: 'exact_name',
+      candidates: candidateIds.map((id) => ({ id, name: liveName(item.entity, id) })),
+    },
+    _name: item._name,
+  })
+
+  // S2b: a protected (human-authored) field on an `update` item becomes a gated
+  // `stale` FieldConflict — surfaced, never written — collected into the SAME
+  // conflicts array S1a uses, so it trips the SAME hold-the-whole sentinel. The
+  // decision for a raw source is made by provenance (latestOp.source); the clock
+  // is carried only as evidence (field_last_seq shows WHEN the human wrote), so
+  // the shape stays forward-compatible with S4. Shape is RECONCILIATION_PLAN_TYPE
+  // §2(e), unchanged.
+  const makeStaleConflict = (item, field, delta, latest) => ({
+    op: 'conflict',
+    entity: item.entity,
+    entity_id: item.entity_id,
+    reason: 'stale',
+    fields: {
+      [field]: {
+        from: delta.from ?? null,
+        to: delta.to,
+        source: 'import',
+        conflict: {
+          reason: 'stale',
+          clock: { field_last_seq: latest.seq, source_base_seq: plan.base_generation ?? 0 },
+          competing: [
+            { value: delta.from ?? null, source: 'human', seq: latest.seq },
+            { value: delta.to, source: 'import' },
+          ],
+        },
+      },
+    },
+    evidence: { tier: 'exact_name', matched_name: item.evidence?.matched_name ?? item._name },
+    _name: item._name,
+  })
+
+  // Held-import sentinel (S1a §2). A conflict must NOT throw a plain error (that
+  // reads as a crash) but the whole import must still write nothing. Throwing a
+  // marked error rolls the transaction back atomically — teardown included — so
+  // the held path leaves the DB byte-identical; we catch it outside and return a
+  // held outcome instead of re-throwing.
+  const HELD = Symbol('held')
+  const conflicts = []
+
   const fixedCreated = []
-  // Surfaced in the result, never silent (ADR §1): a fixed event whose block,
-  // day, or groups the director did not import is skipped, not fatal (§5.3).
   const fixedSkipped = []
-  // A fixed event that resolves only PARTIALLY — some of its days or groups
-  // were not imported, but at least one of each was — is written for what
-  // resolved AND its shortfall is reported. Writing the subset is correct (an
-  // un-imported day has no anchor), but claiming full creation would be the
-  // silent omission ADR §1 forbids, so the dropped days/groups are surfaced.
   const fixedPartial = []
-  // Absent in add mode — there is nothing to report having destroyed.
   let replaced = null
 
-  // One transaction for the whole import. Any throw below — a constraint, a
-  // bad field, a disk error — rolls back every op and every projected row
-  // together, so the camp is either fully imported or untouched.
+  // The write of one PlanItem: mint the row id, extract each FieldDelta's `to`
+  // in order, resolve the commit-time reference fields (tier_id / activity
+  // rules) against the live name maps, then emit one appendOp per non-null
+  // field. This is the pre-S0 inner loop, now driven by the plan (ADR §2).
+  const commitCreate = (item) => {
+    const { entity, _name: name } = item
+    const entityId = randomUUID()
+    const fields = {}
+    for (const [field, delta] of Object.entries(item.fields)) fields[field] = delta.to
+
+    if (entity === 'tiers') tierIdByName.set(name.toLowerCase(), entityId)
+    if (entity === 'time_blocks') blockIdByName.set(normalizeName(name), entityId)
+    if (entity === 'days_of_operation') dayIdByName.set(normalizeName(name), entityId)
+    if (entity === 'groups') groupIdByName.set(normalizeName(name), entityId)
+    if (entity === 'groups') {
+      // The file said which unit this bunk is in; file it there rather than
+      // leaving the director to assign 33 bunks by hand.
+      const unit = item._link_unit
+      const tierId = unit ? tierIdByName.get(String(unit).trim().toLowerCase()) : null
+      if (tierId) fields.tier_id = tierId
+    }
+    if (entity === 'activities') {
+      // Inferred (or director-edited) rules, keyed by the exact activity name
+      // the director approved. The op log is the boundary that owns validation
+      // (round 2 review, Fix 4): buildSchedule.js's runRound only matches
+      // priority 'high'/'low', so anything else is dropped rather than written
+      // to a silently-unplaceable state; likewise a min/max that is not a
+      // positive integer is nonsense the write boundary refuses to trust.
+      const rule = item._rule
+      if (rule) {
+        if (Number.isInteger(rule.min_per_week) && rule.min_per_week >= 1) fields.min_per_week = rule.min_per_week
+        if (Number.isInteger(rule.max_per_week) && rule.max_per_week >= 1) fields.max_per_week = rule.max_per_week
+        if (rule.priority === 'high' || rule.priority === 'low') fields.priority = rule.priority
+        const groupIds = Array.isArray(rule.eligible_group_names)
+          ? rule.eligible_group_names
+              .map((n) => groupIdByName.get(normalizeName(n)))
+              .filter(Boolean)
+          : []
+        // Unresolved names (director unticked that group) are dropped. If NONE
+        // resolved, write nothing rather than '[]' — an empty JSON array reads
+        // as "restricted to nothing", not "all groups".
+        if (groupIds.length > 0) fields.eligible_group_ids = JSON.stringify(groupIds)
+        // T61. An eligible activity asked for zero times a week is scheduled
+        // zero times — correct and silently useless. Floored on both paths.
+        if (groupIds.length > 0 && !(Number.isInteger(fields.min_per_week) && fields.min_per_week >= 1)) {
+          fields.min_per_week = 1
+        }
+      }
+    }
+
+    for (const [field, value] of Object.entries(fields)) {
+      if (value === null || value === undefined) continue
+      appendOp(db, {
+        entity,
+        entity_id: entityId,
+        field,
+        value,
+        author_user_id: author_user_id ?? null,
+        device_id,
+        parent_op_id: null,
+        client_write_id: randomUUID(),
+        source: IMPORT_SOURCE,
+      })
+    }
+    created[entity] += 1
+    total += 1
+  }
+
+  // S2b: write ONE unprotected FieldDelta of an `update` item. The Policy A gate
+  // (in the re-resolution loop) has already confirmed this field is import-owned
+  // or never-set, so it writes freely: value = delta.to, source = 'import', and
+  // parent_op_id = the field's prior op id (null only when the field had no prior
+  // op). Direct appendOp — the same host-local committer path commitCreate uses;
+  // detectConflict runs only on the WS submit_op path, not here (ADR §2 R6).
+  const commitUpdate = ({ item, field, delta, parent_op_id }) => {
+    appendOp(db, {
+      entity: item.entity,
+      entity_id: item.entity_id,
+      field,
+      value: delta.to,
+      author_user_id: author_user_id ?? null,
+      device_id,
+      parent_op_id,
+      client_write_id: randomUUID(),
+      source: IMPORT_SOURCE,
+    })
+    updated += 1
+  }
+
+  // One transaction for the whole import. Any throw below rolls back every op
+  // and every projected row together, so the camp is either fully imported or
+  // untouched (ADR §4).
   const run = db.transaction(() => {
-    // T61. Anything that is not the literal 'replace' is an add, so every
-    // pre-T61 caller keeps working untouched. This runs FIRST and inside the
-    // existing transaction — better-sqlite3 nests as savepoints, so the one
-    // outer transaction stays the rollback boundary for teardown and create
-    // alike. Deletes precede creates, which is also what lets the new records
-    // reuse the old names against UNIQUE(camp_id, name).
+    // T61. Replace-mode teardown runs FIRST and inside this transaction —
+    // better-sqlite3 nests as savepoints, so the one outer transaction stays
+    // the rollback boundary for teardown and create alike. Deletes precede
+    // creates, which also lets the new records reuse the old names against
+    // UNIQUE(camp_id, name).
     if (mode === 'replace') {
-      replaced = replaceScope(db, { camp_id, author_user_id, device_id })
+      replaced = replaceScope(db, { camp_id, author_user_id, device_id, source: IMPORT_SOURCE })
     }
     seedNameMaps()
 
-    for (const entity of INGESTIBLE_ENTITIES) {
-      const names = Array.isArray(approved[entity]) ? approved[entity] : []
-      created[entity] = 0
-      names.forEach((rawName, index) => {
-        const name = String(rawName ?? '').trim()
-        if (!name) return
-        const entityId = randomUUID()
-        const fields = fieldsFor(entity, name, camp_id, index, cohort_id)
-
-        if (entity === 'tiers') tierIdByName.set(name.toLowerCase(), entityId)
-        // Extend the fixed-event resolution maps as their target rows are born.
-        if (entity === 'time_blocks') blockIdByName.set(normalizeName(name), entityId)
-        if (entity === 'days_of_operation') dayIdByName.set(normalizeName(name), entityId)
-        if (entity === 'groups') groupIdByName.set(normalizeName(name), entityId)
-        if (entity === 'groups') {
-          // The file said which unit this bunk is in; file it there rather
-          // than leaving the director to assign 33 bunks by hand.
-          const unit = groupUnits[name]
-          const tierId = unit ? tierIdByName.get(String(unit).trim().toLowerCase()) : null
-          if (tierId) fields.tier_id = tierId
+    // Commit-time re-resolution (S1a §2). buildPlan set each item's identity
+    // from the snapshot it saw at emit time; the review window between preview
+    // and commit is exactly where a peer device can create or delete a same-name
+    // row, so FINAL identity binding happens here, against the live DB. We
+    // decide every item and collect conflicts BEFORE writing anything — nothing
+    // is created until we know the import is not held.
+    const recognition = seedRecognitionMaps()
+    const toCreate = []
+    const toUpdate = []
+    for (const item of plan.items) {
+      switch (item.op) {
+        case 'create': {
+          const ids = recognition[item.entity].get(normalizeName(item._name))
+          if (ids && ids.size >= 1) {
+            // T73: a director who resolved an ambiguity to "create new" pinned
+            // this create; honor it by bypassing the normalize-collision→conflict
+            // conversion — UNLESS a candidate now shares the RAW name (UNIQUE
+            // would throw). A raw-name duplicate re-holds rather than throwing
+            // (ADR §2/§4); a genuinely-new raw name (the "Art" vs "art " case)
+            // creates cleanly.
+            const res = resolutionFor(item.entity, item._name)
+            const pinnedCreate = res?.reason === 'ambiguous_identity' && res.choice === 'create'
+            const rawDuplicate = pinnedCreate && [...ids].some((id) => liveName(item.entity, id) === item._name)
+            if (pinnedCreate && !rawDuplicate) {
+              toCreate.push(item)
+            } else {
+              // A peer created this same-name entity (one row), or the camp holds
+              // two rows that normalize alike (>1). Either way the world changed
+              // under the plan — never commitCreate (that throws at UNIQUE),
+              // never auto-pick. Surface the colliding row(s) for review.
+              conflicts.push(makeConflict(item, [...ids]))
+            }
+          } else {
+            toCreate.push(item)
+          }
+          break
         }
-        if (entity === 'activities') {
-          // Inferred (or director-edited) rules, keyed by the exact activity
-          // name the director approved. Absent = no rule was proposed/kept for
-          // this activity, so nothing is written — same as pre-T35 behaviour.
-          //
-          // The op log is the boundary that owns validation here (round 2
-          // review, Fix 4) — a caller is never trusted to have sent something
-          // the engine can act on. buildSchedule.js's runRound only ever
-          // matches priority === 'high' or 'low'; anything else is silently
-          // unplaceable forever with no error, so a non-'high'/'low' value is
-          // dropped rather than written. Same reasoning for min/max: a
-          // negative or non-integer count is nonsense the UI should never
-          // produce, but the write boundary does not trust that it never will.
-          const rule = activityRules?.[name]
-          if (rule) {
-            if (Number.isInteger(rule.min_per_week) && rule.min_per_week >= 1) fields.min_per_week = rule.min_per_week
-            if (Number.isInteger(rule.max_per_week) && rule.max_per_week >= 1) fields.max_per_week = rule.max_per_week
-            if (rule.priority === 'high' || rule.priority === 'low') fields.priority = rule.priority
-            const groupIds = Array.isArray(rule.eligible_group_names)
-              ? rule.eligible_group_names
-                  .map((n) => groupIdByName.get(normalizeName(n)))
-                  .filter(Boolean)
-              : []
-            // Names that failed to resolve (the director unticked that group)
-            // are dropped. If NONE resolved, write nothing rather than '[]' —
-            // an empty JSON array reads as "restricted to nothing", not "all
-            // groups" (src/utils/normalizeActivityEligibility.js).
-            if (groupIds.length > 0) fields.eligible_group_ids = JSON.stringify(groupIds)
-            // T61. An activity somebody is eligible for, asked for zero times
-            // a week, is scheduled zero times — correct and silently useless.
-            // Observed as every Friday slot UNFILLABLE after an import. Data
-            // normalization, not a scheduler rule, and applied on both import
-            // paths so the invariant holds however the camp was set up.
-            if (groupIds.length > 0 && !(Number.isInteger(fields.min_per_week) && fields.min_per_week >= 1)) {
-              fields.min_per_week = 1
+        case 'unchanged': {
+          // Its recognized identity must still name a live row. If a peer
+          // deleted it in the window, whether to re-create is a human decision,
+          // never a silent re-mint — hold it as a conflict, carrying any
+          // now-competing same-name row as a candidate.
+          if (!idExists(item.entity, item.entity_id)) {
+            const ids = recognition[item.entity].get(normalizeName(item._name))
+            conflicts.push(makeConflict(item, ids ? [...ids] : []))
+          }
+          break
+        }
+        case 'update': {
+          // S2b. Its recognized identity must still name a live row (a peer may
+          // have deleted it in the window) — same guard as `unchanged`.
+          if (!idExists(item.entity, item.entity_id)) {
+            const ids = recognition[item.entity].get(normalizeName(item._name))
+            conflicts.push(makeConflict(item, ids ? [...ids] : []))
+            break
+          }
+          // Policy A protection gate, per FieldDelta, against the authoritative
+          // op-log (ADR §2). Protected iff the field's latest op EXISTS and its
+          // source is not 'import' (i.e. 'human' or NULL — S2a's NULL=human). A
+          // field with no prior op, or whose last op is import-authored, is
+          // unprotected and writes freely.
+          for (const [field, delta] of Object.entries(item.fields)) {
+            const latest = latestOp(db, item.entity, item.entity_id, field)
+            const isProtected = !!latest && latest.source !== 'import'
+            if (isProtected) {
+              // T73: a director may have resolved this stale field. 'accept'
+              // bypasses the Policy-A gate and writes via commitUpdate — which
+              // stamps source:'import' and parents on the live human op, exactly
+              // S2b's stale_accept semantics, reached through commitPlan (the door
+              // that fits a held import). 'keep' drops the FieldDelta entirely (no
+              // op). No resolution → the field re-holds as a stale conflict.
+              const res = resolutionFor(item.entity, item._name, field)
+              if (res?.reason === 'stale' && res.choice === 'accept') {
+                toUpdate.push({ item, field, delta, parent_op_id: latest.id })
+              } else if (res?.reason === 'stale' && res.choice === 'keep') {
+                // dropped — the director keeps their hand-edit, nothing written
+              } else {
+                conflicts.push(makeStaleConflict(item, field, delta, latest))
+              }
+            } else {
+              toUpdate.push({ item, field, delta, parent_op_id: latest ? latest.id : null })
             }
           }
+          break
         }
-
-        for (const [field, value] of Object.entries(fields)) {
-          if (value === null || value === undefined) continue
-          appendOp(db, {
-            entity,
-            entity_id: entityId,
-            field,
-            value,
-            author_user_id: author_user_id ?? null,
-            device_id,
-            parent_op_id: null,
-            client_write_id: randomUUID(),
-          })
-        }
-        created[entity] += 1
-        total += 1
-      })
+        case 'conflict':
+          // buildPlan surfaces ambiguous_identity (§3); commitPlan itself may
+          // produce a `stale` conflict (the update gate above). Both are gated
+          // into `conflicts` (no op, no throw). cross_source (S7) and any other
+          // reason cannot be produced yet — reaching one is a bug.
+          if (item.reason === 'ambiguous_identity' || item.reason === 'stale') conflicts.push(item)
+          else throw new Error(`commitPlan: conflict reason "${item.reason}" is not implemented at S1a`)
+          break
+        case 'clear':
+          // S4. A raw source cannot express an explicit clear (a blank is
+          // "preserve", never "remove") — reaching this arm now is a bug.
+          throw new Error(`commitPlan: op "${item.op}" is not implemented at S1a`)
+        default:
+          throw new Error(`commitPlan: unknown op "${item.op}"`)
+      }
     }
+
+    // Hold-the-whole-import (product owner, 2026-08-08): any conflict means the
+    // WHOLE commit writes nothing. Throwing the sentinel rolls back everything —
+    // including replace-mode teardown — so a held import is atomically a no-op,
+    // distinguishable from a real error by the marker (caught below).
+    if (conflicts.length > 0) {
+      const held = new Error('commitPlan: import held for review')
+      held[HELD] = true
+      throw held
+    }
+
+    // No conflicts — commit the plan in full. Items are emitted in
+    // INGESTIBLE_ENTITIES order, so tiers land before groups (tier_id
+    // resolvable) and groups before activities (group ids resolvable) — the
+    // same registration-before-use the pre-S0 loop relied on.
+    for (const item of toCreate) commitCreate(item)
+    // S2b: unprotected field updates, after creates. commitUpdate targets rows
+    // that already exist, so ordering against creates is immaterial.
+    for (const u of toUpdate) commitUpdate(u)
 
     // Fixed events, after the entity loop and INSIDE the same transaction, so
     // the whole import stays one atomic unit (ADR §4). anchor_activities is
-    // written here and nowhere else in ingest; the generic whitelist above
-    // never lets it through.
-    for (const fe of Array.isArray(fixedEvents) ? fixedEvents : []) {
+    // written here and nowhere else in ingest; the generic whitelist never lets
+    // it through.
+    for (const fe of plan.fixedEvents) {
       const tbId = blockIdByName.get(normalizeName(fe.time_block))
       const requestedDays = (fe.days ?? []).length
       const dayIds = (fe.days ?? []).map((d) => dayIdByName.get(normalizeName(d))).filter(Boolean)
@@ -412,9 +671,8 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
         }
       }
       // Some — but not all — of the event's days or groups were imported. Write
-      // what resolved (the un-imported ones legitimately have no anchor) but
-      // report the shortfall, or the result would silently claim more than it
-      // created (ADR §1; Red Hat round-1).
+      // what resolved but report the shortfall, or the result would silently
+      // claim more than it created (ADR §1; Red Hat round-1).
       const droppedDays = requestedDays - dayIds.length
       const droppedGroups = requestedGroups - groupIds.length
       if (droppedDays > 0 || droppedGroups > 0) {
@@ -447,6 +705,7 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
             device_id,
             parent_op_id: null,
             client_write_id: randomUUID(),
+            source: IMPORT_SOURCE,
           })
         }
         fixedCreated.push(anchorId)
@@ -454,8 +713,35 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
     }
   })
 
-  run()
-  const outcome = { created, total, fixedEvents: { created: fixedCreated.length, skipped: fixedSkipped, partial: fixedPartial } }
+  let held = false
+  try {
+    run()
+  } catch (e) {
+    if (e && e[HELD]) held = true // the transaction rolled back; nothing written
+    else throw e
+  }
+
+  if (held) {
+    // Everything rolled back — no rows, no ops, no teardown. Report the held
+    // conflicts for the director to resolve, clearly NOT a thrown error.
+    return {
+      held: true,
+      conflicts,
+      created,
+      total,
+      updated: 0,
+      fixedEvents: { created: 0, skipped: [], partial: [] },
+    }
+  }
+
+  const outcome = {
+    held: false,
+    conflicts: [],
+    created,
+    total,
+    updated,
+    fixedEvents: { created: fixedCreated.length, skipped: fixedSkipped, partial: fixedPartial },
+  }
   if (replaced) outcome.replaced = replaced
   return outcome
 }

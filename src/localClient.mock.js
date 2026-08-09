@@ -1,7 +1,54 @@
 // Browser-dev-server stand-in for window.shoresh (only Electron's preload-bridged
 // renderer has the real thing). Lets ModeSelect/Join/Bootstrap/Login be visually
 // verified with `npm run dev` outside Electron. Never used when window.shoresh exists.
+
+// T74: the dev mock's import commit reuses the SAME pure decision layer the real
+// committer does (src/ingest/buildPlan.js) so the reconciliation UI — recognition,
+// field-update, hand-edit protection, and the T73 held-conflict resolution flow —
+// can be exercised truthfully at localhost:5200. buildPlan is renderer-side (src/),
+// same side as this mock, so importing it crosses no boundary.
+import { buildPlan } from './ingest/buildPlan.js'
+import { INGESTIBLE_ENTITIES } from './ingest/extractEntities.js'
+import { normalizeName } from './ingest/preview.js'
+
 const STORE_KEY = 'shoresh-mock-state'
+
+// Transcribed from electron/ops/ingest.js (NAME_COLUMN / COHORT_SCOPED /
+// COMPARABLE_COLUMNS) so the mock builds the SAME `existing` snapshot the real
+// committer feeds buildPlan: names aliased for recognition, comparable VALUES for
+// the field diff, tiers/time_blocks cohort-scoped. Same src/-never-imports-electron/
+// duplication discipline as MOCK_WRITE_ALLOWLIST — a verbatim copy, not shared code.
+const MOCK_NAME_COLUMN = { days_of_operation: 'label' }
+const mockNameColumnFor = (entity) => MOCK_NAME_COLUMN[entity] ?? 'name'
+const MOCK_COHORT_SCOPED = new Set(['tiers', 'time_blocks'])
+const MOCK_COMPARABLE_COLUMNS = {
+  cohorts: [],
+  tiers: ['sort_order'],
+  groups: ['availability'],
+  days_of_operation: ['day_of_week', 'sort_order'],
+  time_blocks: ['start_time', 'end_time', 'sort_order'],
+  activities: [],
+}
+
+// Per-field provenance marker, the mock's stand-in for the op-log `source`
+// column the real Policy-A gate reads (electron/ops/ingest.js ~593). Keyed
+// entity -> id -> field -> 'import' | 'human'. A field written by ingest is
+// 'import'; a field written through the normal write()/edit path is 'human'.
+// Protected iff a marker EXISTS and is not 'import' — exactly the real gate's
+// `!!latestOp && latestOp.source !== 'import'`.
+function fieldSourceMap(state) {
+  if (!state.__fieldSource) state.__fieldSource = {}
+  return state.__fieldSource
+}
+function markSource(state, entity, id, field, source) {
+  const fs = fieldSourceMap(state)
+  if (!fs[entity]) fs[entity] = {}
+  if (!fs[entity][id]) fs[entity][id] = {}
+  fs[entity][id][field] = source
+}
+function getSource(state, entity, id, field) {
+  return state.__fieldSource?.[entity]?.[id]?.[field]
+}
 
 function loadState() {
   try {
@@ -12,10 +59,12 @@ function loadState() {
       if (!Array.isArray(parsed.conflicts)) parsed.conflicts = []
       // Backfill for state saved before device pairing was mocked (T11).
       if (!Array.isArray(parsed.devices)) parsed.devices = seedDevices()
+      // Backfill for state saved before per-field provenance existed (T74).
+      if (!parsed.__fieldSource) parsed.__fieldSource = {}
       return parsed
     }
   } catch { /* fall through to default */ }
-  return { camp: null, users: [], conflicts: [], devices: seedDevices() }
+  return { camp: null, users: [], conflicts: [], devices: seedDevices(), __fieldSource: {} }
 }
 
 // Sample devices so Device Manager has something to render and its actions do
@@ -356,6 +405,10 @@ export const mockShoresh = {
 
     if (isNew) rows.push(candidate)
     else rows[idx] = candidate
+    // T74: an ordinary edit is human-authored provenance (the real op-log leaves
+    // source NULL for these; the mock records 'human'). This is what makes the
+    // import Policy-A gate protect a hand-edited field from a re-import.
+    markSource(state, entity, entity_id, field, 'human')
     saveState(state)
     return { status: 'applied' }
   },
@@ -381,26 +434,25 @@ export const mockShoresh = {
     }
     return { valid: false }
   },
-  // Import committed into the localStorage-backed mock state, mirroring the
-  // real commitIngest (electron/ops/ingest.js): the same six ingestible
-  // entities, the same derived fields, and groups filed under the unit the
-  // file named. This lets the whole import flow — pick files, review the
-  // proposal, commit, see the records appear in Units/Groups/etc — be tested at
-  // :5200 with hot-reload. It writes to mock state, NOT the op log, so it proves
-  // the UI flow, not the real persistence/sync path (that stays electron:dev).
-  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode } = {}) {
-    const ORDER = ['cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'activities']
-    const DAY_INDEX = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 }
-    const parseTimeRange = (label) => {
-      const m = String(label ?? '').match(/(\d{1,2})[:.](\d{2})\s*[-–—]\s*(\d{1,2})[:.](\d{2})/)
-      if (!m) return { start_time: null, end_time: null }
-      const pad = (h, mm) => `${String(h).padStart(2, '0')}:${mm}`
-      return { start_time: pad(m[1], m[2]), end_time: pad(m[3], m[4]) }
-    }
+  // Import committed into the localStorage-backed mock state. T74 brought this to
+  // PARITY with the real committer (electron/ops/ingest.js commitIngest/commitPlan)
+  // for the reconciliation flow: it builds the SAME pure ReconciliationPlan via the
+  // shared `buildPlan`, then applies that plan against the mock store mirroring
+  // commitPlan — recognition (name-match → unchanged, no duplicate), field diff →
+  // update under the Policy-A hand-edit gate (against the mock's `__fieldSource`
+  // marker), the HELD outcome `{ held, conflicts }` on any conflict (writing
+  // nothing), and the T73 `resolutions` re-commit (ambiguous existing/create,
+  // stale accept/keep). This lets the whole reconciliation UI — including the held
+  // resolution queue — be exercised at :5200. It writes to mock state, NOT the op
+  // log, so it proves the UI flow, not the real persistence/sync path (that stays
+  // electron:dev): no transaction/atomicity, no seq clock.
+  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions } = {}) {
     const state = loadState()
     if (!state.camp) throw new Error('ingest: no camp')
     const campId = state.camp.id
     const groupUnits = links?.groups ?? {}
+    const cohortId = cohort_id ?? null
+    for (const entity of INGESTIBLE_ENTITIES) if (!Array.isArray(state[entity])) state[entity] = []
 
     // T61 replace mode. The mock has no transaction and no op log, so this
     // simulates only the VISIBLE outcome — the old setup and everything
@@ -427,82 +479,239 @@ export const mockShoresh = {
       }
     }
 
-    // Unit name -> tier id, seeded from existing tiers so a second import reuses
-    // them rather than duplicating (matches the real commitIngest).
-    const tierIdByName = new Map()
-    for (const t of state.tiers ?? []) if (t.name) tierIdByName.set(String(t.name).trim().toLowerCase(), t.id)
+    // The `existing` snapshot buildPlan recognizes against, mirroring the real
+    // buildExistingSnapshot: names (label aliased AS name for days), comparable
+    // VALUES for the field diff, tiers/time_blocks cohort-filtered. Replace mode
+    // passes null so recognition is skipped and every approved name is a blind
+    // create — exactly the real committer (its pre-teardown rows are gone anyway).
+    const buildSnapshot = () => {
+      const existing = {}
+      for (const entity of INGESTIBLE_ENTITIES) {
+        const scoped = MOCK_COHORT_SCOPED.has(entity)
+        const rows = (state[entity] ?? []).map((r) => {
+          const row = { id: r.id, name: r[mockNameColumnFor(entity)] }
+          if (scoped) row.cohort_id = r.cohort_id ?? null
+          for (const c of MOCK_COMPARABLE_COLUMNS[entity]) row[c] = r[c]
+          return row
+        })
+        existing[entity] = scoped && cohortId ? rows.filter((r) => r.cohort_id === cohortId) : rows
+      }
+      return existing
+    }
+    const existing = mode === 'replace' ? null : buildSnapshot()
 
-    const created = {}
-    let total = 0
-    for (const entity of ORDER) {
-      if (!Array.isArray(state[entity])) state[entity] = []
-      const names = Array.isArray(approved?.[entity]) ? approved[entity] : []
-      created[entity] = 0
-      names.forEach((rawName, index) => {
-        const name = String(rawName ?? '').trim()
-        if (!name) return
-        const id = randomId()
-        let row
-        if (entity === 'cohorts') row = { id, camp_id: campId, name }
-        else if (entity === 'tiers') { row = { id, camp_id: campId, cohort_id: cohort_id ?? 'main', name, sort_order: index }; tierIdByName.set(name.toLowerCase(), id) }
-        else if (entity === 'groups') {
-          row = { id, camp_id: campId, name, availability: 'all' }
-          const unit = groupUnits[name]
-          const tierId = unit ? tierIdByName.get(String(unit).trim().toLowerCase()) : null
-          if (tierId) row.tier_id = tierId
-        }
-        else if (entity === 'days_of_operation') { const dow = DAY_INDEX[name.toLowerCase()]; row = { id, camp_id: campId, label: name, day_of_week: dow ?? index, sort_order: dow ?? index } }
-        else if (entity === 'time_blocks') { const { start_time, end_time } = parseTimeRange(name); row = { id, camp_id: campId, cohort_id: cohort_id ?? 'main', name, start_time, end_time, sort_order: index } }
-        else if (entity === 'activities') {
-          row = { id, camp_id: campId, name }
-          // T35 — inferred/edited rules, resolved against the groups this same
-          // import just created (mirrors electron/ops/ingest.js's commitIngest,
-          // including its round-2 validation: priority must be exactly
-          // 'high'/'low' — buildSchedule.js's runRound never matches anything
-          // else — and min/max must be positive integers, or the mock could
-          // diverge from what the real write boundary actually accepts).
-          const rule = activityRules?.[name]
-          if (rule) {
-            if (Number.isInteger(rule.min_per_week) && rule.min_per_week >= 1) row.min_per_week = rule.min_per_week
-            if (Number.isInteger(rule.max_per_week) && rule.max_per_week >= 1) row.max_per_week = rule.max_per_week
-            if (rule.priority === 'high' || rule.priority === 'low') row.priority = rule.priority
-          }
-        }
-        state[entity].push(row)
-        created[entity] += 1
-        total += 1
-      })
+    // The PURE decision layer — the SAME buildPlan the real commitIngest uses.
+    // buildPlan consumes the ambiguous_identity resolutions itself (pin identity /
+    // force create); the stale resolutions are honored below in the Policy-A gate.
+    const plan = buildPlan(
+      { approved, links, activityRules, fixedEvents, camp_id: campId, cohort_id: cohortId, mode },
+      existing,
+      Array.isArray(resolutions) ? resolutions : [],
+    )
+
+    // Resolutions index for the stale gate (keyed entity|normalizeName|field,
+    // exactly as commitPlan), plus the collision-bypass the ambiguous 'create'
+    // pick needs at apply time.
+    const resIndex = new Map()
+    for (const r of Array.isArray(resolutions) ? resolutions : []) {
+      if (!r || !r.entity) continue
+      resIndex.set(`${r.entity}|${normalizeName(r.name)}|${r.field ?? ''}`, r)
+    }
+    const resolutionFor = (entity, name, field = '') => resIndex.get(`${entity}|${normalizeName(name)}|${field ?? ''}`)
+
+    // Live-store re-resolution helpers, mirroring commitPlan.
+    const liveName = (entity, id) => {
+      const r = (state[entity] ?? []).find((x) => x.id === id)
+      return r ? r[mockNameColumnFor(entity)] : null
+    }
+    const idExists = (entity, id) => (state[entity] ?? []).some((x) => x.id === id)
+    const makeConflict = (item, candidateIds) => ({
+      op: 'conflict', entity: item.entity, entity_id: null, reason: 'ambiguous_identity', fields: {},
+      evidence: { tier: 'exact_name', candidates: candidateIds.map((id) => ({ id, name: liveName(item.entity, id) })) },
+      _name: item._name,
+    })
+    // Stale FieldConflict shape (RECONCILIATION_PLAN_TYPE §2e). The mock has no op
+    // log, so field_last_seq is null (the real committer carries latestOp.seq);
+    // the director-observable shape the held UI reads (from/to/field) is identical.
+    const makeStaleConflict = (item, field, delta) => ({
+      op: 'conflict', entity: item.entity, entity_id: item.entity_id, reason: 'stale',
+      fields: {
+        [field]: {
+          from: delta.from ?? null, to: delta.to, source: 'import',
+          conflict: {
+            reason: 'stale',
+            clock: { field_last_seq: null, source_base_seq: plan.base_generation ?? 0 },
+            competing: [{ value: delta.from ?? null, source: 'human' }, { value: delta.to, source: 'import' }],
+          },
+        },
+      },
+      evidence: { tier: 'exact_name', matched_name: item.evidence?.matched_name ?? item._name },
+      _name: item._name,
+    })
+
+    // Recognition maps for commit-time re-resolution (normalized-name → set of
+    // live ids), cohort-scoped for tiers/time_blocks exactly as the snapshot.
+    const recognition = {}
+    for (const entity of INGESTIBLE_ENTITIES) {
+      recognition[entity] = new Map()
+      const scoped = MOCK_COHORT_SCOPED.has(entity)
+      for (const r of state[entity] ?? []) {
+        if (scoped && cohortId && (r.cohort_id ?? null) !== cohortId) continue
+        const key = normalizeName(r[mockNameColumnFor(entity)])
+        if (!key) continue
+        if (!recognition[entity].has(key)) recognition[entity].set(key, new Set())
+        recognition[entity].get(key).add(r.id)
+      }
     }
 
+    // Decide every item and collect conflicts BEFORE writing anything (mirrors
+    // commitPlan's run loop): nothing is created until we know the import isn't held.
+    const created = {}
+    for (const entity of INGESTIBLE_ENTITIES) created[entity] = 0
+    let total = 0
+    let updated = 0
+    const conflicts = []
+    const toCreate = []
+    const toUpdate = []
+    for (const item of plan.items) {
+      switch (item.op) {
+        case 'create': {
+          const ids = recognition[item.entity].get(normalizeName(item._name))
+          if (ids && ids.size >= 1) {
+            const res = resolutionFor(item.entity, item._name)
+            const pinnedCreate = res?.reason === 'ambiguous_identity' && res.choice === 'create'
+            const rawDuplicate = pinnedCreate && [...ids].some((id) => liveName(item.entity, id) === item._name)
+            if (pinnedCreate && !rawDuplicate) toCreate.push(item)
+            else conflicts.push(makeConflict(item, [...ids]))
+          } else {
+            toCreate.push(item)
+          }
+          break
+        }
+        case 'unchanged': {
+          if (!idExists(item.entity, item.entity_id)) {
+            const ids = recognition[item.entity].get(normalizeName(item._name))
+            conflicts.push(makeConflict(item, ids ? [...ids] : []))
+          }
+          break
+        }
+        case 'update': {
+          if (!idExists(item.entity, item.entity_id)) {
+            const ids = recognition[item.entity].get(normalizeName(item._name))
+            conflicts.push(makeConflict(item, ids ? [...ids] : []))
+            break
+          }
+          // Policy-A protection gate, per FieldDelta, against the mock's
+          // `__fieldSource` marker: protected iff a marker EXISTS and is not
+          // 'import' (i.e. a hand-edit). A never-written or import-authored field
+          // writes freely.
+          for (const [field, delta] of Object.entries(item.fields)) {
+            const src = getSource(state, item.entity, item.entity_id, field)
+            const isProtected = src !== undefined && src !== 'import'
+            if (isProtected) {
+              const res = resolutionFor(item.entity, item._name, field)
+              if (res?.reason === 'stale' && res.choice === 'accept') toUpdate.push({ item, field, delta })
+              else if (res?.reason === 'stale' && res.choice === 'keep') { /* dropped — hand-edit kept */ }
+              else conflicts.push(makeStaleConflict(item, field, delta))
+            } else {
+              toUpdate.push({ item, field, delta })
+            }
+          }
+          break
+        }
+        case 'conflict':
+          if (item.reason === 'ambiguous_identity' || item.reason === 'stale') conflicts.push(item)
+          else throw new Error(`mock ingestCommit: conflict reason "${item.reason}" is not implemented`)
+          break
+        default:
+          throw new Error(`mock ingestCommit: unknown op "${item.op}"`)
+      }
+    }
+
+    // Hold-the-whole-import: any conflict means the whole commit writes nothing
+    // (mirrors commitPlan's HELD sentinel). Return the held outcome — clearly NOT
+    // a thrown error — for the director to resolve; created counts stay zero.
+    if (conflicts.length > 0) {
+      return { held: true, conflicts, created, total: 0, updated: 0, fixedEvents: { created: 0, skipped: [], partial: [] } }
+    }
+
+    // No conflicts — apply the plan. Unit name -> tier id, seeded from existing
+    // tiers (cohort-scoped like commitPlan's seedNameMaps) so a group created this
+    // run files under a unit created moments earlier or already present.
+    const tierIdByName = new Map()
+    for (const t of state.tiers) if (t.name && (t.cohort_id ?? null) === cohortId) tierIdByName.set(String(t.name).trim().toLowerCase(), t.id)
+    const groupIdByNameRun = new Map()
+    for (const g of state.groups) if (g.name) groupIdByNameRun.set(normalizeName(g.name), g.id)
+
+    // commitCreate mirror: extract each FieldDelta's `to`, resolve group tier_id
+    // and activity rules against the live/run name maps, insert the row, and mark
+    // every written field 'import' provenance.
+    const commitCreate = (item) => {
+      const entity = item.entity
+      const name = item._name
+      const id = randomId()
+      const fields = {}
+      for (const [field, delta] of Object.entries(item.fields)) fields[field] = delta.to
+      if (entity === 'tiers') tierIdByName.set(name.toLowerCase(), id)
+      if (entity === 'groups') {
+        groupIdByNameRun.set(normalizeName(name), id)
+        const unit = item._link_unit
+        const tierId = unit ? tierIdByName.get(String(unit).trim().toLowerCase()) : null
+        if (tierId) fields.tier_id = tierId
+      }
+      if (entity === 'activities') {
+        // T35 — inferred/edited rules, with the same round-2 validation the real
+        // write boundary applies (priority exactly 'high'/'low'; min/max positive
+        // integers), resolved against the groups this same import created.
+        const rule = item._rule
+        if (rule) {
+          if (Number.isInteger(rule.min_per_week) && rule.min_per_week >= 1) fields.min_per_week = rule.min_per_week
+          if (Number.isInteger(rule.max_per_week) && rule.max_per_week >= 1) fields.max_per_week = rule.max_per_week
+          if (rule.priority === 'high' || rule.priority === 'low') fields.priority = rule.priority
+          const groupIds = Array.isArray(rule.eligible_group_names)
+            ? rule.eligible_group_names.map((n) => groupIdByNameRun.get(normalizeName(n))).filter(Boolean)
+            : []
+          if (groupIds.length > 0) fields.eligible_group_ids = JSON.stringify(groupIds)
+          // T61 — an eligible activity runs at least once a week or the engine
+          // places it zero times. Floored on both paths, matching commitCreate.
+          if (groupIds.length > 0 && !(Number.isInteger(fields.min_per_week) && fields.min_per_week >= 1)) fields.min_per_week = 1
+        }
+      }
+      const row = { id }
+      for (const [field, value] of Object.entries(fields)) {
+        if (value === null || value === undefined) continue
+        row[field] = value
+        markSource(state, entity, id, field, 'import')
+      }
+      state[entity].push(row)
+      created[entity] += 1
+      total += 1
+    }
+
+    const commitUpdate = ({ item, field, delta }) => {
+      const row = (state[item.entity] ?? []).find((x) => x.id === item.entity_id)
+      if (!row) return
+      row[field] = delta.to
+      markSource(state, item.entity, item.entity_id, field, 'import')
+      updated += 1
+    }
+
+    // Items are emitted in INGESTIBLE_ENTITIES order, so tiers land before groups
+    // (tier_id resolvable) and groups before activities (group ids resolvable).
+    for (const item of toCreate) commitCreate(item)
+    for (const u of toUpdate) commitUpdate(u)
+
     // Fixed events (T34) — resolve by name against the rows now in state, then
-    // fan out one anchor_activities row per day. Mirrors commitIngest so the
-    // whole import flow, fixed events included, can be exercised at :5200.
-    const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
-    const targetCohort = cohort_id ?? 'main'
+    // fan out one anchor_activities row per day. Mirrors commitPlan's fixed-event
+    // loop so the whole import flow, fixed events included, works at :5200.
+    const norm = (s) => normalizeName(s)
+    const targetCohort = cohortId ?? 'main'
     const blockIdByName = new Map()
-    for (const b of state.time_blocks ?? []) if (b.name && (b.cohort_id ?? 'main') === targetCohort) blockIdByName.set(norm(b.name), b.id)
+    for (const b of state.time_blocks ?? []) if (b.name && (b.cohort_id ?? null) === cohortId) blockIdByName.set(norm(b.name), b.id)
     const dayIdByName = new Map()
     for (const d of state.days_of_operation ?? []) if (d.label) dayIdByName.set(norm(d.label), d.id)
     const groupIdByName = new Map()
     for (const g of state.groups ?? []) if (g.name) groupIdByName.set(norm(g.name), g.id)
-
-    // T35 — eligible_group_ids can only be resolved once groups exist, so it
-    // happens here rather than in the entity loop above (mirrors
-    // electron/ops/ingest.js). A name that does not resolve is dropped; if
-    // none resolve, no eligible_group_ids is written (null = all groups).
-    for (const activityName of Array.isArray(approved?.activities) ? approved.activities : []) {
-      const rule = activityRules?.[activityName]
-      if (!rule || !Array.isArray(rule.eligible_group_names)) continue
-      const groupIds = rule.eligible_group_names.map((n) => groupIdByName.get(norm(n))).filter(Boolean)
-      if (groupIds.length === 0) continue
-      const row = state.activities.find((a) => a.name === String(activityName).trim())
-      if (!row) continue
-      row.eligible_group_ids = JSON.stringify(groupIds)
-      // T61 — an activity somebody is eligible for runs at least once a week,
-      // or the engine places it zero times and every slot it should have
-      // filled comes back UNFILLABLE. Mirrors commitIngest.
-      if (!(Number.isInteger(row.min_per_week) && row.min_per_week >= 1)) row.min_per_week = 1
-    }
 
     if (!Array.isArray(state.anchor_activities)) state.anchor_activities = []
     const fixedCreatedIds = []
@@ -540,7 +749,7 @@ export const mockShoresh = {
     }
 
     saveState(state)
-    const outcome = { created, total, fixedEvents: { created: fixedCreatedIds.length, skipped: fixedSkipped, partial: fixedPartial } }
+    const outcome = { held: false, conflicts: [], created, total, updated, fixedEvents: { created: fixedCreatedIds.length, skipped: fixedSkipped, partial: fixedPartial } }
     if (replaced) outcome.replaced = replaced
     return outcome
   },

@@ -235,7 +235,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // device's sync mode — and the guard below reads it; a shadowing parameter
   // would silently turn the Host check into a comparison against the import
   // mode instead.
-  function ingestCommit({ token, approved, links, cohort_id, fixedEvents, activityRules, mode: ingestMode } = {}) {
+  function ingestCommit({ token, approved, links, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // Admin only. Staff may edit setup records one at a time; creating a
     // camp's whole structure in one action is a different kind of authority,
@@ -278,6 +278,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // T61 — 'replace' clears the camp's importable setup and its dependent
       // rows first, in the same transaction. Anything else is an add.
       mode: ingestMode === 'replace' ? 'replace' : 'add',
+      // T73 — a director's per-conflict decisions when re-committing a held
+      // import. Empty/absent on a first commit, so behavior is unchanged.
+      resolutions: resolutions ?? [],
     })
   }
 
@@ -658,7 +661,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // value — so a PIN conflict's raw hash never has to cross the IPC
   // boundary into the renderer to be "kept." Works identically for
   // non-sensitive fields too, so there's a single resolution path.
-  function resolveConflict({ token, entity, entity_id, field, chosen_op_id, parent_op_id } = {}) {
+  function resolveConflict({ token, entity, entity_id, field, chosen_op_id, parent_op_id, stale_accept = false } = {}) {
     if (!isNonEmptyString(token)) {
       throw new Error('token is required')
     }
@@ -691,6 +694,16 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       }
     }
 
+    // S2b R1 (§3a): resolving a `stale` conflict by ACCEPTING the import value
+    // stamps source:'import' on the resulting write — a resolution-path
+    // provenance distinct from the generic human seam. This makes the director's
+    // acceptance STICK: the field becomes import-owned, so future re-imports
+    // update it quietly instead of re-conflicting, letting a pre-S2a camp escape
+    // the NULL trap. Every OTHER resolution — including a director overriding
+    // with their own typed value — stays 'human' (the default). resolveConflict
+    // runs host-local, where import ownership is legitimately stamped.
+    const source = stale_accept ? 'import' : 'human'
+
     return syncClient.write({
       entity,
       entity_id,
@@ -698,6 +711,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       value: chosenOp.value,
       parent_op_id: parent_op_id ?? null,
       author_user_id: userId,
+      source,
     })
   }
 
