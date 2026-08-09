@@ -1,12 +1,17 @@
 ---
 title: T50-schedule-canvas-handoff
 document_type: handoff
-status: active
+status: superseded
 created: 2026-08-06
 task: docs/work/tickets/T50-schedule-canvas-rebuild.md
 archive_when: T50 and its child tickets T53–T60 are all closed
 worktree: ../shoresh-canvas  (branch: work/t50-schedule-canvas)
 ---
+
+> **CLOSED / SUPERSEDED (2026-08-09).** The canvas rebuild this handoff explores shipped: T50 plus
+> child tickets T53–T60 all merged (`docs/adr/2026-08-06-schedule-canvas-visual-layer.md`, now
+> `accepted`/`implemented`). This document is exploration-phase history, not a live next step —
+> do not pick it up as pending work. Body left unchanged below for the record.
 
 # Schedule Canvas Rebuild — Exploration Handoff
 

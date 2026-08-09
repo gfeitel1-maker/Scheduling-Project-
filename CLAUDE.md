@@ -58,7 +58,7 @@ npm rebuild better-sqlite3                   # before npm run test
 
 **Op-log sync** — all mutations are appended as rows to the `operations` table (entity/field-level, with `client_write_id` for idempotent retries) and replayed across devices. Genuine conflicting writes are recorded in the `conflicts` table (not silently dropped) and require explicit resolution via `resolveConflict`, linked by `parent_op_id`.
 
-**Device/session state machine** — `src/hooks/useDeviceMode.js` derives a `phase` (`error` → `loading` → `mode-select` → `bootstrap`/`join` → `login` → `session`). `src/App.jsx`'s `App()` switches on `device.phase` to render `ModeSelectScreen`, `CampBootstrapScreen`, `JoinScreen`, `LoginScreen`, or the full `AppShell`.
+**Device/session state machine** — `src/hooks/useDeviceMode.js` derives a `phase` (`error` → `loading` → `mode-select` → `bootstrap`/`join` → `pairing_pending` → `pairing_denied` → `login` → `session`). `src/App.jsx`'s `App()` switches on `device.phase` to render `ModeSelectScreen`, `CampBootstrapScreen`, `JoinScreen`, `PairingPendingScreen` (also renders the `pairing_denied` state inline), `LoginScreen`, or the full `AppShell`.
 
 **Screen routing (in-session)** — once `phase === 'session'`, `AppShell` (`src/App.jsx`) holds a `screen` string in `useState`, looked up in the `SCREENS` map and passed to `Shell` → `Sidebar` (`src/components/layout/`). `campId` and an `onNavigate` (`setScreen`) callback are threaded as props into every screen — no router, no context.
 

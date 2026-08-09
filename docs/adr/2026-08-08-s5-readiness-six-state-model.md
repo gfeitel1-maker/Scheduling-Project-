@@ -2,10 +2,10 @@
 title: "S5: the six-state readiness model as an additive layer over getSetupGaps"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-08-08
 supersedes: []
-implementation_state: not_started
+implementation_state: implemented
 affects:
   - src/engine/readiness.js
   - src/engine/readiness.test.js

@@ -1,7 +1,7 @@
 ---
 title: T72-fixed-event-reimport-idempotency
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-08
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 related_adrs: [docs/adr/2026-08-08-s1a-import-recognizes-existing-entities.md, docs/adr/2026-08-08-reconciliation-plan-as-commit-input.md, docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md]

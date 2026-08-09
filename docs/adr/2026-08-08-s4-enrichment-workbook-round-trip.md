@@ -2,10 +2,10 @@
 title: "Enrichment-workbook round-trip (S4)"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-08-08
 supersedes: []
-implementation_state: not_started
+implementation_state: implemented
 program: onboarding-reconciliation
 depends_on:
   - docs/adr/2026-08-08-export-formula-injection-sanitizer.md

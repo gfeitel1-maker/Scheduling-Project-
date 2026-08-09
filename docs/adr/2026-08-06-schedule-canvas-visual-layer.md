@@ -5,13 +5,13 @@ authority: normative
 status: accepted
 date: 2026-08-06
 supersedes: []
-implementation_state: not-yet-implemented
+implementation_state: implemented
 affects: [src/components/schedule/ScheduleGroupView.jsx, src/components/schedule/ScheduleDayView.jsx, src/components/schedule/ScheduleActivityView.jsx, src/components/schedule/ManualBuildView.jsx, src/components/schedule/SlotCell.jsx, src/components/schedule/OverlayCell.jsx, src/components/schedule/slotCellConstants.js, src/screens/schedule/gridGeometry.js, src/screens/schedule/dragHandlers.js, src/screens/ScheduleScreen.jsx, src/styles/shared.js, CLAUDE.md]
 ---
 
 # CSS Grid as the schedule grid rendering primitive; HTML table and rowSpan retired
 
-**Status:** draft — pending product owner approval of
+**Status:** accepted — implemented (T50 + T53–T60); see
 `docs/work/specs/2026-08-06-schedule-canvas-redesign.md`.
 
 **This ADR replaces an earlier draft of the same file** titled "Schedule grid: canvas ambient

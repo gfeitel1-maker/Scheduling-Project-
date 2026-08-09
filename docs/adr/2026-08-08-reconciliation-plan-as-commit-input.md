@@ -2,10 +2,10 @@
 title: "ReconciliationPlan as the input commit consumes"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-08-08
 supersedes: []
-implementation_state: not_started
+implementation_state: implemented
 affects:
   - docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md
   - docs/work/onboarding-reconciliation/RECONCILIATION_ARCHITECTURE.md

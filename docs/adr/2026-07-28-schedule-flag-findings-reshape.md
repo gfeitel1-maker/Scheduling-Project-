@@ -11,7 +11,7 @@ affects: [docs/governance/standards/DESIGN_STANDARD.md]
 
 # Reshape schedule flags: per-cell dots vs. group-level findings
 
-**Status:** proposed
+**Status:** accepted
 
 ## Context
 
