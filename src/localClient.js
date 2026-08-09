@@ -34,6 +34,10 @@ export const localClient = {
   bulkReplace: (token, entity, scope_id, rows) =>
     shoresh.bulkReplace({ token, entity, scope_id, rows }),
   verifySession: (token) => shoresh.verifySession({ token }),
+  // Deploy smoke-test heartbeat — see electron/main.js and App.jsx. Routed
+  // through here (not window.shoresh directly) to satisfy the mock-parity
+  // invariant; in browser dev it hits the mock's no-op.
+  reportSmokeReady: () => shoresh.reportSmokeReady(),
   onOpApplied: (cb) => shoresh.onOpApplied(cb),
   // T27 — is this device the main computer, connected to it, or on its own.
   getSyncStatus: () => shoresh.getSyncStatus(),

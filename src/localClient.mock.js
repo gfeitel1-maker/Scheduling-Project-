@@ -441,6 +441,11 @@ export const mockShoresh = {
     }
     return { valid: false }
   },
+  // Deploy smoke-test heartbeat — a no-op in the browser mock. The real marker
+  // is only ever written by the packaged main process during `deploy:local`.
+  async reportSmokeReady() {
+    return { ok: true }
+  },
   // Import committed into the localStorage-backed mock state. T74 brought this to
   // PARITY with the real committer (electron/ops/ingest.js commitIngest/commitPlan)
   // for the reconciliation flow: it builds the SAME pure ReconciliationPlan via the
