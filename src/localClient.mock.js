@@ -728,10 +728,15 @@ export const mockShoresh = {
         }
       }
       const row = { id }
+      // ADR 2026-08-09 Decision 2 parity: a field the director hand-edited in
+      // review is marked 'human' (from its first write) so a later re-import's
+      // Policy-A gate protects it. `item._humanFields` is already stored-column
+      // names (buildPlan normalized them). Everything else stays 'import'.
+      const humanFields = new Set(item._humanFields ?? [])
       for (const [field, value] of Object.entries(fields)) {
         if (value === null || value === undefined) continue
         row[field] = value
-        markSource(state, entity, id, field, 'import')
+        markSource(state, entity, id, field, humanFields.has(field) ? 'human' : 'import')
       }
       state[entity].push(row)
       created[entity] += 1
@@ -744,7 +749,9 @@ export const mockShoresh = {
       const row = (state[item.entity] ?? []).find((x) => x.id === item.entity_id)
       if (!row) return
       row[field] = value
-      markSource(state, item.entity, item.entity_id, field, 'import')
+      // ADR 2026-08-09 Decision 2 parity (as commitCreate): a hand-edited field is
+      // marked 'human'. `field` is the stored column, matching _humanFields.
+      markSource(state, item.entity, item.entity_id, field, (item._humanFields ?? []).includes(field) ? 'human' : 'import')
       updated += 1
     }
 

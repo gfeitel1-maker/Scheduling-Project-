@@ -44,6 +44,22 @@ const LABEL = {
 // Identifies a proposed fixed event for tick toggling (spec §4.1).
 const fixedEventKey = (fe) => `${fe.name} ${fe.time_block} ${fe.days.join(',')}`
 
+// Maps a rule-state field name (what updateActivityRule patches) to the SOURCE
+// field name the commit's `humanEditedFields` speaks (what foldApprovedToRecords /
+// buildPlan diff against; buildPlan normalizes these to stored columns via
+// dbFieldFor). This is the activity-rule half of the Decision 2 provenance
+// mechanism (docs/adr/2026-08-09-activity-rule-hand-edit-provenance.md), mirroring
+// how the unit column marks `['unit']`. Eligibility is the only rename (rule state
+// calls it `eligible_group_names`, the source record calls it `eligible_groups`);
+// meta keys the editor also patches (`_inferred`, `eligibility_known`,
+// `_editedFields`) are absent here on purpose, so they never count as a field.
+const RULE_FIELD_TO_SOURCE = Object.freeze({
+  min_per_week: 'min_per_week',
+  max_per_week: 'max_per_week',
+  priority: 'priority',
+  eligible_group_names: 'eligible_groups',
+})
+
 // S1b — cohort-scoped entity_type set the alias path gates cohort_id on. Lives
 // in its own module (importAliasScope.js) so a drift-guard test can assert it
 // stays equal to the engine's COHORT_SCOPED without this component file having
@@ -397,12 +413,23 @@ export default function ImportScreen({ campId, onNavigate }) {
   }
 
   // Editing a field clears `_inferred` for that activity's whole rule, so the
-  // styling reflects it is now the director's value rather than a proposal.
+  // styling reflects it is now the director's value rather than a proposal. It
+  // ALSO records WHICH fields the director touched (as SOURCE field names) in
+  // `_editedFields`, so buildCommitInputs can mark only those source:'human' —
+  // protecting the hand-edit from a later re-import (Policy A) while leaving the
+  // rule's still-inferred fields freely re-importable (the activity-rule half of
+  // Decision 2). Field-level, not rule-level: editing min_per_week must not also
+  // freeze an untouched max_per_week.
   function updateActivityRule(name, patch) {
-    setActivityRules((prev) => ({
-      ...prev,
-      [name]: { ...(prev[name] ?? {}), ...patch, _inferred: false },
-    }))
+    setActivityRules((prev) => {
+      const prevRule = prev[name] ?? {}
+      const edited = new Set(prevRule._editedFields ?? [])
+      for (const key of Object.keys(patch)) {
+        const src = RULE_FIELD_TO_SOURCE[key]
+        if (src) edited.add(src)
+      }
+      return { ...prev, [name]: { ...prevRule, ...patch, _inferred: false, _editedFields: [...edited] } }
+    })
   }
 
   function toggleRuleGroup(name, groupName, allGroups) {
@@ -473,6 +500,13 @@ export default function ImportScreen({ campId, onNavigate }) {
     // same value the activities table reads — no conversion at this
     // boundary (round 2 review, Fix 1).
     const outgoingRules = {}
+    // Per approved activity, the SOURCE field names the director hand-edited —
+    // marked source:'human' at commit so a later re-import cannot silently
+    // overwrite them (Policy A). Only touched fields go in; an untouched,
+    // file-inferred rule field stays absent and re-importable. Same mechanism as
+    // the unit column above, keyed under `activities` in the SAME humanEditedFields
+    // map (docs/adr/2026-08-09-activity-rule-hand-edit-provenance.md).
+    const activityHumanFields = {}
     for (const name of approved.activities ?? []) {
       const rule = activityRules[name]
       if (!rule) continue
@@ -482,12 +516,14 @@ export default function ImportScreen({ campId, onNavigate }) {
         max_per_week: rule.max_per_week,
         priority: rule.priority,
       }
+      const edited = Array.isArray(rule._editedFields) ? rule._editedFields : []
+      if (edited.length > 0) activityHumanFields[name] = edited
     }
     return {
       approved,
       links: { groups: groupUnits },
       clears: { groups: groupClears },
-      humanEditedFields: { groups: groupHumanFields },
+      humanEditedFields: { groups: groupHumanFields, activities: activityHumanFields },
       cohort_id: activeCohort?.id ?? null,
       fixedEvents: tickedFixedEvents,
       activityRules: outgoingRules,
