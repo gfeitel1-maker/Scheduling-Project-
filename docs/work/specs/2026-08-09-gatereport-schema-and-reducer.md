@@ -70,9 +70,15 @@ Every gate emits exactly one `PerGateReport`. Field-by-field contract:
 |---|---|---|---|
 | `gate_name` | enum | required | `verifier` \| `security` \| `red_hat` \| `tester` \| `code_reviewer` |
 | `verdict` | enum | required | `PASS` \| `FAIL` \| `N/A` \| `UNVERIFIED` — see §3.1 |
-| `score` | number \| null | required | integer 1–5 for an opinion gate with `verdict ∈ {PASS, FAIL}`; **`null`** when `verdict ∈ {N/A, UNVERIFIED}`; **always `null`** for `verifier` (the deterministic gate is not scored) |
+| `score` | integer \| null | required | integer 1–5 (whole numbers only) for an opinion gate with `verdict ∈ {PASS, FAIL}`; **`null`** when `verdict ∈ {N/A, UNVERIFIED}`; **always `null`** for `verifier` (the deterministic gate is not scored) |
+| `na_reason` | string \| null | required-when-`N/A` | a non-empty stated reason when `verdict == N/A` (a gate that ran and self-declared not-applicable must say why); **`null`** for every other verdict. A self-declared `N/A` with null/empty `na_reason` is **malformed** (§5.1) and cannot silently skip the audit — closes the self-declared-N/A laundering vector (§5.8) |
 | `findings` | Finding[] | required | may be empty `[]`; never omitted |
 | `evidence_ref` | string (pointer) | required for `verifier`; optional for opinion gates | a pointer (path/sha/log id), never inlined content — same discipline as `diff_ref` |
+
+**Cardinality invariant:** exactly **one** `PerGateReport` per `gate_name` per `(task_id, round)`.
+Two reports tagged the same `gate_name` is a harness fault, not a legitimate input; the reducer
+treats **all** reports for that gate as malformed (§5.1) rather than picking one — silently
+choosing last-write-wins could drop a FAIL in favour of a PASS.
 
 `Finding`:
 
@@ -91,14 +97,21 @@ Every gate emits exactly one `PerGateReport`. Field-by-field contract:
 - **`N/A`** — the gate declares itself **not applicable** to this task (e.g. Security on a
   pure-docs change). Legitimate only for an **opinion** gate, and only when the run record's
   `omitted_agents` carries a reason from the enum (`no-predicate` / `not-applicable` /
-  `human-waived`) **or** the gate ran and self-declared N/A with a stated reason. `score`
-  is `null`. An `N/A` gate is **excluded from the numeric average**, never scored as 0 or 5.
+  `human-waived`) **or** the gate ran and self-declared N/A **with a non-empty `na_reason`**.
+  `score` is `null`. An `N/A` gate is **excluded from the numeric average**, never scored as
+  0 or 5. A self-declared `N/A` (one from a gate that was in the expected set, i.e. *not* a
+  pre-dispatch `omitted_agents` entry) is **not silent**: it is recorded in `self_declared_na[]`
+  and surfaced to the human at promotion (§5.8, §8), so a gate that ran and excused itself is
+  auditable rather than quieter than a gate that never reported. A self-declared `N/A` with no
+  `na_reason` is malformed (§5.1).
 - **`UNVERIFIED`** — **Verifier only.** A claimed success predicate could not be mechanically
   checked (`CONSTITUTION.md` Article VII). `score` is `null`. Treated by the reducer as
   "not PASS" for the hard-block (§6).
 
-An opinion gate emitting `UNVERIFIED`, or `verifier` emitting a `score`, is a **malformed
-report** — see §5.1.
+An opinion gate emitting `UNVERIFIED`, a `verifier` emitting a `score` or a `verdict == N/A`,
+a self-declared `N/A` with no `na_reason`, a non-null `score` on an `N/A`/`UNVERIFIED` verdict,
+or a non-integer `score`, are each a **malformed report** — see §5.1 (which is exhaustive
+against this table).
 
 ## 4. Aggregate `GateReport` shape
 
@@ -118,6 +131,7 @@ The reducer's sole output. Field-by-field:
 | `cross_gate_flags` | CrossGateFlag[] | `[{ref, gate_names[]}]` — findings from ≥2 gates that reference the same `ref` (§5.6); `[]` if none |
 | `decision_eligibility` | enum | `PASS_ELIGIBLE` \| `BLOCK` — computed by §5.7. **Advisory to Governor, not the decision itself** |
 | `malformed` | Malformed[] | `[{gate_name, problem}]` for reports that violate §3; `[]` when all well-formed (§5.1) |
+| `self_declared_na` | SelfNa[] | `[{gate_name, na_reason}]` for each **expected** opinion gate that ran and returned a well-formed `N/A` (i.e. an in-band self-excusal, not a pre-dispatch `omitted_agents` entry); `[]` if none (§5.8). Surfaced at promotion (§8) so a gate excusing itself is auditable |
 
 `decision_eligibility` is deliberately named *eligibility*, not *verdict*: the reducer says
 whether a PASS is **permissible on the evidence**; Governor (and the human at promotion)
@@ -130,17 +144,39 @@ the run record. Output: one `GateReport`. The steps below are total — every in
 combination has a defined result. Applied in order.
 
 ### 5.1 Validate shape first
-For each present report, check §3. A report is **malformed** if: an opinion gate has
-`verdict == UNVERIFIED`; `verifier` has a non-null `score`; `verdict == FAIL` with no
-`BLOCKING` finding, or a `BLOCKING` finding with `verdict != FAIL`; `score` out of 1–5 for a
-scored verdict; or a required field is absent. Record each in `malformed[]`. A malformed
-report is **not** silently coerced: it is treated as **absent** for that gate for all
-subsequent steps (so it can never inflate a score or erase a block), and `malformed` being
-non-empty forces `decision_eligibility = BLOCK` (§5.7). This prevents a bad report from
-laundering into a pass. A gate whose only report was malformed contributes a `gap` entry
-with `reason: "malformed"` (not `"missing"`), so the §9 audit distinguishes "Governor
-proceeded past a genuinely absent gate" from "a gate reported but was garbled" — the two
-have different causes and the audit trail (decision a) must not conflate them.
+For each present report, check §3. This list is **exhaustive against the §3 contract** — every
+way a report can violate §3 is enumerated here, so nothing schema-violating is silently
+absorbed as well-formed (which would corrupt the `malformed[]` report-quality audit, §9). A
+report is **malformed** if **any** of:
+- an **opinion** gate has `verdict == UNVERIFIED` (UNVERIFIED is Verifier-only);
+- `verifier` has a non-null `score`, **or** `verifier` has `verdict == N/A` (N/A is opinion-only);
+- `verdict == FAIL` with no `BLOCKING` finding, or a `BLOCKING` finding with `verdict != FAIL`;
+- `score` is non-null on an `N/A` or `UNVERIFIED` verdict; `score` is out of 1–5, or non-integer,
+  on a scored (`PASS`/`FAIL`) verdict; `score` is null on a scored opinion verdict;
+- **any** live report with `verdict == N/A` and a null/empty `na_reason` (self-declared N/A must
+  state why — closes the self-declared-N/A laundering vector, §5.8). This applies regardless of
+  expected-set membership: a live `N/A` report from a gate that was pre-declared omitted is
+  itself anomalous (an omitted gate should not be reporting), and a reasonless one is malformed
+  either way — so no reasonless `N/A` escapes the check;
+- more than one report carries the same `gate_name` (cardinality invariant, §3) — **all** such
+  reports for that gate are malformed;
+- any required field (per §3) is absent.
+
+Record each in `malformed[]` as `{gate_name, problem}`. A malformed report is **not** silently
+coerced: it is treated as **absent** for that gate for all subsequent steps (so it can never
+inflate a score or erase a block), and `malformed` being non-empty forces
+`decision_eligibility = BLOCK` (§5.7). This prevents a bad report from laundering into a pass.
+A gate whose only report was malformed contributes a `gap` entry with `reason: "malformed"`
+(not `"missing"`), so the §9 audit distinguishes "Governor proceeded past a genuinely absent
+gate" from "a gate reported but was garbled" — the two have different causes and the audit
+trail (decision a) must not conflate them.
+
+**Malformed content is discarded, but the block is not.** Because a malformed report is treated
+as absent, the *substance* of any finding it carried (even a genuine `BLOCKING` one) does **not**
+reach `blocking_findings` (§5.5) — only the *fact* of malformation reaches `malformed[]`, which
+forces BLOCK via §5.7. This fails safe (the round blocks either way), but so the finding is not
+lost to a retry, the `malformed[]` entry's `problem` MUST carry the report's `evidence_ref`
+pointer when one was present, so a human can recover what the garbled report actually said.
 
 ### 5.2 Compute `verifier_pass`
 `verifier_pass = (verifier report present) AND (verifier.verdict == PASS)`. Every other
@@ -195,12 +231,24 @@ a best-effort flag). Stated so a reader does not over-trust an empty list.
    on). **Note:** an all-`N/A` opinion panel is only reachable on a task where every opinion
    gate is legitimately not-applicable; on such a task the PASS rests entirely on
    `verifier_pass == true`, and this rule intentionally makes that an explicit Governor
-   judgment rather than an automatic pass (§11, edge E4).
+   judgment rather than an automatic pass (§11, edge E3).
 5. `overall_score < 4.0`.
 6. `lowest_dimension < 3`.
 
 `incomplete == true` is **not** in this list — by owner decision (a) it does not force a
 block (§7). It is surfaced (§8) and left to Governor's documented discretion.
+
+### 5.8 Compute `self_declared_na`
+`self_declared_na = [{gate_name, na_reason} for each opinion gate that is (i) in the expected
+set, (ii) present and well-formed, and (iii) has `verdict == N/A`]`. This makes an **in-band
+self-excusal** — a gate that ran and declared itself not-applicable — a first-class,
+auditable event, closing the laundering vector where a bare `N/A` is *quieter* than a missing
+report (a missing gate sets `incomplete`/`gap` and is surfaced; an unrecorded self-N/A would
+set neither). It does **not** force a block on its own — a legitimate self-N/A is a valid
+outcome — but it is persisted (§9) and shown to the human at promotion (§8), so a pattern of a
+gate repeatedly excusing itself is visible rather than silent. A pre-dispatch `omitted_agents`
+entry is **not** a self-declared N/A (it never ran) and does not appear here; the two are kept
+distinct on purpose (the pre-hoc-omission-legitimacy risk is boundary property H2, §13).
 
 ## 6. Verifier hard-block invariant (owner decision a)
 
@@ -228,14 +276,22 @@ it flags this as a **required harness property (H1, §13)** the implementing ses
 satisfy, not something the reducer can enforce alone.
 
 **Definitions.** For each **opinion** gate in the **expected gate set** (§2):
-- present + well-formed → contributes normally.
-- absent from the run's reports, or malformed (§5.1) → **missing**.
-- an opinion gate **not** in the expected set (Governor declared it omitted with an enum
-  reason, or the gate self-declared `N/A`) → **N/A**, *not* missing. It does not set
-  `incomplete`.
+- present + well-formed + `verdict ∈ {PASS, FAIL}` → contributes normally to `S` (§5.3).
+- present + well-formed + `verdict == N/A` → a **self-declared N/A**: excluded from `S`,
+  recorded in `self_declared_na[]` (§5.8), does **not** set `incomplete`. Auditable, not silent.
+- **absent** from the run's reports → **missing**, `reason: "missing"`.
+- **malformed** (§5.1) → also produces a gap entry, but with `reason: "malformed"`, **never**
+  `"missing"` — the two are distinct facts (a garbled report vs. no report) and §9's audit and
+  the human at promotion (§8) must see which one occurred. Both set `incomplete`.
+- an opinion gate **not** in the expected set (a pre-dispatch `omitted_agents` entry with an
+  enum reason) → **N/A**, *not* missing, *not* a self-declared N/A. It does not set `incomplete`
+  and does not appear in `self_declared_na[]`. (The legitimacy of a pre-dispatch omission is
+  boundary property H2, §13 — outside the reducer.)
 
-`incomplete = (at least one expected opinion gate is missing)`.
-`gap = [{gate_name, reason: "missing"} for each such gate]`.
+`incomplete = (at least one expected opinion gate is missing OR malformed)`.
+`gap = [{gate_name, reason} for each such gate]`, where `reason` is `"missing"` for an absent
+report and `"malformed"` for a §5.1-malformed one — the reducer preserves the distinction here,
+it does **not** collapse both to `"missing"`.
 
 **Owner decision (a), 2026-08-09 — this is a closed decision, reversing the earlier
 hard-halt default (ADR Decision point 3):**
@@ -272,7 +328,14 @@ the human is shown, read-only, from the referenced `GateReport`:
 - `blocking_findings` (with their `gate_name` tags and `ref`s);
 - `incomplete` and `gap[]` — **so any documented gap Governor proceeded past under §7 is
   placed directly in front of the human who owns promotion**, which is what makes the §7
-  discretion accountable rather than silent;
+  discretion accountable rather than silent; each gap shows its `reason` (`missing` vs
+  `malformed`), so the human is never told "missing" when the truth is "garbled";
+- `malformed[]` — the report-quality signal, including each entry's `evidence_ref` pointer so
+  the human can recover what a garbled report actually said (§5.1). Surfaced for the same
+  accountability reason as `gap[]`: a report that had to be discarded is exactly what the human
+  at the final gate should see;
+- `self_declared_na[]` — each gate that ran and excused itself, with its `na_reason` (§5.8), so
+  an in-band self-N/A is as visible to the human as a missing gate is;
 - `cross_gate_flags` — the same-`ref` cross-gate findings from §5.6, flagged for attention;
 - the `evidence_ref` pointers, so the human can follow them to raw evidence.
 
@@ -294,9 +357,10 @@ out of scope — the *shape* is the contract):
 | `overall_score`, `lowest_dimension` | score trend |
 | `decision_eligibility` (enum) | eligibility distribution |
 | `blocking_findings` (list, each with `gate_name`) | **"how often does Security block vs. Red Hat"** — the §14.3 queryability gap this closes |
-| `incomplete` (bool), `gap` (list) | "how often did Governor proceed past a gap, and which gate" — the audit trail decision (a) depends on |
+| `incomplete` (bool), `gap` (list, each with `reason` ∈ {missing, malformed}) | "how often did Governor proceed past a gap, and which gate, and was it a missing or a garbled report" — the audit trail decision (a) depends on |
 | `cross_gate_flags` (list) | same-file cross-gate risks over time |
 | `malformed` (list) | report-quality signal |
+| `self_declared_na` (list, each with `na_reason`) | "which gates excuse themselves, how often, and why" — makes in-band self-N/A auditable (§5.8) |
 
 The record is written **whether the outcome was PASS_ELIGIBLE or BLOCK, and whether or not
 Governor exercised §7 discretion** — an absent record would defeat the audit trail that makes
@@ -336,12 +400,21 @@ properties an adversary should try to break:
   results — which H1 exists to prevent.
 - **L2 — discretion never reaches the Verifier or a FAIL.** §6 and §7 bound it to *missing
   opinion* reports only.
-- **L3 — malformed ≠ ignorable.** A malformed report is treated as missing *and* forces
-  BLOCK (§5.1, §5.7.3), so garbling a report cannot erase a finding it contained.
+- **L3 — malformed ≠ ignorable.** A malformed report is treated as *absent* for scoring *and*
+  forces BLOCK (§5.1, §5.7.3), so garbling a report cannot erase a finding it contained. It is
+  logged in `gap[]` with `reason: "malformed"` (never `"missing"`) and in `malformed[]` with its
+  `evidence_ref`, so a garbled report is never mistaken for a report that never came.
 - **L4 — gaps are un-erasable and surfaced.** `incomplete`/`gap` are persisted (§9) and shown
   to the human (§8); discretion leaves a permanent, reviewable trace.
 - **L5 — no score invention.** N/A and missing gates are `null`, never 0 or 5 (§3.1, §5.3);
   the average cannot be padded up or down by a gate that did not score.
+- **L6 — self-declared N/A cannot route around the audit.** A gate that ran and returned `N/A`
+  must carry a non-empty `na_reason` (else malformed, §5.1) and is recorded in
+  `self_declared_na[]` and surfaced at promotion (§5.8, §8, §9). This closes the vector where a
+  bare `N/A` would be *quieter* than a missing report — excusing itself no longer lets a gate
+  vanish from the evidence the human sees. L6 covers the **in-band** self-N/A; the legitimacy of
+  a **pre-dispatch** omission is not something the reducer can judge — see boundary property H2
+  (§13).
 
 Degenerate edges, each with a defined result:
 - **E1 empty panel** (no gate ran at all): `verifier` missing → `verifier_pass = false` →
@@ -385,6 +458,16 @@ roster (ADR "Decision", closing paragraph; exploration §11).
   rewriting it). The reducer cannot check freeze-time itself. Surfaced by the 2026-08-09
   main-loop adversarial pass (finding F1) — without H1, an actor can convert a `missing` gate
   into an after-the-fact `N/A` and clear `incomplete`.
+- **H2 — pre-dispatch omission legitimacy is a boundary the reducer cannot check.** H1 freezes
+  *when* the expected set is written; it does not judge *whether* a pre-dispatch `omitted_agents`
+  entry was truthful. A pretextual omission (marking Security `not-applicable` before dispatch on
+  a task that actually warrants it) satisfies H1, never sets `incomplete`, and never reaches
+  `self_declared_na[]` (it never ran) — so it is invisible at reduce time and at promotion. This
+  is the same shape of risk as F1 but one step earlier, and it lives in the WORK_RECORD_STANDARD
+  / Governor-dispatch layer, not this reducer. The implementing session (and the constitution's
+  human-owned spec/omission review) MUST own validating omission reasons; this spec names it as
+  a residual boundary risk rather than leaving it implicit. Surfaced by the 2026-08-09 Red Hat
+  adversarial pass.
 
 **Owner judgment:**
 

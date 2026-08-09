@@ -28,7 +28,6 @@ Regenerate with `npm run index:work`.
 | [T49-finish-ingestion](../../docs/work/tickets/T49-finish-ingestion.md) | open | — |
 | [T51-mcp-cli-ingestion](../../docs/work/tickets/T51-mcp-cli-ingestion.md) | open | — |
 | [T52-activity-colors-tokenization](../../docs/work/tickets/T52-activity-colors-tokenization.md) | open | [T50-schedule-canvas-rebuild](../../docs/work/tickets/T50-schedule-canvas-rebuild.md) |
-| [T76-declare-gatereport-schema-and-reducer-spec](../../docs/work/tickets/T76-declare-gatereport-schema-and-reducer-spec.md) | in-progress | [2026-08-09-gatereport-schema-and-reducer](../../docs/work/specs/2026-08-09-gatereport-schema-and-reducer.md) |
 
 ## Decisions
 

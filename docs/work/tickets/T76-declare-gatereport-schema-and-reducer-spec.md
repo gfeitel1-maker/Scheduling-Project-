@@ -1,7 +1,7 @@
 ---
 title: T76-declare-gatereport-schema-and-reducer-spec
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-08-09
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/GOVERNANCE_INDEX.md]
 related_tickets: []
@@ -110,20 +110,44 @@ to run). Verification is:
       distinguishes `missing`/`malformed`, §4/§5.1), F3 (cross-gate flags silently best-effort
       on optional `ref` → limitation stated, §5.6). An independent Red Hat pass should still be
       run for confirmation once the limit resets; recorded so the substitution is not silent.
-- [ ] Consistency check against `docs/adr/2026-08-09-gate-stack-as-fixed-fanin-graph.md`
+- [x] Independent Red Hat agent adversarial pass (ran 2026-08-09 once the limit cleared).
+      Verdict: "does not survive as written" — found 2 HIGH + 4 MEDIUM/edge the main-loop pass
+      missed. All resolved in place, no triage:
+      - HIGH — §7's `gap` pseudocode still hardcoded `reason: "missing"`, silently un-fixing F2.
+        Rewrote §7 Definitions so missing vs malformed is preserved end-to-end (§4/§5.1/§7/§8/§9).
+      - HIGH — self-declared `N/A` laundering: a bare `N/A` bypassed the missing/gap audit and
+        was quieter than a missing report. Added required `na_reason` field (§3), a malformed
+        check for reasonless N/A (§5.1), a first-class `self_declared_na[]` aggregate field
+        computed in new §5.8, surfaced at promotion (§8), persisted (§9), new property L6 (§11).
+      - MEDIUM — §5.1 not exhaustive vs §3: added checks for verifier-N/A, non-null score on
+        N/A/UNVERIFIED, non-integer score, null score on a scored verdict.
+      - MEDIUM — §8 promotion payload omitted `malformed[]`: added it (+ `self_declared_na[]`).
+      - MEDIUM — pre-dispatch omission legitimacy: named as residual boundary property H2 (§13).
+      - EDGE — duplicate reports per gate: added cardinality invariant (§3) → malformed (§5.1).
+      - EDGE — malformed report's BLOCKING content dropped: stated explicitly; `evidence_ref`
+        must be carried in the `malformed[]` entry so the finding is recoverable (§5.1).
+- [x] Confirmation Red Hat pass on the revised spec (ran 2026-08-09). Verdict: all seven items
+      genuinely closed (not cosmetic), cross-checked across §3/§3.1/§4/§5.1/§5.7/§5.8/§7/§8/§9/
+      §11/§13; no fix introduced a new contradiction; Resilience 5/5. One obscure drafting nit
+      raised "for completeness" (reasonless N/A from an unexpected gate) — closed by dropping the
+      expected-set qualifier on the §5.1 malformed check so any reasonless live N/A is malformed.
+      Residual H2 (pre-dispatch omission legitimacy) is correctly out-of-reducer-scope and named.
+- [x] Consistency check against `docs/adr/2026-08-09-gate-stack-as-fixed-fanin-graph.md`
       (Decision points 1–6) and `docs/work/2026-08-09-graph-engineering-exploration.md`
-      (§3, §4, §13, §14) — the spec cross-references and does not contradict them.
-- [ ] The reducer is a total function: every (verifier ∈ {PASS,FAIL,missing}) ×
-      (each opinion gate ∈ {PASS,FAIL,N/A,missing}) combination has a declared output.
+      (§3, §4, §13, §14) — the spec cross-references and does not contradict them (confirmed by
+      the Red Hat consistency check above and the §12 consistency map).
+- [x] The reducer is a total function: every (verifier ∈ {PASS,FAIL,UNVERIFIED,missing,malformed})
+      × (each opinion gate ∈ {PASS,FAIL,N/A,missing,malformed}) combination has a declared output
+      (§5 is total; §5.1 exhaustiveness confirmed by adversarial construction).
 
 ## Acceptance
 
-- [ ] `docs/work/specs/2026-08-09-gatereport-schema-and-reducer.md` exists with a
+- [x] `docs/work/specs/2026-08-09-gatereport-schema-and-reducer.md` exists with a
       complete field-by-field contract and a total-function reducer rule.
-- [ ] `verifier_pass = false` is stated as an absolute, non-overridable block.
-- [ ] Missing/`incomplete` handling reflects owner decision (a): discretion-with-
+- [x] `verifier_pass = false` is stated as an absolute, non-overridable block.
+- [x] Missing/`incomplete` handling reflects owner decision (a): discretion-with-
       documented-gap, opinion-gates only, never a FAIL, gap persisted + surfaced.
-- [ ] `gate_report_ref` promotion surfacing reflects owner decision (c).
-- [ ] Durable-record shape is specified (queryable fields named).
-- [ ] Red Hat findings on the reducer + discretion resolved in place.
-- [ ] `npm run check:governance` passes (frontmatter/cross-reference integrity).
+- [x] `gate_report_ref` promotion surfacing reflects owner decision (c).
+- [x] Durable-record shape is specified (queryable fields named).
+- [x] Red Hat findings on the reducer + discretion resolved in place.
+- [x] `npm run check:governance` passes (frontmatter/cross-reference integrity).
