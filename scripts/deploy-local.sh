@@ -125,26 +125,48 @@ echo "==> Launch smoke test ($EXECUTABLE_NAME)"
 # "process still alive after N seconds" used to pass even when the main
 # process had crashed, because Electron keeps the process alive behind its
 # own uncaught-exception error dialog. Instead, wait for a positive heartbeat:
-# electron/main.js writes deploy-smoke-marker.json only after did-finish-load
-# fires on a real window, which a crashed/undialoged app never reaches.
+# electron/main.js writes deploy-smoke-marker.json only after the renderer's
+# dom-ready fires on a real window, which a crashed/undialoged app never reaches.
 #
-# The app is launched against a fresh throwaway userData directory
-# (SHORESH_SMOKE_USERDATA), never the machine's real operational database —
-# this proves the BUILD boots, not that the machine's live DB schema happens
-# to match the build. SHORESH_SMOKE_NONCE ties the marker to this exact
-# launch so a stale marker file from a previous run can never false-pass.
+# The app is launched against a throwaway userData directory
+# (SHORESH_SMOKE_USERDATA), never the machine's real one, so the smoke run can
+# never mutate live data. We SEED that throwaway dir with a read-only COPY of
+# the live database, for two reasons:
+#   1. Reliability. Booting a fresh EMPTY db runs the full migration chain from
+#      scratch on every deploy; that cold path was slow and non-deterministic
+#      and false-failed good builds (the renderer's boot signal arrived after
+#      the timeout, or not at all). Booting an already-migrated copy reaches a
+#      steady state fast and deterministically.
+#   2. A better guarantee. It proves the new build can actually open THIS
+#      machine's real data shape — so a build too old for the live schema
+#      (e.g. a v29 build against a v30 db) fails the gate instead of installing.
+# The copy is of the .sqlite file only; WAL mode keeps that file self-consistent
+# up to the last checkpoint, which is a valid db to boot. If there is no live db
+# yet (first-ever install), we fall back to a fresh empty db.
+# SHORESH_SMOKE_NONCE ties the marker to this exact launch so a stale marker
+# file from a previous run can never false-pass.
 SMOKE_NONCE="$(node -e "console.log(require('crypto').randomUUID())")"
 SMOKE_USERDATA="$(mktemp -d)"
 trap 'rm -rf "$SMOKE_USERDATA"' EXIT
 SMOKE_TIMEOUT_S="${SHORESH_SMOKE_TIMEOUT_S:-40}"
 MARKER_PATH="$SMOKE_USERDATA/deploy-smoke-marker.json"
 
+# Seed with a copy of the live database so the smoke boot skips the slow,
+# flaky cold-migration path. APP_NAME 'shoresh' -> ~/Library/Application Support/shoresh.
+LIVE_DB="$HOME/Library/Application Support/shoresh/shoresh.sqlite"
+if [ -f "$LIVE_DB" ]; then
+  cp "$LIVE_DB" "$SMOKE_USERDATA/shoresh.sqlite"
+  echo "==> smoke test seeded with a read-only copy of the live database (live data untouched)"
+else
+  echo "==> smoke test using a fresh empty database (no live database found to copy)"
+fi
+
 SHORESH_SMOKE_NONCE="$SMOKE_NONCE" SHORESH_SMOKE_USERDATA="$SMOKE_USERDATA" "$EXECUTABLE_PATH" &
 APP_PID=$!
 
-# KNOWN CEILING: did-finish-load only proves the renderer shell loaded, not
-# that React mounted or that IPC works end to end. A renderer-mount+IPC
-# heartbeat is a planned follow-up.
+# KNOWN CEILING: dom-ready only proves the renderer shell loaded, not that React
+# mounted or that IPC works end to end. A renderer-mount+IPC heartbeat is a
+# planned follow-up.
 elapsed=0
 smoke_passed=0
 while [ "$elapsed" -lt "$SMOKE_TIMEOUT_S" ]; do
