@@ -1593,3 +1593,95 @@ describe('ingestCommit: who may import, and from where', () => {
     expect(db.prepare('SELECT COUNT(*) c FROM activities').get().c).toBe(2)
   })
 })
+
+describe('confirmAlias handler: who may confirm, and from where (S1b)', () => {
+  async function adminToken(handlers) {
+    await seedCampAndUser({ name: 'Ruth', pin: '4321', role: 'admin' })
+    const { token } = await handlers.login({ name: 'Ruth', pin: '4321' })
+    return token
+  }
+
+  function makeGroup(campIdHere, name) {
+    const id = randomUUID()
+    db.prepare('INSERT INTO groups (id, camp_id, name, availability) VALUES (?, ?, ?, ?)').run(id, campIdHere, name, 'all')
+    return id
+  }
+
+  it('refuses a staff token, and writes no alias row', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7301 })
+    await seedCampAndUser({ name: 'Alice', pin: '1234', role: 'staff' })
+    const { token } = await handlers.login({ name: 'Alice', pin: '1234' })
+    const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    const groupId = makeGroup(campIdHere, 'Bunk One')
+
+    expect(() =>
+      handlers.confirmAlias({ token, entity_type: 'groups', source_label: 'Cabin 1', entity_id: groupId })
+    ).toThrow(/admin role required/i)
+    expect(db.prepare('SELECT COUNT(*) c FROM source_aliases').get().c).toBe(0)
+  })
+
+  it('refuses a device in Client mode', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    const token = await adminToken(handlers)
+    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+
+    expect(() =>
+      handlers.confirmAlias({ token, entity_type: 'groups', source_label: 'Cabin 1', entity_id: 'g1' })
+    ).toThrow('Confirming an import match can only be done on the main computer.')
+    expect(db.prepare('SELECT COUNT(*) c FROM source_aliases').get().c).toBe(0)
+  })
+
+  it('rejects an invalid entity_type before any DB access, for an admin session too', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7302 })
+    const token = await adminToken(handlers)
+
+    expect(() =>
+      handlers.confirmAlias({ token, entity_type: 'template_slots', source_label: 'x', entity_id: 'whatever' })
+    ).toThrow()
+    expect(db.prepare('SELECT COUNT(*) c FROM source_aliases').get().c).toBe(0)
+  })
+
+  it('lets an admin on the Host confirm an alias', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7303 })
+    const token = await adminToken(handlers)
+    const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    const groupId = makeGroup(campIdHere, 'Bunk One')
+
+    const result = handlers.confirmAlias({ token, entity_type: 'groups', source_label: 'Cabin 1', entity_id: groupId })
+
+    expect(result.id).toBeTruthy()
+    expect(db.prepare("SELECT entity_id FROM source_aliases WHERE status = 'active'").get().entity_id).toBe(groupId)
+  })
+
+  it('refuses a confirm onto a locked activity, surfacing rather than silently binding', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7304 })
+    const token = await adminToken(handlers)
+    const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    const activityId = randomUUID()
+    db.prepare('INSERT INTO activities (id, camp_id, name, is_locked) VALUES (?, ?, ?, 1)').run(activityId, campIdHere, 'Swim')
+
+    expect(() =>
+      handlers.confirmAlias({ token, entity_type: 'activities', source_label: 'Swimming', entity_id: activityId })
+    ).toThrow()
+    expect(db.prepare('SELECT COUNT(*) c FROM source_aliases').get().c).toBe(0)
+  })
+})
+
+describe('the generic write() path refuses source_aliases (S1b)', () => {
+  it('throws rather than silently no-opping', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7305 })
+    const { user } = await seedCampAndUser({ name: 'AdminWriter', pin: '9999', role: 'admin' })
+    const { token } = await handlers.login({ name: 'AdminWriter', pin: '9999' })
+    void user
+
+    await expect(
+      handlers.write({ token, entity: 'source_aliases', entity_id: 'a1', field: 'status', value: 'active' })
+    ).rejects.toThrow(/source_aliases/)
+    expect(db.prepare('SELECT COUNT(*) c FROM source_aliases').get().c).toBe(0)
+  })
+})

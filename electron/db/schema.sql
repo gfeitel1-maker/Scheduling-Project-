@@ -100,6 +100,27 @@ CREATE TABLE IF NOT EXISTS host_signing_key (
   created_at TEXT NOT NULL
 );
 
+-- Host-only table, like host_signing_key. NEVER included in any full-sync
+-- SELECT/payload, NEVER sent over the wire, NEVER added to DIRECT_CAMP_ENTITIES
+-- or PROJECTIONS. Import (and therefore alias confirmation) only ever runs on
+-- the host device, admin-gated — see electron/ops/ingest.js, main.js.
+-- docs/adr/2026-08-09-s1b-host-local-aliases.md.
+CREATE TABLE IF NOT EXISTS source_aliases (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  entity_type TEXT NOT NULL,     -- one of the 6 ingestible types, validated at the write boundary
+  cohort_id TEXT,                -- populated ONLY for cohort-scoped types (tiers, time_blocks); NULL otherwise
+  source_label TEXT NOT NULL,    -- the raw label as it appeared in the imported file
+  entity_id TEXT NOT NULL,       -- plain TEXT, not a FK (entity_type varies; no single-table target)
+  status TEXT NOT NULL DEFAULT 'active',  -- 'active' | 'superseded'
+  confirmed_by TEXT,             -- plain TEXT user id, provenance only
+  confirmed_at TEXT NOT NULL,
+  superseded_by TEXT             -- id of the alias row that replaced this one, when status='superseded'
+);
+
+CREATE INDEX IF NOT EXISTS idx_source_aliases_lookup
+  ON source_aliases (camp_id, entity_type, cohort_id);
+
 -- DRIFTED TABLE: a migrated database has one additional column not listed below.
 -- Migration-added columns (see localDb.js):
 --   v8:  client_write_id TEXT  (already present in this CREATE TABLE — added here

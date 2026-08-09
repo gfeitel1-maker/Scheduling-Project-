@@ -22,6 +22,7 @@ import { listDeleted, getEntityHistory } from './ops/trash.js'
 import { RESTORABLE_ENTITIES, restoreEntity } from './ops/restore.js'
 import { CLEARABLE_ENTITIES, previewDelete, deleteRecord } from './ops/deleteRecord.js'
 import { commitIngest } from './ops/ingest.js'
+import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
@@ -286,6 +287,37 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // schedule/clipboard path, leaving the clock gate inert.
       base_generation: base_generation ?? 0,
     })
+  }
+
+  // S1b — confirm that an imported label means an existing entity, so the
+  // next import recognizes it without asking again
+  // (docs/adr/2026-08-09-s1b-host-local-aliases.md §2). Admin-only via
+  // 'source_aliases.confirm', deliberately absent from the staff permission
+  // list (permissions.js) — the same omission pattern as 'groups.import'.
+  // HOST ONLY, same reasoning as ingestCommit above: confirmAlias writes
+  // straight to THIS device's SQLite via direct SQL (no op-log), so running
+  // it on a Client would be invisible to the Host and every peer.
+  function confirmAliasHandler({ token, entity_type, cohort_id, source_label, entity_id } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const session = requireAuthorized(db, { token, action: 'source_aliases.confirm' })
+    if (mode === 'client') {
+      throw new Error('Confirming an import match can only be done on the main computer.')
+    }
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) throw new Error('no camp on this device')
+    try {
+      return confirmAlias(db, {
+        camp_id: camp.id,
+        entity_type,
+        cohort_id: cohort_id ?? null,
+        source_label,
+        entity_id,
+        confirmed_by: session.userId,
+      })
+    } catch (err) {
+      if (err instanceof ConfirmAliasError) throw new Error(err.message)
+      throw err
+    }
   }
 
   // S4b §4 — the op-log's current generation, so S4a's export can stamp a real
@@ -975,6 +1007,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     getDeviceId,
     getSyncStatus,
     ingestCommit,
+    confirmAlias: confirmAliasHandler,
     latestOpSeq: latestOpSeqHandler,
     resolveConflict,
     listPendingConflicts: listPendingConflictsHandler,
@@ -1032,6 +1065,7 @@ if (isElectronEntryPoint()) {
     'shoresh:get-device-id',
     'shoresh:get-sync-status',
     'shoresh:ingest-commit',
+    'shoresh:confirm-alias',
     'shoresh:latest-op-seq',
     'shoresh:resolve-conflict',
     'shoresh:list-conflicts',
@@ -1079,6 +1113,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:get-device-id', (_event, args) => handlers.getDeviceId(args && args.token))
     ipcMain.handle('shoresh:get-sync-status', () => handlers.getSyncStatus())
     ipcMain.handle('shoresh:ingest-commit', (_event, args) => handlers.ingestCommit(args))
+    ipcMain.handle('shoresh:confirm-alias', (_event, args) => handlers.confirmAlias(args))
     ipcMain.handle('shoresh:latest-op-seq', () => handlers.latestOpSeq())
     ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
     ipcMain.handle('shoresh:list-conflicts', (_event, args) => handlers.listPendingConflicts(args && args.token))

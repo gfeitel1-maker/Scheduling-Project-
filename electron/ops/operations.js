@@ -80,7 +80,18 @@ export function coerceOpValue(value) {
 // writer from where the code is — never copied from a client-submitted op (that
 // would let a peer forge 'import'; handleSubmitOp forces 'human'). See the ADR
 // §2 writer census.
+// S1b: source_aliases is a host-local table with its own typed committer
+// (confirmAlias.js), never registered in PROJECTIONS and never replicated —
+// the same "typed committer only, never a raw field-op entity" treatment
+// bulk_replace gets above. Refused here rather than left to fall through as
+// a silent no-op (it has no projection to apply anyway, since it is
+// unregistered), so the boundary is a clear error, and this covers BOTH
+// write() (the no-serverUrl client above) and the Host's WS submit_op path
+// (syncServer.js's handleSubmitOp), which both call appendOp.
 export function appendOp(db, { entity, entity_id, field, value, author_user_id, device_id, parent_op_id, client_write_id, source = null }) {
+  if (entity === 'source_aliases') {
+    throw new Error('source_aliases cannot be written through the generic op-log path — use confirmAlias')
+  }
   const projection = PROJECTIONS[entity]
   if (projection && field !== DELETE_FIELD && !projection.fields.includes(field)) {
     throw new Error('field not allowed for entity')

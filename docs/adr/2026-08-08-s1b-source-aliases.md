@@ -2,7 +2,10 @@
 title: "Source aliases and identity resolution (S1b)"
 document_type: adr
 authority: normative
-status: proposed
+status: superseded
+superseded_by:
+  - docs/adr/2026-08-09-s1b-source-aliases.md
+  - docs/adr/2026-08-09-s1b-alias-divergence.md
 date: 2026-08-08
 supersedes: []
 implementation_state: not_started
@@ -25,6 +28,12 @@ affects:
 ---
 
 # Source aliases and identity resolution (S1b)
+
+> **SUPERSEDED 2026-08-09.** The parked agenda below is fully resolved by
+> `docs/adr/2026-08-09-s1b-source-aliases.md` (S1b-core: entity, schema v30, sync/migration, atomic
+> write, permissions, security, confirmed-alias tier) and `docs/adr/2026-08-09-s1b-alias-divergence.md`
+> (S1b-divergence: the shared divergence predicate + convergent resolution + review surface). This stub
+> is retained for its finding→obligation enumeration; do not implement against it.
 
 > **DESIGN NOT YET COMPLETE.** This ADR is a **stub that parks the alias findings for their own
 > round**. It records the *direction* (durable alias memory) and enumerates every open design

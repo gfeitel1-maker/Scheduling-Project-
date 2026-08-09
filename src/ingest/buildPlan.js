@@ -355,6 +355,52 @@ export function buildPlan(source, existing = null, resolutions = []) {
         return
       }
 
+      // S1b §4: the confirmed-alias tier, ranked above exact-name, below uuid.
+      // `have.aliases` is the host-local read buildExistingSnapshot attaches
+      // to the snapshot (electron/ops/ingest.js's listAliasMap) — buildPlan
+      // stays pure, it only reads the map out of the object it was handed.
+      // Absent (mode 'replace', or a caller with no alias support) leaves
+      // this branch inert.
+      const aliasEntityId = have.aliases?.[entity]?.get(normalizeName(name)) ?? null
+      if (aliasEntityId) {
+        const aliasMatch = byId.get(aliasEntityId)
+        // listAliasMap already filters to live targets, so this should always
+        // resolve; a stale/foreign id (defense-in-depth) simply falls through
+        // to the ordinary name hierarchy below.
+        if (aliasMatch) {
+          const exactMatches = already.get(normalizeName(name)) ?? []
+          if (exactMatches.length === 0) {
+            emitRecognized(aliasMatch, 'confirmed_alias')
+            return
+          }
+          // The alias target IS the (sole) exact-name match too — consistent,
+          // no divergence. Fall through to the ordinary hierarchy below, which
+          // resolves this identically (tier 'exact_name').
+          const diverges = exactMatches.some((m) => m.id !== aliasEntityId)
+          if (diverges) {
+            // The world disagrees with the alias: label->A (the alias) but a
+            // live, different-entity exact-name match B also exists. Never
+            // silently pick either side — surface both (ADR §4).
+            items.push({
+              op: 'conflict',
+              entity,
+              entity_id: null,
+              reason: 'alias_divergence',
+              fields: {},
+              evidence: {
+                tier: 'confirmed_alias',
+                candidates: [
+                  { id: aliasEntityId, name: aliasMatch.name, source: 'alias' },
+                  ...exactMatches.map((m) => ({ id: m.id, name: m.name, source: 'exact_name' })),
+                ],
+              },
+              _name: name,
+            })
+            return
+          }
+        }
+      }
+
       const matches = already.get(normalizeName(name)) ?? []
       if (matches.length > 1) {
         // One incoming label, more than one live row normalize-matching it.
