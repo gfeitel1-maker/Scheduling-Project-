@@ -83,6 +83,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
   it('sends resolved rules only for approved activities on commit', async () => {
     await uploadFile()
     await userEvent.click(screen.getByText(/Add \d+ record/))
+    await userEvent.click(await screen.findByText(/Commit \d+ record/))
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
     const [{ activityRules }] = localClient.ingestCommit.mock.calls[0]
     expect(activityRules.Swim).toMatchObject({ min_per_week: 2, max_per_week: 3, priority: 'high' })
@@ -93,6 +94,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
   it('commits in add mode without deleting a single row itself', async () => {
     await uploadFile()
     await userEvent.click(screen.getByText(/Add \d+ record/))
+    await userEvent.click(await screen.findByText(/Commit \d+ record/))
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
     expect(localClient.ingestCommit.mock.calls[0][0].mode).toBe('add')
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
@@ -104,6 +106,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     localClient.ingestCommit.mockRejectedValue(new Error('Import can only be run on the main computer.'))
     await uploadFile()
     await userEvent.click(screen.getByText(/Add \d+ record/))
+    await userEvent.click(await screen.findByText(/Commit \d+ record/))
     await waitFor(() => expect(screen.getByText(/main computer/)).toBeTruthy())
     expect(screen.getByText(/Nothing was imported/)).toBeTruthy()
   })

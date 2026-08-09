@@ -82,7 +82,10 @@ async function uploadAndHold(conflicts = [ambiguousArt, staleMonday]) {
   const file = new File(['irrelevant, parseTextGrid is mocked'], 'schedule.txt', { type: 'text/plain' })
   await userEvent.upload(input, file)
   await waitFor(() => expect(screen.getAllByText(/Art/).length).toBeGreaterThan(0))
+  // S5b/T75 — the tick-preview now stages the shared reconciliation ledger; the
+  // director confirms from it before the atomic commit runs.
   await userEvent.click(screen.getByText(/Add \d+ record/))
+  await userEvent.click(await screen.findByText(/Commit \d+ record/))
   await waitFor(() => expect(screen.getByText(/Almost there/)).toBeTruthy())
 }
 
