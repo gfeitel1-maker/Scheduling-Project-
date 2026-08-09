@@ -3,7 +3,7 @@ import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ScreenIntro from '../components/ScreenIntro'
@@ -68,6 +68,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
   const [notes, setNotes] = useState(anchor?.notes || '')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
+  const enterStyle = useEnterTransition('liftFade')
 
   const [selectedTiers, setSelectedTiers] = useState(() => {
     if (!anchor?.group_ids?.length) return []
@@ -117,8 +118,8 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
   }
 
   return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 24 }}>
-      <div style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width: 520, maxWidth: '100%', maxHeight: '90vh', overflowY: 'auto' }}>
+    <div style={{ ...S.overlay, ...enterStyle }}>
+      <div style={{ ...S.modalLg, width: 520 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, marginBottom: 20 }}>
           {isNew ? 'Add Fixed Event' : `Edit: ${anchor.name}`}
         </div>
@@ -217,12 +218,25 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
+  const [pendingDelete, setPendingDelete] = useState(null) // anchor being confirmed for delete
+  const [deleting, setDeleting] = useState(false)
+  const deleteInFlight = useRef(false)
   const fileRef = useRef()
   const { cohorts, activeCohort, setActiveCohortId } = useCohorts(campId)
+  const importEnterStyle = useEnterTransition('liftFade')
 
   useEffect(() => {
     if (activeCohort) load()
   }, [campId, activeCohort?.id])
+
+  useEffect(() => {
+    if (!pendingDelete) return
+    function onKeyDown(e) {
+      if (e.key === 'Escape' && !deleting) setPendingDelete(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [pendingDelete, deleting])
 
   async function load() {
     if (!activeCohort) return
@@ -340,14 +354,23 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
     setModal(null)
   }
 
-  async function deleteAnchor(id) {
-    if (!window.confirm('Delete this fixed event?')) return
+  function deleteAnchor(id) {
+    const anchor = anchors.find(a => a.id === id)
+    if (!anchor) return
+    setPendingDelete(anchor)
+  }
+
+  async function confirmAnchorDelete() {
+    if (!pendingDelete || deleteInFlight.current) return
+    deleteInFlight.current = true
+    setDeleting(true)
     try {
       const token = localStorage.getItem('shoresh-token')
-      const result = await localClient.deleteEntity(token, 'anchor_activities', id)
+      const result = await localClient.deleteEntity(token, 'anchor_activities', pendingDelete.id)
       if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
         throw new Error('delete failed')
       }
+      setPendingDelete(null)
       await load()
     } catch (err) {
       setError(
@@ -355,6 +378,10 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
           ? 'Only an admin can delete fixed events.'
           : describeWriteFailure(err, 'That fixed event could not be deleted.')
       )
+      setPendingDelete(null)
+    } finally {
+      setDeleting(false)
+      deleteInFlight.current = false
     }
   }
 
@@ -642,8 +669,8 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       )}
 
       {importStep && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width: 620, maxHeight: '80vh', overflow: 'auto' }}>
+        <div style={{ ...S.overlay, ...importEnterStyle }}>
+          <div style={{ ...S.modalLg, width: 620 }}>
             {importStep === 'preview' && (
               <>
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>
@@ -689,9 +716,69 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
         </div>
       )}
 
+      {pendingDelete && (
+        <div style={deleteOverlay} onClick={() => !deleting && setPendingDelete(null)}>
+          <div style={deletePanel} onClick={e => e.stopPropagation()}>
+            <div style={deleteTitle}>Delete "{pendingDelete.name}"?</div>
+            <p style={deleteBody}>This fixed event will be removed from your schedules.</p>
+            <div style={deleteRecovery}>"{pendingDelete.name}" goes to Trash, and you can put it back from there.</div>
+            <div style={deleteActions}>
+              <button className="press-97" onClick={() => setPendingDelete(null)} disabled={deleting} style={S.btnSecondary}>Cancel</button>
+              <button onClick={confirmAnchorDelete} disabled={deleting} style={S.btnDanger}>
+                {deleting ? 'Working…' : 'Delete Fixed Event'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button className="press-97" onClick={() => onNavigate('schedule')} style={S.btnPrimary}>Next: Schedule →</button>
+        <button className="press-97" onClick={() => onNavigate('schedule')} style={S.btnPrimary}>Go to Schedule</button>
       </div>
     </div>
   )
+}
+
+// Local styled confirm modal reusing TimeBlocksScreen's visual chrome — the
+// DeleteRecordDialog backend contract does not cover anchor_activities, so
+// this is the honest in-scope fallback rather than a fabricated preview.
+const deleteOverlay = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(0,0,0,0.45)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  zIndex: 1000,
+  padding: '24px 16px',
+}
+
+const deletePanel = {
+  background: 'var(--surface-elevated)',
+  borderRadius: 12,
+  padding: 28,
+  width: 520,
+  maxWidth: '100%',
+}
+
+const deleteTitle = {
+  fontFamily: 'var(--font-condensed)',
+  fontWeight: 700,
+  fontSize: 18,
+  marginBottom: 14,
+}
+
+const deleteBody = { fontSize: 14, lineHeight: 1.55, margin: '0 0 14px' }
+
+const deleteRecovery = {
+  fontSize: 13,
+  lineHeight: 1.55,
+  color: 'var(--text-secondary)',
+}
+
+const deleteActions = {
+  display: 'flex',
+  gap: 10,
+  justifyContent: 'flex-end',
+  marginTop: 22,
 }

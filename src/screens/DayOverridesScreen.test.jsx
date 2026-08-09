@@ -243,3 +243,71 @@ describe('DayOverridesScreen save-phase failure messaging', () => {
     })
   })
 })
+
+describe('DayOverridesScreen delete confirmation', () => {
+  function setupList(slots) {
+    const existingTemplate = { id: 'tmpl-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Field Trip', frequency_mode: 'reduced' }
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'day_override_templates') return Promise.resolve([existingTemplate])
+      if (entity === 'day_override_template_slots') return Promise.resolve(slots)
+      if (entity === 'time_blocks') return Promise.resolve([])
+      if (entity === 'activities') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+  }
+
+  it('shows count-aware copy for a template with no block overrides', async () => {
+    setupList([])
+    render(<DayOverridesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Field Trip')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    expect(window.confirm).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByText('Delete "Field Trip"?')).not.toBeNull())
+    expect(screen.queryByText('This template has no block overrides. It will be removed from your programs.')).not.toBeNull()
+  })
+
+  it('shows count-aware copy for a template with exactly 1 block override', async () => {
+    setupList([{ id: 'slot-1', day_override_template_id: 'tmpl-1', time_block_id: 'b1', activity_id: 'act-1' }])
+    render(<DayOverridesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Field Trip')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    await waitFor(() => expect(screen.queryByText('Delete "Field Trip"?')).not.toBeNull())
+    expect(screen.queryByText('This template and its 1 block override will be removed from your programs.')).not.toBeNull()
+  })
+
+  it('shows count-aware copy for a template with N block overrides and confirms the existing child-then-parent delete', async () => {
+    setupList([
+      { id: 'slot-1', day_override_template_id: 'tmpl-1', time_block_id: 'b1', activity_id: 'act-1' },
+      { id: 'slot-2', day_override_template_id: 'tmpl-1', time_block_id: 'b2', activity_id: 'act-2' },
+      { id: 'slot-3', day_override_template_id: 'tmpl-1', time_block_id: 'b3', activity_id: 'act-3' },
+    ])
+    render(<DayOverridesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Field Trip')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    await waitFor(() => expect(screen.queryByText('Delete "Field Trip"?')).not.toBeNull())
+    expect(screen.queryByText('This template and its 3 block overrides will be removed from your programs.')).not.toBeNull()
+
+    fireEvent.click(screen.getByText('Delete Template'))
+
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'day_override_template_slots', 'slot-1'))
+    expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'day_override_template_slots', 'slot-2')
+    expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'day_override_template_slots', 'slot-3')
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'day_override_templates', 'tmpl-1'))
+  })
+
+  it('cancels without deleting', async () => {
+    setupList([])
+    render(<DayOverridesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Field Trip')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    await waitFor(() => expect(screen.queryByText('Delete "Field Trip"?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Cancel'))
+
+    expect(screen.queryByText('Delete "Field Trip"?')).toBeNull()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+  })
+})
