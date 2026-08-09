@@ -134,15 +134,18 @@ describe('ambiguous_identity re-commit', () => {
 describe('stale re-commit', () => {
   it('accept: writes the import value with source:import, parented on the human op', () => {
     const id = randomUUID()
-    seedDay(id, 'Monday', 3, 'human')  // fieldsFor derives sort_order 1 → differs → stale
+    seedDay(id, 'Monday', 3, 'human')  // human sort_order 3
     const humanOp = latestOp(db, 'days_of_operation', id, 'sort_order')
 
-    const held = commit({ approved: { days_of_operation: ['Monday'] } })
+    // S2c: the recognized diff reads only the fields the source explicitly
+    // carries — a re-import proposing sort_order 1 against a human-set 3 → stale.
+    const monday = { name: 'Monday', fields: { sort_order: 1 } }
+    const held = commit({ approved: { days_of_operation: [monday] } })
     expect(held.held).toBe(true)
     expect(held.conflicts[0].reason).toBe('stale')
 
     const res = commit({
-      approved: { days_of_operation: ['Monday'] },
+      approved: { days_of_operation: [monday] },
       resolutions: [{ entity: 'days_of_operation', name: 'Monday', reason: 'stale', field: 'sort_order', choice: 'accept' }],
     })
     expect(res.held).toBe(false)
@@ -159,7 +162,7 @@ describe('stale re-commit', () => {
     const before = opCount()
 
     const res = commit({
-      approved: { days_of_operation: ['Monday'] },
+      approved: { days_of_operation: [{ name: 'Monday', fields: { sort_order: 1 } }] },
       resolutions: [{ entity: 'days_of_operation', name: 'Monday', reason: 'stale', field: 'sort_order', choice: 'keep' }],
     })
     expect(res.held).toBe(false)
@@ -170,13 +173,14 @@ describe('stale re-commit', () => {
   it('accepted field decays to import-owned: a second re-import updates quietly', () => {
     const id = randomUUID()
     seedDay(id, 'Monday', 3, 'human')
+    const monday = { name: 'Monday', fields: { sort_order: 1 } }
     commit({
-      approved: { days_of_operation: ['Monday'] },
+      approved: { days_of_operation: [monday] },
       resolutions: [{ entity: 'days_of_operation', name: 'Monday', reason: 'stale', field: 'sort_order', choice: 'accept' }],
     })
     // Now sort_order is import-owned; move it via an import path and re-import.
     appendOp(db, { entity: 'days_of_operation', entity_id: id, field: 'sort_order', value: 9, device_id: deviceId, source: 'import' })
-    const quiet = commit({ approved: { days_of_operation: ['Monday'] } })
+    const quiet = commit({ approved: { days_of_operation: [monday] } })
     expect(quiet.held).toBe(false)
     expect(quiet.updated).toBe(1)
     expect(dayField(id, 'sort_order')).toBe(1)
