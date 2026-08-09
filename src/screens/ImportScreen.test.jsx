@@ -9,26 +9,31 @@ import userEvent from '@testing-library/user-event'
 // "does the inferred rule render and drive the commit payload", not about the
 // grid parser (which has its own tests).
 vi.mock('../ingest/textGrid', () => ({ parseTextGrid: () => ({ pages: [{ title: 'x', columns: [], rows: [] }] }) }))
+// Base proposal fixture, reused as the default mock return and cloned by
+// individual tests (via extractEntities.mockReturnValueOnce) that need a
+// different activity shape — e.g. one with no per-group signal at all, to
+// drive the eligibility-unknown branch (round 2 review).
+const baseProposal = {
+  orientation: { columns: 'days', pages: 'groups', confident: true },
+  entities: {
+    groups: ['Yeladim', 'Bogrim'],
+    days_of_operation: ['Monday', 'Tuesday'],
+    time_blocks: [],
+    activities: ['Swim'],
+    tiers: [],
+    cohorts: [],
+  },
+  groupUnits: {},
+  groupNameByTitle: {},
+  activityPages: { swim: ['Yeladim'] },
+  seenCounts: { activities: { Swim: 4 }, activityUnitShare: { swim: 0.9 } },
+  counts: { groups: 2, days_of_operation: 2, activities: 1 },
+}
 vi.mock('../ingest/extractEntities', async () => {
   const actual = await vi.importActual('../ingest/extractEntities')
   return {
     ...actual,
-    extractEntities: () => ({
-      orientation: { columns: 'days', pages: 'groups', confident: true },
-      entities: {
-        groups: ['Yeladim', 'Bogrim'],
-        days_of_operation: ['Monday', 'Tuesday'],
-        time_blocks: [],
-        activities: ['Swim'],
-        tiers: [],
-        cohorts: [],
-      },
-      groupUnits: {},
-      groupNameByTitle: {},
-      activityPages: { swim: ['Yeladim'] },
-      seenCounts: { activities: { Swim: 4 }, activityUnitShare: { swim: 0.9 } },
-      counts: { groups: 2, days_of_operation: 2, activities: 1 },
-    }),
+    extractEntities: vi.fn(),
   }
 })
 vi.mock('../ingest/fixedEvents', () => ({ inferFixedEvents: () => ({ fixedEvents: [] }) }))
@@ -45,9 +50,11 @@ vi.mock('../localClient', () => ({
 
 import ImportScreen from './ImportScreen'
 import { localClient } from '../localClient'
+import { extractEntities } from '../ingest/extractEntities'
 
 beforeEach(() => {
   vi.clearAllMocks()
+  extractEntities.mockReturnValue(baseProposal)
   localClient.list.mockResolvedValue([])
   localClient.ingestCommit.mockResolvedValue({ total: 3, fixedEvents: { created: 0, skipped: [], partial: [] } })
 })
@@ -73,11 +80,39 @@ async function uploadFile() {
 }
 
 describe('ImportScreen — inferred activity rules (T35)', () => {
-  it('renders a rule summary for a proposed activity', async () => {
+  it('renders a rule summary for a proposed activity, collapsed by default with the full editor behind Adjust', async () => {
     await uploadFile()
     // Swim: 4 appearances / 1 matched group / 2 days = 2/wk; unitShare 0.9 -> High.
     expect(screen.getByText(/Groups: Yeladim/)).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: /Adjust/ }))
     expect(screen.getByRole('option', { name: 'High', selected: true })).toBeTruthy()
+  })
+
+  // Round 2 — the eligibility-unknown signal (T35 Fix 2b) must stay
+  // full-contrast and visible in the COLLAPSED row without clicking Adjust,
+  // or a director could tick-and-commit an activity worth checking without
+  // ever seeing the warning.
+  it('shows the full-contrast "worth checking" signal on the collapsed row when eligibility is unknown', async () => {
+    extractEntities.mockReturnValueOnce({
+      ...baseProposal,
+      // No entry for "swim" in activityPages — no per-group signal at all.
+      activityPages: {},
+    })
+    await uploadFile()
+    const worthChecking = screen.getByText(/Worth checking — groups unclear/)
+    expect(worthChecking).toBeTruthy()
+    expect(worthChecking.style.color).toBe('var(--text)')
+    // Not clicked Adjust — the full editor's own sentence must not be present yet.
+    expect(screen.queryByText(/Shoresh couldn.t tell from this file.s layout/)).toBeNull()
+  })
+
+  // Round 2 — a rule-less activity (never inferred, e.g. it never appeared
+  // in a days-oriented grid, T35 gotcha) must read as "Not set", not
+  // fabricate a range from undefined min/max.
+  it('shows "Not set" for frequency in the collapsed row when no rule was inferred', async () => {
+    await uploadFile()
+    await userEvent.click(screen.getByText('Clear inferred rules'))
+    expect(screen.getByText(/Not set/)).toBeTruthy()
   })
 
   it('sends resolved rules only for approved activities on commit', async () => {
@@ -206,6 +241,23 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     for (const name of ['Units', 'Groups', 'Days', 'Time Blocks', 'Activities']) {
       expect(replaceSentence.textContent).toContain(name)
     }
+  })
+
+  // Round 2 — consolidated destructive copy (design spec): the Replace
+  // option's own sub-copy no longer restates "recoverable from Trash" (the
+  // accent recoverable box below is now the sole place that says it), but
+  // still names the camp-wide scope and the real count.
+  it('drops the Trash sentence from the Replace option copy while keeping the count and camp-wide scope', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
+      return Promise.resolve([])
+    })
+    await uploadFile()
+    await userEvent.click(screen.getByText(/Replace them/))
+    const replaceSentence = screen.getByText(/This will replace all/)
+    expect(replaceSentence.textContent).not.toContain('Trash')
+    expect(replaceSentence.textContent).toContain('every Program')
+    expect(replaceSentence.textContent).toContain(String(1))
   })
 })
 
