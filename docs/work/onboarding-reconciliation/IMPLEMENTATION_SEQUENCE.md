@@ -76,6 +76,19 @@ Add the update / clear / conflict field-merge, the full **New / Updated / Unchan
 Conflict** preview, and the T36 residual report. S2 depends on S1a's recognition; it no longer needs to
 ship jointly with S1 now that recognition (S1a) stands alone.
 
+### S2c — Complete the field-update seam (activity-rule & group fields) — FOUNDATIONAL for S4
+
+ADR `docs/adr/2026-08-08-s2c-activity-and-group-field-update.md` (proposed). Inserted after the S4 review
+(Red Hat Resilience 2/5) proved S2b's field-update did **not** cover the high-value fields:
+`fieldsFor('activities')` returns only `{camp_id,name}` and `COMPARABLE_COLUMNS.activities = []`, so
+`min/max_per_week`, `priority`, `eligible_group_ids`, `location`, and `groups.tier_id` were never
+diffed/updatable on re-import. S2c extends `fieldsFor` + `COMPARABLE_COLUMNS` + `commitUpdate` to
+diff/write those fields (int/enum validation now on the **update** path, `eligible_group_ids` as an
+order-independent **set** of resolved ids, `unit`/`tier_id` label resolution, `location` text), introduces
+the **per-row source record `{id?, name, fields:{}, clears:[]}`** (RISK B), and removes row-index-derived
+fields from the recognized diff (RISK E). **Consumed by the schedule/clipboard re-import (delivers T35
+bulk enrichment) AND by S4 — ships and is testable with no workbook.** Prerequisite for S4.
+
 ### S3 — Location first-class (engine work)
 
 Add the `activity_locations` entity and a nullable `activities.location_id`; **soft-migrate** the
@@ -86,8 +99,13 @@ to entity-id — a refactor of existing behavior that changes nothing about sche
 ### S4 — Enrichment-workbook round-trip
 
 The Shoresh-generated workbook, pre-populated with what Shoresh already knows, carries stable ids and
-an **explicit clear token**, and re-enters through the identical preview. This unifies the two import
-paths. The explicit-clear encoding must be decided (see decision gate #8) before this slice.
+an **explicit clear token (`<clear>`, product-owner decided)**, and re-enters through the identical
+preview. This unifies the two import paths. **Re-scoped 2026-08-08 after Red Hat (Resilience 2/5) +
+Security:** S4 now **depends on S2c** (the field-update seam), and splits into **S4a (export)** and
+**S4b (re-import)** with `base_generation` as an **active** import-over-import staleness gate,
+**baseline diffing** (workbook-vs-baseline, not vs-live), a **sheet→entity / header→field allowlist**,
+`missing_target` + a real `clear` arm **wired into `commitPlan` as HELD-not-throw**, forced add-mode, and
+fail-closed metadata. Build order: **S2c → sanitizer → S4a → S4b.**
 
 ### S5 — Setup Readiness hub
 
@@ -119,7 +137,10 @@ These are hardening items that do not belong inside any program slice and can pr
 - **Replace-footgun hardening** — the `replace` mode currently wipes the whole camp scope, ignoring the
   cohort filter. Fix as an independent standalone ticket.
 - **Formula-injection sanitizer** — a shared export utility, retrofit onto `exportSchedule.js`; required
-  before S4 ships a round-trip workbook.
+  before S4 ships a round-trip workbook. **Expanded 2026-08-08** (Security review) to also cover: F3
+  styling-must-layer-over-sanitized (never a `.v` cell build), F4 xlsx size/complexity cap (fail closed),
+  F5 leading-`\n` trigger, and the **conditional** apostrophe strip on read (strip only when the remainder
+  still starts with a trigger char — never an apostrophe guarding ordinary text; RISK G / Security F2).
 
 ## Decision gate (ADRs before code)
 

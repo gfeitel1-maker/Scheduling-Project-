@@ -63,7 +63,10 @@ describe('mock ingestCommit — hand-edit protection + stale resolution (S2b/T73
   it('re-import proposing a different value for a hand-edited field HOLDS with a stale conflict', async () => {
     await seedEditedGroup()
 
-    const outcome = await mockShoresh.ingestCommit({ approved: { groups: ['Bunk 1'] } })
+    // S2c: the recognized diff reads only the fields the source explicitly carries,
+    // so the re-import supplies availability 'all' — differing from the hand-set
+    // 'weekdays' → stale (previously fieldsFor auto-proposed 'all').
+    const outcome = await mockShoresh.ingestCommit({ approved: { groups: [{ name: 'Bunk 1', fields: { availability: 'all' } }] } })
     expect(outcome.held).toBe(true)
     expect(outcome.conflicts).toHaveLength(1)
     const c = outcome.conflicts[0]
@@ -79,16 +82,17 @@ describe('mock ingestCommit — hand-edit protection + stale resolution (S2b/T73
 
   it('resolutions accept writes the import value, and a second re-import is quiet', async () => {
     await seedEditedGroup()
+    const approved = { groups: [{ name: 'Bunk 1', fields: { availability: 'all' } }] }
     const resolutions = [{ entity: 'groups', name: 'Bunk 1', reason: 'stale', field: 'availability', choice: 'accept' }]
 
-    const accepted = await mockShoresh.ingestCommit({ approved: { groups: ['Bunk 1'] }, resolutions })
+    const accepted = await mockShoresh.ingestCommit({ approved, resolutions })
     expect(accepted.held).toBeFalsy()
     let group = (await mockShoresh.list(null, 'groups')).find((g) => g.name === 'Bunk 1')
     expect(group.availability).toBe('all')
 
     // The accepted value is now import-owned → the NULL-trap escape: a plain
     // re-import no longer conflicts.
-    const quiet = await mockShoresh.ingestCommit({ approved: { groups: ['Bunk 1'] } })
+    const quiet = await mockShoresh.ingestCommit({ approved })
     expect(quiet.held).toBeFalsy()
     group = (await mockShoresh.list(null, 'groups')).find((g) => g.name === 'Bunk 1')
     expect(group.availability).toBe('all')
@@ -98,7 +102,7 @@ describe('mock ingestCommit — hand-edit protection + stale resolution (S2b/T73
     await seedEditedGroup()
     const resolutions = [{ entity: 'groups', name: 'Bunk 1', reason: 'stale', field: 'availability', choice: 'keep' }]
 
-    const kept = await mockShoresh.ingestCommit({ approved: { groups: ['Bunk 1'] }, resolutions })
+    const kept = await mockShoresh.ingestCommit({ approved: { groups: [{ name: 'Bunk 1', fields: { availability: 'all' } }] }, resolutions })
     expect(kept.held).toBeFalsy()
     const group = (await mockShoresh.list(null, 'groups')).find((g) => g.name === 'Bunk 1')
     expect(group.availability).toBe('weekdays')

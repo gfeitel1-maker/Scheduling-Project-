@@ -20,6 +20,7 @@ import { appendOp, DELETE_FIELD, latestOp } from './operations.js'
 import { PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 import { normalizeName } from '../../src/ingest/preview.js'
 import { buildPlan } from '../../src/ingest/buildPlan.js'
+import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor } from '../../src/ingest/fieldUpdate.js'
 
 // ADR §2. Kept here rather than imported from the renderer so the guarantee
 // lives with the code that writes; ingest.test.js asserts the two agree.
@@ -161,13 +162,19 @@ const COHORT_SCOPED = Object.freeze(new Set(['tiers', 'time_blocks']))
 // fieldsFor derives, so a re-import can tell a changed field from an unchanged
 // one. camp_id is deliberately absent — it never changes and would only add
 // noise to the diff.
+// S2c §3 widens activities/groups so a recognized entity's rule/unit fields are
+// diffable. For the foreign-key fields the snapshot ALSO carries a resolved
+// LABEL form (`eligible_group_names`, `unit_name`) so the pure buildPlan can
+// compare without a DB — see buildExistingSnapshot. `eligible_group_ids`/
+// `tier_id` are selected only to resolve those labels; buildPlan never diffs the
+// raw-id columns.
 const COMPARABLE_COLUMNS = Object.freeze({
   cohorts: [],
   tiers: ['sort_order'],
-  groups: ['availability'],
+  groups: ['availability', 'tier_id'],
   days_of_operation: ['day_of_week', 'sort_order'],
   time_blocks: ['start_time', 'end_time', 'sort_order'],
-  activities: [],
+  activities: ['priority', 'min_per_week', 'max_per_week', 'location', 'eligible_group_ids'],
 })
 
 /**
@@ -179,6 +186,17 @@ const COMPARABLE_COLUMNS = Object.freeze({
  * a caller, so interpolating them into the query is safe.
  */
 function buildExistingSnapshot(db, camp_id, cohort_id) {
+  // S2c §3: live id->name maps so the snapshot can carry FK fields in the LABEL
+  // form buildPlan compares against (it holds no DB handle and cannot resolve).
+  const groupNameById = new Map()
+  for (const r of db.prepare('SELECT id, name FROM groups WHERE camp_id = ?').all(camp_id)) {
+    groupNameById.set(r.id, r.name)
+  }
+  const tierNameById = new Map()
+  for (const r of db.prepare('SELECT id, name FROM tiers WHERE camp_id = ?').all(camp_id)) {
+    tierNameById.set(r.id, r.name)
+  }
+
   const existing = {}
   for (const entity of INGESTIBLE_ENTITIES) {
     const scoped = COHORT_SCOPED.has(entity)
@@ -189,7 +207,11 @@ function buildExistingSnapshot(db, camp_id, cohort_id) {
       ...(COMPARABLE_COLUMNS[entity] ?? []),
     ].join(', ')
     const rows = db.prepare(`SELECT ${cols} FROM ${entity} WHERE camp_id = ?`).all(camp_id)
-    existing[entity] = scoped && cohort_id ? rows.filter((r) => r.cohort_id === cohort_id) : rows
+    const scopedRows = scoped && cohort_id ? rows.filter((r) => r.cohort_id === cohort_id) : rows
+    // S2c §3: resolve the FK columns to the LABEL forms buildPlan compares
+    // against (shared with the mock so the two snapshots cannot diverge).
+    for (const row of scopedRows) enrichSnapshotRow(entity, row, groupNameById, tierNameById)
+    existing[entity] = scopedRows
   }
   return existing
 }
@@ -242,8 +264,12 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
   // are about to be deleted anyway; recognizing them here would falsely hold
   // every item once teardown removed the rows the `unchanged` items point at.
   const existing = mode === 'replace' ? null : buildExistingSnapshot(db, camp_id, cohort_id)
+  // S2c §1: fold the rule/unit side-channels into per-row records at THIS
+  // boundary; buildPlan sees only records. `links`/`activityRules` are still
+  // passed for the create path's back-compat fallback (a bare-string caller).
+  const recordApproved = foldApprovedToRecords(approved, activityRules, links)
   const plan = buildPlan(
-    { approved, links, activityRules, fixedEvents, camp_id, cohort_id, mode },
+    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode },
     existing,
     // T73: a director's per-conflict decisions from a prior held commit. buildPlan
     // consumes only the ambiguous_identity picks; stale picks flow to commitPlan.
@@ -411,6 +437,28 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     _name: item._name,
   })
 
+  // S2c §4. A held field conflict from the update path — validation failure, an
+  // unresolvable eligibility label, or an unresolvable unit. Collected into the
+  // SAME `conflicts` array (never thrown), tripping the SAME hold-the-whole
+  // sentinel as `stale`/`ambiguous_identity`. `dbFieldFor`/`resolveFieldWrite`
+  // are shared with the dev mock (src/ingest/fieldUpdate.js) so they cannot drift.
+  const makeFieldConflict = (item, reason, field, delta, detail) => ({
+    op: 'conflict',
+    entity: item.entity,
+    entity_id: item.entity_id,
+    reason,
+    fields: {
+      [field]: {
+        from: delta.from ?? null,
+        to: delta.to,
+        source: 'import',
+        conflict: { reason, ...detail },
+      },
+    },
+    evidence: { tier: 'exact_name', matched_name: item.evidence?.matched_name ?? item._name },
+    _name: item._name,
+  })
+
   // Held-import sentinel (S1a §2). A conflict must NOT throw a plain error (that
   // reads as a crash) but the whole import must still write nothing. Throwing a
   // marked error rolls the transaction back atomically — teardown included — so
@@ -506,12 +554,14 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // parent_op_id = the field's prior op id (null only when the field had no prior
   // op). Direct appendOp — the same host-local committer path commitCreate uses;
   // detectConflict runs only on the WS submit_op path, not here (ADR §2 R6).
-  const commitUpdate = ({ item, field, delta, parent_op_id }) => {
+  // S2c §4: `field`/`value` are already the STORED column and the
+  // validated/resolved value (resolveFieldWrite), so this stays a thin writer.
+  const commitUpdate = ({ item, field, value, parent_op_id }) => {
     appendOp(db, {
       entity: item.entity,
       entity_id: item.entity_id,
       field,
-      value: delta.to,
+      value,
       author_user_id: author_user_id ?? null,
       device_id,
       parent_op_id,
@@ -608,25 +658,34 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           // field with no prior op, or whose last op is import-authored, is
           // unprotected and writes freely.
           for (const [field, delta] of Object.entries(item.fields)) {
-            const latest = latestOp(db, item.entity, item.entity_id, field)
+            // S2c §4: provenance + parent op are read against the STORED column
+            // (eligible_groups -> eligible_group_ids, unit -> tier_id).
+            const dbField = dbFieldFor(field)
+            const latest = latestOp(db, item.entity, item.entity_id, dbField)
             const isProtected = !!latest && latest.source !== 'import'
+            // T73: a director may have resolved this field (protected or not is a
+            // Policy-A concern; validation/resolution runs on whatever will write).
+            const res = resolutionFor(item.entity, item._name, field)
+            // S2c §4: validate + resolve the value; a failure holds this field.
+            const enqueue = (parent_op_id) => {
+              const resolved = resolveFieldWrite(field, delta.to, { groupIdByName, tierIdByName })
+              if (!resolved.ok) conflicts.push(makeFieldConflict(item, resolved.reason, field, delta, resolved.detail))
+              else toUpdate.push({ item, field: resolved.field, value: resolved.value, parent_op_id })
+            }
             if (isProtected) {
-              // T73: a director may have resolved this stale field. 'accept'
-              // bypasses the Policy-A gate and writes via commitUpdate — which
-              // stamps source:'import' and parents on the live human op, exactly
-              // S2b's stale_accept semantics, reached through commitPlan (the door
-              // that fits a held import). 'keep' drops the FieldDelta entirely (no
-              // op). No resolution → the field re-holds as a stale conflict.
-              const res = resolutionFor(item.entity, item._name, field)
+              // T73: 'accept' bypasses the Policy-A gate and writes via commitUpdate
+              // (stamps source:'import', parents on the live human op) — S2b's
+              // stale_accept semantics. 'keep' drops the FieldDelta (no op). No
+              // resolution → the field re-holds as a stale conflict.
               if (res?.reason === 'stale' && res.choice === 'accept') {
-                toUpdate.push({ item, field, delta, parent_op_id: latest.id })
+                enqueue(latest.id)
               } else if (res?.reason === 'stale' && res.choice === 'keep') {
                 // dropped — the director keeps their hand-edit, nothing written
               } else {
                 conflicts.push(makeStaleConflict(item, field, delta, latest))
               }
             } else {
-              toUpdate.push({ item, field, delta, parent_op_id: latest ? latest.id : null })
+              enqueue(latest ? latest.id : null)
             }
           }
           break
@@ -636,7 +695,9 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           // produce a `stale` conflict (the update gate above). Both are gated
           // into `conflicts` (no op, no throw). cross_source (S7) and any other
           // reason cannot be produced yet — reaching one is a bug.
-          if (item.reason === 'ambiguous_identity' || item.reason === 'stale') conflicts.push(item)
+          // S2c §4 adds validation / eligibility_unresolved / unit_unresolved to
+          // the accepted set (held, never thrown), alongside S1a/S2b's reasons.
+          if (['ambiguous_identity', 'stale', 'validation', 'eligibility_unresolved', 'unit_unresolved'].includes(item.reason)) conflicts.push(item)
           else throw new Error(`commitPlan: conflict reason "${item.reason}" is not implemented at S1a`)
           break
         case 'clear':

@@ -10,6 +10,9 @@
 import { buildPlan } from './ingest/buildPlan.js'
 import { INGESTIBLE_ENTITIES } from './ingest/extractEntities.js'
 import { normalizeName } from './ingest/preview.js'
+// S2c: the SAME pure field-update helpers the real committer uses, so the mock's
+// fold/snapshot/validation cannot drift from electron/ops/ingest.js.
+import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor } from './ingest/fieldUpdate.js'
 
 const STORE_KEY = 'shoresh-mock-state'
 
@@ -21,13 +24,17 @@ const STORE_KEY = 'shoresh-mock-state'
 const MOCK_NAME_COLUMN = { days_of_operation: 'label' }
 const mockNameColumnFor = (entity) => MOCK_NAME_COLUMN[entity] ?? 'name'
 const MOCK_COHORT_SCOPED = new Set(['tiers', 'time_blocks'])
+// S2c widens activities/groups to mirror electron's COMPARABLE_COLUMNS: the FK
+// columns (eligible_group_ids, tier_id) are selected only so enrichSnapshotRow
+// can resolve them to the LABEL forms buildPlan diffs (eligible_group_names,
+// unit_name); the raw-id columns are never diffed directly.
 const MOCK_COMPARABLE_COLUMNS = {
   cohorts: [],
   tiers: ['sort_order'],
-  groups: ['availability'],
+  groups: ['availability', 'tier_id'],
   days_of_operation: ['day_of_week', 'sort_order'],
   time_blocks: ['start_time', 'end_time', 'sort_order'],
-  activities: [],
+  activities: ['priority', 'min_per_week', 'max_per_week', 'location', 'eligible_group_ids'],
 }
 
 // Per-field provenance marker, the mock's stand-in for the op-log `source`
@@ -484,6 +491,12 @@ export const mockShoresh = {
     // VALUES for the field diff, tiers/time_blocks cohort-filtered. Replace mode
     // passes null so recognition is skipped and every approved name is a blind
     // create — exactly the real committer (its pre-teardown rows are gone anyway).
+    // S2c §3: live id->name maps so enrichSnapshotRow can carry the FK LABEL
+    // forms buildPlan compares against (shared with electron's snapshot).
+    const groupNameById = new Map()
+    for (const g of state.groups ?? []) groupNameById.set(g.id, g.name)
+    const tierNameById = new Map()
+    for (const t of state.tiers ?? []) tierNameById.set(t.id, t.name)
     const buildSnapshot = () => {
       const existing = {}
       for (const entity of INGESTIBLE_ENTITIES) {
@@ -492,7 +505,7 @@ export const mockShoresh = {
           const row = { id: r.id, name: r[mockNameColumnFor(entity)] }
           if (scoped) row.cohort_id = r.cohort_id ?? null
           for (const c of MOCK_COMPARABLE_COLUMNS[entity]) row[c] = r[c]
-          return row
+          return enrichSnapshotRow(entity, row, groupNameById, tierNameById)
         })
         existing[entity] = scoped && cohortId ? rows.filter((r) => r.cohort_id === cohortId) : rows
       }
@@ -500,11 +513,16 @@ export const mockShoresh = {
     }
     const existing = mode === 'replace' ? null : buildSnapshot()
 
+    // S2c §1: fold the rule/unit side-channels into per-row records at this
+    // boundary (shared with electron), so buildPlan sees only records. `links`/
+    // `activityRules` still pass through for the create path's back-compat fallback.
+    const recordApproved = foldApprovedToRecords(approved, activityRules, links)
+
     // The PURE decision layer — the SAME buildPlan the real commitIngest uses.
     // buildPlan consumes the ambiguous_identity resolutions itself (pin identity /
     // force create); the stale resolutions are honored below in the Policy-A gate.
     const plan = buildPlan(
-      { approved, links, activityRules, fixedEvents, camp_id: campId, cohort_id: cohortId, mode },
+      { approved: recordApproved, links, activityRules, fixedEvents, camp_id: campId, cohort_id: cohortId, mode },
       existing,
       Array.isArray(resolutions) ? resolutions : [],
     )
@@ -548,6 +566,23 @@ export const mockShoresh = {
       evidence: { tier: 'exact_name', matched_name: item.evidence?.matched_name ?? item._name },
       _name: item._name,
     })
+    // S2c §4: a held field conflict from the update path (validation /
+    // eligibility_unresolved / unit_unresolved), same shape the real committer
+    // builds. resolveFieldWrite (shared) produces the reason + detail.
+    const makeFieldConflict = (item, reason, field, delta, detail) => ({
+      op: 'conflict', entity: item.entity, entity_id: item.entity_id, reason,
+      fields: { [field]: { from: delta.from ?? null, to: delta.to, source: 'import', conflict: { reason, ...detail } } },
+      evidence: { tier: 'exact_name', matched_name: item.evidence?.matched_name ?? item._name },
+      _name: item._name,
+    })
+
+    // S2c §4: name->id maps for the DECIDE-phase FK resolution (eligibility/unit),
+    // seeded from existing rows exactly as commitPlan's seedNameMaps. Reused (and
+    // extended) by the apply phase below, so a group created this run also resolves.
+    const tierIdByName = new Map()
+    for (const t of state.tiers ?? []) if (t.name && (t.cohort_id ?? null) === cohortId) tierIdByName.set(String(t.name).trim().toLowerCase(), t.id)
+    const groupIdByNameRun = new Map()
+    for (const g of state.groups ?? []) if (g.name) groupIdByNameRun.set(normalizeName(g.name), g.id)
 
     // Recognition maps for commit-time re-resolution (normalized-name → set of
     // live ids), cohort-scoped for tiers/time_blocks exactly as the snapshot.
@@ -604,23 +639,31 @@ export const mockShoresh = {
           // Policy-A protection gate, per FieldDelta, against the mock's
           // `__fieldSource` marker: protected iff a marker EXISTS and is not
           // 'import' (i.e. a hand-edit). A never-written or import-authored field
-          // writes freely.
+          // writes freely. S2c: provenance is read against the STORED column
+          // (eligible_groups -> eligible_group_ids, unit -> tier_id), and the
+          // value is validated/resolved via the shared resolveFieldWrite.
           for (const [field, delta] of Object.entries(item.fields)) {
-            const src = getSource(state, item.entity, item.entity_id, field)
+            const dbField = dbFieldFor(field)
+            const src = getSource(state, item.entity, item.entity_id, dbField)
             const isProtected = src !== undefined && src !== 'import'
+            const res = resolutionFor(item.entity, item._name, field)
+            const enqueue = () => {
+              const resolved = resolveFieldWrite(field, delta.to, { groupIdByName: groupIdByNameRun, tierIdByName })
+              if (!resolved.ok) conflicts.push(makeFieldConflict(item, resolved.reason, field, delta, resolved.detail))
+              else toUpdate.push({ item, field: resolved.field, value: resolved.value })
+            }
             if (isProtected) {
-              const res = resolutionFor(item.entity, item._name, field)
-              if (res?.reason === 'stale' && res.choice === 'accept') toUpdate.push({ item, field, delta })
+              if (res?.reason === 'stale' && res.choice === 'accept') enqueue()
               else if (res?.reason === 'stale' && res.choice === 'keep') { /* dropped — hand-edit kept */ }
               else conflicts.push(makeStaleConflict(item, field, delta))
             } else {
-              toUpdate.push({ item, field, delta })
+              enqueue()
             }
           }
           break
         }
         case 'conflict':
-          if (item.reason === 'ambiguous_identity' || item.reason === 'stale') conflicts.push(item)
+          if (['ambiguous_identity', 'stale', 'validation', 'eligibility_unresolved', 'unit_unresolved'].includes(item.reason)) conflicts.push(item)
           else throw new Error(`mock ingestCommit: conflict reason "${item.reason}" is not implemented`)
           break
         default:
@@ -635,13 +678,10 @@ export const mockShoresh = {
       return { held: true, conflicts, created, total: 0, updated: 0, fixedEvents: { created: 0, skipped: [], partial: [] } }
     }
 
-    // No conflicts — apply the plan. Unit name -> tier id, seeded from existing
-    // tiers (cohort-scoped like commitPlan's seedNameMaps) so a group created this
-    // run files under a unit created moments earlier or already present.
-    const tierIdByName = new Map()
-    for (const t of state.tiers) if (t.name && (t.cohort_id ?? null) === cohortId) tierIdByName.set(String(t.name).trim().toLowerCase(), t.id)
-    const groupIdByNameRun = new Map()
-    for (const g of state.groups) if (g.name) groupIdByNameRun.set(normalizeName(g.name), g.id)
+    // No conflicts — apply the plan. tierIdByName / groupIdByNameRun were seeded
+    // from existing rows above (for the decide-phase FK resolution) and are
+    // extended here as tiers/groups are created, so a group created this run files
+    // under a unit created moments earlier — commitPlan's seedNameMaps discipline.
 
     // commitCreate mirror: extract each FieldDelta's `to`, resolve group tier_id
     // and activity rules against the live/run name maps, insert the row, and mark
@@ -688,10 +728,12 @@ export const mockShoresh = {
       total += 1
     }
 
-    const commitUpdate = ({ item, field, delta }) => {
+    // S2c §4: `field`/`value` are already the STORED column and the
+    // validated/resolved value (resolveFieldWrite), so this stays a thin writer.
+    const commitUpdate = ({ item, field, value }) => {
       const row = (state[item.entity] ?? []).find((x) => x.id === item.entity_id)
       if (!row) return
-      row[field] = delta.to
+      row[field] = value
       markSource(state, item.entity, item.entity_id, field, 'import')
       updated += 1
     }

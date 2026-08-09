@@ -25,6 +25,30 @@ const DAY_INDEX = {
   sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6,
 }
 
+// S2c §3. A record field whose proposed value is a foreign-key LABEL is diffed
+// against a DIFFERENT snapshot key that carries the live label form: the source
+// speaks `eligible_groups` (group-name labels) / `unit` (a unit-name label), the
+// snapshot exposes `eligible_group_names` / `unit_name`. buildPlan stays pure —
+// it compares label-vs-label, never a resolved id (that happens at commit, §4).
+const SNAPSHOT_KEY = Object.freeze({
+  eligible_groups: 'eligible_group_names',
+  unit: 'unit_name',
+})
+
+// S2c §3. eligible_groups diffs as an order-independent, normalized-name SET:
+// same members in a different order is NOT a change. `proposed` is a list of
+// group-name labels the source carries; `live` is the snapshot's set of live
+// group names.
+function sameNameSet(proposed, live) {
+  const norm = (arr) => (Array.isArray(arr) ? arr : [])
+    .map((n) => normalizeName(String(n)))
+    .sort()
+  const a = norm(proposed)
+  const b = norm(live)
+  if (a.length !== b.length) return false
+  return a.every((v, i) => v === b[i])
+}
+
 // "08:40–09:00" / "9:15-9:40" -> { start_time, end_time }. Returns nulls when
 // the label is not a range, which is normal — a period may be named "Block 2".
 function parseTimeRange(label) {
@@ -135,33 +159,51 @@ export function buildPlan(source, existing = null, resolutions = []) {
     // `index` is the raw position in the approved array — blanks consume an
     // index but produce no item, matching commitIngest's forEach (sort_order
     // is derived from this index, so it must be the raw one).
-    names.forEach((rawName, index) => {
-      const name = String(rawName ?? '').trim()
+    names.forEach((rawEl, index) => {
+      // S2c §1. A row is a RECORD `{ id?, name, fields?, clears? }`. For
+      // back-compat a bare string is normalized to `{ name }` (the schedule /
+      // clipboard callers, and every existing direct buildPlan test, pass
+      // strings). buildPlan sees only records from here down.
+      const record = rawEl && typeof rawEl === 'object' ? rawEl : { name: rawEl }
+      const name = String(record?.name ?? '').trim()
       if (!name) return
+      // Only the values the source EXPLICITLY carries. A field absent from
+      // `fields` is "preserve" (never diffed, never cleared) — the load-bearing
+      // blank-vs-clear default is now structural (S2c §1).
+      const recFields = record.fields && typeof record.fields === 'object' ? record.fields : {}
 
-      // S2b: a recognized entity is no longer blindly `unchanged`. Diff the
-      // proposed field values against the live snapshot row; a field that
-      // DIFFERS becomes a FieldDelta and turns the item into an `update`,
-      // carrying ONLY the changed fields. An entity all of whose comparable
-      // fields equal live stays `unchanged` (zero ops), preserving F4.
+      // S2c §2: a recognized entity's diff is built from `record.fields` ONLY —
+      // the values the source explicitly supplies. It NO LONGER calls fieldsFor,
+      // so no index-derived field (sort_order) can enter a recognized diff: a
+      // re-order produces no delta (RISK E). An entity whose supplied fields all
+      // equal live stays `unchanged` (zero ops), preserving F4.
       const emitRecognized = (match) => {
-        const raw = fieldsFor(entity, name, campId, index, cohortId)
         const nameCol = entity === 'days_of_operation' ? 'label' : 'name'
         const fields = {}
-        for (const [field, proposed] of Object.entries(raw)) {
+        for (const [field, proposed] of Object.entries(recFields)) {
           // Blank/absent in the source → preserve, never diff and never clear
-          // (MATCH_AND_MERGE_SEMANTICS §3): an empty cell means "I don't carry
-          // this", so it stays out of the delta entirely.
+          // (MATCH_AND_MERGE_SEMANTICS §3). An empty eligibility set is likewise
+          // "I don't carry this" here, not "restrict to nothing" (S4b clears).
           if (proposed === null || proposed === undefined || proposed === '') continue
-          // Only fields the snapshot actually carries are comparable; a column
-          // absent from the snapshot can't be diffed, so it is preserved.
-          if (!(field in match)) continue
-          const live = match[field]
-          // The identity name/label matched via normalizeName, so a raw-form
-          // difference ('art ' vs 'Art') is the SAME entity, not an update.
-          const same = field === nameCol
-            ? normalizeName(String(live)) === normalizeName(String(proposed))
-            : live === proposed
+          if (Array.isArray(proposed) && proposed.length === 0) continue
+          // FK-label fields diff against their snapshot label form (§3); scalars
+          // against a same-named snapshot column. A key the snapshot doesn't
+          // carry can't be diffed, so it is preserved.
+          const snapKey = SNAPSHOT_KEY[field] ?? field
+          if (!(snapKey in match)) continue
+          const live = match[snapKey]
+          let same
+          if (field === 'eligible_groups') {
+            same = sameNameSet(proposed, live)
+          } else if (field === 'unit') {
+            same = normalizeName(String(live ?? '')) === normalizeName(String(proposed))
+          } else if (field === nameCol) {
+            // The identity matched via normalizeName, so a raw-form difference
+            // ('art ' vs 'Art') is the SAME entity, not an update.
+            same = normalizeName(String(live)) === normalizeName(String(proposed))
+          } else {
+            same = live === proposed
+          }
           if (same) continue
           fields[field] = { from: live ?? null, to: proposed, source: 'import' }
         }
@@ -207,8 +249,27 @@ export function buildPlan(source, existing = null, resolutions = []) {
           // live name->id maps (ADR §4). buildPlan cannot resolve them (no DB).
           _name: name,
         }
-        if (entity === 'groups') item._link_unit = groupUnits[name]
-        if (entity === 'activities') item._rule = activityRules?.[name]
+        // Commit-resolution inputs. S2c: the record carries these in `fields`
+        // (the adapter folded the side-channels there); a direct caller passing
+        // bare strings still relies on the source-level side-channels, so fall
+        // back to them. Reconstructed into the exact `_rule`/`_link_unit` shape
+        // commitCreate already consumes, so the create op sequence is unchanged.
+        if (entity === 'groups') {
+          item._link_unit = recFields.unit ?? groupUnits[name]
+        }
+        if (entity === 'activities') {
+          if ('min_per_week' in recFields || 'max_per_week' in recFields
+              || 'priority' in recFields || 'eligible_groups' in recFields) {
+            item._rule = {
+              min_per_week: recFields.min_per_week,
+              max_per_week: recFields.max_per_week,
+              priority: recFields.priority,
+              eligible_group_names: recFields.eligible_groups,
+            }
+          } else {
+            item._rule = activityRules?.[name]
+          }
+        }
         items.push(item)
       }
 

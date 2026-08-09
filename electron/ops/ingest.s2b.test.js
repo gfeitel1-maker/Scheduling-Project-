@@ -67,10 +67,11 @@ const updateItem = (id, label, fields) => ({
 // ---------------------------------------------------------------------------
 describe('buildPlan diffs a recognized entity (F5 diff side)', () => {
   it('a differing comparable field becomes an update carrying ONLY that field', () => {
-    // Live 'Monday' with a hand-moved sort_order 5. fieldsFor derives dow=1, so
-    // the proposed sort_order (1) DIFFERS; day_of_week (1) matches; label matches.
+    // Live 'Monday' with a hand-moved sort_order 5. S2c: the recognized diff
+    // reads ONLY the fields the source explicitly carries, so the source supplies
+    // sort_order 1 (DIFFERS); nothing else is proposed, so nothing else diffs.
     const p = buildPlan(
-      { approved: { days_of_operation: ['Monday'] }, camp_id: campId },
+      { approved: { days_of_operation: [{ name: 'Monday', fields: { sort_order: 1 } }] }, camp_id: campId },
       { days_of_operation: [{ id: 'd-mon', name: 'Monday', day_of_week: 1, sort_order: 5 }] },
     )
     expect(p.items).toHaveLength(1)
@@ -299,9 +300,9 @@ describe('F5 — partial enrichment end-to-end (evidence #1)', () => {
     // prior accepted re-import), so it is import-owned and re-importable.
     appendOp(db, { entity: 'days_of_operation', entity_id: monId, field: 'sort_order', value: 5, device_id: deviceId, source: 'import' })
 
-    // Re-import: fieldsFor derives Monday's sort_order = 1, differing from 5 →
-    // update writes; Tuesday is unchanged.
-    const res = commitIngest(db, { approved: { days_of_operation: ['Monday', 'Tuesday'] }, camp_id: campId, device_id: deviceId, author_user_id: 'u1' })
+    // Re-import: the source explicitly carries Monday's sort_order = 1 (S2c), which
+    // differs from the live 5 → update writes; Tuesday carries nothing → unchanged.
+    const res = commitIngest(db, { approved: { days_of_operation: [{ name: 'Monday', fields: { sort_order: 1 } }, 'Tuesday'] }, camp_id: campId, device_id: deviceId, author_user_id: 'u1' })
     expect(res.held).toBe(false)
     expect(res.updated).toBe(1)
     expect(db.prepare('SELECT sort_order FROM days_of_operation WHERE id = ?').get(monId).sort_order).toBe(1)
