@@ -2,12 +2,12 @@
 title: "Work-record status drift prevention"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-08-09
 supersedes: []
-implementation_state: not-started
+implementation_state: implemented
 affects: [docs/governance/standards/WORK_RECORD_STANDARD.md, docs/governance/GOVERNANCE_INDEX.md, scripts/check-governance.js]
-related_tickets: []
+related_tickets: [docs/work/tickets/T76-status-drift-commit-gate.md, docs/work/tickets/T77-completion-reference-vocabulary.md]
 related_adrs: []
 ---
 
@@ -108,10 +108,11 @@ Add a new check, `checkStatusDrift`, alongside the existing `checkAll`/`checkInd
   feat(S5b)...before commit` / `89e708a Merge S5b:...(closes T75)`).
 - A reference pattern: `(?:closes|Merge)\s+([ST]\d+)` (case-insensitive on the keyword), extracting
   ticket IDs (`T\d+`) and slice/spec IDs (`S\d+`) — matching the two forms already in use.
-- For each extracted ID, resolve it to a work document by filename prefix under
-  `docs/work/tickets/` (`T##`) or `docs/adr/`/`docs/work/specs/` (`S##`, since slices are recorded
-  as ADRs or specs in this repo, not a distinct type) — reuse `readDocs()`'s existing document set,
-  do not re-walk the filesystem.
+- For each extracted ID, resolve it to a work document under `docs/work/tickets/` (`T##`, by
+  filename prefix) or `docs/adr/`/`docs/work/specs/` (`S##`, by hyphen-delimited filename segment,
+  since slices are recorded as ADRs or specs in this repo, not a distinct type, and their id sits
+  wherever the slug puts it) — reuse `readDocs()`'s existing document set, do not re-walk the
+  filesystem.
 - Read that document's **current working-tree frontmatter** (not the state at the referencing
   commit — the predicate is "is it fixed *now*", so a later commit on the branch correcting an
   earlier commit's status is fine).
