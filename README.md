@@ -76,7 +76,7 @@ For a first-time install, use `npm run install:mac` instead.
 ## Tests
 
 ```bash
-npm run test                          # Vitest unit tests (~527+)
+npm run test                          # Vitest unit tests (~1,800+ across 133 files)
 node test/integration/run.js          # 16 multi-process integration scenarios
 npm run lint                          # ESLint
 ```

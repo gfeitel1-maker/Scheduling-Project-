@@ -1,7 +1,7 @@
 ---
 task: Documentation staleness remediation
 document_type: handoff
-status: active
+status: superseded
 created: 2026-08-09
 archive_when: remediation branch merged
 date: 2026-08-09
@@ -11,6 +11,18 @@ schema_version_at_audit: 29
 ---
 
 # Handoff: Reference-doc staleness remediation
+
+> **SUPERSEDED / COMPLETE (2026-08-09).** Batches A–E were carried out on `main` between the audit
+> tip (`89e708a`) and the current tip. Verified done: all 13 Batch-A ADRs read `accepted` +
+> `implementation_state: implemented`/`shipped`; Batch-B tickets T72–T75 read `completed` and the
+> T70 duplicate was renumbered to T78 and retired as superseded-by-T71 (PR #24); `docs/work/INDEX.md`
+> regenerates with no diff (Batch C); `PLATFORM_STATE.md` states schema **v29**, the reconciliation/
+> onboarding program, the `readiness` landing screen, and the `import`/`trash`/`schedule:*` screen
+> keys (Batch D); the T50 canvas handoff is marked `superseded` and the README test-count figure was
+> refreshed (Batch E). `npm run check:governance` reports no findings. The three "going forward"
+> recommendations (merge-time status flip, a drift gate, PLATFORM_STATE by-reference) were taken up
+> separately — the drift gate landed as `docs/adr/2026-08-09-work-record-status-drift-prevention.md`.
+> Retained as a record of the audit, not a live next step.
 
 ## Product goal (owner's words)
 
