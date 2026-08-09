@@ -24,7 +24,7 @@
 // triggers the rebuild.
 
 import { execFileSync } from 'node:child_process'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
 import path from 'node:path'
@@ -67,7 +67,19 @@ export function classifyBinary(root) {
   return classifyLoad(probeUnderNode(modulePath))
 }
 
+// T44 self-heal: clear out a possibly half-populated build dir before
+// rebuilding. A from-scratch build dir is what rebuild does semantically
+// anyway — this just makes that explicit instead of leaving gyp to build on
+// top of whatever an interrupted or concurrent rebuild left behind, which is
+// the same "marker says built, binary doesn't back it up" race decide() above
+// already has to detect and recover from.
+function clearBuildDir() {
+  const buildDir = fileURLToPath(new URL('../node_modules/better-sqlite3/build', import.meta.url))
+  rmSync(buildDir, { recursive: true, force: true })
+}
+
 function rebuild(target) {
+  clearBuildDir()
   if (target === 'node') {
     // Rebuild against the running Node's ABI.
     execFileSync('npm', ['rebuild', 'better-sqlite3'], { stdio: 'inherit' })

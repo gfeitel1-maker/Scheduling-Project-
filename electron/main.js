@@ -1034,6 +1034,35 @@ function isElectronEntryPoint() {
 
 if (isElectronEntryPoint()) {
   const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+  // Never leave the process alive with no window and no explanation. Three
+  // audiences, three channels: the director gets a dialog, whoever is helping
+  // them gets a file, and a terminal launch gets stderr plus a non-zero exit.
+  // Shared by the module-level startup catch below and the whenReady() catch
+  // around createWindow(), so a throw inside createWindow (e.g. BrowserWindow
+  // construction failing) is reported the same way as one before it.
+  function reportStartupFailure(err) {
+    const when = new Date().toISOString()
+    let logPath = null
+    try {
+      const dir = app.getPath('userData')
+      fs.mkdirSync(dir, { recursive: true })
+      logPath = path.join(dir, 'startup-error.log')
+      fs.writeFileSync(logPath, formatStartupFailureLog(err, when))
+    } catch {
+      logPath = null // a logging failure must not replace the real error
+    }
+
+    const { title, message } = describeStartupFailure(err, logPath)
+    process.stderr.write(`\n${title}\n${message}\n`)
+
+    // showErrorBox is safe before 'ready' and is the only way to say anything
+    // when the failure happened before a window could exist.
+    try { dialog.showErrorBox(title, message) } catch { /* headless */ }
+
+    app.exit(1)
+  }
+
   // T19: everything below runs at module top level, before whenReady. A throw
   // here used to abort the module body, leaving an app with no window and no
   // message anywhere. Wrapped so a fatal startup error is SHOWN rather than
@@ -1443,6 +1472,34 @@ if (isElectronEntryPoint()) {
     mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
       console.error('PRELOAD ERROR', preloadPath, error)
     })
+    // Deploy smoke test heartbeat (scripts/deploy-local.sh). Written only when
+    // SHORESH_SMOKE_NONCE is set, which gates this out of every dev/test/normal
+    // run entirely. Written once the renderer's DOM is ready, so a main-process
+    // crash that Electron keeps alive behind its own error dialog never produces
+    // one — "process still alive" used to false-pass exactly that case.
+    //
+    // Deliberately `dom-ready`, NOT `did-finish-load`: index.html pulls a
+    // render-blocking stylesheet from fonts.googleapis.com, and the `load` event
+    // (which drives did-finish-load) blocks on that external request. On a fresh
+    // smoke profile with a cold cache — or an offline/slow network — that request
+    // stalls, so did-finish-load fired late or never and the gate FALSE-FAILED
+    // good builds non-deterministically. `dom-ready` fires when the document is
+    // parsed and does not wait on subresources, which is all the smoke test
+    // needs: proof the renderer process booted. Failure to write must never take
+    // startup down over a smoke-test convenience file.
+    mainWindow.webContents.on('dom-ready', () => {
+      const nonce = process.env.SHORESH_SMOKE_NONCE
+      if (!nonce) return
+      try {
+        const buildInfo = readBuildInfo(__dirname, app.isPackaged)
+        const markerPath = path.join(userDataPath, 'deploy-smoke-marker.json')
+        const tmpPath = `${markerPath}.tmp`
+        fs.writeFileSync(tmpPath, JSON.stringify({ commit: buildInfo.commit, nonce, pid: process.pid, ts: Date.now() }))
+        fs.renameSync(tmpPath, markerPath)
+      } catch (err) {
+        console.error('deploy smoke marker write failed (non-fatal)', err)
+      }
+    })
     if (!app.isPackaged) {
       mainWindow.setTitle('Shoresh [DEV]')
     }
@@ -1454,32 +1511,17 @@ if (isElectronEntryPoint()) {
     }
   }
 
-  app.whenReady().then(createWindow)
+  app.whenReady().then(() => {
+    try {
+      createWindow()
+    } catch (err) {
+      reportStartupFailure(err)
+    }
+  })
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()
   })
   } catch (err) {
-    // Never leave the process alive with no window and no explanation. Three
-    // audiences, three channels: the director gets a dialog, whoever is helping
-    // them gets a file, and a terminal launch gets stderr plus a non-zero exit.
-    const when = new Date().toISOString()
-    let logPath = null
-    try {
-      const dir = app.getPath('userData')
-      fs.mkdirSync(dir, { recursive: true })
-      logPath = path.join(dir, 'startup-error.log')
-      fs.writeFileSync(logPath, formatStartupFailureLog(err, when))
-    } catch {
-      logPath = null // a logging failure must not replace the real error
-    }
-
-    const { title, message } = describeStartupFailure(err, logPath)
-    process.stderr.write(`\n${title}\n${message}\n`)
-
-    // showErrorBox is safe before 'ready' and is the only way to say anything
-    // when the failure happened before a window could exist.
-    try { dialog.showErrorBox(title, message) } catch { /* headless */ }
-
-    app.exit(1)
+    reportStartupFailure(err)
   }
 }

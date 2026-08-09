@@ -14,6 +14,8 @@
 
 set -euo pipefail
 
+APP_PID=""
+
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP_NAME="Shoresh.app"
 BUILD_OUTPUT="$PROJECT_DIR/release/mac/$APP_NAME"
@@ -86,6 +88,7 @@ fi
 
 fail() {
   echo "ERROR: $1" >&2
+  [ -n "$APP_PID" ] && { kill "$APP_PID" 2>/dev/null || true; wait "$APP_PID" 2>/dev/null || true; }
   if [ "$HAD_PREVIOUS_INSTALL" -eq 1 ]; then
     restore_backup
     echo "ERROR: deploy failed verification; restored previous install." >&2
@@ -119,12 +122,97 @@ if [ "$DEPLOYED_COMMIT" != "$EXPECTED_COMMIT" ]; then
 fi
 
 echo "==> Launch smoke test ($EXECUTABLE_NAME)"
-"$EXECUTABLE_PATH" &
-APP_PID=$!
-sleep 3
-if ! kill -0 "$APP_PID" 2>/dev/null; then
-  fail "installed app exited within 3 seconds of launch (likely a DB-open/ABI crash)"
+# "process still alive after N seconds" used to pass even when the main
+# process had crashed, because Electron keeps the process alive behind its
+# own uncaught-exception error dialog. Instead, wait for a positive heartbeat:
+# electron/main.js writes deploy-smoke-marker.json only after the renderer's
+# dom-ready fires on a real window, which a crashed/undialoged app never reaches.
+#
+# The app is launched against a throwaway userData directory
+# (SHORESH_SMOKE_USERDATA), never the machine's real one, so the smoke run can
+# never mutate live data. We SEED that throwaway dir with a read-only COPY of
+# the live database, for two reasons:
+#   1. Reliability. Booting a fresh EMPTY db runs the full migration chain from
+#      scratch on every deploy; that cold path was slow and non-deterministic
+#      and false-failed good builds (the renderer's boot signal arrived after
+#      the timeout, or not at all). Booting an already-migrated copy reaches a
+#      steady state fast and deterministically.
+#   2. A better guarantee. It proves the new build can actually open THIS
+#      machine's real data shape — so a build too old for the live schema
+#      (e.g. a v29 build against a v30 db) fails the gate instead of installing.
+# The copy is of the .sqlite file only; WAL mode keeps that file self-consistent
+# up to the last checkpoint, which is a valid db to boot. If there is no live db
+# yet (first-ever install), we fall back to a fresh empty db.
+# SHORESH_SMOKE_NONCE ties the marker to this exact launch so a stale marker
+# file from a previous run can never false-pass.
+SMOKE_NONCE="$(node -e "console.log(require('crypto').randomUUID())")"
+SMOKE_USERDATA="$(mktemp -d)"
+trap 'rm -rf "$SMOKE_USERDATA"' EXIT
+# 120s, not 40s: the smoke target is a freshly ditto'd, unsigned bundle on its
+# FIRST launch, which carries one-time macOS Gatekeeper/LaunchServices
+# assessment overhead (measured ~20-35s on top of normal boot) that a warm,
+# previously-run bundle does not. 40s sat right on that edge and false-failed
+# intermittently even for a good build. A genuinely crashed build still fails
+# fast via the kill -0 exit check above; this ceiling only bounds the hang case,
+# and deploys are infrequent, so a generous margin costs nothing.
+SMOKE_TIMEOUT_S="${SHORESH_SMOKE_TIMEOUT_S:-120}"
+MARKER_PATH="$SMOKE_USERDATA/deploy-smoke-marker.json"
+
+# Seed with a copy of the live database so the smoke boot skips the slow,
+# flaky cold-migration path. APP_NAME 'shoresh' -> ~/Library/Application Support/shoresh.
+LIVE_DB="$HOME/Library/Application Support/shoresh/shoresh.sqlite"
+if [ -f "$LIVE_DB" ]; then
+  cp "$LIVE_DB" "$SMOKE_USERDATA/shoresh.sqlite"
+  echo "==> smoke test seeded with a read-only copy of the live database (live data untouched)"
+else
+  echo "==> smoke test using a fresh empty database (no live database found to copy)"
 fi
+
+SHORESH_SMOKE_NONCE="$SMOKE_NONCE" SHORESH_SMOKE_USERDATA="$SMOKE_USERDATA" "$EXECUTABLE_PATH" &
+APP_PID=$!
+
+# KNOWN CEILING: dom-ready only proves the renderer shell loaded, not that React
+# mounted or that IPC works end to end. A renderer-mount+IPC heartbeat is a
+# planned follow-up.
+elapsed=0
+smoke_passed=0
+while [ "$elapsed" -lt "$SMOKE_TIMEOUT_S" ]; do
+  if ! kill -0 "$APP_PID" 2>/dev/null; then
+    echo "==> smoke test elapsed: ${elapsed}s"
+    fail "installed app exited before finishing load (likely a DB-open/ABI crash)"
+  fi
+  if [ -f "$MARKER_PATH" ]; then
+    # Guard against reading mid-rename (main.js writes to .tmp then renames,
+    # but a stat between renamesync steps could still race on some
+    # filesystems): require the file size to be stable across two reads.
+    SIZE_1="$(stat -f%z "$MARKER_PATH" 2>/dev/null || echo -1)"
+    sleep 0.05
+    SIZE_2="$(stat -f%z "$MARKER_PATH" 2>/dev/null || echo -2)"
+    if [ "$SIZE_1" = "$SIZE_2" ] && [ "$SIZE_1" != "-1" ]; then
+      MARKER_COMMIT="$(node -e "try { console.log(JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).commit ?? '') } catch { console.log('') }" "$MARKER_PATH")"
+      MARKER_NONCE="$(node -e "try { console.log(JSON.parse(require('fs').readFileSync(process.argv[1], 'utf8')).nonce ?? '') } catch { console.log('') }" "$MARKER_PATH")"
+      if [ -n "$MARKER_COMMIT" ] && [ -n "$MARKER_NONCE" ]; then
+        if [ "$MARKER_COMMIT" = "$DEPLOYED_COMMIT" ] && [ "$MARKER_NONCE" = "$SMOKE_NONCE" ]; then
+          smoke_passed=1
+          break
+        else
+          echo "==> smoke test elapsed: ${elapsed}s"
+          fail "smoke marker mismatch: marker has commit '$MARKER_COMMIT' nonce '$MARKER_NONCE', expected commit '$DEPLOYED_COMMIT' nonce '$SMOKE_NONCE' (stale or racing marker from a different launch)"
+        fi
+      fi
+      # parse yielded empty/partial fields — keep polling, do not fail yet.
+    fi
+  fi
+  elapsed=$((elapsed + 1))
+  sleep 1
+done
+
+if [ "$smoke_passed" -ne 1 ]; then
+  echo "==> smoke test elapsed: ${elapsed}s"
+  fail "app did not finish loading within ${SMOKE_TIMEOUT_S}s (no smoke marker) — likely a main-process crash held alive by Electron's error dialog, or a renderer load failure"
+fi
+
+echo "==> smoke test elapsed: ${elapsed}s"
 kill "$APP_PID" 2>/dev/null || true
 wait "$APP_PID" 2>/dev/null || true
 
