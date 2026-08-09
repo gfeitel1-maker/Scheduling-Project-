@@ -127,6 +127,12 @@ Append Designer output to Maker brief under "DESIGN SPEC".
 Dispatch Maker with `.claude/agents/maker.md` as brief + the full task brief you wrote.
 Wait for Maker to signal "done".
 
+**If Maker signals `INTERRUPTED` instead of `DONE`:** use the signal only to route the retry — its
+"Verified so far" claims are not accepted at face value. Independently re-run the cited checks
+yourself before treating any success criterion as established, exactly as you would manually
+reconstruct state from the working tree if no signal had been given at all (see T32's round 1).
+An unverified self-report is not evidence a criterion is met, regardless of which agent produced it.
+
 ### Phase 6 — Parallel Review
 
 Dispatch simultaneously (foreground, same message/turn — see Dispatch discipline above):
@@ -138,6 +144,8 @@ Dispatch simultaneously (foreground, same message/turn — see Dispatch discipli
 Wait for all four to return reports.
 
 ### Phase 6.5 — Verify
+
+**Before dispatching Verifier, confirm environment state:** run `git branch --show-current` and confirm it matches the task's working branch (not a branch that changed underneath the session via a background rebase — see the 2026-07-30 typed-run-records incident); confirm no concurrent `vitest`/build process is running on the machine (a contaminated full-suite run costs more to explain away than to avoid — see T69's round-2 contamination). This is a Governor pre-flight check, not a Verifier instruction — it does not change Verifier's own behavior or gate-stack scope.
 
 Dispatch Verifier (`.claude/agents/verifier.md`) with the task brief's success predicate and testing plan. Wait for its PASS/FAIL/UNVERIFIED verdict with raw evidence.
 
