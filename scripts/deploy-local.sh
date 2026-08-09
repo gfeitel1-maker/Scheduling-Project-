@@ -148,14 +148,14 @@ echo "==> Launch smoke test ($EXECUTABLE_NAME)"
 SMOKE_NONCE="$(node -e "console.log(require('crypto').randomUUID())")"
 SMOKE_USERDATA="$(mktemp -d)"
 trap 'rm -rf "$SMOKE_USERDATA"' EXIT
-# 120s, not 40s: the smoke target is a freshly ditto'd, unsigned bundle on its
+# 180s, not 40s: the smoke target is a freshly ditto'd, unsigned bundle on its
 # FIRST launch, which carries one-time macOS Gatekeeper/LaunchServices
-# assessment overhead (measured ~20-35s on top of normal boot) that a warm,
+# assessment overhead (measured ~20-95s on top of normal boot, observed up to 96s) that a warm,
 # previously-run bundle does not. 40s sat right on that edge and false-failed
 # intermittently even for a good build. A genuinely crashed build still fails
 # fast via the kill -0 exit check above; this ceiling only bounds the hang case,
 # and deploys are infrequent, so a generous margin costs nothing.
-SMOKE_TIMEOUT_S="${SHORESH_SMOKE_TIMEOUT_S:-120}"
+SMOKE_TIMEOUT_S="${SHORESH_SMOKE_TIMEOUT_S:-180}"
 MARKER_PATH="$SMOKE_USERDATA/deploy-smoke-marker.json"
 
 # Seed with a copy of the live database so the smoke boot skips the slow,
