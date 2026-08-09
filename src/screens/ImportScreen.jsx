@@ -11,6 +11,7 @@ import { inferActivityRules } from '../ingest/activityRules'
 import { buildPreview, describePreview } from '../ingest/preview'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../utils/exportSanitize.js'
+import { downloadWorkbook } from '../utils/exportWorkbook.js'
 
 // Read last year's schedule and propose the camp's setup from it.
 //
@@ -264,6 +265,36 @@ export default function ImportScreen({ campId, onNavigate }) {
     }
   }
 
+  // S4a — the enrichment-workbook EXPORT. A read-only download: read the camp's
+  // current entities and produce a pre-populated xlsx the director can edit and
+  // re-import (S4b). Writes nothing to the camp.
+  //
+  // base_generation is stamped null here: the op-log generation the staleness
+  // gate diffs against is not yet surfaced to the renderer, and its consumer is
+  // S4b. Sourcing a real value needs a read-only max-op-seq accessor S4b adds.
+  const [exporting, setExporting] = useState(false)
+  async function downloadWorksheet() {
+    setExporting(true)
+    setError(null)
+    try {
+      const camp = await localClient.getCamp().catch(() => null)
+      const entities = {}
+      for (const entity of INGESTIBLE_ENTITIES) {
+        entities[entity] = await localClient.list(entity).catch(() => [])
+      }
+      downloadWorkbook({
+        ...entities,
+        camp_id: camp?.id ?? null,
+        cohort_id: activeCohort?.id ?? null,
+        base_generation: null,
+      })
+    } catch (err) {
+      setError(describeWriteFailure(err, 'The worksheet could not be created.'))
+    } finally {
+      setExporting(false)
+    }
+  }
+
   function toggle(entity, name) {
     setChosen(prev => {
       const set = new Set(prev[entity])
@@ -505,6 +536,17 @@ export default function ImportScreen({ campId, onNavigate }) {
             {fileNames.join(', ')}
           </div>
         )}
+        {/* S4a — download a worksheet pre-filled with what the camp already
+            knows, to edit and re-import. Read-only; writes nothing. */}
+        <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
+            Prefer to fill in the details in a spreadsheet? Download a worksheet with everything Shoresh
+            already knows, edit it, and open it back here.
+          </div>
+          <button className="press-97" onClick={downloadWorksheet} disabled={exporting} style={{ ...S.btnSecondary, opacity: exporting ? 0.45 : 1 }}>
+            {exporting ? 'Preparing…' : 'Download worksheet'}
+          </button>
+        </div>
       </div>
 
       {held && (() => {
