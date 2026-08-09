@@ -18,6 +18,7 @@
 
 import { isDayName } from './textGrid.js'
 import { activityNamesFromCell, canonicalDay, dayNameFromTitle, cleanTitle } from './extractEntities.js'
+import { normalizeName } from './preview.js'
 
 const DAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 const dayRank = (d) => {
@@ -50,9 +51,21 @@ export function inferFixedEvents(parsed, proposal) {
   const allGroups = proposal?.entities?.groups ?? []
   const groupNameByTitle = proposal?.groupNameByTitle ?? {}
 
-  // keyOf(group, block, activity) -> Set of days it occupied that block.
+  // Every group-identity key below is normalizeName'd so two spellings of the
+  // same group (whitespace, casing) collapse into one — the SAME function
+  // extractEntities/buildPlan resolve groups by, end to end (Red Hat Risk 5).
+  // The first spelling seen is kept for display (mirrors extractEntities'
+  // dedupe tie-break).
+  const groupSpelling = new Map() // normalizeName(group) -> first spelling seen
+  const regGroup = (name) => {
+    const norm = normalizeName(name)
+    if (!groupSpelling.has(norm)) groupSpelling.set(norm, name)
+    return norm
+  }
+
+  // keyOf(groupNorm, block, activity) -> Set of days it occupied that block.
   const occupied = new Map()
-  // group -> Set of the days that group operates (its denominator for majority).
+  // groupNorm -> Set of the days that group operates (its denominator for majority).
   const operatingDays = new Map()
 
   const addOperatingDay = (group, day) => {
@@ -68,8 +81,9 @@ export function inferFixedEvents(parsed, proposal) {
   for (const page of pages) {
     if (orientation.columns === 'days') {
       // Orientation A — one page per group, days as columns.
-      const groupName = groupNameByTitle[cleanTitle(page.title)]
-      if (!groupName) continue
+      const rawGroupName = groupNameByTitle[cleanTitle(page.title)]
+      if (!rawGroupName) continue
+      const groupName = regGroup(rawGroupName)
       const dayCols = []
       page.columns.forEach((c, i) => {
         if (isDayName(c)) {
@@ -89,12 +103,13 @@ export function inferFixedEvents(parsed, proposal) {
       // Orientation B — one page per day, groups as columns.
       const day = dayNameFromTitle(cleanTitle(page.title))
       if (!day) continue
-      page.columns.forEach((groupName) => { if (groupName) addOperatingDay(groupName, day) })
+      page.columns.forEach((rawGroupName) => { if (rawGroupName) addOperatingDay(regGroup(rawGroupName), day) })
       for (const row of page.rows) {
         if (!isBlockLabel(row.label)) continue
         const block = row.label.trim()
-        page.columns.forEach((groupName, i) => {
-          if (!groupName) return
+        page.columns.forEach((rawGroupName, i) => {
+          if (!rawGroupName) return
+          const groupName = regGroup(rawGroupName)
           for (const a of activityNamesFromCell(row.cells?.[i])) addTuple(groupName, day, block, a)
         })
       }
@@ -130,25 +145,58 @@ export function inferFixedEvents(parsed, proposal) {
   // pipeline resolves groups by normalizeName, and in orientation B a column
   // spelled with different casing/spacing across day-pages would otherwise
   // fragment an all-groups event into a partial scope (Red Hat round-1).
-  const norm = (s) => String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
-  const allGroupsNorm = new Set(allGroups.map(norm))
+  const allGroupsNorm = new Set(allGroups.map(normalizeName))
 
+  // entry.groups are already normalizeName'd keys (regGroup above); the
+  // footprint below (dual-use test) is keyed the same way, and display
+  // spellings are recovered from groupSpelling only at the very end.
   const fixedEvents = []
   for (const entry of collapsed.values()) {
-    const entryNorm = new Set([...entry.groups].map(norm))
     const isAll = allGroupsNorm.size > 0 &&
-      entryNorm.size === allGroupsNorm.size &&
-      [...allGroupsNorm].every((g) => entryNorm.has(g))
+      entry.groups.size === allGroupsNorm.size &&
+      [...allGroupsNorm].every((g) => entry.groups.has(g))
     fixedEvents.push({
       name: entry.name,
       time_block: entry.time_block,
       days: entry.days,
       scope: isAll
         ? { is_all_groups: true, groups: null }
-        : { is_all_groups: false, groups: [...entry.groups].sort((a, b) => a.localeCompare(b)) },
+        : {
+            is_all_groups: false,
+            groups: [...entry.groups].map((g) => groupSpelling.get(g) ?? g).sort((a, b) => a.localeCompare(b)),
+          },
+      // footprint (normalized groups) used only for the dual-use test below.
+      _footprintGroups: isAll ? allGroupsNorm : entry.groups,
       confidence: entry.allHigh ? 'high' : 'low',
     })
   }
+
+  // dualUseNames — a SEED for the review UI's default tick-state, never a
+  // routing verdict buildPlan consumes (ADR Decision 1, C2). A confirmed
+  // fixed event's name is dual-use iff the SAME normalized name also has an
+  // `occupied` tuple (pre-majority-filter) OUTSIDE the union of that name's
+  // own confirmed fixed events' (group, time_block) footprint.
+  const footprintByActivity = new Map() // normalizeName(activity) -> Set("groupNorm|block")
+  const displaySpellingByActivity = new Map() // normalizeName(activity) -> display spelling
+  for (const fe of fixedEvents) {
+    const activityNorm = normalizeName(fe.name)
+    if (!footprintByActivity.has(activityNorm)) footprintByActivity.set(activityNorm, new Set())
+    if (!displaySpellingByActivity.has(activityNorm)) displaySpellingByActivity.set(activityNorm, fe.name)
+    const footprint = footprintByActivity.get(activityNorm)
+    for (const g of fe._footprintGroups) footprint.add(`${g}|${fe.time_block}`)
+  }
+
+  const dualUseNorms = new Set()
+  for (const key of occupied.keys()) {
+    const [group, block, activity] = JSON.parse(key)
+    const activityNorm = normalizeName(activity)
+    const footprint = footprintByActivity.get(activityNorm)
+    if (!footprint) continue // not a confirmed fixed event at all
+    if (!footprint.has(`${group}|${block}`)) dualUseNorms.add(activityNorm)
+  }
+  const dualUseNames = [...dualUseNorms].map((n) => displaySpellingByActivity.get(n))
+
+  for (const fe of fixedEvents) delete fe._footprintGroups
 
   // Deterministic order so the same fixture in either orientation yields
   // identical output (the transpose invariant).
@@ -159,5 +207,5 @@ export function inferFixedEvents(parsed, proposal) {
     (a.scope.groups?.join(',') ?? '').localeCompare(b.scope.groups?.join(',') ?? '')
   )
 
-  return { fixedEvents }
+  return { fixedEvents, dualUseNames }
 }

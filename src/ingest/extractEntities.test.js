@@ -176,7 +176,54 @@ describe('what it refuses to guess', () => {
     expect(extractEntities(campB).entities.tiers).toEqual([])
     expect(extractEntities(campB).groupUnits).toEqual({})
   })
+})
 
+// ADR 2026-08-09 Decision 2 — better unit inference where the file can encode
+// it, conservatively (a blank unit, never a wrong one).
+describe('unit inference (ADR 2026-08-09 Decision 2)', () => {
+  it('groups-are-columns: a "Unit - Bunk" column header now populates the unit', () => {
+    const grid = { pages: [{ title: 'Monday', columns: ['Kfar A - Chagalls', 'Kfar B - Picassos'], rows: [
+      { label: '09:00-10:00', cells: ['Swim', 'Art'] },
+    ] }] }
+    const { entities, groupUnits } = extractEntities(grid)
+    expect(entities.tiers).toEqual(expect.arrayContaining(['Kfar A', 'Kfar B']))
+    expect(groupUnits['Chagalls']).toBe('Kfar A')
+    expect(groupUnits['Picassos']).toBe('Kfar B')
+  })
+
+  it('groups-are-columns: a plain-name header with no separator stays unit: null (no false positive)', () => {
+    // Real Camp B fixture headers include "CIT", a bare bunk name that would
+    // match inferUnitFromCode's positional-code regex if it were reused here
+    // — a false positive the ADR itself flags as a stop-ship signal for that
+    // specific reuse (open question 2). Confirmed against the real fixture:
+    expect(extractEntities(campB).entities.tiers).toEqual([])
+    expect(extractEntities(campB).groupUnits).toEqual({})
+    // And directly, against synthetic plain-name headers of the same shape:
+    const grid = { pages: [{ title: 'Monday', columns: ['Zahav', 'Gesher', 'CIT'], rows: [
+      { label: '09:00-10:00', cells: ['Swim', 'Art', 'Music'] },
+    ] }] }
+    const { entities, groupUnits } = extractEntities(grid)
+    expect(entities.tiers).toEqual([])
+    expect(groupUnits).toEqual({})
+  })
+
+  it('groups-are-pages, labeled: a title matching neither shape now falls back to inferUnitFromCode', () => {
+    // "2A" has no "Unit - Bunk" separator, so splitUnitAndGroup alone (the
+    // pre-ADR behaviour) misses it — but it IS a positional code
+    // inferUnitFromCode already recognizes on unlabeled pages. The ADR adds
+    // it as a fallback on labeled pages too, without overriding either
+    // heuristic's own find.
+    const grid = { pages: [{
+      title: '2A', columns: ['Monday', 'Tuesday'], timeColumnLabeled: true,
+      rows: [{ label: '09:00-10:00', cells: ['Swim', 'Art'] }],
+    }] }
+    const { entities, groupUnits } = extractEntities(grid)
+    expect(entities.tiers).toEqual(['2'])
+    expect(groupUnits['2A']).toBe('2')
+  })
+})
+
+describe('what it refuses to guess, continued', () => {
   it('deduplicates case- and whitespace-insensitively, keeping the first spelling', () => {
     const grid = { pages: [{ title: 'Monday', columns: ['Bunk A'], rows: [
       { label: '09:00-10:00', cells: ['Swim'] },

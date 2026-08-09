@@ -258,15 +258,36 @@ export function extractEntities(parsed) {
         // prefix. The two labelled camps keep calling splitUnitAndGroup (spec §3c).
         // This is the third behaviour gated on `!labeled` (with strip + banner in
         // textGrid.js); the coupling is spec R3.
-        const { unit, group } = page.timeColumnLabeled === false
+        // Whichever heuristic matches the page's labeling is tried first; the
+        // OTHER heuristic is then tried as a fallback whenever the primary one
+        // found no unit — neither ever overrides a unit the other already
+        // found, and a title matching neither shape stays null (ADR
+        // 2026-08-09 Decision 2: a wrong unit is worse than a blank one).
+        const primary = page.timeColumnLabeled === false
           ? { unit: inferUnitFromCode(title), group: title }
           : splitUnitAndGroup(title)
+        const unit = primary.unit ?? (page.timeColumnLabeled === false ? null : inferUnitFromCode(title))
+        const group = primary.group
         groups.push({ title, unit, group })
         if (unit) units.push(unit)
       }
     } else {
-      // Columns are group names on this layout, with no unit information.
-      groups.push(...page.columns.map((c) => ({ title: c, unit: null, group: c })))
+      // Columns are group names on this layout. The header is the raw
+      // group/bunk name — try splitUnitAndGroup, the same "Unit - Bunk"
+      // heuristic the pages-orientation titles use above (ADR 2026-08-09
+      // Decision 2). The ADR also proposed inferUnitFromCode as a second
+      // fallback here, but Camp B's real "CIT" column header (a plain bunk
+      // name with no separator) matches inferUnitFromCode's positional-code
+      // regex and would mint a false unit "C" — exactly the false positive
+      // the ADR itself flagged as a stop-ship signal for this specific
+      // reuse (open question 2). So inferUnitFromCode is NOT reused on this
+      // orientation; a header with no "Unit - Bunk" separator stays
+      // unit: null, per "a wrong unit is worse than a blank one."
+      page.columns.forEach((c) => {
+        const { unit, group } = splitUnitAndGroup(c)
+        groups.push({ title: c, unit, group })
+        if (unit) units.push(unit)
+      })
       if (title) {
         const day = dayNameFromTitle(title)
         if (day) days.push(day)
