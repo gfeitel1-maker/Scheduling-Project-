@@ -6,6 +6,7 @@ import * as XLSX from 'xlsx'
 import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
+import { ALIAS_COHORT_SCOPED } from './importAliasScope'
 import { inferFixedEvents } from '../ingest/fixedEvents'
 import { inferActivityRules } from '../ingest/activityRules'
 import { buildPreview, describePreview } from '../ingest/preview'
@@ -43,12 +44,10 @@ const LABEL = {
 // Identifies a proposed fixed event for tick toggling (spec §4.1).
 const fixedEventKey = (fe) => `${fe.name} ${fe.time_block} ${fe.days.join(',')}`
 
-// S1b — the same cohort-scoped entity_type set confirmAlias validates against
-// (electron/ops/confirmAlias.js / electron/ops/ingest.js COHORT_SCOPED). Kept
-// as its own copy per this file's src/-never-imports-electron/ discipline —
-// confirmAlias rejects a cohort_id on a non-cohort-scoped entity_type, so this
-// gates what's sent rather than letting the call throw.
-const ALIAS_COHORT_SCOPED = new Set(['tiers', 'time_blocks'])
+// S1b — cohort-scoped entity_type set the alias path gates cohort_id on. Lives
+// in its own module (importAliasScope.js) so a drift-guard test can assert it
+// stays equal to the engine's COHORT_SCOPED without this component file having
+// to export a non-component value.
 
 // activities.priority is the engine's two-valued contract — 'high'/'low',
 // never a third value (ActivitiesScreen.jsx, buildSchedule.js's runRound).
