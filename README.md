@@ -61,6 +61,18 @@ npx electron-rebuild -f -w better-sqlite3   # before electron:dev
 npm rebuild better-sqlite3                   # before npm run test
 ```
 
+## Local deploy
+
+`npm run deploy:local` rebuilds the app and updates an already-installed
+`/Applications/Shoresh.app` in place, so a source change appears in the
+installed app with one command. Before replacing anything it moves the
+current install aside to `Shoresh.app.bak`, then proves the new build good
+(native module ABI check, a launch smoke test, and a build-stamp check
+against `git rev-parse HEAD`) before deleting the backup. If any check
+fails, it automatically restores `Shoresh.app.bak` back to `Shoresh.app` and
+exits non-zero — the machine is always left with a working installed app.
+For a first-time install, use `npm run install:mac` instead.
+
 ## Tests
 
 ```bash
