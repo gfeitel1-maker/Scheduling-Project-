@@ -44,10 +44,13 @@ One placement surface, two gestures, one underlying mutation:
 - **Match:** Enter / click a suggestion places that activity (replace semantics if occupied).
 - **No match → create-new:** offer "Create '<name>'", which:
   - Creates a new activity in the catalog (camp-scoped), **stamped with human provenance** so a later import does not clobber it — reuse the existing human-edit/provenance channel (`src/ingest/fieldUpdate.js` and the shared human-fields mechanism from PR #28; the plan must locate the exact API). See `project_activity_rule_provenance`.
-  - Gets **default rules** (proposed, confirm at spec review): `min_per_week = 0`, `max_per_week = null` (∞), normal/default priority, **eligible = all groups**. Rationale: mirrors how `ActivitiesScreen` defaults a new activity; the director can refine on the Activities screen.
+  - **Available to any editing role** (not admin-gated), unlike other catalog writes — decided 2026-08-09. The plan should confirm this doesn't conflict with the server-side authorize() gate on activity writes; if it does, that gate is the thing to adjust, not a client-only bypass.
+  - **Frequency rule derives from usage, not a fixed default.** A cell-created activity's `min_per_week` reflects the number of times it is placed in the week (self-calibrating), so it is never falsely flagged as under-served and the palette shows it as met. `max_per_week = null` (∞), normal/default priority. The observable requirement: a hand-created activity produces no spurious under-served flag and its target tracks its usage; the plan may implement this as set-from-count-on-create kept in sync with usage, or as a derived target — whichever is cleaner, as long as the observable holds.
+  - **Eligibility default = all groups** (director refines on the Activities screen if needed).
   - Appears in the `ActivityPalette` immediately (palette derives from the activities list).
   - Is placed into the originating cell.
-- Escape / blur without a selection cancels, leaving the slot unchanged.
+- **Placing an existing activity never creates or changes a rule** — only new (cell-created) activities get the usage-derived rule.
+- **Enter places the top match** (or, in the create-new case, confirms creation and places). No Tab-to-accept. Escape / blur without a selection cancels, leaving the slot unchanged.
 
 ### Counts & flags
 - `ActivityPalette` counts (`scheduledCount of target`, `count/max`, `atMax`) already derive from slots → update for free on place/replace/clear.
@@ -88,7 +91,7 @@ One placement surface, two gestures, one underlying mutation:
 ## Deferred (captured, not built here)
 - **Per-slot weather-alternative swap** (was in `EditModal`). The global weather toggle still works; the granular per-slot swap is unreachable until a small follow-up. Track separately.
 
-## Open decisions for spec review
-1. Default rules for a cell-created activity (proposed: min 0 / max ∞ / normal priority / eligible all-groups). OK, or different defaults?
-2. Should create-new be gated to admins (like other catalog writes), or available to any editing role?
-3. Inline-write commit key: Enter to place top match; is Tab-to-accept also wanted?
+## Resolved decisions (2026-08-09)
+1. **Cell-created activity rule = derived from usage** (min_per_week tracks placement count; self-calibrating; never a spurious under-served flag). Max ∞, normal priority, eligible all-groups. Placing an *existing* activity adds no rule.
+2. **Create-new is available to any editing role** (not admin-gated).
+3. **Enter places/replaces** the top match (or confirms create-new). No Tab-to-accept; Escape/blur cancels.
