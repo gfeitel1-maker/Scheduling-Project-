@@ -92,6 +92,17 @@ A section titled **"DESIGN SPEC — implement exactly as specified"** in the Gov
 
 ## Done Signal
 
+**If verification cannot be completed** (external interruption — usage limit, crash, timeout —
+not a test failure): do not signal DONE. Signal the actual state instead, using this shape:
+```
+INTERRUPTED — verification did not complete: [what stopped it]
+Files changed: [list, as of interruption]
+Verified so far: [which success criteria were actually checked and passed]
+Not yet verified: [which success criteria were not reached]
+```
+This is not a failure signal — it is accurate state disclosure so Governor does not have to
+reconstruct what happened from the working tree by hand.
+
 When work is complete and verified, signal done with:
 
 ```
