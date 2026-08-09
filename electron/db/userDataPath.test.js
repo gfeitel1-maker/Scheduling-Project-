@@ -6,6 +6,7 @@ import {
   userDataDirName,
   resolveUserDataPath,
   applyUserDataPath,
+  resolveSmokeUserDataPath,
 } from './userDataPath.js'
 
 // T9 — dev and packaged builds resolved different userData directories by
@@ -62,6 +63,26 @@ describe('applyUserDataPath', () => {
     }
   }
 
+  it('redirects to the smoke userData dir when packaged and the env var is set', () => {
+    const app = fakeApp(true)
+    const smokeDir = '/tmp/shoresh-smoke-xyz'
+    const resolved = applyUserDataPath(app, () => {}, { SHORESH_SMOKE_USERDATA: smokeDir })
+    expect(resolved).toBe(smokeDir)
+    expect(app.calls).toContainEqual(['setPath', 'userData', smokeDir])
+  })
+
+  it('ignores the smoke env var in dev', () => {
+    const app = fakeApp(false)
+    const resolved = applyUserDataPath(app, () => {}, { SHORESH_SMOKE_USERDATA: '/tmp/shoresh-smoke-xyz' })
+    expect(resolved).toBe(path.join(APP_DATA, 'shoresh-dev'))
+  })
+
+  it('resolves normally when packaged with no smoke env var set', () => {
+    const app = fakeApp(true)
+    const resolved = applyUserDataPath(app, () => {}, {})
+    expect(resolved).toBe(path.join(APP_DATA, 'shoresh'))
+  })
+
   it('sets the app name before reading any path', () => {
     const app = fakeApp(true)
     applyUserDataPath(app, () => {})
@@ -104,5 +125,17 @@ describe('applyUserDataPath', () => {
     // and no data migrates — setName only makes the existing behaviour explicit.
     const app = fakeApp(true)
     expect(applyUserDataPath(app, () => {})).toBe(path.join(APP_DATA, 'shoresh'))
+  })
+})
+
+describe('resolveSmokeUserDataPath', () => {
+  it('passes through a non-empty explicit dir', () => {
+    expect(resolveSmokeUserDataPath('/tmp/shoresh-smoke-abc')).toBe('/tmp/shoresh-smoke-abc')
+  })
+
+  it('rejects an empty or missing dir', () => {
+    expect(resolveSmokeUserDataPath('')).toBeNull()
+    expect(resolveSmokeUserDataPath(undefined)).toBeNull()
+    expect(resolveSmokeUserDataPath(null)).toBeNull()
   })
 })

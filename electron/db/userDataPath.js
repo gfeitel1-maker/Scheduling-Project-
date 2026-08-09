@@ -36,6 +36,15 @@ export function resolveUserDataPath(appDataPath, isPackaged) {
   return path.join(appDataPath, userDataDirName(isPackaged))
 }
 
+// Passthrough validator for an explicit smoke-test userData directory. Kept
+// tiny and separate so the override decision in applyUserDataPath reads as
+// one line, and so "what counts as a valid override dir" has one place to
+// change.
+export function resolveSmokeUserDataPath(explicitDir) {
+  if (typeof explicitDir !== 'string' || explicitDir.length === 0) return null
+  return explicitDir
+}
+
 // Applies the decision to a live Electron `app`. Call this first thing, before
 // anything reads a path. Returns the resolved userData path.
 //
@@ -44,9 +53,16 @@ export function resolveUserDataPath(appDataPath, isPackaged) {
 // never created, so the first launch after this change would otherwise die in
 // openLocalDb with "Cannot open database because the directory does not exist".
 // `mkdir` is injectable purely so this is testable without touching a real disk.
-export function applyUserDataPath(app, mkdir = (p) => fs.mkdirSync(p, { recursive: true })) {
+//
+// Packaged + SHORESH_SMOKE_USERDATA set is the deploy smoke test (see
+// scripts/deploy-local.sh): it redirects userData to a disposable temp
+// directory so the smoke run proves the BUILD boots, not that the machine's
+// live operational database happens to match the build's schema. Ignored in
+// dev — a dev run must never touch a smoke-test-only path.
+export function applyUserDataPath(app, mkdir = (p) => fs.mkdirSync(p, { recursive: true }), env = process.env) {
   app.setName(APP_NAME)
-  const resolved = resolveUserDataPath(app.getPath('appData'), app.isPackaged)
+  const smokeDir = app.isPackaged ? resolveSmokeUserDataPath(env.SHORESH_SMOKE_USERDATA) : null
+  const resolved = smokeDir || resolveUserDataPath(app.getPath('appData'), app.isPackaged)
   app.setPath('userData', resolved)
   mkdir(resolved)
   return resolved
