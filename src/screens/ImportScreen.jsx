@@ -10,6 +10,7 @@ import { inferFixedEvents } from '../ingest/fixedEvents'
 import { inferActivityRules } from '../ingest/activityRules'
 import { buildPreview, describePreview } from '../ingest/preview'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
+import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../utils/exportSanitize.js'
 
 // Read last year's schedule and propose the camp's setup from it.
 //
@@ -177,14 +178,20 @@ export default function ImportScreen({ campId, onNavigate }) {
       for (const file of files) {
         const title = groupNameFromFilename(file.name, prefix)
         if (/\.(xlsx|xlsm|xls)$/i.test(file.name)) {
+          // F4 — fail closed before the bytes reach the parser, then bound the
+          // parsed workbook, so a zip-bomb/oversize file imports nothing.
+          assertImportFileSize(file.size)
           const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+          assertWorkbookComplexity(wb)
           const sheets = wb.SheetNames.map((name) => ({
             name,
             // raw:false so Excel formats each cell the way the sheet displays it.
             // A time typed as a time is stored as a fraction of a day — 9:15am
             // is 0.3854166666666667 — and reading it raw puts that number in
             // the camp as the name of a period.
-            rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false }),
+            // unescapeRow reverses any leading-apostrophe our own export wrote,
+            // so an escaped literal round-trips and never re-enters as a formula.
+            rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false }).map(unescapeRow),
           }))
           pages.push(...workbookToPages(sheets, title))
         } else {

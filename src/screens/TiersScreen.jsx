@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
+import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
@@ -274,7 +275,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   }
 
   function downloadTemplate() {
-    const ws = XLSX.utils.aoa_to_sheet([
+    const ws = aoaToSanitizedSheet([
       ['name', 'sort_order'],
       ['Yeladim', 1],
     ])
@@ -290,7 +291,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
     reader.onload = ev => {
       const wb = XLSX.read(ev.target.result, { type: 'array' })
       const ws = wb.Sheets[wb.SheetNames[0]]
-      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' }).map(unescapeRow)
       const parsed = rows.map(r => {
         const name = String(r.name || '').trim()
         const sort_order = r.sort_order !== '' ? Number(r.sort_order) : null

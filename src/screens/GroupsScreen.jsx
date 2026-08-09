@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
+import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { S, prefersReducedMotion } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
@@ -293,7 +294,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
   }
 
   function downloadTemplate() {
-    const ws = XLSX.utils.aoa_to_sheet([
+    const ws = aoaToSanitizedSheet([
       ['name', 'tier_name', 'availability'],
       ['Yeladim 1', 'Yeladim', 'all'],
     ])
@@ -307,7 +308,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
     const reader = new FileReader()
     reader.onload = ev => {
       const wb = XLSX.read(ev.target.result, { type: 'array' })
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' })
+      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(unescapeRow)
       const tierMap = Object.fromEntries(tiers.map(t => [t.name.toLowerCase(), t.id]))
       const parsed = rows.map(r => {
         const name = String(r.name || '').trim()
