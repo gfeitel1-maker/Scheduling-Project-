@@ -16,6 +16,15 @@ export const STATE_VISUAL = {
   'in-progress': { glyph: '⋯', color: 'var(--accent)', dim: false },
 }
 
+// The hub's three-way headline verdict, derived from the same `blocked` /
+// `attention` the engine already returns — never a fourth source of truth.
+// `attention` is only ever non-null once a caller passes live reconciliation
+// `signals` into getReadiness — ReadinessHub.jsx does not yet, so needs-attention
+// is forward-scaffolding today, not dead code.
+export function verdictState({ blocked, attention }) {
+  return blocked ? 'blocked' : attention ? 'needs-attention' : 'ready'
+}
+
 // The status word each state shows. `forward` categories say "not started"
 // rather than "optional" — the same resting state, phrased for an area the app
 // will grow into. A Ready row shows its count instead of a word.

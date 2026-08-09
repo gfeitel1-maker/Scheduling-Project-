@@ -24,14 +24,31 @@ vi.mock('../localClient', () => ({
   },
 }))
 
+// describeReadiness never produces a non-null `attention` string via the real
+// render path with no live reconciliation signals (required areas are only
+// ever ready/missing) — so the needs-attention headline is exercised by
+// overriding just this export, keeping getReadiness/getSetupGaps real.
+let attentionOverride = null
+vi.mock('../engine/readiness', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    describeReadiness: (readiness) => {
+      const real = actual.describeReadiness(readiness)
+      return attentionOverride ? { ...real, attention: attentionOverride } : real
+    },
+  }
+})
+
 import ReadinessHub from './ReadinessHub'
-import { buildHubRows, STATE_VISUAL } from './readinessHubModel'
+import { buildHubRows, STATE_VISUAL, verdictState } from './readinessHubModel'
 import { getReadiness } from '../engine/readiness'
 
 const FULL = { cohorts: 1, tiers: 6, groups: 18, days: 5, timeblocks: 8, activities: 12, anchors: 0, dayoverrides: 0 }
 
 beforeEach(() => {
   downloadWorkbook.mockReset()
+  attentionOverride = null
 })
 
 describe('buildHubRows: the grouped presentation model', () => {
@@ -65,6 +82,21 @@ describe('STATE_VISUAL: the six-state glyph grammar', () => {
   it('has a distinct glyph for every state', () => {
     const glyphs = Object.values(STATE_VISUAL).map((v) => v.glyph)
     expect(new Set(glyphs)).toEqual(new Set(['✓', '!', '·', '–', '⋯']))
+  })
+})
+
+describe('verdictState: the three-way headline verdict', () => {
+  it('is blocked when blocked is true, regardless of attention', () => {
+    expect(verdictState({ blocked: true, attention: null })).toBe('blocked')
+    expect(verdictState({ blocked: true, attention: 'x' })).toBe('blocked')
+  })
+
+  it('is needs-attention when not blocked but attention is present', () => {
+    expect(verdictState({ blocked: false, attention: 'check this' })).toBe('needs-attention')
+  })
+
+  it('is ready when not blocked and no attention', () => {
+    expect(verdictState({ blocked: false, attention: null })).toBe('ready')
   })
 })
 
@@ -104,6 +136,36 @@ describe('ReadinessHub render', () => {
     render(<ReadinessHub campId="camp-1" onNavigate={() => {}} />)
     fireEvent.click(screen.getAllByText('Download worksheet')[0])
     await vi.waitFor(() => expect(downloadWorkbook).toHaveBeenCalled())
+  })
+
+  it('renders the needs-attention headline with the bronze accent treatment, not the ready green', () => {
+    mockCounts = FULL
+    attentionOverride = '1 item could use your attention.'
+    render(<ReadinessHub campId="camp-1" onNavigate={() => {}} />)
+    expect(screen.queryByText('Ready to build a week.')).toBeNull()
+    const headline = screen.getByText('Ready to build a week, with a few things to check.')
+    expect(headline).toBeTruthy()
+    const status = screen.getByRole('status')
+    expect(status.getAttribute('aria-live')).toBe('polite')
+    const glyph = status.querySelector('[aria-hidden="true"]')
+    expect(glyph.style.color).toBe('var(--accent)')
+  })
+
+  it('keeps the blocked headline in --danger', () => {
+    mockCounts = { ...FULL, activities: 0 }
+    render(<ReadinessHub campId="camp-1" onNavigate={() => {}} />)
+    const status = screen.getByRole('status')
+    expect(status.getAttribute('aria-live')).toBe('polite')
+    const glyph = status.querySelector('[aria-hidden="true"]')
+    expect(glyph.style.color).toBe('var(--danger)')
+  })
+
+  it('keeps the ready headline in --success', () => {
+    mockCounts = FULL
+    render(<ReadinessHub campId="camp-1" onNavigate={() => {}} />)
+    const status = screen.getByRole('status')
+    const glyph = status.querySelector('[aria-hidden="true"]')
+    expect(glyph.style.color).toBe('var(--success)')
   })
 
   it('shows the "Import last year" hint only on a brand-new camp', () => {
