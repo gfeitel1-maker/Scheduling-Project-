@@ -314,7 +314,7 @@ describe('fixed events land as anchor_activities (T34)', () => {
     })
 
     // Per-day fan-out: two days -> two rows.
-    expect(result.fixedEvents).toEqual({ created: 2, skipped: [], partial: [] })
+    expect(result.fixedEvents).toEqual({ created: 2, unchanged: 0, skipped: [], partial: [] })
     expect(count('anchor_activities')).toBe(2)
 
     const tbId = db.prepare('SELECT id FROM time_blocks').get().id
