@@ -68,10 +68,22 @@ npm rebuild better-sqlite3                   # before npm run test
 installed app with one command. Before replacing anything it moves the
 current install aside to `Shoresh.app.bak`, then proves the new build good
 (native module ABI check, a launch smoke test, and a build-stamp check
-against `git rev-parse HEAD`) before deleting the backup. If any check
-fails, it automatically restores `Shoresh.app.bak` back to `Shoresh.app` and
-exits non-zero — the machine is always left with a working installed app.
-For a first-time install, use `npm run install:mac` instead.
+against `git rev-parse HEAD`) before deleting the backup. The launch smoke
+test waits (up to 12s) for a positive startup heartbeat — a marker the app
+writes only after its window finishes loading — rather than just checking
+the process is still alive, so a main-process crash that Electron keeps
+alive behind its own error dialog now correctly fails the deploy instead of
+silently passing. If any check fails, it automatically restores
+`Shoresh.app.bak` back to `Shoresh.app` and exits non-zero — the machine is
+always left with a working installed app. For a first-time install, use
+`npm run install:mac` instead.
+
+If `better-sqlite3`'s native build gets into a bad state from a concurrent
+rebuild (a rare, self-resolving race — not a broken environment), recover with:
+
+```bash
+rm -rf node_modules/better-sqlite3/build && npm rebuild better-sqlite3
+```
 
 ## Tests
 
