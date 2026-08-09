@@ -397,7 +397,10 @@ Designer fires; matches the codebase's existing per-cell data-attribute pattern 
    (per CLAUDE.md's documented pattern for new ephemeral cell state), writes/updates
    tests in `ScheduleScreen`-adjacent test files, produces `diff_ref: <commit-sha>`.
 5. **Maker → gate-fan-out** — **the one fixed edge**:
-   `{task_id, diff_ref: <sha>, files_changed: ["src/components/schedule/scheduleGrid.css", "src/screens/ScheduleScreen.jsx", "...test.js"], test_files_added: ["...test.js"], spec_summary}`.
+   `{task_id, diff_ref: <sha>, design_spec_ref: docs/work/.../lock-indicator-spec.md, files_changed: ["src/components/schedule/scheduleGrid.css", "src/screens/ScheduleScreen.jsx", "...test.js"], test_files_added: ["...test.js"], spec_summary}`.
+   Code Reviewer's spec-fidelity check reads `design_spec_ref` directly — the actual
+   artifact Designer produced in step 3 — rather than relying on `spec_summary` alone
+   (per HIGH-2, threaded through from §3).
 6. **Parallel fan-out** (fixed, unconditional, isolated): Verifier runs lint/test/build
    against `diff_ref` → `{gate_name: verifier, verdict: FAIL, findings: ["1 test failing: lock indicator not rendered when slot.locked=false and overlay=true"], evidence_ref: <test output>}`. Security, Red Hat, Tester, Code Reviewer each independently
    return their own typed reports off the same `diff_ref`.
@@ -407,16 +410,24 @@ Designer fires; matches the codebase's existing per-cell data-attribute pattern 
 8. **Grader** still runs (constitution: Grader consolidates opinion reviews regardless,
    for record-keeping) → `{overall_score: 3.8, dim_scores: {...}, verdict_recommendation: "block — verifier fail"}`.
 9. **Governor decision node** (not fixed by Model A): reads `GateReport.verifier_pass =
-   false` → **RETRY, round 1**. This is a **gate-failure-with-rollback**:
-   - **State-restore** (what Model A actually gives you): the retry edge back to Maker
-     carries `{task_id, prior_diff_ref: <sha>, blocking_findings: ["verifier: 1 failing test"], design_spec_ref: <unchanged>}` — Maker is re-dispatched with the *original*
-     design spec plus the specific failure, not asked to re-derive context from
-     scratch, and not handed the whole prior transcript.
+   false` → **RETRY, round 1**. **Renamed per Round 2 review (FINDING-7):** this step
+   was originally labeled "gate-failure-with-rollback" / "State-restore" — that overclaims.
+   Nothing is actually restored; Maker retries from its own still-existing failed working
+   state with an annotation of what failed. The correct name is:
+   - **Context-preserving retry with failure annotation** (what Model A actually gives
+     you): the retry edge back to Maker carries `{task_id, prior_diff_ref: <sha>, blocking_findings: ["verifier: 1 failing test"], design_spec_ref: <unchanged>}` — Maker is
+     re-dispatched with the *original* design spec plus the specific failure, not asked
+     to re-derive context from scratch, and not handed the whole prior transcript. This
+     is a scoping/annotation benefit, not a rollback: no working tree, database, or
+     process state is reset by this payload.
+   - **If a genuinely clean working tree is required before retry** (e.g. Maker's failed
+     attempt left the tree in a half-edited state), that is an explicit manual/tooling
+     step outside this payload — e.g. `git checkout <prior_diff_ref>` — not something
+     the graph provides automatically.
    - **Side-effect note (explicitly NOT auto-solved):** if Maker's failed attempt had
-     already run a DB migration or written non-source-controlled state, Model A's
-     state-restore does nothing about that — it restores the *graph's* state
-     (`diff_ref` pointer), not the filesystem or op-log. That remains manual/git-level
-     compensation, exactly as flagged in §8.
+     already run a DB migration or written non-source-controlled state, nothing in this
+     design undoes that — the payload only carries a pointer (`prior_diff_ref`), not a
+     restore action. That remains manual/git-level compensation, exactly as flagged in §8.
 10. **Maker retry**: fixes the failing test, produces `diff_ref: <sha2>` → same fixed
     gate-fan-out edge fires again.
 11. **Gate-fan-out round 2**: `GateReport {verifier_pass: true, gate_scores: avg 4.3, blocking_findings: [], incomplete: false}`.
@@ -481,7 +492,12 @@ Constraints that must survive if this is later implemented:
 typed graph node), plus persist the resulting `GateReport` as a durable record (a light
 borrow from Model C, without adopting Model C's full scope).**
 
-**Confidence: medium (roughly 60%).** 
+**Confidence: medium — qualitative, not numeric (Round 2 review MEDIUM-5: the earlier
+"~60%" attached false precision with no evidentiary basis; no session-history review
+was actually performed).** The fix is cheap and reversible, which supports acting now,
+but the target failure it addresses is unverified against this project's actual session
+history — see "Evidence against" below for the concrete evidence step that would raise
+or lower this.
 
 **Evidence for:**
 - Research finding 3 (parallel fan-in forces an explicit merge decision or silently
@@ -500,10 +516,14 @@ borrow from Model C, without adopting Model C's full scope).**
 **Evidence against / reasons confidence isn't higher:**
 - The two named present failures (§8) are my own architectural inference, not observed
   incidents from this project's actual session history — I have not verified that
-  Grader has ever actually mis-merged conflicting gate reports. If Governor's team
-  reviews recent sessions and finds this has simply never been a problem in practice,
-  the case for Model A weakens to "cheap insurance" rather than "fixes a live failure,"
-  which would lower confidence further toward "not yet."
+  Grader has ever actually mis-merged conflicting gate reports. **Concrete evidence step
+  that would move this number (Round 2 MEDIUM-5):** review recent session logs for
+  actual gate-merge disagreement or RETRY-cause opacity (e.g. cases where Grader's
+  written verdict doesn't obviously follow from the five gate reports, or where a
+  RETRY's cause required re-reading the transcript to reconstruct). If that review finds
+  no such cases, the case for Model A weakens to "cheap insurance" rather than "fixes a
+  live failure," which would lower confidence further toward "not yet." If it finds
+  several, confidence should rise.
 - Model B and Model C remain live options if step 4 of the migration path (§10)
   surfaces evidence that routing-level opacity, not gate-merge opacity, is the actual
   pain point — this recommendation should not be read as closing that door.

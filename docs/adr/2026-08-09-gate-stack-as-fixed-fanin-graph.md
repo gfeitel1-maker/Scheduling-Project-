@@ -64,13 +64,23 @@ Concretely:
    `GateReport { verifier_pass: bool, gate_scores: {security, red_hat, tester, code_reviewer}, blocking_findings: string[], incomplete: bool }`.
 2. Each gate's output is captured independently as
    `{gate_name, verdict: PASS|FAIL|N/A, findings[], evidence_ref}` — gates read only
-   `{task_id, diff_ref, files_changed[], test_files_added[], spec_summary}`, never each
-   other's output and never the full conversation transcript. This is the state
+   `{task_id, diff_ref, design_spec_ref, files_changed[], test_files_added[], spec_summary}`,
+   never each other's output and never the full conversation transcript. `design_spec_ref`
+   (added per Round 2 review, HIGH-2) is a pointer to the actual spec/design artifact,
+   not a paraphrase — added because a spec-fidelity gate (Code Reviewer) checking only
+   `spec_summary` (a paraphrase, possibly Maker's own self-summary) can be fooled by
+   drift from what was actually specified; `design_spec_ref` stays a pointer, not
+   inlined content, to preserve the minimal-state discipline. This is the state
    contract; it is a locked surface (see Consequences).
 3. A declared reducer assembles the five gate outputs into one `GateReport`. If any
    gate's report is missing, `incomplete` is set true and Grader may not produce a
    PASS-eligible score — this operationalizes the constitution's existing rule that
-   missing evidence is never converted into a passing result.
+   missing evidence is never converted into a passing result. **This is a proposed
+   default, not a settled owner decision** (Round 2 review FINDING-6): whether a missing
+   gate report should hard-halt the pipeline, or whether Governor should retain
+   discretion to proceed with a documented gap, is a risk-tolerance call reserved to the
+   product owner — see exploration doc §13, open question 1. This ADR records the
+   default this design assumes pending that confirmation, not a closed decision.
 4. `GateReport.verifier_pass = false` is a hard block: the Governor decision node may
    not reach PASS while it is false, regardless of `overall_score` — this
    operationalizes the constitution's existing rule that a reviewer score is never
@@ -81,6 +91,16 @@ Concretely:
 
 Nothing about Governor's dispatch of Architect, Designer, or Maker changes. Nothing
 about the round-1-retry/round-2-escalate cap changes. No new agent role is introduced.
+
+**Accepted cost (Round 2 review HIGH-1):** input-isolation among the five gates means a
+cross-cutting risk one gate surfaces (e.g. Security flagging a change under
+`electron/db/**` that implies a `better-sqlite3` ABI rebuild per CLAUDE.md) is not
+visible to another gate (e.g. Verifier, whose independent pass may already have run
+against a stale native binary) during review — only the reducer/Grader sees both
+findings side by side, after the fact, and cannot make any gate revise its verdict.
+This design accepts that cost in exchange for keeping the five gates parallel,
+independent, and cheap; see the exploration doc §3 ("Isolatability, defended, with the
+cost conceded") for the full argument and a candidate (not adopted) follow-up.
 
 ## Considered Options
 
@@ -114,9 +134,23 @@ about the round-1-retry/round-2-escalate cap changes. No new agent role is intro
 - **Human-reserved decisions unaffected:** spec approval, ADR acceptance, and
   promotion/merge remain durable pause-and-resume points outside this contract; no gate
   automation introduced here may auto-resume them.
-- **Confidence:** medium (~60%), per the exploration doc §12 — the two present failures
-  this targets (undeclared gate-merge logic, no durable record of which gate blocked a
-  task) are architectural inference, not a confirmed incident from this project's
-  session history. If review of session history shows this has not been a live problem,
-  the case weakens toward treating this as preventive insurance rather than a fix to an
-  observed failure — a fact worth re-checking before implementation begins.
+- **Confidence:** medium — qualitative, per the exploration doc §12 (Round 2 review
+  MEDIUM-5: the earlier numeric "~60%" is dropped as false precision; no session-history
+  review was actually performed). The two present failures this targets (undeclared
+  gate-merge logic, no durable record of which gate blocked a task) are architectural
+  inference, not a confirmed incident from this project's session history. The concrete
+  evidence step that would raise or lower this confidence: review recent session logs
+  for actual gate-merge disagreement or RETRY-cause opacity before implementation
+  begins. If that review finds this has not been a live problem, the case weakens toward
+  treating this as preventive insurance rather than a fix to an observed failure.
+- **Completion evidence:** per this project's house pattern (see the reference ADR at
+  `docs/adr/2026-08-08-reconciliation-plan-as-commit-input.md`), a "Completion evidence"
+  section listing falsifiable checks is expected to be added to this ADR when
+  `implementation_state` moves from `not started` to `implemented` (Round 2 review
+  Code Reviewer LOW finding).
+- **Frontmatter/body agreement (not a change — Round 2 review, argued down):** Code
+  Reviewer flagged a MEDIUM on `status: proposed` in frontmatter vs. "PROPOSED" in the
+  body. This ADR's frontmatter and body already agree (`proposed` / "PROPOSED"), unlike
+  the reference ADR (`status: accepted` vs. body "PROPOSED"), which is the actual
+  inconsistency Code Reviewer's pattern-match was tuned to catch. No change made; noted
+  here so the agreement is explicit rather than accidental-looking.
