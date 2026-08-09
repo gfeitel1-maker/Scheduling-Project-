@@ -1,3 +1,11 @@
+---
+task: "Design exploration — from dynamic looping to graph engineering"
+document_type: handoff
+status: superseded
+created: 2026-08-09
+archive_when: "superseded by the delivered ADR (docs/adr/2026-08-09-gate-stack-as-fixed-fanin-graph.md) and exploration doc — kept as the originating brief for provenance"
+---
+
 # Handoff — Design exploration: from dynamic looping to graph engineering
 
 **Date:** 2026-08-09
