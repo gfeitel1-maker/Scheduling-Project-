@@ -9,7 +9,7 @@ import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { ALIAS_COHORT_SCOPED } from './importAliasScope'
 import { inferFixedEvents } from '../ingest/fixedEvents'
 import { inferActivityRules } from '../ingest/activityRules'
-import { buildPreview, describePreview } from '../ingest/preview'
+import { buildPreview, describePreview, normalizeName } from '../ingest/preview'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../utils/exportSanitize.js'
 import { downloadWorkbook, META_SHEET } from '../utils/exportWorkbook.js'
@@ -114,6 +114,11 @@ export default function ImportScreen({ campId, onNavigate }) {
   // to default the tick state and render a note — buildPlan never sees them.
   const [dualUseActivityNames, setDualUseActivityNames] = useState(new Set())
   const [pinOnlyActivityNames, setPinOnlyActivityNames] = useState(new Set())
+  // ADR 2026-08-09 Decision 2 — the reviewable unit column's per-group state:
+  // { [groupName]: unitName } (set) | { [groupName]: { clear: true } } (cleared)
+  // | { [groupName]: { editing: true, value } } ("+ New unit…", still typing).
+  // Absent for a name is "unset" — leave to the file's own inference.
+  const [groupUnitOverrides, setGroupUnitOverrides] = useState({})
   // Inferred (or director-edited) rules per activity name (T35). Plain object,
   // not a Map, so it sits in React state cleanly: name -> { eligible_group_names,
   // min_per_week, max_per_week, priority, _inferred }.
@@ -180,6 +185,7 @@ export default function ImportScreen({ campId, onNavigate }) {
     setFixedEvents([])
     setChosenFixedEvents(new Set())
     setActivityRules({})
+    setGroupUnitOverrides({})
     const files = [...(fileList ?? [])]
     if (files.length === 0) return
     setFileNames(files.map((f) => f.name))
@@ -427,11 +433,37 @@ export default function ImportScreen({ campId, onNavigate }) {
   function buildCommitInputs() {
     const approved = {}
     for (const entity of INGESTIBLE_ENTITIES) approved[entity] = [...(chosen[entity] ?? [])]
-    // Only the units of groups actually being created are sent, so a bunk
-    // the director unticked cannot drag a unit in behind it.
+    // ADR 2026-08-09 Decision 2 — three explicit per-group unit review states.
+    // Only groups actually being created are considered, so a bunk the
+    // director unticked cannot drag a unit (or a clear) in behind it.
     const groupUnits = {}
+    const groupClears = {}
+    const groupHumanFields = {}
     for (const name of approved.groups ?? []) {
-      if (preview.groupUnits?.[name]) groupUnits[name] = preview.groupUnits[name]
+      const override = groupUnitOverrides[name]
+      if (override && typeof override === 'object' && override.clear) {
+        // 3. Explicitly cleared — routes through record.clears, NOT groupUnits/
+        // links.groups (Red Hat Risk 1: a clear is not a value).
+        groupClears[name] = ['unit']
+        groupHumanFields[name] = ['unit']
+      } else if (override && typeof override === 'object' && override.editing) {
+        // 2b. "+ New unit…" — a typed name not in either tier list.
+        const typed = String(override.value ?? '').trim()
+        if (typed) {
+          groupUnits[name] = typed
+          groupHumanFields[name] = ['unit']
+          if (!approved.tiers.some((t) => normalizeName(t) === normalizeName(typed))) {
+            approved.tiers.push(typed)
+          }
+        }
+      } else if (typeof override === 'string' && override) {
+        // 2a. Set to an existing/proposed tier — the director picked it.
+        groupUnits[name] = override
+        groupHumanFields[name] = ['unit']
+      } else if (preview.groupUnits?.[name]) {
+        // 1. Unset — leave to the file's own inference, unchanged.
+        groupUnits[name] = preview.groupUnits[name]
+      }
     }
     // Only the fixed events the director ticked; unticked ones are not sent.
     const tickedFixedEvents = fixedEvents.filter((fe) => chosenFixedEvents.has(fixedEventKey(fe)))
@@ -454,6 +486,8 @@ export default function ImportScreen({ campId, onNavigate }) {
     return {
       approved,
       links: { groups: groupUnits },
+      clears: { groups: groupClears },
+      humanEditedFields: { groups: groupHumanFields },
       cohort_id: activeCohort?.id ?? null,
       fixedEvents: tickedFixedEvents,
       activityRules: outgoingRules,
@@ -501,6 +535,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       setFixedEvents([])
       setChosenFixedEvents(new Set())
       setActivityRules({})
+      setGroupUnitOverrides({})
     } catch (err) {
       setError(mapCommitError(err))
     } finally {
@@ -518,7 +553,7 @@ export default function ImportScreen({ campId, onNavigate }) {
     const existing = inputs.mode === 'replace'
       ? null
       : await buildExistingSnapshot(localClient.list, inputs.cohort_id)
-    const recordApproved = foldApprovedToRecords(inputs.approved, inputs.activityRules, inputs.links)
+    const recordApproved = foldApprovedToRecords(inputs.approved, inputs.activityRules, inputs.links, inputs.clears)
     const plan = buildPlan(
       { ...inputs, approved: recordApproved, camp_id: campId },
       existing,
@@ -563,6 +598,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       setFixedEvents([])
       setChosenFixedEvents(new Set())
       setActivityRules({})
+      setGroupUnitOverrides({})
       return outcome
     } catch (err) {
       setError(mapCommitError(err))
@@ -603,6 +639,7 @@ export default function ImportScreen({ campId, onNavigate }) {
     setFixedEvents([])
     setChosenFixedEvents(new Set())
     setActivityRules({})
+    setGroupUnitOverrides({})
   }
 
   return (
@@ -839,6 +876,69 @@ export default function ImportScreen({ campId, onNavigate }) {
                   <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
                     Already in your camp, so they will be left alone:{' '}
                     {skip.map(s => s.name).join(', ')}.
+                  </div>
+                )}
+
+                {/* ADR 2026-08-09 Decision 2 — the reviewable unit column, one
+                    per ticked group: unset (file inference), a picked/typed
+                    unit, or an explicit clear. Only groups actually being
+                    created are shown, same gating as the activity rules below. */}
+                {entity === 'groups' && create.some((n) => chosen.groups?.has(n)) && (
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
+                      Which unit each group belongs to. Left as-is uses what the file itself says.
+                    </div>
+                    {create.filter((n) => chosen.groups?.has(n)).map((name) => {
+                      const override = groupUnitOverrides[name]
+                      const isClear = !!(override && typeof override === 'object' && override.clear)
+                      const isEditing = !!(override && typeof override === 'object' && override.editing)
+                      const selectValue = isClear ? '__clear__' : isEditing ? '__new__' : (typeof override === 'string' ? override : '')
+                      const tierNames = [...new Set([
+                        ...(preview.perEntity.tiers?.create ?? []),
+                        ...(existingRecordsAll.tiers ?? [])
+                          .filter((t) => !activeCohort || t.cohort_id === activeCohort.id)
+                          .map((t) => t.name),
+                      ])]
+                      return (
+                        <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, fontSize: 12 }}>
+                          <span style={{ minWidth: 140, color: 'var(--text-secondary)' }}>{name}</span>
+                          <select
+                            value={selectValue}
+                            onChange={(e) => {
+                              const v = e.target.value
+                              setGroupUnitOverrides((prev) => {
+                                const next = { ...prev }
+                                if (v === '') delete next[name]
+                                else if (v === '__clear__') next[name] = { clear: true }
+                                else if (v === '__new__') next[name] = { editing: true, value: '' }
+                                else next[name] = v
+                                return next
+                              })
+                            }}
+                            style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}
+                          >
+                            <option value="">{preview.groupUnits?.[name] ? `From file: ${preview.groupUnits[name]}` : 'No unit (from file)'}</option>
+                            {tierNames.map((t) => (
+                              <option key={t} value={t}>{t}</option>
+                            ))}
+                            <option value="__new__">+ New unit…</option>
+                            <option value="__clear__">No unit</option>
+                          </select>
+                          {isEditing && (
+                            <input
+                              autoFocus
+                              value={override.value}
+                              placeholder="Unit name"
+                              onChange={(e) => {
+                                const value = e.target.value
+                                setGroupUnitOverrides((prev) => ({ ...prev, [name]: { editing: true, value } }))
+                              }}
+                              style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}
+                            />
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
 

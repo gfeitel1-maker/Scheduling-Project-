@@ -68,3 +68,46 @@ describe('buildPlan ambiguous_identity (normalize/UNIQUE mismatch, §3)', () => 
     expect(plan.items[0].evidence.candidates).toHaveLength(2)
   })
 })
+
+// ADR 2026-08-09 Decision 2 — item._humanFields, normalized to the STORED
+// column name (unit -> tier_id), so commitCreate/commitUpdate know which
+// field-writes to stamp source:'human' instead of 'import'.
+describe('buildPlan._humanFields (ADR 2026-08-09 Decision 2)', () => {
+  it('attaches _humanFields on a create item, normalized unit -> tier_id', () => {
+    const plan = buildPlan({
+      approved: { groups: [{ name: 'Chagalls', fields: { unit: 'Kfar A' } }] },
+      camp_id: camp,
+      humanEditedFields: { groups: { Chagalls: ['unit'] } },
+    }, null)
+    expect(plan.items[0].op).toBe('create')
+    expect(plan.items[0]._humanFields).toEqual(['tier_id'])
+  })
+
+  it('a create item with no humanEditedFields entry gets an empty _humanFields', () => {
+    const plan = buildPlan({
+      approved: { groups: [{ name: 'Chagalls', fields: { unit: 'Kfar A' } }] },
+      camp_id: camp,
+    }, null)
+    expect(plan.items[0]._humanFields).toEqual([])
+  })
+
+  it('attaches _humanFields on an update item', () => {
+    const plan = buildPlan({
+      approved: { groups: [{ name: 'Chagalls', fields: { unit: 'Kfar B' } }] },
+      camp_id: camp,
+      humanEditedFields: { groups: { Chagalls: ['unit'] } },
+    }, { groups: [{ id: 'g1', name: 'Chagalls', unit_name: 'Kfar A' }] })
+    expect(plan.items[0].op).toBe('update')
+    expect(plan.items[0]._humanFields).toEqual(['tier_id'])
+  })
+
+  it('attaches _humanFields on a clear item', () => {
+    const plan = buildPlan({
+      approved: { groups: [{ name: 'Chagalls', clears: ['unit'] }] },
+      camp_id: camp,
+      humanEditedFields: { groups: { Chagalls: ['unit'] } },
+    }, { groups: [{ id: 'g1', name: 'Chagalls', unit_name: 'Kfar A' }] })
+    expect(plan.items[0].op).toBe('clear')
+    expect(plan.items[0]._humanFields).toEqual(['tier_id'])
+  })
+})

@@ -299,7 +299,7 @@ function buildExistingSnapshot(db, camp_id, cohort_id) {
  * Returns `{ created: { [entity]: count }, total,
  *            fixedEvents: { created, skipped, partial }, replaced? }`.
  */
-export function commitIngest(db, { approved, links, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0 }) {
+export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0 }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -323,12 +323,14 @@ export function commitIngest(db, { approved, links, camp_id, cohort_id = null, a
   // S2c §1: fold the rule/unit side-channels into per-row records at THIS
   // boundary; buildPlan sees only records. `links`/`activityRules` are still
   // passed for the create path's back-compat fallback (a bare-string caller).
-  const recordApproved = foldApprovedToRecords(approved, activityRules, links)
+  const recordApproved = foldApprovedToRecords(approved, activityRules, links, clears)
   const plan = buildPlan(
     // S4b §4: base_generation (the workbook's exported op-log seq) flows into the
     // plan so commitPlan can gate import-over-import staleness. 0 for the raw
     // schedule/clipboard path leaves the clock gate inert.
-    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode, base_generation },
+    // ADR 2026-08-09 Decision 2: humanEditedFields flows straight through as a
+    // top-level source key — buildPlan attaches it per-item as _humanFields.
+    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode, base_generation, humanEditedFields },
     existing,
     // T73: a director's per-conflict decisions from a prior held commit. buildPlan
     // consumes only the ambiguous_identity picks; stale picks flow to commitPlan.
@@ -603,6 +605,12 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       }
     }
 
+    // ADR 2026-08-09 Decision 2 — a field the director explicitly authored in
+    // review (not the file's own inference) is stamped 'human', so a LATER
+    // re-import proposing a different value holds a stale conflict instead of
+    // silently overwriting it (Policy A, S2b), starting from this very first
+    // write. Already normalized to stored-column names by buildPlan.
+    const humanFields = new Set(item._humanFields ?? [])
     for (const [field, value] of Object.entries(fields)) {
       if (value === null || value === undefined) continue
       appendOp(db, {
@@ -614,7 +622,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         device_id,
         parent_op_id: null,
         client_write_id: randomUUID(),
-        source: IMPORT_SOURCE,
+        source: humanFields.has(field) ? 'human' : IMPORT_SOURCE,
       })
     }
     created[entity] += 1
@@ -635,6 +643,11 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // op (the same field-null path replaceScope uses for weather_alternative_id).
     // The decide-phase already translates CLEAR→null, so this is belt-and-braces.
     const storedValue = value === CLEAR ? null : value
+    // ADR 2026-08-09 Decision 2 — the SAME per-field human/import stamp as
+    // commitCreate, on the update/clear path. `field` here is already the
+    // dbField (decideFieldItem passes the stored column), matching how
+    // buildPlan normalized `item._humanFields`.
+    const isHuman = (item._humanFields ?? []).includes(field)
     appendOp(db, {
       entity: item.entity,
       entity_id: item.entity_id,
@@ -644,7 +657,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       device_id,
       parent_op_id,
       client_write_id: randomUUID(),
-      source: IMPORT_SOURCE,
+      source: isHuman ? 'human' : IMPORT_SOURCE,
     })
     updated += 1
   }

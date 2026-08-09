@@ -28,9 +28,15 @@ export const dbFieldFor = (field) => DB_FIELD[field] ?? field
  * (positive-int min/max, high/low priority, non-empty eligibility) so an
  * unchanged rule set produces no delta — F4, including a 0/no-minimum activity.
  * Any `fields` the caller already supplied on a record win (not overwritten).
+ *
+ * ADR 2026-08-09 Decision 2: `clears.groups[name]` (e.g. `['unit']`) folds
+ * into `record.clears` — a director's explicit "No unit" pick, distinct from
+ * `links.groups[name]` being merely absent (S4b's tri-state CLEAR sentinel,
+ * routed here instead of through `fields.unit`).
  */
-export function foldApprovedToRecords(approved, activityRules, links) {
+export function foldApprovedToRecords(approved, activityRules, links, clears) {
   const groupUnits = links?.groups ?? {}
+  const groupClears = clears?.groups ?? {}
   const out = {}
   for (const [entity, list] of Object.entries(approved ?? {})) {
     if (!Array.isArray(list)) { out[entity] = list; continue }
@@ -41,6 +47,10 @@ export function foldApprovedToRecords(approved, activityRules, links) {
       const fields = { ...(record.fields ?? {}) }
       if (entity === 'groups' && groupUnits[name] != null && !('unit' in fields)) {
         fields.unit = groupUnits[name]
+      }
+      if (entity === 'groups' && Array.isArray(groupClears[name]) && groupClears[name].length > 0) {
+        const existingClears = Array.isArray(record.clears) ? record.clears : []
+        record.clears = [...new Set([...existingClears, ...groupClears[name]])]
       }
       if (entity === 'activities') {
         const rule = activityRules?.[name]

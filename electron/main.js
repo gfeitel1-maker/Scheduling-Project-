@@ -236,7 +236,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // device's sync mode — and the guard below reads it; a shadowing parameter
   // would silently turn the Host check into a comparison against the import
   // mode instead.
-  function ingestCommit({ token, approved, links, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation } = {}) {
+  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // Admin only. Staff may edit setup records one at a time; creating a
     // camp's whole structure in one action is a different kind of authority,
@@ -264,6 +264,13 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return commitIngest(db, {
       approved,
       links,
+      // ADR 2026-08-09 Decision 2 — the S4b clear path (record.clears) now has
+      // a real caller from a raw schedule import too, and the item-level
+      // human/import provenance side-channel for the unit field. Both arrive
+      // ONLY through this host-trusted IPC call, alongside approved/links —
+      // no new trust boundary (Red Hat Risk 4).
+      clears: clears ?? {},
+      humanEditedFields: humanEditedFields ?? {},
       // The Program the director is importing into, so units and time blocks
       // land where the setup screens will show them (T33).
       cohort_id: cohort_id ?? null,

@@ -14,6 +14,7 @@
 
 import { INGESTIBLE_ENTITIES } from './extractEntities.js'
 import { normalizeName } from './preview.js'
+import { dbFieldFor } from './fieldUpdate.js'
 
 // The tri-state CLEAR sentinel (type doc §3): a field present in the map with
 // `to: CLEAR` means "remove", distinct from absent (leave untouched) and from
@@ -129,6 +130,14 @@ export function buildPlan(source, existing = null, resolutions = []) {
   const campId = source?.camp_id ?? null
   const cohortId = source?.cohort_id ?? null
   const have = existing ?? {}
+  // ADR 2026-08-09 Decision 2 — which fields on which items are director-
+  // authored (not the file's), so commitCreate/commitUpdate stamp
+  // source:'human' instead of 'import' on just those. Normalized to STORED
+  // column names once here (dbFieldFor), so every downstream comparison
+  // (both the clear path and the set path) uses one consistent name.
+  const humanEditedFields = source?.humanEditedFields ?? {}
+  const humanFieldsFor = (entity, name) =>
+    (humanEditedFields?.[entity]?.[name] ?? []).map((f) => dbFieldFor(f))
 
   // T73: index the ambiguous-identity resolutions by entity|normalizeName(name).
   const ambiguousRes = new Map()
@@ -243,6 +252,7 @@ export function buildPlan(source, existing = null, resolutions = []) {
             fields,
             evidence: { tier, matched_name: match.name },
             _name: name,
+            _humanFields: humanFieldsFor(entity, name),
           })
           return
         }
@@ -257,6 +267,7 @@ export function buildPlan(source, existing = null, resolutions = []) {
             fields,
             evidence: { tier, matched_name: match.name },
             _name: name,
+            _humanFields: humanFieldsFor(entity, name),
           })
           return
         }
@@ -289,6 +300,11 @@ export function buildPlan(source, existing = null, resolutions = []) {
           // Commit-resolution inputs — pure data the committer binds against the
           // live name->id maps (ADR §4). buildPlan cannot resolve them (no DB).
           _name: name,
+          // ADR 2026-08-09 Decision 2 — honored on CREATE too: a director's
+          // hand-picked unit on a brand-new group must be 'human' from its
+          // very first write, or a later re-import's differing file-inferred
+          // value would freely overwrite it (no prior 'human' op to protect).
+          _humanFields: humanFieldsFor(entity, name),
         }
         // Commit-resolution inputs. S2c: the record carries these in `fields`
         // (the adapter folded the side-channels there); a direct caller passing
