@@ -94,6 +94,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   const [error, setError] = useState(null)
   const [pendingDelete, setPendingDelete] = useState(null) // tier being confirmed for delete
   const [deleting, setDeleting] = useState(false)
+  const deleteInFlight = useRef(false)
   const fileRef = useRef()
   const { cohorts, activeCohort, loading: cohortsLoading, setActiveCohortId } = useCohorts(campId)
 
@@ -104,6 +105,15 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   useEffect(() => {
     if (activeCohort) load()
   }, [campId, activeCohort?.id])
+
+  useEffect(() => {
+    if (!pendingDelete) return
+    function onKeyDown(e) {
+      if (e.key === 'Escape') setPendingDelete(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [pendingDelete])
 
   // Once useCohorts has finished loading with no cohort available, there is
   // nothing for load() to fetch and it will never resolve loading to false
@@ -227,7 +237,8 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   }
 
   async function confirmTierDelete() {
-    if (!pendingDelete) return
+    if (!pendingDelete || deleteInFlight.current) return
+    deleteInFlight.current = true
     setDeleting(true)
     try {
       const token = localStorage.getItem('shoresh-token')
@@ -246,6 +257,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       setPendingDelete(null)
     } finally {
       setDeleting(false)
+      deleteInFlight.current = false
     }
   }
 
@@ -518,10 +530,14 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       )}
 
       {pendingDelete && (
-        <div style={deleteOverlay}>
-          <div style={deletePanel}>
+        <div style={deleteOverlay} onClick={() => setPendingDelete(null)}>
+          <div style={deletePanel} onClick={e => e.stopPropagation()}>
             <div style={deleteTitle}>Delete "{pendingDelete.name}"?</div>
-            <p style={deleteBody}>This unit has no groups, so nothing in your schedules is affected.</p>
+            <p style={deleteBody}>
+              {groupCounts[pendingDelete.id]
+                ? `This unit still has ${groupCounts[pendingDelete.id]} group${groupCounts[pendingDelete.id] === 1 ? '' : 's'} assigned to it. Removing it will leave ${groupCounts[pendingDelete.id] === 1 ? 'that group' : 'those groups'} without a unit.`
+                : 'This unit has no groups, so nothing in your schedules is affected.'}
+            </p>
             <div style={deleteRecovery}>"{pendingDelete.name}" goes to Trash, and you can put it back from there.</div>
             <div style={deleteActions}>
               <button className="press-97" onClick={() => setPendingDelete(null)} disabled={deleting} style={S.btnSecondary}>Cancel</button>

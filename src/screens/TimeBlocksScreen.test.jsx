@@ -54,7 +54,7 @@ describe('TimeBlocksScreen delete confirmation', () => {
     expect(window.confirm).not.toHaveBeenCalled()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByText('Delete "Block 1"?')).not.toBeNull())
-    expect(screen.queryByText(/those cells will keep the old block's name until you edit them/)).not.toBeNull()
+    expect(screen.queryByText(/will no longer appear on the grid or in exports/)).not.toBeNull()
 
     fireEvent.click(screen.getByText('Delete Time Block'))
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'time_blocks', 'block-1'))
@@ -67,6 +67,30 @@ describe('TimeBlocksScreen delete confirmation', () => {
     fireEvent.click(screen.getByText('Delete'))
     await waitFor(() => expect(screen.queryByText('Delete "Block 1"?')).not.toBeNull())
     fireEvent.click(screen.getByText('Cancel'))
+
+    expect(screen.queryByText('Delete "Block 1"?')).toBeNull()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+  })
+
+  it('dismisses on Escape without deleting', async () => {
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    await waitFor(() => expect(screen.queryByText('Delete "Block 1"?')).not.toBeNull())
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(screen.queryByText('Delete "Block 1"?')).toBeNull()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+  })
+
+  it('dismisses on backdrop click without deleting', async () => {
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    await waitFor(() => expect(screen.queryByText('Delete "Block 1"?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete "Block 1"?').closest('[style*="position: fixed"]'))
 
     expect(screen.queryByText('Delete "Block 1"?')).toBeNull()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()

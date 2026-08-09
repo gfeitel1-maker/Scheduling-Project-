@@ -68,4 +68,65 @@ describe('TiersScreen delete confirmation', () => {
     expect(screen.queryByText('Delete "Yeladim"?')).toBeNull()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
   })
+
+  it('shows honest, count-aware copy when the unit still has groups', async () => {
+    // The row's Delete button is gated on groupCount and stays disabled
+    // whenever this device's local groupCounts is nonzero — but that count
+    // can go stale mid-session (another device assigns a group to this
+    // unit while the confirm dialog is already open on this one, and a
+    // subsequent reload picks it up). The dialog body must independently
+    // reflect the live count rather than trusting the button already
+    // screened it out. Simulate that by opening the dialog while the
+    // count is 0 (button enabled, reassurance copy shown), then forcing a
+    // reload — via the unrelated Save action, which already calls load()
+    // — that returns an updated group for this tier.
+    let groupsCallCount = 0
+    localClient.list.mockReset().mockImplementation(entity => {
+      if (entity === 'cohorts') return Promise.resolve([cohort()])
+      if (entity === 'tiers') return Promise.resolve([tier()])
+      if (entity === 'groups') {
+        groupsCallCount += 1
+        return Promise.resolve(
+          groupsCallCount === 1 ? [] : [{ id: 'g1', camp_id: CAMP_ID, tier_id: 'tier-1', name: 'Group A' }]
+        )
+      }
+      return Promise.resolve([])
+    })
+    render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    await waitFor(() => expect(screen.queryByText('Delete "Yeladim"?')).not.toBeNull())
+    expect(screen.queryByText('This unit has no groups, so nothing in your schedules is affected.')).not.toBeNull()
+
+    fireEvent.click(screen.getByText('Edit'))
+    fireEvent.click(screen.getByText('Save'))
+
+    await waitFor(() => expect(screen.queryByText(/This unit still has 1 group assigned to it/)).not.toBeNull())
+    expect(screen.queryByText('This unit has no groups, so nothing in your schedules is affected.')).toBeNull()
+  })
+
+  it('dismisses on Escape without deleting', async () => {
+    render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    await waitFor(() => expect(screen.queryByText('Delete "Yeladim"?')).not.toBeNull())
+    fireEvent.keyDown(window, { key: 'Escape' })
+
+    expect(screen.queryByText('Delete "Yeladim"?')).toBeNull()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+  })
+
+  it('dismisses on backdrop click without deleting', async () => {
+    render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    await waitFor(() => expect(screen.queryByText('Delete "Yeladim"?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete "Yeladim"?').closest('[style*="position: fixed"]'))
+
+    expect(screen.queryByText('Delete "Yeladim"?')).toBeNull()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+  })
 })

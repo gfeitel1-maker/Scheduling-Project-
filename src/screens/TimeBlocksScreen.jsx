@@ -102,6 +102,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
   const [error, setError] = useState(null)
   const [pendingDelete, setPendingDelete] = useState(null) // block being confirmed for delete
   const [deleting, setDeleting] = useState(false)
+  const deleteInFlight = useRef(false)
   const fileRef = useRef()
   const { cohorts, activeCohort, loading: cohortsLoading, setActiveCohortId } = useCohorts(campId)
 
@@ -112,6 +113,15 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
   useEffect(() => {
     if (activeCohort) load()
   }, [campId, activeCohort?.id])
+
+  useEffect(() => {
+    if (!pendingDelete) return
+    function onKeyDown(e) {
+      if (e.key === 'Escape') setPendingDelete(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [pendingDelete])
 
   // Once useCohorts has finished loading with no cohort available, there is
   // nothing for load() to fetch and it will never resolve loading to false
@@ -232,7 +242,8 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
   }
 
   async function confirmBlockDelete() {
-    if (!pendingDelete) return
+    if (!pendingDelete || deleteInFlight.current) return
+    deleteInFlight.current = true
     setDeleting(true)
     try {
       const token = localStorage.getItem('shoresh-token')
@@ -251,6 +262,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       setPendingDelete(null)
     } finally {
       setDeleting(false)
+      deleteInFlight.current = false
     }
   }
 
@@ -496,10 +508,10 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       )}
 
       {pendingDelete && (
-        <div style={deleteOverlay}>
-          <div style={deletePanel}>
+        <div style={deleteOverlay} onClick={() => setPendingDelete(null)}>
+          <div style={deletePanel} onClick={e => e.stopPropagation()}>
             <div style={deleteTitle}>Delete "{pendingDelete.name}"?</div>
-            <p style={deleteBody}>If this time block is used anywhere in your schedules, those cells will keep the old block's name until you edit them.</p>
+            <p style={deleteBody}>This time block will be removed from your schedules. Any activities placed in it will no longer appear on the grid or in exports.</p>
             <div style={deleteRecovery}>"{pendingDelete.name}" goes to Trash, and you can put it back from there.</div>
             <div style={deleteActions}>
               <button className="press-97" onClick={() => setPendingDelete(null)} disabled={deleting} style={S.btnSecondary}>Cancel</button>
