@@ -55,6 +55,7 @@
     "files": [
       "electron/**/*",
       "dist/**/*",
+      "src/**/*",
       "package.json"
     ],
     "asar": false,
