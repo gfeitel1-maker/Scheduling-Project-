@@ -3,6 +3,7 @@ title: T78-dev-only-shape-assertion-at-engine-id-list-inputs
 document_type: ticket
 status: closed
 created: 2026-08-08
+resolved_by: 7613216
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_tickets: [docs/work/tickets/T69-engine-still-tolerates-json-stringified-id-lists.md, docs/work/tickets/T71-dev-shape-assertion-at-engine-id-list-inputs.md]
 related_adrs: []
