@@ -56,6 +56,9 @@ contextBridge.exposeInMainWorld('shoresh', {
   // once at mount is wrong within minutes: a laptop closes, wifi drops.
   getSyncStatus: () => ipcRenderer.invoke('shoresh:get-sync-status'),
   ingestCommit: (args) => ipcRenderer.invoke('shoresh:ingest-commit', args),
+  // S1b — confirm that an imported label means an existing entity, so the next
+  // import recognizes it without re-asking (docs/adr/2026-08-09-s1b-host-local-aliases.md).
+  confirmAlias: (args) => ipcRenderer.invoke('shoresh:confirm-alias', args),
   latestOpSeq: () => ipcRenderer.invoke('shoresh:latest-op-seq'),
   onSyncStatusChanged: (cb) => {
     const listener = (_e, status) => cb(status)

@@ -46,6 +46,11 @@ export const localClient = {
   // real one — same rule as deleteWeek below.
   ingestCommit: ({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation } = {}) =>
     shoresh.ingestCommit({ token: currentToken(), approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation }),
+  // S1b — remember an import label -> existing entity mapping so the next
+  // import recognizes it without re-asking. Host-only, admin-gated at the IPC
+  // boundary (electron/main.js's confirmAliasHandler); best-effort by callers.
+  confirmAlias: ({ entity_type, cohort_id, source_label, entity_id } = {}) =>
+    shoresh.confirmAlias({ token: currentToken(), entity_type, cohort_id, source_label, entity_id }),
   // S4b §4 — the op-log generation S4a's export stamps as base_generation so the
   // round-trip's staleness gate has a real clock. Read-only; 0 on the dev mock.
   latestOpSeq: () => (shoresh.latestOpSeq ? shoresh.latestOpSeq() : Promise.resolve(0)),
