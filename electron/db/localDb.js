@@ -13,7 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 29
+export const CURRENT_SCHEMA_VERSION = 30
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1373,6 +1373,30 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v30 — source_aliases, the host-local "this imported label means this
+  // existing entity" memory (docs/adr/2026-08-09-s1b-host-local-aliases.md).
+  //
+  // Both-places DDL, following the v25/pending_restores precedent: the table
+  // and its index are declared here AND in schema.sql, byte-identical text
+  // (SOURCE_ALIASES_DDL), so a fresh install and a migrated db agree on
+  // PRAGMA table_info(source_aliases). DDL only, no data movement — reapplying
+  // this migration is harmless (CREATE TABLE/INDEX IF NOT EXISTS).
+  //
+  // Deliberately NOT registered anywhere sync touches (PROJECTIONS,
+  // DIRECT_CAMP_ENTITIES, full_sync) — see the ADR's "why this reverses the
+  // prior two ADRs" section. Import (and alias confirmation) is host-only and
+  // admin-only, so there is exactly one writer and one copy of this table.
+  if (getSchemaVersion(db) >= 29 && getSchemaVersion(db) < 30) {
+    db.transaction(() => {
+      db.exec(SOURCE_ALIASES_DDL)
+      db.exec(SOURCE_ALIASES_INDEX_DDL)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (30, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Director-facing, and it appears in Versions beside weeks they saved
@@ -1410,6 +1434,26 @@ export const PENDING_RESTORES_DDL = `CREATE TABLE IF NOT EXISTS pending_restores
   last_error TEXT,
   UNIQUE (entity, entity_id)
 )`
+
+// Byte-identical duplicate of the source_aliases block in schema.sql
+// (docs/adr/2026-08-09-s1b-host-local-aliases.md §1/§7). Kept as a constant
+// so the v30 migration cannot drift from it by a stray space — the same
+// discipline as PENDING_RESTORES_DDL above.
+export const SOURCE_ALIASES_DDL = `CREATE TABLE IF NOT EXISTS source_aliases (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  entity_type TEXT NOT NULL,     -- one of the 6 ingestible types, validated at the write boundary
+  cohort_id TEXT,                -- populated ONLY for cohort-scoped types (tiers, time_blocks); NULL otherwise
+  source_label TEXT NOT NULL,    -- the raw label as it appeared in the imported file
+  entity_id TEXT NOT NULL,       -- plain TEXT, not a FK (entity_type varies; no single-table target)
+  status TEXT NOT NULL DEFAULT 'active',  -- 'active' | 'superseded'
+  confirmed_by TEXT,             -- plain TEXT user id, provenance only
+  confirmed_at TEXT NOT NULL,
+  superseded_by TEXT             -- id of the alias row that replaced this one, when status='superseded'
+)`
+
+export const SOURCE_ALIASES_INDEX_DDL =
+  'CREATE INDEX IF NOT EXISTS idx_source_aliases_lookup ON source_aliases (camp_id, entity_type, cohort_id)'
 
 // A peer still on <=v22 rejects the manual candidate's schedule_templates row
 // (its UNIQUE(camp_id) absorbs the INSERT OR IGNORE) and then FK-violates on

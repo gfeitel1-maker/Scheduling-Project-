@@ -154,7 +154,9 @@ const NAME_COLUMN = Object.freeze({ days_of_operation: 'label' })
 const nameColumnFor = (entity) => NAME_COLUMN[entity] ?? 'name'
 
 // Program-scoped for duplicate-recognition, exactly as ImportScreen treats them.
-const COHORT_SCOPED = Object.freeze(new Set(['tiers', 'time_blocks']))
+// Exported: confirmAlias.js (the alias committer) and listAliasMap below both
+// need the same cohort-scoping decision, and a second copy could drift.
+export const COHORT_SCOPED = Object.freeze(new Set(['tiers', 'time_blocks']))
 
 // S2b: the comparable value columns buildPlan diffs a recognized entity's
 // proposed fields against (beyond id + name, and the cohort_id already carried
@@ -185,6 +187,55 @@ const COMPARABLE_COLUMNS = Object.freeze({
  * given, camp-wide otherwise. Entity names come from the frozen whitelist, never
  * a caller, so interpolating them into the query is safe.
  */
+// S1b §4. entity_type -> table map, FIXED (never string-built from input) —
+// entity_type is attacker-influenced (sourced from the imported file that
+// originally produced the alias), so every identifier slot it could reach
+// goes through this frozen lookup, never interpolation. Table names happen to
+// equal the INGESTIBLE_ENTITIES entity name for all six types today, but the
+// map is kept explicit (not derived from INGESTIBLE_ENTITIES) so a future
+// entity whose table name diverges from its entity_type doesn't silently
+// mis-target this lookup.
+const ALIAS_ENTITY_TABLE = Object.freeze({
+  cohorts: 'cohorts',
+  tiers: 'tiers',
+  groups: 'groups',
+  days_of_operation: 'days_of_operation',
+  time_blocks: 'time_blocks',
+  activities: 'activities',
+})
+
+/**
+ * S1b §4. Host-local read of confirmed aliases, filtered to LIVE targets only
+ * (a Trashed target is dropped — liveness is evaluated at read time, never
+ * cached, so a restore makes the alias fire again with no re-confirmation —
+ * ADR §5). Returns `{ [entity]: Map(normalizeName(source_label) -> entity_id) }`,
+ * scoped by entity_type and, for cohort-scoped types, by cohort_id exactly as
+ * buildExistingSnapshot scopes tiers/time_blocks (no filter when cohort_id is
+ * falsy, matching that same function).
+ *
+ * A row whose entity_type is not in ALIAS_ENTITY_TABLE is skipped per-row —
+ * it never reaches an identifier slot, and it never aborts the read for the
+ * rest of the map (ADR §3).
+ */
+function listAliasMap(db, camp_id, cohort_id) {
+  const map = {}
+  for (const entity of INGESTIBLE_ENTITIES) map[entity] = new Map()
+
+  const rows = db
+    .prepare(`SELECT entity_type, cohort_id, source_label, entity_id FROM source_aliases WHERE camp_id = ? AND status = 'active'`)
+    .all(camp_id)
+
+  for (const row of rows) {
+    const table = ALIAS_ENTITY_TABLE[row.entity_type]
+    if (!table) continue
+    if (COHORT_SCOPED.has(row.entity_type) && cohort_id && row.cohort_id !== cohort_id) continue
+    const live = db.prepare(`SELECT 1 FROM ${table} WHERE id = ? AND camp_id = ?`).get(row.entity_id, camp_id)
+    if (!live) continue
+    map[row.entity_type].set(normalizeName(row.source_label), row.entity_id)
+  }
+  return map
+}
+
 function buildExistingSnapshot(db, camp_id, cohort_id) {
   // S2c §3: live id->name maps so the snapshot can carry FK fields in the LABEL
   // form buildPlan compares against (it holds no DB handle and cannot resolve).
@@ -213,6 +264,11 @@ function buildExistingSnapshot(db, camp_id, cohort_id) {
     for (const row of scopedRows) enrichSnapshotRow(entity, row, groupNameById, tierNameById)
     existing[entity] = scopedRows
   }
+  // S1b §4: the confirmed-alias tier reads this out of the snapshot, exactly
+  // as buildPlan reads the recognition rows above — buildPlan stays pure (no
+  // DB), this host-local read happens once, here, inside the same host-only
+  // ingest code path that builds the rest of the snapshot.
+  existing.aliases = listAliasMap(db, camp_id, cohort_id)
   return existing
 }
 
@@ -732,7 +788,12 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           // commitPlan itself may produce a `stale` conflict (the field gate above).
           // All are gated into `conflicts` (no op, no throw). S2c §4 adds validation
           // / eligibility_unresolved / unit_unresolved. Any other reason is a bug.
-          if (['ambiguous_identity', 'stale', 'validation', 'eligibility_unresolved', 'unit_unresolved', 'missing_target', 'duplicate_id', 'possible_lost_id'].includes(item.reason)) conflicts.push(item)
+          // S1b §4: alias_divergence — a single-host preview→commit race (the
+          // alias map said label->A, but a live different-entity exact-name
+          // match B now exists), NOT the cross-device divergence the
+          // superseded S1b ADRs solved for (there is no second writer). Same
+          // held-not-thrown treatment as every other conflict reason here.
+          if (['ambiguous_identity', 'stale', 'validation', 'eligibility_unresolved', 'unit_unresolved', 'missing_target', 'duplicate_id', 'possible_lost_id', 'alias_divergence'].includes(item.reason)) conflicts.push(item)
           else throw new Error(`commitPlan: conflict reason "${item.reason}" is not implemented at S1a`)
           break
         default:

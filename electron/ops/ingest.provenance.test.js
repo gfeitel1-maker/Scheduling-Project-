@@ -42,8 +42,10 @@ afterEach(() => {
 
 describe('schema v29 (evidence #1)', () => {
   it('a fresh install reaches version 29 and has operations.source', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(29)
-    expect(getSchemaVersion(db)).toBe(29)
+    // CURRENT_SCHEMA_VERSION has since moved on (v30, source_aliases) — this
+    // asserts v29's own shape survives, not that it's still the latest.
+    expect(CURRENT_SCHEMA_VERSION).toBeGreaterThanOrEqual(29)
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     const col = db.pragma('table_info(operations)').find((c) => c.name === 'source')
     expect(col).toBeDefined()
     expect(col.notnull).toBe(0) // NULLABLE — hard requirement (ADR §5 guardrail 1)
@@ -65,7 +67,7 @@ describe('schema v29 (evidence #1)', () => {
     expect(migrated.pragma('table_info(operations)').some((c) => c.name === 'source')).toBe(false)
 
     initSchema(migrated)
-    expect(getSchemaVersion(migrated)).toBe(29)
+    expect(getSchemaVersion(migrated)).toBe(CURRENT_SCHEMA_VERSION)
 
     const cols = (d) => d.pragma('table_info(operations)').map((c) => `${c.name}:${c.type}:${c.notnull}:${c.dflt_value ?? ''}`)
     expect(cols(migrated)).toEqual(cols(fresh))
