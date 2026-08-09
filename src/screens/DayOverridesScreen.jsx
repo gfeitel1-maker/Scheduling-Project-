@@ -6,10 +6,12 @@ import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ScreenIntro from '../components/ScreenIntro'
 
-const FREQUENCY_MODES = [
-  { value: 'reduced',     label: 'Fewer of everything — each activity happens proportionally less (coming soon)' },
-  { value: 'best_effort', label: 'Keep the usual amounts — fit in as much as the day allows (coming soon)' },
-]
+// Frequency mode is not yet a real choice — neither behaviour is built — so the
+// control is hidden rather than shown disabled ("coming soon" advertises unfinished
+// machinery on an already-optional screen). Templates still persist a stable default
+// ('reduced') so the field is forward-compatible: when the modes ship, the control
+// reappears and existing templates already carry a sensible value.
+const DEFAULT_FREQUENCY_MODE = 'reduced'
 
 // Fires one write() per field (the op-log is field-level) and surfaces the
 // first failure rather than a silent partial write — mirrors
@@ -44,7 +46,9 @@ async function cleanupPartialRow(entity, id) {
 function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
   const isNew = !template?.id
   const [name, setName] = useState(template?.name || '')
-  const [freqMode, setFreqMode] = useState(template?.frequency_mode || 'reduced')
+  // Not user-editable while the modes are unbuilt; preserves an existing template's
+  // saved value on re-save and writes the stable default for new ones.
+  const freqMode = template?.frequency_mode || DEFAULT_FREQUENCY_MODE
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
   const [timeBlocks, setTimeBlocks] = useState([])
@@ -210,13 +214,6 @@ function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
           <input autoFocus value={name} onChange={e => setName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !saving && save()} style={S.input}
             placeholder="e.g. Field Trip, Color War, Shabbaton" />
-        </div>
-
-        <div style={{ marginBottom: 18 }}>
-          <div style={S.label}>How often activities run</div>
-          <select value={freqMode} onChange={e => setFreqMode(e.target.value)} style={S.input}>
-            {FREQUENCY_MODES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
         </div>
 
         <div style={{ marginBottom: 8 }}>
@@ -397,7 +394,6 @@ export default function DayOverridesScreen({ campId, role, onNavigate }) {
             <thead>
               <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
                 <th style={S.th}>Name</th>
-                <th style={S.th}>How often activities run</th>
                 <th style={S.th}>Block Overrides</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
@@ -414,9 +410,6 @@ export default function DayOverridesScreen({ campId, role, onNavigate }) {
                   onMouseLeave={e => e.currentTarget.style.background = ''}
                 >
                   <td style={{ ...S.td, fontWeight: 500 }}>{t.name}</td>
-                  <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>
-                    {FREQUENCY_MODES.find(o => o.value === t.frequency_mode)?.label ?? '—'}
-                  </td>
                   <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>
                     {t.day_override_template_slots?.length ?? 0} block{(t.day_override_template_slots?.length ?? 0) !== 1 ? 's' : ''}
                   </td>
