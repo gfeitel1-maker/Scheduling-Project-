@@ -3,6 +3,7 @@ title: "Source aliases — durable alias memory and the confirmed-alias tier (S1
 document_type: adr
 authority: normative
 status: superseded
+implementation_state: not-started
 date: 2026-08-09
 superseded_by: docs/adr/2026-08-09-s1b-host-local-aliases.md
 supersedes:

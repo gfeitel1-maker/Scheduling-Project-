@@ -3,6 +3,7 @@ title: "Alias divergence — one predicate, convergent resolution (S1b-divergenc
 document_type: adr
 authority: normative
 status: superseded
+implementation_state: not-started
 date: 2026-08-09
 superseded_by: docs/adr/2026-08-09-s1b-host-local-aliases.md
 supersedes: []
