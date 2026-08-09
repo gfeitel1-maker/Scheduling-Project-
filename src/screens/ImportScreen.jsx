@@ -43,6 +43,13 @@ const LABEL = {
 // Identifies a proposed fixed event for tick toggling (spec §4.1).
 const fixedEventKey = (fe) => `${fe.name} ${fe.time_block} ${fe.days.join(',')}`
 
+// S1b — the same cohort-scoped entity_type set confirmAlias validates against
+// (electron/ops/confirmAlias.js / electron/ops/ingest.js COHORT_SCOPED). Kept
+// as its own copy per this file's src/-never-imports-electron/ discipline —
+// confirmAlias rejects a cohort_id on a non-cohort-scoped entity_type, so this
+// gates what's sent rather than letting the call throw.
+const ALIAS_COHORT_SCOPED = new Set(['tiers', 'time_blocks'])
+
 // activities.priority is the engine's two-valued contract — 'high'/'low',
 // never a third value (ActivitiesScreen.jsx, buildSchedule.js's runRound).
 // inferActivityRules already returns exactly one of these two strings, so
@@ -113,6 +120,10 @@ export default function ImportScreen({ campId, onNavigate }) {
   // inputs to re-submit. `resolving` toggles the entry banner → resolution queue.
   const [held, setHeld] = useState(null)
   const [resolving, setResolving] = useState(false)
+  // S1b — best-effort confirmAlias failures after a successful commit, surfaced
+  // as a subtle non-blocking note (spec: a remember failure must never fail or
+  // roll back the already-successful import).
+  const [rememberNotes, setRememberNotes] = useState([])
   // S5b/T75 — a staged reconciliation plan awaiting the director's confirm from
   // the ledger. `{ plan, context, fileName }`: `plan` is the renderer-side dry-run
   // (buildPlan over the same enriched snapshot commit uses), `context` is the exact
@@ -450,6 +461,7 @@ export default function ImportScreen({ campId, onNavigate }) {
   async function runCommit(inputs) {
     setWorking(true)
     setError(null)
+    setRememberNotes([])
     try {
       const outcome = await localClient.ingestCommit(inputs)
       if (outcome.held) {
@@ -507,7 +519,7 @@ export default function ImportScreen({ campId, onNavigate }) {
   // SAME original inputs (minus any skipped identity names) plus the resolutions.
   // Returns the outcome so the queue can honestly re-enter on a peer-race re-hold
   // (design spec §4.3). On success, tears the surface down to the normal result.
-  async function finishHeld(resolutions, skips) {
+  async function finishHeld(resolutions, skips, remembers) {
     const base = held.context
     const approved = {}
     for (const entity of INGESTIBLE_ENTITIES) approved[entity] = [...(base.approved[entity] ?? [])]
@@ -518,7 +530,10 @@ export default function ImportScreen({ campId, onNavigate }) {
     setError(null)
     try {
       const outcome = await localClient.ingestCommit({ ...base, approved, resolutions })
+      // S1b — a re-held outcome (peer race, spec §4.3) means nothing committed;
+      // confirm no aliases, additive-only on a genuinely successful commit.
       if (outcome.held) return outcome
+      await confirmRemembers(remembers, base.cohort_id)
       setResult(outcome)
       setHeld(null)
       setResolving(false)
@@ -534,6 +549,28 @@ export default function ImportScreen({ campId, onNavigate }) {
     } finally {
       setWorking(false)
     }
+  }
+
+  // S1b — confirm each remembered mapping AFTER a successful commit, one call
+  // per item, best-effort: a rejection (permission/locked/non-host) is caught
+  // and surfaced as a subtle note, never thrown back into finishHeld (the
+  // import itself already succeeded and must stay that way).
+  async function confirmRemembers(remembers, cohortId) {
+    if (!remembers || remembers.length === 0) return
+    const notes = []
+    for (const r of remembers) {
+      try {
+        await localClient.confirmAlias({
+          entity_type: r.entity,
+          cohort_id: ALIAS_COHORT_SCOPED.has(r.entity) ? (cohortId ?? null) : null,
+          source_label: r.name,
+          entity_id: r.entity_id,
+        })
+      } catch {
+        notes.push(`Couldn’t remember “${r.name}”`)
+      }
+    }
+    if (notes.length > 0) setRememberNotes(notes)
   }
 
   function dismissHeld() {
@@ -556,6 +593,18 @@ export default function ImportScreen({ campId, onNavigate }) {
       </p>
 
       {error && <div style={{ ...S.errorBanner, marginBottom: 16 }}>{error}</div>}
+
+      {/* S1b — additive, non-blocking: the import above already succeeded;
+          this only says a "remember" couldn't be saved. */}
+      {rememberNotes.length > 0 && (
+        <div style={{
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 8, padding: '10px 14px', marginBottom: 16,
+          fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6,
+        }}>
+          {rememberNotes.join(' · ')}
+        </div>
+      )}
 
       {result && (
         <div style={{
@@ -1041,18 +1090,24 @@ function HeldResolution({ conflicts: initialConflicts, working, onFinish, onLeav
   async function finish() {
     const resolutions = []
     const skips = []
+    // S1b — "same"-choice items the director left checked, collected alongside
+    // the resolutions so the parent can confirm each alias AFTER a successful
+    // (non-held) commit. Never populated for 'new'/'skip' choices.
+    const remembers = []
     for (const item of queue) {
       if (item.kind === 'identity') {
         const a = answers[item.id]
         if (!a) continue
-        if (a.choice === 'same') resolutions.push({ entity: item.entity, name: item.name, reason: 'ambiguous_identity', choice: 'existing', entity_id: a.entity_id })
-        else if (a.choice === 'new') resolutions.push({ entity: item.entity, name: item.name, reason: 'ambiguous_identity', choice: 'create' })
+        if (a.choice === 'same') {
+          resolutions.push({ entity: item.entity, name: item.name, reason: 'ambiguous_identity', choice: 'existing', entity_id: a.entity_id })
+          if (a.remember ?? true) remembers.push({ entity: item.entity, name: item.name, entity_id: a.entity_id })
+        } else if (a.choice === 'new') resolutions.push({ entity: item.entity, name: item.name, reason: 'ambiguous_identity', choice: 'create' })
         else if (a.choice === 'skip') skips.push({ entity: item.entity, name: item.name })
       } else {
         resolutions.push({ entity: item.entity, name: item.name, reason: 'stale', field: item.field, choice: staleChoice(item.id) })
       }
     }
-    const outcome = await onFinish(resolutions, skips)
+    const outcome = await onFinish(resolutions, skips, remembers)
     if (outcome?.held) {
       // Peer race (spec §4.3): a new held item appeared while resolving. Keep the
       // answers already given, fold the new conflict into the queue, and say so.
@@ -1197,6 +1252,11 @@ function IdentityCard({ item, answer, onAnswer, style }) {
   const candidates = item.conflict.evidence?.candidates ?? []
   const rawDup = candidates.some((c) => c.name === item.name)
   const chosenId = answer?.choice === 'same' ? answer.entity_id : null
+  // S1b — default checked whenever the director picks "same"/existing (locked
+  // decision: default remember, checkbox never shown for "create"). Reading
+  // `remember ?? true` means a fresh 'same' answer (no explicit remember yet)
+  // reads as checked without a separate initialization step.
+  const remembering = answer?.choice === 'same' ? (answer.remember ?? true) : false
 
   return (
     <div style={style}>
@@ -1210,12 +1270,23 @@ function IdentityCard({ item, answer, onAnswer, style }) {
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {candidates.map((c) => (
-          <ChoiceButton key={c.id} selected={chosenId === c.id} onClick={() => onAnswer({ kind: 'identity', choice: 'same', entity_id: c.id })}>
+          <ChoiceButton key={c.id} selected={chosenId === c.id} onClick={() => onAnswer({ kind: 'identity', choice: 'same', entity_id: c.id, remember: chosenId === c.id ? remembering : true })}>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
               {chosenId === c.id ? '● ' : '○ '}{candidates.length > 1 ? `Use “${c.name}”` : `Same thing — use my existing “${c.name}”`}
             </div>
           </ChoiceButton>
         ))}
+
+        {answer?.choice === 'same' && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '2px 12px', fontSize: 12, color: 'var(--text-secondary)', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={remembering}
+              onChange={(e) => onAnswer({ kind: 'identity', choice: 'same', entity_id: chosenId, remember: e.target.checked })}
+            />
+            Remember this — don’t ask again next time this file uses “{item.name}”
+          </label>
+        )}
 
         {!rawDup && (
           <ChoiceButton selected={answer?.choice === 'new'} onClick={() => onAnswer({ kind: 'identity', choice: 'new' })}>

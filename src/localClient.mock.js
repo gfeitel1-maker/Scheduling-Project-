@@ -805,6 +805,46 @@ export const mockShoresh = {
     if (replaced) outcome.replaced = replaced
     return outcome
   },
+  // S1b — mock stand-in for confirmAlias (electron/ops/confirmAlias.js), mirroring
+  // its OBSERVABLE contract (T74 fidelity discipline) against mock state instead
+  // of source_aliases: scope key is (entity_type, cohort_id, normalizeName(label))
+  // among active rows; re-confirming the same scope key to a DIFFERENT target
+  // supersedes the prior active row; re-confirming to the SAME target is a no-op.
+  // No transaction/atomicity — proves the UI toggle, not real persistence (that
+  // stays electron:dev, per this file's header discipline).
+  async confirmAlias({ entity_type, cohort_id, source_label, entity_id } = {}) {
+    const state = loadState()
+    if (!Array.isArray(state.__aliases)) state.__aliases = []
+    const scopedCohortId = MOCK_COHORT_SCOPED.has(entity_type) ? (cohort_id ?? null) : null
+    const normalized = normalizeName(source_label)
+    const active = state.__aliases.find(
+      (a) =>
+        a.status === 'active' &&
+        a.entity_type === entity_type &&
+        (a.cohort_id ?? null) === scopedCohortId &&
+        normalizeName(a.source_label) === normalized
+    )
+    if (active && active.entity_id === entity_id) {
+      return { id: active.id, superseded: null }
+    }
+    let supersededId = null
+    const newId = randomId()
+    if (active) {
+      active.status = 'superseded'
+      active.superseded_by = newId
+      supersededId = active.id
+    }
+    state.__aliases.push({
+      id: newId,
+      entity_type,
+      cohort_id: scopedCohortId,
+      source_label,
+      entity_id,
+      status: 'active',
+    })
+    saveState(state)
+    return { id: newId, superseded: supersededId }
+  },
   // S4b §4 — the dev mock has no op log/seq clock, so the export stamps 0 and
   // the staleness gate is inert at :5200 (the real clock lives under electron:dev).
   async latestOpSeq() { return 0 },
