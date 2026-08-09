@@ -6,7 +6,7 @@ round: 1
 status: pass
 task_class: scheduling-engine
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
-related_tickets: [docs/work/tickets/T69-engine-still-tolerates-json-stringified-id-lists.md, docs/work/tickets/T63-anchor-group-ids-parsing-belongs-at-the-boundary.md, docs/work/tickets/T70-dev-only-shape-assertion-at-engine-id-list-inputs.md]
+related_tickets: [docs/work/tickets/T69-engine-still-tolerates-json-stringified-id-lists.md, docs/work/tickets/T63-anchor-group-ids-parsing-belongs-at-the-boundary.md, docs/work/tickets/T78-dev-only-shape-assertion-at-engine-id-list-inputs.md]
 related_specs: []
 related_adrs: []
 selected_agents: [governor, maker, code-reviewer, red-hat, verifier, grader]
@@ -129,7 +129,8 @@ green gates: on a dead-code deletion a green suite is the expected outcome, and 
 signals were the mutation-testing of the new assertions and the deletion of the false one.
 
 The half-point withheld: the deletion traded a tolerant path for a throwing one at `weekCatalog.js`,
-and no runtime guard exists. Carried to **T70**.
+and no runtime guard exists. Carried to **T78** (originally filed as T70; renumbered to resolve a
+T70 ID collision).
 
 ## Findings carried forward
 
@@ -144,11 +145,11 @@ content was touched. Related: this worktree's base is `4341664`, which is behind
 (`0cb24ce`), so `npm run index:work` must be re-run after any rebase before `check:governance` is
 trusted.
 
-**Residual risk promoted to T70.** The DEV-only engine shape assertion was correctly excluded from
+**Residual risk promoted to T78** (originally T70, renumbered to resolve an ID collision)**.** The DEV-only engine shape assertion was correctly excluded from
 T69's scope (a guard is a decision, not a substitute for the deletion) but is the thing that would
 convert a future normalizer regression from silent-wrong-schedule / invisible-hang into a named
 error. It existed only inside T69's prose and would have been lost on archive, so it is now
-`docs/work/tickets/T70-dev-only-shape-assertion-at-engine-id-list-inputs.md`.
+`docs/work/tickets/T78-dev-only-shape-assertion-at-engine-id-list-inputs.md`.
 
 **Suite-timing observation belongs on T44, not here.** The round-2 suite runs were executed on a
 machine carrying a second concurrent vitest run (load average > 400), and load-sensitive files failed

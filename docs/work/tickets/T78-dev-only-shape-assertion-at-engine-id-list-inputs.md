@@ -1,15 +1,16 @@
 ---
-title: T70-dev-only-shape-assertion-at-engine-id-list-inputs
+title: T78-dev-only-shape-assertion-at-engine-id-list-inputs
 document_type: ticket
 status: closed
 created: 2026-08-08
+resolved_by: 7613216
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
 related_tickets: [docs/work/tickets/T69-engine-still-tolerates-json-stringified-id-lists.md, docs/work/tickets/T71-dev-shape-assertion-at-engine-id-list-inputs.md]
 related_adrs: []
 archive_when: a DEV-only guard rejects a non-array id list at every engine input that consumes one, with a test proving it fires, and it is proven absent from the production build
 ---
 
-# T70 — A DEV-only shape assertion at the engine's id-list inputs
+# T78 — A DEV-only shape assertion at the engine's id-list inputs
 
 **Superseded by T71** (`docs/work/tickets/T71-dev-shape-assertion-at-engine-id-list-inputs.md`,
 shipped 7613216) — same scope, filed a second time under a duplicate number. This file is retained
