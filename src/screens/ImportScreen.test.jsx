@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 // T35 — the rule summary this test checks for is inferred from activityPages/
@@ -87,6 +87,41 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
     const [{ activityRules }] = localClient.ingestCommit.mock.calls[0]
     expect(activityRules.Swim).toMatchObject({ min_per_week: 2, max_per_week: 3, priority: 'high' })
+  })
+
+  // Provenance follow-up (docs/adr/2026-08-09-activity-rule-hand-edit-provenance.md):
+  // a rule field the director hand-edits during review is flagged in
+  // `humanEditedFields.activities` so the commit stamps only that field
+  // source:'human' (Policy A protection against a silent re-import overwrite) —
+  // the activity-rule half of the same mechanism the unit column uses for groups.
+  it('flags a hand-edited rule field in humanEditedFields.activities, field-level', async () => {
+    await uploadFile()
+    // The Swim row's first number input is min_per_week; edit it.
+    const minInput = screen.getAllByRole('spinbutton')[0]
+    fireEvent.change(minInput, { target: { value: '5' } })
+
+    await userEvent.click(screen.getByText(/Add \d+ record/))
+    await userEvent.click(await screen.findByText(/Commit \d+ record/))
+    await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
+
+    const [{ humanEditedFields, activityRules }] = localClient.ingestCommit.mock.calls[0]
+    expect(activityRules.Swim.min_per_week).toBe(5)
+    // Only the touched field is marked human — max_per_week stays re-importable.
+    expect(humanEditedFields.activities.Swim).toContain('min_per_week')
+    expect(humanEditedFields.activities.Swim).not.toContain('max_per_week')
+  })
+
+  // Control: a purely file-inferred rule (nothing touched) sends NO
+  // humanEditedFields.activities entry, so its ops stay source:'import' and a
+  // later re-import can still update them — the fix adds no friction.
+  it('sends no humanEditedFields.activities entry for an untouched, inferred rule', async () => {
+    await uploadFile()
+    await userEvent.click(screen.getByText(/Add \d+ record/))
+    await userEvent.click(await screen.findByText(/Commit \d+ record/))
+    await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
+
+    const [{ humanEditedFields }] = localClient.ingestCommit.mock.calls[0]
+    expect(humanEditedFields.activities.Swim).toBeUndefined()
   })
 
   // T61 — the Replace teardown moved into the main process. The renderer must
