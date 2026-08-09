@@ -176,6 +176,43 @@ export default function DaysScreen({ campId, role, onNavigate }) {
     setPendingDelete(preview)
   }
 
+  async function deleteAll() {
+    if (!window.confirm('Delete all days? They can be restored from Trash.')) return
+    const token = localStorage.getItem('shoresh-token')
+    // Re-fetch immediately before building the id list rather than using the
+    // closed-over `days` state — if another device synced in new days
+    // between page-load and this click, the stale in-memory snapshot would
+    // silently skip them with no indication anything was missed.
+    const freshDays = await localClient.list('days_of_operation')
+    const ids = (freshDays || [])
+      .filter(d => d.camp_id === campId)
+      .map(d => d.id)
+    let succeeded = 0
+    let failedDueToRole = false
+    for (const id of ids) {
+      try {
+        const result = await localClient.deleteEntity(token, 'days_of_operation', id)
+        if (result && (result.status === 'applied' || result.status === 'queued')) {
+          succeeded++
+        } else {
+          console.error(`Failed to delete day ${id}`)
+        }
+      } catch (err) {
+        if (/admin role required/i.test(err?.message ?? '')) failedDueToRole = true
+        console.error(`Failed to delete day ${id}`, err)
+      }
+    }
+    await load()
+    const failed = ids.length - succeeded
+    if (failed > 0) {
+      setError(
+        failedDueToRole
+          ? 'Only an admin can delete days — no days were deleted.'
+          : `Deleted ${succeeded} of ${ids.length} days (${failed} failed — see console).`
+      )
+    }
+  }
+
   function downloadTemplate() {
     const ws = aoaToSanitizedSheet([
       ['label', 'day_of_week', 'sort_order'],
@@ -271,13 +308,19 @@ export default function DaysScreen({ campId, role, onNavigate }) {
           <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
           <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
           <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
+          <button
+            onClick={deleteAll}
+            disabled={role !== 'admin'}
+            title={role !== 'admin' ? 'Admin only' : undefined}
+            style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
+          >Delete All</button>
         </div>
       </div>
 
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>
       ) : (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', marginBottom: 16 }}>
+        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
@@ -289,8 +332,10 @@ export default function DaysScreen({ campId, role, onNavigate }) {
             </thead>
             <tbody>
               {days.length === 0 ? (
-                // 32px padding intentionally shorter than S.emptyState's 40px — single-line empty state, not a title+body block
-                <tr><td colSpan={4} style={{ ...S.emptyState, padding: '32px 16px', color: 'var(--text-secondary)', fontSize: 13 }}>No days yet.</td></tr>
+                <tr><td colSpan={4} style={S.emptyState}>
+                  <div style={S.emptyStateTitle}>No days yet</div>
+                  <div style={S.emptyStateBody}>Add your first day below or import from Excel.</div>
+                </td></tr>
               ) : days.map(day => (
                 <DayRow key={day.id} day={day} role={role} onSave={saveDay} onDelete={deleteDay} />
               ))}
@@ -299,7 +344,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
         </div>
       )}
 
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: '14px 16px' }}>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Day</div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <input placeholder="Label (e.g. Monday)" value={newLabel} onChange={e => setNewLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDay()} style={{ ...S.input, flex: '1 1 150px' }} />
@@ -313,7 +358,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
 
       {importStep && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--surface)', borderRadius: 10, padding: 28, width: 520, maxHeight: '80vh', overflow: 'auto' }}>
+          <div style={{ background: 'var(--surface)', borderRadius: 12, padding: 28, width: 520, maxHeight: '80vh', overflow: 'auto' }}>
             {importStep === 'preview' && (
               <>
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>

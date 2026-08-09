@@ -92,6 +92,8 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
+  const [pendingDelete, setPendingDelete] = useState(null) // tier being confirmed for delete
+  const [deleting, setDeleting] = useState(false)
   const fileRef = useRef()
   const { cohorts, activeCohort, loading: cohortsLoading, setActiveCohortId } = useCohorts(campId)
 
@@ -218,14 +220,22 @@ export default function TiersScreen({ campId, role, onNavigate }) {
     }
   }
 
-  async function deleteTier(id) {
-    if (!window.confirm('Delete this unit?')) return
+  function deleteTier(id) {
+    const tier = tiers.find(t => t.id === id)
+    if (!tier) return
+    setPendingDelete(tier)
+  }
+
+  async function confirmTierDelete() {
+    if (!pendingDelete) return
+    setDeleting(true)
     try {
       const token = localStorage.getItem('shoresh-token')
-      const result = await localClient.deleteEntity(token, 'tiers', id)
+      const result = await localClient.deleteEntity(token, 'tiers', pendingDelete.id)
       if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
         throw new Error('delete failed')
       }
+      setPendingDelete(null)
       await load()
     } catch (err) {
       setError(
@@ -233,6 +243,9 @@ export default function TiersScreen({ campId, role, onNavigate }) {
           ? 'Only an admin can delete units.'
           : describeWriteFailure(err, 'That unit could not be deleted.')
       )
+      setPendingDelete(null)
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -504,9 +517,70 @@ export default function TiersScreen({ campId, role, onNavigate }) {
         </div>
       )}
 
+      {pendingDelete && (
+        <div style={deleteOverlay}>
+          <div style={deletePanel}>
+            <div style={deleteTitle}>Delete "{pendingDelete.name}"?</div>
+            <p style={deleteBody}>This unit has no groups, so nothing in your schedules is affected.</p>
+            <div style={deleteRecovery}>"{pendingDelete.name}" goes to Trash, and you can put it back from there.</div>
+            <div style={deleteActions}>
+              <button className="press-97" onClick={() => setPendingDelete(null)} disabled={deleting} style={S.btnSecondary}>Cancel</button>
+              <button onClick={confirmTierDelete} disabled={deleting} style={S.btnDanger}>
+                {deleting ? 'Working…' : 'Delete Unit'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
         <button className="press-97" onClick={() => onNavigate('groups')} style={S.btnPrimary}>Next: Groups →</button>
       </div>
     </div>
   )
+}
+
+// Local styled confirm modal reusing DeleteRecordDialog's visual chrome —
+// see governance decision in docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md:
+// the DeleteRecordDialog backend contract does not cover tiers, so this is
+// the honest in-scope fallback rather than a fabricated slot-count preview.
+const deleteOverlay = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(0,0,0,0.45)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  zIndex: 1000,
+  padding: '24px 16px',
+}
+
+const deletePanel = {
+  background: 'var(--surface-elevated)',
+  borderRadius: 12,
+  padding: 28,
+  width: 520,
+  maxWidth: '100%',
+}
+
+const deleteTitle = {
+  fontFamily: 'var(--font-condensed)',
+  fontWeight: 700,
+  fontSize: 18,
+  marginBottom: 14,
+}
+
+const deleteBody = { fontSize: 14, lineHeight: 1.55, margin: '0 0 14px' }
+
+const deleteRecovery = {
+  fontSize: 13,
+  lineHeight: 1.55,
+  color: 'var(--text-secondary)',
+}
+
+const deleteActions = {
+  display: 'flex',
+  gap: 10,
+  justifyContent: 'flex-end',
+  marginTop: 22,
 }

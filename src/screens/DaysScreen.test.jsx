@@ -141,4 +141,29 @@ describe('DaysScreen', () => {
       expect(screen.queryByText(/Failed to load data/)).not.toBeNull()
     )
   })
+
+  it('deletes all camp-scoped days via Delete All, camp-isolated from other camps', async () => {
+    localClient.list.mockResolvedValue([
+      day({ id: 'd1', label: 'Monday' }),
+      day({ id: 'd2', label: 'Tuesday' }),
+      day({ id: 'd-other', label: 'Wrong Camp', camp_id: 'other-camp' }),
+    ])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('2 days')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledTimes(2))
+    expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'd1')
+    expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'd2')
+    expect(localClient.deleteEntity).not.toHaveBeenCalledWith('token-abc', 'days_of_operation', 'd-other')
+  })
+
+  it('disables Delete All for non-admin roles', async () => {
+    localClient.list.mockResolvedValue([day()])
+    render(<DaysScreen campId={CAMP_ID} role="staff" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+
+    expect(screen.getByText('Delete All').disabled).toBe(true)
+  })
 })

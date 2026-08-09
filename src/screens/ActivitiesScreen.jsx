@@ -72,6 +72,9 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
   const [spanBlocks, setSpanBlocks] = useState(activity?.span_blocks ?? 1)
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
+  // Default expanded if an existing activity already has data in a hidden
+  // field, so nothing becomes unreachable on edit; a new activity opens collapsed.
+  const [showMore, setShowMore] = useState(groupOverride || preferDay || !!weatherAlt || notes.trim().length > 0)
 
   function toggleTier(id) { setEligTiers(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]) }
   function toggleGroup(id) { setEligGroups(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]) }
@@ -181,45 +184,61 @@ function ActivityModal({ activity, tiers, groups, activities, onSave, onClose })
           </div>
         </Field>
 
-        <label style={{ ...checkLabel, display: 'flex', alignItems: 'center', marginBottom: 8, gap: 8 }}>
-          <input type="checkbox" checked={groupOverride} onChange={e => setGroupOverride(e.target.checked)} />
-          Override by specific groups
-        </label>
-        {groupOverride && (
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', paddingLeft: 8, marginBottom: 16 }}>
-            {groups.map(g => (
-              <label key={g.id} style={checkLabel}>
-                <input type="checkbox" checked={eligGroups.includes(g.id)} onChange={() => toggleGroup(g.id)} style={{ marginRight: 5 }} />{g.name}
-              </label>
-            ))}
-          </div>
-        )}
+        <button
+          type="button"
+          onClick={() => setShowMore(v => !v)}
+          className="press-97"
+          style={{ ...S.btnSecondary, marginBottom: 16, fontSize: 12 }}
+        >
+          {showMore ? 'Hide more options ▲' : 'More options ▼'}
+        </button>
 
-        <label style={{ ...checkLabel, display: 'flex', alignItems: 'center', marginBottom: 8, gap: 8 }}>
-          <input type="checkbox" checked={preferDay} onChange={e => setPreferDay(e.target.checked)} />
-          Distribute early in the week
-        </label>
-        {preferDay && (
-          <div style={{ display: 'flex', gap: 12, alignItems: 'center', paddingLeft: 8, marginBottom: 16, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13 }}>At least</span>
-            <input type="number" min={1} value={preferMin} onChange={e => setPreferMin(e.target.value)} style={{ ...S.input, width: 60 }} />
-            <span style={{ fontSize: 13 }}>times before</span>
-            <select value={preferDayVal} onChange={e => setPreferDayVal(e.target.value)} style={{ ...S.input, width: 130 }}>
-              {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
+        <div style={{
+          maxHeight: showMore ? 2000 : 0,
+          opacity: showMore ? 1 : 0,
+          overflow: 'hidden',
+          transition: prefersReducedMotion() ? 'none' : 'max-height 200ms ease-out, opacity 160ms ease-out',
+        }}>
+          <label style={{ ...checkLabel, display: 'flex', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+            <input type="checkbox" checked={groupOverride} onChange={e => setGroupOverride(e.target.checked)} />
+            Override by specific groups
+          </label>
+          {groupOverride && (
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', paddingLeft: 8, marginBottom: 16 }}>
+              {groups.map(g => (
+                <label key={g.id} style={checkLabel}>
+                  <input type="checkbox" checked={eligGroups.includes(g.id)} onChange={() => toggleGroup(g.id)} style={{ marginRight: 5 }} />{g.name}
+                </label>
+              ))}
+            </div>
+          )}
+
+          <label style={{ ...checkLabel, display: 'flex', alignItems: 'center', marginBottom: 8, gap: 8 }}>
+            <input type="checkbox" checked={preferDay} onChange={e => setPreferDay(e.target.checked)} />
+            Distribute early in the week
+          </label>
+          {preferDay && (
+            <div style={{ display: 'flex', gap: 12, alignItems: 'center', paddingLeft: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13 }}>At least</span>
+              <input type="number" min={1} value={preferMin} onChange={e => setPreferMin(e.target.value)} style={{ ...S.input, width: 60 }} />
+              <span style={{ fontSize: 13 }}>times before</span>
+              <select value={preferDayVal} onChange={e => setPreferDayVal(e.target.value)} style={{ ...S.input, width: 130 }}>
+                {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
+              </select>
+            </div>
+          )}
+
+          <Field label="Weather alternative (shown when weather mode is on)">
+            <select value={weatherAlt} onChange={e => setWeatherAlt(e.target.value)} style={S.input}>
+              <option value="">— None —</option>
+              {otherActivities.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
-          </div>
-        )}
+          </Field>
 
-        <Field label="Weather alternative (shown when weather mode is on)">
-          <select value={weatherAlt} onChange={e => setWeatherAlt(e.target.value)} style={S.input}>
-            <option value="">— None —</option>
-            {otherActivities.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-        </Field>
-
-        <Field label="Notes">
-          <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...S.input, resize: 'vertical' }} />
-        </Field>
+          <Field label="Notes">
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...S.input, resize: 'vertical' }} />
+          </Field>
+        </div>
 
         {saveError && (
           <div style={{ fontSize: 12, color: 'var(--warning)', marginBottom: 10, padding: '8px 10px', background: '#fff5f5', borderRadius: 5, border: '1px solid #f5c6c6' }}>
@@ -260,6 +279,8 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   const [pendingDelete, setPendingDelete] = useState(null)
   const [excludedActivityIds, setExcludedActivityIds] = useState(new Set())
   const [pendingExclusion, setPendingExclusion] = useState(null) // { activity, slotCount }
+  const [quickName, setQuickName] = useState('')
+  const [quickAdding, setQuickAdding] = useState(false)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
@@ -453,6 +474,51 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
           ? `An activity named "${copyName}" already exists — rename it before duplicating again.`
           : describeWriteFailure(err, 'That activity could not be duplicated.')
       )
+    }
+  }
+
+  // Name-only quick-add — mirrors saveActivity's create path but skips the
+  // modal, filling every other field with normalizeActivity's own fallbacks
+  // so a quick-added row is indistinguishable from one created via the modal.
+  async function addActivityQuick() {
+    const trimmedName = quickName.trim()
+    if (!trimmedName) return
+    if (activities.some(a => String(a.name ?? '').trim().toLowerCase() === trimmedName.toLowerCase())) {
+      setError('An activity with this name already exists — choose a different name.')
+      return
+    }
+    setQuickAdding(true)
+    const newId = crypto.randomUUID()
+    try {
+      await writeFields(newId, {
+        name: trimmedName,
+        camp_id: campId,
+        location: null,
+        is_outdoor: false,
+        max_groups_per_slot: 1,
+        min_per_week: 0,
+        max_per_week: 5,
+        span_blocks: 1,
+        same_tier_only: false,
+        priority: 'low',
+        eligible_tier_ids: [],
+        eligible_group_ids: [],
+        prefer_before_day: null,
+        prefer_before_day_min: null,
+        weather_alternative_id: null,
+        notes: null,
+      })
+      setQuickName('')
+      await load()
+    } catch (err) {
+      await cleanupPartialRow(newId)
+      setError(
+        /UNIQUE/i.test(err?.message ?? '')
+          ? 'An activity with this name already exists — choose a different name.'
+          : describeWriteFailure(err, 'That activity could not be added.')
+      )
+    } finally {
+      setQuickAdding(false)
     }
   }
 
@@ -720,6 +786,24 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
           </table>
         </div>
       )}
+
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', marginTop: 16 }}>
+        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          Add Activity
+        </div>
+        <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+          <input
+            placeholder="Activity name (e.g. Archery)"
+            value={quickName}
+            onChange={e => setQuickName(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addActivityQuick()}
+            style={{ ...S.input, flex: 1 }}
+          />
+          <button className="press-97" onClick={addActivityQuick} disabled={quickAdding || !quickName.trim()} style={S.btnPrimary}>
+            {quickAdding ? 'Adding…' : '+ Add'}
+          </button>
+        </div>
+      </div>
 
       {modal && (
         <ActivityModal
