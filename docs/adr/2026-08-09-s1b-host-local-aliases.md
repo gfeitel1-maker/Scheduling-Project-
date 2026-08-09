@@ -3,6 +3,7 @@ title: "Source aliases — host-local table, no sync (S1b revised)"
 document_type: adr
 authority: normative
 status: accepted
+implementation_state: implemented
 date: 2026-08-09
 supersedes:
   - docs/adr/2026-08-09-s1b-source-aliases.md
