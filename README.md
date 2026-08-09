@@ -69,11 +69,14 @@ installed app with one command. Before replacing anything it moves the
 current install aside to `Shoresh.app.bak`, then proves the new build good
 (native module ABI check, a launch smoke test, and a build-stamp check
 against `git rev-parse HEAD`) before deleting the backup. The launch smoke
-test waits (up to 12s) for a positive startup heartbeat — a marker the app
-writes only after its window finishes loading — rather than just checking
-the process is still alive, so a main-process crash that Electron keeps
-alive behind its own error dialog now correctly fails the deploy instead of
-silently passing. If any check fails, it automatically restores
+test runs the build against a fresh, throwaway data directory — never the
+machine's real operational database — so it verifies the build boots
+regardless of whatever schema version the machine's live database happens to
+be at, and waits (up to 40s) for a nonce-stamped startup heartbeat — a marker
+the app writes only after its window finishes loading, tied to this specific
+run — rather than just checking the process is still alive, so a
+main-process crash that Electron keeps alive behind its own error dialog now
+correctly fails the deploy instead of silently passing. If any check fails, it automatically restores
 `Shoresh.app.bak` back to `Shoresh.app` and exits non-zero — the machine is
 always left with a working installed app. For a first-time install, use
 `npm run install:mac` instead.

@@ -127,3 +127,48 @@ implementation, which no one on this project controls and which would change sil
 **Per-clone dev directories** (e.g. hashed from the repo path). Rejected as speculative: it solves a
 problem nobody has reported, at the cost of scattering test databases and making them hard to find.
 Revisit if working trees start needing genuinely independent state.
+
+## Addendum, 2026-08-09: a third userData case for the deploy smoke test
+
+The deploy smoke test (`scripts/deploy-local.sh`) originally pointed its launch heartbeat check at
+the packaged app's real `shoresh` userData directory — the same directory the director's live camp
+database lives in. That made the smoke test correctness-coupled to that database's schema: a build
+on a branch behind the machine's already-migrated operational database would boot successfully and
+still false-fail, because the smoke test was reading heartbeat state next to a database it never
+opened, in a directory it assumed was safe to inspect. This happened in practice — machine DB at
+schema v30, branch at v29.
+
+The smoke test's job is narrower than "the operational database still works" — it is "this build
+boots." Those are different claims and only one of them is what a deploy smoke test should be
+proving.
+
+### Decision
+
+Add a third resolution path to `applyUserDataPath`, gated so it can only ever fire during an
+intentional smoke run:
+
+- `app.isPackaged` must be true (dev is unaffected, unconditionally — the smoke override is
+  ignored when unpackaged even if the env var is set).
+- `SHORESH_SMOKE_USERDATA` must be a non-empty string naming a directory. `deploy-local.sh` sets it
+  to a freshly created `mktemp -d` directory for the duration of the smoke run and removes it via
+  `trap ... EXIT` regardless of pass or fail.
+
+When both hold, userData resolves to that disposable directory instead of `shoresh`. The app still
+opens (and creates, via the same `openLocalDb` path every fresh install takes) a database there —
+it just never touches the director's real one. `SHORESH_SMOKE_NONCE` is generated per run and
+threaded through to the startup heartbeat marker, so a stale marker from a previous run (or a
+leftover temp dir) can never be mistaken for evidence that *this* launch succeeded.
+
+### Consequences
+
+The smoke test now proves the build boots against a schema the build itself creates, independent of
+whatever schema version the machine's live database happens to be at. It can never again false-fail
+on drift between "what schema the branch expects" and "what schema the last packaged install
+already migrated to."
+
+The heartbeat marker write itself is now gated on `SHORESH_SMOKE_NONCE` being set, so it no longer
+fires — and no longer writes a stray file into userData — on any dev, test, or ordinary launch.
+
+Known ceiling, not fixed by this addendum: `did-finish-load` proves the renderer shell loaded, not
+that React mounted or that IPC works end to end. A renderer-mount-plus-IPC heartbeat is a planned
+follow-up, tracked in `scripts/deploy-local.sh` next to the poll loop.
