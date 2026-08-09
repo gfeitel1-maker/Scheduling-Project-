@@ -7,6 +7,7 @@ import CampBootstrapScreen from './screens/CampBootstrapScreen'
 import LoginScreen from './screens/LoginScreen'
 import CampScreen from './screens/CampScreen'
 import ImportScreen from './screens/ImportScreen'
+import ReadinessHub from './screens/ReadinessHub'
 import TiersScreen from './screens/TiersScreen'
 import GroupsScreen from './screens/GroupsScreen'
 import TimeBlocksScreen from './screens/TimeBlocksScreen'
@@ -27,6 +28,7 @@ import { seedDays } from './utils/seedDays'
 import { S } from './styles/shared'
 
 const SCREENS = {
+  readiness:    ReadinessHub,
   camp:         CampScreen,
   import:       ImportScreen,
   conflicts:    ConflictsScreen,
@@ -60,9 +62,10 @@ const SCHEDULE_ROUTE_BY_SCREEN = {
 }
 
 function AppShell({ campId, role, onLogout }) {
-  // The sidebar is the setup pathway now, so landing lands at the top of it —
-  // Units, since Programs is created automatically and no longer listed.
-  const [screen, setScreen] = useState('tiers')
+  // The Setup Readiness hub is the in-session landing (S5, OF-1): every director
+  // lands on the honest "can this camp build a week yet" home base rather than
+  // mid-setup on Units. Every other screen stays reachable from the sidebar.
+  const [screen, setScreen] = useState('readiness')
   // Single instance of the pending-conflicts source for this whole shell —
   // both the Sidebar badge count and ConflictsScreen's list read from it, so
   // they can never disagree.
