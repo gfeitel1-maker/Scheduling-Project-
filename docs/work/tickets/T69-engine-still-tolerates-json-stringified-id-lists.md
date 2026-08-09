@@ -4,7 +4,7 @@ document_type: ticket
 status: completed
 created: 2026-08-08
 governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
-related_tickets: [docs/work/tickets/T63-anchor-group-ids-parsing-belongs-at-the-boundary.md, docs/work/tickets/T70-dev-only-shape-assertion-at-engine-id-list-inputs.md]
+related_tickets: [docs/work/tickets/T63-anchor-group-ids-parsing-belongs-at-the-boundary.md, docs/work/tickets/T78-dev-only-shape-assertion-at-engine-id-list-inputs.md]
 related_adrs: []
 archive_when: "`grep -rn 'JSON.parse' src/engine/` returns nothing, and tests pin the array-only contract for both `activities.eligible_group_ids` (buildSchedule + computeFindings) and `anchor_activities.group_ids` (resolveWeekCatalog)"
 ---

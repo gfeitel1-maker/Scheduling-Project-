@@ -81,8 +81,12 @@ Correct-as-is (do NOT touch): `s1a-...` (accepted/merged) and `s1b-source-aliase
 1. `T72-...md` — `status: open` → merged (e5af7d2).
 2. `T73-...md` — `status: open` → merged (acddd3b).
 3. `T74-...md` — `status: open` → merged (a5af872).
-4. `T70-dev-only-shape-assertion-...md` — duplicate of shipped **T71** (7613216). Retire it (mark
-   superseded-by-T71); it also collides on number with `T70-sync-test-sleep-marker-laundering`.
+4. `T70-dev-only-shape-assertion-...md` — collided on number with
+   `T70-sync-test-sleep-marker-laundering`. **Resolved by renumbering to
+   `T78-dev-only-shape-assertion-...md`**, per the status-drift ADR precedent, so the two no longer
+   share ID T70. Still open: whether T78 is a duplicate of shipped **T71** (7613216) and should be
+   retired (mark superseded-by-T71) rather than kept as a distinct ticket — a product decision left
+   for the owner.
 5. Normalize `T75` `status: done` → the standard enum (`completed`/`closed`) used elsewhere.
 
 ### Batch C — regenerate + reconcile INDEX
