@@ -109,11 +109,11 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   useEffect(() => {
     if (!pendingDelete) return
     function onKeyDown(e) {
-      if (e.key === 'Escape') setPendingDelete(null)
+      if (e.key === 'Escape' && !deleting) setPendingDelete(null)
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [pendingDelete])
+  }, [pendingDelete, deleting])
 
   // Once useCohorts has finished loading with no cohort available, there is
   // nothing for load() to fetch and it will never resolve loading to false
@@ -530,7 +530,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       )}
 
       {pendingDelete && (
-        <div style={deleteOverlay} onClick={() => setPendingDelete(null)}>
+        <div style={deleteOverlay} onClick={() => !deleting && setPendingDelete(null)}>
           <div style={deletePanel} onClick={e => e.stopPropagation()}>
             <div style={deleteTitle}>Delete "{pendingDelete.name}"?</div>
             <p style={deleteBody}>
