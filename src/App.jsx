@@ -139,10 +139,10 @@ export default function App() {
   // main IPC round-trip works. Main writes the smoke marker only when the deploy
   // set SHORESH_SMOKE_NONCE; every other run is a harmless no-op round-trip.
   // Placed before any conditional return so it obeys the Rules of Hooks and
-  // fires on mount regardless of phase. Optional-chained so the browser mock
-  // (no window.shoresh) simply skips it.
+  // fires on mount regardless of phase. Routed through localClient so browser
+  // dev hits the mock's no-op (never a bare window.shoresh access).
   useEffect(() => {
-    window.shoresh?.reportSmokeReady?.()
+    localClient.reportSmokeReady()
   }, [])
 
   if (device.phase === 'loading') return null
