@@ -36,6 +36,7 @@ import { useGeneration } from './schedule/useGeneration'
 import { useSlotMutations } from './schedule/useSlotMutations'
 import { ROUTES, useRouteState } from './schedule/useRouteState'
 import { useScheduleData, recalcStats as recalcStatsPure, recalcFindings as recalcFindingsPure } from './schedule/useScheduleData'
+import { useFlagChangeAck } from './schedule/useFlagChangeAck'
 import ScheduleGroupView from '../components/schedule/ScheduleGroupView'
 import ScheduleDayView from '../components/schedule/ScheduleDayView'
 import ScheduleActivityView from '../components/schedule/ScheduleActivityView'
@@ -138,6 +139,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     () => (route === 'manual' ? withOverlapFlags(rawSlots, activities) : rawSlots),
     [route, rawSlots, activities]
   )
+  // Move 1 (design spec) — quiet in-place acknowledgement when a single
+  // director edit changes a cell's flag state. Gated against generation,
+  // route switch, undo/snapshot replay and initial render; writes
+  // data-flag-changed directly to the DOM, never through React state.
+  useFlagChangeAck(slots, route)
   // The generated "track changes" review (docs/work/specs/2026-08-01-generated-
   // flag-review.md). One piece of state is the single source of truth for both
   // the review list and the grid highlight:

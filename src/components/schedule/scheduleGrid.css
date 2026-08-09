@@ -681,9 +681,50 @@
   border: 0;
 }
 
+/* Post-edit consequence feedback (design spec Move 1). A quiet, neutral-gray
+   acknowledgement — never danger/accent, even when the new flag IS a problem
+   — written by useFlagChangeAck via a direct data-flag-changed attribute, not
+   a SlotCell prop. */
+.cell[data-flag-changed]::after {
+  content: '';
+  position: absolute;
+  inset: 8px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--text-secondary);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 4;
+  animation: flag-changed-ack var(--motion-base) var(--ease-out) forwards;
+}
+
+@keyframes flag-changed-ack {
+  0%   { opacity: 0.55; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.015); }
+}
+
+/* Group<->day entrance (design spec Move 2). Activity drilldown stays instant
+   — it never gets this class. */
+.schedule-view-enter {
+  animation: schedule-view-fade-lift var(--motion-base) var(--ease-out);
+}
+
+@keyframes schedule-view-fade-lift {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .expand-handle,
   .cell-empty {
     transition: none;
+  }
+
+  .cell[data-flag-changed]::after {
+    animation: none;
+    opacity: 0;
+  }
+
+  .schedule-view-enter {
+    animation: none;
   }
 }
