@@ -108,6 +108,12 @@ export default function ImportScreen({ campId, onNavigate }) {
   const [fixedEvents, setFixedEvents] = useState([])
   const [chosenFixedEvents, setChosenFixedEvents] = useState(new Set())
   const [operatingDayCount, setOperatingDayCount] = useState(0)
+  // ADR 2026-08-09 Decision 1 — dualUseNames is a SEED for the activities-list
+  // tick-seeding below, not a routing verdict; pinOnlyNames is everything ticked
+  // as a fixed event that ISN'T dual-use. Both are display-name sets, used only
+  // to default the tick state and render a note — buildPlan never sees them.
+  const [dualUseActivityNames, setDualUseActivityNames] = useState(new Set())
+  const [pinOnlyActivityNames, setPinOnlyActivityNames] = useState(new Set())
   // Inferred (or director-edited) rules per activity name (T35). Plain object,
   // not a Map, so it sits in React state cleanly: name -> { eligible_group_names,
   // min_per_week, max_per_week, priority, _inferred }.
@@ -244,26 +250,42 @@ export default function ImportScreen({ campId, onNavigate }) {
       setImportMode('add')
       const next = buildPreview(proposal, existing)
       setPreview(next)
-      // Everything starts approved except values the file gives no reason to
-      // trust — seen once across the camp AND not universal in any one unit,
-      // or a name that is two other proposed names welded together. Nothing is
-      // hidden either way; the unticked rows are right there with their count.
-      const initial = {}
-      for (const entity of INGESTIBLE_ENTITIES) {
-        const { create, lowConfidence = [] } = next.perEntity[entity]
-        const low = new Set(lowConfidence)
-        initial[entity] = new Set(create.filter((n) => !low.has(n)))
-      }
-      setChosen(initial)
 
       // Recurring fixed events implied by the grid (T34). High-confidence ones
       // (holding on every operating day) start ticked; low-confidence ones (a
       // majority but not all) start unticked — the same treatment rare entities
       // get. All are shown; ticking is the director's act.
-      const { fixedEvents: inferred } = inferFixedEvents({ pages }, proposal)
+      const { fixedEvents: inferred, dualUseNames = [] } = inferFixedEvents({ pages }, proposal)
       setFixedEvents(inferred)
-      setChosenFixedEvents(new Set(inferred.filter((fe) => fe.confidence === 'high').map(fixedEventKey)))
+      const initialTickedFixedEvents = new Set(inferred.filter((fe) => fe.confidence === 'high').map(fixedEventKey))
+      setChosenFixedEvents(initialTickedFixedEvents)
       setOperatingDayCount(proposal.entities.days_of_operation.length)
+
+      // ADR 2026-08-09 Decision 1 — a ticked fixed-event name that is NOT
+      // dual-use defaults OUT of the activities catalog (it is never a free
+      // choice in the source file); ticking its row is the one-click override.
+      const dualUseSet = new Set(dualUseNames)
+      const initialTickedFixedEventNames = new Set(
+        inferred.filter((fe) => fe.confidence === 'high').map((fe) => fe.name)
+      )
+      const pinOnlySet = new Set([...initialTickedFixedEventNames].filter((n) => !dualUseSet.has(n)))
+      setDualUseActivityNames(dualUseSet)
+      setPinOnlyActivityNames(pinOnlySet)
+
+      // Everything starts approved except values the file gives no reason to
+      // trust — seen once across the camp AND not universal in any one unit,
+      // or a name that is two other proposed names welded together — OR a
+      // pin-only fixed-event name (Decision 1, above). Nothing is hidden
+      // either way; the unticked rows are right there with their note or count.
+      const initial = {}
+      for (const entity of INGESTIBLE_ENTITIES) {
+        const { create, lowConfidence = [] } = next.perEntity[entity]
+        const low = new Set(lowConfidence)
+        initial[entity] = new Set(
+          create.filter((n) => !low.has(n) && !(entity === 'activities' && pinOnlySet.has(n)))
+        )
+      }
+      setChosen(initial)
 
       // Rule inference (T35) — same "propose, director confirms" shape as the
       // entities and fixed events above.
@@ -772,6 +794,8 @@ export default function ImportScreen({ campId, onNavigate }) {
                   {create.map(name => {
                     const on = chosen[entity]?.has(name)
                     const seen = preview.perEntity[entity].counts?.[name]
+                    const isPinOnly = entity === 'activities' && pinOnlyActivityNames.has(name)
+                    const isDualUse = entity === 'activities' && dualUseActivityNames.has(name)
                     return (
                       <button
                         key={name}
@@ -791,6 +815,18 @@ export default function ImportScreen({ campId, onNavigate }) {
                           <span style={{ marginLeft: 6, opacity: 0.55, fontFamily: 'var(--font-mono)', fontSize: 10 }}>
                             ×{seen}
                           </span>
+                        )}
+                        {/* ADR 2026-08-09 Decision 1 — the routing default must be
+                            visible and reversible before commit, not silent. */}
+                        {isPinOnly && (
+                          <div style={{ fontSize: 10, marginTop: 2, fontWeight: 400, textDecoration: 'none', opacity: 0.8 }}>
+                            Scheduled as a fixed event — not added to the activity catalog.
+                          </div>
+                        )}
+                        {isDualUse && (
+                          <div style={{ fontSize: 10, marginTop: 2, fontWeight: 400, textDecoration: 'none', opacity: 0.8 }}>
+                            Also appears as a fixed event.
+                          </div>
                         )}
                       </button>
                     )

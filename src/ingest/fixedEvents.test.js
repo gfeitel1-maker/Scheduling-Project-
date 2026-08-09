@@ -152,6 +152,77 @@ describe('the transpose invariant', () => {
   })
 })
 
+describe('dualUseNames (ADR 2026-08-09, Decision 1) — a seed, not a verdict', () => {
+  it('excludes a pin-only name (no occupied tuple outside its confirmed footprint)', () => {
+    const parsed = orientationA()
+    const proposal = extractEntities(parsed)
+    const { dualUseNames } = inferFixedEvents(parsed, proposal)
+    // Mifkad is all-groups, all-days, with no other occurrence anywhere else.
+    expect(dualUseNames).not.toContain('Mifkad')
+  })
+
+  it('flags a name that is both a confirmed fixed event AND used outside its footprint', () => {
+    const row = (label, cells) => ({ label, cells })
+    const parsed = {
+      pages: [
+        {
+          title: 'A',
+          columns: DAYS,
+          rows: [row('10:00-10:30', ['Ceramics', 'Ceramics', 'Ceramics', 'Ceramics', 'Ceramics'])],
+        },
+        {
+          title: 'B',
+          columns: DAYS,
+          // Below majority (2/5) at a DIFFERENT block -> dropped by the filter,
+          // but still recorded in the pre-filter `occupied` map.
+          rows: [row('11:00-11:30', ['Ceramics', 'Ceramics', '', '', ''])],
+        },
+      ],
+    }
+    const proposal = extractEntities(parsed)
+    const { fixedEvents, dualUseNames } = inferFixedEvents(parsed, proposal)
+    expect(fixedEvents.map((e) => e.name)).toContain('Ceramics')
+    expect(dualUseNames).toContain('Ceramics')
+  })
+})
+
+describe('normalizer fix (Red Hat Risk 5) — orientation B with inconsistent group-name spelling', () => {
+  it('collapses "Zahav\\t" and "zahav" into one group for confidence, majority, and dual-use', () => {
+    const row = (label, cells) => ({ label, cells })
+    // 5 day-pages; the group column is spelled inconsistently across pages.
+    const spellings = ['Zahav\t', 'zahav', ' Zahav', 'ZAHAV', 'Zahav']
+    const parsed = {
+      pages: DAYS.map((day, i) => ({
+        title: day,
+        columns: [spellings[i]],
+        rows: [
+          row('09:00-09:30', ['Mifkad']),
+          // "Ceramics" pinned every day at 10:00 for this SAME group
+          // (despite spelling drift) -> confirmed high-confidence event.
+          row('10:00-10:30', ['Ceramics']),
+        ],
+      })),
+    }
+    // A second block, only on two of the five (differently-spelled) pages,
+    // proves the dual-use footprint match also survives spelling drift.
+    parsed.pages[0].rows.push(row('11:00-11:30', ['Ceramics']))
+    parsed.pages[1].rows.push(row('11:00-11:30', ['Ceramics']))
+
+    const proposal = extractEntities(parsed)
+    const { fixedEvents, dualUseNames } = inferFixedEvents(parsed, proposal)
+
+    const mifkad = fixedEvents.find((e) => e.name === 'Mifkad')
+    expect(mifkad.confidence).toBe('high')
+    expect(mifkad.days.length).toBe(5) // denominator not fragmented by spelling drift
+
+    const ceramics = fixedEvents.find((e) => e.name === 'Ceramics' && e.time_block === '10:00-10:30')
+    expect(ceramics.confidence).toBe('high')
+    expect(ceramics.days.length).toBe(5)
+
+    expect(dualUseNames).toContain('Ceramics') // outside-footprint use at 11:00 on 2/5 pages
+  })
+})
+
 describe('the name-identity invariant (§3.2)', () => {
   // Every string a fixed event carries must appear verbatim in the paired
   // entity proposal, or the commit path cannot resolve it by name.
