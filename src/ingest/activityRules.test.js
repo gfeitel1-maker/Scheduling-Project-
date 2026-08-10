@@ -41,17 +41,18 @@ describe('inferActivityRules', () => {
     expect(rules.get('Archery').eligible_group_names).toBeNull()
   })
 
-  // priority is the engine's two-valued contract ('high'/'low' —
-  // buildSchedule.js's runRound only ever filters for one of those two
-  // strings), not the original three-tier 1/2/3 (round 2 review, Fix 1).
-  it('priority thresholds: unitShare 0.8 -> high, 0.79 -> low, 0.2 -> low (boundary values)', () => {
+  // B2: prevalence (unitShare) is not a legitimate basis for priority — an
+  // inferred activity's priority is UNKNOWN (the key is omitted entirely),
+  // regardless of how frequently it appeared. Resolution to a safe default
+  // happens at generation time (resolvePriorityForGeneration.js), not here.
+  it('inferred activities never carry a priority key, regardless of prevalence', () => {
     const allGroups = ['A', 'B']
     const activityPages = { high: ['A'], nearhigh: ['A'], low: ['A'] }
     const counts = seenCounts({ High: 4, Nearhigh: 4, Low: 4 }, { high: 0.8, nearhigh: 0.79, low: 0.2 })
     const rules = inferActivityRules(['High', 'Nearhigh', 'Low'], activityPages, counts, 2, allGroups)
-    expect(rules.get('High').priority).toBe('high')
-    expect(rules.get('Nearhigh').priority).toBe('low')
-    expect(rules.get('Low').priority).toBe('low')
+    expect('priority' in rules.get('High')).toBe(false)
+    expect('priority' in rules.get('Nearhigh')).toBe(false)
+    expect('priority' in rules.get('Low')).toBe(false)
   })
 
   it('dayCount === 0 and empty activityPages produce safe defaults, no NaN, no crash', () => {
