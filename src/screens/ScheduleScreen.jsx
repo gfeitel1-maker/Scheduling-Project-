@@ -139,11 +139,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     () => (route === 'manual' ? withOverlapFlags(rawSlots, activities) : rawSlots),
     [route, rawSlots, activities]
   )
-  // Move 1 (design spec) — quiet in-place acknowledgement when a single
-  // director edit changes a cell's flag state. Gated against generation,
-  // route switch, undo/snapshot replay and initial render; writes
-  // data-flag-changed directly to the DOM, never through React state.
-  useFlagChangeAck(slots, route)
   // The generated "track changes" review (docs/work/specs/2026-08-01-generated-
   // flag-review.md). One piece of state is the single source of truth for both
   // the review list and the grid highlight:
@@ -155,6 +150,15 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // closed" drift the two design passes disagreed about.
   const [railView, setRailView] = useState(null)
   const [generating, setGenerating] = useState(false)
+
+  // Move 1 (design spec) — quiet in-place acknowledgement when a single director
+  // edit changes a cell's flag state. resyncToken makes the guard action-aware:
+  // it is bumped on undo/redo (below) and at generation start, so those non-edit
+  // reloads never fire the ack even when they touch <=3 cells (Red Hat 2026-08-09).
+  const [flagAckResync, setFlagAckResync] = useState(0)
+  const bumpFlagAckResync = () => setFlagAckResync(t => t + 1)
+  useFlagChangeAck(slots, route, flagAckResync)
+
   const [view, setView] = useState('group') // 'group' | 'activity' | 'day'
   const [selectedGroup, setSelectedGroup] = useState(null)
   const [selectedDay, setSelectedDay] = useState(null)
@@ -249,13 +253,20 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // engine. Route-scoped state comes from routeState (the route-explicit setters
   // are built from its by-route setters inside the hook); the
   // abort-on-failed-auto-snapshot behaviour lives in the hook.
-  const { generate, regenFromScratch, placeAnchors } = useGeneration({
+  const { generate: rawGenerate, regenFromScratch: rawRegenFromScratch, placeAnchors: rawPlaceAnchors } = useGeneration({
     routeState, repo, campId, setActionError, setGenerating,
     resetUndoRedo, saveSnapshot, ensureTemplateRow,
     setConfirmRegen, setSelectedGroup, statsFor: recalcStatsPure,
     groups, tiers, days, timeBlocks, activities, anchors,
     weekId, activityExclusions, groupExclusions,
   })
+  // Generation reloads slots wholesale — bump the flag-ack resync so the
+  // post-generation diff reads as a reload, never the quiet edit-ack, even when
+  // it happens to touch <=3 cells (Red Hat 2026-08-09). Wrapping here covers
+  // every call site (route-start map, regenerate confirm).
+  const generate = (...a) => { bumpFlagAckResync(); return rawGenerate(...a) }
+  const regenFromScratch = (...a) => { bumpFlagAckResync(); return rawRegenFromScratch(...a) }
+  const placeAnchors = (...a) => { bumpFlagAckResync(); return rawPlaceAnchors(...a) }
 
   // The two routes are separate candidates, but they are ONE mounted component
   // (App.jsx maps both sidebar destinations to this screen), so anything held
@@ -765,13 +776,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
 
             {/* Undo / Redo (T5) */}
             <button
-              onClick={handleUndo}
+              onClick={() => { bumpFlagAckResync(); handleUndo() }}
               disabled={undoStack.length === 0}
               title={undoStack.length > 0 ? `Undo: ${undoStack[undoStack.length - 1].description}` : 'Nothing to undo'}
               style={{ padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: undoStack.length === 0 ? 'not-allowed' : 'pointer', opacity: undoStack.length === 0 ? 0.35 : 1, fontSize: 14, fontFamily: 'inherit' }}
             >↩</button>
             <button
-              onClick={handleRedo}
+              onClick={() => { bumpFlagAckResync(); handleRedo() }}
               disabled={redoStack.length === 0}
               title={redoStack.length > 0 ? `Redo: ${redoStack[redoStack.length - 1].description}` : 'Nothing to redo'}
               style={{ padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', cursor: redoStack.length === 0 ? 'not-allowed' : 'pointer', opacity: redoStack.length === 0 ? 0.35 : 1, fontSize: 14, fontFamily: 'inherit' }}

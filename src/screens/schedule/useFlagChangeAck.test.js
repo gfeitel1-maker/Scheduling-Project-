@@ -7,10 +7,10 @@ function slot(groupId, dayId, blockId, flags) {
   return { group_id: groupId, day_id: dayId, time_block_id: blockId, flags }
 }
 
-function setup(initialSlots, initialRoute = 'generated') {
+function setup(initialSlots, initialRoute = 'generated', initialToken = 0) {
   return renderHook(
-    ({ slots, route }) => useFlagChangeAck(slots, route),
-    { initialProps: { slots: initialSlots, route: initialRoute } }
+    ({ slots, route, resyncToken = 0 }) => useFlagChangeAck(slots, route, resyncToken),
+    { initialProps: { slots: initialSlots, route: initialRoute, resyncToken: initialToken } }
   )
 }
 
@@ -56,6 +56,26 @@ describe('useFlagChangeAck', () => {
     // Normal diffing resumes on the next genuine edit.
     const s1Changed = slot('g1', 'd1', 'b1', { OVERLAP: true })
     rerender({ slots: [s1Changed], route: 'manual' })
+    expect(result.current).toEqual(['g1|d1|b1'])
+  })
+
+  it('emits nothing when a single-cell change coincides with a resyncToken bump (undo / small regeneration)', () => {
+    // Red Hat HIGH+MEDIUM: an undo of a single-cell edit — and a regeneration
+    // that happens to differ in <=3 cells — are structurally identical to a
+    // real edit under the magnitude-only guard, so they used to re-fire the
+    // ack. The action bumps resyncToken; the hook must then treat the next diff
+    // as a wholesale reload and emit nothing.
+    const s1 = slot('g1', 'd1', 'b1', {})
+    const { result, rerender } = setup([s1], 'generated', 0)
+    expect(result.current).toEqual([])
+
+    const s1Changed = slot('g1', 'd1', 'b1', { OVERLAP: true })
+    rerender({ slots: [s1Changed], route: 'generated', resyncToken: 1 })
+    expect(result.current).toEqual([])
+
+    // A genuine single-cell edit afterward (token unchanged) resumes emitting.
+    const s1Cleared = slot('g1', 'd1', 'b1', {})
+    rerender({ slots: [s1Cleared], route: 'generated', resyncToken: 1 })
     expect(result.current).toEqual(['g1|d1|b1'])
   })
 

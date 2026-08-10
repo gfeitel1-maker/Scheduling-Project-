@@ -35,9 +35,18 @@ function buildMap(slots) {
 // like exactly one director edit, writes `data-flag-changed` directly onto
 // the affected cell DOM node(s) so scheduleGrid.css can play a quiet
 // acknowledgement — never through React state or a SlotCell prop.
-export function useFlagChangeAck(slots, route) {
+//
+// `resyncToken` makes the guard ACTION-aware, not just magnitude-aware: a
+// single-cell undo, or a regeneration that happens to differ in <=3 cells, is
+// structurally identical to a real edit and would otherwise re-fire the ack.
+// The caller bumps `resyncToken` whenever it performs a non-edit that reloads
+// slots (undo, redo, generation); a bump wipes the map so the next diff behaves
+// like first-render and emits nothing. The ack then belongs only to genuine
+// director edits, which never bump the token.
+export function useFlagChangeAck(slots, route, resyncToken = 0) {
   const prevMapRef = useRef(new Map())
   const prevRouteRef = useRef(route)
+  const prevResyncRef = useRef(resyncToken)
 
   // A route switch is a wholesale reload, not an edit. Resetting the ref to
   // empty makes the next diff behave exactly like first-render (emits
@@ -50,6 +59,17 @@ export function useFlagChangeAck(slots, route) {
       prevMapRef.current = new Map()
     }
   }, [route])
+
+  // Same wipe, driven by the caller's action signal rather than the route.
+  // Declared before the slots-diff effect so that when an undo/generation
+  // changes the token AND the slots in the same commit, the map is emptied
+  // first and the ensuing diff emits nothing. Skipped on mount.
+  useEffect(() => {
+    if (prevResyncRef.current !== resyncToken) {
+      prevResyncRef.current = resyncToken
+      prevMapRef.current = new Map()
+    }
+  }, [resyncToken])
 
   const [changedKeys, setChangedKeys] = useState([])
 
