@@ -49,6 +49,17 @@ field when at least one group name resolved; it is never written as `'[]'`.
 
 ## Decision 3 (round 2 ruling) — `priority` is two-valued end to end, not converted at a boundary
 
+> **PARTIALLY SUPERSEDED (2026-08-10) by [ADR: Ingestion Reconciliation Semantics](2026-08-10-ingestion-reconciliation-semantics.md) §D4/OQ3, implemented in B2.**
+> The paragraph below describing `inferActivityRules` returning `priority: 'high' | 'low'` directly
+> via `unitShare >= 0.8 → 'high'` is **no longer accurate**. B2 removed the prevalence→priority
+> derivation entirely (`frequent != high priority`): `inferActivityRules` now **omits** `priority`
+> for inferred activities (UNKNOWN = absent key / NULL column), and a generation-time resolver
+> (`src/ingest/resolvePriorityForGeneration.js`) maps UNKNOWN → the safe default `'low'` (never
+> `'high'`) upstream of `buildSchedule`. What REMAINS valid from Decision 3: the engine's two-valued
+> `'high'|'low'` contract at `buildSchedule.js` `runRound`, and the write-boundary validation that
+> drops any non-`'high'|'low'` value — those are unchanged and are exactly what the B2 resolver and
+> the `commitIngest` guard now uphold.
+
 Round 1 flagged, but did not resolve, a conflict between the spec's three-level `priority`
 (1/2/3, "High/Medium/Low") and the actual `activities.priority` contract: `ActivitiesScreen.jsx`
 writes and displays only `'high'`/`'low'`, and `buildSchedule.js`'s `runRound` (lines ~318-320) runs

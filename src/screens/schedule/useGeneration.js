@@ -2,6 +2,7 @@ import buildSchedule, { computeFindings } from '../../engine/buildSchedule'
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { routeSetter } from './useRouteState'
 import { resolveWeekCatalog } from '../../engine/weekCatalog'
+import { resolvePriorityForGeneration } from '../../ingest/resolvePriorityForGeneration'
 
 // generate / regenerate / place-anchors, over the T28 repository + the pure
 // engine. This hook orchestrates: it calls buildSchedule (pure) and the repo,
@@ -75,7 +76,7 @@ export function useGeneration({
       .filter(s => s.activity_id && lockedActIds.has(s.activity_id) && !s.is_released && !s.is_anchor)
       .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, activityId: s.activity_id }))
 
-    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: effActivities, anchors: effAnchors, campId, preplacedSlots })
+    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), anchors: effAnchors, campId, preplacedSlots })
     setGenFindings(result.findings || [])
     setGenDismissed(new Set())
 
@@ -144,7 +145,7 @@ export function useGeneration({
     const setManualOverlays = routeSetter(setOverlaysByRoute, 'manual')
     const setManualStats = routeSetter(setStatsByRoute, 'manual')
 
-    const result = buildSchedule({ groups, tiers, days, timeBlocks, activities, anchors, campId, anchorsOnly: true })
+    const result = buildSchedule({ groups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(activities), anchors, campId, anchorsOnly: true })
     setManualFindings(result.findings || [])
     setManualDismissed(new Set())
 

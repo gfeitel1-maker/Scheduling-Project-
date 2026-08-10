@@ -111,3 +111,36 @@ describe('buildPlan._humanFields (ADR 2026-08-09 Decision 2)', () => {
     expect(plan.items[0]._humanFields).toEqual(['tier_id'])
   })
 })
+
+// B2 — a director's hand-set priority ('human' field) must survive a
+// re-import where the source's inferred rule now omits priority entirely
+// (UNKNOWN, activityRules.js no longer manufactures it from prevalence).
+// MATCH_AND_MERGE_SEMANTICS §3: blank/absent in the source -> preserve,
+// never diff. Priority simply not appearing in `fields` reproduces this,
+// with no special-casing needed in buildPlan itself.
+describe('buildPlan preserves a human-set priority across re-import (B2)', () => {
+  it('a source rule with no priority key produces no priority delta on an update item', () => {
+    const plan = buildPlan({
+      approved: { activities: [{ name: 'Swim', fields: { min_per_week: 2, max_per_week: 3 } }] },
+      camp_id: camp,
+      humanEditedFields: { activities: { Swim: ['priority'] } },
+    }, {
+      activities: [{ id: 'act-1', name: 'Swim', priority: 'high', min_per_week: 1, max_per_week: 1, eligible_group_names: [] }],
+    })
+    expect(plan.items).toHaveLength(1)
+    const item = plan.items[0]
+    expect(item.op).toBe('update')
+    expect('priority' in item.fields).toBe(false)
+  })
+
+  it('an unchanged-priority activity with only other deltas absent stays unchanged (no priority field appears)', () => {
+    const plan = buildPlan({
+      approved: { activities: [{ name: 'Swim', fields: {} }] },
+      camp_id: camp,
+    }, {
+      activities: [{ id: 'act-1', name: 'Swim', priority: 'high', eligible_group_names: [] }],
+    })
+    expect(plan.items[0].op).toBe('unchanged')
+    expect(plan.items[0].fields).toEqual({})
+  })
+})

@@ -18,8 +18,11 @@ const AMBIGUOUS_APPEARANCE_THRESHOLD = 2
 // runRound only ever filters for one of those two strings), not the spec's
 // original three-tier 1/2/3. See docs/adr/2026-08-06-inferred-activity-rules-at-ingest.md
 // Fix 1 (round 2 review): a third value would silently make an activity
-// unplaceable in either scheduling round.
-const HIGH_PRIORITY_THRESHOLD = 0.8
+// unplaceable in either scheduling round. As of B2, this file never assigns
+// EITHER value: prevalence (unitShare) alone is not a legitimate basis for
+// priority, so an inferred activity's priority is UNKNOWN (the key is
+// omitted). resolvePriorityForGeneration.js resolves UNKNOWN to the two-valued
+// contract at generation time, before buildSchedule ever sees the activity.
 
 function normalizeName(name) {
   return String(name ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
@@ -39,14 +42,14 @@ function normalizeName(name) {
  *                                 // eligible_group_names is null because nothing was seen,
  *                                 // not because the activity was confidently judged universal.
  *   min_per_week: number, max_per_week: number,
- *   priority: 'high'|'low',
+ *   priority: 'high'|'low'|undefined,   // key OMITTED entirely = UNKNOWN;
+ *                                       // prevalence alone never justifies a value here
  *   _inferred: true,
  * }>}
  */
 export function inferActivityRules(activityNames, activityPages, seenCounts, dayCount, allGroupNames) {
   const pages = activityPages ?? {}
   const counts = seenCounts?.activities ?? {}
-  const shares = seenCounts?.activityUnitShare ?? {}
   const allGroups = Array.isArray(allGroupNames) ? allGroupNames : []
   const days = Math.max(Number(dayCount) || 0, 1)
 
@@ -78,15 +81,11 @@ export function inferActivityRules(activityNames, activityPages, seenCounts, day
     let perWeek = Math.round(appearances / eligibleGroupCount / days)
     if (perWeek < 1) perWeek = 1
 
-    const share = Number(shares[key]) || 0
-    const priority = share >= HIGH_PRIORITY_THRESHOLD ? 'high' : 'low'
-
     rules.set(name, {
       eligible_group_names: eligibleGroupNames,
       eligibility_known: eligibilityKnown,
       min_per_week: perWeek,
       max_per_week: perWeek + 1,
-      priority,
       _inferred: true,
     })
   }

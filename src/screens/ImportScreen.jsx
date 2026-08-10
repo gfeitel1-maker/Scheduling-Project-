@@ -10,6 +10,7 @@ import { ALIAS_COHORT_SCOPED } from './importAliasScope'
 import { inferFixedEvents } from '../ingest/fixedEvents'
 import { inferActivityRules } from '../ingest/activityRules'
 import { buildPreview, describePreview, normalizeName } from '../ingest/preview'
+import { autoAccepts } from '../ingest/confidence'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../utils/exportSanitize.js'
 import { downloadWorkbook, META_SHEET } from '../utils/exportWorkbook.js'
@@ -287,7 +288,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       // get. All are shown; ticking is the director's act.
       const { fixedEvents: inferred, dualUseNames = [] } = inferFixedEvents({ pages }, proposal)
       setFixedEvents(inferred)
-      const initialTickedFixedEvents = new Set(inferred.filter((fe) => fe.confidence === 'high').map(fixedEventKey))
+      const initialTickedFixedEvents = new Set(inferred.filter((fe) => autoAccepts(fe.confidence)).map(fixedEventKey))
       setChosenFixedEvents(initialTickedFixedEvents)
       setOperatingDayCount(proposal.entities.days_of_operation.length)
 
@@ -296,7 +297,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       // choice in the source file); ticking its row is the one-click override.
       const dualUseSet = new Set(dualUseNames)
       const initialTickedFixedEventNames = new Set(
-        inferred.filter((fe) => fe.confidence === 'high').map((fe) => fe.name)
+        inferred.filter((fe) => autoAccepts(fe.confidence)).map((fe) => fe.name)
       )
       const pinOnlySet = new Set([...initialTickedFixedEventNames].filter((n) => !dualUseSet.has(n)))
       setDualUseActivityNames(dualUseSet)

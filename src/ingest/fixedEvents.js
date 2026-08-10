@@ -19,6 +19,7 @@
 import { isDayName } from './textGrid.js'
 import { activityNamesFromCell, canonicalDay, dayNameFromTitle, cleanTitle } from './extractEntities.js'
 import { normalizeName } from './preview.js'
+import { CONFIDENCE, classifyConfidence, tierFromHighFlag } from './confidence.js'
 
 const DAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
 const dayRank = (d) => {
@@ -129,7 +130,8 @@ export function inferFixedEvents(parsed, proposal) {
     if (operating === 0) continue
     const occ = daySet.size
     if (occ * 2 <= operating) continue
-    const confidence = occ === operating ? 'high' : 'low'
+    const confidenceTier = classifyConfidence(occ / operating, { highThreshold: 1 })
+    const confidence = confidenceTier === CONFIDENCE.HIGH ? 'high' : 'low'
 
     const days = [...daySet].sort((a, b) => dayRank(a) - dayRank(b))
     const collKey = keyOf(activity, block, days.join(','))
@@ -167,7 +169,7 @@ export function inferFixedEvents(parsed, proposal) {
           },
       // footprint (normalized groups) used only for the dual-use test below.
       _footprintGroups: isAll ? allGroupsNorm : entry.groups,
-      confidence: entry.allHigh ? 'high' : 'low',
+      confidence: tierFromHighFlag(entry.allHigh) === CONFIDENCE.HIGH ? 'high' : 'low',
     })
   }
 
