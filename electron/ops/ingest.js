@@ -731,7 +731,11 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
 
     // Fixed-event reimport tombstone fix: built right after the live-anchor
     // scan, inside the same transaction, so a held import rolls it back too.
-    const rejectedSlots = rejectedSlotKeys(db, camp_id)
+    // Replace mode is an intentional clean slate — the director asked to rebuild
+    // the camp from this source — so it CLEARS prior rejections (product owner
+    // 2026-08-10): an add-mode re-import honors a human rejection, a replace-mode
+    // re-import brings rejected events back.
+    const rejectedSlots = mode === 'replace' ? new Set() : rejectedSlotKeys(db, camp_id)
 
     const toCreate = []
     const toUpdate = []

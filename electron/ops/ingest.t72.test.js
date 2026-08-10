@@ -140,6 +140,34 @@ describe('T72 — fixed-event re-import idempotency', () => {
     expect(anchorCount()).toBe(2)
   })
 
+  it('replace mode clears a prior human rejection (clean slate) — rejected event comes back', () => {
+    commit({ ...BASE, fixedEvents: [MIFKAD] })
+    expect(anchorCount()).toBe(2)
+
+    // Director explicitly deletes the Monday anchor.
+    const [{ id: mondayAnchorId }] = db
+      .prepare("SELECT id FROM anchor_activities WHERE camp_id = ? ORDER BY day_id LIMIT 1")
+      .all(campId)
+    appendOp(db, {
+      entity: 'anchor_activities',
+      entity_id: mondayAnchorId,
+      field: DELETE_FIELD,
+      value: 1,
+      author_user_id: 'u1',
+      device_id: deviceId,
+      parent_op_id: null,
+      client_write_id: randomUUID(),
+      source: 'human',
+    })
+    expect(anchorCount()).toBe(1)
+
+    // Add-mode re-import would honor the rejection; a full replace-mode import is
+    // a clean slate that brings the rejected event back (product owner 2026-08-10).
+    const replaced = commit({ ...BASE, fixedEvents: [MIFKAD], mode: 'replace' })
+    expect(replaced.fixedEvents.rejected).toEqual([])
+    expect(anchorCount()).toBe(2)
+  })
+
   it('restoring a rejected anchor is an escape hatch: re-import sees it live, not rejected', () => {
     commit({ ...BASE, fixedEvents: [MIFKAD] })
     const [{ id: mondayAnchorId }] = db
