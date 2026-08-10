@@ -160,7 +160,14 @@ report is **malformed** if **any** of:
   either way — so no reasonless `N/A` escapes the check;
 - more than one report carries the same `gate_name` (cardinality invariant, §3) — **all** such
   reports for that gate are malformed;
-- any required field (per §3) is absent.
+- any required field (per §3) is absent;
+- an **opinion-gate** report whose `gate_name` is not in the expected opinion-gate set
+  (`expectedOpinionGates`, §2) — even when otherwise well-formed per every rule above. A live
+  report from a gate that was not dispatched (or was pre-declared omitted in `omitted_agents`) is
+  itself anomalous, the same instinct as the reasonless-`N/A` case above, and admitting it into
+  `S` unchecked is exactly the score-inflation laundering vector L7 (§11) names. This rule does
+  not apply to `verifier`, which is never a member of `expectedOpinionGates` and is governed
+  entirely by §5.2.
 
 Record each in `malformed[]` as `{gate_name, problem}`. A malformed report is **not** silently
 coerced: it is treated as **absent** for that gate for all subsequent steps (so it can never
@@ -184,9 +191,13 @@ case — `FAIL`, `UNVERIFIED`, missing, or malformed Verifier — yields `false`
 absolute.)
 
 ### 5.3 Compute the opinion aggregate
-Let **S** = the set of opinion gates whose report is present, well-formed, and has
-`verdict ∈ {PASS, FAIL}` (i.e. `score` is a number). `N/A`, missing, and malformed opinion
-gates are **excluded from S**.
+Let **S** = the set of opinion gates that are (i) **members of `expectedOpinionGates`**, (ii)
+whose report is present and well-formed, and (iii) has `verdict ∈ {PASS, FAIL}` (i.e. `score` is
+a number). `N/A`, missing, and malformed opinion gates are **excluded from S** — and so is a
+well-formed `PASS`/`FAIL` report from an opinion gate that is **not** in `expectedOpinionGates`:
+per §5.1, such a report is malformed by construction, so it never reaches this step at all. S is
+never built by iterating over "every opinion gate that reported"; it is built by iterating over
+`expectedOpinionGates` and taking each one's well-formed report if present.
 - `gate_scores[g]` = that gate's `score` for g ∈ S, else `null`.
 - `overall_score` = arithmetic mean of `{score : g ∈ S}` if `S` is non-empty, else `null`.
 - `lowest_dimension` = min of that same set if non-empty, else `null`.
@@ -415,6 +426,16 @@ properties an adversary should try to break:
   vanish from the evidence the human sees. L6 covers the **in-band** self-N/A; the legitimacy of
   a **pre-dispatch** omission is not something the reducer can judge — see boundary property H2
   (§13).
+- **L7 — no unexpected-gate score inflation.** A well-formed `PASS`/`FAIL` report from an opinion
+  gate that is not a member of `expectedOpinionGates` — a stray, duplicated-intent, or
+  pre-dispatch-omitted gate that nonetheless reported — must not enter `S` (§5.3) and must not be
+  silently dropped either (silent dropping is its own laundering vector: it would let such a
+  report vanish without a trace instead of surfacing the anomaly). §5.1 makes it malformed, which
+  forces `decision_eligibility = BLOCK` (§5.7.3) and is recorded in `malformed[]` with its
+  `evidence_ref`, same as any other malformed report. Without L7, an unexpected report can silently
+  raise `overall_score` enough to flip `BLOCK` to `PASS_ELIGIBLE` — e.g. a legitimate 3-gate panel
+  scoring `{4, 4, 3}` (`overall_score = 3.667`, `BLOCK`) becomes `PASS_ELIGIBLE` once a 4th,
+  unexpected gate's `score: 5` is averaged in (`overall_score = 4.0`). L7 closes exactly this.
 
 Degenerate edges, each with a defined result:
 - **E1 empty panel** (no gate ran at all): `verifier` missing → `verifier_pass = false` →

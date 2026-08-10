@@ -224,6 +224,12 @@ This ordering is the point of the record. Written afterwards it is a summary, an
 abandoned run does not get written at all. Written first, a run that dies mid-flight still shows
 what was intended and how far it got, which is the case where the information is worth most.
 
+Once a run record's `selected_agents`/`omitted_agents` have been used to dispatch gates, they must
+not be edited in that round — a correction is a new round, not an edit to the frozen set.
+<!-- Placed here (§5.1), not §2 ("Common fields") as
+     docs/work/specs/2026-08-10-gatereport-implementation-brief.md §3 literally said — §2 does not
+     define selected_agents/omitted_agents; this section does. -->
+
 ### 5.2 Schema
 
 ```yaml

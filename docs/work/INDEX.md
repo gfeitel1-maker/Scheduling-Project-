@@ -68,7 +68,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Resolving a held import by re-submitting a resolved plan (T73)](../../docs/adr/2026-08-08-t73-held-import-resolution-recommit.md) | accepted | implemented | [T74-dev-mock-ingest-fidelity](../../docs/work/tickets/T74-dev-mock-ingest-fidelity.md) |
 | [Activity-rule hand-edit provenance (_humanFields)](../../docs/adr/2026-08-09-activity-rule-hand-edit-provenance.md) | accepted | implemented | — |
 | [Wasted-agent-work metric with an inseparable quality floor (agent-quality track, Project B)](../../docs/adr/2026-08-09-agent-quality-waste-metric-and-quality-floor.md) | accepted | edits-applied-remeasurement-deferred | [2026-08-09-wasted-agent-work-measurement-spec](../../docs/work/specs/2026-08-09-wasted-agent-work-measurement-spec.md) · [T80-agent-quality-wasted-work-metric](../../docs/work/tickets/T80-agent-quality-wasted-work-metric.md) |
-| [Gate stack as a fixed parallel fan-in graph node (bounded graph engineering)](../../docs/adr/2026-08-09-gate-stack-as-fixed-fanin-graph.md) | proposed | not started | [2026-08-09-gatereport-schema-and-reducer](../../docs/work/specs/2026-08-09-gatereport-schema-and-reducer.md) · [T79-declare-gatereport-schema-and-reducer-spec](../../docs/work/tickets/T79-declare-gatereport-schema-and-reducer-spec.md) |
+| [Gate stack as a fixed parallel fan-in graph node (bounded graph engineering)](../../docs/adr/2026-08-09-gate-stack-as-fixed-fanin-graph.md) | accepted | implemented | [2026-08-10-gatereport-graph-node-implementation-run](../../docs/work/runs/2026-08-10-gatereport-graph-node-implementation-run.md) · [2026-08-09-gatereport-schema-and-reducer](../../docs/work/specs/2026-08-09-gatereport-schema-and-reducer.md) · [2026-08-10-gatereport-implementation-brief](../../docs/work/specs/2026-08-10-gatereport-implementation-brief.md) · [T79-declare-gatereport-schema-and-reducer-spec](../../docs/work/tickets/T79-declare-gatereport-schema-and-reducer-spec.md) |
 | [Fixed-event catalog routing and reviewable, provenance-protected units](../../docs/adr/2026-08-09-ingest-fixed-event-routing-and-reviewable-units.md) | proposed | not-started | [2026-08-09-activity-rule-hand-edit-provenance](../../docs/adr/2026-08-09-activity-rule-hand-edit-provenance.md) · [2026-08-09-activity-rule-hand-edit-provenance](../../docs/adr/2026-08-09-activity-rule-hand-edit-provenance.md) |
 | [Alias divergence — one predicate, convergent resolution (S1b-divergence)](../../docs/adr/2026-08-09-s1b-alias-divergence.md) | superseded | not-started | [2026-08-09-s1b-host-local-aliases](../../docs/adr/2026-08-09-s1b-host-local-aliases.md) |
 | [Source aliases — host-local table, no sync (S1b revised)](../../docs/adr/2026-08-09-s1b-host-local-aliases.md) | accepted | implemented | — |
@@ -82,6 +82,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
+| 2026-08-10 | [GateReport graph node — implement migration steps 1–3 (ADR 2026-08-09-gate-stack-as-fixed-fanin-graph)](../../docs/work/runs/2026-08-10-gatereport-graph-node-implementation-run.md) | documentation-governance | pass | pass |
 | 2026-08-09 | [T76+T77 — work-record status-drift commit gate](../../docs/work/runs/2026-08-09-status-drift-gate.md) | documentation-governance | pass | pass |
 | 2026-08-08 | [T69 — the engine layer still tolerates JSON-stringified id lists](../../docs/work/runs/2026-08-08-t69-engine-id-list-purity.md) | scheduling-engine | pass | pass |
 | 2026-08-04 | [Phase E (R5) — verify the code conforms to the amended repository-layer policy and retire stale layering language](../../docs/work/runs/2026-08-04-r5-conformance-summary.md) | architecture | pass | pass |
@@ -103,6 +104,7 @@ either the document is stranded or an edge was never declared.
 - [docs/work/handoffs/2026-08-09-graph-engineering-exploration-brief.md](../../docs/work/handoffs/2026-08-09-graph-engineering-exploration-brief.md)
 - [docs/work/handoffs/slices-2-3-handoff.md](../../docs/work/handoffs/slices-2-3-handoff.md)
 - [docs/work/handoffs/T50-schedule-canvas-handoff.md](../../docs/work/handoffs/T50-schedule-canvas-handoff.md)
+- [docs/work/specs/2026-08-09-schedule-drag-first-placement-design.md](../../docs/work/specs/2026-08-09-schedule-drag-first-placement-design.md)
 
 ## Dangling references
 

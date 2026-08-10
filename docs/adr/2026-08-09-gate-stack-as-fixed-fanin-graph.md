@@ -2,10 +2,10 @@
 title: "Gate stack as a fixed parallel fan-in graph node (bounded graph engineering)"
 document_type: adr
 authority: normative
-status: proposed
+status: accepted
 date: 2026-08-09
 supersedes: []
-implementation_state: not started
+implementation_state: implemented
 affects:
   - docs/work/2026-08-09-graph-engineering-exploration.md
   - docs/governance/constitution/CONSTITUTION.md
@@ -13,7 +13,7 @@ affects:
 
 # Gate stack as a fixed parallel fan-in graph node
 
-**Status: PROPOSED.** This ADR records the one architectural decision from the
+**Status: ACCEPTED (owner-approved 2026-08-10) — implemented via migration steps 1–3.** This ADR records the one architectural decision from the
 2026-08-09 graph-engineering exploration (`docs/work/2026-08-09-graph-engineering-
 exploration.md`) that meets the ADR bar: it introduces a new typed data contract
 (`GateReport`) that other code (Grader, and eventually Governor's decision node) will
@@ -201,3 +201,38 @@ cost conceded") for the full argument and a candidate (not adopted) follow-up.
   the reference ADR (`status: accepted` vs. body "PROPOSED"), which is the actual
   inconsistency Code Reviewer's pattern-match was tuned to catch. No change made; noted
   here so the agreement is explicit rather than accidental-looking.
+
+## Completion evidence
+
+`implementation_state` moved `not started → implemented` on 2026-08-10 (owner-approved this
+date). Migration steps 1–3 of the exploration doc §10 are implemented as code + a Grader
+input swap; step 4 (Model B vs. Model C) remains a deliberately deferred future decision and
+is out of scope. Falsifiable checks a reader can run to confirm:
+
+- **Reducer contract exists as a deterministic total function (Decision points 1–4).**
+  `scripts/gateReportReduce.js` exports `reduceGateReport(...)` (pure, no I/O) and
+  `scripts/gateReportSchema.js` holds the shared enums / `PerGateReport` validation.
+  `npx vitest run scripts/gateReport*.test.js` → 61 passing tests covering the spec's total
+  reducer (§5.1–§5.8), the worked example (§10), anti-laundering L1–L7, and edges E1–E5.
+- **`verifier_pass = false` is an absolute hard block (Decision point 4).**
+  `gateReportReduce.test.js` asserts FAIL, UNVERIFIED, missing, and malformed Verifier each
+  force `decision_eligibility = BLOCK` regardless of a high `overall_score`.
+- **Missing/incomplete opinion report does NOT hard-halt (Decision point 3 / owner decision a).**
+  A missing expected opinion gate sets `incomplete = true` + `gap.reason = "missing"` and does
+  not by itself force BLOCK — tested. A malformed one sets `gap.reason = "malformed"` and does
+  force BLOCK; the two are never conflated.
+- **Persisted GateReport surfaced at promotion via `gate_report_ref` (Decision points 5–6).**
+  `scripts/gateReportPersist.js` writes one JSON record per `(task_id, round)` under
+  `docs/work/runs/gate-reports/`; `scripts/gateReportCli.js` returns that path as
+  `gate_report_ref`. A live example produced by this very implementation round:
+  `docs/work/runs/gate-reports/T79-impl-r2.json`.
+- **Grader scores from the typed record, not freeform prose (migration step 3).**
+  `.claude/agents/grader.md` now transcribes each gate report to a `PerGateReport`, invokes
+  `gateReportCli.js`, and sources its verdict from `decision_eligibility`; the round that
+  approved this work was itself scored through that path.
+- **Each step independently revertible; no change to Governor routing, the round cap, or the
+  roster.** Confirmed by Code Reviewer (revertibility + scope discipline) and Verifier
+  (0 new lint/governance findings).
+
+Governing spec: `docs/work/specs/2026-08-09-gatereport-schema-and-reducer.md` (contract) and
+`docs/work/specs/2026-08-10-gatereport-implementation-brief.md` (storage/integration seam).
