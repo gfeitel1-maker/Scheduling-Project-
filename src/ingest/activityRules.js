@@ -87,6 +87,11 @@ export function inferActivityRules(activityNames, activityPages, seenCounts, day
       min_per_week: perWeek,
       max_per_week: perWeek + 1,
       _inferred: true,
+      // B4 (docs/adr/2026-08-10-ingestion-evidence-persistence.md): the exact
+      // observation the derived fields above came from, so a director asking
+      // "why?" after the import session ends can still be told. Additive only
+      // — every field above this comment is unchanged by this addition.
+      support: { matched_groups: matchedGroups, appearances, eligible_group_count: matchedGroups.length },
     })
   }
 

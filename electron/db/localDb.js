@@ -13,7 +13,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 30
+export const CURRENT_SCHEMA_VERSION = 31
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1397,6 +1397,26 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // Both-places DDL, same discipline as the v30 block above: the table and
+  // its index are declared here AND in schema.sql, byte-identical text
+  // (IMPORT_EVIDENCE_DDL), so a fresh install and a migrated db agree on
+  // PRAGMA table_info(import_evidence). DDL only, no data movement —
+  // reapplying this migration is harmless (CREATE TABLE/INDEX IF NOT EXISTS).
+  //
+  // Deliberately NOT registered anywhere sync touches (PROJECTIONS,
+  // DIRECT_CAMP_ENTITIES, full_sync) — host-local, same as source_aliases.
+  // docs/adr/2026-08-10-ingestion-evidence-persistence.md.
+  if (getSchemaVersion(db) >= 30 && getSchemaVersion(db) < 31) {
+    db.transaction(() => {
+      db.exec(IMPORT_EVIDENCE_DDL)
+      db.exec(IMPORT_EVIDENCE_INDEX_DDL)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (31, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Director-facing, and it appears in Versions beside weeks they saved
@@ -1454,6 +1474,28 @@ export const SOURCE_ALIASES_DDL = `CREATE TABLE IF NOT EXISTS source_aliases (
 
 export const SOURCE_ALIASES_INDEX_DDL =
   'CREATE INDEX IF NOT EXISTS idx_source_aliases_lookup ON source_aliases (camp_id, entity_type, cohort_id)'
+
+// Byte-identical duplicate of the import_evidence block in schema.sql
+// (docs/adr/2026-08-10-ingestion-evidence-persistence.md). Kept as a constant
+// so the v31 migration cannot drift from it by a stray space — the same
+// discipline as SOURCE_ALIASES_DDL above.
+export const IMPORT_EVIDENCE_DDL = `CREATE TABLE IF NOT EXISTS import_evidence (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  entity_type TEXT NOT NULL,     -- 'activities' | 'anchor_activities' — the two types
+                                  -- that carry inferred/observed fields today
+  entity_id TEXT NOT NULL,       -- plain TEXT, not a FK (same reasoning as source_aliases.entity_id)
+  field TEXT NOT NULL,           -- the plan field this evidence supports, e.g.
+                                  -- 'eligible_group_names' | 'min_per_week' | 'days' | 'scope'
+  tag TEXT NOT NULL,             -- 'observed' | 'inferred' (parent ADR D1/OQ1)
+  confidence TEXT NOT NULL,      -- 'high' | 'low' — reuses CONFIDENCE.* (src/ingest/confidence.js)
+  support TEXT NOT NULL,         -- compact JSON: see the ADR's "What to persist"
+  import_run_id TEXT NOT NULL,   -- groups every row one commitIngest call wrote
+  committed_at TEXT NOT NULL
+)`
+
+export const IMPORT_EVIDENCE_INDEX_DDL =
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_import_evidence_latest ON import_evidence (camp_id, entity_type, entity_id, field)'
 
 // A peer still on <=v22 rejects the manual candidate's schedule_templates row
 // (its UNIQUE(camp_id) absorbs the INSERT OR IGNORE) and then FK-violates on

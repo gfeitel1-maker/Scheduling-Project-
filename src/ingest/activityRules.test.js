@@ -17,6 +17,20 @@ describe('inferActivityRules', () => {
     expect(rule.max_per_week).toBe(2)
   })
 
+  // B4 (docs/adr/2026-08-10-ingestion-evidence-persistence.md): support is
+  // additive — every other field on the rule is unchanged by its presence.
+  it('attaches the observation support the derived fields came from', () => {
+    const activityPages = { swim: ['Yeladim', 'Bogrim', 'Amichai'] }
+    const counts = seenCounts({ Swim: 12 }, { swim: 1 })
+    const rules = inferActivityRules(['Swim'], activityPages, counts, 4, ['Yeladim', 'Bogrim', 'Amichai'])
+    const rule = rules.get('Swim')
+    expect(rule.support).toEqual({
+      matched_groups: ['Yeladim', 'Bogrim', 'Amichai'],
+      appearances: 12,
+      eligible_group_count: 3,
+    })
+  })
+
   it('universal activity (appears in every group) gets eligible_group_names = null', () => {
     const allGroups = ['Yeladim', 'Bogrim', 'Amichai']
     const activityPages = { swim: allGroups }

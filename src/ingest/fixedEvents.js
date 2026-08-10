@@ -136,11 +136,25 @@ export function inferFixedEvents(parsed, proposal) {
     const days = [...daySet].sort((a, b) => dayRank(a) - dayRank(b))
     const collKey = keyOf(activity, block, days.join(','))
     if (!collapsed.has(collKey)) {
-      collapsed.set(collKey, { name: activity, time_block: block, days, groups: new Set(), allHigh: true })
+      collapsed.set(collKey, {
+        name: activity, time_block: block, days, groups: new Set(), allHigh: true,
+        // B4 support (docs/adr/2026-08-10-ingestion-evidence-persistence.md):
+        // seeded from the first group merged into this collapsed event.
+        maxOcc: occ, pairedOperating: operating,
+      })
     }
     const entry = collapsed.get(collKey)
     entry.groups.add(group)
     if (confidence !== 'high') entry.allHigh = false
+    // B4 aggregation choice: multiple groups can collapse into one fixed
+    // event (§3.5 above). Rather than average occ/operating across groups —
+    // a number that wouldn't correspond to any real group's attendance — the
+    // support carries the group with the STRONGEST single-group justification
+    // (highest occupied-day count) and its paired operating-day count.
+    if (occ > entry.maxOcc) {
+      entry.maxOcc = occ
+      entry.pairedOperating = operating
+    }
   }
 
   // "every group" is compared normalized on both sides — the rest of the
@@ -170,6 +184,14 @@ export function inferFixedEvents(parsed, proposal) {
       // footprint (normalized groups) used only for the dual-use test below.
       _footprintGroups: isAll ? allGroupsNorm : entry.groups,
       confidence: tierFromHighFlag(entry.allHigh) === CONFIDENCE.HIGH ? 'high' : 'low',
+      // B4 (docs/adr/2026-08-10-ingestion-evidence-persistence.md): the
+      // compact observation this event's days/scope were inferred from.
+      support: {
+        days: entry.days,
+        occupied_days: entry.maxOcc,
+        operating_days: entry.pairedOperating,
+        groups_in_scope: [...entry.groups].map((g) => groupSpelling.get(g) ?? g).sort((a, b) => a.localeCompare(b)),
+      },
     })
   }
 

@@ -135,6 +135,34 @@ describe('inferFixedEvents — detection over a fabricated grid', () => {
   it('proposes exactly the four surviving events', () => {
     expect(fixedEvents.map((e) => e.name).sort()).toEqual(['Lunch 1', 'Lunch 2', 'Mifkad', 'Swim'])
   })
+
+  // B4 (docs/adr/2026-08-10-ingestion-evidence-persistence.md): support is
+  // additive — every other field above is unchanged by its presence.
+  it('attaches the observation support each event\'s days/scope were inferred from', () => {
+    const mifkad = find('Mifkad', '09:00-09:30')
+    expect(mifkad.support).toEqual({
+      days: DAYS,
+      occupied_days: 5,
+      operating_days: 5,
+      groups_in_scope: ['A', 'B', 'C'],
+    })
+
+    const lunch1 = find('Lunch 1', '12:00-12:30')
+    expect(lunch1.support).toEqual({
+      days: DAYS,
+      occupied_days: 5,
+      operating_days: 5,
+      groups_in_scope: ['A', 'B'],
+    })
+
+    const swim = find('Swim', '14:00-14:30')
+    expect(swim.support).toEqual({
+      days: ['Monday', 'Wednesday', 'Friday'],
+      occupied_days: 3,
+      operating_days: 5,
+      groups_in_scope: ['A'],
+    })
+  })
 })
 
 describe('the transpose invariant', () => {
