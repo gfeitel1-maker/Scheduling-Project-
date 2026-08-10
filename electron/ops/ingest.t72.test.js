@@ -17,6 +17,8 @@ import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { commitIngest } from './ingest.js'
+import { appendOp, DELETE_FIELD } from './operations.js'
+import { restoreEntity } from './restore.js'
 
 let db, tmpFile, campId
 const deviceId = 'device-1'
@@ -83,5 +85,87 @@ describe('T72 — fixed-event re-import idempotency', () => {
     expect(withNew.fixedEvents.created).toBe(1) // only Nikayon/Monday
     expect(withNew.fixedEvents.unchanged).toBe(2) // the two Mifkad rows
     expect(anchorCount()).toBe(3)
+  })
+
+  it('a director-deleted fixed event STAYS deleted across re-import (rejection tombstone)', () => {
+    const first = commit({ ...BASE, fixedEvents: [MIFKAD] })
+    expect(first.fixedEvents.created).toBe(2)
+    expect(anchorCount()).toBe(2)
+
+    const [{ id: mondayAnchorId }] = db
+      .prepare("SELECT id FROM anchor_activities WHERE camp_id = ? ORDER BY day_id LIMIT 1")
+      .all(campId)
+    appendOp(db, {
+      entity: 'anchor_activities',
+      entity_id: mondayAnchorId,
+      field: DELETE_FIELD,
+      value: 1,
+      author_user_id: 'u1',
+      device_id: deviceId,
+      parent_op_id: null,
+      client_write_id: randomUUID(),
+      source: 'human',
+    })
+    expect(anchorCount()).toBe(1)
+
+    const second = commit({ ...BASE, fixedEvents: [MIFKAD] })
+    expect(second.fixedEvents.created).toBe(0)
+    expect(second.fixedEvents.rejected).toEqual([{ name: 'Mifkad' }])
+    expect(anchorCount()).toBe(1)
+
+    const third = commit({ ...BASE, fixedEvents: [MIFKAD] })
+    expect(third.fixedEvents.created).toBe(0)
+    expect(third.fixedEvents.rejected).toEqual([{ name: 'Mifkad' }])
+    expect(anchorCount()).toBe(1)
+  })
+
+  it('a never-deleted fixed event still creates then goes unchanged (control)', () => {
+    const first = commit({ ...BASE, fixedEvents: [MIFKAD] })
+    expect(first.fixedEvents.created).toBe(2)
+    expect(first.fixedEvents.rejected).toEqual([])
+
+    const second = commit({ ...BASE, fixedEvents: [MIFKAD] })
+    expect(second.fixedEvents.created).toBe(0)
+    expect(second.fixedEvents.unchanged).toBe(2)
+    expect(second.fixedEvents.rejected).toEqual([])
+  })
+
+  it('replace-mode teardown does NOT tombstone the re-created anchor', () => {
+    commit({ ...BASE, fixedEvents: [MIFKAD] })
+    expect(anchorCount()).toBe(2)
+
+    const replaced = commit({ ...BASE, fixedEvents: [MIFKAD], mode: 'replace' })
+    expect(replaced.fixedEvents.created).toBe(2)
+    expect(replaced.fixedEvents.rejected).toEqual([])
+    expect(anchorCount()).toBe(2)
+  })
+
+  it('restoring a rejected anchor is an escape hatch: re-import sees it live, not rejected', () => {
+    commit({ ...BASE, fixedEvents: [MIFKAD] })
+    const [{ id: mondayAnchorId }] = db
+      .prepare("SELECT id FROM anchor_activities WHERE camp_id = ? ORDER BY day_id LIMIT 1")
+      .all(campId)
+    appendOp(db, {
+      entity: 'anchor_activities',
+      entity_id: mondayAnchorId,
+      field: DELETE_FIELD,
+      value: 1,
+      author_user_id: 'u1',
+      device_id: deviceId,
+      parent_op_id: null,
+      client_write_id: randomUUID(),
+      source: 'human',
+    })
+    expect(anchorCount()).toBe(1)
+
+    const restored = restoreEntity(db, { entity: 'anchor_activities', entity_id: mondayAnchorId, author_user_id: 'u1', device_id: deviceId })
+    expect(restored.ok).toBe(true)
+    expect(anchorCount()).toBe(2)
+
+    const reimported = commit({ ...BASE, fixedEvents: [MIFKAD] })
+    expect(reimported.fixedEvents.created).toBe(0)
+    expect(reimported.fixedEvents.rejected).toEqual([])
+    expect(reimported.fixedEvents.unchanged).toBe(2)
+    expect(anchorCount()).toBe(2)
   })
 })
