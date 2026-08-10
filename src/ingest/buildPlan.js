@@ -273,6 +273,11 @@ export function buildPlan(source, existing = null, resolutions = []) {
             evidence: { tier, matched_name: match.name },
             _name: name,
             _humanFields: humanFieldsFor(entity, name),
+            // B4: same evidence-only carry as the 'update' arm above — a
+            // clear-only re-import must still upsert evidence (Grader round-1
+            // HIGH finding: this arm was silently exempt). Never read by any
+            // value-write path.
+            ...(entity === 'activities' ? { _rule: activityRules?.[name] } : {}),
           })
           return
         }

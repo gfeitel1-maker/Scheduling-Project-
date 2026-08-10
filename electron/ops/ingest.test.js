@@ -1120,6 +1120,49 @@ describe('import evidence persistence (B4)', () => {
     expect(eligibleRow.import_run_id).not.toBe(firstRunId)
   })
 
+  // Grader round-1 HIGH: buildPlan's `clear` arm did not carry `_rule`, so a
+  // re-import whose ONLY delta on an activity is a `<clear>` token silently
+  // skipped the evidence upsert (no error, stale evidence left behind).
+  it('a clear-only re-import (op:"clear") still upserts the activity\'s evidence', () => {
+    commitIngest(db, {
+      approved: { activities: ['Swim'] },
+      activityRules: {
+        Swim: {
+          eligible_group_names: null, eligibility_known: false, min_per_week: 1, max_per_week: 2,
+          support: { matched_groups: [], appearances: 4, eligible_group_count: 0 },
+        },
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+    const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Swim').id
+    expect(db.prepare('SELECT min_per_week FROM activities WHERE id = ?').get(activityId).min_per_week).toBe(1)
+    const first = evidenceRows('activities')
+    expect(first).toHaveLength(2)
+    const firstRunId = first[0].import_run_id
+
+    // Re-import: no fields proposed (no min_per_week in activityRules, so
+    // foldApprovedToRecords injects nothing), only an explicit clear token —
+    // buildPlan emits op:'clear', never op:'update'.
+    const result = commitIngest(db, {
+      approved: { activities: [{ name: 'Swim', clears: ['min_per_week'] }] },
+      activityRules: {
+        Swim: {
+          eligible_group_names: null, eligibility_known: false,
+          support: { matched_groups: [], appearances: 7, eligible_group_count: 0 },
+        },
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+    expect(result.held).toBe(false)
+    expect(db.prepare('SELECT min_per_week FROM activities WHERE id = ?').get(activityId).min_per_week).toBeNull()
+
+    const second = evidenceRows('activities')
+    expect(second).toHaveLength(2) // still one row per field — upserted, not appended
+    const eligibleRow = second.find((r) => r.field === 'eligible_group_names')
+    expect(JSON.parse(eligibleRow.support).appearances).toBe(7)
+    expect(eligibleRow.import_run_id).not.toBe(firstRunId)
+  })
+
   it('(d) a HELD commit writes no import_evidence rows — rolled back with everything else', () => {
     const heldPlan = {
       plan_version: 1, camp_id: campId, cohort_id: null, base_generation: 0,

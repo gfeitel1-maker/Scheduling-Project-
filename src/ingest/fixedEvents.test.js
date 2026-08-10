@@ -145,6 +145,13 @@ describe('inferFixedEvents — detection over a fabricated grid', () => {
       occupied_days: 5,
       operating_days: 5,
       groups_in_scope: ['A', 'B', 'C'],
+      groups: [
+        { name: 'A', occupied_days: 5, operating_days: 5 },
+        { name: 'B', occupied_days: 5, operating_days: 5 },
+        { name: 'C', occupied_days: 5, operating_days: 5 },
+      ],
+      min_occupied_days: 5,
+      min_operating_days: 5,
     })
 
     const lunch1 = find('Lunch 1', '12:00-12:30')
@@ -153,6 +160,12 @@ describe('inferFixedEvents — detection over a fabricated grid', () => {
       occupied_days: 5,
       operating_days: 5,
       groups_in_scope: ['A', 'B'],
+      groups: [
+        { name: 'A', occupied_days: 5, operating_days: 5 },
+        { name: 'B', occupied_days: 5, operating_days: 5 },
+      ],
+      min_occupied_days: 5,
+      min_operating_days: 5,
     })
 
     const swim = find('Swim', '14:00-14:30')
@@ -161,7 +174,61 @@ describe('inferFixedEvents — detection over a fabricated grid', () => {
       occupied_days: 3,
       operating_days: 5,
       groups_in_scope: ['A'],
+      groups: [{ name: 'A', occupied_days: 3, operating_days: 5 }],
+      min_occupied_days: 3,
+      min_operating_days: 5,
     })
+  })
+})
+
+// Red Hat round-1 MEDIUM: support must stay consistent with confidence for a
+// collapsed multi-group event — the group that actually justifies a 'low'
+// tier must be visible in the persisted support, not just the strongest one.
+describe('support/confidence consistency for a collapsed multi-group event (Red Hat round-1)', () => {
+  it('a low-confidence collapse carries the weak group\'s sub-majority ratio, not just the strong group\'s', () => {
+    const row = (label, cells) => ({ label, cells })
+    // Both groups occupy Flag on the SAME day-set (Mon–Wed) — required for
+    // them to collapse into one event, since the collapse key includes the
+    // occupied day-set. Group A operates only those 3 days -> 3/3, HIGH.
+    // Group B additionally operates Thursday (a 4th day column) where Flag
+    // is blank -> occupied stays Mon–Wed (3) but operating is 4 -> 3/4, a
+    // genuine sub-majority (passes the strict-majority filter: 3*2 > 4) that
+    // drags the collapsed event's confidence to 'low'.
+    const parsed = {
+      pages: [
+        {
+          title: 'A',
+          columns: ['Monday', 'Tuesday', 'Wednesday'],
+          rows: [row('09:00-09:30', ['Flag', 'Flag', 'Flag'])],
+        },
+        {
+          title: 'B',
+          columns: ['Monday', 'Tuesday', 'Wednesday', 'Thursday'],
+          rows: [row('09:00-09:30', ['Flag', 'Flag', 'Flag', ''])],
+        },
+      ],
+    }
+    const proposal = extractEntities(parsed)
+    const { fixedEvents } = inferFixedEvents(parsed, proposal)
+    const flag = fixedEvents.find((e) => e.name === 'Flag')
+    expect(flag).toBeTruthy()
+    expect(flag.days).toEqual(['Monday', 'Tuesday', 'Wednesday'])
+    // A alone (3/3) would be 'high'; B's 3/4 drags the collapsed tier to 'low'.
+    expect(flag.confidence).toBe('low')
+
+    const bStat = flag.support.groups.find((g) => g.name === 'B')
+    expect(bStat.occupied_days).toBe(3)
+    expect(bStat.operating_days).toBe(4)
+    expect(bStat.occupied_days / bStat.operating_days).toBeLessThan(1)
+    // The weakest-group summary points at B's sub-majority ratio, not A's 3/3
+    // — this is what makes confidence='low' explainable from support alone.
+    expect(flag.support.min_occupied_days).toBe(3)
+    expect(flag.support.min_operating_days).toBe(4)
+    // The headline occupied_days/operating_days still carries the STRONGEST
+    // group (the documented aggregation choice) — support is additive, not
+    // replaced, so this stays 3/3 even though confidence is 'low'.
+    expect(flag.support.occupied_days).toBe(3)
+    expect(flag.support.operating_days).toBe(3)
   })
 })
 

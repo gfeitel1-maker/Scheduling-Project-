@@ -287,6 +287,11 @@ function writeEvidence(db, { camp_id, entity_type, entity_id, field, tag, confid
  * for one entity (or every evidence row for the camp when entity_id/type is
  * omitted), with `support` parsed back to an object. No consumer wired to
  * this yet (Phase C/D's "why?" panel) — read path only.
+ *
+ * `entity_id` is a polymorphic key (its meaning depends on `entity_type`, per
+ * the table's own schema comment) — passing entity_id WITHOUT entity_type is
+ * not a supported "look up regardless of type" query, just an unenforced
+ * filter that happens to work when ids never collide across the two types.
  */
 export function listImportEvidence(db, camp_id, { entity_type, entity_id } = {}) {
   const conditions = ['camp_id = ?']
@@ -298,7 +303,15 @@ export function listImportEvidence(db, camp_id, { entity_type, entity_id } = {})
     .prepare(`SELECT * FROM import_evidence WHERE ${conditions.join(' AND ')}`)
     .all(...params)
 
-  return rows.map((row) => ({ ...row, support: JSON.parse(row.support) }))
+  // Defense-in-depth: a malformed blob (direct-DB tampering, or a future
+  // writer bug) degrades to {} on read rather than throwing — writeEvidence
+  // is the only writer and always JSON.stringifies a real object, so this
+  // path is not expected to fire in practice.
+  return rows.map((row) => {
+    let support
+    try { support = JSON.parse(row.support) } catch { support = {} }
+    return { ...row, support }
+  })
 }
 
 function buildExistingSnapshot(db, camp_id, cohort_id) {
@@ -1043,11 +1056,16 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // B4: evidence for a CREATED anchor only (ADR scope: unchanged-anchor
         // recompute is deferred — the skip branch above has only a slotKey,
         // not a live anchor id, resolving it cleanly is a later slice).
+        // `fe.support` describes the WHOLE inferred event (days/scope across
+        // all its occurrences), not this one day-row — the SAME support
+        // object is written against every anchor this fe's per-day fan-out
+        // creates, deliberately, so a future "why?" read is not misread as a
+        // per-day-specific observation.
         if (fe.support) {
           for (const field of ['days', 'scope']) {
             writeEvidence(db, {
               camp_id, entity_type: 'anchor_activities', entity_id: anchorId, field,
-              tag: 'inferred', confidence: fe.confidence === 'high' ? 'high' : 'low', support: fe.support,
+              tag: 'inferred', confidence: fe.confidence, support: fe.support,
               import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
             })
           }
