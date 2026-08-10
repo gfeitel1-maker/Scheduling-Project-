@@ -78,6 +78,22 @@ Scope, precisely bounded by what B0 found live:
 
 **First failing test seam:** a new unit test file (e.g. `src/ingest/confidence.test.js`) asserting that all three of today's inputs — an `activityRules`-style `share` ratio, a `fixedEvents`-style `'high'|'low'` label, and a `preview`-style boolean — normalize through the new primitive to the **same** three-tier output (HIGH/MEDIUM/LOW per the ADR's D2 attention model). Write this test first, watch it fail because `src/ingest/confidence.js` does not exist yet, then implement. This is the correct TDD seam because it's the one place all three schemes' outputs can be compared side-by-side without touching any call site yet — call-site migration (wiring `activityRules.js`/`fixedEvents.js`/`preview.js`/`ImportScreen.jsx` to actually use the primitive) is the second, integration-level round of B1, after the primitive itself is proven correct in isolation.
 
+## B1 closure note (2026-08-10) — `eligibility_known` deliverable descoped
+
+B1 landed (commits `d587ab3`, `694c16c`): `src/ingest/confidence.js` unifies the three schemes
+(`activityRules.js:82`, `fixedEvents.js:132/170`, `preview.js:107`) and holds the extracted
+auto-accept policy (`autoAccepts`), which `ImportScreen.jsx` now consumes. Verified behavior-preserving
+(Verifier PASS, 66/66 focused tests; Red Hat could not break the claim; Grader 4.33 PASS).
+
+One §5 sub-item was deliberately NOT implemented: "surface (don't yet consume) `eligibility_known`
+through the new primitive." Review found B0's premise for it is **stale** — `eligibility_known` is
+NOT dead; it is already read live at `src/screens/ImportScreen.jsx:1594` (predates B1, from T35). Its
+goal ("make it live-but-unread") is therefore already exceeded. Threading it through the confidence
+primitive with no new consumer would add speculative dead coupling the ADR explicitly warns against,
+so it is **descoped from B1 and deferred to C1/C2**, where an actual consumer that branches on it exists.
+No dead surface was created for it. Two LOW readability nits (fixedEvents.js:172 boolean round-trip;
+confidence.test.js:49 raw literal) were accepted as-is, not worth a churn round.
+
 ## Confirmed/corrected dependency order
 
 B0 confirms the ADR's Phase B/C/D decomposition and dependency order as stated, with one precision: B3's dependency on the external tombstone PR is now satisfied (already merged), so B3 is blocked only on B0 (done) going forward, not on any further external event. No other reordering warranted.
