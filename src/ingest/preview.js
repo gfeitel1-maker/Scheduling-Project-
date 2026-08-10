@@ -9,6 +9,7 @@
 // director can check, and finding out afterwards is not a preview at all.
 
 import { INGESTIBLE_ENTITIES } from './extractEntities.js'
+import { CONFIDENCE, tierFromHighFlag } from './confidence.js'
 
 // Is this name just two other proposed names stuck together?
 //
@@ -105,9 +106,8 @@ export function buildPreview(proposal, existing) {
     // "Dance Ceramics" and "Preschool Playground Transition to Dismissal"
     // through alongside the real "Service Project" and "Mitzvah Project".
     const lowConfidence = create.filter((name) => {
-      if (looksLikeAMerge(name, counts)) return true
-      if ((counts[name] ?? 2) >= 2) return false
-      return shareOf(name) < 1
+      const isHigh = !looksLikeAMerge(name, counts) && ((counts[name] ?? 2) >= 2 || shareOf(name) >= 1)
+      return tierFromHighFlag(isHigh) !== CONFIDENCE.HIGH
     })
 
     perEntity[entity] = { create, skip, counts, lowConfidence }

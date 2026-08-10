@@ -12,6 +12,8 @@
 // falls back to "all groups" (null) rather than guessing at a restriction —
 // guessing wrong and writing it silently is the failure this feature exists
 // to avoid (ADR §1, same principle extractEntities/preview already follow).
+import { classifyConfidence, CONFIDENCE } from './confidence.js'
+
 const AMBIGUOUS_APPEARANCE_THRESHOLD = 2
 
 // priority is a two-valued engine contract ('high'/'low' — buildSchedule.js's
@@ -79,7 +81,8 @@ export function inferActivityRules(activityNames, activityPages, seenCounts, day
     if (perWeek < 1) perWeek = 1
 
     const share = Number(shares[key]) || 0
-    const priority = share >= HIGH_PRIORITY_THRESHOLD ? 'high' : 'low'
+    const priorityTier = classifyConfidence(share, { highThreshold: HIGH_PRIORITY_THRESHOLD })
+    const priority = priorityTier === CONFIDENCE.HIGH ? 'high' : 'low'
 
     rules.set(name, {
       eligible_group_names: eligibleGroupNames,
