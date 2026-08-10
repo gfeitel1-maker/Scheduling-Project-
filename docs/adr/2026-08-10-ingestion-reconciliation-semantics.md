@@ -159,6 +159,21 @@ Extend the protected-field list (`ingest.js:179`, currently activities-only) to 
 tiers, and fixed events, so CONFIRMED persists across re-import for every entity — the explicit backing
 for the brief's "confirmed decisions survive re-import," not an incidental side effect.
 
+> **B3 CORRECTION (2026-08-10, resolved as already-satisfied).** This D5 premise was **stale** — the
+> exact diff-scope-vs-conflict-hold conflation B0 flagged. The Policy-A protection gate is **already
+> field-agnostic**, not activities-only: `ingest.js` `isProtected = !!latest && latest.source !== 'import'`
+> fires for any field of any update/clear item. `COMPARABLE_COLUMNS` (`ingest.js:174`) is the **diff
+> scope**, not the protection list, and already lists `groups`/`tiers`. Verified: `groups.tier_id`
+> human-protection was already implemented and fully tested (`ingest.unit-provenance.test.js` — hand-edit
+> survives + real change reconciles); fixed-event protection was already implemented and tested
+> (`ingest.t72.test.js` recognize-and-skip **+ PR #35** rejection tombstone); tiers have **no diffable
+> field** on re-import (buildPlan excludes index-derived `sort_order`, S2c §2), so a recognized tier is
+> always `unchanged` and has no clobber path. Broadening `COMPARABLE_COLUMNS` would be **harmful** (it
+> would newly diff `sort_order` and manufacture spurious re-order conflicts). **B3 is therefore closed
+> as already-satisfied by S2b + T72 + PR #35, with regression tests added** (`ingest.b3-protection.test.js`)
+> locking the "CONFIRMED survives re-import for every entity" predicate — **no** production-code change,
+> **no** `COMPARABLE_COLUMNS`/gate broadening, **no** schema migration.
+
 **The deleted-fixed-event resurrection bug (discovery Red Hat Risk 1, HIGH) is fixed separately,
 external to this ADR's Phase B scope**, per product owner decision 2 (above): a director's rejection
 of an inferred fixed event must leave a durable tombstone so re-import does not silently recreate it
@@ -269,9 +284,13 @@ branch, merged to the integration branch (never straight to `main`) after review
   auto-accept policy out of `ImportScreen.jsx`. Depends: B0.
 - **B2 — Priority/frequency de-manufacturing** (D4). UNKNOWN priority; generation-time default; stop
   min_per_week force-default. Test: `frequent != high priority`; UNKNOWN stays UNKNOWN. Depends: B1.
-- **B3 — Protected-field broadening** (D5, tombstone work removed from scope). Broaden `ingest.js:179`
-  to `groups.tier_id`, tiers, fixed events. Test: CONFIRMED survives re-import for every entity.
-  Depends: B0 **and** `fix/fixed-event-reimport-tombstone` merged to `main`.
+- **B3 — Protected-field broadening** (D5, tombstone work removed from scope). ~~Broaden `ingest.js:179`
+  to `groups.tier_id`, tiers, fixed events.~~ **CLOSED 2026-08-10 as already-satisfied** — the "broaden
+  the activities-only list" premise was stale (see D5 CORRECTION): the Policy-A gate is already
+  field-agnostic and every named entity is already protected (S2b `groups.tier_id`; T72 + PR #35 fixed
+  events; tiers have no diffable field). Delivered as **regression tests only** (`ingest.b3-protection.test.js`)
+  locking the predicate — no production change, no schema migration. Test: CONFIRMED survives re-import
+  for every entity. Depends: B0 **and** `fix/fixed-event-reimport-tombstone` merged to `main` (both met).
 - **B4 — Evidence persistence** (D3, sub-ADR). New storage + migration. Depends: B1.
 - **B5 — OBSERVED-vs-INFERRED tag** (D1/OQ1, accepted as evidence-record property). Depends: B4.
 
