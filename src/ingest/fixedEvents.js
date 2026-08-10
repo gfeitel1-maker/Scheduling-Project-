@@ -136,11 +136,36 @@ export function inferFixedEvents(parsed, proposal) {
     const days = [...daySet].sort((a, b) => dayRank(a) - dayRank(b))
     const collKey = keyOf(activity, block, days.join(','))
     if (!collapsed.has(collKey)) {
-      collapsed.set(collKey, { name: activity, time_block: block, days, groups: new Set(), allHigh: true })
+      collapsed.set(collKey, {
+        name: activity, time_block: block, days, groups: new Set(), allHigh: true,
+        // B4 support (docs/adr/2026-08-10-ingestion-evidence-persistence.md):
+        // seeded from the first group merged into this collapsed event.
+        // groupStats: one occ/operating pair PER contributing group (the
+        // outer `occupied` map has exactly one tuple per (group, block,
+        // activity), so this Map never gets a second write for the same
+        // group) — Red Hat round-1: without this, `support` kept only the
+        // single strongest group's numbers even when a DIFFERENT weak group
+        // was the one that actually dragged confidence to 'low', so the
+        // eventual "why?" panel could show "held 6 of 6" next to
+        // confidence=low with no way to see the group that caused it.
+        maxOcc: occ, pairedOperating: operating, groupStats: new Map(),
+      })
     }
     const entry = collapsed.get(collKey)
     entry.groups.add(group)
+    entry.groupStats.set(group, { occ, operating })
     if (confidence !== 'high') entry.allHigh = false
+    // B4 aggregation choice: the top-level occupied_days/operating_days keep
+    // the group with the STRONGEST single-group justification (highest
+    // occupied-day count) — a stable "how solid is this, at best" headline
+    // number. The FULL per-group breakdown (below, at push time) is what
+    // actually explains a 'low' confidence: whichever group's ratio is
+    // sub-majority is visible there, so support and confidence never
+    // contradict each other.
+    if (occ > entry.maxOcc) {
+      entry.maxOcc = occ
+      entry.pairedOperating = operating
+    }
   }
 
   // "every group" is compared normalized on both sides — the rest of the
@@ -170,6 +195,30 @@ export function inferFixedEvents(parsed, proposal) {
       // footprint (normalized groups) used only for the dual-use test below.
       _footprintGroups: isAll ? allGroupsNorm : entry.groups,
       confidence: tierFromHighFlag(entry.allHigh) === CONFIDENCE.HIGH ? 'high' : 'low',
+      // B4 (docs/adr/2026-08-10-ingestion-evidence-persistence.md): the
+      // compact observation this event's days/scope were inferred from.
+      // `groups` (the per-group occ/operating breakdown) and
+      // `min_occupied_days`/`min_operating_days` (the weakest contributor)
+      // are what make a 'low' confidence explainable alongside the headline
+      // occupied_days/operating_days — see the aggregation-choice comment
+      // in the collapse loop above.
+      support: (() => {
+        const groups = [...entry.groupStats.entries()]
+          .map(([g, s]) => ({ name: groupSpelling.get(g) ?? g, occupied_days: s.occ, operating_days: s.operating }))
+          .sort((a, b) => a.name.localeCompare(b.name))
+        const weakest = groups.reduce((min, g) =>
+          g.occupied_days / g.operating_days < min.occupied_days / min.operating_days ? g : min
+        )
+        return {
+          days: entry.days,
+          occupied_days: entry.maxOcc,
+          operating_days: entry.pairedOperating,
+          groups_in_scope: [...entry.groups].map((g) => groupSpelling.get(g) ?? g).sort((a, b) => a.localeCompare(b)),
+          groups,
+          min_occupied_days: weakest.occupied_days,
+          min_operating_days: weakest.operating_days,
+        }
+      })(),
     })
   }
 

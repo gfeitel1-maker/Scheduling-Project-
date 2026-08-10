@@ -253,6 +253,11 @@ export function buildPlan(source, existing = null, resolutions = []) {
             evidence: { tier, matched_name: match.name },
             _name: name,
             _humanFields: humanFieldsFor(entity, name),
+            // B4 (docs/adr/2026-08-10-ingestion-evidence-persistence.md): the
+            // SAME inferred-rule support emitCreate attaches, so a recognized
+            // (re-imported) activity's evidence stays current too. Unused by
+            // any field-diff logic above — evidence-only.
+            ...(entity === 'activities' ? { _rule: activityRules?.[name] } : {}),
           })
           return
         }
@@ -268,6 +273,11 @@ export function buildPlan(source, existing = null, resolutions = []) {
             evidence: { tier, matched_name: match.name },
             _name: name,
             _humanFields: humanFieldsFor(entity, name),
+            // B4: same evidence-only carry as the 'update' arm above — a
+            // clear-only re-import must still upsert evidence (Grader round-1
+            // HIGH finding: this arm was silently exempt). Never read by any
+            // value-write path.
+            ...(entity === 'activities' ? { _rule: activityRules?.[name] } : {}),
           })
           return
         }
@@ -282,6 +292,11 @@ export function buildPlan(source, existing = null, resolutions = []) {
           // Carried so the committer can re-resolve this identity against the
           // live DB (the review window may have deleted match.id).
           _name: name,
+          // B4: see the 'update' arm above — same evidence-only carry, so a
+          // re-import that recognizes an activity as unchanged still upserts
+          // its evidence (the source's observation may differ even when the
+          // confirmed value didn't move).
+          ...(entity === 'activities' ? { _rule: activityRules?.[name] } : {}),
         })
       }
 
@@ -322,6 +337,10 @@ export function buildPlan(source, existing = null, resolutions = []) {
               max_per_week: recFields.max_per_week,
               priority: recFields.priority,
               eligible_group_names: recFields.eligible_groups,
+              // B4: the side-channel's own support/eligibility-known survive
+              // the fold too (evidence-only — nothing above this key changes).
+              eligibility_known: activityRules?.[name]?.eligibility_known,
+              support: activityRules?.[name]?.support,
             }
           } else {
             item._rule = activityRules?.[name]

@@ -4,7 +4,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
-import { commitIngest, replaceScope, INGESTIBLE_ENTITIES } from './ingest.js'
+import { commitIngest, commitPlan, replaceScope, INGESTIBLE_ENTITIES, listImportEvidence } from './ingest.js'
 import { INGESTIBLE_ENTITIES as RENDERER_WHITELIST } from '../../src/ingest/extractEntities.js'
 
 // docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md §2, §4.
@@ -1040,5 +1040,174 @@ describe('an imported activity that somebody can do runs at least once a week (T
       camp_id: campId, device_id: deviceId,
     })
     expect(db.prepare('SELECT min_per_week FROM activities WHERE name = ?').get('Swim').min_per_week).toBe(3)
+  })
+})
+
+// B4 (docs/adr/2026-08-10-ingestion-evidence-persistence.md). The acceptance
+// set: (a) creates write readable evidence, (c) latest-wins upsert on
+// re-import, (d) a held commit writes NO evidence (rolled back with everything).
+describe('import evidence persistence (B4)', () => {
+  const evidenceRows = (entity_type) =>
+    db.prepare('SELECT * FROM import_evidence WHERE camp_id = ? AND entity_type = ?').all(campId, entity_type)
+
+  it('(a) writes readable evidence for an inferred activity AND an inferred fixed event', () => {
+    commitIngest(db, {
+      approved: { groups: ['Yeladim', 'Bogrim'], activities: ['Swim'], days_of_operation: ['Monday'], time_blocks: ['09:00-09:30'] },
+      activityRules: {
+        Swim: {
+          eligible_group_names: ['Yeladim', 'Bogrim'], eligibility_known: true, min_per_week: 2, max_per_week: 3, priority: 'high',
+          support: { matched_groups: ['Yeladim', 'Bogrim'], appearances: 8, eligible_group_count: 2 },
+        },
+      },
+      fixedEvents: [{
+        name: 'Mifkad', time_block: '09:00-09:30', days: ['Monday'],
+        scope: { is_all_groups: true, groups: null }, confidence: 'high',
+        support: { days: ['Monday'], occupied_days: 1, operating_days: 1, groups_in_scope: ['Yeladim', 'Bogrim'] },
+      }],
+      camp_id: campId, device_id: deviceId,
+    })
+
+    const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Swim').id
+    const anchorId = db.prepare('SELECT id FROM anchor_activities WHERE name = ?').get('Mifkad').id
+
+    const activityEvidence = listImportEvidence(db, campId, { entity_type: 'activities', entity_id: activityId })
+    expect(activityEvidence.map((r) => r.field).sort()).toEqual(['eligible_group_names', 'min_per_week'])
+    expect(activityEvidence[0].tag).toBe('inferred')
+    expect(activityEvidence[0].confidence).toBe('high')
+    expect(activityEvidence.every((r) => r.support.matched_groups)).toBe(true)
+
+    const anchorEvidence = listImportEvidence(db, campId, { entity_type: 'anchor_activities', entity_id: anchorId })
+    expect(anchorEvidence.map((r) => r.field).sort()).toEqual(['days', 'scope'])
+    expect(anchorEvidence[0].confidence).toBe('high')
+    expect(anchorEvidence[0].support.groups_in_scope).toEqual(['Yeladim', 'Bogrim'])
+  })
+
+  it('(c) a re-import of a recognized activity upserts its evidence in place — one row per key, support replaced', () => {
+    commitIngest(db, {
+      approved: { groups: ['Yeladim'], activities: ['Swim'] },
+      activityRules: {
+        Swim: {
+          eligible_group_names: ['Yeladim'], eligibility_known: true, min_per_week: 1, max_per_week: 2, priority: 'high',
+          support: { matched_groups: ['Yeladim'], appearances: 4, eligible_group_count: 1 },
+        },
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+    const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Swim').id
+    const first = listImportEvidence(db, campId, { entity_type: 'activities', entity_id: activityId })
+    expect(first.map((r) => r.field).sort()).toEqual(['eligible_group_names', 'min_per_week'])
+    const firstRunId = first[0].import_run_id
+
+    // Re-import: the same activity is recognized (unchanged/update) against
+    // the live camp, but the source's observation differs this time.
+    const result = commitIngest(db, {
+      approved: { groups: ['Yeladim'], activities: ['Swim'] },
+      activityRules: {
+        Swim: {
+          eligible_group_names: ['Yeladim'], eligibility_known: true, min_per_week: 1, max_per_week: 2, priority: 'high',
+          support: { matched_groups: ['Yeladim'], appearances: 9, eligible_group_count: 1 },
+        },
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+    expect(result.held).toBe(false)
+
+    const second = evidenceRows('activities')
+    // Still exactly one row PER FIELD — latest-wins, not append-only.
+    expect(second).toHaveLength(2)
+    const eligibleRow = second.find((r) => r.field === 'eligible_group_names')
+    expect(JSON.parse(eligibleRow.support).appearances).toBe(9)
+    expect(eligibleRow.import_run_id).not.toBe(firstRunId)
+  })
+
+  // Grader round-1 HIGH: buildPlan's `clear` arm did not carry `_rule`, so a
+  // re-import whose ONLY delta on an activity is a `<clear>` token silently
+  // skipped the evidence upsert (no error, stale evidence left behind).
+  it('a clear-only re-import (op:"clear") still upserts the activity\'s evidence', () => {
+    commitIngest(db, {
+      approved: { activities: ['Swim'] },
+      activityRules: {
+        Swim: {
+          eligible_group_names: null, eligibility_known: false, min_per_week: 1, max_per_week: 2,
+          support: { matched_groups: [], appearances: 4, eligible_group_count: 0 },
+        },
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+    const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Swim').id
+    expect(db.prepare('SELECT min_per_week FROM activities WHERE id = ?').get(activityId).min_per_week).toBe(1)
+    const first = evidenceRows('activities')
+    expect(first).toHaveLength(2)
+    const firstRunId = first[0].import_run_id
+
+    // Re-import: no fields proposed (no min_per_week in activityRules, so
+    // foldApprovedToRecords injects nothing), only an explicit clear token —
+    // buildPlan emits op:'clear', never op:'update'.
+    const result = commitIngest(db, {
+      approved: { activities: [{ name: 'Swim', clears: ['min_per_week'] }] },
+      activityRules: {
+        Swim: {
+          eligible_group_names: null, eligibility_known: false,
+          support: { matched_groups: [], appearances: 7, eligible_group_count: 0 },
+        },
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+    expect(result.held).toBe(false)
+    expect(db.prepare('SELECT min_per_week FROM activities WHERE id = ?').get(activityId).min_per_week).toBeNull()
+
+    const second = evidenceRows('activities')
+    expect(second).toHaveLength(2) // still one row per field — upserted, not appended
+    const eligibleRow = second.find((r) => r.field === 'eligible_group_names')
+    expect(JSON.parse(eligibleRow.support).appearances).toBe(7)
+    expect(eligibleRow.import_run_id).not.toBe(firstRunId)
+  })
+
+  it('(d) a HELD commit writes no import_evidence rows — rolled back with everything else', () => {
+    const heldPlan = {
+      plan_version: 1, camp_id: campId, cohort_id: null, base_generation: 0,
+      sources: [{ source: 'import', family: 'schedule' }], mode: 'add', fixedEvents: [],
+      unresolved: [],
+      items: [
+        {
+          op: 'create', entity: 'activities', entity_id: null,
+          fields: { name: { from: null, to: 'Swim', source: 'import' } },
+          evidence: { tier: 'new' }, _name: 'Swim', _humanFields: [],
+          _rule: {
+            eligible_group_names: null, eligibility_known: false, min_per_week: 1, max_per_week: 2,
+            support: { matched_groups: [], appearances: 0, eligible_group_count: 0 },
+          },
+        },
+        // A conflict item forces the whole commit to hold (ADR §4).
+        {
+          op: 'conflict', entity: 'groups', entity_id: null, reason: 'ambiguous_identity',
+          fields: {}, evidence: { tier: 'exact_name', candidates: [] }, _name: 'Bunk 1',
+        },
+      ],
+    }
+    const result = commitPlan(db, heldPlan, { device_id: deviceId })
+    expect(result.held).toBe(true)
+    expect(count('activities')).toBe(0)
+    expect(count('import_evidence')).toBe(0)
+  })
+
+  it('read-after-write: listImportEvidence returns what commitIngest just wrote', () => {
+    commitIngest(db, {
+      approved: { activities: ['Drama'] },
+      activityRules: {
+        Drama: {
+          eligible_group_names: null, eligibility_known: false, min_per_week: 1, max_per_week: 2,
+          support: { matched_groups: [], appearances: 3, eligible_group_count: 0 },
+        },
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+    const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Drama').id
+    const rows = listImportEvidence(db, campId, { entity_type: 'activities', entity_id: activityId })
+    expect(rows).toHaveLength(2)
+    for (const row of rows) {
+      expect(row.support).toEqual({ matched_groups: [], appearances: 3, eligible_group_count: 0 })
+      expect(row.confidence).toBe('low') // eligibility_known:false -> honestly low
+    }
   })
 })

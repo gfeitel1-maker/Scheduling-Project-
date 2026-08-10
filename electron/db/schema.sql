@@ -121,6 +121,30 @@ CREATE TABLE IF NOT EXISTS source_aliases (
 CREATE INDEX IF NOT EXISTS idx_source_aliases_lookup
   ON source_aliases (camp_id, entity_type, cohort_id);
 
+-- Host-only table, like source_aliases and host_signing_key. NEVER included
+-- in any full-sync SELECT/payload, NEVER sent over the wire, NEVER added to
+-- DIRECT_CAMP_ENTITIES or PROJECTIONS. Written only from inside commitPlan's
+-- commit transaction (electron/ops/ingest.js), admin-gated by the same import
+-- IPC boundary as everything else in that transaction.
+-- docs/adr/2026-08-10-ingestion-evidence-persistence.md.
+CREATE TABLE IF NOT EXISTS import_evidence (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  entity_type TEXT NOT NULL,     -- 'activities' | 'anchor_activities' — the two types
+                                  -- that carry inferred/observed fields today
+  entity_id TEXT NOT NULL,       -- plain TEXT, not a FK (same reasoning as source_aliases.entity_id)
+  field TEXT NOT NULL,           -- the plan field this evidence supports, e.g.
+                                  -- 'eligible_group_names' | 'min_per_week' | 'days' | 'scope'
+  tag TEXT NOT NULL,             -- 'observed' | 'inferred' (parent ADR D1/OQ1)
+  confidence TEXT NOT NULL,      -- 'high' | 'low' — reuses CONFIDENCE.* (src/ingest/confidence.js)
+  support TEXT NOT NULL,         -- compact JSON: see the ADR's "What to persist"
+  import_run_id TEXT NOT NULL,   -- groups every row one commitIngest call wrote
+  committed_at TEXT NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_import_evidence_latest
+  ON import_evidence (camp_id, entity_type, entity_id, field);
+
 -- DRIFTED TABLE: a migrated database has one additional column not listed below.
 -- Migration-added columns (see localDb.js):
 --   v8:  client_write_id TEXT  (already present in this CREATE TABLE — added here

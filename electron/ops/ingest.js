@@ -237,6 +237,83 @@ function listAliasMap(db, camp_id, cohort_id) {
   return map
 }
 
+// B4 (docs/adr/2026-08-10-ingestion-evidence-persistence.md). entity_type is
+// attacker-influenced (sourced from the imported file, same as
+// ALIAS_ENTITY_TABLE above), so it is validated against a FIXED set rather
+// than trusted — the two entity types inferActivityRules/inferFixedEvents
+// produce support for today.
+const EVIDENCE_ENTITY_TYPES = new Set(['activities', 'anchor_activities'])
+const EVIDENCE_TAGS = new Set(['observed', 'inferred'])
+const EVIDENCE_CONFIDENCE = new Set(['high', 'low'])
+
+/**
+ * B4: persist one field's inference support, latest-wins per
+ * (camp_id, entity_type, entity_id, field). Called ONLY from inside
+ * commitPlan's transaction (never appendOp'd — host-local, never synced,
+ * same discipline as confirmAlias). Silently refuses anything outside the
+ * frozen enums rather than trusting file-derived input into a write.
+ */
+function writeEvidence(db, { camp_id, entity_type, entity_id, field, tag, confidence, support, import_run_id, committed_at }) {
+  if (!EVIDENCE_ENTITY_TYPES.has(entity_type)) return
+  if (!EVIDENCE_TAGS.has(tag)) return
+  if (!EVIDENCE_CONFIDENCE.has(confidence)) return
+  if (!entity_id || !field) return
+
+  db.prepare(
+    `INSERT INTO import_evidence (id, camp_id, entity_type, entity_id, field, tag, confidence, support, import_run_id, committed_at)
+     VALUES (@id, @camp_id, @entity_type, @entity_id, @field, @tag, @confidence, @support, @import_run_id, @committed_at)
+     ON CONFLICT (camp_id, entity_type, entity_id, field) DO UPDATE SET
+       tag = excluded.tag,
+       confidence = excluded.confidence,
+       support = excluded.support,
+       import_run_id = excluded.import_run_id,
+       committed_at = excluded.committed_at`
+  ).run({
+    id: randomUUID(),
+    camp_id,
+    entity_type,
+    entity_id,
+    field,
+    tag,
+    confidence,
+    support: JSON.stringify(support ?? {}),
+    import_run_id,
+    committed_at,
+  })
+}
+
+/**
+ * B4: read-only lookup, sibling to listAliasMap. Returns the evidence rows
+ * for one entity (or every evidence row for the camp when entity_id/type is
+ * omitted), with `support` parsed back to an object. No consumer wired to
+ * this yet (Phase C/D's "why?" panel) — read path only.
+ *
+ * `entity_id` is a polymorphic key (its meaning depends on `entity_type`, per
+ * the table's own schema comment) — passing entity_id WITHOUT entity_type is
+ * not a supported "look up regardless of type" query, just an unenforced
+ * filter that happens to work when ids never collide across the two types.
+ */
+export function listImportEvidence(db, camp_id, { entity_type, entity_id } = {}) {
+  const conditions = ['camp_id = ?']
+  const params = [camp_id]
+  if (entity_type) { conditions.push('entity_type = ?'); params.push(entity_type) }
+  if (entity_id) { conditions.push('entity_id = ?'); params.push(entity_id) }
+
+  const rows = db
+    .prepare(`SELECT * FROM import_evidence WHERE ${conditions.join(' AND ')}`)
+    .all(...params)
+
+  // Defense-in-depth: a malformed blob (direct-DB tampering, or a future
+  // writer bug) degrades to {} on read rather than throwing — writeEvidence
+  // is the only writer and always JSON.stringifies a real object, so this
+  // path is not expected to fire in practice.
+  return rows.map((row) => {
+    let support
+    try { support = JSON.parse(row.support) } catch { support = {} }
+    return { ...row, support }
+  })
+}
+
 function buildExistingSnapshot(db, camp_id, cohort_id) {
   // S2c §3: live id->name maps so the snapshot can carry FK fields in the LABEL
   // form buildPlan compares against (it holds no DB handle and cannot resolve).
@@ -338,7 +415,13 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
     resolutions,
   )
 
-  return commitPlan(db, plan, { author_user_id: author_user_id ?? null, device_id, resolutions })
+  // B4: minted once per commitIngest call, threaded into commitPlan so every
+  // import_evidence row this commit writes carries the same run id/timestamp
+  // (docs/adr/2026-08-10-ingestion-evidence-persistence.md).
+  const import_run_id = randomUUID()
+  const committed_at = new Date().toISOString()
+
+  return commitPlan(db, plan, { author_user_id: author_user_id ?? null, device_id, resolutions, import_run_id, committed_at })
 }
 
 /**
@@ -357,9 +440,14 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
  *
  * @param {import('better-sqlite3').Database} db
  * @param {import('../../src/ingest/buildPlan.js').ReconciliationPlan} plan
- * @param {{ author_user_id: string|null, device_id: string }} actor
+ * @param {{ author_user_id: string|null, device_id: string, import_run_id?: string, committed_at?: string }} actor
  */
-export function commitPlan(db, plan, { author_user_id = null, device_id, resolutions = [] }) {
+export function commitPlan(db, plan, { author_user_id = null, device_id, resolutions = [], import_run_id = null, committed_at = null }) {
+  // B4: a direct commitPlan caller (tests, or any future caller that skips
+  // commitIngest) still gets evidence rows minted with a run id/timestamp of
+  // their own, rather than writing NOT NULL columns as null.
+  const evidenceRunId = import_run_id ?? randomUUID()
+  const evidenceCommittedAt = committed_at ?? new Date().toISOString()
   const camp_id = plan.camp_id
   const cohort_id = plan.cohort_id ?? null
   const mode = plan.mode ?? 'add'
@@ -453,6 +541,24 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     const row = db.prepare(`SELECT ${nameColumnFor(entity)} AS name FROM ${entity} WHERE id = ?`).get(id)
     return row ? row.name : null
   }
+  // B4: one activity's inferred rule -> up to two evidence rows (the two
+  // fields buildPlan can write from a rule: eligible_group_names, min_per_week).
+  // Confidence is derived honestly rather than invented — activity rules carry
+  // no explicit confidence tier today (ADR OQ3 permits this to flex): 'high'
+  // when the rule's eligibility was actually observed AND resolved to a
+  // concrete list, 'low' otherwise (no signal, or the ambiguous-fallback null).
+  const writeActivityEvidence = (entityId, rule) => {
+    if (!rule?.support) return
+    const confidence = rule.eligibility_known && Array.isArray(rule.eligible_group_names) ? 'high' : 'low'
+    for (const field of ['eligible_group_names', 'min_per_week']) {
+      writeEvidence(db, {
+        camp_id, entity_type: 'activities', entity_id: entityId, field,
+        tag: 'inferred', confidence, support: rule.support,
+        import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
+      })
+    }
+  }
+
   const idExists = (entity, id) =>
     !!db.prepare(`SELECT 1 FROM ${entity} WHERE id = ? AND camp_id = ?`).get(id, camp_id)
   const makeConflict = (item, candidateIds) => ({
@@ -638,6 +744,11 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           fields.min_per_week = 1
         }
       }
+      // B4: evidence for the observation this rule came from, keyed to the
+      // entity id just minted above. Independent of which fields the rule
+      // above actually resolved to a write — the "why" answers "what did the
+      // source show", not "what got written" (ADR "On protected/CONFIRMED fields").
+      writeActivityEvidence(entityId, rule)
     }
 
     // ADR 2026-08-09 Decision 2 — a field the director explicitly authored in
@@ -876,6 +987,17 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // that already exist, so ordering against creates is immaterial.
     for (const u of toUpdate) commitUpdate(u)
 
+    // B4: recognized activities (re-imported, 'unchanged' or 'update'/'clear')
+    // upsert their evidence too, keyed to the id buildPlan already resolved —
+    // the required demonstration of latest-wins re-import (ADR "On re-import").
+    // A conflict on any of these items would already have held the whole
+    // transaction above, so reaching here means entity_id is live.
+    for (const item of plan.items) {
+      if (item.entity !== 'activities') continue
+      if (item.op !== 'unchanged' && item.op !== 'update' && item.op !== 'clear') continue
+      writeActivityEvidence(item.entity_id, item._rule)
+    }
+
     // Fixed events, after the entity loop and INSIDE the same transaction, so
     // the whole import stays one atomic unit (ADR §4). anchor_activities is
     // written here and nowhere else in ingest; the generic whitelist never lets
@@ -931,6 +1053,23 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         }
         anchorSlots.add(slotKey)
         const anchorId = randomUUID()
+        // B4: evidence for a CREATED anchor only (ADR scope: unchanged-anchor
+        // recompute is deferred — the skip branch above has only a slotKey,
+        // not a live anchor id, resolving it cleanly is a later slice).
+        // `fe.support` describes the WHOLE inferred event (days/scope across
+        // all its occurrences), not this one day-row — the SAME support
+        // object is written against every anchor this fe's per-day fan-out
+        // creates, deliberately, so a future "why?" read is not misread as a
+        // per-day-specific observation.
+        if (fe.support) {
+          for (const field of ['days', 'scope']) {
+            writeEvidence(db, {
+              camp_id, entity_type: 'anchor_activities', entity_id: anchorId, field,
+              tag: 'inferred', confidence: fe.confidence, support: fe.support,
+              import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
+            })
+          }
+        }
         const fields = {
           camp_id,
           cohort_id,
