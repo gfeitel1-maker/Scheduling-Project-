@@ -1,14 +1,17 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
+import ScreenIntro from '../components/ScreenIntro'
 
-const FREQUENCY_MODES = [
-  { value: 'reduced',     label: 'Fewer of everything — each activity happens proportionally less (coming soon)' },
-  { value: 'best_effort', label: 'Keep the usual amounts — fit in as much as the day allows (coming soon)' },
-]
+// Frequency mode is not yet a real choice — neither behaviour is built — so the
+// control is hidden rather than shown disabled ("coming soon" advertises unfinished
+// machinery on an already-optional screen). Templates still persist a stable default
+// ('reduced') so the field is forward-compatible: when the modes ship, the control
+// reappears and existing templates already carry a sensible value.
+const DEFAULT_FREQUENCY_MODE = 'reduced'
 
 // Fires one write() per field (the op-log is field-level) and surfaces the
 // first failure rather than a silent partial write — mirrors
@@ -43,7 +46,9 @@ async function cleanupPartialRow(entity, id) {
 function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
   const isNew = !template?.id
   const [name, setName] = useState(template?.name || '')
-  const [freqMode, setFreqMode] = useState(template?.frequency_mode || 'reduced')
+  // Not user-editable while the modes are unbuilt; preserves an existing template's
+  // saved value on re-save and writes the stable default for new ones.
+  const freqMode = template?.frequency_mode || DEFAULT_FREQUENCY_MODE
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
   const [timeBlocks, setTimeBlocks] = useState([])
@@ -211,13 +216,6 @@ function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
             placeholder="e.g. Field Trip, Color War, Shabbaton" />
         </div>
 
-        <div style={{ marginBottom: 18 }}>
-          <div style={S.label}>How often activities run</div>
-          <select value={freqMode} onChange={e => setFreqMode(e.target.value)} style={S.input}>
-            {FREQUENCY_MODES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </div>
-
         <div style={{ marginBottom: 8 }}>
           <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 12, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             Block Overrides
@@ -274,16 +272,28 @@ function OverrideModal({ template, cohortId, campId, onClose, onSaved }) {
   )
 }
 
-export default function DayOverridesScreen({ campId, role }) {
+export default function DayOverridesScreen({ campId, role, onNavigate }) {
   const [templates, setTemplates] = useState([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null) // null | { template: obj|null }
   const [error, setError] = useState(null)
+  const [pendingDelete, setPendingDelete] = useState(null) // template being confirmed for delete
+  const [deleting, setDeleting] = useState(false)
+  const deleteInFlight = useRef(false)
   const { cohorts, activeCohort, setActiveCohortId } = useCohorts(campId)
 
   useEffect(() => {
     if (activeCohort) load()
   }, [campId, activeCohort?.id])
+
+  useEffect(() => {
+    if (!pendingDelete) return
+    function onKeyDown(e) {
+      if (e.key === 'Escape' && !deleting) setPendingDelete(null)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [pendingDelete, deleting])
 
   async function load() {
     if (!activeCohort) return
@@ -310,8 +320,17 @@ export default function DayOverridesScreen({ campId, role }) {
     }
   }
 
-  async function deleteTemplate(id) {
-    if (!window.confirm('Delete this override template?')) return
+  function deleteTemplate(id) {
+    const template = templates.find(t => t.id === id)
+    if (!template) return
+    setPendingDelete(template)
+  }
+
+  async function confirmTemplateDelete() {
+    if (!pendingDelete || deleteInFlight.current) return
+    deleteInFlight.current = true
+    setDeleting(true)
+    const id = pendingDelete.id
     let deletedChildCount = 0
     let totalChildCount = 0
     let childDeleteFailed = false
@@ -334,6 +353,7 @@ export default function DayOverridesScreen({ campId, role }) {
       if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
         throw new Error('delete failed')
       }
+      setPendingDelete(null)
       await load()
     } catch (err) {
       if (/admin role required/i.test(err?.message ?? '')) {
@@ -345,12 +365,17 @@ export default function DayOverridesScreen({ campId, role }) {
       } else {
         setError(describeWriteFailure(err, 'That template could not be deleted.'))
       }
+      setPendingDelete(null)
       await load()
+    } finally {
+      setDeleting(false)
+      deleteInFlight.current = false
     }
   }
 
   return (
     <div style={{ maxWidth: 760 }}>
+      <ScreenIntro screen="dayoverrides" />
       <CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />
       {error && <div style={S.errorBanner}>{error}</div>}
 
@@ -369,7 +394,6 @@ export default function DayOverridesScreen({ campId, role }) {
             <thead>
               <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
                 <th style={S.th}>Name</th>
-                <th style={S.th}>How often activities run</th>
                 <th style={S.th}>Block Overrides</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
@@ -386,9 +410,6 @@ export default function DayOverridesScreen({ campId, role }) {
                   onMouseLeave={e => e.currentTarget.style.background = ''}
                 >
                   <td style={{ ...S.td, fontWeight: 500 }}>{t.name}</td>
-                  <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>
-                    {FREQUENCY_MODES.find(o => o.value === t.frequency_mode)?.label ?? '—'}
-                  </td>
                   <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>
                     {t.day_override_template_slots?.length ?? 0} block{(t.day_override_template_slots?.length ?? 0) !== 1 ? 's' : ''}
                   </td>
@@ -408,11 +429,6 @@ export default function DayOverridesScreen({ campId, role }) {
         </div>
       )}
 
-      <div style={{ marginTop: 16, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-        Override templates define how specific days differ from the standard schedule.
-        Apply them to individual calendar dates in the Schedule screen.
-      </div>
-
       {modal && activeCohort && (
         <OverrideModal
           template={modal.template}
@@ -422,6 +438,77 @@ export default function DayOverridesScreen({ campId, role }) {
           onSaved={() => { setModal(null); load() }}
         />
       )}
+
+      {pendingDelete && (
+        <div style={deleteOverlay} onClick={() => !deleting && setPendingDelete(null)}>
+          <div style={deletePanel} onClick={e => e.stopPropagation()}>
+            <div style={deleteTitle}>Delete "{pendingDelete.name}"?</div>
+            <p style={deleteBody}>{deleteBodyText(pendingDelete)}</p>
+            <div style={deleteRecovery}>"{pendingDelete.name}" goes to Trash, and you can put it back from there.</div>
+            <div style={deleteActions}>
+              <button className="press-97" onClick={() => setPendingDelete(null)} disabled={deleting} style={S.btnSecondary}>Cancel</button>
+              <button onClick={confirmTemplateDelete} disabled={deleting} style={S.btnDanger}>
+                {deleting ? 'Working…' : 'Delete Template'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
+        <button className="press-97" onClick={() => onNavigate('schedule')} style={S.btnPrimary}>Go to Schedule</button>
+      </div>
     </div>
   )
+}
+
+function deleteBodyText(template) {
+  const n = template.day_override_template_slots?.length ?? 0
+  if (n === 0) return 'This template has no block overrides. It will be removed from your programs.'
+  if (n === 1) return 'This template and its 1 block override will be removed from your programs.'
+  return `This template and its ${n} block overrides will be removed from your programs.`
+}
+
+// Local styled confirm modal reusing TimeBlocksScreen's visual chrome — the
+// DeleteRecordDialog backend contract does not cover day_override_templates,
+// so this is the honest in-scope fallback rather than a fabricated preview.
+const deleteOverlay = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(0,0,0,0.45)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  zIndex: 1000,
+  padding: '24px 16px',
+}
+
+const deletePanel = {
+  background: 'var(--surface-elevated)',
+  borderRadius: 12,
+  padding: 28,
+  width: 520,
+  maxWidth: '100%',
+}
+
+const deleteTitle = {
+  fontFamily: 'var(--font-condensed)',
+  fontWeight: 700,
+  fontSize: 18,
+  marginBottom: 14,
+}
+
+const deleteBody = { fontSize: 14, lineHeight: 1.55, margin: '0 0 14px' }
+
+const deleteRecovery = {
+  fontSize: 13,
+  lineHeight: 1.55,
+  color: 'var(--text-secondary)',
+}
+
+const deleteActions = {
+  display: 'flex',
+  gap: 10,
+  justifyContent: 'flex-end',
+  marginTop: 22,
 }

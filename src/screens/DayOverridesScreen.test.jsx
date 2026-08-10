@@ -110,6 +110,47 @@ describe('DayOverridesScreen slot fan-out on save', () => {
   })
 })
 
+describe('DayOverridesScreen frequency-mode control hidden until built', () => {
+  it('does not render the "(coming soon)" frequency control in the modal', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'time_blocks') return Promise.resolve([block()])
+      if (entity === 'activities') return Promise.resolve([activity()])
+      return Promise.resolve([])
+    })
+    render(<DayOverridesScreen campId={CAMP_ID} />)
+    await waitFor(() => expect(screen.queryByText('No templates yet')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('+ New Template'))
+    await waitFor(() => expect(screen.getByPlaceholderText('e.g. Field Trip, Color War, Shabbaton')).toBeTruthy())
+
+    // The half-built "coming soon" choice must not appear anywhere (modal or list header).
+    expect(screen.queryByText(/coming soon/i)).toBeNull()
+    expect(screen.queryByText('How often activities run')).toBeNull()
+  })
+
+  it('still persists the default frequency_mode "reduced" on save so the field stays forward-compatible', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'time_blocks') return Promise.resolve([block()])
+      if (entity === 'activities') return Promise.resolve([activity()])
+      return Promise.resolve([])
+    })
+    render(<DayOverridesScreen campId={CAMP_ID} />)
+    await waitFor(() => expect(screen.queryByText('No templates yet')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('+ New Template'))
+    fireEvent.change(screen.getByPlaceholderText('e.g. Field Trip, Color War, Shabbaton'), { target: { value: 'Trip Day' } })
+    fireEvent.click(screen.getByText('Create Template'))
+
+    await waitFor(() => {
+      const freqWrites = localClient.write.mock.calls.filter(
+        (c) => c[1] === 'day_override_templates' && c[3] === 'frequency_mode'
+      )
+      expect(freqWrites.length).toBeGreaterThan(0)
+      expect(freqWrites.every((c) => c[4] === 'reduced')).toBe(true)
+    })
+  })
+})
+
 describe('DayOverridesScreen re-save replaces slots', () => {
   it('re-saving an existing template with a different slot set deletes old slot rows and creates new ones', async () => {
     const existingTemplate = { id: 'tmpl-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Field Trip', frequency_mode: 'reduced' }
@@ -241,5 +282,73 @@ describe('DayOverridesScreen save-phase failure messaging', () => {
       const err = screen.queryByText(/currently has NO block overrides/i)
       expect(err).not.toBeNull()
     })
+  })
+})
+
+describe('DayOverridesScreen delete confirmation', () => {
+  function setupList(slots) {
+    const existingTemplate = { id: 'tmpl-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Field Trip', frequency_mode: 'reduced' }
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'day_override_templates') return Promise.resolve([existingTemplate])
+      if (entity === 'day_override_template_slots') return Promise.resolve(slots)
+      if (entity === 'time_blocks') return Promise.resolve([])
+      if (entity === 'activities') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+  }
+
+  it('shows count-aware copy for a template with no block overrides', async () => {
+    setupList([])
+    render(<DayOverridesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Field Trip')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    expect(window.confirm).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByText('Delete "Field Trip"?')).not.toBeNull())
+    expect(screen.queryByText('This template has no block overrides. It will be removed from your programs.')).not.toBeNull()
+  })
+
+  it('shows count-aware copy for a template with exactly 1 block override', async () => {
+    setupList([{ id: 'slot-1', day_override_template_id: 'tmpl-1', time_block_id: 'b1', activity_id: 'act-1' }])
+    render(<DayOverridesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Field Trip')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    await waitFor(() => expect(screen.queryByText('Delete "Field Trip"?')).not.toBeNull())
+    expect(screen.queryByText('This template and its 1 block override will be removed from your programs.')).not.toBeNull()
+  })
+
+  it('shows count-aware copy for a template with N block overrides and confirms the existing child-then-parent delete', async () => {
+    setupList([
+      { id: 'slot-1', day_override_template_id: 'tmpl-1', time_block_id: 'b1', activity_id: 'act-1' },
+      { id: 'slot-2', day_override_template_id: 'tmpl-1', time_block_id: 'b2', activity_id: 'act-2' },
+      { id: 'slot-3', day_override_template_id: 'tmpl-1', time_block_id: 'b3', activity_id: 'act-3' },
+    ])
+    render(<DayOverridesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Field Trip')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    await waitFor(() => expect(screen.queryByText('Delete "Field Trip"?')).not.toBeNull())
+    expect(screen.queryByText('This template and its 3 block overrides will be removed from your programs.')).not.toBeNull()
+
+    fireEvent.click(screen.getByText('Delete Template'))
+
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'day_override_template_slots', 'slot-1'))
+    expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'day_override_template_slots', 'slot-2')
+    expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'day_override_template_slots', 'slot-3')
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'day_override_templates', 'tmpl-1'))
+  })
+
+  it('cancels without deleting', async () => {
+    setupList([])
+    render(<DayOverridesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Field Trip')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    await waitFor(() => expect(screen.queryByText('Delete "Field Trip"?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Cancel'))
+
+    expect(screen.queryByText('Delete "Field Trip"?')).toBeNull()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
   })
 })

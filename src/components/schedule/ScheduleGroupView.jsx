@@ -65,7 +65,7 @@ export default function ScheduleGroupView({
   const gridNav = useGridKeyboardNav()
 
   return (
-      <div>
+      <div className="schedule-view-enter">
         {/* Group pills */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
           {groups.map(g => (

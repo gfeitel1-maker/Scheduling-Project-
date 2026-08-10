@@ -58,7 +58,7 @@ export default function ScheduleDayView({
   const gridNav = useGridKeyboardNav()
 
   return (
-    <div>
+    <div className="schedule-view-enter">
       {/* Day pills */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         {days.map(d => (

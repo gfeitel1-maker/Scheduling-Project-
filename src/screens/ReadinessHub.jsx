@@ -12,15 +12,15 @@
 // reconciliation-preview ledger (§7) is a separate slice (S5b/T75) and is not
 // built here; with no live plan, categories rest at Ready / Missing / Optional.
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { localClient } from '../localClient'
 import { useCohorts } from '../hooks/useCohorts'
 import { useSetupCounts } from '../hooks/useSetupCounts'
 import { getReadiness, describeReadiness } from '../engine/readiness'
 import { downloadWorkbook } from '../utils/exportWorkbook.js'
 import { INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
-import { S, useEnterTransition } from '../styles/shared'
-import { STATE_VISUAL, statusWord, buildHubRows } from './readinessHubModel'
+import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
+import { STATE_VISUAL, statusWord, buildHubRows, verdictState, rowAction } from './readinessHubModel'
 
 export default function ReadinessHub({ campId, onNavigate }) {
   const { counts } = useSetupCounts(campId)
@@ -59,6 +59,10 @@ export default function ReadinessHub({ campId, onNavigate }) {
   const { blocking, attention } = describeReadiness(readiness)
   const groups = buildHubRows(readiness, counts)
   const blocked = readiness.some((r) => r.state === 'missing')
+  // needs-attention is forward-scaffolding: getReadiness is called here with no
+  // `signals`, so describeReadiness's attention is always null in production
+  // today. This branch goes live once S5b's reconciliation signals are wired.
+  const state = verdictState({ blocked, attention })
   const brandNew = readiness
     .filter((r) => r.kind === 'required')
     .every((r) => r.state === 'missing')
@@ -85,7 +89,7 @@ export default function ReadinessHub({ campId, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 760, ...enter }}>
-      <Headline blocking={blocking} attention={attention} blocked={blocked} />
+      <Headline key={state} state={state} blocking={blocking} attention={attention} />
 
       {brandNew && (
         <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 4 }}>
@@ -104,26 +108,85 @@ export default function ReadinessHub({ campId, onNavigate }) {
   )
 }
 
-function Headline({ blocking, attention, blocked }) {
-  const glyph = blocked ? '!' : '✓'
-  const glyphColor = blocked ? 'var(--danger)' : 'var(--success)'
+// The engine only ever produces the ready/blocked sentences (byte-for-byte
+// blocking-truth core); the needs-attention headline has no describeReadiness
+// counterpart to reuse, so it lives here as a local override.
+const NEEDS_ATTENTION_HEADLINE = 'Ready to build a week, with a few things to check.'
+
+// The blocked headline no longer restates the blocked category names in
+// prose — that reads as louder than the state deserves, and the state-matched
+// row rail (below) already points at exactly which rows earned it. The named
+// list (`blocking`, from describeReadiness) stays available via aria-label /
+// title for screen readers and hover.
+const BLOCKED_HEADLINE = 'A few things need your attention before this camp can build a week.'
+
+// Bridges the verdict's three-state enum to the six-state glyph grammar —
+// 'blocked' maps to the same visual as 'missing'. Kept explicit (rather than
+// indexing STATE_VISUAL[state] directly) so an unrecognized state falls back
+// safely instead of crashing on `visual.color`.
+const HEADLINE_VISUAL = {
+  ready: STATE_VISUAL.ready,
+  'needs-attention': STATE_VISUAL['needs-attention'],
+  blocked: STATE_VISUAL.missing,
+}
+
+function Headline({ state, blocking, attention }) {
+  const visual = HEADLINE_VISUAL[state] ?? STATE_VISUAL.missing
+  const headline = state === 'needs-attention'
+    ? NEEDS_ATTENTION_HEADLINE
+    : state === 'blocked'
+      ? BLOCKED_HEADLINE
+      : blocking
+  const attentionLine = state === 'needs-attention'
+    ? { fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 500, color: 'var(--accent)', marginTop: 3 }
+    : { fontFamily: 'var(--font-sans)', fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }
+
+  const fade = useCrossFade()
+
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0 }}>
-      <span style={{ width: 24, flexShrink: 0, fontSize: 18, fontWeight: 700, color: glyphColor, lineHeight: '28px' }}>
-        {glyph}
-      </span>
-      <div style={{ minWidth: 0 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 20, color: 'var(--text)', lineHeight: '28px' }}>
-          {blocking}
-        </div>
-        {attention && (
-          <div style={{ fontFamily: 'var(--font-sans)', fontSize: 13, color: 'var(--text-secondary)', marginTop: 2 }}>
-            {attention}
+    <div role="status" aria-live="polite" aria-label={state === 'blocked' ? blocking : undefined}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0, ...fade }}>
+        <span
+          aria-hidden="true"
+          style={{ width: 24, flexShrink: 0, fontSize: 18, fontWeight: 700, color: visual.color, lineHeight: '28px' }}
+        >
+          {visual.glyph}
+        </span>
+        <div style={{ minWidth: 0 }}>
+          <div
+            title={state === 'blocked' ? blocking : undefined}
+            style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 20, color: 'var(--text)', lineHeight: '28px' }}
+          >
+            {headline}
           </div>
-        )}
+          {attention && (
+            <div style={attentionLine}>
+              {attention}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
+}
+
+// Cross-fades the glyph+text block on mount, mirroring useEnterTransition
+// (shared.js) exactly: the caller remounts Headline via `key={state}` on
+// state change, so this only ever needs a mount fade — no synchronous
+// setState in the effect body, just the rAF-deferred flip to `entered`.
+// Under prefers-reduced-motion it returns no transition at all, an instant
+// swap.
+function useCrossFade() {
+  const reduced = prefersReducedMotion()
+  const [entered, setEntered] = useState(false)
+  useEffect(() => {
+    if (reduced) return
+    const id = requestAnimationFrame(() => setEntered(true))
+    return () => cancelAnimationFrame(id)
+  }, [reduced])
+
+  if (reduced) return {}
+  return { opacity: entered ? 1 : 0, transition: 'opacity var(--motion-fast) var(--ease-out)' }
 }
 
 function Group({ label, rows, onNavigate, onDownload, preparing, muted }) {
@@ -150,8 +213,14 @@ function Group({ label, rows, onNavigate, onDownload, preparing, muted }) {
   )
 }
 
+// State-matched left rail on rows that earned it. An inset box-shadow keeps
+// it flush with the Group container's left edge without disturbing layout
+// width (no extra border to account for in padding).
+const RAIL_COLOR = { missing: 'var(--danger)', 'needs-attention': 'var(--accent)' }
+
 function CategoryRow({ row, last, onNavigate, onDownload, preparing }) {
   const [hover, setHover] = useState(false)
+  const reduced = prefersReducedMotion()
   const visual = STATE_VISUAL[row.state]
   const word = statusWord(row)
   const wordColor = row.state === 'missing'
@@ -159,6 +228,23 @@ function CategoryRow({ row, last, onNavigate, onDownload, preparing }) {
     : row.state === 'needs-attention' || row.state === 'in-progress'
       ? 'var(--accent)'
       : 'var(--text-secondary)'
+  const action = rowAction(row)
+  const railColor = RAIL_COLOR[row.state]
+  const reviewButtonStyle = row.doors === 'review'
+    ? {
+        background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+        color: 'var(--text-secondary)', fontSize: 12, fontFamily: 'inherit', textDecoration: 'none',
+      }
+    : {
+        // Neutral chrome for EVERY urgent state. The accent/danger already lives
+        // in the row's glyph and status word; tinting the button text bronze
+        // (accent-on-surface ≈3.2:1) failed WCAG AA on the very rows the design
+        // most wants readable. The button's insistence comes from its presence
+        // (Ready rows have none) + the rail, not from its colour.
+        ...S.btnSecondary,
+        fontSize: 12,
+        padding: '4px 10px',
+      }
 
   return (
     <div
@@ -169,6 +255,7 @@ function CategoryRow({ row, last, onNavigate, onDownload, preparing }) {
         borderBottom: last ? 'none' : '1px solid color-mix(in srgb, var(--border) 60%, transparent)',
         background: hover ? 'var(--bg)' : 'transparent',
         transition: 'background var(--motion-fast) var(--ease-out)',
+        boxShadow: railColor ? `inset 2px 0 0 0 ${railColor}` : 'none',
       }}
     >
       <span
@@ -180,8 +267,15 @@ function CategoryRow({ row, last, onNavigate, onDownload, preparing }) {
       >
         {visual.glyph}
       </span>
-      <span style={{ flex: 1, minWidth: 0, fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 500, color: 'var(--text)' }}>
-        {row.label}
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 14, fontWeight: 500, color: 'var(--text)' }}>
+          {row.label}
+        </span>
+        {row.subRow && (
+          <span style={{ display: 'block', fontFamily: 'var(--font-sans)', fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+            {'↳ '}{row.subRow.label} · {statusWord(row.subRow)}
+          </span>
+        )}
       </span>
       <span
         data-state={row.state}
@@ -189,30 +283,29 @@ function CategoryRow({ row, last, onNavigate, onDownload, preparing }) {
       >
         {word}
       </span>
-      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 12, marginLeft: 12, flexShrink: 0 }}>
-        {row.screen && (
-          <button
-            onClick={() => onNavigate(row.screen)}
-            style={{ ...S.btnSecondary, fontSize: 12, padding: '4px 10px' }}
-          >
-            Review on screen
+      {action === 'review' && (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 16, marginLeft: 12, flexShrink: 0 }}>
+          <button onClick={() => onNavigate(row.screen)} style={reviewButtonStyle}>
+            Review
           </button>
-        )}
-        {row.doors === 'two' && (
-          <button
-            onClick={onDownload}
-            disabled={preparing}
-            style={{
-              background: 'none', border: 'none', padding: 0, cursor: preparing ? 'wait' : 'pointer',
-              color: 'var(--primary)', fontSize: 12, fontFamily: 'inherit', textDecoration: 'none',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.textDecoration = 'underline' }}
-            onMouseLeave={(e) => { e.currentTarget.style.textDecoration = 'none' }}
-          >
-            {preparing ? 'Preparing…' : 'Download worksheet'}
-          </button>
-        )}
-      </span>
+          {row.doors === 'two' && (
+            <button
+              onClick={onDownload}
+              disabled={preparing}
+              aria-label="Download worksheet"
+              title="Download worksheet"
+              style={{
+                background: 'none', border: 'none', padding: 0, cursor: preparing ? 'wait' : 'pointer',
+                color: 'var(--text-secondary)', fontSize: 11, fontFamily: 'inherit',
+                opacity: reduced ? 1 : (hover ? 1 : 0.6),
+                transition: reduced ? 'none' : 'opacity var(--motion-fast) var(--ease-out)',
+              }}
+            >
+              {preparing ? '…' : '↓'}
+            </button>
+          )}
+        </span>
+      )}
     </div>
   )
 }

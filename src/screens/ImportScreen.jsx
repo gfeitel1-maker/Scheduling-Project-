@@ -77,6 +77,14 @@ const PRIORITY_LABEL = { high: 'High', low: 'Low' }
 
 const sumCounts = (counts) => Object.values(counts ?? {}).reduce((n, c) => n + c, 0)
 
+// An empty selection and "all groups" (null) both write the same thing — no
+// restriction (T35 Fix 3) — so they must say the same thing, or unticking
+// every chip would silently lie about what gets committed. One formatter so
+// the collapsed summary and the expanded editor can't drift apart (round 2
+// review).
+const formatEligibility = (groupNames) =>
+  groupNames == null || groupNames.length === 0 ? 'All groups' : `Groups: ${groupNames.join(', ')}`
+
 // T73 — a stable per-conflict id for the resolution queue. Derived from the
 // fields the conflict already carries, so it survives a re-derive after a peer
 // race (design spec §9). normalizeName-free (renderer-local) but lower-cased so
@@ -1081,7 +1089,7 @@ export default function ImportScreen({ campId, onNavigate }) {
               </div>
               {[
                 { key: 'add', title: 'Keep them', sub: 'Add what I import alongside what’s already here.' },
-                { key: 'replace', title: 'Replace them', sub: `This will replace all Units, Groups, Days, Time Blocks, and Activities across the entire camp — every Program, not just this one. Clear the ${existingCountAll} existing ${existingCountAll === 1 ? 'item' : 'items'} first, then import. These are ordinary records — anything replaced can be brought back from Trash.` },
+                { key: 'replace', title: 'Replace them', sub: `This will replace all Units, Groups, Days, Time Blocks, and Activities across the entire camp — every Program, not just this one. Clears the ${existingCountAll} existing ${existingCountAll === 1 ? 'item' : 'items'} first, then imports.` },
               ].map(opt => {
                 const on = importMode === opt.key
                 return (
@@ -1575,6 +1583,7 @@ function FinishCard({ queue, answers, staleChoice, working, onFinish }) {
 // for (e.g. it never appeared in a `days`-oriented grid, T35 gotcha) — that
 // activity gets blank inputs, same as before this work, not a crash.
 function ActivityRuleRow({ name, rule, allGroups, onChange, onToggleGroup }) {
+  const [expanded, setExpanded] = useState(false)
   const inferred = rule?._inferred !== false && rule != null
   const textColor = inferred ? 'var(--text-secondary)' : 'var(--text)'
   const groupNames = rule?.eligible_group_names ?? null // null = all groups
@@ -1584,72 +1593,141 @@ function ActivityRuleRow({ name, rule, allGroups, onChange, onToggleGroup }) {
   // a thing worth the director's attention, not a confident default.
   const eligibilityUnknown = rule != null && rule.eligibility_known === false
 
+  const eligibilitySummary = formatEligibility(groupNames)
+  const frequencySummary = rule?.min_per_week != null && rule?.max_per_week != null
+    ? `${rule.min_per_week}–${rule.max_per_week}×/wk`
+    : 'Not set'
+  const prioritySummary = PRIORITY_LABEL[rule?.priority ?? 'low']
+
+  const chevron = (
+    <svg
+      aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none"
+      stroke="var(--text-secondary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+      style={{
+        flexShrink: 0, transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+        transition: 'transform var(--motion-base) var(--ease-standard)',
+      }}
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+
+  const adjustButton = (
+    <button
+      type="button"
+      onClick={() => setExpanded((e) => !e)}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 4,
+        fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'inherit',
+        border: 'none', background: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4,
+      }}
+      onMouseEnter={(e) => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text) 5%, transparent)' }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'none' }}
+    >
+      Adjust
+      {chevron}
+    </button>
+  )
+
+  // The outer container's own box (border, radius, margin, background) is
+  // identical in both states — only the content inside, and therefore the
+  // height, changes (spec: "silhouette must not jump"). A reveal keyframe
+  // (max-height + opacity) plays on the inner wrapper of whichever content
+  // mounts; reduced-motion turns it off via the component-scoped media query.
+  const containerStyle = {
+    display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
+    padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)',
+    marginBottom: 6, fontSize: 12, background: 'var(--bg)',
+  }
+  const revealStyle = {
+    display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8, width: '100%',
+    overflow: 'hidden', animation: 'importRuleReveal var(--motion-base) var(--ease-standard)',
+  }
+  const revealKeyframes = (
+    <style>{`
+      @keyframes importRuleReveal { from { max-height: 0; opacity: 0; } to { max-height: 200px; opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) { .import-rule-reveal { animation: none !important; } }
+    `}</style>
+  )
+
+  if (!expanded) {
+    return (
+      <div style={{ ...containerStyle, justifyContent: 'space-between' }}>
+        {revealKeyframes}
+        <div className="import-rule-reveal" style={{ ...revealStyle, width: 'auto', flex: 1 }}>
+          <span style={{ fontWeight: 600, color: 'var(--text)', minWidth: 110 }}>{name}</span>
+          <span style={{ fontFamily: 'inherit', fontSize: 12, color: textColor }}>
+            {frequencySummary} · {prioritySummary} · {eligibilitySummary}
+          </span>
+          {eligibilityUnknown && (
+            <span style={{ color: 'var(--text)' }}>Worth checking — groups unclear</span>
+          )}
+        </div>
+        {adjustButton}
+      </div>
+    )
+  }
+
   return (
-    <div style={{
-      display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
-      padding: '6px 10px', borderRadius: 6, border: '1px solid var(--border)',
-      marginBottom: 6, fontSize: 12, background: 'var(--bg)',
-    }}>
-      <span style={{ fontWeight: 600, color: 'var(--text)', minWidth: 110 }}>{name}</span>
+    <div style={containerStyle}>
+      {revealKeyframes}
+      <div className="import-rule-reveal" style={revealStyle}>
+        <div style={{ display: 'flex', width: '100%', justifyContent: 'flex-end' }}>
+          {adjustButton}
+        </div>
+        <span style={{ fontWeight: 600, color: 'var(--text)', minWidth: 110 }}>{name}</span>
 
-      <input
-        type="number" min={1}
-        value={rule?.min_per_week ?? ''}
-        onChange={(e) => onChange({ min_per_week: Math.max(1, Number(e.target.value) || 1) })}
-        style={{ width: 40, padding: '3px 5px', fontSize: 12, borderRadius: 5, border: '1px solid var(--border)', color: textColor, background: 'var(--surface)' }}
-      />
-      <span style={{ color: 'var(--text-secondary)' }}>–</span>
-      <input
-        type="number" min={1}
-        value={rule?.max_per_week ?? ''}
-        onChange={(e) => onChange({ max_per_week: Math.max(1, Number(e.target.value) || 1) })}
-        style={{ width: 40, padding: '3px 5px', fontSize: 12, borderRadius: 5, border: '1px solid var(--border)', color: textColor, background: 'var(--surface)' }}
-      />
-      <span style={{ color: textColor }}>×/wk</span>
+        <input
+          type="number" min={1}
+          value={rule?.min_per_week ?? ''}
+          onChange={(e) => onChange({ min_per_week: Math.max(1, Number(e.target.value) || 1) })}
+          style={{ width: 40, padding: '3px 5px', fontSize: 12, borderRadius: 5, border: '1px solid var(--border)', color: textColor, background: 'var(--surface)' }}
+        />
+        <span style={{ color: 'var(--text-secondary)' }}>–</span>
+        <input
+          type="number" min={1}
+          value={rule?.max_per_week ?? ''}
+          onChange={(e) => onChange({ max_per_week: Math.max(1, Number(e.target.value) || 1) })}
+          style={{ width: 40, padding: '3px 5px', fontSize: 12, borderRadius: 5, border: '1px solid var(--border)', color: textColor, background: 'var(--surface)' }}
+        />
+        <span style={{ color: textColor }}>×/wk</span>
 
-      <select
-        value={rule?.priority ?? 'low'}
-        onChange={(e) => onChange({ priority: e.target.value })}
-        style={{ fontSize: 12, padding: '3px 5px', borderRadius: 5, border: '1px solid var(--border)', color: textColor, background: 'var(--surface)', fontFamily: 'inherit' }}
-      >
-        {['high', 'low'].map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
-      </select>
+        <select
+          value={rule?.priority ?? 'low'}
+          onChange={(e) => onChange({ priority: e.target.value })}
+          style={{ fontSize: 12, padding: '3px 5px', borderRadius: 5, border: '1px solid var(--border)', color: textColor, background: 'var(--surface)', fontFamily: 'inherit' }}
+        >
+          {['high', 'low'].map((p) => <option key={p} value={p}>{PRIORITY_LABEL[p]}</option>)}
+        </select>
 
-      {eligibilityUnknown ? (
-        <span style={{ color: 'var(--text)' }}>
-          Shoresh couldn’t tell from this file’s layout which groups do which activity, so eligibility
-          is left open. Worth checking.
-        </span>
-      ) : (
-        <span style={{ color: textColor }}>
-          {/* An empty selection and "all groups" (null) both write the same
-              thing — no restriction (T35 Fix 3) — so they must say the same
-              thing, or unticking every chip would silently lie about what
-              gets committed. */}
-          {groupNames === null || groupNames.length === 0
-            ? 'All groups'
-            : `Groups: ${groupNames.join(', ')}`}
-        </span>
-      )}
+        {eligibilityUnknown ? (
+          <span style={{ color: 'var(--text)' }}>
+            Shoresh couldn’t tell from this file’s layout which groups do which activity, so eligibility
+            is left open. Worth checking.
+          </span>
+        ) : (
+          <span style={{ color: textColor }}>{formatEligibility(groupNames)}</span>
+        )}
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-        {allGroups.map((g) => {
-          const on = groupNames === null || groupNames.includes(g)
-          return (
-            <button
-              key={g}
-              onClick={() => onToggleGroup(g)}
-              style={{
-                fontSize: 10, padding: '2px 6px', borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
-                background: on ? 'color-mix(in srgb, var(--success) 12%, var(--surface))' : 'var(--surface)',
-                border: `1px solid ${on ? 'var(--success)' : 'var(--border)'}`,
-                color: on ? 'var(--text)' : 'var(--text-secondary)',
-              }}
-            >
-              {g}
-            </button>
-          )
-        })}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+          {allGroups.map((g) => {
+            const on = groupNames === null || groupNames.includes(g)
+            return (
+              <button
+                key={g}
+                onClick={() => onToggleGroup(g)}
+                style={{
+                  fontSize: 10, padding: '2px 6px', borderRadius: 4, cursor: 'pointer', fontFamily: 'inherit',
+                  background: on ? 'color-mix(in srgb, var(--success) 12%, var(--surface))' : 'var(--surface)',
+                  border: `1px solid ${on ? 'var(--success)' : 'var(--border)'}`,
+                  color: on ? 'var(--text)' : 'var(--text-secondary)',
+                }}
+              >
+                {g}
+              </button>
+            )
+          })}
+        </div>
       </div>
     </div>
   )

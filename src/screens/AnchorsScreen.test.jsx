@@ -149,3 +149,53 @@ describe('AnchorsScreen cleanup-failure surfacing', () => {
     expect(screen.queryByText('Failed to save — check your connection and try again')).toBeNull()
   })
 })
+
+describe('AnchorsScreen delete confirmation', () => {
+  function existingAnchor(overrides = {}) {
+    return {
+      id: 'anchor-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Mifkad',
+      day_id: 'd1', time_block_id: 'block-1', is_all_groups: 1, group_ids: null,
+      ...overrides,
+    }
+  }
+
+  function setupList() {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'anchor_activities') return Promise.resolve([existingAnchor()])
+      if (entity === 'days_of_operation') return Promise.resolve([day({ id: 'd1' })])
+      if (entity === 'time_blocks') return Promise.resolve([block()])
+      if (entity === 'tiers') return Promise.resolve([])
+      if (entity === 'groups') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+  }
+
+  it('shows a styled confirm modal (not window.confirm) with the specified copy before deleting', async () => {
+    setupList()
+    render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByText('Delete "Mifkad"?')).not.toBeNull())
+    expect(screen.queryByText('This fixed event will be removed from your schedules.')).not.toBeNull()
+
+    fireEvent.click(screen.getByText('Delete Fixed Event'))
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'anchor_activities', 'anchor-1'))
+  })
+
+  it('cancels without deleting', async () => {
+    setupList()
+    render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+    await waitFor(() => expect(screen.queryByText('Delete "Mifkad"?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Cancel'))
+
+    expect(screen.queryByText('Delete "Mifkad"?')).toBeNull()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+  })
+})
