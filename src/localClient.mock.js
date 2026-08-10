@@ -690,7 +690,7 @@ export const mockShoresh = {
     // (mirrors commitPlan's HELD sentinel). Return the held outcome — clearly NOT
     // a thrown error — for the director to resolve; created counts stay zero.
     if (conflicts.length > 0) {
-      return { held: true, conflicts, created, total: 0, updated: 0, fixedEvents: { created: 0, skipped: [], partial: [] } }
+      return { held: true, conflicts, created, total: 0, updated: 0, fixedEvents: { created: 0, skipped: [], partial: [], moved: [] } }
     }
 
     // No conflicts — apply the plan. tierIdByName / groupIdByNameRun were seeded
@@ -813,7 +813,7 @@ export const mockShoresh = {
     }
 
     saveState(state)
-    const outcome = { held: false, conflicts: [], created, total, updated, fixedEvents: { created: fixedCreatedIds.length, skipped: fixedSkipped, partial: fixedPartial } }
+    const outcome = { held: false, conflicts: [], created, total, updated, fixedEvents: { created: fixedCreatedIds.length, skipped: fixedSkipped, partial: fixedPartial, moved: [] } }
     if (replaced) outcome.replaced = replaced
     return outcome
   },

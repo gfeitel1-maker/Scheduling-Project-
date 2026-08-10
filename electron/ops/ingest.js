@@ -654,6 +654,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   const fixedPartial = []
   const fixedUnchanged = []
   const fixedRejected = []
+  const fixedMoved = []
 
   // T72: slot identity of a fixed-event occurrence — "this activity, in this
   // block, on this day, for this cohort." is_all_groups/group_ids are attributes
@@ -661,6 +662,14 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // by the camp-scoped query. Used to recognize-then-skip an anchor already live.
   const anchorSlotKey = (cohortId, dayId, tbId, name) =>
     `${cohortId ?? ''}|${dayId}|${tbId}|${normalizeName(name)}`
+
+  // C1b: the drift-pairing group is (cohort_id, normalizeName(name)) — the
+  // dimension a director's move CAN'T change (saveAnchor mutates day_id/
+  // time_block_id, never cohort_id or name; AnchorsScreen.jsx:315 vs :326).
+  // day_id/time_block_id are the two coordinates that CAN drift, hence the
+  // pairing key below one level under anchorSlotKey.
+  const anchorGroupKey = (cohortId, name) => `${cohortId ?? ''}|${normalizeName(name)}`
+  const anchorDaySlot = (dayId, tbId) => `${dayId}|${tbId}`
 
   // Fixed-event reimport tombstone fix: slot keys of anchor_activities whose
   // LATEST op is a DELETE_FIELD written with source==='human' — a director's
@@ -998,6 +1007,81 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       writeActivityEvidence(item.entity_id, item._rule)
     }
 
+    // C1b: read-only slot-drift MOVED signal (docs/work/tickets/
+    // C1b-anchor-slot-drift-moved-signal.md). A director who moves a live
+    // anchor via AnchorsScreen (day_id/time_block_id, never cohort_id or
+    // name — saveAnchor, AnchorsScreen.jsx:315) leaves T72's exact-slot
+    // recognize-then-skip blind to the drift: re-importing the ORIGINAL file
+    // would silently mint a duplicate at the old slot. A naive "match by name
+    // at a different slot" is unsafe (names aren't unique, per-day fan-out
+    // breaks 1:1 cardinality) so this is a set-cardinality pre-pass, computed
+    // once here — after the live-anchor scan/teardown and name-map resolution,
+    // before ANY fixed-event write — partitioning both sides by (cohort_id,
+    // normalizeName(name)) (ADR §1: is_all_groups/group_ids are occurrence
+    // attributes, never part of slot identity, so they never enter this key
+    // either). Read-only: this pre-pass NEVER appends an op to an anchor row,
+    // it only decides which file slot the loop below reports as moved instead
+    // of creating.
+    const liveByGroup = new Map() // groupKey -> Set("dayId|tbId")
+    for (const row of db
+      .prepare('SELECT cohort_id, day_id, time_block_id, name FROM anchor_activities WHERE camp_id = ?')
+      .all(camp_id)) {
+      const g = anchorGroupKey(row.cohort_id, row.name)
+      if (!liveByGroup.has(g)) liveByGroup.set(g, new Set())
+      liveByGroup.get(g).add(anchorDaySlot(row.day_id, row.time_block_id))
+    }
+
+    // Deliberately re-derives tbId/dayId from blockIdByName/dayIdByName here,
+    // duplicating the write loop's resolution below: this pre-pass must be a
+    // self-contained, side-effect-free pass over the file that completes BEFORE
+    // any create decision, so it cannot share the write loop's single walk
+    // without entangling the cardinality analysis with the writes it gates.
+    const fileByGroup = new Map() // groupKey -> Map("dayId|tbId" -> fe.name)
+    for (const fe of plan.fixedEvents) {
+      const tbId = blockIdByName.get(normalizeName(fe.time_block))
+      if (!tbId) continue
+      const g = anchorGroupKey(cohort_id, fe.name)
+      if (!fileByGroup.has(g)) fileByGroup.set(g, new Map())
+      const slots = fileByGroup.get(g)
+      for (const d of fe.days ?? []) {
+        const dayId = dayIdByName.get(normalizeName(d))
+        if (!dayId) continue
+        const slot = anchorDaySlot(dayId, tbId)
+        if (!slots.has(slot)) slots.set(slot, fe.name)
+      }
+    }
+
+    // anchorSlotKey(cohort, day, tb, name) of the FILE's slot -> reason, for
+    // the single file slot each qualifying group pairs against the single
+    // live slot it left unmatched. Keyed by the FULL slot identity (not just
+    // day|tb) so two different-named events sharing a day/time-block can
+    // never collide. Consulted (and suppresses the create) in the loop below.
+    const movedBySlot = new Map()
+    const groupKeys = new Set([...liveByGroup.keys(), ...fileByGroup.keys()])
+    for (const g of groupKeys) {
+      const liveSet = liveByGroup.get(g) ?? new Set()
+      const fileMap = fileByGroup.get(g) ?? new Map()
+      const liveUnmatched = [...liveSet].filter((s) => !fileMap.has(s))
+      // A tombstoned file slot already resolves via the existing rejectedSlots
+      // check below — it must never double as a move candidate, or a
+      // deliberate director rejection reads as a drift (case 7).
+      const fileUnmatched = [...fileMap.keys()].filter((s) => {
+        if (liveSet.has(s)) return false
+        const [dayId, tbId] = s.split('|')
+        return !rejectedSlots.has(anchorSlotKey(cohort_id, dayId, tbId, fileMap.get(s)))
+      })
+      if (liveUnmatched.length !== 1 || fileUnmatched.length !== 1) continue // every other cardinality: no guess
+      // The file still shows the OLD (stale) slot; the live row already lives
+      // at the new one. Reason reads from the director's perspective: "the
+      // file's slot" -> "where it actually is now".
+      const [fromDay, fromTb] = fileUnmatched[0].split('|')
+      const [toDay, toTb] = liveUnmatched[0].split('|')
+      const name = fileMap.get(fileUnmatched[0])
+      const reason = `moved from ${liveName('days_of_operation', fromDay)}/${liveName('time_blocks', fromTb)}`
+        + ` to ${liveName('days_of_operation', toDay)}/${liveName('time_blocks', toTb)}`
+      movedBySlot.set(anchorSlotKey(cohort_id, fromDay, fromTb, name), { name, reason })
+    }
+
     // Fixed events, after the entity loop and INSIDE the same transaction, so
     // the whole import stays one atomic unit (ADR §4). anchor_activities is
     // written here and nowhere else in ingest; the generic whitelist never lets
@@ -1040,6 +1124,14 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // slot are recognized here and left untouched (anchor updates are out of
         // scope per ADR §4).
         const slotKey = anchorSlotKey(cohort_id, dayId, tbId, fe.name)
+        // C1b: this exact file slot is the one the cardinality pre-pass
+        // paired against a single unmatched live slot elsewhere — report the
+        // drift and suppress the create. No op is appended for either side.
+        const moved = movedBySlot.get(slotKey)
+        if (moved) {
+          fixedMoved.push({ name: moved.name, reason: moved.reason })
+          continue
+        }
         // Live wins over tombstone — load-bearing for the restore escape
         // hatch: a director who un-deletes the anchor via the trash can must
         // see it recognized as unchanged, not rejected, on the next import.
@@ -1115,7 +1207,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       created,
       total,
       updated: 0,
-      fixedEvents: { created: 0, unchanged: 0, skipped: [], partial: [], rejected: [] },
+      fixedEvents: { created: 0, unchanged: 0, skipped: [], partial: [], rejected: [], moved: [] },
     }
   }
 
@@ -1131,6 +1223,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       skipped: fixedSkipped,
       partial: fixedPartial,
       rejected: fixedRejected,
+      moved: fixedMoved,
     },
   }
   if (replaced) outcome.replaced = replaced
