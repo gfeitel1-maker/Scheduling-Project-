@@ -733,6 +733,12 @@ export default function ImportScreen({ campId, onNavigate }) {
               {result.fixedEvents.partial.map((p) => `${p.name} (${p.reason})`).join('; ')}. Adjust {result.fixedEvents.partial.length === 1 ? 'it' : 'them'} on the Fixed Events screen.
             </div>
           )}
+          {result.fixedEvents?.moved?.length > 0 && (
+            <div style={{ marginTop: 8 }}>
+              {result.fixedEvents.moved.length} fixed {result.fixedEvents.moved.length === 1 ? 'event has' : 'events have'} moved since this file was last imported, so {result.fixedEvents.moved.length === 1 ? 'it was' : 'they were'} left as-is instead of creating a duplicate:{' '}
+              {result.fixedEvents.moved.map((m) => `${m.name} (${m.reason})`).join('; ')}.
+            </div>
+          )}
           {/* What the Replace destroyed, stated rather than implied — an
               import never silently omits (ADR §1), and that cuts both ways. */}
           {result.replaced && (

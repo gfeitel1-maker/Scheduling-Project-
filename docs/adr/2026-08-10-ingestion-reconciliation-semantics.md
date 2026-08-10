@@ -301,6 +301,20 @@ branch, merged to the integration branch (never straight to `main`) after review
   anchor slots against the import's resolved scope; surfaced as a CHANGED report item; no write to the
   anchor row. Depends: C1 (same aggregation pass), and does not depend on B3/the tombstone fix (it
   reads existing anchors, it does not touch deletion/creation).
+- **C1b — Slot-identity-drift MOVED signal** (Red Hat finding during B3 review; ticket
+  `C1b-anchor-slot-drift-moved-signal.md`). T72's recognize-then-skip matches an anchor by EXACT slot
+  identity (`cohort_id, day_id, time_block_id, normalizeName(name)`), so a live anchor a director moved
+  via AnchorsScreen (`day_id`/`time_block_id` only — `cohort_id` and `name` never change) is invisible to
+  it: re-importing the original file used to mint a silent duplicate at the old slot. A set-cardinality
+  pre-pass, partitioned by `(cohort_id, normalizeName(name))` and computed once after the live-anchor
+  scan/teardown, pairs a group's single unmatched live slot against its single unmatched file slot and
+  reports the file slot as `fixedEvents.moved` (`{ name, reason }`, matching `skipped`/`partial`'s shape)
+  instead of creating; every other cardinality (0:N, N:0, N:M with either ≥2) falls through to the
+  existing create/skip/reject behavior unchanged, and a tombstoned file slot never re-enters the pairing
+  pool (a human rejection stays a rejection). Read-only: no op is ever appended to the anchor row — like
+  C1a, this is ADD-only to the report shape, with no commit-path write and no actual move reconciliation
+  (that heavier slice stays out of scope). Depends: C1 (reads T72's recognized live-anchor set; sibling
+  of C1a, not a dependency of it — the two diff different dimensions of the same slot).
 - **C2 — Director-decision generation** from LOW/CONFLICT + held items ("Looks right / Edit"). Depends: C1.
 
 **Phase D — EXPERIENCE (presentation):**
