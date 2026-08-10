@@ -99,6 +99,7 @@ They are different facts and a run can carry a bad one of each.
 Referenced by nothing and referencing nothing. Usually a real defect —
 either the document is stranded or an edge was never declared.
 
+- [docs/adr/2026-08-10-legacy-import-priority-backfill.md](../../docs/adr/2026-08-10-legacy-import-priority-backfill.md)
 - [docs/work/handoffs/2026-08-09-agent-quality-cut-wasted-work-brief.md](../../docs/work/handoffs/2026-08-09-agent-quality-cut-wasted-work-brief.md)
 - [docs/work/handoffs/2026-08-09-doc-staleness-remediation-handoff.md](../../docs/work/handoffs/2026-08-09-doc-staleness-remediation-handoff.md)
 - [docs/work/handoffs/2026-08-09-graph-engineering-exploration-brief.md](../../docs/work/handoffs/2026-08-09-graph-engineering-exploration-brief.md)
