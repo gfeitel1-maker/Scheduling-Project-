@@ -17,6 +17,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { appendOp, DELETE_FIELD, latestOp } from './operations.js'
+import { latestOpForEntity, lastKnownFields } from './restore.js'
 import { PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 import { normalizeName } from '../../src/ingest/preview.js'
 import { buildPlan, CLEAR } from '../../src/ingest/buildPlan.js'
@@ -546,6 +547,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   const fixedSkipped = []
   const fixedPartial = []
   const fixedUnchanged = []
+  const fixedRejected = []
 
   // T72: slot identity of a fixed-event occurrence — "this activity, in this
   // block, on this day, for this cohort." is_all_groups/group_ids are attributes
@@ -553,6 +555,39 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // by the camp-scoped query. Used to recognize-then-skip an anchor already live.
   const anchorSlotKey = (cohortId, dayId, tbId, name) =>
     `${cohortId ?? ''}|${dayId}|${tbId}|${normalizeName(name)}`
+
+  // Fixed-event reimport tombstone fix: slot keys of anchor_activities whose
+  // LATEST op is a DELETE_FIELD written with source==='human' — a director's
+  // deliberate rejection (local delete or a replicated peer delete, both
+  // forced 'human' by syncServer). Import teardown deletes write source=null
+  // and are STRICTLY excluded by this === check, so replace-mode does not
+  // tombstone its own re-creates. Reconstructs the dead row's identity from
+  // its op history via restore.js's lastKnownFields (same mechanism the trash
+  // can uses to restore a deleted record).
+  // Unlike the Policy-A protection gate below (isProtected, which treats NULL
+  // source as human to over-protect edits), this predicate requires an
+  // EXPLICIT source==='human' delete: a NULL/legacy delete is ambiguous
+  // between director-rejection and import-teardown, so it must NOT suppress
+  // re-import.
+  const rejectedSlotKeys = (db, camp_id) => {
+    const rejected = new Set()
+    const entityIds = db
+      .prepare("SELECT DISTINCT entity_id FROM operations WHERE entity = 'anchor_activities'")
+      .all()
+      .map((r) => r.entity_id)
+    for (const entity_id of entityIds) {
+      const latest = latestOpForEntity(db, 'anchor_activities', entity_id)
+      if (!latest || latest.field !== DELETE_FIELD || latest.source !== 'human') continue
+      const fields = lastKnownFields(db, 'anchor_activities', entity_id)
+      if (fields.get('camp_id') !== camp_id) continue
+      const dayId = fields.get('day_id')
+      const tbId = fields.get('time_block_id')
+      const name = fields.get('name')
+      if (!dayId || !tbId || !name) continue
+      rejected.add(anchorSlotKey(fields.get('cohort_id') ?? null, dayId, tbId, name))
+    }
+    return rejected
+  }
   let replaced = null
 
   // The write of one PlanItem: mint the row id, extract each FieldDelta's `to`
@@ -693,6 +728,14 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       .all(camp_id)) {
       anchorSlots.add(anchorSlotKey(row.cohort_id, row.day_id, row.time_block_id, row.name))
     }
+
+    // Fixed-event reimport tombstone fix: built right after the live-anchor
+    // scan, inside the same transaction, so a held import rolls it back too.
+    // Replace mode is an intentional clean slate — the director asked to rebuild
+    // the camp from this source — so it CLEARS prior rejections (product owner
+    // 2026-08-10): an add-mode re-import honors a human rejection, a replace-mode
+    // re-import brings rejected events back.
+    const rejectedSlots = mode === 'replace' ? new Set() : rejectedSlotKeys(db, camp_id)
 
     const toCreate = []
     const toUpdate = []
@@ -875,8 +918,15 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // slot are recognized here and left untouched (anchor updates are out of
         // scope per ADR §4).
         const slotKey = anchorSlotKey(cohort_id, dayId, tbId, fe.name)
+        // Live wins over tombstone — load-bearing for the restore escape
+        // hatch: a director who un-deletes the anchor via the trash can must
+        // see it recognized as unchanged, not rejected, on the next import.
         if (anchorSlots.has(slotKey)) {
           fixedUnchanged.push({ name: fe.name })
+          continue
+        }
+        if (rejectedSlots.has(slotKey)) {
+          fixedRejected.push({ name: fe.name })
           continue
         }
         anchorSlots.add(slotKey)
@@ -926,7 +976,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       created,
       total,
       updated: 0,
-      fixedEvents: { created: 0, unchanged: 0, skipped: [], partial: [] },
+      fixedEvents: { created: 0, unchanged: 0, skipped: [], partial: [], rejected: [] },
     }
   }
 
@@ -941,6 +991,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       unchanged: fixedUnchanged.length,
       skipped: fixedSkipped,
       partial: fixedPartial,
+      rejected: fixedRejected,
     },
   }
   if (replaced) outcome.replaced = replaced

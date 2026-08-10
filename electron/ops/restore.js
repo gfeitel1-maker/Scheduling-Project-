@@ -72,7 +72,7 @@ export function nameFieldFor(entity) {
   return NAME_FIELD[entity] ?? 'name'
 }
 
-function latestOpForEntity(db, entity, entity_id) {
+export function latestOpForEntity(db, entity, entity_id) {
   return db
     .prepare('SELECT * FROM operations WHERE entity = ? AND entity_id = ? ORDER BY seq DESC LIMIT 1')
     .get(entity, entity_id)
