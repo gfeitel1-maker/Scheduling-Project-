@@ -633,6 +633,19 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // no explicit confidence tier today (ADR OQ3 permits this to flex): 'high'
   // when the rule's eligibility was actually observed AND resolved to a
   // concrete list, 'low' otherwise (no signal, or the ambiguous-fallback null).
+  // D3: the SAME support objects already handed to writeEvidence, collected
+  // in-memory so commitIngest's dry-run branch can surface them for the "why
+  // does Shoresh think this" disclosure — no recompute, no extra DB read.
+  // Survives a dryRun rollback because it's plain JS, not a DB write.
+  // Activities key by entity_id (matches planItems' item.entity_id, the D3
+  // join key); fixed events key by name (their decisions carry no entity_id
+  // — see reconciliationReport.js's addFixedEventDecision). Declared here,
+  // right above their first writer, rather than down by `conflicts` — both
+  // writeActivityEvidence below and the fixed-event writeEvidence call site
+  // close over these directly.
+  const evidenceSupportActivities = {}
+  const evidenceSupportFixedEvents = {}
+
   const writeActivityEvidence = (entityId, rule) => {
     if (!rule?.support) return
     const confidence = rule.eligibility_known && Array.isArray(rule.eligible_group_names) ? 'high' : 'low'
@@ -747,16 +760,6 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   const fixedRejected = []
   const fixedMoved = []
   const fixedScopeChanged = []
-
-  // D3: the SAME support objects already handed to writeEvidence, collected
-  // in-memory so commitIngest's dry-run branch can surface them for the "why
-  // does Shoresh think this" disclosure — no recompute, no extra DB read.
-  // Survives a dryRun rollback because it's plain JS, not a DB write.
-  // Activities key by entity_id (matches planItems' item.entity_id, the D3
-  // join key); fixed events key by name (their decisions carry no entity_id
-  // — see reconciliationReport.js's addFixedEventDecision).
-  const evidenceSupportActivities = {}
-  const evidenceSupportFixedEvents = {}
 
   // T72: slot identity of a fixed-event occurrence — "this activity, in this
   // block, on this day, for this cohort." is_all_groups/group_ids are attributes

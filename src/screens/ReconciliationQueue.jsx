@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { S } from '../styles/shared'
+import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
 import { isDecisionResolved, isEditableDecision, isBackedConfirmChange } from './reconciliationResolutions.js'
 
 // D2 — the decision-queue shell, generalizing HeldResolution's existing
@@ -73,30 +73,67 @@ function EvidenceBody({ evidence }) {
       </div>
     )
   }
-  return "This isn't populated yet — coming in a later update."
+  return <span style={{ fontStyle: 'italic' }}>This isn't populated yet — coming in a later update.</span>
+}
+
+// D3 round 2 — the expanded body, mounted only while open so
+// useEnterTransition's per-mount fade (mockup's `whyopen` keyframe:
+// opacity 0->1 + translateY(-4px)->0, var(--motion-base)/var(--ease-out))
+// replays every time the disclosure reopens, and degrades to an opacity-only
+// crossfade under prefers-reduced-motion (useEnterTransition's own contract).
+// Tinted container (.why-body: var(--bg) background, 8px radius, 14px/16px
+// padding) is what reads the evidence as subordinate to the card above it.
+function WhyBody({ evidence }) {
+  const enter = useEnterTransition('slideFade')
+  return (
+    <div
+      style={{
+        marginTop: 12, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6,
+        background: 'var(--bg)', borderRadius: 8, padding: '14px 16px', ...enter,
+      }}
+    >
+      {evidence ? <EvidenceBody evidence={evidence} /> : (
+        <span style={{ fontStyle: 'italic' }}>This isn't populated yet — coming in a later update.</span>
+      )}
+    </div>
+  )
 }
 
 // D3 — always rendered, never hidden/disabled (plain-transparency
 // requirement). evidence is null when no support exists for this decision
 // (Phase C's honest-shell default) — that state keeps the "not populated
 // yet" copy. Dashed divider per the mockup (panel 2/3's why-disclosure
-// treatment).
+// treatment) — this D2-inherited outer chrome (marginTop 12 / paddingTop 10)
+// is out of D3 scope and left as-is; only the toggle and body below are D3's.
 function WhyDisclosure({ evidence }) {
   const [open, setOpen] = useState(false)
+  const [hovered, setHovered] = useState(false)
   return (
     <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed color-mix(in srgb, var(--border) 80%, transparent)' }}>
       <button
         className="press-97"
         onClick={() => setOpen((o) => !o)}
-        style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0, fontSize: 12, color: 'var(--text-secondary)' }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0,
+          fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5,
+          color: hovered ? 'var(--primary)' : 'var(--text-secondary)',
+        }}
       >
+        <span
+          style={{
+            fontSize: 10,
+            display: 'inline-block',
+            transform: open ? 'rotate(90deg)' : 'none',
+            transition: prefersReducedMotion() ? 'none' : `transform var(--motion-fast) var(--ease-out)`,
+          }}
+        >
+          ▸
+        </span>
         Why does Shoresh think this?
       </button>
-      {open && (
-        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-          {evidence ? <EvidenceBody evidence={evidence} /> : "This isn't populated yet — coming in a later update."}
-        </div>
-      )}
+      {open && <WhyBody evidence={evidence} />}
     </div>
   )
 }

@@ -210,6 +210,13 @@ function fixedEventDecisionId(kind, reason, name) {
 // too.
 function addFixedEventDecision(decisionsByKey, { kind, confidence, name, reason }, fixedEventEvidence) {
   const id = fixedEventDecisionId(kind, reason, name)
+  // `decisionsByKey.has(id)` above already dedups multiple fixedEventsReport
+  // entries sharing (kind, reason, name) down to ONE decision (round-2
+  // fix's dedup-by-root-cause) — this early return means only the FIRST
+  // entry's lookup runs, so evidence granularity intentionally matches that
+  // same name-level dedup: one decision, one evidence lookup by name, not a
+  // per-entry one. Not a bug if a later entry's support differs; it never
+  // reaches here to be considered.
   if (decisionsByKey.has(id)) return
   decisionsByKey.set(id, {
     id,

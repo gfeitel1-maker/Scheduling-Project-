@@ -1080,3 +1080,31 @@ describe('buildReconciliationReport — D3 (evidence join)', () => {
     expect(withoutArg.decisions.every((d) => d.evidence === null)).toBe(true)
   })
 })
+
+// D3 round 2 — evidence granularity matches decision granularity. Two
+// fixedEventsReport entries for the SAME (kind, reason, name) dedup to one
+// decision (addFixedEventDecision's existing round-2 fix); the surfaced
+// evidence must be consistent with that single merged decision, not a
+// per-entry artifact.
+describe('buildReconciliationReport — D3 round 2 (fixed-event evidence matches name-level dedup)', () => {
+  it('two moved entries for the same name dedup to ONE decision carrying the name-keyed support', () => {
+    const support = { days: ['Monday'], occupied_days: 1, operating_days: 5, groups_in_scope: ['Yeladim'] }
+    const report = buildReconciliationReport({
+      planItems: [], readiness: [],
+      fixedEventsReport: {
+        moved: [
+          { name: 'Mifkad', reason: 'moved to a new slot' },
+          { name: 'Mifkad', reason: 'moved to a new slot' },
+        ],
+      },
+      evidenceSupport: { activities: {}, fixedEvents: { Mifkad: support } },
+    })
+
+    const mifkadDecisions = report.decisions.filter((d) => d.entityName === 'Mifkad')
+    expect(mifkadDecisions).toHaveLength(1)
+    expect(mifkadDecisions[0].evidence).toBe(support)
+    // buckets still fold over every fact seen (rule 5) even though the
+    // decision collapsed to one — dedup is a decisions-layer property only.
+    expect(report.buckets.changed).toBe(2)
+  })
+})
