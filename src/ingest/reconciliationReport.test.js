@@ -676,8 +676,11 @@ describe('buildReconciliationReport — round-2 FIX 1 (merge preserves CHANGED c
     const merged = decisions[0]
     expect(merged.kind).toBe('confirm_change')
     expect(merged.confidence).toBe('changed')
-    expect(merged.field).toContain('location')
-    expect(merged.proposedValue).toBe('Field')
+    expect(merged.field).toEqual(expect.arrayContaining(['location', 'min_per_week']))
+    // field.length > 1 after the merge, so proposedValue must be a field->value
+    // map combining BOTH sides' values (round-2 FIX: proposedValue must never
+    // revert to a scalar that silently drops the loser's value).
+    expect(merged.proposedValue).toEqual({ location: 'Field', min_per_week: 2 })
 
     // buckets stay consistent with the final (merged) decision content: exactly
     // one CHANGED decision exists, so buckets.changed must be >= 1, and the
@@ -706,8 +709,81 @@ describe('buildReconciliationReport — round-2 FIX 1 (merge preserves CHANGED c
     const decisions = report.decisions.filter((d) => d.entityId === 'a21')
     expect(decisions).toHaveLength(1)
     expect(decisions[0].kind).toBe('confirm_change')
-    expect(decisions[0].field).toContain('location')
-    expect(decisions[0].proposedValue).toBe('Field')
+    expect(decisions[0].field).toEqual(expect.arrayContaining(['location', 'min_per_week']))
+    expect(decisions[0].proposedValue).toEqual({ location: 'Field', min_per_week: 2 })
+  })
+})
+
+// Round-2 hardening — FIX 1b (Red Hat): a mixed-kind merge collision with
+// DIFFERENT fields must not drop the loser's value. Previously, when the
+// merged field list grew to length > 1 but the two sides were not BOTH
+// confirm_change, proposedValue reverted to the winner's bare scalar,
+// silently losing the loser's value — violating the module's own contract
+// that field.length > 1 implies a field->value map. Fixed by combining
+// proposedValue into a map whenever the MERGED field ends up length > 1,
+// regardless of which kinds are on each side.
+describe('buildReconciliationReport — round-2 FIX 1b (proposedValue map combines both sides on any mixed merge)', () => {
+  const humanFieldItem = (entityId) => ({
+    op: 'update', entity: 'activities', entity_id: entityId,
+    fields: { name: { from: 'Old Name', to: 'NewName', source: 'import' } },
+    evidence: { tier: 'medium', matched_name: 'Old Name' }, _name: 'Old Name',
+  })
+  const importFieldItem = (entityId) => ({
+    op: 'update', entity: 'activities', entity_id: entityId,
+    fields: { unit: { from: 'A', to: 'B', source: 'import' } },
+    evidence: { tier: 'medium', matched_name: 'Old Name' }, _name: 'Old Name',
+  })
+
+  it('human field first, then import field: merged proposedValue is a map with BOTH values', () => {
+    const planItems = [humanFieldItem('a60'), importFieldItem('a60')]
+    const fieldProvenance = new Map([['activities:a60:name', 'human']])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    const decisions = report.decisions.filter((d) => d.entityId === 'a60')
+    expect(decisions).toHaveLength(1)
+    const d = decisions[0]
+    expect(d.kind).toBe('confirm_change')
+    expect(d.confidence).toBe('changed')
+    expect(d.field.slice().sort()).toEqual(['name', 'unit'])
+    expect(d.proposedValue).toEqual({ name: 'NewName', unit: 'B' })
+  })
+
+  it('import field first, then human field (reverse order): merged proposedValue is a map with BOTH values', () => {
+    const planItems = [importFieldItem('a61'), humanFieldItem('a61')]
+    const fieldProvenance = new Map([['activities:a61:name', 'human']])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    const decisions = report.decisions.filter((d) => d.entityId === 'a61')
+    expect(decisions).toHaveLength(1)
+    const d = decisions[0]
+    expect(d.kind).toBe('confirm_change')
+    expect(d.confidence).toBe('changed')
+    expect(d.field.slice().sort()).toEqual(['name', 'unit'])
+    expect(d.proposedValue).toEqual({ name: 'NewName', unit: 'B' })
+  })
+
+  it('a single-field merged decision (both sides collapse to the same one field) keeps the scalar proposedValue shape', () => {
+    // Two update items on the same entity_id/same single field (e.g. a
+    // multi-source future case) should still yield a scalar, not a 1-entry map.
+    const planItems = [
+      {
+        op: 'update', entity: 'activities', entity_id: 'a62',
+        fields: { name: { from: 'Old', to: 'Mid', source: 'import' } },
+        evidence: { tier: 'medium', matched_name: 'Old' }, _name: 'Old',
+      },
+      {
+        op: 'update', entity: 'activities', entity_id: 'a62',
+        fields: { name: { from: 'Mid', to: 'NewName', source: 'import' } },
+        evidence: { tier: 'medium', matched_name: 'Old' }, _name: 'Old',
+      },
+    ]
+    const fieldProvenance = new Map([['activities:a62:name', 'human']])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    const decisions = report.decisions.filter((d) => d.entityId === 'a62')
+    expect(decisions).toHaveLength(1)
+    expect(decisions[0].field).toEqual(['name'])
+    expect(typeof decisions[0].proposedValue).not.toBe('object')
   })
 })
 

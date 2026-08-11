@@ -252,19 +252,23 @@ function mergeDecisions(existing, incoming) {
     ? [...new Set([...winner.field, ...loser.field])]
     : winner.field
 
-  // Only merge proposedValue when both sides are field-keyed decisions
-  // (confirm_change/confirm_value carry one); a conflict's null proposedValue
-  // must never overwrite a real one, and vice versa.
+  // proposedValue must track `field`'s own shape contract (see classifyItem:
+  // "single field -> scalar; multiple fields -> field->value map"), NOT which
+  // kinds are on each side. Round-2 FIX: the earlier version only combined
+  // into a map when BOTH sides were confirm_change, so a mixed confirm_change
+  // + confirm_value merge with different fields grew `field` to length > 1
+  // while `proposedValue` stayed the winner's bare scalar — silently
+  // dropping the loser's value. A side with no field-keyed value (a
+  // whole-row decision or a conflict, field: null) contributes nothing.
+  const valueMapOf = (side) => {
+    if (!Array.isArray(side.field)) return {}
+    return side.field.length === 1
+      ? { [side.field[0]]: side.proposedValue }
+      : { ...(side.proposedValue ?? {}) }
+  }
   let mergedProposedValue = winner.proposedValue
-  if (winner.kind === 'confirm_change' && loser.kind === 'confirm_change'
-    && Array.isArray(winner.field) && Array.isArray(loser.field)) {
-    const winnerMap = winner.field.length === 1
-      ? { [winner.field[0]]: winner.proposedValue }
-      : winner.proposedValue
-    const loserMap = loser.field.length === 1
-      ? { [loser.field[0]]: loser.proposedValue }
-      : loser.proposedValue
-    const combined = { ...loserMap, ...winnerMap }
+  if (Array.isArray(mergedField)) {
+    const combined = { ...valueMapOf(loser), ...valueMapOf(winner) }
     mergedProposedValue = mergedField.length === 1 ? combined[mergedField[0]] : combined
   }
 
