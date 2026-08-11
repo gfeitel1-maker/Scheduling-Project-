@@ -328,6 +328,7 @@ export function buildReconciliationReport(input) {
     created = [],
     unchanged = [],
     rejected = [],
+    scopeChanged = [],
   } = fixedEventsReport ?? {}
 
   for (const entry of asArray(moved)) {
@@ -338,6 +339,25 @@ export function buildReconciliationReport(input) {
       // confirm_change decision carries; 'changed' is the documented 5th
       // member (see ADR line ~139) — a move is a confirmed fact, not a
       // 'conflict', so it needs its own distinct marker.
+      confidence: 'changed',
+      name: entry.name,
+      reason: entry.reason,
+    })
+  }
+
+  // C3: a group-scope drift is a confirmed CHANGED fact on an existing
+  // anchor slot, same category as a move — CHANGED bucket, confirm_change
+  // decision, 'changed' confidence, read-only (never auto-applied, never
+  // proposes a value). electron/ops/ingest.js:1256 pushes { name, reason }
+  // onto fixedScopeChanged; :1347 attaches it as fixedEvents.scopeChanged.
+  // Folded identically to `moved` above — same addFixedEventDecision call,
+  // same kind, so dedup/no-double-count works via the existing
+  // (entity, kind, reason, name) key with no parallel dedup path.
+  // docs/adr/2026-08-10-ingestion-phaseC-compression-layer.md, C3.
+  for (const entry of asArray(scopeChanged)) {
+    buckets.changed += 1
+    addFixedEventDecision(decisionsByKey, {
+      kind: 'confirm_change',
       confidence: 'changed',
       name: entry.name,
       reason: entry.reason,
