@@ -1,8 +1,8 @@
 ---
 title: "ADR: Ingestion Phase D — Experience (reconciliation summary, decision resolution, why-disclosure, readiness integration)"
-status: proposed
+status: accepted
 date: 2026-08-10
-decided: null
+decided: 2026-08-11
 deciders: [product-owner]
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md]
 supersedes: []
@@ -13,6 +13,45 @@ program: ingestion-reconciliation
 ---
 
 # ADR: Ingestion Phase D — Experience
+
+## Decisions (2026-08-11, product owner)
+
+The open questions below are resolved as follows. Recorded at the start of the Phase D build (D1).
+
+- **OQ1 — commit-while-unresolved = HELD-BACK.** Unresolved non-conflict decisions
+  (`confirm_value`, `confirm_change`, `review_legacy_priority`) do **not** gate the commit and are
+  **not** auto-applied with their proposed value. The plan commits everything already reconciled
+  normally; each unresolved decision's field is **held back (skipped)** until resolved in a later pass.
+  (Option (c) in OQ1.) This governs D2's queue-completion behavior and the summary's secondary-action
+  wording; D1 (read-only summary) does not exercise it.
+- **OQ3 — `review_legacy_priority` batch = ALL-OR-NOTHING at the batch level.** The decision queue
+  counts the whole legacy-priority batch as **one** decision; per-activity sub-progress exists only
+  inside the expanded card, not in the top-level "N of M" queue. Matches Phase C's own batching choice.
+  (D2 card-state model.)
+- **OQ2 — evidence gap = ship the why-disclosure UI shell now.** D3's why-disclosure affordance ships
+  as a shell that honestly reads "not populated yet" when `evidence` is null. Evidence **population**
+  (filling the `evidence` handle at decision-construction time in `reconciliationReport.js`) is tracked
+  as a **separate later slice**, not part of this program's D1–D4. (Recommended option in OQ2.)
+- **`confirm_change` button copy = APPROVED.** "Overwrite with new value" / "Keep my value". (D2.)
+- **NEW — read-only dry-run IPC `ingestReconcile`.** Phase D verification (against
+  `work/ingestion-phasec`) found that of `buildReconciliationReport`'s six inputs, only `planItems`
+  (renderer `buildPlan`) and `readiness` (pure `getReadiness`) are available client-side at the
+  ImportScreen stage seam. `fixedEventsReport` (drift: `moved`+`scopeChanged`) is produced only inside
+  `commitIngest`; `fieldProvenance` (`buildFieldProvenanceMap(db, …)`, `electron/ops/ingest.js:365`) and
+  `legacyPriorityActivities` (`listLegacyPriorityActivities(db, …)`, `:325`) require a live `db` handle
+  the renderer never holds. Rather than fake those three (which would silently undercount the `changed`
+  and legacy `needsAttention` decisions — the exact dishonesty this program exists to remove), a
+  **new read-only, non-mutating main-process IPC `ingestReconcile`** is introduced. It runs the
+  **non-mutating prefix** of the commit pipeline against the live db
+  (`buildExistingSnapshot` → `foldApprovedToRecords` → `buildPlan` → drift pass → `buildFieldProvenanceMap`
+  → `listLegacyPriorityActivities`), **reusing the exact functions `commitIngest` uses** so the dry-run's
+  counts cannot diverge from what a real commit would compute, and returns
+  `{ planItems, fixedEventsReport, fieldProvenance, legacyPriorityActivities }` **without writing
+  anything**. The renderer adds client-side `readiness` and calls `buildReconciliationReport`. The
+  commit path is unchanged. This is a new IPC contract (preload + `localClient.ingestReconcile`);
+  Architect owns its design before Maker builds. Truthfulness (dry-run == commit) and non-mutation are
+  hard, gate-enforced constraints (Security + Red Hat must confirm it cannot be a mutation/injection
+  vector).
 
 Sub-ADR under the parent (`docs/adr/2026-08-10-ingestion-reconciliation-semantics.md`), covering the
 brief's **PHASE D — EXPERIENCE** (`docs/work/specs/2026-08-09-ingestion-reconciliation-brief.md`,
