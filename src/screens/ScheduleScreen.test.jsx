@@ -224,7 +224,7 @@ describe('findings recompute on load without regenerating (Round 2 B2)', () => {
   })
 })
 
-// writeFields is the shared primitive that editSlotSave, swapSlots, dismissFlag,
+// writeFields is the shared primitive that editSlotSave, replaceSlot, dismissFlag,
 // lockActivity, releaseCell, addOverlay, updateOverlayRange, placeActivityManual,
 // and expandSlot all route through (it is module-private, so it is exercised here
 // through editSlotSave rather than imported directly). These two tests cover the

@@ -209,7 +209,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     slots, groups, activities, days, timeBlocks,
   })
   const {
-    editSlotSave, swapSlots, dismissFlag, lockActivity, releaseCell,
+    editSlotSave, replaceSlot, dismissFlag, lockActivity, releaseCell,
     removeOverlay, placeActivityManual, expandSlot, splitSlot,
   } = slotMutations
 
@@ -543,11 +543,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const actMap = new Map(activities.map(a => [a.id, { ...a, colorIdx: a.id }]))
   const anchorMap = new Map(anchors.map(a => [a.id, a]))
 
-  // Group-view and day-view DnD share identical expand-drag/palette-drop
-  // branches; group view also allows slot-swap (product decision 2026-08-04).
-  const dragDeps = { timeBlocks, days, slots, actMap, getSlot, expandSlot, placeActivityManual, swapSlots }
-  const groupHandlers = makeDragHandlers({ ...dragDeps, allowSwap: true })
-  const dayHandlers = makeDragHandlers({ ...dragDeps, allowSwap: true })
+  // Group-view and day-view DnD share identical expand-drag/palette-drop/
+  // replace branches — every grid-to-grid or palette-onto-occupied drop always
+  // replaces (drag-first-placement, 2026-08-09). The prior swap-gating flag is
+  // gone: replace is unconditional now, not a product-decision toggle.
+  const dragDeps = { timeBlocks, days, slots, actMap, getSlot, expandSlot, placeActivityManual, replaceSlot }
+  const groupHandlers = makeDragHandlers(dragDeps)
+  const dayHandlers = makeDragHandlers(dragDeps)
 
   // Announcement copy for the FSM's aria-live region. Both are read only inside
   // a side effect, never during render.
@@ -567,9 +569,19 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     return [group?.name, day?.label, block?.name].filter(Boolean).join(', ') || hit.cellKey
   }
 
+  // Drives the static-ghost drop preview: whether the currently-hovered target
+  // already carries an activity, which paintTarget (useDragFSM.js) reads to
+  // decide whether to render "incoming activity, dim the occupant" instead of
+  // the plain drag-over highlight.
+  function isOccupied(hit) {
+    if (!hit) return false
+    const s = getSlot(slots, hit.groupId, hit.dayId, hit.blockId)
+    return Boolean(s?.activity_id)
+  }
+
   // One FSM per DndContext. Group view's context also covers manual build.
-  const groupDrag = useDragFSM({ commit: groupHandlers.commit, describeDrag, describeHit })
-  const dayDrag = useDragFSM({ commit: dayHandlers.commit, describeDrag, describeHit })
+  const groupDrag = useDragFSM({ commit: groupHandlers.commit, describeDrag, describeHit, isOccupied })
+  const dayDrag = useDragFSM({ commit: dayHandlers.commit, describeDrag, describeHit, isOccupied })
 
   // Grid geometry (getSlot / tails / rowspans / overlays) lives in the pure
   // ./schedule/gridGeometry module. Bind the current data once so the views and

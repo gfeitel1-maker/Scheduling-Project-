@@ -638,6 +638,35 @@
   background: var(--success);
 }
 
+/* Static ghost of the incoming activity + dimmed occupant, per spec's "no
+   motion tween" rule — data-attribute driven, same mechanism as the drop
+   indicator above, not a separate animated layer. */
+.cell[data-drag-over][data-drag-replace] .cell-inner {
+  opacity: 0.35;
+}
+
+.cell[data-drag-over][data-drag-replace]::after {
+  content: attr(data-drag-ghost-label);
+  position: absolute;
+  inset: 8px 6px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  text-align: center;
+  overflow: hidden;
+  outline: 2px dashed var(--primary);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--primary) 14%, var(--surface));
+  pointer-events: none;
+  z-index: 6;
+}
+
 /* The drag preview. One element, moved by one transform write per pointer event,
    never through React. pointer-events: none is load-bearing — elementFromPoint
    would otherwise resolve every hit to the ghost. */
