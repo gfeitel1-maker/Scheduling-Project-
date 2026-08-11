@@ -231,3 +231,105 @@ describe('buildReconciliationReport — C1 (plan items + readiness only)', () =>
     expect(report.decisions[0].proposedValue).toBeNull()
   })
 })
+
+describe('buildReconciliationReport — C2a (fixedEventsReport side channel)', () => {
+  it('a single fixedMoved entry buckets as changed and emits one confirm_change decision', () => {
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: { fixedMoved: [{ name: 'Campfire', reason: 'moved from Mon/Morning to Tue/Morning' }] },
+    })
+    expect(report.buckets.changed).toBe(1)
+    expect(report.decisions).toHaveLength(1)
+    const d = report.decisions[0]
+    expect(d.kind).toBe('confirm_change')
+    expect(d.entity).toBe('anchor_activities')
+    expect(d.entityId).toBeNull()
+    expect(d.entityName).toBe('Campfire')
+    expect(d.field).toBeNull()
+    expect(d.reason).toBe('moved from Mon/Morning to Tue/Morning')
+  })
+
+  it('two distinct fixedMoved entries produce two decisions and buckets.changed === 2', () => {
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: {
+        fixedMoved: [
+          { name: 'Campfire', reason: 'moved from Mon/Morning to Tue/Morning' },
+          { name: 'Color War', reason: 'moved from Wed/Afternoon to Thu/Afternoon' },
+        ],
+      },
+    })
+    expect(report.buckets.changed).toBe(2)
+    expect(report.decisions).toHaveLength(2)
+  })
+
+  it('two identical fixedMoved entries (same name and reason) fold to one decision but count two facts in buckets.changed', () => {
+    const entry = { name: 'Campfire', reason: 'moved from Mon/Morning to Tue/Morning' }
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: { fixedMoved: [entry, { ...entry }] },
+    })
+    // buckets fold over every fact seen (mirrors how C1 folds buckets over every plan item)
+    expect(report.buckets.changed).toBe(2)
+    // decisions dedup by root cause (entity, null, reason, name) — same as C1's create/conflict keying
+    expect(report.decisions).toHaveLength(1)
+  })
+
+  it('a fixedPartial entry buckets as needsAttention and emits one confirm_value decision', () => {
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: { fixedPartial: [{ name: 'Scavenger Hunt', reason: 'groups not imported' }] },
+    })
+    expect(report.buckets.needsAttention).toBe(1)
+    expect(report.decisions).toHaveLength(1)
+    expect(report.decisions[0].kind).toBe('confirm_value')
+    expect(report.decisions[0].entity).toBe('anchor_activities')
+    expect(report.decisions[0].entityName).toBe('Scavenger Hunt')
+    expect(report.decisions[0].reason).toBe('groups not imported')
+  })
+
+  it('fixedSkipped entries contribute neither a decision nor any bucket', () => {
+    const before = buildReconciliationReport({ planItems: [], readiness: [] })
+    const after = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: { fixedSkipped: [{ name: 'Ghost Event', reason: 'time block or day not created' }] },
+    })
+    expect(after.buckets).toEqual(before.buckets)
+    expect(after.decisions).toEqual(before.decisions)
+  })
+
+  it('fixedCreated and fixedUnchanged entries bucket as understood and emit no decision', () => {
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: {
+        fixedCreated: [{ name: 'New Anchor', reason: null }],
+        fixedUnchanged: [{ name: 'Stable Anchor', reason: null }],
+      },
+    })
+    expect(report.buckets.understood).toBe(2)
+    expect(report.decisions).toHaveLength(0)
+  })
+
+  it('additive proof: an absent fixedEventsReport key equals passing all-empty arrays explicitly', () => {
+    const base = { planItems: [], readiness: [] }
+    const withoutKey = buildReconciliationReport(base)
+    const withEmptyArrays = buildReconciliationReport({
+      ...base,
+      fixedEventsReport: { fixedMoved: [], fixedPartial: [], fixedSkipped: [], fixedCreated: [], fixedUnchanged: [] },
+    })
+    expect(withoutKey).toEqual(withEmptyArrays)
+  })
+
+  it('malformed/empty fixedEventsReport input does not throw and is a no-op', () => {
+    const base = buildReconciliationReport({ planItems: [], readiness: [] })
+    expect(() => buildReconciliationReport({ planItems: [], readiness: [], fixedEventsReport: {} })).not.toThrow()
+    const withEmptyObject = buildReconciliationReport({ planItems: [], readiness: [], fixedEventsReport: {} })
+    expect(withEmptyObject).toEqual(base)
+  })
+})
