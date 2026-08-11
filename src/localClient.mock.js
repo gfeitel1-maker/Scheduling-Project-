@@ -458,7 +458,13 @@ export const mockShoresh = {
   // resolution queue — be exercised at :5200. It writes to mock state, NOT the op
   // log, so it proves the UI flow, not the real persistence/sync path (that stays
   // electron:dev): no transaction/atomicity, no seq clock.
-  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation } = {}) {
+  // D1: `dryRun` is an internal-only flag, not part of the real ingestCommit
+  // IPC surface — ingestReconcile below is the only caller that passes it.
+  // `state` comes from loadState(), which already deserializes a fresh copy
+  // off localStorage on every call (never a live reference), so skipping the
+  // final saveState() is sufficient to discard every mutation this run made —
+  // CLONE-RUN-DISCARD without a second copy step.
+  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false } = {}) {
     const state = loadState()
     if (!state.camp) throw new Error('ingest: no camp')
     const campId = state.camp.id
@@ -690,7 +696,7 @@ export const mockShoresh = {
     // (mirrors commitPlan's HELD sentinel). Return the held outcome — clearly NOT
     // a thrown error — for the director to resolve; created counts stay zero.
     if (conflicts.length > 0) {
-      return { held: true, conflicts, created, total: 0, updated: 0, fixedEvents: { created: 0, skipped: [], partial: [], moved: [] } }
+      return { held: true, conflicts, created, total: 0, updated: 0, fixedEvents: { created: 0, skipped: [], partial: [], moved: [] }, ...(dryRun ? { dryRun: true } : {}) }
     }
 
     // No conflicts — apply the plan. tierIdByName / groupIdByNameRun were seeded
@@ -812,10 +818,35 @@ export const mockShoresh = {
       }
     }
 
-    saveState(state)
+    if (!dryRun) saveState(state)
     const outcome = { held: false, conflicts: [], created, total, updated, fixedEvents: { created: fixedCreatedIds.length, skipped: fixedSkipped, partial: fixedPartial, moved: [] } }
     if (replaced) outcome.replaced = replaced
+    if (dryRun) { outcome.dryRun = true; outcome.planItems = plan.items }
     return outcome
+  },
+
+  // D1 — read-only dry run for the reconciliation summary. Runs the SAME
+  // mutation logic as ingestCommit against a state object that is never
+  // persisted (see the comment on ingestCommit's `dryRun` param), so :5200
+  // never writes anything for this call. fieldProvenance/legacyPriorityActivities
+  // are Phase C signals the mock cannot compute faithfully (no op log, no
+  // import_evidence table here) — returned empty, same disclosure style as the
+  // ingestCommit comment above. This is a recorded Governor/owner decision for
+  // D1 (MOCK FIDELITY, docs/adr/2026-08-10-ingestion-phaseD-experience.md sub-
+  // ADR), not an unqualified assertion made here.
+  // clears/humanEditedFields are accepted by the real IPC surface but, like
+  // ingestCommit above, the mock's decide layer doesn't consume them.
+  async ingestReconcile({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation } = {}) {
+    const outcome = await this.ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun: true })
+    return {
+      dryRun: true,
+      held: outcome.held,
+      conflicts: outcome.conflicts,
+      planItems: outcome.planItems ?? [],
+      fixedEventsReport: outcome.fixedEvents,
+      fieldProvenance: {},
+      legacyPriorityActivities: [],
+    }
   },
   // S1b — mock stand-in for confirmAlias (electron/ops/confirmAlias.js), mirroring
   // its OBSERVABLE contract (T74 fidelity discipline) against mock state instead

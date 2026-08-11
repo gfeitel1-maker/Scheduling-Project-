@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Phase D — Reconciliation Experience Mockup</title>
+<style>
+  :root{
+    --bg:#F4F3EF; --surface:#FCFBF8; --surface-elevated:#FFFFFF;
+    --primary:#173B63; --primary-dark:#0F2A47; --secondary:#2F6B58;
+    --accent:#B8833A; --success:#4C8A63; --danger:#B44E48; --anchor:#5C6B7A;
+    --text:#1E2A34; --text-secondary:#5C6670; --border:#D8DBD9;
+    --font-sans:'Inter', system-ui, sans-serif;
+    --font-condensed:'IBM Plex Sans', system-ui, sans-serif;
+    --font-mono:'IBM Plex Mono', ui-monospace, monospace;
+    --motion-fast:140ms; --motion-base:220ms; --motion-settle:340ms;
+    --ease-out:cubic-bezier(0.22,1,0.36,1); --ease-standard:cubic-bezier(0.4,0,0.2,1);
+  }
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:var(--font-sans); background:var(--bg); color:var(--text);
+    font-size:14px; line-height:1.5; -webkit-font-smoothing:antialiased;
+  }
+  button{cursor:pointer;font-family:inherit;}
+  a{text-decoration:none;color:inherit;}
+
+  /* ---------- shell ---------- */
+  .shell{display:flex; min-height:100vh;}
+  .railnav{
+    width:220px; flex:0 0 220px; background:var(--surface-elevated);
+    border-right:1px solid var(--border); padding:20px 14px; position:sticky; top:0; height:100vh;
+  }
+  .railnav h1{font-size:13px; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.04em; margin-bottom:14px;}
+  .railnav button{
+    display:block; width:100%; text-align:left; padding:9px 10px; border-radius:7px;
+    border:none; background:transparent; font-size:13px; font-weight:600; color:var(--text-secondary);
+    margin-bottom:2px; transition:background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out);
+  }
+  .railnav button:hover{background:var(--bg); color:var(--text);}
+  .railnav button.active{background:var(--primary); color:#fff;}
+  .railnav .num{
+    display:inline-block; width:18px; height:18px; border-radius:50%; background:var(--border); color:var(--text-secondary);
+    font-size:10px; font-weight:700; text-align:center; line-height:18px; margin-right:8px;
+  }
+  .railnav button.active .num{background:rgba(255,255,255,.25); color:#fff;}
+
+  .stage{flex:1; padding:40px 48px; max-width:900px;}
+  .panel{display:none;}
+  .panel.active{display:block; animation:fadein var(--motion-base) var(--ease-out);}
+  @keyframes fadein{from{opacity:0; transform:translateY(6px);} to{opacity:1; transform:none;}}
+
+  .eyebrow{font-size:11px; font-weight:700; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.06em; margin-bottom:8px;}
+  .panel h2{font-size:19px; font-weight:700; margin-bottom:4px;}
+  .panel .sub{color:var(--text-secondary); font-size:13px; margin-bottom:24px;}
+
+  /* ---------- SCREEN 1: summary ---------- */
+  .summary-card{
+    background:var(--surface-elevated); border:1px solid var(--border); border-radius:14px;
+    padding:32px 36px; box-shadow:0 1px 2px rgba(30,42,52,.04);
+  }
+  .summary-lede{font-size:16px; font-weight:600; margin-bottom:22px; color:var(--text);}
+  .bucket-row{
+    display:flex; align-items:baseline; gap:12px; padding:11px 0; border-bottom:1px solid var(--border);
+  }
+  .bucket-row:last-of-type{border-bottom:none;}
+  .bucket-glyph{width:20px; text-align:center; font-size:14px; flex:0 0 20px;}
+  .bucket-count{font-size:20px; font-weight:700; font-variant-numeric:tabular-nums; min-width:34px;}
+  .bucket-label{color:var(--text-secondary); font-size:13px;}
+  .bucket-row.understood .bucket-glyph, .bucket-row.understood .bucket-count{color:var(--success);}
+  .bucket-row.attention .bucket-glyph, .bucket-row.attention .bucket-count{color:var(--accent);}
+  .bucket-row.notinsource .bucket-glyph, .bucket-row.notinsource .bucket-count{color:var(--anchor);}
+  .bucket-row.changed .bucket-glyph, .bucket-row.changed .bucket-count{color:var(--danger);}
+
+  .cta-row{display:flex; gap:10px; margin-top:26px; align-items:center;}
+  .btn-primary{
+    padding:10px 18px; background:var(--primary); color:#fff; border:none; border-radius:8px;
+    font-weight:700; font-size:13.5px; transition:transform var(--motion-fast) var(--ease-out);
+  }
+  .btn-primary:active{transform:scale(.97);}
+  .btn-secondary{
+    padding:10px 16px; background:var(--surface); color:var(--text); border:1px solid var(--border);
+    border-radius:8px; font-weight:600; font-size:13px; transition:transform var(--motion-fast) var(--ease-out);
+  }
+  .btn-secondary:active{transform:scale(.98);}
+  .cta-hint{font-size:11.5px; color:var(--text-secondary); margin-top:8px;}
+
+  .detail-toggle{
+    margin-top:20px; font-size:12px; color:var(--text-secondary); font-weight:600;
+    border-top:1px dashed var(--border); padding-top:14px;
+  }
+  .detail-toggle a{color:var(--primary); font-weight:700;}
+
+  .category-strip{display:flex; gap:10px; margin-top:24px; flex-wrap:wrap;}
+  .category-chip{
+    display:flex; align-items:center; gap:6px; padding:6px 12px; border-radius:20px;
+    background:var(--bg); border:1px solid var(--border); font-size:12px; font-weight:600; color:var(--text-secondary);
+  }
+  .category-chip .dot{width:7px; height:7px; border-radius:50%;}
+  .category-chip.ok .dot{background:var(--success);}
+  .category-chip.attn .dot{background:var(--accent);}
+  .category-chip.gap .dot{background:var(--anchor);}
+
+  /* not-in-source line inside summary */
+  .notsrc-line{
+    display:flex; justify-content:space-between; align-items:center; padding:8px 0;
+    font-size:12.5px; color:var(--text-secondary);
+  }
+  .notsrc-line a{color:var(--primary); font-weight:700; font-size:12px;}
+
+  /* ---------- decision card shell ---------- */
+  .card{
+    background:var(--surface-elevated); border:1px solid var(--border); border-radius:14px;
+    padding:26px 28px; box-shadow:0 1px 2px rgba(30,42,52,.04); max-width:640px;
+  }
+  .card.firm{
+    border:1.5px solid color-mix(in srgb, var(--danger) 45%, var(--border));
+    background:linear-gradient(180deg, color-mix(in srgb, var(--danger) 5%, var(--surface-elevated)) 0%, var(--surface-elevated) 64px);
+  }
+  .card-head{display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:4px;}
+  .card-entity{font-size:16px; font-weight:700;}
+  .confidence-tag{
+    font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+    padding:3px 9px; border-radius:20px; white-space:nowrap;
+  }
+  .confidence-tag.medium{background:color-mix(in srgb, var(--accent) 16%, transparent); color:var(--accent);}
+  .confidence-tag.changed{background:color-mix(in srgb, var(--danger) 14%, transparent); color:var(--danger);}
+  .confidence-tag.review{background:color-mix(in srgb, var(--anchor) 16%, transparent); color:var(--anchor);}
+
+  .card-reason{font-size:13px; color:var(--text-secondary); margin:10px 0 18px;}
+
+  .field-block{
+    display:flex; flex-direction:column; gap:8px; background:var(--bg); border-radius:10px; padding:16px 18px; margin-bottom:14px;
+  }
+  .field-row{display:flex; gap:10px; font-size:13px;}
+  .field-key{width:88px; flex:0 0 88px; color:var(--text-secondary); font-weight:600; font-size:11.5px; text-transform:uppercase; letter-spacing:.03em; padding-top:2px;}
+  .field-val{flex:1;}
+  .field-val .observed{color:var(--text-secondary);}
+  .field-val .proposed{font-weight:700; color:var(--text);}
+  .chips{display:flex; flex-wrap:wrap; gap:6px; margin-top:4px;}
+  .chip{background:var(--surface-elevated); border:1px solid var(--border); border-radius:6px; padding:3px 9px; font-size:12px;}
+
+  .diff-line{display:flex; align-items:center; gap:8px; font-size:13.5px; font-family:var(--font-mono); flex-wrap:wrap;}
+  .diff-was{color:var(--text-secondary); text-decoration:line-through; text-decoration-color:color-mix(in srgb, var(--text-secondary) 55%, transparent);}
+  .diff-arrow{color:var(--text-secondary); font-family:var(--font-sans);}
+  .diff-now{color:var(--danger); font-weight:700;}
+  .diff-source{font-family:var(--font-sans); font-size:11.5px; color:var(--text-secondary); margin-top:6px;}
+
+  .unknown-note{
+    display:flex; gap:8px; align-items:flex-start; font-size:12.5px; color:var(--text-secondary);
+    font-style:italic; margin-bottom:16px;
+  }
+  .unknown-note .glyph{font-style:normal; flex:0 0 auto;}
+
+  .firm-note{
+    display:flex; gap:8px; align-items:flex-start; font-size:12.5px; color:var(--danger); font-weight:600;
+    background:color-mix(in srgb, var(--danger) 8%, transparent); border-radius:8px; padding:10px 12px; margin-bottom:16px;
+  }
+
+  .card-actions{display:flex; gap:10px; align-items:center; margin-top:6px;}
+  .card-actions .btn-primary.firm{background:var(--danger);}
+
+  .why-row{margin-top:16px; padding-top:14px; border-top:1px solid var(--border);}
+  .why-toggle{
+    background:none; border:none; color:var(--text-secondary); font-size:12px; font-weight:600;
+    display:flex; align-items:center; gap:5px; padding:0;
+  }
+  .why-toggle:hover{color:var(--primary);}
+  .why-toggle .chev{transition:transform var(--motion-fast) var(--ease-out); font-size:10px;}
+  .why-toggle.open .chev{transform:rotate(90deg);}
+  .why-body{
+    margin-top:12px; font-size:12.5px; color:var(--text-secondary); background:var(--bg);
+    border-radius:8px; padding:14px 16px; display:none;
+  }
+  .why-body.open{display:block; animation:whyopen var(--motion-base) var(--ease-out);}
+  @keyframes whyopen{from{opacity:0; transform:translateY(-4px);} to{opacity:1; transform:none;}}
+  .why-body table{width:100%; border-collapse:collapse; margin-top:8px;}
+  .why-body td{padding:4px 0; font-size:12px; border-bottom:1px dashed var(--border);}
+  .why-body td:first-child{color:var(--text); font-weight:600; width:40%;}
+  .why-empty{
+    font-size:12px; color:var(--text-secondary); font-style:italic; padding:8px 0;
+  }
+
+  /* ---------- batched legacy card ---------- */
+  .batch-summary{display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:16px;}
+  .batch-count{font-size:26px; font-weight:700; color:var(--anchor);}
+  .batch-list{border-top:1px solid var(--border); margin-top:6px;}
+  .batch-item{
+    display:flex; align-items:center; justify-content:space-between; padding:11px 2px; border-bottom:1px solid var(--border); font-size:13px;
+  }
+  .batch-item .name{font-weight:600;}
+  .batch-item .status{font-size:11px; color:var(--text-secondary);}
+  .batch-item.done .status{color:var(--success); font-weight:700;}
+  .batch-progress{
+    font-size:11.5px; color:var(--text-secondary); margin-top:14px; display:flex; align-items:center; gap:8px;
+  }
+  .progress-track{flex:1; height:5px; border-radius:3px; background:var(--border); overflow:hidden;}
+  .progress-fill{height:100%; background:var(--anchor); border-radius:3px; transition:width var(--motion-settle) var(--ease-out);}
+
+  /* ---------- review flow ---------- */
+  .queue-header{display:flex; align-items:center; justify-content:space-between; margin-bottom:18px;}
+  .queue-progress{font-size:12.5px; font-weight:700; color:var(--text-secondary);}
+  .queue-dots{display:flex; gap:6px; margin-top:6px;}
+  .qdot{width:7px; height:7px; border-radius:50%; background:var(--border);}
+  .qdot.done{background:var(--success);}
+  .qdot.now{background:var(--primary); transform:scale(1.3);}
+  .return-link{font-size:12.5px; font-weight:600; color:var(--text-secondary); display:flex; align-items:center; gap:5px;}
+  .return-link:hover{color:var(--primary);}
+  .queue-footer{display:flex; justify-content:space-between; margin-top:20px; max-width:640px;}
+  .footer-left, .footer-right{display:flex; gap:8px;}
+  .link-btn{background:none; border:none; color:var(--text-secondary); font-size:12.5px; font-weight:600; padding:8px 4px;}
+  .link-btn:hover{color:var(--primary);}
+
+  .note-box{
+    background:var(--surface); border:1px dashed var(--border); border-radius:10px; padding:14px 16px;
+    font-size:12px; color:var(--text-secondary); margin-top:28px; max-width:640px;
+  }
+  .note-box b{color:var(--text);}
+
+  code{font-family:var(--font-mono); font-size:11.5px; background:var(--bg); padding:1px 5px; border-radius:4px;}
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="railnav">
+    <h1>Phase D Mockup</h1>
+    <button class="nav-btn active" data-panel="p1"><span class="num">1</span>Summary</button>
+    <button class="nav-btn" data-panel="p2"><span class="num">2</span>Decision · medium</button>
+    <button class="nav-btn" data-panel="p3"><span class="num">3</span>Decision · changed</button>
+    <button class="nav-btn" data-panel="p4"><span class="num">4</span>Legacy priority batch</button>
+    <button class="nav-btn" data-panel="p5"><span class="num">5</span>Review flow</button>
+  </nav>
+
+  <div class="stage">
+
+    <!-- ============ SCREEN 1 — SUMMARY ============ -->
+    <section class="panel active" id="p1">
+      <div class="eyebrow">Post-import destination · replaces ReconciliationLedger's CRUD framing</div>
+      <h2>Reconciliation summary</h2>
+      <div class="sub">Camp Shemesh · imported from "2025 Master Schedule.xlsx" · just now</div>
+
+      <div class="summary-card">
+        <div class="summary-lede">Shoresh reconstructed your camp from last year's schedule.</div>
+
+        <div class="bucket-row understood">
+          <span class="bucket-glyph">✓</span>
+          <span class="bucket-count">374</span>
+          <span class="bucket-label">understood — facts reconciled without a question</span>
+        </div>
+        <div class="bucket-row attention">
+          <span class="bucket-glyph">⚠</span>
+          <span class="bucket-count">4</span>
+          <span class="bucket-label">need your attention</span>
+        </div>
+        <div class="bucket-row changed">
+          <span class="bucket-glyph">↻</span>
+          <span class="bucket-count">7</span>
+          <span class="bucket-label">changed from what's already set up</span>
+        </div>
+        <div class="bucket-row notinsource">
+          <span class="bucket-glyph">○</span>
+          <span class="bucket-count">2</span>
+          <span class="bucket-label">optional areas not in this source</span>
+        </div>
+
+        <div class="cta-row">
+          <button class="btn-primary">Review 4 decisions</button>
+          <button class="btn-secondary" id="commitBtn">Commit everything else now</button>
+        </div>
+        <div class="cta-hint" id="commitHint">
+          The 4 decisions above stay held — nothing under review is written until you resolve or explicitly skip it. Everything else (374 understood + 7 changed, all already reconciled) commits now.
+        </div>
+
+        <div class="category-strip">
+          <span class="category-chip ok"><span class="dot"></span>Structure — Groups, Units, Days</span>
+          <span class="category-chip attn"><span class="dot"></span>Scheduling model — Activities, Fixed events</span>
+          <span class="category-chip ok"><span class="dot"></span>Time — Time blocks</span>
+          <span class="category-chip gap"><span class="dot"></span>Resources — Locations, Staffing</span>
+        </div>
+
+        <div class="detail-toggle">
+          <div style="margin-bottom:8px;">Not in this source (optional — your camp is not misconfigured):</div>
+          <div class="notsrc-line">
+            <span>○ Locations — not found in the uploaded schedule</span>
+            <a href="#">Add source · Skip for now</a>
+          </div>
+          <div class="notsrc-line">
+            <span>○ Staffing assignments — not found in the uploaded schedule</span>
+            <a href="#">Add source · Skip for now</a>
+          </div>
+          <div style="margin-top:14px;"><a href="#">See everything Shoresh changed →</a> <span style="color:var(--text-secondary)">(opens the full field-by-field ledger)</span></div>
+        </div>
+      </div>
+
+      <div class="note-box">
+        <b>Design notes.</b> 374 collapses to a single line, matching the existing <code>unchanged</code>
+        section's "count only" convention in <code>ReconciliationLedger.jsx</code>. Glyphs (<code>✓ ⚠ ○ ↻</code>)
+        and colour mapping reuse that component's existing vocabulary — <code>--success</code>, <code>--accent</code>,
+        <code>--anchor</code>, <code>--danger</code> — no new glyph or hue introduced. Category strip labels come
+        directly from <code>readiness.js</code>'s <code>REQUIRED_AREAS</code>/<code>OPTIONAL_AREAS</code> screen
+        groupings, not an invented taxonomy. This is also where <b>OQ1</b> is answered — see the hint text under
+        "Commit everything else now," and click it below.
+      </div>
+    </section>
+
+    <!-- ============ SCREEN 2 — MEDIUM CONFIDENCE DECISION ============ -->
+    <section class="panel" id="p2">
+      <div class="eyebrow">Decision card · kind: confirm_value · confidence: medium</div>
+      <h2>Looks right / Edit</h2>
+      <div class="sub">1 of 4 · a routine proposal — the default visual weight every non-firm decision uses</div>
+
+      <div class="card">
+        <div class="card-head">
+          <div class="card-entity">Swim</div>
+          <div class="confidence-tag medium">Medium confidence</div>
+        </div>
+        <div class="card-reason">Observed 2×/week across six groups in last year's schedule, with days that vary by group.</div>
+
+        <div class="field-block">
+          <div class="field-row">
+            <div class="field-key">Observed</div>
+            <div class="field-val observed">2×/week for 6 of 8 groups · specific days vary by group</div>
+          </div>
+          <div class="field-row">
+            <div class="field-key">Proposed</div>
+            <div class="field-val">
+              <span class="proposed">2×/week</span> · eligible groups:
+              <div class="chips">
+                <span class="chip">Alufim</span><span class="chip">Bogrim</span><span class="chip">Giborim</span>
+                <span class="chip">Ne'arim</span><span class="chip">Sabra</span><span class="chip">Tzofim</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="unknown-note">
+          <span class="glyph">○</span>
+          <span>Priority is unknown — frequent in the source doesn't mean high priority. Shoresh leaves this for you to set, not a guess.</span>
+        </div>
+
+        <div class="card-actions">
+          <button class="btn-primary">Looks right</button>
+          <button class="btn-secondary">Edit</button>
+        </div>
+
+        <div class="why-row">
+          <button class="why-toggle" onclick="toggleWhy(this,'why2')"><span class="chev">▸</span>Why does Shoresh think this?</button>
+          <div class="why-body open" id="why2">
+            <div>Per-group observed frequency, from the imported schedule:</div>
+            <table>
+              <tr><td>Alufim</td><td>Tue, Thu — 2×/week, 6 of 6 weeks observed</td></tr>
+              <tr><td>Bogrim</td><td>Mon, Wed — 2×/week, 6 of 6 weeks observed</td></tr>
+              <tr><td>Giborim</td><td>Tue, Fri — 2×/week, 5 of 6 weeks observed</td></tr>
+              <tr><td>Ne'arim</td><td>Wed, Thu — 2×/week, 6 of 6 weeks observed</td></tr>
+              <tr><td>Sabra</td><td>Mon, Thu — 2×/week, 6 of 6 weeks observed</td></tr>
+              <tr><td>Tzofim</td><td>Tue, Wed — 1–2×/week, irregular</td></tr>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="note-box">
+        <b>Design notes.</b> "Why?" is visually subordinate — smaller type, secondary colour, below a hairline
+        divider under the primary actions, never competing with Looks right/Edit for attention (DESIGN_STANDARD
+        restraint principle). This card shows the <b>populated-evidence</b> state for <b>OQ2</b>: the per-group
+        table format extends <code>IdentityCard</code>'s existing <code>evidence?.candidates</code> rendering
+        convention rather than inventing a new one.
+      </div>
+    </section>
+
+    <!-- ============ SCREEN 3 — CHANGED / FIRM DECISION ============ -->
+    <section class="panel" id="p3">
+      <div class="eyebrow">Decision card · kind: confirm_change · confidence: changed</div>
+      <h2>Overwriting a value you confirmed</h2>
+      <div class="sub">2 of 4 · deliberately firmer than screen 2 — this proposal replaces something a director already decided</div>
+
+      <div class="card firm">
+        <div class="card-head">
+          <div class="card-entity">Ruach — Friday fixed event</div>
+          <div class="confidence-tag changed">You confirmed this before</div>
+        </div>
+
+        <div class="firm-note">
+          ⌫ &nbsp;You set this value directly on Aug 3. The new source disagrees. Confirming here overwrites your prior answer.
+        </div>
+
+        <div class="field-block">
+          <div class="field-row">
+            <div class="field-key">Was (yours)</div>
+            <div class="field-val">
+              <div class="diff-line"><span class="diff-was">Priority: High</span></div>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-key">New source says</div>
+            <div class="field-val">
+              <div class="diff-line"><span class="diff-arrow">→</span><span class="diff-now">Priority: Medium</span></div>
+              <div class="diff-source">Observed in "2025 Master Schedule.xlsx" — Ruach scheduled after 3 of 5 other activities in the Friday block, not before.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card-actions">
+          <button class="btn-primary firm">Overwrite with new value</button>
+          <button class="btn-secondary">Keep my value</button>
+        </div>
+
+        <div class="why-row">
+          <button class="why-toggle" onclick="toggleWhy(this,'why3')"><span class="chev">▸</span>Why does Shoresh think this?</button>
+          <div class="why-body" id="why3">
+            <div class="why-empty">Evidence for this decision isn't populated yet — Shoresh can show the change, but not yet the source rows behind it. This affordance will fill in once a future ingestion slice adds per-decision evidence.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="note-box">
+        <b>Design notes — the ADR's specific ask.</b> Firmer treatment, deliberately not just a colour swap:
+        (1) a warm-tinted border + top-edge gradient wash in <code>--danger</code>, mirroring
+        <code>ReconciliationLedger</code>'s existing <code>cleared</code>-section firmer pattern; (2) an explicit
+        <code>firmerNote</code> line stating what's at stake, reusing that component's exact convention/copy
+        register; (3) button pair reframed to <b>"Overwrite" / "Keep my value"</b> instead of "Looks right / Edit" —
+        because "Looks right" undersells that this is an overwrite, and "Edit" implies there's nothing already
+        decided. The primary button also carries <code>--danger</code>, the one place in this whole flow a
+        primary action is anything but <code>--primary</code> navy. (4) This card is also the <b>empty-evidence</b>
+        state for <b>OQ2</b> — "Why?" renders and is honest that nothing is there yet, never hidden or disabled.
+      </div>
+    </section>
+
+    <!-- ============ SCREEN 4 — BATCHED LEGACY PRIORITY ============ -->
+    <section class="panel" id="p4">
+      <div class="eyebrow">Decision card · kind: review_legacy_priority · one batch, never one-per-activity</div>
+      <h2>Legacy priorities need review</h2>
+      <div class="sub">3 of 4 · surface-for-review only — proposes nothing, never auto-clears</div>
+
+      <div class="card">
+        <div class="card-head">
+          <div class="card-entity">12 activities carry a priority Shoresh never confirmed</div>
+          <div class="confidence-tag review">Review needed</div>
+        </div>
+        <div class="card-reason">
+          These carry a value from before Shoresh stopped inferring priority automatically. Shoresh can't tell
+          whether each one is a leftover default, something you typed into the workbook, or a value you accepted
+          while resolving an earlier conflict — review each one and confirm or change it.
+        </div>
+
+        <div class="batch-summary">
+          <div class="batch-count">12</div>
+          <div style="color:var(--text-secondary); font-size:12.5px;">activities, listed below · none is pre-selected</div>
+        </div>
+
+        <div class="batch-list" id="batchList">
+          <div class="batch-item done"><span class="name">Swim</span><span class="status">✓ confirmed High</span></div>
+          <div class="batch-item done"><span class="name">Art</span><span class="status">✓ confirmed Medium</span></div>
+          <div class="batch-item"><span class="name">Mifkad</span><span class="status">not reviewed</span></div>
+          <div class="batch-item"><span class="name">Archery</span><span class="status">not reviewed</span></div>
+          <div class="batch-item"><span class="name">Gaga</span><span class="status">not reviewed</span></div>
+          <div class="batch-item"><span class="name">Nature</span><span class="status">not reviewed</span></div>
+          <div class="batch-item"><span class="name">Music</span><span class="status">not reviewed</span></div>
+          <div class="batch-item"><span class="name">Drama</span><span class="status">not reviewed</span></div>
+          <div class="batch-item"><span class="name">Ceramics</span><span class="status">not reviewed</span></div>
+          <div class="batch-item"><span class="name">Boating</span><span class="status">not reviewed</span></div>
+          <div class="batch-item"><span class="name">Ropes</span><span class="status">not reviewed</span></div>
+          <div class="batch-item"><span class="name">Elective Block</span><span class="status">not reviewed</span></div>
+        </div>
+
+        <div class="batch-progress">
+          <span>2 of 12 reviewed</span>
+          <div class="progress-track"><div class="progress-fill" style="width:16.6%"></div></div>
+        </div>
+
+        <div class="card-actions" style="margin-top:18px;">
+          <button class="btn-primary">Review each</button>
+          <button class="btn-secondary">Not now</button>
+        </div>
+      </div>
+
+      <div class="note-box">
+        <b>Design notes — proposed treatment for OQ3.</b> Recommend <b>all-or-nothing at the batch level</b>:
+        the top-level queue's "N of 4" counts this whole card as one decision, and it only flips to resolved once
+        every activity inside has been looked at — matching Phase C's own batching choice (one <code>decision</code>,
+        not twelve) and keeping the top-level queue length honest ("4 decisions," not "4 decisions plus 12 rows").
+        The sub-progress bar shown here (2 of 12) is local state <i>inside</i> the expanded card only — it never
+        surfaces at the summary level or changes the "4" in "Review 4 decisions." "Not now" defers the whole batch,
+        same as any other card's defer.
+      </div>
+    </section>
+
+    <!-- ============ SCREEN 5 — REVIEW FLOW ============ -->
+    <section class="panel" id="p5">
+      <div class="eyebrow">One-at-a-time queue · generalizes existing HeldResolution</div>
+      <h2>Review decisions</h2>
+      <div class="sub">Same queue shell hosts all four kinds — resolve_conflict, confirm_value, confirm_change, review_legacy_priority</div>
+
+      <div class="queue-header">
+        <div>
+          <div class="queue-progress">Decision 2 of 4</div>
+          <div class="queue-dots">
+            <span class="qdot done"></span>
+            <span class="qdot now"></span>
+            <span class="qdot"></span>
+            <span class="qdot"></span>
+          </div>
+        </div>
+        <a class="return-link" href="#" onclick="show('p1'); return false;">↩ Return to summary</a>
+      </div>
+
+      <div class="card firm" style="margin-bottom:0;">
+        <div class="card-head">
+          <div class="card-entity">Ruach — Friday fixed event</div>
+          <div class="confidence-tag changed">You confirmed this before</div>
+        </div>
+        <div class="firm-note">⌫ &nbsp;You set this value directly on Aug 3. Confirming here overwrites your prior answer.</div>
+        <div class="field-block">
+          <div class="field-row">
+            <div class="field-key">Change</div>
+            <div class="field-val">
+              <div class="diff-line"><span class="diff-was">Priority: High</span><span class="diff-arrow">→</span><span class="diff-now">Priority: Medium</span></div>
+            </div>
+          </div>
+        </div>
+        <div class="card-actions">
+          <button class="btn-primary firm">Overwrite with new value</button>
+          <button class="btn-secondary">Keep my value</button>
+        </div>
+      </div>
+
+      <div class="queue-footer">
+        <div class="footer-left">
+          <button class="link-btn">← Back</button>
+          <button class="link-btn">Defer — decide later</button>
+        </div>
+        <div class="footer-right">
+          <button class="btn-primary">Next →</button>
+        </div>
+      </div>
+
+      <div class="note-box">
+        <b>Design notes.</b> Reuses <code>HeldResolution</code>'s existing one-at-a-time shell (progress dots,
+        Next/Back) but adds <b>"Return to summary"</b> as an always-available exit — the brief's explicit
+        "resolve one decision, return to summary, leave and return later." Nothing commits from this screen;
+        resolving a card only updates local <code>resolutions</code> state and decrements the summary's
+        <code>needsAttention</code> count, matching the ADR's "no partial-apply primitive" non-goal. "Defer" is
+        distinct from resolving — it's the existing "Not now" pattern, kept available per-card, not just per-queue.
+      </div>
+    </section>
+
+  </div>
+</div>
+
+<script>
+  document.querySelectorAll('.nav-btn').forEach(btn => {
+    btn.addEventListener('click', () => show(btn.dataset.panel));
+  });
+  function show(id){
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.panel === id));
+    document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.id === id));
+  }
+  function toggleWhy(btn, id){
+    const body = document.getElementById(id);
+    const open = body.classList.toggle('open');
+    btn.classList.toggle('open', open);
+  }
+  document.getElementById('commitBtn').addEventListener('click', () => {
+    document.getElementById('commitHint').style.color = 'var(--primary)';
+    document.getElementById('commitHint').style.fontWeight = '600';
+  });
+</script>
+</body>
+</html>

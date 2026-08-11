@@ -20,6 +20,9 @@ import { foldApprovedToRecords } from '../ingest/fieldUpdate.js'
 import { buildExistingSnapshot } from '../ingest/existingSnapshot.js'
 import { fieldLabel } from '../ingest/fieldLabels.js'
 import { ReconciliationLedger } from './ReconciliationLedger.jsx'
+import { ReconciliationSummary } from './ReconciliationSummary.jsx'
+import { buildReconciliationReport } from '../ingest/reconciliationReport.js'
+import { getReadiness } from '../engine/readiness.js'
 
 // Read last year's schedule and propose the camp's setup from it.
 //
@@ -165,6 +168,13 @@ export default function ImportScreen({ campId, onNavigate }) {
   // commit inputs the ledger's Commit re-sends. Nothing is written while this is
   // set — the ledger IS the "nothing saved until you commit" surface both paths share.
   const [ledger, setLedger] = useState(null)
+  // D1 — the truthful read-only reconciliation summary, staged ADDITIVELY
+  // alongside the ledger (COEXIST, not a replacement). `{ report }`, built
+  // from the real ingestReconcile dry-run's output — never from the renderer's
+  // own client-side buildPlan, which stageLedger above still uses for the
+  // ledger's counts. Absent (stays null) when the reconcile call itself held
+  // — the held-resolution surface takes over, exactly as the ledger already does.
+  const [reconciliation, setReconciliation] = useState(null)
   // Camp-wide counts of the same entities, unfiltered by Program. Replace
   // (electron/ops/ingest.js's replaceScope) deletes WHERE camp_id = ? with no
   // cohort filter — every Program's rows, not just the active one's — so the
@@ -207,6 +217,7 @@ export default function ImportScreen({ campId, onNavigate }) {
     setHeld(null)
     setResolving(false)
     setLedger(null)
+    setReconciliation(null)
     setFixedEvents([])
     setChosenFixedEvents(new Set())
     setActivityRules({})
@@ -571,12 +582,14 @@ export default function ImportScreen({ campId, onNavigate }) {
         setResolving(false)
         setPreview(null)
         setLedger(null)
+        setReconciliation(null)
         return
       }
       setResult(outcome)
       setHeld(null)
       setPreview(null)
       setLedger(null)
+      setReconciliation(null)
       setFixedEvents([])
       setChosenFixedEvents(new Set())
       setActivityRules({})
@@ -606,6 +619,53 @@ export default function ImportScreen({ campId, onNavigate }) {
     )
     setPreview(null)
     setLedger({ plan, context: inputs, fileName })
+    setReconciliation(null)
+    await stageReconciliationSummary(inputs)
+  }
+
+  // D1 — ADDITIVE to the ledger above: the truthful dry-run summary, built
+  // from ingestReconcile's real server-computed output (never the renderer's
+  // own buildPlan, which stageLedger uses only for the ledger it already
+  // shows). A held reconcile is left to the existing held/conflicts path —
+  // reconciliation stays null and planItems are never read, per the brief.
+  async function stageReconciliationSummary(inputs) {
+    // Additive and best-effort end to end: this call must never break the
+    // ledger it sits beside. A missing ingestReconcile (an older localClient
+    // build, or a test double that only stubs the surface it exercises) is
+    // the same "summary quietly absent" outcome as a held/failed reconcile.
+    try {
+      const result = await localClient.ingestReconcile(inputs)
+      if (!result || result.held) return
+
+      const collections = {
+        cohorts: await localClient.list('cohorts').catch(() => []),
+        tiers: await localClient.list('tiers').catch(() => []),
+        groups: await localClient.list('groups').catch(() => []),
+        days: await localClient.list('days_of_operation').catch(() => []),
+        timeBlocks: await localClient.list('time_blocks').catch(() => []),
+        activities: await localClient.list('activities').catch(() => []),
+        anchors: await localClient.list('anchor_activities').catch(() => []),
+        dayOverrides: await localClient.list('day_override_templates').catch(() => []),
+      }
+      const readiness = getReadiness(collections, null)
+      const report = buildReconciliationReport({
+        planItems: result.planItems,
+        readiness,
+        now: new Date(),
+        fixedEventsReport: result.fixedEventsReport,
+        legacyPriorityActivities: result.legacyPriorityActivities,
+        // ingestReconcile serializes fieldProvenance as a plain object across the
+        // IPC boundary (electron/main.js); buildReconciliationReport requires a Map.
+        fieldProvenance: new Map(Object.entries(result.fieldProvenance ?? {})),
+      })
+      setReconciliation({ report, readiness })
+    } catch (err) {
+      // Summary stays absent; the ledger (staged just before this call) is
+      // unaffected — it already rendered from the renderer's own buildPlan.
+      // Still best-effort (must never break the ledger), but a real
+      // regression here must not be invisible (Red Hat LOW, round 2).
+      console.error('stageReconciliationSummary failed (summary omitted, ledger unaffected):', err)
+    }
   }
 
   async function commit() {
@@ -640,6 +700,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       setResolving(false)
       setPreview(null)
       setLedger(null)
+      setReconciliation(null)
       setFixedEvents([])
       setChosenFixedEvents(new Set())
       setActivityRules({})
@@ -680,6 +741,7 @@ export default function ImportScreen({ campId, onNavigate }) {
     setResolving(false)
     setPreview(null)
     setLedger(null)
+    setReconciliation(null)
     setFileNames([])
     setFixedEvents([])
     setChosenFixedEvents(new Set())
@@ -824,18 +886,35 @@ export default function ImportScreen({ campId, onNavigate }) {
         )
       })()}
 
-      {/* S5b/T75 — the shared reconciliation ledger. Both the schedule tick-preview
-          and the workbook re-import stage a plan here; the director confirms from
-          it and only then does the atomic ingestCommit run. Nothing is written
-          while this is shown. */}
-      {ledger && (
-        <ReconciliationLedger
-          plan={ledger.plan}
-          fileName={ledger.fileName}
-          working={working}
-          onCommit={() => runCommit(ledger.context)}
-          onDiscard={() => { setLedger(null); setFileNames([]) }}
+      {/* D1 — the truthful reconciliation summary, the PRIMARY destination once a
+          plan is staged. Rendered ADDITIVELY above the ledger, from ingestReconcile's
+          real dry-run output (never the renderer's own buildPlan). Absent while the
+          reconcile call is still in flight, or when it held — the held-resolution
+          surface above already covers that case. */}
+      {reconciliation && (
+        <ReconciliationSummary
+          report={reconciliation.report}
+          readiness={reconciliation.readiness}
+          onReviewBelow={() => document.getElementById('reconciliation-ledger')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
         />
+      )}
+
+      {/* S5b/T75 — the shared reconciliation ledger, kept reachable as the
+          advanced/detail view (COEXIST — not replaced by the summary above).
+          Both the schedule tick-preview and the workbook re-import stage a plan
+          here; the director confirms from it and only then does the atomic
+          ingestCommit run. Nothing is written while this is shown. `id` is the
+          summary's "Review & commit below" scroll target (round 2). */}
+      {ledger && (
+        <div id="reconciliation-ledger">
+          <ReconciliationLedger
+            plan={ledger.plan}
+            fileName={ledger.fileName}
+            working={working}
+            onCommit={() => runCommit(ledger.context)}
+            onDiscard={() => { setLedger(null); setReconciliation(null); setFileNames([]) }}
+          />
+        </div>
       )}
 
       {preview && (
