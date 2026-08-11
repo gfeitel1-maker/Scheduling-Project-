@@ -1331,19 +1331,25 @@ describe('T4: merging a cell down', () => {
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
   })
 
-  it('sends the displaced activity to the tray instead of dropping it', async () => {
-    // This is what the Displaced Activities panel is FOR: the activity that was
-    // in the lower block has nowhere to go once the block above swallows it.
+  it('returns the displaced activity to the left palette instead of dropping it', async () => {
+    // The drag-first-placement rebuild retired the floating "Displaced
+    // Activities" tray (its only consumer was this merge-down flow, which is
+    // otherwise untouched — see spec 2026-08-09). The invariant it protected
+    // still holds under the new unified semantic: a displaced activity is
+    // never deleted, and once no slot references it, the left ActivityPalette
+    // re-derives it as unplaced/available on its own — no separate tray.
     twoBlocks()
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
-    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+    await waitFor(() => expect(scheduleCell('Archery')).toBeTruthy())
 
     fireEvent.pointerOver(scheduleCell('Swim').closest(CELL_SELECTOR))
     fireEvent.click(await screen.findByTitle(/run into the next period/i))
 
-    await waitFor(() => expect(screen.getByText(/Displaced Activities/i)).toBeTruthy())
-    expect(screen.getByText(/displaced from/i)).toBeTruthy()
+    await waitFor(() => expect(scheduleCell('Archery')).toBeUndefined())
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+    // Still present on screen — in the palette sidebar, not a cell.
+    expect(screen.getAllByText('Archery').length).toBeGreaterThan(0)
   })
 })
 

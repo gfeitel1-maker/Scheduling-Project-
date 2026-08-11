@@ -42,7 +42,6 @@ import ScheduleDayView from '../components/schedule/ScheduleDayView'
 import ScheduleActivityView from '../components/schedule/ScheduleActivityView'
 import ManualBuildView from '../components/schedule/ManualBuildView'
 import ActivityPalette from '../components/schedule/ActivityPalette'
-import DisplacedPalette from '../components/schedule/DisplacedPalette'
 
 // dnd-kit's own announcer describes droppable IDs, which after T58 are one
 // container rather than 480 cells — it would say "over droppable
@@ -192,8 +191,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // mutations' addOverlay/updateOverlayRange (wrapped below). reset() runs from
   // the block below.
   const {
-    fillState, stampMode, setStampMode, displacedItems, setDisplacedItems,
-    startFill, handleFillEnter, handleStampClick, dismissDisplaced, reset: resetOverlayFillStamp,
+    fillState, stampMode, setStampMode, setDisplacedItems,
+    startFill, handleFillEnter, handleStampClick, reset: resetOverlayFillStamp,
   } = useOverlayFillStamp({ groups, timeBlocks, overlays, addOverlay, updateOverlayRange })
 
   // T32 — the per-cell slot/overlay mutation cluster lives in its own hook: the
@@ -1143,14 +1142,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         }
         return twoCol
       })()}
-
-      {/* Displaced activity palette (floating) */}
-      {hasSchedule && (
-        <DisplacedPalette
-          displacedItems={displacedItems}
-          onDismiss={dismissDisplaced}
-        />
-      )}
 
       {/* Edit modal */}
       {editSlot && (
