@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { S } from '../styles/shared'
+import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
 import { isDecisionResolved, isEditableDecision, isBackedConfirmChange } from './reconciliationResolutions.js'
 
 // D2 — the decision-queue shell, generalizing HeldResolution's existing
@@ -35,26 +35,105 @@ function Choice({ selected, onClick, danger, children }) {
   )
 }
 
+// D3 — the real support object, when present (electron/ops/ingest.js's
+// rule.support / fe.support, joined in reconciliationReport.js by entity_id
+// or name — never recomputed here). Renders ONLY the fields the support
+// object actually carries; the mockup's richer per-group×day table isn't in
+// the support shape, so it is not fabricated. Two shapes reach here today:
+// activity support ({ matched_groups, appearances, eligible_group_count })
+// and fixed-event support ({ days, occupied_days, operating_days,
+// groups_in_scope }) — distinguished by which keys are present, since
+// `evidence` carries no kind tag of its own.
+function EvidenceBody({ evidence }) {
+  if (Array.isArray(evidence.matched_groups)) {
+    return (
+      <div>
+        <div>Observed in the imported schedule:</div>
+        <div style={{ marginTop: 4 }}>
+          {evidence.matched_groups.length} of {evidence.eligible_group_count ?? evidence.matched_groups.length} eligible groups matched
+          {typeof evidence.appearances === 'number' ? ` · ${evidence.appearances} appearances` : ''}
+        </div>
+        <div style={{ marginTop: 4 }}>Groups: {evidence.matched_groups.join(', ')}</div>
+      </div>
+    )
+  }
+  if (Array.isArray(evidence.days)) {
+    return (
+      <div>
+        <div>Observed in the imported schedule:</div>
+        <div style={{ marginTop: 4 }}>Days: {evidence.days.join(', ')}</div>
+        {typeof evidence.occupied_days === 'number' && typeof evidence.operating_days === 'number' && (
+          <div style={{ marginTop: 4 }}>
+            Occupied {evidence.occupied_days} of {evidence.operating_days} operating days
+          </div>
+        )}
+        {Array.isArray(evidence.groups_in_scope) && (
+          <div style={{ marginTop: 4 }}>Groups in scope: {evidence.groups_in_scope.join(', ')}</div>
+        )}
+      </div>
+    )
+  }
+  return <span style={{ fontStyle: 'italic' }}>This isn't populated yet — coming in a later update.</span>
+}
+
+// D3 round 2 — the expanded body, mounted only while open so
+// useEnterTransition's per-mount fade (mockup's `whyopen` keyframe:
+// opacity 0->1 + translateY(-4px)->0, var(--motion-base)/var(--ease-out))
+// replays every time the disclosure reopens, and degrades to an opacity-only
+// crossfade under prefers-reduced-motion (useEnterTransition's own contract).
+// Tinted container (.why-body: var(--bg) background, 8px radius, 14px/16px
+// padding) is what reads the evidence as subordinate to the card above it.
+function WhyBody({ evidence }) {
+  const enter = useEnterTransition('slideFade')
+  return (
+    <div
+      style={{
+        marginTop: 12, fontSize: 12.5, color: 'var(--text-secondary)', lineHeight: 1.6,
+        background: 'var(--bg)', borderRadius: 8, padding: '14px 16px', ...enter,
+      }}
+    >
+      {evidence ? <EvidenceBody evidence={evidence} /> : (
+        <span style={{ fontStyle: 'italic' }}>This isn't populated yet — coming in a later update.</span>
+      )}
+    </div>
+  )
+}
+
 // D3 — always rendered, never hidden/disabled (plain-transparency
-// requirement). evidence is null for every decision kind today (Phase C's
-// own module doc) — this is an honest shell, not evidence population.
-// Dashed divider per the mockup (panel 2/3's why-disclosure treatment).
+// requirement). evidence is null when no support exists for this decision
+// (Phase C's honest-shell default) — that state keeps the "not populated
+// yet" copy. Dashed divider per the mockup (panel 2/3's why-disclosure
+// treatment) — this D2-inherited outer chrome (marginTop 12 / paddingTop 10)
+// is out of D3 scope and left as-is; only the toggle and body below are D3's.
 function WhyDisclosure({ evidence }) {
   const [open, setOpen] = useState(false)
+  const [hovered, setHovered] = useState(false)
   return (
     <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px dashed color-mix(in srgb, var(--border) 80%, transparent)' }}>
       <button
         className="press-97"
         onClick={() => setOpen((o) => !o)}
-        style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0, fontSize: 12, color: 'var(--text-secondary)' }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        style={{
+          background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0,
+          fontSize: 12, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 5,
+          color: hovered ? 'var(--primary)' : 'var(--text-secondary)',
+        }}
       >
+        <span
+          style={{
+            fontSize: 10,
+            display: 'inline-block',
+            transform: open ? 'rotate(90deg)' : 'none',
+            transition: prefersReducedMotion() ? 'none' : `transform var(--motion-fast) var(--ease-out)`,
+          }}
+        >
+          ▸
+        </span>
         Why does Shoresh think this?
       </button>
-      {open && (
-        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-          {evidence ? 'Evidence' : "This isn't populated yet — coming in a later update."}
-        </div>
-      )}
+      {open && <WhyBody evidence={evidence} />}
     </div>
   )
 }

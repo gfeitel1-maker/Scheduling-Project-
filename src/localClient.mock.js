@@ -846,6 +846,11 @@ export const mockShoresh = {
       fixedEventsReport: outcome.fixedEvents,
       fieldProvenance: {},
       legacyPriorityActivities: [],
+      // D3: not computed by the mock (same additive-degradation stub as
+      // fieldProvenance/legacyPriorityActivities above) — the mock's ingestCommit
+      // is its own reimplementation, not electron/ops/ingest.js's writeEvidence
+      // path, so there is no support object to collect here.
+      evidenceSupport: {},
     }
   },
   // S1b — mock stand-in for confirmAlias (electron/ops/confirmAlias.js), mirroring

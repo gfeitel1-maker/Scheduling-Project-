@@ -1010,3 +1010,101 @@ describe('buildReconciliationReport — round-2 FIX 3 (tier coverage + bucket in
     expect(report.buckets.changed).toBe(changedDecisionCount)
   })
 })
+
+// D3 — evidence population. buildReconciliationReport joins the caller-
+// supplied evidenceSupport onto decisions by the SAME handles the module
+// already uses: activities by entity_id, fixed events by name (never
+// entity_id — fixed-event decisions carry entityId: null, see
+// addFixedEventDecision). No recompute: the join reuses the exact support
+// object passed in.
+describe('buildReconciliationReport — D3 (evidence join)', () => {
+  it('an activity decision (update, MEDIUM tier) carries its rule.support, joined by entity_id', () => {
+    const support = { matched_groups: ['Yeladim', 'Bogrim'], appearances: 8, eligible_group_count: 2 }
+    const planItems = [
+      {
+        op: 'update', entity: 'activities', entity_id: 'a1',
+        fields: { min_per_week: { from: 1, to: 2, source: 'import' } },
+        evidence: { tier: 'medium', matched_name: 'Swim' }, _name: 'Swim',
+      },
+    ]
+    const report = buildReconciliationReport({
+      planItems, readiness: [],
+      evidenceSupport: { activities: { a1: support }, fixedEvents: {} },
+    })
+    expect(report.decisions).toHaveLength(1)
+    expect(report.decisions[0].evidence).toBe(support)
+  })
+
+  it('a fixed-event decision (moved) carries its fe.support, joined by NAME — the throwaway dry-run anchor entity_id is never the join key', () => {
+    const support = { days: ['Monday'], occupied_days: 1, operating_days: 5, groups_in_scope: ['Yeladim'] }
+    const report = buildReconciliationReport({
+      planItems: [], readiness: [],
+      fixedEventsReport: { moved: [{ name: 'Mifkad', reason: 'moved to a new slot' }] },
+      evidenceSupport: { activities: {}, fixedEvents: { Mifkad: support } },
+    })
+    const decision = report.decisions.find((d) => d.entityName === 'Mifkad')
+    expect(decision).toBeTruthy()
+    expect(decision.evidence).toBe(support)
+  })
+
+  it('a decision with no matching support entry stays evidence: null — the honest "not available" state, not fabricated', () => {
+    const planItems = [
+      {
+        op: 'update', entity: 'activities', entity_id: 'a9',
+        fields: { min_per_week: { from: 1, to: 2, source: 'import' } },
+        evidence: { tier: 'medium', matched_name: 'Kayak' }, _name: 'Kayak',
+      },
+    ]
+    const report = buildReconciliationReport({
+      planItems, readiness: [],
+      evidenceSupport: { activities: {}, fixedEvents: {} },
+    })
+    expect(report.decisions[0].evidence).toBeNull()
+  })
+
+  it('regression: omitting evidenceSupport entirely produces byte-identical decisions/buckets/counts to today (additive degradation)', () => {
+    const planItems = [
+      {
+        op: 'update', entity: 'activities', entity_id: 'a1',
+        fields: { min_per_week: { from: 1, to: 2, source: 'import' } },
+        evidence: { tier: 'medium', matched_name: 'Swim' }, _name: 'Swim',
+      },
+      { op: 'create', entity: 'activities', entity_id: null, fields: {}, evidence: { tier: 'low' }, _name: 'Ceramics' },
+    ]
+    const fixedEventsReport = { moved: [{ name: 'Mifkad', reason: 'moved to a new slot' }] }
+
+    const withoutArg = buildReconciliationReport({ planItems, readiness: [], fixedEventsReport })
+    const withEmptyArg = buildReconciliationReport({ planItems, readiness: [], fixedEventsReport, evidenceSupport: {} })
+
+    expect(withoutArg).toEqual(withEmptyArg)
+    expect(withoutArg.decisions.every((d) => d.evidence === null)).toBe(true)
+  })
+})
+
+// D3 round 2 — evidence granularity matches decision granularity. Two
+// fixedEventsReport entries for the SAME (kind, reason, name) dedup to one
+// decision (addFixedEventDecision's existing round-2 fix); the surfaced
+// evidence must be consistent with that single merged decision, not a
+// per-entry artifact.
+describe('buildReconciliationReport — D3 round 2 (fixed-event evidence matches name-level dedup)', () => {
+  it('two moved entries for the same name dedup to ONE decision carrying the name-keyed support', () => {
+    const support = { days: ['Monday'], occupied_days: 1, operating_days: 5, groups_in_scope: ['Yeladim'] }
+    const report = buildReconciliationReport({
+      planItems: [], readiness: [],
+      fixedEventsReport: {
+        moved: [
+          { name: 'Mifkad', reason: 'moved to a new slot' },
+          { name: 'Mifkad', reason: 'moved to a new slot' },
+        ],
+      },
+      evidenceSupport: { activities: {}, fixedEvents: { Mifkad: support } },
+    })
+
+    const mifkadDecisions = report.decisions.filter((d) => d.entityName === 'Mifkad')
+    expect(mifkadDecisions).toHaveLength(1)
+    expect(mifkadDecisions[0].evidence).toBe(support)
+    // buckets still fold over every fact seen (rule 5) even though the
+    // decision collapsed to one — dedup is a decisions-layer property only.
+    expect(report.buckets.changed).toBe(2)
+  })
+})

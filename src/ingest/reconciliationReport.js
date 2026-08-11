@@ -68,7 +68,18 @@ function decisionId(entity, entityId, reason, name) {
 // CHANGED decision. That is intentional (additive degradation is the spec),
 // but it makes it a data-safety obligation the CALLER owns, not this
 // function — see buildFieldProvenanceMap's own contract comment.
-function classifyItem(item, fieldProvenance) {
+// D3: activities join their support by entity_id (the same handle planItems
+// carry as item.entity_id); a decision with no entity_id (create/conflict —
+// buildPlan mints entity_id: null for both) has nothing to join against and
+// stays null, honestly. activityEvidence defaults to {} so an omitted
+// evidenceSupport degrades to null everywhere, matching fieldProvenance's
+// contract.
+function activitySupportFor(item, activityEvidence) {
+  if (item.entity !== 'activities' || item.entity_id == null) return null
+  return activityEvidence[item.entity_id] ?? null
+}
+
+function classifyItem(item, fieldProvenance, activityEvidence) {
   if (item.op === 'conflict') {
     return {
       outcome: 'needsAttention',
@@ -107,7 +118,7 @@ function classifyItem(item, fieldProvenance) {
         confidence,
         proposedValue: null,
         unknowns: [], // C1 does not build UNKNOWN-field detection — deferred, see module doc
-        evidence: null,
+        evidence: activitySupportFor(item, activityEvidence),
         reason: item.reason ?? null,
       },
     }
@@ -144,7 +155,7 @@ function classifyItem(item, fieldProvenance) {
           confidence: 'changed',
           proposedValue,
           unknowns: [],
-          evidence: null,
+          evidence: activitySupportFor(item, activityEvidence),
           reason: item.reason ?? null,
         },
       }
@@ -174,7 +185,7 @@ function classifyItem(item, fieldProvenance) {
         confidence,
         proposedValue,
         unknowns: [], // C1 does not build UNKNOWN-field detection — deferred, see module doc
-        evidence: null,
+        evidence: activitySupportFor(item, activityEvidence),
         reason: item.reason ?? null,
       },
     }
@@ -193,8 +204,19 @@ function fixedEventDecisionId(kind, reason, name) {
   return `anchor_activities:null:${kind}:${reason}:${name ?? ''}`
 }
 
-function addFixedEventDecision(decisionsByKey, { kind, confidence, name, reason }) {
+// D3: fixed-event decisions carry no entity_id (see fixedEventDecisionId) —
+// their join handle is the event's own name. fixedEventEvidence defaults to
+// {} at the call site, so an omitted evidenceSupport degrades to null here
+// too.
+function addFixedEventDecision(decisionsByKey, { kind, confidence, name, reason }, fixedEventEvidence) {
   const id = fixedEventDecisionId(kind, reason, name)
+  // `decisionsByKey.has(id)` above already dedups multiple fixedEventsReport
+  // entries sharing (kind, reason, name) down to ONE decision (round-2
+  // fix's dedup-by-root-cause) — this early return means only the FIRST
+  // entry's lookup runs, so evidence granularity intentionally matches that
+  // same name-level dedup: one decision, one evidence lookup by name, not a
+  // per-entry one. Not a bug if a later entry's support differs; it never
+  // reaches here to be considered.
   if (decisionsByKey.has(id)) return
   decisionsByKey.set(id, {
     id,
@@ -206,7 +228,7 @@ function addFixedEventDecision(decisionsByKey, { kind, confidence, name, reason 
     confidence,
     proposedValue: null,
     unknowns: [],
-    evidence: null,
+    evidence: fixedEventEvidence?.[name] ?? null,
     reason: reason ?? null,
   })
 }
@@ -279,7 +301,15 @@ export function buildReconciliationReport(input) {
   const {
     planItems = [], readiness = [], now = null, fixedEventsReport = {},
     legacyPriorityActivities = [], fieldProvenance = null,
+    // D3: the dry-run's real support objects (electron/ops/ingest.js's
+    // evidenceSupportActivities/evidenceSupportFixedEvents, reused verbatim,
+    // never recomputed here). Shape: { activities: { [entity_id]: support },
+    // fixedEvents: { [name]: support } }. Omitted (or a decision with no
+    // matching entry) leaves decision.evidence at its honest null default —
+    // this is the same additive-degradation contract fieldProvenance uses.
+    evidenceSupport = {},
   } = input ?? {}
+  const { activities: activityEvidence = {}, fixedEvents: fixedEventEvidence = {} } = evidenceSupport ?? {}
 
   assertFieldProvenanceShape(fieldProvenance)
 
@@ -287,7 +317,7 @@ export function buildReconciliationReport(input) {
   const decisionsByKey = new Map() // dedup-by-root-cause: (entity, entityId) -> merged decision
 
   for (const item of planItems) {
-    const { outcome, decision } = classifyItem(item, fieldProvenance)
+    const { outcome, decision } = classifyItem(item, fieldProvenance, activityEvidence)
     buckets[outcome] += 1
     if (!decision) continue
 
@@ -342,7 +372,7 @@ export function buildReconciliationReport(input) {
       confidence: 'changed',
       name: entry.name,
       reason: entry.reason,
-    })
+    }, fixedEventEvidence)
   }
 
   // C3: a group-scope drift is a confirmed CHANGED fact on an existing
@@ -361,7 +391,7 @@ export function buildReconciliationReport(input) {
       confidence: 'changed',
       name: entry.name,
       reason: entry.reason,
-    })
+    }, fixedEventEvidence)
   }
 
   for (const entry of asArray(partial)) {
@@ -373,7 +403,7 @@ export function buildReconciliationReport(input) {
       confidence: 'low',
       name: entry.name,
       reason: entry.reason,
-    })
+    }, fixedEventEvidence)
   }
 
   // skipped/rejected: explicitly excluded per ADR rule 5 — import-run
