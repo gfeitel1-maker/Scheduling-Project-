@@ -19,7 +19,10 @@
 // Test-first: written before reconciliationResolutions.js exists.
 
 import { describe, it, expect } from 'vitest'
-import { filterQueueDecisions, applyResolutions, isDecisionResolved } from './reconciliationResolutions.js'
+import {
+  filterQueueDecisions, applyResolutions, isDecisionResolved,
+  isEditableDecision, isBackedConfirmChange,
+} from './reconciliationResolutions.js'
 
 function confirmValueDecision(overrides = {}) {
   return {
@@ -197,16 +200,91 @@ describe('isDecisionResolved', () => {
     expect(isDecisionResolved(d, { action: 'edited', value: 1 })).toBe(true)
   })
 
-  it('confirm_change: resolved by an explicit accept or keep choice, not by an empty answer', () => {
+  it('confirm_change (backed, field non-null): resolved by an explicit accept or keep choice, not by an empty answer', () => {
     const d = confirmChangeDecision()
     expect(isDecisionResolved(d, undefined)).toBe(false)
     expect(isDecisionResolved(d, { choice: 'accept' })).toBe(true)
     expect(isDecisionResolved(d, { choice: 'keep' })).toBe(true)
   })
 
+  it('confirm_change (NOT backed, field:null — a fixed-event drift fact): resolved only by an explicit ack', () => {
+    const d = confirmChangeDecision({ field: null })
+    expect(isDecisionResolved(d, undefined)).toBe(false)
+    expect(isDecisionResolved(d, { choice: 'accept' })).toBe(false) // this button doesn't even render for it
+    expect(isDecisionResolved(d, { ack: true })).toBe(true)
+  })
+
   it('review_legacy_priority: resolved only by an explicit resolved:true (batch, all-or-nothing)', () => {
     const d = legacyPriorityDecision()
     expect(isDecisionResolved(d, undefined)).toBe(false)
     expect(isDecisionResolved(d, { resolved: true })).toBe(true)
+  })
+})
+
+// Round 2 HIGH — an Edit must never be offered unless the edited value can
+// actually reach the commit payload (activities' rule-editable fields via
+// updateActivityRule, or a group's unit via setGroupUnitOverrides). A
+// multi-field confirm_value flattens N fields into one box that can't be
+// cleanly split back on save, so it is NOT editable — only "Looks right".
+describe('isEditableDecision', () => {
+  it('a single-field activities confirm_value on a known rule field is editable', () => {
+    expect(isEditableDecision(confirmValueDecision({ entity: 'activities', field: ['max_per_week'] }))).toBe(true)
+    expect(isEditableDecision(confirmValueDecision({ entity: 'activities', field: ['priority'] }))).toBe(true)
+  })
+
+  it('a multi-field activities confirm_value is NOT editable (cannot be split back cleanly)', () => {
+    expect(isEditableDecision(confirmValueDecision({ entity: 'activities', field: ['max_per_week', 'min_per_week'] }))).toBe(false)
+  })
+
+  it('an activities field with no rule-editor target is NOT editable', () => {
+    expect(isEditableDecision(confirmValueDecision({ entity: 'activities', field: ['some_unmapped_field'] }))).toBe(false)
+  })
+
+  it('a groups confirm_value on "unit" is editable; any other groups field is not', () => {
+    expect(isEditableDecision(confirmValueDecision({ entity: 'groups', field: ['unit'] }))).toBe(true)
+    expect(isEditableDecision(confirmValueDecision({ entity: 'groups', field: ['name'] }))).toBe(false)
+  })
+
+  it('a whole-row create (field: null) is NOT editable', () => {
+    expect(isEditableDecision(confirmValueDecision({ field: null }))).toBe(false)
+  })
+
+  it('a confirm_change or review_legacy_priority is never "editable" in this sense', () => {
+    expect(isEditableDecision(confirmChangeDecision())).toBe(false)
+    expect(isEditableDecision(legacyPriorityDecision())).toBe(false)
+  })
+})
+
+// Round 2 MEDIUM-HIGH — a confirm_change is only "backed" (the Overwrite/Keep
+// choice actually reaches a resolution the backend consumes) when it carries
+// a real field array. Fixed-event moved/scopeChanged decisions carry
+// field: null (reconciliationReport.js addFixedEventDecision) and have no
+// backend resolution consumer (electron/ops/ingest.js's fixed-event loop
+// never reads a resolution) — the Overwrite/Keep gate must not pretend
+// otherwise for those.
+describe('isBackedConfirmChange', () => {
+  it('true when field is a non-empty array (a real protected-field delta)', () => {
+    expect(isBackedConfirmChange(confirmChangeDecision({ field: ['max_per_week'] }))).toBe(true)
+  })
+  it('false when field is null (a fixed-event drift fact, no resolution consumer)', () => {
+    expect(isBackedConfirmChange(confirmChangeDecision({ field: null }))).toBe(false)
+  })
+  it('false for any non-confirm_change kind', () => {
+    expect(isBackedConfirmChange(confirmValueDecision())).toBe(false)
+    expect(isBackedConfirmChange(legacyPriorityDecision())).toBe(false)
+  })
+})
+
+describe('applyResolutions — a NOT-backed confirm_change (fixed-event drift) never emits a resolution', () => {
+  it('regardless of which local answer is given, or none at all', () => {
+    const decision = confirmChangeDecision({ entity: 'anchor_activities', field: null, entityName: 'Movie Night' })
+    for (const answer of [undefined, { choice: 'accept' }, { choice: 'keep' }, { ack: true }]) {
+      const { resolutions } = applyResolutions({
+        approved: {},
+        decisions: [decision],
+        answers: answer ? { [decision.id]: answer } : {},
+      })
+      expect(resolutions).toEqual([])
+    }
   })
 })
