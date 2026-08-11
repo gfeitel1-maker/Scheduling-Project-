@@ -33,8 +33,22 @@ function tierToConfidence(tier) {
   return CONFIDENCE.LOW
 }
 
-function decisionId(entity, entityId, reason) {
-  return entityId != null ? `${entity}:${entityId}` : `${entity}:null:${reason}`
+// update/clear items always carry a real entity_id (buildPlan sets
+// entity_id: match.id on every update/clear arm) — those key by (entity,
+// entityId) alone, which is the genuine dedup-by-root-cause case (N field
+// deltas on the same row collapse to one decision).
+//
+// create/conflict items never have an entity_id (buildPlan emits entity_id:
+// null on every create/conflict arm) — keying those by (entity, null,
+// reason) alone collapsed DIFFERENT rows sharing an entity+reason into one
+// decision, silently dropping the second row (round-2 HIGH finding). Each
+// create/conflict is inherently one-row-one-decision, never a cross-row
+// dedup case, so the key must include a per-row discriminator. `_name` is
+// populated on every buildPlan create/conflict arm, so it's used here.
+function decisionId(entity, entityId, reason, name) {
+  return entityId != null
+    ? `${entity}:${entityId}`
+    : `${entity}:null:${reason}:${name ?? ''}`
 }
 
 // Classifies one plan item. Returns { outcome, decision } where outcome is
@@ -45,15 +59,15 @@ function classifyItem(item) {
     return {
       outcome: 'needsAttention',
       decision: {
-        id: decisionId(item.entity, item.entity_id, item.reason),
+        id: decisionId(item.entity, item.entity_id, item.reason, item._name),
         kind: 'resolve_conflict',
         entity: item.entity,
         entityId: item.entity_id ?? null,
         entityName: item._name ?? null,
         field: null,
         confidence: 'conflict',
-        proposedValue: null,
-        unknowns: [],
+        proposedValue: null, // a conflict has no single proposed value by definition
+        unknowns: [], // C1 does not build UNKNOWN-field detection — deferred, see module doc
         evidence: null, // extension point (Phase D / C-caller): dereference via listImportEvidence
         reason: item.reason,
       },
@@ -70,15 +84,15 @@ function classifyItem(item) {
     return {
       outcome: 'needsAttention',
       decision: {
-        id: decisionId(item.entity, item.entity_id, 'create'),
+        id: decisionId(item.entity, item.entity_id, 'create', item._name),
         kind: 'confirm_value',
         entity: item.entity,
         entityId: item.entity_id ?? null,
         entityName: item._name ?? null,
-        field: null,
+        field: null, // whole-row decision (a fresh row, not one changed field) — no single proposedValue
         confidence,
         proposedValue: null,
-        unknowns: [],
+        unknowns: [], // C1 does not build UNKNOWN-field detection — deferred, see module doc
         evidence: null,
         reason: item.reason ?? null,
       },
@@ -93,18 +107,24 @@ function classifyItem(item) {
     const confidence = tierToConfidence(item.evidence?.tier)
     if (confidence === CONFIDENCE.HIGH) return { outcome: 'understood', decision: null }
     const fields = Object.keys(item.fields ?? {})
+    // Single field -> its proposed value directly (matches ADR's field-level
+    // decision shape). Multiple fields on one row -> a field->value map, since
+    // one scalar can't represent N proposed values on a single decision.
+    const proposedValue = fields.length === 1
+      ? item.fields[fields[0]].to
+      : Object.fromEntries(fields.map((f) => [f, item.fields[f].to]))
     return {
       outcome: 'needsAttention',
       decision: {
-        id: decisionId(item.entity, item.entity_id, item.op),
+        id: decisionId(item.entity, item.entity_id, item.op, item._name),
         kind: 'confirm_value',
         entity: item.entity,
         entityId: item.entity_id ?? null,
         entityName: item._name ?? null,
         field: fields, // dedup-by-root-cause: one decision per row, every changed field listed
         confidence,
-        proposedValue: null,
-        unknowns: [],
+        proposedValue,
+        unknowns: [], // C1 does not build UNKNOWN-field detection — deferred, see module doc
         evidence: null,
         reason: item.reason ?? null,
       },

@@ -161,4 +161,73 @@ describe('buildReconciliationReport — C1 (plan items + readiness only)', () =>
     const report = buildReconciliationReport({ planItems: [], readiness: [], now: '2026-08-11T00:00:00.000Z' })
     expect(report.meta.generatedAt).toBe('2026-08-11T00:00:00.000Z')
   })
+
+  // Round-2 fix: distinct null-entity_id rows (conflict/create) must NOT
+  // collapse into one decision just because they share (entity, null, reason).
+  it('two distinct null-entityId conflict rows on the same entity do not collapse', () => {
+    const planItems = [
+      {
+        op: 'conflict', entity: 'activities', entity_id: null, reason: 'ambiguous_identity',
+        fields: {}, evidence: { tier: 'exact_name', candidates: [{ id: 'x1', name: 'Art' }, { id: 'x2', name: 'Art' }] },
+        _name: 'Art',
+      },
+      {
+        op: 'conflict', entity: 'activities', entity_id: null, reason: 'ambiguous_identity',
+        fields: {}, evidence: { tier: 'exact_name', candidates: [{ id: 'y1', name: 'Free Time' }, { id: 'y2', name: 'Free Time' }] },
+        _name: 'Free Time',
+      },
+    ]
+    const report = buildReconciliationReport({ planItems, readiness: [] })
+    expect(report.decisions).toHaveLength(2)
+    expect(report.buckets.needsAttention).toBe(2)
+    const names = report.decisions.map((d) => d.entityName).sort()
+    expect(names).toEqual(['Art', 'Free Time'])
+  })
+
+  it('two distinct null-entityId LOW/MEDIUM creates on the same entity do not collapse (latent C2b/C4 case)', () => {
+    const planItems = [
+      { op: 'create', entity: 'activities', entity_id: null, fields: {}, evidence: { tier: 'low' }, _name: 'Ceramics' },
+      { op: 'create', entity: 'activities', entity_id: null, fields: {}, evidence: { tier: 'low' }, _name: 'Pottery' },
+    ]
+    const report = buildReconciliationReport({ planItems, readiness: [] })
+    expect(report.decisions).toHaveLength(2)
+    expect(report.buckets.needsAttention).toBe(2)
+  })
+
+  it('non-null-entityId multi-field-delta dedup still collapses to one decision after the key fix', () => {
+    const planItems = [
+      {
+        op: 'update', entity: 'activities', entity_id: 'a3',
+        fields: {
+          min_per_week: { from: 1, to: 3, source: 'import' },
+          prefer_before_day: { from: null, to: 'wednesday', source: 'import' },
+        },
+        evidence: { tier: 'medium', matched_name: 'Kayak' }, _name: 'Kayak',
+      },
+    ]
+    const report = buildReconciliationReport({ planItems, readiness: [] })
+    expect(report.decisions).toHaveLength(1)
+    expect(report.decisions[0].field).toEqual(expect.arrayContaining(['min_per_week', 'prefer_before_day']))
+  })
+
+  it('populates proposedValue from item.fields[field].to for a single-field decision', () => {
+    const planItems = [
+      {
+        op: 'update', entity: 'activities', entity_id: 'a5',
+        fields: { location: { from: 'Dock', to: 'Field', source: 'import' } },
+        evidence: { tier: 'low', matched_name: 'Sail' }, _name: 'Sail',
+      },
+    ]
+    const report = buildReconciliationReport({ planItems, readiness: [] })
+    expect(report.decisions).toHaveLength(1)
+    expect(report.decisions[0].proposedValue).toBe('Field')
+  })
+
+  it('conflict decisions keep proposedValue null (no single proposed value)', () => {
+    const planItems = [
+      { op: 'conflict', entity: 'activities', entity_id: null, reason: 'ambiguous_identity', fields: {}, evidence: { tier: 'exact_name' }, _name: 'Art' },
+    ]
+    const report = buildReconciliationReport({ planItems, readiness: [] })
+    expect(report.decisions[0].proposedValue).toBeNull()
+  })
 })
