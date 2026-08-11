@@ -8,10 +8,9 @@
 // cannot drift apart by construction (the ADR's central design point).
 //
 // C1 scope = ADR rules 1, 2, 3, 4, 6. C2a (below) adds rule 5 (fixedEventsReport
-// side channel). Rule 7 (legacyPriorityActivities, C2b) is NOT built here —
-// see the extension-point comment below for exactly where it plugs in.
-// Rule 4's 'human' fieldProvenance branch (C4) is also not built — C1 treats
-// every update/clear as routine import refinement.
+// side channel). C2b (below) adds rule 7 (legacyPriorityActivities). C4 (below)
+// adds rule 4's 'human' fieldProvenance branch: an update/clear delta on a
+// director-confirmed field is CHANGED regardless of tier.
 
 import { CONFIDENCE } from './confidence.js'
 
@@ -52,9 +51,16 @@ function decisionId(entity, entityId, reason, name) {
 }
 
 // Classifies one plan item. Returns { outcome, decision } where outcome is
-// 'understood' | 'needsAttention' (never 'notInSource'/'changed' in C1 — see
-// module doc). decision is null when the item does not warrant one.
-function classifyItem(item) {
+// 'understood' | 'needsAttention' | 'changed' (the last only reachable via
+// C4's fieldProvenance branch below; 'notInSource' is never produced here —
+// see module doc). decision is null when the item does not warrant one.
+//
+// fieldProvenance is a caller-supplied Map<"entity:entityId:field", 'human'
+// | 'import'> (ADR C4, OQ2 resolved EXTRACT — see buildFieldProvenanceMap in
+// electron/ops/ingest.js). A missing/undefined map means every lookup misses,
+// so every field is treated as non-human — this is what makes C4 additive:
+// callers that don't pass fieldProvenance get byte-identical C1 output.
+function classifyItem(item, fieldProvenance) {
   if (item.op === 'conflict') {
     return {
       outcome: 'needsAttention',
@@ -100,13 +106,48 @@ function classifyItem(item) {
   }
 
   if (item.op === 'update' || item.op === 'clear') {
-    // C4 extension point: when fieldProvenance says a field's live value is
-    // 'human'-sourced, that field forces a 'confirm_change'/CHANGED decision
-    // regardless of tier. C1 has no fieldProvenance input, so every field here
-    // falls through to the same HIGH/MEDIUM/LOW routing as 'create'.
+    const allFields = Object.keys(item.fields ?? {})
+    // C4, ADR rule 4: a field whose live value is 'human'-sourced means this
+    // delta overwrites a director's confirmed value — CHANGED, always a
+    // decision, regardless of the item's identity-confidence tier. Multiple
+    // human fields on the same row fold into ONE confirm_change decision
+    // (dedup-by-root-cause), not one per field.
+    const humanFields = allFields.filter(
+      (f) => fieldProvenance?.get(`${item.entity}:${item.entity_id}:${f}`) === 'human',
+    )
+    if (humanFields.length > 0) {
+      // MIXED-row design choice: a row with both human and import fields
+      // lists only the human fields in `field`/`proposedValue`. Those are the
+      // director-set values actually at stake — the case rule 4/D5 exists to
+      // surface — while the riding-along import refinement isn't itself a
+      // judgment call. One row still yields exactly one decision (dedup).
+      const proposedValue = humanFields.length === 1
+        ? item.fields[humanFields[0]].to
+        : Object.fromEntries(humanFields.map((f) => [f, item.fields[f].to]))
+      return {
+        outcome: 'changed',
+        decision: {
+          id: decisionId(item.entity, item.entity_id, item.op, item._name),
+          kind: 'confirm_change',
+          entity: item.entity,
+          entityId: item.entity_id ?? null,
+          entityName: item._name ?? null,
+          field: humanFields,
+          confidence: 'changed',
+          proposedValue,
+          unknowns: [],
+          evidence: null,
+          reason: item.reason ?? null,
+        },
+      }
+    }
+
+    // No human-provenance field on this row (or no fieldProvenance input at
+    // all) — routine refinement of a previously-inferred value. Falls through
+    // to the same HIGH/MEDIUM/LOW classification 'create' above uses.
     const confidence = tierToConfidence(item.evidence?.tier)
     if (confidence === CONFIDENCE.HIGH) return { outcome: 'understood', decision: null }
-    const fields = Object.keys(item.fields ?? {})
+    const fields = allFields
     // Single field -> its proposed value directly (matches ADR's field-level
     // decision shape). Multiple fields on one row -> a field->value map, since
     // one scalar can't represent N proposed values on a single decision.
@@ -171,14 +212,14 @@ function asArray(value) {
 export function buildReconciliationReport(input) {
   const {
     planItems = [], readiness = [], now = null, fixedEventsReport = {},
-    legacyPriorityActivities = [],
+    legacyPriorityActivities = [], fieldProvenance = null,
   } = input ?? {}
 
   const buckets = { understood: 0, needsAttention: 0, notInSource: 0, changed: 0 }
   const decisionsByKey = new Map() // dedup-by-root-cause: (entity, entityId) -> merged decision
 
   for (const item of planItems) {
-    const { outcome, decision } = classifyItem(item)
+    const { outcome, decision } = classifyItem(item, fieldProvenance)
     buckets[outcome] += 1
     if (!decision) continue
 

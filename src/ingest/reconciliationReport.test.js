@@ -523,3 +523,127 @@ describe('buildReconciliationReport — C2b (legacyPriorityActivities, batched r
     expect(decision.activities.map((a) => a.entityId)).toEqual(['act-1', 'act-2'])
   })
 })
+
+// C4 — fieldProvenance-aware CHANGED classification for update/clear items.
+// docs/adr/2026-08-10-ingestion-phaseC-compression-layer.md, "Bucketing" rule 4:
+// a delta on a 'human'-provenance field overwrites a director's confirmed
+// value -> CHANGED, always a decision (confirm_change), regardless of tier.
+// 'import' | absent -> routine refinement, falls through to the same
+// HIGH/MEDIUM/LOW classification create/update already use.
+describe('buildReconciliationReport — C4 (fieldProvenance-aware CHANGED)', () => {
+  const highTierUpdate = (entityId, fields, name = 'Sail') => ({
+    op: 'update', entity: 'activities', entity_id: entityId,
+    fields, evidence: { tier: 'exact_name', matched_name: name }, _name: name,
+  })
+
+  it('a HIGH-tier update to a HUMAN-provenance field forces exactly one confirm_change decision, tier overridden', () => {
+    const planItems = [
+      highTierUpdate('a10', { location: { from: 'Dock', to: 'Field', source: 'import' } }),
+    ]
+    const fieldProvenance = new Map([['activities:a10:location', 'human']])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    expect(report.buckets.changed).toBe(1)
+    expect(report.buckets.understood).toBe(0)
+    expect(report.decisions).toHaveLength(1)
+    const d = report.decisions[0]
+    expect(d.kind).toBe('confirm_change')
+    expect(d.confidence).toBe('changed')
+    expect(d.entityId).toBe('a10')
+    expect(d.field).toEqual(['location'])
+    expect(d.proposedValue).toBe('Field')
+  })
+
+  it('the SAME update with IMPORT-provenance on that field is unaffected — HIGH tier still understood, no decision', () => {
+    const planItems = [
+      highTierUpdate('a11', { location: { from: 'Dock', to: 'Field', source: 'import' } }),
+    ]
+    const fieldProvenance = new Map([['activities:a11:location', 'import']])
+    const withProvenance = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+    const withoutProvenance = buildReconciliationReport({ planItems, readiness: [] })
+
+    expect(withProvenance.buckets.changed).toBe(0)
+    expect(withProvenance.buckets.understood).toBe(1)
+    expect(withProvenance.decisions).toHaveLength(0)
+    expect(withProvenance).toEqual(withoutProvenance)
+  })
+
+  it('additive proof: absent fieldProvenance input is byte-identical to the pre-C4 run', () => {
+    const planItems = [
+      highTierUpdate('a12', { location: { from: 'Dock', to: 'Field', source: 'import' } }),
+      {
+        op: 'update', entity: 'activities', entity_id: 'a13',
+        fields: { min_per_week: { from: 1, to: 3, source: 'import' } },
+        evidence: { tier: 'medium', matched_name: 'Kayak' }, _name: 'Kayak',
+      },
+    ]
+    const withoutKey = buildReconciliationReport({ planItems, readiness: [] })
+    const withUndefined = buildReconciliationReport({ planItems, readiness: [], fieldProvenance: undefined })
+    const withEmptyMap = buildReconciliationReport({ planItems, readiness: [], fieldProvenance: new Map() })
+
+    expect(withUndefined).toEqual(withoutKey)
+    expect(withEmptyMap).toEqual(withoutKey)
+  })
+
+  it('a MIXED row (one human + one import field, HIGH tier) collapses to ONE confirm_change decision listing only the human field', () => {
+    const planItems = [
+      highTierUpdate('a14', {
+        location: { from: 'Dock', to: 'Field', source: 'import' },
+        min_per_week: { from: 1, to: 2, source: 'import' },
+      }),
+    ]
+    // location is human-owned (director confirmed it), min_per_week is a routine import refinement.
+    const fieldProvenance = new Map([
+      ['activities:a14:location', 'human'],
+      ['activities:a14:min_per_week', 'import'],
+    ])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    expect(report.decisions).toHaveLength(1)
+    const d = report.decisions[0]
+    expect(d.kind).toBe('confirm_change')
+    expect(d.confidence).toBe('changed')
+    // Only the human-provenance field is listed: that's the director-set value
+    // actually at stake ("surface the director's value at stake"), not the
+    // routine import refinement riding along on the same row.
+    expect(d.field).toEqual(['location'])
+    expect(d.proposedValue).toBe('Field')
+    expect(report.buckets.changed).toBe(1)
+  })
+
+  it('a clear on a human-provenance field is CHANGED — the most destructive delta', () => {
+    const planItems = [
+      {
+        op: 'clear', entity: 'activities', entity_id: 'a15',
+        fields: { location: { from: 'Dock', to: Symbol('clear'), source: 'import' } },
+        evidence: { tier: 'exact_name', matched_name: 'Sail' }, _name: 'Sail',
+      },
+    ]
+    const fieldProvenance = new Map([['activities:a15:location', 'human']])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    expect(report.decisions).toHaveLength(1)
+    expect(report.decisions[0].kind).toBe('confirm_change')
+    expect(report.decisions[0].confidence).toBe('changed')
+    expect(report.buckets.changed).toBe(1)
+  })
+
+  it('two human-provenance fields on the same row fold into ONE confirm_change decision listing both (dedup intact)', () => {
+    const planItems = [
+      highTierUpdate('a16', {
+        location: { from: 'Dock', to: 'Field', source: 'import' },
+        min_per_week: { from: 1, to: 2, source: 'import' },
+      }),
+    ]
+    const fieldProvenance = new Map([
+      ['activities:a16:location', 'human'],
+      ['activities:a16:min_per_week', 'human'],
+    ])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    expect(report.decisions).toHaveLength(1)
+    expect(report.decisions[0].kind).toBe('confirm_change')
+    expect(report.decisions[0].field).toEqual(expect.arrayContaining(['location', 'min_per_week']))
+    expect(report.buckets.changed).toBe(1)
+  })
+})
