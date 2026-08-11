@@ -1108,3 +1108,37 @@ describe('buildReconciliationReport — D3 round 2 (fixed-event evidence matches
     expect(report.buckets.changed).toBe(2)
   })
 })
+
+describe('buildReconciliationReport — C3 follow-up: defensive edge cases', () => {
+  it('a moved entry missing reason/name never interpolates literal "undefined" into the decision id', () => {
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: { moved: [{ name: 'Campfire' }, { reason: 'moved somewhere' }] },
+    })
+    // Both entries fold into the changed bucket...
+    expect(report.buckets.changed).toBe(2)
+    // ...and no decision id carries the string 'undefined' from a missing segment.
+    for (const d of report.decisions) {
+      expect(d.id).not.toContain('undefined')
+    }
+  })
+
+  it('a non-array moved/scopeChanged side channel is coerced, never throws', () => {
+    expect(() =>
+      buildReconciliationReport({
+        planItems: [],
+        readiness: [],
+        fixedEventsReport: { moved: null, scopeChanged: 'not-an-array', partial: undefined },
+      })
+    ).not.toThrow()
+
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: { moved: null, scopeChanged: 'not-an-array' },
+    })
+    expect(report.buckets.changed).toBe(0)
+    expect(report.decisions).toHaveLength(0)
+  })
+})
