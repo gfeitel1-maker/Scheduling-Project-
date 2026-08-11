@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { localClient } from '../localClient'
 import { useCohorts } from '../hooks/useCohorts'
 import { S } from '../styles/shared'
@@ -21,7 +21,9 @@ import { buildExistingSnapshot } from '../ingest/existingSnapshot.js'
 import { fieldLabel } from '../ingest/fieldLabels.js'
 import { ReconciliationLedger } from './ReconciliationLedger.jsx'
 import { ReconciliationSummary } from './ReconciliationSummary.jsx'
+import { ReconciliationQueue } from './ReconciliationQueue.jsx'
 import { buildReconciliationReport } from '../ingest/reconciliationReport.js'
+import { filterQueueDecisions, applyResolutions } from './reconciliationResolutions.js'
 import { getReadiness } from '../engine/readiness.js'
 
 // Read last year's schedule and propose the camp's setup from it.
@@ -129,6 +131,8 @@ export default function ImportScreen({ campId, onNavigate }) {
   const { activeCohort } = useCohorts(campId)
   const [fileNames, setFileNames] = useState([])
   const [preview, setPreview] = useState(null)
+  // D2 round 2 — see the comment at its assignment in readFiles.
+  const fileGroupUnitsRef = useRef({})
   const [chosen, setChosen] = useState({})
   // Proposed recurring fixed events (T34), and which the director has ticked.
   // High-confidence events start ticked; low-confidence start unticked, mirroring
@@ -175,6 +179,12 @@ export default function ImportScreen({ campId, onNavigate }) {
   // ledger's counts. Absent (stays null) when the reconcile call itself held
   // — the held-resolution surface takes over, exactly as the ledger already does.
   const [reconciliation, setReconciliation] = useState(null)
+  // D2 — the decision queue's local answers, keyed by decision.id, and
+  // whether the queue panel is open. Owned here (not inside ReconciliationQueue)
+  // so answers survive the queue being closed and reopened ("leave and return
+  // later"), same as `held`/`resolving` already do for conflicts.
+  const [queueAnswers, setQueueAnswers] = useState({})
+  const [queueOpen, setQueueOpen] = useState(false)
   // Camp-wide counts of the same entities, unfiltered by Program. Replace
   // (electron/ops/ingest.js's replaceScope) deletes WHERE camp_id = ? with no
   // cohort filter — every Program's rows, not just the active one's — so the
@@ -218,6 +228,8 @@ export default function ImportScreen({ campId, onNavigate }) {
     setResolving(false)
     setLedger(null)
     setReconciliation(null)
+    setQueueAnswers({})
+    setQueueOpen(false)
     setFixedEvents([])
     setChosenFixedEvents(new Set())
     setActivityRules({})
@@ -292,6 +304,12 @@ export default function ImportScreen({ campId, onNavigate }) {
       setImportMode('add')
       const next = buildPreview(proposal, existing)
       setPreview(next)
+      // D2 round 2 — buildCommitInputs() needs this file-inferred groupUnits
+      // map even after staging nulls `preview` out (commitInputsWithResolutions
+      // calls buildCommitInputs() again live, to pick up post-staging edits).
+      // A ref survives that null without re-rendering or needing its own reset
+      // bookkeeping — a fresh upload simply overwrites it.
+      fileGroupUnitsRef.current = next.groupUnits ?? {}
 
       // Recurring fixed events implied by the grid (T34). High-confidence ones
       // (holding on every operating day) start ticked; low-confidence ones (a
@@ -378,7 +396,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       // The staleness clock is the workbook's EXPORTED generation (ADR §4), not
       // the current op-seq — a field written after the export is what makes it stale.
       base_generation: source.base_generation,
-    }, fileName)
+    }, fileName, 'workbook')
   }
 
   // S4a — the enrichment-workbook EXPORT. A read-only download: read the camp's
@@ -507,9 +525,12 @@ export default function ImportScreen({ campId, onNavigate }) {
         // 2a. Set to an existing/proposed tier — the director picked it.
         groupUnits[name] = override
         groupHumanFields[name] = ['unit']
-      } else if (preview.groupUnits?.[name]) {
-        // 1. Unset — leave to the file's own inference, unchanged.
-        groupUnits[name] = preview.groupUnits[name]
+      } else if (fileGroupUnitsRef.current?.[name]) {
+        // 1. Unset — leave to the file's own inference, unchanged. Reads the
+        // ref (not `preview`, which stageLedger nulls once staged) so this
+        // still works when buildCommitInputs() is rebuilt live at commit
+        // time (commitInputsWithResolutions, D2 round 2).
+        groupUnits[name] = fileGroupUnitsRef.current[name]
       }
     }
     // Only the fixed events the director ticked; unticked ones are not sent.
@@ -583,6 +604,8 @@ export default function ImportScreen({ campId, onNavigate }) {
         setPreview(null)
         setLedger(null)
         setReconciliation(null)
+        setQueueAnswers({})
+        setQueueOpen(false)
         return
       }
       setResult(outcome)
@@ -590,6 +613,8 @@ export default function ImportScreen({ campId, onNavigate }) {
       setPreview(null)
       setLedger(null)
       setReconciliation(null)
+      setQueueAnswers({})
+      setQueueOpen(false)
       setFixedEvents([])
       setChosenFixedEvents(new Set())
       setActivityRules({})
@@ -607,7 +632,7 @@ export default function ImportScreen({ campId, onNavigate }) {
   // counts match what the atomic commit will do — commit re-runs buildPlan against
   // its own live snapshot (Article V), so the two agree. Replace mode passes a null
   // snapshot exactly as the committer does, keeping the blind-create path.
-  async function stageLedger(inputs, fileName) {
+  async function stageLedger(inputs, fileName, origin = 'schedule') {
     const existing = inputs.mode === 'replace'
       ? null
       : await buildExistingSnapshot(localClient.list, inputs.cohort_id)
@@ -618,8 +643,15 @@ export default function ImportScreen({ campId, onNavigate }) {
       inputs.resolutions ?? [],
     )
     setPreview(null)
-    setLedger({ plan, context: inputs, fileName })
+    // `origin` distinguishes the schedule-tick path (whose `inputs` IS
+    // buildCommitInputs()'s own output, safe to rebuild live at commit time)
+    // from the workbook path (whose `inputs` carries workbook-only fields
+    // like base_generation that buildCommitInputs() knows nothing about) —
+    // see commitInputsWithResolutions.
+    setLedger({ plan, context: inputs, fileName, origin })
     setReconciliation(null)
+    setQueueAnswers({})
+    setQueueOpen(false)
     await stageReconciliationSummary(inputs)
   }
 
@@ -673,7 +705,53 @@ export default function ImportScreen({ campId, onNavigate }) {
     // ledger. The director confirms from the ledger, and only THEN does the
     // single atomic ingestCommit run (T61 — one awaited call, teardown+create in
     // one main-process transaction).
-    await stageLedger(buildCommitInputs(), fileNames.join(', '))
+    await stageLedger(buildCommitInputs(), fileNames.join(', '), 'schedule')
+  }
+
+  // D2 — folds the decision queue's local answers into the commit inputs at
+  // the moment of commit (not at staging time, since the queue is only
+  // reachable AFTER the ledger/summary are already staged, and edits keep
+  // happening while it's open). Reuses the SAME `resolutions ?? []` channel
+  // finishHeld already sends — no new commit primitive.
+  //
+  // Round 2 HIGH fix: `ledger.context` is a FROZEN snapshot captured at
+  // staging time. An Edit made afterwards (updateActivityRule/
+  // setGroupUnitOverrides) changes `activityRules`/`groupUnitOverrides`
+  // state, not that snapshot — spreading the stale snapshot silently shipped
+  // the ORIGINAL flagged value. For the schedule-tick path (`ledger.origin
+  // === 'schedule'`), `buildCommitInputs()` already reads those same LIVE
+  // state slices, so rebuilding it fresh at commit time picks up every edit.
+  // The workbook path's `ledger.context` is NOT buildCommitInputs() output
+  // (it's workbookToSource()'s, carrying base_generation etc. that
+  // buildCommitInputs() knows nothing about) and today has no queue-editable
+  // decisions reaching it, so it still commits its own frozen snapshot as-is.
+  function commitInputsWithResolutions() {
+    const base = ledger.origin === 'schedule' ? buildCommitInputs() : ledger.context
+    const decisions = reconciliation?.report?.decisions ?? []
+    const { approved, resolutions } = applyResolutions({
+      approved: base.approved,
+      decisions,
+      answers: queueAnswers,
+    })
+    return { ...base, approved, resolutions: [...(base.resolutions ?? []), ...resolutions] }
+  }
+
+  // D2 — "Edit" on a confirm_value decision card routes to the same edit
+  // machinery the ADR names (ActivityRuleRow's inline edit for activity
+  // fields; the group unit column for group units) rather than inventing a
+  // second write path. Only ever called for a decision the queue already
+  // gated with isEditableDecision (reconciliationResolutions.js) — a card
+  // with no real destination never renders an Edit button in the first
+  // place (round 2 invariant: no accept-and-discard Edit).
+  function handleQueueEditField(decision, value) {
+    if (decision.entity === 'activities') {
+      const ruleKey = Object.entries(RULE_FIELD_TO_SOURCE).find(([, src]) => src === decision.field[0])?.[0]
+      if (ruleKey) updateActivityRule(decision.entityName, { [ruleKey]: value })
+      return
+    }
+    if (decision.entity === 'groups') {
+      setGroupUnitOverrides((prev) => ({ ...prev, [decision.entityName]: value }))
+    }
   }
 
   // T73 — the director resolved every held item and clicked Finish. Re-submit the
@@ -701,6 +779,8 @@ export default function ImportScreen({ campId, onNavigate }) {
       setPreview(null)
       setLedger(null)
       setReconciliation(null)
+      setQueueAnswers({})
+      setQueueOpen(false)
       setFixedEvents([])
       setChosenFixedEvents(new Set())
       setActivityRules({})
@@ -742,6 +822,8 @@ export default function ImportScreen({ campId, onNavigate }) {
     setPreview(null)
     setLedger(null)
     setReconciliation(null)
+    setQueueAnswers({})
+    setQueueOpen(false)
     setFileNames([])
     setFixedEvents([])
     setChosenFixedEvents(new Set())
@@ -896,6 +978,22 @@ export default function ImportScreen({ campId, onNavigate }) {
           report={reconciliation.report}
           readiness={reconciliation.readiness}
           onReviewBelow={() => document.getElementById('reconciliation-ledger')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          onReviewDecisions={() => setQueueOpen(true)}
+        />
+      )}
+
+      {/* D2 — the one-at-a-time decision queue. Answers persist in
+          `queueAnswers` even when this panel is closed ("leave and return
+          later"); resolving here never writes anything by itself — only the
+          eventual ledger Commit (commitInputsWithResolutions) does. */}
+      {reconciliation && queueOpen && (
+        <ReconciliationQueue
+          decisions={filterQueueDecisions(reconciliation.report.decisions)}
+          answers={queueAnswers}
+          onAnswer={(id, patch) => setQueueAnswers((prev) => ({ ...prev, [id]: patch }))}
+          onEditField={handleQueueEditField}
+          onReturnToSummary={() => setQueueOpen(false)}
+          onDone={() => setQueueOpen(false)}
         />
       )}
 
@@ -911,8 +1009,8 @@ export default function ImportScreen({ campId, onNavigate }) {
             plan={ledger.plan}
             fileName={ledger.fileName}
             working={working}
-            onCommit={() => runCommit(ledger.context)}
-            onDiscard={() => { setLedger(null); setReconciliation(null); setFileNames([]) }}
+            onCommit={() => runCommit(commitInputsWithResolutions())}
+            onDiscard={() => { setLedger(null); setReconciliation(null); setQueueAnswers({}); setQueueOpen(false); setFileNames([]) }}
           />
         </div>
       )}

@@ -44,7 +44,7 @@ function chipState(readiness, keys) {
   return 'ok'
 }
 
-export function ReconciliationSummary({ report, readiness = [], onReviewBelow }) {
+export function ReconciliationSummary({ report, readiness = [], onReviewBelow, onReviewDecisions }) {
   const buckets = report?.buckets ?? { understood: 0, needsAttention: 0, notInSource: 0, changed: 0 }
   const decisionCount = report?.decisions?.length ?? 0
 
@@ -85,12 +85,17 @@ export function ReconciliationSummary({ report, readiness = [], onReviewBelow })
         <button className="press-97" onClick={onReviewBelow} style={S.btnPrimary}>
           Review &amp; commit below
         </button>
-        {/* Per-decision review cards are D2. Kept visible (so the count stays
-            truthful) but plainly secondary and honestly labeled — never a
-            second primary, never disabled-and-silent about why. */}
-        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-          Reviewing {decisionCount} decision{decisionCount === 1 ? '' : 's'} one at a time is coming in a later update.
-        </span>
+        {/* D2 — per-decision review is now real. Kept plainly secondary
+            (never a second primary) but a working button, not dead text. */}
+        {onReviewDecisions && decisionCount > 0 ? (
+          <button className="press-97" onClick={onReviewDecisions} style={S.btnSecondary}>
+            Review {decisionCount} decision{decisionCount === 1 ? '' : 's'}
+          </button>
+        ) : (
+          <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            Reviewing {decisionCount} decision{decisionCount === 1 ? '' : 's'} one at a time is coming in a later update.
+          </span>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>
