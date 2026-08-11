@@ -375,3 +375,22 @@ Anything past "here is the classified shape" is Phase D.
    affordances over a readiness row, never as `decisions[]` entries, on the reasoning that "skip for
    now" isn't an unresolved uncertainty requiring judgment, it's a no-op. Confirm that reading matches
    intent before Phase D is briefed to build against it.
+
+## Resolved (Governor / product owner, 2026-08-11)
+
+- **C1 approved to build.** Shipped as `src/ingest/reconciliationReport.js` +
+  `src/ingest/reconciliationReport.test.js`, covering rules 1, 2, 3, 4, 6 only (plan items + readiness).
+- **Open question 3 (legacy-priority surfacing granularity), resolved for C2b:** BATCH — one
+  consolidated "N priorities need review" decision, not one-per-activity. This reverses this ADR's
+  original rule-7 draft (one decision per activity); C2b must implement the batched form. Does not
+  apply to C1, which does not touch legacy priority at all.
+- **Open question 4 (notInSource decisions), resolved: CONFIRMED as designed.** `notInSource` is
+  bucket-only and generates zero `decisions[]` entries, for both C1 and every later slice. "Missing
+  optional" is never treated as "misconfigured."
+- **Open question 1 (C1a's report field name), DEFERRED.** Stays open; it only blocks C3, which cannot
+  start until the parent ADR names the field. No impact on C1/C2a/C2b/C4.
+- **Open question 2 (where `fieldProvenance` gets built), resolved: EXTRACT.** When C4 is built, the
+  `isProtected`-style per-field query in `electron/ops/ingest.js` should be pulled into a small reusable
+  helper (e.g. `buildFieldProvenanceMap`) rather than inlined at the one call site, so the map-building
+  logic has one definition Phase C's caller-side glue imports. C1 does not build this — it has no
+  `fieldProvenance` input — but the decision is recorded here for C4 to honor.
