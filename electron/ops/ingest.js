@@ -335,6 +335,48 @@ export function listLegacyPriorityActivities(db, camp_id) {
   return result
 }
 
+// C4 assembly helper (docs/adr/2026-08-10-ingestion-phaseC-compression-layer.md,
+// OQ2 resolved EXTRACT): builds the `fieldProvenance` input
+// buildReconciliationReport's C4 rule needs. Reuses the SAME isProtected
+// primitive decideFieldItem already runs inline per-field at commit time
+// (`latest.source !== 'import'` — see decideFieldItem's isProtected gate) —
+// not a parallel provenance system. This is read-only, caller-side glue that
+// assembles Phase C's input; it does not touch and is never called from the
+// live commit-path gate, which is deliberately left untouched (extracting
+// the gate itself out of decideFieldItem's closure was judged riskier than
+// adding this sibling read for a not-yet-wired consumer).
+//
+// CONTRACT (Phase-D wiring): any DB-backed caller that invokes
+// buildReconciliationReport against a REAL import MUST build fieldProvenance
+// via this function and pass it through. Omitting it silently classifies
+// every 'human'-owned field as non-human (buildReconciliationReport degrades
+// additively to pre-C4 behavior — see that function's own contract comment),
+// so a director-confirmed value can be silently overwritten with no CHANGED
+// decision ever surfaced. That data-safety obligation belongs to the caller,
+// not to this pure function.
+//
+// The map is keyed by the PLAN item's field name (e.g. 'unit',
+// 'eligible_groups') because that's what buildReconciliationReport sees in
+// item.fields — but provenance is read against the STORED column via
+// dbFieldFor(field), the same mapping decideFieldItem uses (eligible_groups
+// -> eligible_group_ids, unit -> tier_id). 'human' = a latest op exists and
+// its source isn't 'import'; 'import' otherwise, including when the field
+// was never written (absent latest) — matching isProtected's definition.
+export function buildFieldProvenanceMap(db, planItems) {
+  const map = new Map()
+  for (const item of planItems) {
+    if (item.op !== 'update' && item.op !== 'clear') continue
+    if (item.entity_id == null) continue
+    for (const field of Object.keys(item.fields ?? {})) {
+      const dbField = dbFieldFor(field)
+      const latest = latestOp(db, item.entity, item.entity_id, dbField)
+      const provenance = !!latest && latest.source !== 'import' ? 'human' : 'import'
+      map.set(`${item.entity}:${item.entity_id}:${field}`, provenance)
+    }
+  }
+  return map
+}
+
 function buildExistingSnapshot(db, camp_id, cohort_id) {
   // S2c §3: live id->name maps so the snapshot can carry FK fields in the LABEL
   // form buildPlan compares against (it holds no DB handle and cannot resolve).
