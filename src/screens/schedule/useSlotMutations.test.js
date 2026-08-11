@@ -42,6 +42,7 @@ function makeProps(overrides = {}) {
     setEditSlot: vi.fn(),
     setDisplacedItems: vi.fn(),
     recalcStats: vi.fn(),
+    recalcFindings: vi.fn(),
     getSlot,
     setActivities: vi.fn(),
     slots: [],
@@ -124,37 +125,101 @@ describe('useSlotMutations — route-pinned undo closure (the delicate part)', (
   })
 })
 
-describe('useSlotMutations — swapSlots', () => {
-  it('writes both cells swapped and pushes an undo', async () => {
-    const rowA = { id: 'a', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actA' }
-    const rowB = { id: 'b', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actB' }
-    const { hook, props } = setup({ slots: [rowA, rowB] })
-
+describe('useSlotMutations — replaceSlot', () => {
+  it('places the incoming activity into an empty target and pushes an undo', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }] })
     await act(async () => {
-      await hook.result.current.swapSlots(
-        { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'actA' },
-        { groupId: 'g1', dayId: 'd1', blockId: 'b2', activityId: 'actB' },
+      await hook.result.current.replaceSlot(
+        { activityId: 'act-1' }, // palette drop: no source coords
+        { groupId: 'g1', dayId: 'd1', blockId: 'b1' }
       )
     })
-
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('a', { activity_id: 'actB', flags: {} })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('b', { activity_id: 'actA', flags: {} })
-    expect(props.routeState.setSlots).toHaveBeenCalledTimes(1)
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
     expect(props.pushUndo).toHaveBeenCalledTimes(1)
   })
 
-  it('does nothing when the route has no template', async () => {
-    const { hook, props } = setup({
-      slots: [],
-      routeState: { existingTemplates: { generated: false, manual: false } },
-    })
+  it('replaces an occupied target — the occupant is not written anywhere, just overwritten', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-occupant', flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }, { id: 'act-occupant', name: 'Art' }] })
     await act(async () => {
-      await hook.result.current.swapSlots(
-        { groupId: 'g1', dayId: 'd1', blockId: 'b1' },
-        { groupId: 'g1', dayId: 'd1', blockId: 'b2' },
+      await hook.result.current.replaceSlot(
+        { activityId: 'act-1' },
+        { groupId: 'g1', dayId: 'd1', blockId: 'b1' }
+      )
+    })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(1)
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
+  })
+
+  it('grid-to-grid: clears the source slot in addition to writing the target', async () => {
+    const slots = [
+      { id: 'row-source', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {} },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot(
+        { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' },
+        { groupId: 'g1', dayId: 'd1', blockId: 'b2' }
+      )
+    })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source', { activity_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(2)
+  })
+
+  it('refuses to write onto an anchor target', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', is_anchor: true, activity_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot(
+        { activityId: 'act-1' },
+        { groupId: 'g1', dayId: 'd1', blockId: 'b1' }
       )
     })
     expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+    expect(props.pushUndo).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when the route has no template', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({
+      slots,
+      activities: [{ id: 'act-1', name: 'Swim' }],
+      routeState: { existingTemplates: { manual: false, generated: false } },
+    })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+  })
+
+  it('undo restores both target and (grid-to-grid) source to their previous activity_id', async () => {
+    const slots = [
+      { id: 'row-source', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {} },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-occupant', flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }, { id: 'act-occupant', name: 'Art' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot(
+        { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' },
+        { groupId: 'g1', dayId: 'd1', blockId: 'b2' }
+      )
+    })
+    const entry = props.pushUndo.mock.calls[0][0]
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await entry.undo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-occupant', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source', { activity_id: 'act-1', flags: {} })
   })
 })
 
