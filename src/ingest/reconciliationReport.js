@@ -169,7 +169,10 @@ function asArray(value) {
 }
 
 export function buildReconciliationReport(input) {
-  const { planItems = [], readiness = [], now = null, fixedEventsReport = {} } = input ?? {}
+  const {
+    planItems = [], readiness = [], now = null, fixedEventsReport = {},
+    legacyPriorityActivities = [],
+  } = input ?? {}
 
   const buckets = { understood: 0, needsAttention: 0, notInSource: 0, changed: 0 }
   const decisionsByKey = new Map() // dedup-by-root-cause: (entity, entityId) -> merged decision
@@ -254,8 +257,37 @@ export function buildReconciliationReport(input) {
 
   buckets.understood += asArray(created).length + asArray(unchanged).length
 
-  // C2b extension point: fold in legacyPriorityActivities here — rule 7,
-  // one 'confirm_legacy_priority' decision per row, always needsAttention.
+  // C2b, rule 7. Owner-resolved OQ3 (ADR "Resolved 2026-08-11"): BATCH — one
+  // consolidated "N priorities need review" decision, never one-per-activity.
+  // source='import' cannot distinguish a manufactured default from a
+  // director-typed value from an accepted-conflict value (all stored
+  // identically), so Shoresh surfaces the whole set for review rather than
+  // proposing any value — proposedValue stays null, this is never a clear.
+  // Defensive filter: a row that can't identify its activity (no entity_id)
+  // can't be reviewed against anything, so it's dropped rather than surfaced
+  // as a phantom row in the batch. Never throws on malformed input.
+  const legacySet = asArray(legacyPriorityActivities).filter((a) => a?.entity_id != null)
+  if (legacySet.length > 0) {
+    buckets.needsAttention += 1
+    decisionsByKey.set('activities:legacy_priority', {
+      id: 'activities:legacy_priority',
+      kind: 'review_legacy_priority',
+      entity: 'activities',
+      entityId: null,
+      entityName: null,
+      field: 'priority',
+      confidence: 'low', // a pre-B2 value was never actually judged
+      proposedValue: null, // review prompt, not a proposed change — never an auto-clear
+      count: legacySet.length,
+      activities: legacySet.map((a) => ({ entityId: a.entity_id, name: a.name })),
+      unknowns: [],
+      evidence: null,
+      reason: 'These activities carry an import-sourced priority from before Shoresh stopped '
+        + 'inferring priority automatically. Shoresh cannot tell whether each value is a leftover '
+        + 'manufactured default, a value you typed into the workbook, or a value you accepted while '
+        + 'resolving an earlier conflict — review each one and confirm or change it.',
+    })
+  }
 
   return {
     buckets,

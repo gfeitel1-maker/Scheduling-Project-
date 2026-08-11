@@ -388,6 +388,10 @@ Anything past "here is the classified shape" is Phase D.
 
 ## Resolved (Governor / product owner, 2026-08-11)
 
+- **C2b decision kind, 2026-08-11 (round 2):** shipped as `review_legacy_priority`, not the draft
+  `confirm_legacy_priority` used at lines ~138/223/298. A `proposedValue: null` row is a review
+  prompt, not a confirmation, so the kind name should say so — this supersedes the enum value at
+  those lines for the legacy-priority decision only.
 - **C1 approved to build.** Shipped as `src/ingest/reconciliationReport.js` +
   `src/ingest/reconciliationReport.test.js`, covering rules 1, 2, 3, 4, 6 only (plan items + readiness).
 - **Open question 3 (legacy-priority surfacing granularity), resolved for C2b:** BATCH — one
