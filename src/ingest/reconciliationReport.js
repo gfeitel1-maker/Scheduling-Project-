@@ -137,14 +137,15 @@ function classifyItem(item) {
   return { outcome: 'understood', decision: null }
 }
 
-// C2a: fixedMoved/fixedPartial entries carry a name+reason, no entity_id —
-// same dedup-by-root-cause key shape as create/conflict above.
-function fixedEventDecisionId(reason, name) {
-  return `anchor_activities:null:${reason}:${name ?? ''}`
+// C2a: moved/partial entries carry a name+reason, no entity_id — same
+// dedup-by-root-cause key shape as create/conflict above, qualified by kind
+// so a confirm_change and a confirm_value sharing (reason, name) never merge.
+function fixedEventDecisionId(kind, reason, name) {
+  return `anchor_activities:null:${kind}:${reason}:${name ?? ''}`
 }
 
 function addFixedEventDecision(decisionsByKey, { kind, confidence, name, reason }) {
-  const id = fixedEventDecisionId(reason, name)
+  const id = fixedEventDecisionId(kind, reason, name)
   if (decisionsByKey.has(id)) return
   decisionsByKey.set(id, {
     id,
@@ -159,6 +160,12 @@ function addFixedEventDecision(decisionsByKey, { kind, confidence, name, reason 
     evidence: null,
     reason: reason ?? null,
   })
+}
+
+// Destructuring defaults only cover `undefined`, not `null` — a caller
+// passing an explicit null field (e.g. { moved: null }) must not throw.
+function asArray(value) {
+  return Array.isArray(value) ? value : []
 }
 
 export function buildReconciliationReport(input) {
@@ -195,29 +202,38 @@ export function buildReconciliationReport(input) {
   // (not reachable via planItems), folded into the same buckets/
   // decisionsByKey structures above. buckets fold over every fact SEEN
   // (mirrors how buckets fold over every planItem above), while decisions
-  // dedup by root cause — so two identical fixedMoved entries count as 2 in
+  // dedup by root cause — so two identical moved entries count as 2 in
   // buckets.changed but collapse to 1 decision, same as create/conflict.
+  //
+  // Field names below are ingest.js's real, unprefixed output shape
+  // (electron/ops/ingest.js:1220-1227, `fixedEvents: { created, unchanged,
+  // skipped, partial, rejected, moved }`) — the ADR pseudocode's prefixed
+  // names (fixedMoved etc.) were a documentation slip, corrected alongside
+  // this fix.
   const {
-    fixedMoved = [],
-    fixedPartial = [],
-    fixedSkipped = [],
-    fixedCreated = [],
-    fixedUnchanged = [],
+    moved = [],
+    partial = [],
+    skipped = [],
+    created = [],
+    unchanged = [],
+    rejected = [],
   } = fixedEventsReport ?? {}
 
-  for (const entry of fixedMoved) {
+  for (const entry of asArray(moved)) {
     buckets.changed += 1
     addFixedEventDecision(decisionsByKey, {
       kind: 'confirm_change',
-      // ADR is silent on a confidence value for confirm_change; 'changed' is
-      // a categorical marker, mirroring resolve_conflict's 'conflict'.
+      // ADR's confidence enum is closed but silent on which of its values a
+      // confirm_change decision carries; 'changed' is the documented 5th
+      // member (see ADR line ~139) — a move is a confirmed fact, not a
+      // 'conflict', so it needs its own distinct marker.
       confidence: 'changed',
       name: entry.name,
       reason: entry.reason,
     })
   }
 
-  for (const entry of fixedPartial) {
+  for (const entry of asArray(partial)) {
     buckets.needsAttention += 1
     addFixedEventDecision(decisionsByKey, {
       kind: 'confirm_value',
@@ -229,11 +245,14 @@ export function buildReconciliationReport(input) {
     })
   }
 
-  // fixedSkipped: explicitly excluded per ADR rule 5 — import-run
-  // diagnostics only, these never got far enough to become an entity.
-  void fixedSkipped
+  // skipped/rejected: explicitly excluded per ADR rule 5 — import-run
+  // diagnostics only. skipped never got far enough to become an entity;
+  // rejected is a director-tombstoned slot re-encountered on reimport, and
+  // re-surfacing it as a fresh decision would re-litigate a settled choice.
+  void skipped
+  void rejected
 
-  buckets.understood += fixedCreated.length + fixedUnchanged.length
+  buckets.understood += asArray(created).length + asArray(unchanged).length
 
   // C2b extension point: fold in legacyPriorityActivities here — rule 7,
   // one 'confirm_legacy_priority' decision per row, always needsAttention.
