@@ -296,6 +296,43 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     })
   }
 
+  // D1 (dry-run reconciliation, docs/adr/2026-08-10-...ingestion-phaseD...).
+  // Same auth gate as ingestCommit, but NOT the Host-only 'mode === client'
+  // guard above — a dry run commits nothing anywhere, on any device, so there
+  // is no fork-the-camp risk to guard against. Also does not push any
+  // onOpApplied/sync broadcast: nothing was written for a peer to learn about.
+  function ingestReconcile({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const session = requireAuthorized(db, { token, action: 'groups.import' })
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) throw new Error('no camp on this device')
+    const outcome = commitIngest(db, {
+      approved,
+      links,
+      clears: clears ?? {},
+      humanEditedFields: humanEditedFields ?? {},
+      cohort_id: cohort_id ?? null,
+      camp_id: camp.id,
+      author_user_id: session.userId,
+      device_id: deviceId,
+      fixedEvents: fixedEvents ?? [],
+      activityRules: activityRules ?? {},
+      mode: ingestMode === 'replace' ? 'replace' : 'add',
+      resolutions: resolutions ?? [],
+      base_generation: base_generation ?? 0,
+      dryRun: true,
+    })
+    return {
+      dryRun: true,
+      held: outcome.held,
+      conflicts: outcome.conflicts,
+      planItems: outcome.planItems ?? [],
+      fixedEventsReport: outcome.fixedEvents,
+      fieldProvenance: outcome.fieldProvenance ?? {},
+      legacyPriorityActivities: outcome.legacyPriorityActivities ?? [],
+    }
+  }
+
   // S1b — confirm that an imported label means an existing entity, so the
   // next import recognizes it without asking again
   // (docs/adr/2026-08-09-s1b-host-local-aliases.md §2). Admin-only via
@@ -1014,6 +1051,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     getDeviceId,
     getSyncStatus,
     ingestCommit,
+    ingestReconcile,
     confirmAlias: confirmAliasHandler,
     latestOpSeq: latestOpSeqHandler,
     resolveConflict,
@@ -1101,6 +1139,7 @@ if (isElectronEntryPoint()) {
     'shoresh:get-device-id',
     'shoresh:get-sync-status',
     'shoresh:ingest-commit',
+    'shoresh:ingest-reconcile',
     'shoresh:confirm-alias',
     'shoresh:latest-op-seq',
     'shoresh:resolve-conflict',
@@ -1149,6 +1188,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:get-device-id', (_event, args) => handlers.getDeviceId(args && args.token))
     ipcMain.handle('shoresh:get-sync-status', () => handlers.getSyncStatus())
     ipcMain.handle('shoresh:ingest-commit', (_event, args) => handlers.ingestCommit(args))
+    ipcMain.handle('shoresh:ingest-reconcile', (_event, args) => handlers.ingestReconcile(args))
     ipcMain.handle('shoresh:confirm-alias', (_event, args) => handlers.confirmAlias(args))
     ipcMain.handle('shoresh:latest-op-seq', () => handlers.latestOpSeq())
     ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))

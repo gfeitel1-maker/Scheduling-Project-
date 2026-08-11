@@ -440,7 +440,7 @@ function buildExistingSnapshot(db, camp_id, cohort_id) {
  * Returns `{ created: { [entity]: count }, total,
  *            fixedEvents: { created, skipped, partial }, replaced? }`.
  */
-export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0 }) {
+export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -484,7 +484,19 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
   const import_run_id = randomUUID()
   const committed_at = new Date().toISOString()
 
-  return commitPlan(db, plan, { author_user_id: author_user_id ?? null, device_id, resolutions, import_run_id, committed_at })
+  const outcome = commitPlan(db, plan, { author_user_id: author_user_id ?? null, device_id, resolutions, import_run_id, committed_at, dryRun })
+
+  // D1: these run strictly AFTER commitPlan returns — the dry-run transaction
+  // has already rolled back by this point. Computing them earlier, inside the
+  // still-open transaction, would let the dry run's own not-yet-rolled-back
+  // ops masquerade as prior 'import' provenance and corrupt the C4 signal.
+  if (dryRun && !outcome.held) {
+    outcome.fieldProvenance = Object.fromEntries(buildFieldProvenanceMap(db, plan.items))
+    outcome.legacyPriorityActivities = listLegacyPriorityActivities(db, camp_id)
+    outcome.planItems = plan.items
+  }
+
+  return outcome
 }
 
 /**
@@ -503,9 +515,9 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
  *
  * @param {import('better-sqlite3').Database} db
  * @param {import('../../src/ingest/buildPlan.js').ReconciliationPlan} plan
- * @param {{ author_user_id: string|null, device_id: string, import_run_id?: string, committed_at?: string }} actor
+ * @param {{ author_user_id: string|null, device_id: string, import_run_id?: string, committed_at?: string, dryRun?: boolean }} actor
  */
-export function commitPlan(db, plan, { author_user_id = null, device_id, resolutions = [], import_run_id = null, committed_at = null }) {
+export function commitPlan(db, plan, { author_user_id = null, device_id, resolutions = [], import_run_id = null, committed_at = null, dryRun = false }) {
   // B4: a direct commitPlan caller (tests, or any future caller that skips
   // commitIngest) still gets evidence rows minted with a run id/timestamp of
   // their own, rather than writing NOT NULL columns as null.
@@ -710,6 +722,10 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // the held path leaves the DB byte-identical; we catch it outside and return a
   // held outcome instead of re-throwing.
   const HELD = Symbol('held')
+  // D1 (dry-run reconciliation, docs/adr/2026-08-10-...). Thrown ONLY after the
+  // run() closure has done all its work (see the end of run(), below) so every
+  // count/drift array is already computed when we roll back and read them.
+  const DRY_RUN = Symbol('dryRun')
   const conflicts = []
 
   const fixedCreated = []
@@ -1308,13 +1324,26 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         fixedCreated.push(anchorId)
       }
     }
+
+    // D1: everything above ran and every count/drift array is populated —
+    // abort the transaction now so dryRun writes nothing, same rollback
+    // mechanism as HELD. Ordering matters: this fires AFTER the HELD throw's
+    // earlier point (~:1069), so a would-be-held dry run still returns the
+    // normal held shape, never reaching here.
+    if (dryRun) {
+      const abort = new Error('commitPlan: dry run')
+      abort[DRY_RUN] = true
+      throw abort
+    }
   })
 
   let held = false
+  let dryRunAborted = false
   try {
     run()
   } catch (e) {
     if (e && e[HELD]) held = true // the transaction rolled back; nothing written
+    else if (e && e[DRY_RUN]) dryRunAborted = true // rolled back; report computed outcome
     else throw e
   }
 
@@ -1348,5 +1377,6 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     },
   }
   if (replaced) outcome.replaced = replaced
+  if (dryRunAborted) outcome.dryRun = true
   return outcome
 }
