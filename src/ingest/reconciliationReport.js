@@ -7,9 +7,9 @@
 // SAME classification pass that produces `decisions`, so the two outputs
 // cannot drift apart by construction (the ADR's central design point).
 //
-// C1 scope = ADR rules 1, 2, 3, 4, 6 only. Rule 5 (fixedEventsReport side
-// channel, C2a) and rule 7 (legacyPriorityActivities, C2b) are NOT built here
-// — see the extension-point comments below for exactly where they plug in.
+// C1 scope = ADR rules 1, 2, 3, 4, 6. C2a (below) adds rule 5 (fixedEventsReport
+// side channel). Rule 7 (legacyPriorityActivities, C2b) is NOT built here —
+// see the extension-point comment below for exactly where it plugs in.
 // Rule 4's 'human' fieldProvenance branch (C4) is also not built — C1 treats
 // every update/clear as routine import refinement.
 
@@ -137,8 +137,39 @@ function classifyItem(item) {
   return { outcome: 'understood', decision: null }
 }
 
+// C2a: moved/partial entries carry a name+reason, no entity_id — same
+// dedup-by-root-cause key shape as create/conflict above, qualified by kind
+// so a confirm_change and a confirm_value sharing (reason, name) never merge.
+function fixedEventDecisionId(kind, reason, name) {
+  return `anchor_activities:null:${kind}:${reason}:${name ?? ''}`
+}
+
+function addFixedEventDecision(decisionsByKey, { kind, confidence, name, reason }) {
+  const id = fixedEventDecisionId(kind, reason, name)
+  if (decisionsByKey.has(id)) return
+  decisionsByKey.set(id, {
+    id,
+    kind,
+    entity: 'anchor_activities',
+    entityId: null,
+    entityName: name ?? null,
+    field: null,
+    confidence,
+    proposedValue: null,
+    unknowns: [],
+    evidence: null,
+    reason: reason ?? null,
+  })
+}
+
+// Destructuring defaults only cover `undefined`, not `null` — a caller
+// passing an explicit null field (e.g. { moved: null }) must not throw.
+function asArray(value) {
+  return Array.isArray(value) ? value : []
+}
+
 export function buildReconciliationReport(input) {
-  const { planItems = [], readiness = [], now = null } = input ?? {}
+  const { planItems = [], readiness = [], now = null, fixedEventsReport = {} } = input ?? {}
 
   const buckets = { understood: 0, needsAttention: 0, notInSource: 0, changed: 0 }
   const decisionsByKey = new Map() // dedup-by-root-cause: (entity, entityId) -> merged decision
@@ -167,10 +198,61 @@ export function buildReconciliationReport(input) {
     if (row.state === 'optional') buckets.notInSource += 1
   }
 
-  // C2a extension point: fold in fixedEventsReport.{fixedMoved,fixedPartial,
-  // fixedSkipped,fixedCreated,fixedUnchanged} here — a second, parallel
-  // classification source per the ADR's rule 5, folding into the same
-  // buckets/decisionsByKey structures above.
+  // Rule 5: fixedEventsReport is a second, parallel classification source
+  // (not reachable via planItems), folded into the same buckets/
+  // decisionsByKey structures above. buckets fold over every fact SEEN
+  // (mirrors how buckets fold over every planItem above), while decisions
+  // dedup by root cause — so two identical moved entries count as 2 in
+  // buckets.changed but collapse to 1 decision, same as create/conflict.
+  //
+  // Field names below are ingest.js's real, unprefixed output shape
+  // (electron/ops/ingest.js:1220-1227, `fixedEvents: { created, unchanged,
+  // skipped, partial, rejected, moved }`) — the ADR pseudocode's prefixed
+  // names (fixedMoved etc.) were a documentation slip, corrected alongside
+  // this fix.
+  const {
+    moved = [],
+    partial = [],
+    skipped = [],
+    created = [],
+    unchanged = [],
+    rejected = [],
+  } = fixedEventsReport ?? {}
+
+  for (const entry of asArray(moved)) {
+    buckets.changed += 1
+    addFixedEventDecision(decisionsByKey, {
+      kind: 'confirm_change',
+      // ADR's confidence enum is closed but silent on which of its values a
+      // confirm_change decision carries; 'changed' is the documented 5th
+      // member (see ADR line ~139) — a move is a confirmed fact, not a
+      // 'conflict', so it needs its own distinct marker.
+      confidence: 'changed',
+      name: entry.name,
+      reason: entry.reason,
+    })
+  }
+
+  for (const entry of asArray(partial)) {
+    buckets.needsAttention += 1
+    addFixedEventDecision(decisionsByKey, {
+      kind: 'confirm_value',
+      // ADR is silent on confidence here too; 'low' matches the safest-
+      // default fallback tierToConfidence uses for an untiered value.
+      confidence: 'low',
+      name: entry.name,
+      reason: entry.reason,
+    })
+  }
+
+  // skipped/rejected: explicitly excluded per ADR rule 5 — import-run
+  // diagnostics only. skipped never got far enough to become an entity;
+  // rejected is a director-tombstoned slot re-encountered on reimport, and
+  // re-surfacing it as a fresh decision would re-litigate a settled choice.
+  void skipped
+  void rejected
+
+  buckets.understood += asArray(created).length + asArray(unchanged).length
 
   // C2b extension point: fold in legacyPriorityActivities here — rule 7,
   // one 'confirm_legacy_priority' decision per row, always needsAttention.

@@ -95,7 +95,11 @@ buildReconciliationReport(input) -> { buckets, decisions, meta }
 {
   planItems: plan.items,                 // buildPlan.js output, unchanged
   fixedEventsReport: {                   // ingest.js's existing report fields, passed through as-is
-    fixedMoved, fixedPartial, fixedSkipped, fixedCreated, fixedUnchanged
+                                          // (real, unprefixed shape — electron/ops/ingest.js's
+                                          // `fixedEvents: { created, unchanged, skipped, partial,
+                                          // rejected, moved }`, not the prefixed names used earlier
+                                          // in this doc's drafting)
+    created, unchanged, skipped, partial, rejected, moved
   },
   fieldProvenance: Map<"entity:id:field", 'import' | 'human'>,
                                           // caller-supplied, built from the SAME isProtected primitive
@@ -136,7 +140,9 @@ Decision = {
   entityId: string | null,       // null only for create/ambiguous-identity items with no live row yet
   entityName: string,
   field: string | null,          // null for whole-row decisions (e.g. ambiguous_identity)
-  confidence: 'high' | 'medium' | 'low' | 'conflict',
+  confidence: 'high' | 'medium' | 'low' | 'conflict' | 'changed', // 'changed' is confirm_change's
+                                  // marker (fixed-event moves) — a distinct categorical value, not a
+                                  // tier, same role 'conflict' plays for resolve_conflict
   proposedValue: unknown,
   unknowns: string[],            // field names Phase B left UNKNOWN on this row (e.g. ['priority'])
   evidence: { entity_type: string, entity_id: string, field: string } | null,
@@ -189,17 +195,21 @@ point every ADHD frame converged on independently — regulator, 3am-oncall, and
    Multiple protected-field deltas on the **same row** fold into **one** `confirm_change` decision
    listing every changed field, not one decision per field (the dedup-by-root-cause rule below).
 
-5. **Fixed-event side channel** (not reachable via `planItems`):
-   - `fixedMoved` entries → one `changed` decision each, `kind: 'confirm_change'`, `field: null`,
-     `reason: entry.reason` verbatim (already human-readable, e.g. "moved from Mon/Morning to
-     Tue/Morning" per `ingest.js:1080`'s construction).
-   - `fixedPartial` entries → `needsAttention`, `kind: 'confirm_value'` (a partially-resolved row, not
+5. **Fixed-event side channel** (not reachable via `planItems`; field names are ingest.js's real,
+   unprefixed shape — `moved`, `partial`, `skipped`, `created`, `unchanged`, `rejected`):
+   - `moved` entries → one `changed` decision each, `kind: 'confirm_change'`, `confidence: 'changed'`,
+     `field: null`, `reason: entry.reason` verbatim (already human-readable, e.g. "moved from
+     Mon/Morning to Tue/Morning" per `ingest.js:1080`'s construction).
+   - `partial` entries → `needsAttention`, `kind: 'confirm_value'` (a partially-resolved row, not
      a value conflict).
-   - `fixedSkipped` entries → **not** a decision. These never got far enough to become an entity; they
+   - `skipped` entries → **not** a decision. These never got far enough to become an entity; they
      surface as import-run diagnostics (already shown in today's import summary), not as unresolved
      director judgment. Explicitly excluded so the decision count stays honest to the brief's "small
      number of *genuine* decisions."
-   - `fixedCreated` / `fixedUnchanged` → `understood`.
+   - `rejected` entries → **not** a decision either, same reasoning as `skipped`: these are slots the
+     director already tombstoned in a prior session, re-encountered on reimport. Re-surfacing one as a
+     fresh decision would re-litigate a settled choice, which C1b's read-only posture forbids.
+   - `created` / `unchanged` → `understood`.
 
 6. **`notInSource`** — every readiness row with `state === 'optional'` (covers both `OPTIONAL_AREAS`
    with zero rows and all `FORWARD_AREAS`, per `readiness.js`'s own state machine) contributes one to
