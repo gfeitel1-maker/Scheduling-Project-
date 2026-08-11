@@ -401,6 +401,113 @@ describe('buildReconciliationReport — C2a (fixedEventsReport side channel)', (
   })
 })
 
+// C3 — group-scope-drift signal, folded exactly like C2a's `moved`.
+// electron/ops/ingest.js:1256 (fixedScopeChanged push), :1347 (attached as
+// fixedEvents.scopeChanged). Same shape as `moved`: Array<{name, reason}>.
+describe('buildReconciliationReport — C3 (fixedEventsReport.scopeChanged)', () => {
+  it('a single scopeChanged entry buckets as changed and emits one confirm_change decision', () => {
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: {
+        scopeChanged: [{ name: 'Campfire', reason: 'scope changed from Cabin 3 to Camp-wide' }],
+      },
+    })
+    expect(report.buckets.changed).toBe(1)
+    expect(report.decisions).toHaveLength(1)
+    const d = report.decisions[0]
+    expect(d.kind).toBe('confirm_change')
+    expect(d.confidence).toBe('changed')
+    expect(d.entity).toBe('anchor_activities')
+    expect(d.entityName).toBe('Campfire')
+    expect(d.reason).toBe('scope changed from Cabin 3 to Camp-wide')
+  })
+
+  it('two identical scopeChanged entries (same name+reason) fold to one decision but count two facts', () => {
+    const entry = { name: 'Campfire', reason: 'scope changed from Cabin 3 to Camp-wide' }
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: { scopeChanged: [entry, { ...entry }] },
+    })
+    expect(report.buckets.changed).toBe(2)
+    expect(report.decisions).toHaveLength(1)
+  })
+
+  it('two distinct scopeChanged entries produce two decisions and buckets.changed === 2', () => {
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: {
+        scopeChanged: [
+          { name: 'Campfire', reason: 'scope changed from Cabin 3 to Camp-wide' },
+          { name: 'Color War', reason: 'scope changed from Camp-wide to Cabin 5' },
+        ],
+      },
+    })
+    expect(report.buckets.changed).toBe(2)
+    expect(report.decisions).toHaveLength(2)
+  })
+
+  it('a moved entry and a scopeChanged entry for the same event with different reasons yield TWO decisions', () => {
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: {
+        moved: [{ name: 'Campfire', reason: 'moved from Mon/Morning to Tue/Morning' }],
+        scopeChanged: [{ name: 'Campfire', reason: 'scope changed from Cabin 3 to Camp-wide' }],
+      },
+    })
+    expect(report.buckets.changed).toBe(2)
+    expect(report.decisions).toHaveLength(2)
+  })
+
+  it('a moved entry and a scopeChanged entry with the SAME name AND identical reason string fold to ONE decision', () => {
+    // Documents the key-collapse explicitly: fixedEventDecisionId keys on
+    // (entity, kind, reason, name) — NOT on which side-channel array an entry
+    // came from. Both `moved` and `scopeChanged` entries are folded via the
+    // same addFixedEventDecision call with kind: 'confirm_change', so an
+    // identical name+reason pair from either channel collapses to the same
+    // decision. This is an artificial case (ingest.js's real reason strings
+    // for moved vs scope-changed always differ), asserted here so the
+    // collapse is a documented behavior, not a silent surprise.
+    const shared = { name: 'Campfire', reason: 'identical reason string' }
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: { moved: [shared], scopeChanged: [{ ...shared }] },
+    })
+    expect(report.buckets.changed).toBe(2)
+    expect(report.decisions).toHaveLength(1)
+  })
+
+  it('additive proof: an absent scopeChanged key equals passing scopeChanged: []', () => {
+    const withMoved = { moved: [{ name: 'Campfire', reason: 'moved from Mon/Morning to Tue/Morning' }] }
+    const withoutKey = buildReconciliationReport({
+      planItems: [], readiness: [], fixedEventsReport: withMoved,
+    })
+    const withEmptyScopeChanged = buildReconciliationReport({
+      planItems: [], readiness: [], fixedEventsReport: { ...withMoved, scopeChanged: [] },
+    })
+    expect(withoutKey).toEqual(withEmptyScopeChanged)
+  })
+
+  it('null/empty scopeChanged do not throw and are a no-op', () => {
+    const base = buildReconciliationReport({ planItems: [], readiness: [] })
+    expect(() => buildReconciliationReport({
+      planItems: [], readiness: [], fixedEventsReport: { scopeChanged: null },
+    })).not.toThrow()
+    const withNull = buildReconciliationReport({
+      planItems: [], readiness: [], fixedEventsReport: { scopeChanged: null },
+    })
+    expect(withNull).toEqual(base)
+    const withEmpty = buildReconciliationReport({
+      planItems: [], readiness: [], fixedEventsReport: { scopeChanged: [] },
+    })
+    expect(withEmpty).toEqual(base)
+  })
+})
+
 // C2b — legacy import-sourced priority review, batched into ONE decision.
 // docs/adr/2026-08-10-ingestion-phaseC-compression-layer.md, "Resolved
 // 2026-08-11" section: OQ3 = BATCH (one "N priorities need review" decision,

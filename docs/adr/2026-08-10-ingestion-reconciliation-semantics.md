@@ -297,10 +297,25 @@ branch, merged to the integration branch (never straight to `main`) after review
 **Phase C — COMPRESSION LAYER (read/aggregation):**
 - **C1 — Semantic-category aggregation** over `plan.items` + confidence + readiness → the four report
   buckets, including CHANGED via `from`≠`to` and NOT-IN-SOURCE via FORWARD_AREAS. Depends: B1–B5.
-- **C1a — Group-scope-drift CHANGED signal** (D5a). Read-only diff of T72's recognized-unchanged
-  anchor slots against the import's resolved scope; surfaced as a CHANGED report item; no write to the
-  anchor row. Depends: C1 (same aggregation pass), and does not depend on B3/the tombstone fix (it
-  reads existing anchors, it does not touch deletion/creation).
+- **C1a — Group-scope-drift CHANGED signal** (D5a). SHIPPED as read-only detection
+  (`electron/ops/ingest.js`, tested in `electron/ops/ingest.scope-drift.test.js`): for a slot T72's
+  recognize-then-skip finds already live, the incoming resolved scope (`is_all_groups`/`group_ids`,
+  gated on `droppedGroups === 0` so a partial group resolution never reports a false drift) is diffed
+  against the live row's scope (captured in the same live-anchor scan that builds `anchorSlots`, as a
+  parallel `slotKey -> { is_all_groups, group_ids }` map). A difference is reported as
+  `outcome.fixedEvents.scopeChanged`, an array of `{ name, reason }` mirroring `moved`'s shape — reason
+  reads e.g. `"scope changed from all groups to Bunk 1"`. `scopeChanged` is ADDITIVE to `unchanged`, not
+  a replacement for it — B3 protection (`ingest.b3-protection.test.js`) already locks a hand-narrowed
+  live scope re-imported against its original file as counting `unchanged`, so scope drift is reported
+  alongside that count, never instead of it (unlike `moved`, which does suppress `unchanged`/create,
+  because moved is a slot-identity match, not an orthogonal annotation). No op is ever appended for a
+  scope difference and the anchor row is never mutated — same read-only posture as C1b. The MOVED
+  pre-pass in C1b runs first and `continue`s before this branch, so a slot that pairs as a move never
+  also reports scope drift, even if its scope also changed (case 6 of the scope-drift suite). Depends:
+  C1 (same aggregation pass), and does not depend on B3/the tombstone fix (it reads existing anchors, it
+  does not touch deletion/creation). The C1 fold into the report's CHANGED bucket (`reconciliationReport.js`)
+  is NOT part of this slice — `scopeChanged` exists on `commitIngest`'s outcome only, not yet surfaced
+  in the reconciliation report UI.
 - **C1b — Slot-identity-drift MOVED signal** (Red Hat finding during B3 review; ticket
   `C1b-anchor-slot-drift-moved-signal.md`). T72's recognize-then-skip matches an anchor by EXACT slot
   identity (`cohort_id, day_id, time_block_id, normalizeName(name)`), so a live anchor a director moved

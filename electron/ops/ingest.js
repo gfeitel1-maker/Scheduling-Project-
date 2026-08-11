@@ -718,6 +718,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   const fixedUnchanged = []
   const fixedRejected = []
   const fixedMoved = []
+  const fixedScopeChanged = []
 
   // T72: slot identity of a fixed-event occurrence — "this activity, in this
   // block, on this day, for this cohort." is_all_groups/group_ids are attributes
@@ -906,10 +907,31 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // (ADR §2). Built once, after teardown, inside the transaction — same
     // discipline as seedRecognitionMaps. A held import rolls this back with all.
     const anchorSlots = new Set()
+    // C1a: slotKey -> live group scope, built in the same scan (ADR Phase C,
+    // C1a). anchorSlotKey deliberately excludes scope, so a director's scope
+    // edit (AnchorsScreen) is invisible to the recognize-then-skip branch
+    // above unless compared separately here. Read-only per ADR §4 — this map
+    // is consulted below to REPORT a drift, never to write one.
+    const liveAnchorScope = new Map()
     for (const row of db
-      .prepare('SELECT cohort_id, day_id, time_block_id, name FROM anchor_activities WHERE camp_id = ?')
+      .prepare('SELECT cohort_id, day_id, time_block_id, name, is_all_groups, group_ids FROM anchor_activities WHERE camp_id = ?')
       .all(camp_id)) {
-      anchorSlots.add(anchorSlotKey(row.cohort_id, row.day_id, row.time_block_id, row.name))
+      const slotKey = anchorSlotKey(row.cohort_id, row.day_id, row.time_block_id, row.name)
+      anchorSlots.add(slotKey)
+      // Malformed group_ids (partial sync / hand-edited SQLite / old
+      // migration) must not crash an unrelated import — mirror
+      // AnchorsScreen.jsx's parseIdList defensive posture: a parse failure
+      // makes this slot's scope "uncomparable" (null sentinel), so the
+      // compare block below skips the drift check for it rather than
+      // throwing a raw SyntaxError past the transaction.
+      let groupIds
+      try {
+        const parsed = JSON.parse(row.group_ids ?? '[]')
+        groupIds = Array.isArray(parsed) ? parsed : null
+      } catch {
+        groupIds = null
+      }
+      liveAnchorScope.set(slotKey, { is_all_groups: row.is_all_groups, group_ids: groupIds })
     }
 
     // Fixed-event reimport tombstone fix: built right after the live-anchor
@@ -1199,6 +1221,41 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // hatch: a director who un-deletes the anchor via the trash can must
         // see it recognized as unchanged, not rejected, on the next import.
         if (anchorSlots.has(slotKey)) {
+          // C1a: group-scope drift, read-only (ADR Phase C, C1a; ADR §4 keeps
+          // anchor updates out of scope). Slot identity is unchanged — this
+          // still counts as `unchanged` (no create) — but the incoming
+          // resolved scope may differ from the live row's scope, which is an
+          // ORTHOGONAL fact worth surfacing alongside "unchanged", not a
+          // replacement for it: B3 protection (ingest.b3-protection.test.js)
+          // already asserts a hand-narrowed live scope re-imported against
+          // its original file counts as unchanged, and that must keep
+          // holding. Gated on droppedGroups === 0: a partial group
+          // resolution makes groupIds incomplete, so comparing it would
+          // report a false drift.
+          // Round 2 fix 1: a live row with unparseable group_ids sets
+          // liveScope.group_ids to the `null` sentinel — that slot's scope is
+          // uncomparable, so skip the drift check for it rather than crash or
+          // guess.
+          const liveScope = liveAnchorScope.get(slotKey)
+          if (droppedGroups === 0 && liveScope?.group_ids !== null) {
+            // Round 2 fix 2: dedup both sides before compare — upstream import
+            // sources are not guaranteed to dedup, and a duplicate group name
+            // in the incoming scope must not read as a scope change.
+            const dedupSort = (ids) => [...new Set(ids)].sort()
+            const incomingGroupIds = dedupSort(groupIds)
+            const liveGroupIds = dedupSort(liveScope?.group_ids ?? [])
+            const scopeDiffers = Boolean(liveScope) && (
+              Boolean(liveScope.is_all_groups) !== Boolean(isAll)
+              || JSON.stringify(incomingGroupIds) !== JSON.stringify(liveGroupIds)
+            )
+            if (scopeDiffers) {
+              const describe = (allGroups, ids) =>
+                allGroups ? 'all groups' : ids.map((id) => liveName('groups', id)).join(', ')
+              const from = describe(Boolean(liveScope.is_all_groups), liveGroupIds)
+              const to = describe(Boolean(isAll), incomingGroupIds)
+              fixedScopeChanged.push({ name: fe.name, reason: `scope changed from ${from} to ${to}` })
+            }
+          }
           fixedUnchanged.push({ name: fe.name })
           continue
         }
@@ -1270,7 +1327,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       created,
       total,
       updated: 0,
-      fixedEvents: { created: 0, unchanged: 0, skipped: [], partial: [], rejected: [], moved: [] },
+      fixedEvents: { created: 0, unchanged: 0, skipped: [], partial: [], rejected: [], moved: [], scopeChanged: [] },
     }
   }
 
@@ -1287,6 +1344,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       partial: fixedPartial,
       rejected: fixedRejected,
       moved: fixedMoved,
+      scopeChanged: fixedScopeChanged,
     },
   }
   if (replaced) outcome.replaced = replaced

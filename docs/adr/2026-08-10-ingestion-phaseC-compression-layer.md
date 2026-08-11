@@ -357,12 +357,7 @@ Anything past "here is the classified shape" is Phase D.
 
 ## Open questions for Governor / product owner
 
-1. **C1a's report field is not yet named.** The parent ADR (D5a) resolved *that* group-scope drift on
-   re-import becomes a read-only CHANGED signal, but left the exact field/threshold as its own open
-   question (`:341`, "C1a report copy"). Phase C's C3 slice cannot be scoped precisely until that lands
-   — this is a **product/architecture decision that belongs to closing out the parent ADR's open
-   question**, not something this sub-ADR should decide unilaterally by inventing a field name Phase B
-   hasn't committed to.
+1. ~~**C1a's report field is not yet named.**~~ **RESOLVED — see "Resolved" section below.**
 2. **Where does `fieldProvenance` get built, exactly?** This design asks the caller (today,
    `electron/ops/ingest.js`) to assemble a `Map` from the same query `isProtected` already runs
    per-field, per-item, inline. Should that become a small named export (`buildFieldProvenanceMap`)
@@ -401,8 +396,20 @@ Anything past "here is the classified shape" is Phase D.
 - **Open question 4 (notInSource decisions), resolved: CONFIRMED as designed.** `notInSource` is
   bucket-only and generates zero `decisions[]` entries, for both C1 and every later slice. "Missing
   optional" is never treated as "misconfigured."
-- **Open question 1 (C1a's report field name), DEFERRED.** Stays open; it only blocks C3, which cannot
-  start until the parent ADR names the field. No impact on C1/C2a/C2b/C4.
+- **Open question 1 (C1a's report field name), RESOLVED 2026-08-11 — SHIPPED as C3.** Ingest-side field
+  is `fixedEvents.scopeChanged` (`Array<{ name, reason }>`, byte-identical shape to `moved`) —
+  `electron/ops/ingest.js:1256` pushes onto `fixedScopeChanged`, `:1347` attaches it to the report as
+  `fixedEvents.scopeChanged` (the early-return stub at `:1330` already includes `scopeChanged: []`). The
+  report-side fold (C3, `src/ingest/reconciliationReport.js`) consumes
+  `input.fixedEventsReport.scopeChanged` and classifies each entry into the CHANGED bucket as a
+  `confirm_change` decision with `'changed'` confidence — read-only, surface-only, never auto-applied,
+  `proposedValue` stays null — mirroring the C2a `moved` fold exactly (same `addFixedEventDecision`
+  call, same `kind`). Dedup uses the existing `(entity, kind, reason, name)` key
+  (`fixedEventDecisionId`), no new dedup path: two identical `scopeChanged` entries fold to one decision
+  while both count toward `buckets.changed`, same as `moved`; a `moved` and a `scopeChanged` entry for
+  the same event key distinctly because their real reason strings always differ ("moved from…" vs
+  "scope changed from…"). Covered by `src/ingest/reconciliationReport.test.js`, describe block "C3
+  (fixedEventsReport.scopeChanged)". C3 is now shipped, closing this ADR's last open Phase C slice.
 - **Open question 2 (where `fieldProvenance` gets built), resolved: EXTRACT.** When C4 is built, the
   `isProtected`-style per-field query in `electron/ops/ingest.js` should be pulled into a small reusable
   helper (e.g. `buildFieldProvenanceMap`) rather than inlined at the one call site, so the map-building
