@@ -127,6 +127,18 @@ describe('ReconciliationSummary', () => {
     expect(screen.queryByRole('button', { name: /Review \d+ decisions?$/ })).toBeNull()
   })
 
+  it('D2 — renders a real "Review N decisions" button when onReviewDecisions is provided', async () => {
+    const report = buildElectronShapedReport()
+    const onReviewDecisions = vi.fn()
+    render(<ReconciliationSummary report={report} readiness={READINESS} onReviewBelow={() => {}} onReviewDecisions={onReviewDecisions} />)
+
+    const button = screen.getByRole('button', { name: new RegExp(`Review ${report.decisions.length} decisions?`) })
+    expect(button).toBeTruthy()
+    button.click()
+    expect(onReviewDecisions).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText(/coming in a later update/)).toBeNull()
+  })
+
   it('renders gracefully with an empty/mock-degraded report (no provenance, no legacy)', () => {
     const emptyReport = buildReconciliationReport({
       planItems: [],

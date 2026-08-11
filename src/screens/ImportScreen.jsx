@@ -21,7 +21,9 @@ import { buildExistingSnapshot } from '../ingest/existingSnapshot.js'
 import { fieldLabel } from '../ingest/fieldLabels.js'
 import { ReconciliationLedger } from './ReconciliationLedger.jsx'
 import { ReconciliationSummary } from './ReconciliationSummary.jsx'
+import { ReconciliationQueue } from './ReconciliationQueue.jsx'
 import { buildReconciliationReport } from '../ingest/reconciliationReport.js'
+import { filterQueueDecisions, applyResolutions } from './reconciliationResolutions.js'
 import { getReadiness } from '../engine/readiness.js'
 
 // Read last year's schedule and propose the camp's setup from it.
@@ -175,6 +177,12 @@ export default function ImportScreen({ campId, onNavigate }) {
   // ledger's counts. Absent (stays null) when the reconcile call itself held
   // — the held-resolution surface takes over, exactly as the ledger already does.
   const [reconciliation, setReconciliation] = useState(null)
+  // D2 — the decision queue's local answers, keyed by decision.id, and
+  // whether the queue panel is open. Owned here (not inside ReconciliationQueue)
+  // so answers survive the queue being closed and reopened ("leave and return
+  // later"), same as `held`/`resolving` already do for conflicts.
+  const [queueAnswers, setQueueAnswers] = useState({})
+  const [queueOpen, setQueueOpen] = useState(false)
   // Camp-wide counts of the same entities, unfiltered by Program. Replace
   // (electron/ops/ingest.js's replaceScope) deletes WHERE camp_id = ? with no
   // cohort filter — every Program's rows, not just the active one's — so the
@@ -218,6 +226,8 @@ export default function ImportScreen({ campId, onNavigate }) {
     setResolving(false)
     setLedger(null)
     setReconciliation(null)
+    setQueueAnswers({})
+    setQueueOpen(false)
     setFixedEvents([])
     setChosenFixedEvents(new Set())
     setActivityRules({})
@@ -583,6 +593,8 @@ export default function ImportScreen({ campId, onNavigate }) {
         setPreview(null)
         setLedger(null)
         setReconciliation(null)
+        setQueueAnswers({})
+        setQueueOpen(false)
         return
       }
       setResult(outcome)
@@ -590,6 +602,8 @@ export default function ImportScreen({ campId, onNavigate }) {
       setPreview(null)
       setLedger(null)
       setReconciliation(null)
+      setQueueAnswers({})
+      setQueueOpen(false)
       setFixedEvents([])
       setChosenFixedEvents(new Set())
       setActivityRules({})
@@ -620,6 +634,8 @@ export default function ImportScreen({ campId, onNavigate }) {
     setPreview(null)
     setLedger({ plan, context: inputs, fileName })
     setReconciliation(null)
+    setQueueAnswers({})
+    setQueueOpen(false)
     await stageReconciliationSummary(inputs)
   }
 
@@ -676,6 +692,39 @@ export default function ImportScreen({ campId, onNavigate }) {
     await stageLedger(buildCommitInputs(), fileNames.join(', '))
   }
 
+  // D2 — folds the decision queue's local answers into the ledger's own commit
+  // inputs at the moment of commit (not at staging time, since the queue is
+  // only reachable AFTER the ledger/summary are already staged). Reuses the
+  // SAME `resolutions ?? []` channel finishHeld already sends (ImportScreen.jsx
+  // buildCommitInputs/finishHeld) — no new commit primitive.
+  function commitInputsWithResolutions() {
+    const decisions = reconciliation?.report?.decisions ?? []
+    const { approved, resolutions } = applyResolutions({
+      approved: ledger.context.approved,
+      decisions,
+      answers: queueAnswers,
+    })
+    return { ...ledger.context, approved, resolutions: [...(ledger.context.resolutions ?? []), ...resolutions] }
+  }
+
+  // D2 — "Edit" on a confirm_value decision card routes to the same edit
+  // machinery the ADR names (ActivityRuleRow's inline edit for activity
+  // fields; the group unit column for group units) rather than inventing a
+  // second write path. Decisions outside those two known editable targets
+  // simply record the local "edited" answer with no side effect — Edit still
+  // resolves the card (keeps it out of held-back), it just has nothing wired
+  // to apply yet.
+  function handleQueueEditField(decision, value) {
+    if (decision.entity === 'activities' && Array.isArray(decision.field) && decision.field.length === 1) {
+      const ruleKey = Object.entries(RULE_FIELD_TO_SOURCE).find(([, src]) => src === decision.field[0])?.[0]
+      if (ruleKey) updateActivityRule(decision.entityName, { [ruleKey]: value })
+      return
+    }
+    if (decision.entity === 'groups' && decision.field === 'unit') {
+      setGroupUnitOverrides((prev) => ({ ...prev, [decision.entityName]: value }))
+    }
+  }
+
   // T73 — the director resolved every held item and clicked Finish. Re-submit the
   // SAME original inputs (minus any skipped identity names) plus the resolutions.
   // Returns the outcome so the queue can honestly re-enter on a peer-race re-hold
@@ -701,6 +750,8 @@ export default function ImportScreen({ campId, onNavigate }) {
       setPreview(null)
       setLedger(null)
       setReconciliation(null)
+      setQueueAnswers({})
+      setQueueOpen(false)
       setFixedEvents([])
       setChosenFixedEvents(new Set())
       setActivityRules({})
@@ -742,6 +793,8 @@ export default function ImportScreen({ campId, onNavigate }) {
     setPreview(null)
     setLedger(null)
     setReconciliation(null)
+    setQueueAnswers({})
+    setQueueOpen(false)
     setFileNames([])
     setFixedEvents([])
     setChosenFixedEvents(new Set())
@@ -896,6 +949,22 @@ export default function ImportScreen({ campId, onNavigate }) {
           report={reconciliation.report}
           readiness={reconciliation.readiness}
           onReviewBelow={() => document.getElementById('reconciliation-ledger')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          onReviewDecisions={() => setQueueOpen(true)}
+        />
+      )}
+
+      {/* D2 — the one-at-a-time decision queue. Answers persist in
+          `queueAnswers` even when this panel is closed ("leave and return
+          later"); resolving here never writes anything by itself — only the
+          eventual ledger Commit (commitInputsWithResolutions) does. */}
+      {reconciliation && queueOpen && (
+        <ReconciliationQueue
+          decisions={filterQueueDecisions(reconciliation.report.decisions)}
+          answers={queueAnswers}
+          onAnswer={(id, patch) => setQueueAnswers((prev) => ({ ...prev, [id]: patch }))}
+          onEditField={handleQueueEditField}
+          onReturnToSummary={() => setQueueOpen(false)}
+          onDone={() => setQueueOpen(false)}
         />
       )}
 
@@ -911,8 +980,8 @@ export default function ImportScreen({ campId, onNavigate }) {
             plan={ledger.plan}
             fileName={ledger.fileName}
             working={working}
-            onCommit={() => runCommit(ledger.context)}
-            onDiscard={() => { setLedger(null); setReconciliation(null); setFileNames([]) }}
+            onCommit={() => runCommit(commitInputsWithResolutions())}
+            onDiscard={() => { setLedger(null); setReconciliation(null); setQueueAnswers({}); setQueueOpen(false); setFileNames([]) }}
           />
         </div>
       )}
