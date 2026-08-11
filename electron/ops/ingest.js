@@ -17,7 +17,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { appendOp, DELETE_FIELD, latestOp } from './operations.js'
-import { latestOpForEntity, lastKnownFields } from './restore.js'
+import { latestOpForEntity, lastKnownFields, lastKnownFieldSources } from './restore.js'
 import { PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 import { normalizeName } from '../../src/ingest/preview.js'
 import { buildPlan, CLEAR } from '../../src/ingest/buildPlan.js'
@@ -312,6 +312,27 @@ export function listImportEvidence(db, camp_id, { entity_type, entity_id } = {})
     try { support = JSON.parse(row.support) } catch { support = {} }
     return { ...row, support }
   })
+}
+
+// C2b assembly helper (docs/adr/2026-08-10-ingestion-phaseC-compression-layer.md).
+// Finds activities whose CURRENT priority was last written with
+// source='import' — the legacy pre-B2 backfill that
+// docs/adr/2026-08-10-legacy-import-priority-backfill.md rejected auto-
+// clearing for. Reuses lastKnownFieldSources (the S2a primitive) rather than
+// a parallel provenance system. A priority whose last op has no recorded
+// source (or is 'human') is EXCLUDED — S2a's documented over-protection:
+// never surface a value a human definitively authored.
+export function listLegacyPriorityActivities(db, camp_id) {
+  const candidates = db
+    .prepare('SELECT id, name FROM activities WHERE camp_id = ? AND priority IS NOT NULL')
+    .all(camp_id)
+
+  const result = []
+  for (const { id, name } of candidates) {
+    const sources = lastKnownFieldSources(db, 'activities', id)
+    if (sources.get('priority') === 'import') result.push({ entity_id: id, name })
+  }
+  return result
 }
 
 function buildExistingSnapshot(db, camp_id, cohort_id) {

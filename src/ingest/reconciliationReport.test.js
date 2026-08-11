@@ -400,3 +400,100 @@ describe('buildReconciliationReport — C2a (fixedEventsReport side channel)', (
     expect(withEmptyObject).toEqual(base)
   })
 })
+
+// C2b — legacy import-sourced priority review, batched into ONE decision.
+// docs/adr/2026-08-10-ingestion-phaseC-compression-layer.md, "Resolved
+// 2026-08-11" section: OQ3 = BATCH (one "N priorities need review" decision,
+// not one-per-activity). docs/adr/2026-08-10-legacy-import-priority-backfill.md
+// rejected auto-clearing — source='import' cannot distinguish a manufactured
+// default from a director-typed value from an accepted-conflict value, so
+// Shoresh surfaces for review instead of acting.
+describe('buildReconciliationReport — C2b (legacyPriorityActivities, batched review decision)', () => {
+  const legacySet = [
+    { entity_id: 'act-1', name: 'Swimming' },
+    { entity_id: 'act-2', name: 'Archery' },
+    { entity_id: 'act-3', name: 'Canoe' },
+  ]
+
+  it('N=3 legacy import-sourced priorities fold into exactly ONE needsAttention decision', () => {
+    const withLegacy = buildReconciliationReport({
+      planItems: [], readiness: [], legacyPriorityActivities: legacySet,
+    })
+    const withoutLegacy = buildReconciliationReport({ planItems: [], readiness: [] })
+
+    const legacyDecisions = withLegacy.decisions.filter((d) => d.kind === 'review_legacy_priority')
+    expect(legacyDecisions).toHaveLength(1)
+
+    const decision = legacyDecisions[0]
+    expect(decision.id).toBe('activities:legacy_priority')
+    expect(decision.entity).toBe('activities')
+    expect(decision.entityId).toBeNull()
+    expect(decision.entityName).toBeNull()
+    expect(decision.field).toBe('priority')
+    expect(decision.confidence).toBe('low')
+    expect(decision.proposedValue).toBeNull()
+    expect(decision.count).toBe(3)
+    expect(decision.activities).toEqual([
+      { entityId: 'act-1', name: 'Swimming' },
+      { entityId: 'act-2', name: 'Archery' },
+      { entityId: 'act-3', name: 'Canoe' },
+    ])
+    expect(decision.unknowns).toEqual([])
+    expect(decision.evidence).toBeNull()
+    expect(typeof decision.reason).toBe('string')
+    expect(decision.reason.length).toBeGreaterThan(0)
+
+    expect(withLegacy.buckets.needsAttention).toBe(withoutLegacy.buckets.needsAttention + 1)
+  })
+
+  it('empty legacyPriorityActivities → no decision, buckets byte-identical to the no-legacy call', () => {
+    const withoutLegacy = buildReconciliationReport({ planItems: [], readiness: [] })
+    const withEmpty = buildReconciliationReport({
+      planItems: [], readiness: [], legacyPriorityActivities: [],
+    })
+    expect(withEmpty).toEqual(withoutLegacy)
+  })
+
+  it('absent/undefined legacyPriorityActivities → no decision, buckets byte-identical to the no-legacy call', () => {
+    const withoutLegacy = buildReconciliationReport({ planItems: [], readiness: [] })
+    const withUndefined = buildReconciliationReport({
+      planItems: [], readiness: [], legacyPriorityActivities: undefined,
+    })
+    const withNull = buildReconciliationReport({
+      planItems: [], readiness: [], legacyPriorityActivities: null,
+    })
+    expect(withUndefined).toEqual(withoutLegacy)
+    expect(withNull).toEqual(withoutLegacy)
+  })
+
+  it('additive proof: a report without legacyPriorityActivities is unchanged by the new field existing', () => {
+    const c2aShaped = buildReconciliationReport({ planItems: [], readiness: [] })
+    expect(c2aShaped.decisions.some((d) => d.kind === 'review_legacy_priority')).toBe(false)
+    expect(c2aShaped.buckets).toEqual({ understood: 0, needsAttention: 0, notInSource: 0, changed: 0 })
+  })
+
+  it('never proposes clearing: proposedValue is null and no decision kind/field implies clear or removal', () => {
+    const report = buildReconciliationReport({
+      planItems: [], readiness: [], legacyPriorityActivities: legacySet,
+    })
+    for (const decision of report.decisions) {
+      if (decision.kind === 'review_legacy_priority') {
+        expect(decision.proposedValue).toBeNull()
+      }
+      expect(decision.kind).not.toMatch(/clear|remove/i)
+    }
+  })
+
+  it('preserves every id even when names duplicate', () => {
+    const dupNames = [
+      { entity_id: 'act-1', name: 'Swimming' },
+      { entity_id: 'act-2', name: 'Swimming' },
+    ]
+    const report = buildReconciliationReport({
+      planItems: [], readiness: [], legacyPriorityActivities: dupNames,
+    })
+    const decision = report.decisions.find((d) => d.kind === 'review_legacy_priority')
+    expect(decision.count).toBe(2)
+    expect(decision.activities.map((a) => a.entityId)).toEqual(['act-1', 'act-2'])
+  })
+})
