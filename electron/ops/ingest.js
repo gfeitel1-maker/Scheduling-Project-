@@ -439,6 +439,17 @@ function buildExistingSnapshot(db, camp_id, cohort_id) {
  *
  * Returns `{ created: { [entity]: count }, total,
  *            fixedEvents: { created, skipped, partial }, replaced? }`.
+ *
+ * D1 (dry-run reconciliation): pass `dryRun: true` and the transaction runs
+ * to completion, then rolls back the same way a HELD import does — nothing is
+ * written. The returned shape gains `dryRun: true` and, when the dry run did
+ * NOT hold, three more fields computed AFTER the rollback (see the dryRun
+ * branch below, and commitPlan's own doc comment for the rollback mechanism):
+ * `planItems` (the resolved plan.items), `fieldProvenance` (from
+ * buildFieldProvenanceMap, entity:entityId:field -> 'human'|'import'), and
+ * `legacyPriorityActivities` (from listLegacyPriorityActivities). A dry run
+ * that DOES hold returns the normal `{ held: true, conflicts, ... }` shape,
+ * with none of these three fields present — same as a real held commit.
  */
 export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')

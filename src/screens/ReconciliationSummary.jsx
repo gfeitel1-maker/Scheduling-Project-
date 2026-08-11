@@ -3,8 +3,16 @@ import { S } from '../styles/shared'
 // D1 — the read-only reconciliation summary, the PRIMARY post-import
 // destination (docs/work/specs/mockups/2026-08-10-phaseD-reconciliation/).
 // Renders a `buildReconciliationReport` output: four buckets, a readiness-
-// derived category strip, and a single (D1: no-op) "Review N decisions" CTA.
-// Decision cards/resolution are D2 — this component never mutates anything.
+// derived category strip, and a CTA row. Decision cards/resolution are D2 —
+// this component never mutates anything.
+//
+// Round 2 (Tester UX finding): a disabled "Review N decisions" primary CTA
+// read as broken — the director stared at a dead-end with no forward path.
+// The real D1 working path is the ReconciliationLedger/commit rendered right
+// below this summary, so the CTA row now leads there explicitly: a real,
+// working primary ("Review & commit below", via onReviewBelow) plus the
+// per-decision review kept as a plainly-secondary, honestly-labeled
+// "coming in a later update" affordance — never a dead primary.
 //
 // Glyph/colour vocabulary is reused verbatim from ReconciliationLedger.jsx
 // (✓ --success, ⌫/+ --success, and here ⚠ --accent, ↻ --danger, ○ --anchor) —
@@ -36,18 +44,22 @@ function chipState(readiness, keys) {
   return 'ok'
 }
 
-export function ReconciliationSummary({ report, readiness = [] }) {
+export function ReconciliationSummary({ report, readiness = [], onReviewBelow }) {
   const buckets = report?.buckets ?? { understood: 0, needsAttention: 0, notInSource: 0, changed: 0 }
   const decisionCount = report?.decisions?.length ?? 0
 
   return (
     <div style={{
-      background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
-      padding: '20px 22px', marginBottom: 16,
+      background: 'var(--surface-elevated)', border: '1px solid var(--border)', borderRadius: 10,
+      padding: '20px 22px', marginBottom: 16, boxShadow: '0 1px 2px rgba(30,42,52,.04)',
       animation: 'importCardIn var(--motion-settle) var(--ease-out)',
     }}>
       <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', marginBottom: 16 }}>
-        Shoresh reconstructed your camp from this source.
+        {/* Round 2 (Red Hat MEDIUM): a sync Client's summary is computed from
+            this device's possibly-stale local replica, not a single ground
+            truth for the whole camp — the copy now speaks about this source
+            and this device's view, not an absolute reconstruction. */}
+        Here's what Shoresh found in this source, based on this device's current view of your camp.
       </div>
 
       {BUCKET_ROWS.map((b) => (
@@ -66,18 +78,19 @@ export function ReconciliationSummary({ report, readiness = [] }) {
         </div>
       ))}
 
-      <div style={{ display: 'flex', gap: 10, marginTop: 20, alignItems: 'center' }}>
-        {/* D1 placeholder — decision cards/resolution are D2. This button is a
-            deliberate no-op until then; it stays visible so the CTA's presence
-            (and count) is truthful from the first ship. */}
-        <button
-          className="press-97"
-          disabled
-          title="Decision review lands in a follow-up slice"
-          style={{ ...S.btnPrimary, opacity: 0.5, cursor: 'default' }}
-        >
-          Review {decisionCount} decision{decisionCount === 1 ? '' : 's'}
+      <div style={{ display: 'flex', gap: 10, marginTop: 20, alignItems: 'center', flexWrap: 'wrap' }}>
+        {/* The real, working D1 path: the ReconciliationLedger + commit sit
+            directly below this summary. A real primary points there instead
+            of dead-ending on a disabled button. */}
+        <button className="press-97" onClick={onReviewBelow} style={S.btnPrimary}>
+          Review &amp; commit below
         </button>
+        {/* Per-decision review cards are D2. Kept visible (so the count stays
+            truthful) but plainly secondary and honestly labeled — never a
+            second primary, never disabled-and-silent about why. */}
+        <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+          Reviewing {decisionCount} decision{decisionCount === 1 ? '' : 's'} one at a time is coming in a later update.
+        </span>
       </div>
 
       <div style={{ display: 'flex', gap: 10, marginTop: 16, flexWrap: 'wrap' }}>

@@ -8,7 +8,7 @@
 // report the way buildReconciliationReport actually would against a REAL
 // electron dry-run, not the :5200 mock's degraded shape.
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { ReconciliationSummary } from './ReconciliationSummary'
 import { buildReconciliationReport } from '../ingest/reconciliationReport'
@@ -103,13 +103,28 @@ describe('ReconciliationSummary', () => {
     expect(screen.getByText(/Resources/)).toBeTruthy()
   })
 
-  it('renders a single "Review N decisions" CTA, disabled (D1 placeholder — D2 owns resolution)', () => {
+  it('renders a real, working primary CTA that hands off to the ledger below (round 2 — no dead-end disabled primary)', () => {
     const report = buildElectronShapedReport()
-    render(<ReconciliationSummary report={report} readiness={READINESS} />)
+    const onReviewBelow = vi.fn()
+    render(<ReconciliationSummary report={report} readiness={READINESS} onReviewBelow={onReviewBelow} />)
 
-    const cta = screen.getByRole('button', { name: new RegExp(`Review ${report.decisions.length} decision`) })
-    expect(cta).toBeTruthy()
-    expect(cta.disabled).toBe(true)
+    const primary = screen.getByRole('button', { name: /Review & commit below/ })
+    expect(primary).toBeTruthy()
+    expect(primary.disabled).toBeFalsy()
+
+    primary.click()
+    expect(onReviewBelow).toHaveBeenCalledTimes(1)
+  })
+
+  it('the per-decision review affordance is honestly labeled "coming in a later update" and is not a dead primary button', () => {
+    const report = buildElectronShapedReport()
+    render(<ReconciliationSummary report={report} readiness={READINESS} onReviewBelow={() => {}} />)
+
+    expect(screen.getByText(new RegExp(`${report.decisions.length} decision.*coming in a later update`))).toBeTruthy()
+    // Exactly one button in the CTA row (the real primary) — the per-decision
+    // affordance is plain text/secondary, never a second (disabled) button.
+    expect(screen.getAllByRole('button', { name: /Review & commit below/ })).toHaveLength(1)
+    expect(screen.queryByRole('button', { name: /Review \d+ decisions?$/ })).toBeNull()
   })
 
   it('renders gracefully with an empty/mock-degraded report (no provenance, no legacy)', () => {
@@ -121,9 +136,9 @@ describe('ReconciliationSummary', () => {
       legacyPriorityActivities: [],
       fieldProvenance: new Map(),
     })
-    render(<ReconciliationSummary report={emptyReport} readiness={READINESS} />)
+    render(<ReconciliationSummary report={emptyReport} readiness={READINESS} onReviewBelow={() => {}} />)
 
     expect(screen.getAllByText('0').length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: /Review 0 decisions/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Review & commit below/ })).toBeTruthy()
   })
 })

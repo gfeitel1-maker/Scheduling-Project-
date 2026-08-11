@@ -831,7 +831,9 @@ export const mockShoresh = {
   // never writes anything for this call. fieldProvenance/legacyPriorityActivities
   // are Phase C signals the mock cannot compute faithfully (no op log, no
   // import_evidence table here) — returned empty, same disclosure style as the
-  // ingestCommit comment above. Accepted for D1 (owner decision, mock fidelity).
+  // ingestCommit comment above. This is a recorded Governor/owner decision for
+  // D1 (MOCK FIDELITY, docs/adr/2026-08-10-ingestion-phaseD-experience.md sub-
+  // ADR), not an unqualified assertion made here.
   // clears/humanEditedFields are accepted by the real IPC surface but, like
   // ingestCommit above, the mock's decide layer doesn't consume them.
   async ingestReconcile({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation } = {}) {

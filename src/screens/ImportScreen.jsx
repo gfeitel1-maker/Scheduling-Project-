@@ -659,9 +659,12 @@ export default function ImportScreen({ campId, onNavigate }) {
         fieldProvenance: new Map(Object.entries(result.fieldProvenance ?? {})),
       })
       setReconciliation({ report, readiness })
-    } catch {
+    } catch (err) {
       // Summary stays absent; the ledger (staged just before this call) is
       // unaffected — it already rendered from the renderer's own buildPlan.
+      // Still best-effort (must never break the ledger), but a real
+      // regression here must not be invisible (Red Hat LOW, round 2).
+      console.error('stageReconciliationSummary failed (summary omitted, ledger unaffected):', err)
     }
   }
 
@@ -889,22 +892,29 @@ export default function ImportScreen({ campId, onNavigate }) {
           reconcile call is still in flight, or when it held — the held-resolution
           surface above already covers that case. */}
       {reconciliation && (
-        <ReconciliationSummary report={reconciliation.report} readiness={reconciliation.readiness} />
+        <ReconciliationSummary
+          report={reconciliation.report}
+          readiness={reconciliation.readiness}
+          onReviewBelow={() => document.getElementById('reconciliation-ledger')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+        />
       )}
 
       {/* S5b/T75 — the shared reconciliation ledger, kept reachable as the
           advanced/detail view (COEXIST — not replaced by the summary above).
           Both the schedule tick-preview and the workbook re-import stage a plan
           here; the director confirms from it and only then does the atomic
-          ingestCommit run. Nothing is written while this is shown. */}
+          ingestCommit run. Nothing is written while this is shown. `id` is the
+          summary's "Review & commit below" scroll target (round 2). */}
       {ledger && (
-        <ReconciliationLedger
-          plan={ledger.plan}
-          fileName={ledger.fileName}
-          working={working}
-          onCommit={() => runCommit(ledger.context)}
-          onDiscard={() => { setLedger(null); setReconciliation(null); setFileNames([]) }}
-        />
+        <div id="reconciliation-ledger">
+          <ReconciliationLedger
+            plan={ledger.plan}
+            fileName={ledger.fileName}
+            working={working}
+            onCommit={() => runCommit(ledger.context)}
+            onDiscard={() => { setLedger(null); setReconciliation(null); setFileNames([]) }}
+          />
+        </div>
       )}
 
       {preview && (
