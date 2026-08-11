@@ -35,10 +35,52 @@ function Choice({ selected, onClick, danger, children }) {
   )
 }
 
+// D3 — the real support object, when present (electron/ops/ingest.js's
+// rule.support / fe.support, joined in reconciliationReport.js by entity_id
+// or name — never recomputed here). Renders ONLY the fields the support
+// object actually carries; the mockup's richer per-group×day table isn't in
+// the support shape, so it is not fabricated. Two shapes reach here today:
+// activity support ({ matched_groups, appearances, eligible_group_count })
+// and fixed-event support ({ days, occupied_days, operating_days,
+// groups_in_scope }) — distinguished by which keys are present, since
+// `evidence` carries no kind tag of its own.
+function EvidenceBody({ evidence }) {
+  if (Array.isArray(evidence.matched_groups)) {
+    return (
+      <div>
+        <div>Observed in the imported schedule:</div>
+        <div style={{ marginTop: 4 }}>
+          {evidence.matched_groups.length} of {evidence.eligible_group_count ?? evidence.matched_groups.length} eligible groups matched
+          {typeof evidence.appearances === 'number' ? ` · ${evidence.appearances} appearances` : ''}
+        </div>
+        <div style={{ marginTop: 4 }}>Groups: {evidence.matched_groups.join(', ')}</div>
+      </div>
+    )
+  }
+  if (Array.isArray(evidence.days)) {
+    return (
+      <div>
+        <div>Observed in the imported schedule:</div>
+        <div style={{ marginTop: 4 }}>Days: {evidence.days.join(', ')}</div>
+        {typeof evidence.occupied_days === 'number' && typeof evidence.operating_days === 'number' && (
+          <div style={{ marginTop: 4 }}>
+            Occupied {evidence.occupied_days} of {evidence.operating_days} operating days
+          </div>
+        )}
+        {Array.isArray(evidence.groups_in_scope) && (
+          <div style={{ marginTop: 4 }}>Groups in scope: {evidence.groups_in_scope.join(', ')}</div>
+        )}
+      </div>
+    )
+  }
+  return "This isn't populated yet — coming in a later update."
+}
+
 // D3 — always rendered, never hidden/disabled (plain-transparency
-// requirement). evidence is null for every decision kind today (Phase C's
-// own module doc) — this is an honest shell, not evidence population.
-// Dashed divider per the mockup (panel 2/3's why-disclosure treatment).
+// requirement). evidence is null when no support exists for this decision
+// (Phase C's honest-shell default) — that state keeps the "not populated
+// yet" copy. Dashed divider per the mockup (panel 2/3's why-disclosure
+// treatment).
 function WhyDisclosure({ evidence }) {
   const [open, setOpen] = useState(false)
   return (
@@ -52,7 +94,7 @@ function WhyDisclosure({ evidence }) {
       </button>
       {open && (
         <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-          {evidence ? 'Evidence' : "This isn't populated yet — coming in a later update."}
+          {evidence ? <EvidenceBody evidence={evidence} /> : "This isn't populated yet — coming in a later update."}
         </div>
       )}
     </div>

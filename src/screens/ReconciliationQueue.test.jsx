@@ -84,9 +84,43 @@ describe('ReconciliationQueue — (a) card shape per decision kind', () => {
     expect(screen.getByRole('button', { name: /Review each/ })).toBeTruthy()
   })
 
-  it('the why-disclosure is an honest shell when evidence is null', () => {
+  it('the why-disclosure is an honest shell when evidence is null', async () => {
     render(<ReconciliationQueue decisions={[confirmValueEditable]} answers={{}} onAnswer={noop} onEditField={noop} onReturnToSummary={noop} onDone={noop} />)
     expect(screen.getByText(/Why does Shoresh think this\?/)).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: /Why does Shoresh think this\?/ }))
+    expect(screen.getByText(/isn't populated yet/)).toBeTruthy()
+  })
+
+  // D3 — real support renders when evidence is present. Activity shape:
+  // { matched_groups, appearances, eligible_group_count } from
+  // src/ingest/activityRules.js.
+  it('renders real per-group evidence for an activity decision when evidence is present', async () => {
+    const withEvidence = {
+      ...confirmValueEditable,
+      evidence: { matched_groups: ['Yeladim', 'Bogrim'], appearances: 8, eligible_group_count: 2 },
+    }
+    render(<ReconciliationQueue decisions={[withEvidence]} answers={{}} onAnswer={noop} onEditField={noop} onReturnToSummary={noop} onDone={noop} />)
+    await userEvent.click(screen.getByRole('button', { name: /Why does Shoresh think this\?/ }))
+    expect(screen.getByText(/2 of 2 eligible groups matched/)).toBeTruthy()
+    expect(screen.getByText(/8 appearances/)).toBeTruthy()
+    expect(screen.getByText(/Yeladim, Bogrim/)).toBeTruthy()
+    expect(screen.queryByText(/isn't populated yet/)).toBeNull()
+  })
+
+  // Fixed-event shape: { days, occupied_days, operating_days, groups_in_scope }
+  // from src/ingest/fixedEvents.js, joined by name (never entity_id — see
+  // reconciliationReport.js's addFixedEventDecision).
+  it('renders real day/scope evidence for a fixed-event decision when evidence is present', async () => {
+    const withEvidence = {
+      ...confirmChangeNotBacked,
+      evidence: { days: ['Monday', 'Wednesday'], occupied_days: 2, operating_days: 5, groups_in_scope: ['Yeladim'] },
+    }
+    render(<ReconciliationQueue decisions={[withEvidence]} answers={{}} onAnswer={noop} onEditField={noop} onReturnToSummary={noop} onDone={noop} />)
+    await userEvent.click(screen.getByRole('button', { name: /Why does Shoresh think this\?/ }))
+    expect(screen.getByText(/Monday, Wednesday/)).toBeTruthy()
+    expect(screen.getByText(/Occupied 2 of 5 operating days/)).toBeTruthy()
+    expect(screen.getByText(/Yeladim/)).toBeTruthy()
+    expect(screen.queryByText(/isn't populated yet/)).toBeNull()
   })
 })
 

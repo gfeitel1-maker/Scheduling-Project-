@@ -689,6 +689,7 @@ export default function ImportScreen({ campId, onNavigate }) {
         // ingestReconcile serializes fieldProvenance as a plain object across the
         // IPC boundary (electron/main.js); buildReconciliationReport requires a Map.
         fieldProvenance: new Map(Object.entries(result.fieldProvenance ?? {})),
+        evidenceSupport: result.evidenceSupport,
       })
       setReconciliation({ report, readiness })
     } catch (err) {

@@ -239,3 +239,47 @@ describe('D1 — commit behavior is byte-identical when dryRun is omitted', () =
     expect(db.prepare('SELECT COUNT(*) c FROM anchor_activities WHERE camp_id = ?').get(campId).c).toBe(1)
   })
 })
+
+// D3 — the dry-run return additionally carries evidenceSupport, the same
+// rule.support/fe.support objects writeActivityEvidence/writeEvidence would
+// persist, collected in-memory (never written, since this is a rollback).
+//
+// The activity join key is entity_id, which is only real for a RECOGNIZED
+// (unchanged/update/clear) item — a fresh 'create' item's entity_id stays
+// null in planItems (buildPlan's own contract; see reconciliationReport.js's
+// module doc), so this exercises Swim as an already-seeded, re-imported
+// activity. The fixed-event join key is name, and per ingest.js's own
+// comment ("evidence for a CREATED anchor only"), only a brand-new anchor
+// gets support collected — this exercises a fixed event seedRealisticCamp
+// never created, not the pre-existing Mifkad (which would land in
+// fixedUnchanged with no support).
+describe('D1 dryRun — evidenceSupport (D3)', () => {
+  it('carries the inferred activity support keyed by entity_id and the fixed-event support keyed by name', () => {
+    seedRealisticCamp()
+
+    const activitySupport = { matched_groups: ['Bunk 1'], appearances: 6, eligible_group_count: 1 }
+    const fixedSupport = { days: ['Tuesday'], occupied_days: 1, operating_days: 2, groups_in_scope: ['Bunk 1', 'Bunk 2'] }
+
+    const outcome = commit({
+      ...reconcilePayload(),
+      activityRules: {
+        ...reconcilePayload().activityRules,
+        Archery: { ...reconcilePayload().activityRules.Archery, eligibility_known: true, support: activitySupport },
+      },
+      fixedEvents: [
+        MIFKAD_MON_9,
+        { name: 'Flag Lowering', time_block: '10:00-10:40', days: ['Tuesday'], scope: { is_all_groups: true, groups: [] }, confidence: 'high', support: fixedSupport },
+      ],
+      dryRun: true,
+    })
+
+    expect(outcome.held).toBe(false)
+    const archeryItem = outcome.planItems.find((i) => i.entity === 'activities' && i._name === 'Archery')
+    expect(archeryItem.entity_id).toBeTruthy()
+    expect(outcome.evidenceSupport.activities[archeryItem.entity_id]).toBe(activitySupport)
+    expect(outcome.evidenceSupport.fixedEvents['Flag Lowering']).toBe(fixedSupport)
+
+    // Non-mutation still holds: nothing was written for this in-memory field to reflect.
+    expect(db.prepare('SELECT COUNT(*) c FROM import_evidence').get().c).toBe(0)
+  })
+})
