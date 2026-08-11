@@ -24,7 +24,9 @@ import { ReconciliationSummary } from './ReconciliationSummary.jsx'
 import { ReconciliationQueue } from './ReconciliationQueue.jsx'
 import { buildReconciliationReport } from '../ingest/reconciliationReport.js'
 import { filterQueueDecisions, applyResolutions } from './reconciliationResolutions.js'
-import { getReadiness } from '../engine/readiness.js'
+import { getReadiness, describeReadiness } from '../engine/readiness.js'
+import { useSetupCounts } from '../hooks/useSetupCounts.js'
+import { describeOptionalGaps } from './importOutcomeModel.js'
 
 // Read last year's schedule and propose the camp's setup from it.
 //
@@ -129,6 +131,10 @@ export default function ImportScreen({ campId, onNavigate }) {
   // Units and time blocks are scoped to a Program; an import files them under
   // the active one so the setup screens will show them (T33).
   const { activeCohort } = useCohorts(campId)
+  // D4 — the post-commit banner's readiness handoff. useSetupCounts already
+  // subscribes to op-applied events, so counts refresh after the commit's
+  // op-log apply without any extra plumbing here.
+  const { counts } = useSetupCounts(campId)
   const [fileNames, setFileNames] = useState([])
   const [preview, setPreview] = useState(null)
   // D2 round 2 — see the comment at its assignment in readFiles.
@@ -892,8 +898,16 @@ export default function ImportScreen({ campId, onNavigate }) {
               along with {sumCounts(result.replaced.dependents)} schedule {sumCounts(result.replaced.dependents) === 1 ? 'row' : 'rows'} that used {sumCounts(result.replaced.entities) === 1 ? 'it' : 'them'}.
             </div>
           )}
-          <div style={{ marginTop: 10 }}>
+          {counts != null && (
+            <ImportReadinessNote counts={counts} />
+          )}
+          <div style={{ marginTop: 10, display: 'flex', gap: 10 }}>
             <button className="press-97" onClick={() => onNavigate('groups')} style={S.btnSecondary}>Go to Groups</button>
+            {counts != null && (
+              <button className="press-97" onClick={() => onNavigate('readiness')} style={readinessLinkBtn}>
+                See Setup Readiness
+              </button>
+            )}
           </div>
         </div>
       )}
@@ -1916,4 +1930,39 @@ function ActivityRuleRow({ name, rule, allGroups, onChange, onToggleGroup }) {
       </div>
     </div>
   )
+}
+
+// D4 — the honest readiness verdict inside the post-commit success banner.
+// Reads getReadiness the same way ReadinessHub.jsx does (Array(counts.x || 0)
+// stand-ins, not real rows — only presence/absence matters here), so "Ready
+// to build a week." and "which optional areas are still absent" can never
+// disagree with the hub. describeReadiness owns the blocking sentence;
+// describeOptionalGaps (importOutcomeModel.js) owns the calm optional line.
+function ImportReadinessNote({ counts }) {
+  const collections = {
+    cohorts: Array(counts.cohorts || 0),
+    tiers: Array(counts.tiers || 0),
+    groups: Array(counts.groups || 0),
+    days: Array(counts.days || 0),
+    timeBlocks: Array(counts.timeblocks || 0),
+    activities: Array(counts.activities || 0),
+    anchors: Array(counts.anchors || 0),
+    dayOverrides: Array(counts.dayoverrides || 0),
+  }
+  const readiness = getReadiness(collections)
+  const { blocking } = describeReadiness(readiness)
+  const optionalNote = describeOptionalGaps(readiness)
+
+  return (
+    <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+      <div>{blocking}</div>
+      {optionalNote && <div style={{ marginTop: 2 }}>{optionalNote}</div>}
+    </div>
+  )
+}
+
+const readinessLinkBtn = {
+  background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+  color: 'var(--text-secondary)', fontSize: 13, fontFamily: 'inherit',
+  textDecoration: 'underline',
 }

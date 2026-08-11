@@ -79,6 +79,7 @@ export function useSetupCounts(campId) {
   }, [campId])
 
   useEffect(() => {
+    if (typeof localClient.getCurrentProject !== 'function') return
     localClient.getCurrentProject()
       .then((info) => {
         if (info?.path) setProjectPath(info.path)
