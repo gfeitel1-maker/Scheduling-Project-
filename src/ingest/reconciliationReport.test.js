@@ -484,6 +484,32 @@ describe('buildReconciliationReport — C2b (legacyPriorityActivities, batched r
     }
   })
 
+  it('drops malformed rows (no entity_id) but keeps well-formed ones, count reflects filtered set', () => {
+    const mixed = [
+      { entity_id: 'act-1', name: 'Swimming' },
+      { name: 'X' }, // malformed — no entity_id
+    ]
+    const report = buildReconciliationReport({
+      planItems: [], readiness: [], legacyPriorityActivities: mixed,
+    })
+    const decision = report.decisions.find((d) => d.kind === 'review_legacy_priority')
+    expect(decision.count).toBe(1)
+    expect(decision.activities).toEqual([{ entityId: 'act-1', name: 'Swimming' }])
+  })
+
+  it('a set of only malformed rows produces no decision, buckets unchanged, does not throw', () => {
+    const withoutLegacy = buildReconciliationReport({ planItems: [], readiness: [] })
+    const onlyMalformed = [{ name: 'X' }, { entity_id: null, name: 'Y' }, { entity_id: undefined, name: 'Z' }]
+    expect(() => buildReconciliationReport({
+      planItems: [], readiness: [], legacyPriorityActivities: onlyMalformed,
+    })).not.toThrow()
+    const report = buildReconciliationReport({
+      planItems: [], readiness: [], legacyPriorityActivities: onlyMalformed,
+    })
+    expect(report.decisions.some((d) => d.kind === 'review_legacy_priority')).toBe(false)
+    expect(report.buckets).toEqual(withoutLegacy.buckets)
+  })
+
   it('preserves every id even when names duplicate', () => {
     const dupNames = [
       { entity_id: 'act-1', name: 'Swimming' },

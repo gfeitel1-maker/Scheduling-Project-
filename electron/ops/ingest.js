@@ -324,7 +324,7 @@ export function listImportEvidence(db, camp_id, { entity_type, entity_id } = {})
 // never surface a value a human definitively authored.
 export function listLegacyPriorityActivities(db, camp_id) {
   const candidates = db
-    .prepare('SELECT id, name FROM activities WHERE camp_id = ? AND priority IS NOT NULL')
+    .prepare('SELECT id, name FROM activities WHERE camp_id = ? AND priority IS NOT NULL ORDER BY name, id')
     .all(camp_id)
 
   const result = []

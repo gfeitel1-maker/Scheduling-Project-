@@ -263,7 +263,10 @@ export function buildReconciliationReport(input) {
   // director-typed value from an accepted-conflict value (all stored
   // identically), so Shoresh surfaces the whole set for review rather than
   // proposing any value — proposedValue stays null, this is never a clear.
-  const legacySet = asArray(legacyPriorityActivities)
+  // Defensive filter: a row that can't identify its activity (no entity_id)
+  // can't be reviewed against anything, so it's dropped rather than surfaced
+  // as a phantom row in the batch. Never throws on malformed input.
+  const legacySet = asArray(legacyPriorityActivities).filter((a) => a?.entity_id != null)
   if (legacySet.length > 0) {
     buckets.needsAttention += 1
     decisionsByKey.set('activities:legacy_priority', {

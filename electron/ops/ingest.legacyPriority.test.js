@@ -119,4 +119,19 @@ describe('listLegacyPriorityActivities', () => {
 
     expect(result).toEqual([])
   })
+
+  it('returns rows in a deterministic name-then-id order regardless of insertion order', () => {
+    insertActivity('act-z', 'Zipline', 1)
+    writeOp('act-z', 'priority', 1, 'import')
+
+    insertActivity('act-a', 'Archery', 1)
+    writeOp('act-a', 'priority', 1, 'import')
+
+    const result = listLegacyPriorityActivities(db, campId)
+
+    expect(result).toEqual([
+      { entity_id: 'act-a', name: 'Archery' },
+      { entity_id: 'act-z', name: 'Zipline' },
+    ])
+  })
 })
