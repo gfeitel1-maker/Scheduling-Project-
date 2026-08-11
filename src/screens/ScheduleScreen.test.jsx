@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent, within, configure } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, configure } from '@testing-library/react'
 
 // loadAll() chains ~12 sequential localClient.list()/listByScope() calls before
 // the grid replaces "Loading…" — comfortably under RTL's 1000ms default when the
@@ -42,12 +42,6 @@ const CELL_SELECTOR = 'td, [role="gridcell"]'
 
 function scheduleCell(name) {
   return screen.getAllByText(name).find((el) => el.closest(CELL_SELECTOR))
-}
-
-// Activity names also appear in the palette sidebar, so queries meant for the
-// edit modal must be scoped to it rather than run against the whole screen.
-function editModal() {
-  return screen.getByText('Assign Activity').parentElement
 }
 
 function group(overrides = {}) { return { id: 'g1', camp_id: CAMP_ID, name: 'Group A', tier_id: 't1', ...overrides } }
@@ -224,81 +218,11 @@ describe('findings recompute on load without regenerating (Round 2 B2)', () => {
   })
 })
 
-// writeFields is the shared primitive that editSlotSave, replaceSlot, dismissFlag,
-// lockActivity, releaseCell, addOverlay, updateOverlayRange, placeActivityManual,
-// and expandSlot all route through (it is module-private, so it is exercised here
-// through editSlotSave rather than imported directly). These two tests cover the
-// success/failure contract shared by all nine writeFields-based functions;
-// releaseCell and removeOverlay additionally get their own direct rendered-component
-// coverage below since they call localClient directly rather than via writeFields.
-describe('editSlotSave (exercises the shared writeFields primitive)', () => {
-  it('success: selecting a different activity and saving writes activity_id and flags, then updates the cell', async () => {
-    mockList({ activities: [activity({ id: 'act-1', name: 'Swim' }), activity({ id: 'act-2', name: 'Art' })] })
-    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
-    // Group view wires onCellSelect, so a single click SELECTS the cell —
-    // the edit modal is opened by double-click (SlotCell.handleDoubleClick).
-    fireEvent.doubleClick(scheduleCell('Swim'))
-
-    await waitFor(() => expect(screen.getByText('Assign Activity')).toBeTruthy())
-    fireEvent.click(within(editModal()).getByText('Art'))
-    fireEvent.click(within(editModal()).getByText('Save'))
-
-    await waitFor(() => {
-      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'template_slots', 'slot-1', 'activity_id', 'act-2')
-      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'template_slots', 'slot-1', 'flags', {})
-    })
-    await waitFor(() => expect(screen.queryByText('Assign Activity')).toBeNull())
-  })
-
-  // Regression (reported): opening the edit modal on a FILLED cell and pressing
-  // Save without touching the list blanked the cell. EditModal initialised its
-  // selection from `slot.activityId` (camelCase), but the slot object threaded
-  // through onEdit/setEditSlot carries `activity_id` (snake_case, DB shape) — so
-  // the current activity was never pre-selected, the list sat on "Clear slot",
-  // and Save wrote activity_id: null. The director's mental model is "I opened
-  // this to look at it / tweak it", not "I asked to erase it".
-  it('preselection: opening the modal on a filled cell and saving unchanged keeps the activity (does not blank the cell)', async () => {
-    mockList({ activities: [activity({ id: 'act-1', name: 'Swim' }), activity({ id: 'act-2', name: 'Art' })] })
-    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
-    fireEvent.doubleClick(scheduleCell('Swim'))
-
-    await waitFor(() => expect(screen.getByText('Assign Activity')).toBeTruthy())
-    // Save WITHOUT selecting anything — the current activity must already be the
-    // active choice.
-    fireEvent.click(within(editModal()).getByText('Save'))
-
-    await waitFor(() => expect(screen.queryByText('Assign Activity')).toBeNull())
-    // The cell must still show Swim, and no clearing write may have happened.
-    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
-    const clearedWrite = localClient.write.mock.calls.find(
-      c => c[1] === 'template_slots' && c[2] === 'slot-1' && c[3] === 'activity_id' && c[4] === null
-    )
-    expect(clearedWrite).toBeUndefined()
-  })
-
-  it('failure: does not silently proceed when the write comes back non-applied — surfaces an error banner and keeps the modal open', async () => {
-    mockList({ activities: [activity({ id: 'act-1', name: 'Swim' }), activity({ id: 'act-2', name: 'Art' })] })
-    localClient.write.mockResolvedValue({ status: 'rejected' })
-    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
-    // See note above: double-click is what opens the edit modal in group view.
-    fireEvent.doubleClick(scheduleCell('Swim'))
-
-    await waitFor(() => expect(screen.getByText('Assign Activity')).toBeTruthy())
-    fireEvent.click(within(editModal()).getByText('Art'))
-    fireEvent.click(within(editModal()).getByText('Save'))
-
-    await waitFor(() => {
-      // T18: 'slot' is the template_slots row, not a word a director uses.
-      expect(screen.getByText(/That cell could not be saved/i)).toBeTruthy()
-    })
-    // Modal stays open — editSlotSave returned early instead of clearing editSlot.
-    expect(screen.getByText('Assign Activity')).toBeTruthy()
-  })
-})
-
+// The EditModal picklist this block used to exercise (via double-click ->
+// "Assign Activity" -> pick -> Save) is retired (drag-first-placement,
+// 2026-08-09). A single click now activates CellInlineEditor instead — its
+// own success/failure/route-switch-undo coverage lives in the
+// "inline-write cell editor" describe block below (Task 5).
 describe('ScheduleScreen mutation functions exercised via rendered component', () => {
   it('releaseCell: clicking a locked slot cell writes template_slots.is_released and updates the UI to unlocked', async () => {
     mockList({
@@ -1193,33 +1117,11 @@ describe('ScheduleScreen — switching routes cannot carry work across candidate
     await waitFor(() => expect(document.body.textContent).not.toMatch(/to paste/))
   })
 
-  it('drops the undo stack when the director navigates to the other route', async () => {
-    mockList({
-      activities: [activity(), activity({ id: 'act-2', name: 'Art' })],
-      schedule_templates: [
-        { id: GENERATED, camp_id: CAMP_ID, name: 'Generated', kind: 'generated', week_id: CAMP_ID },
-        { id: MANUAL, camp_id: CAMP_ID, name: 'Manual', kind: 'manual', week_id: CAMP_ID },
-      ],
-      template_slots: [
-        slotRow({ id: 'gen-1', template_id: GENERATED, activity_id: 'act-1' }),
-        slotRow({ id: 'man-1', template_id: MANUAL, activity_id: null }),
-      ],
-    })
-    const { rerender } = render(routeScreen('generated'))
-    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
-
-    fireEvent.doubleClick(scheduleCell('Swim'))
-    await waitFor(() => expect(screen.getByText('Assign Activity')).toBeTruthy())
-    fireEvent.click(within(editModal()).getByText('Art'))
-    fireEvent.click(within(editModal()).getByText('Save'))
-    await waitFor(() => expect(screen.getByTitle(/^Undo: /)).toBeTruthy())
-
-    rerender(routeScreen('manual'))
-    // An undo entry made on the generated week closed over that route's
-    // setters and slot ids; replaying it from the manual grid would rewrite
-    // the candidate the director is not looking at.
-    await waitFor(() => expect(screen.getByTitle('Nothing to undo')).toBeTruthy())
-  })
+  // 'drops the undo stack when the director navigates to the other route' used
+  // to drive this via the EditModal (double-click -> pick -> Save). Retired
+  // with the modal (drag-first-placement, 2026-08-09); its equivalent, driven
+  // through the inline editor instead, lives in the
+  // "inline-write cell editor" describe block below (Task 5).
 })
 
 // Round 2 — ensureTemplateRow throws on any non-applied write (including the
@@ -1359,9 +1261,12 @@ describe('T3: selecting, copying and pasting cells', () => {
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
 
-    fireEvent.click(scheduleCell('Swim').closest(CELL_SELECTOR), { metaKey: true })
-    // A plain click opens "Assign Activity"; a modified click must not.
-    expect(screen.queryByText('Assign Activity')).toBeNull()
+    const cell = scheduleCell('Swim').closest(CELL_SELECTOR)
+    fireEvent.click(cell, { metaKey: true })
+    // A plain click activates the inline cell editor inside the cell itself; a
+    // modified click must not (scoped to the cell — other unrelated inputs,
+    // e.g. the field-trip label field, exist elsewhere on screen).
+    expect(cell.querySelector('input')).toBeNull()
   })
 
   it('cmd+C on a selection offers the copy to be placed', async () => {

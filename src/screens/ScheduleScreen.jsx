@@ -11,7 +11,6 @@ import ErrorBanner from '../components/schedule/ErrorBanner'
 import { legendEntriesFor, FLAG_SEVERITY, setActivityPalette } from '../components/schedule/slotCellConstants'
 import FindingsRail from '../components/schedule/FindingsRail'
 import { highlightMapForKind } from './schedule/findingHighlight'
-import EditModal from '../components/schedule/EditModal'
 import ConfirmRegenModal from '../components/schedule/ConfirmRegenModal'
 import ExportChooserModal from '../components/schedule/ExportChooserModal'
 import VersionsDropdown from '../components/schedule/VersionsDropdown'
@@ -209,7 +208,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     slots, groups, activities, days, timeBlocks,
   })
   const {
-    editSlotSave, replaceSlot, dismissFlag, lockActivity, releaseCell,
+    replaceSlot, dismissFlag, lockActivity, releaseCell,
     removeOverlay, placeActivityManual, expandSlot, splitSlot,
   } = slotMutations
 
@@ -1154,35 +1153,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         }
         return twoCol
       })()}
-
-      {/* Edit modal */}
-      {editSlot && (
-        <EditModal
-          slot={editSlot}
-          activities={activities}
-          eligibleActivities={activities.filter(a => {
-            const g = groups.find(g => g.id === editSlot.groupId)
-            if (!g) return false
-            const tierIds = a.eligible_tier_ids || []
-            const groupIds = a.eligible_group_ids || []
-            if (tierIds.length === 0 && groupIds.length === 0) return true
-            if (tierIds.includes(g.tier_id)) return true
-            if (groupIds.includes(g.id)) return true
-            return false
-          })}
-          currentActivity={(editSlot.activityId || editSlot.activity_id)
-            ? actMap.get(editSlot.activityId || editSlot.activity_id)
-            : null}
-          currentAnchor={(editSlot.anchorId || editSlot.anchor_id)
-            ? anchorMap.get(editSlot.anchorId || editSlot.anchor_id)
-            : null}
-          weatherAlt={weatherMode && (editSlot.activityId || editSlot.activity_id) ? (() => { const a = actMap.get(editSlot.activityId || editSlot.activity_id); return a?.weather_alternative_id ? actMap.get(a.weather_alternative_id) : null })() : null}
-          weatherMode={weatherMode}
-          onSave={editSlotSave}
-          onClose={() => setEditSlot(null)}
-        />
-      )}
-
 
       {exportChoosing && (
         <ExportChooserModal
