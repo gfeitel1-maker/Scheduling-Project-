@@ -60,6 +60,14 @@ function decisionId(entity, entityId, reason, name) {
 // electron/ops/ingest.js). A missing/undefined map means every lookup misses,
 // so every field is treated as non-human — this is what makes C4 additive:
 // callers that don't pass fieldProvenance get byte-identical C1 output.
+//
+// CONTRACT: on a REAL import, the caller MUST build this map via
+// buildFieldProvenanceMap and pass it through. Omitting it does not error —
+// it silently degrades to pre-C4 classification, meaning a delta on a
+// director-confirmed field is treated as routine and never surfaces a
+// CHANGED decision. That is intentional (additive degradation is the spec),
+// but it makes it a data-safety obligation the CALLER owns, not this
+// function — see buildFieldProvenanceMap's own contract comment.
 function classifyItem(item, fieldProvenance) {
   if (item.op === 'conflict') {
     return {
@@ -209,11 +217,67 @@ function asArray(value) {
   return Array.isArray(value) ? value : []
 }
 
+// Round-2 FIX 2: a truthy fieldProvenance that is NOT a Map fails loud here,
+// at the boundary, rather than throwing a confusing TypeError deep inside
+// classifyItem's `fieldProvenance?.get(...)` call. null/undefined/absent
+// still degrade silently to pre-C4 output — that's the additive-degradation
+// property classifyItem's doc comment describes, and this check must not
+// break it: only a truthy non-Map value is rejected.
+function assertFieldProvenanceShape(fieldProvenance) {
+  if (fieldProvenance == null) return
+  if (fieldProvenance instanceof Map) return
+  throw new Error(
+    `fieldProvenance must be a Map<string,'human'|'import'>; got ${typeof fieldProvenance}`,
+  )
+}
+
+// Round-2 FIX 1: merge-collision stakes ordering. When two decisions land on
+// the same (entity, entityId) key, a merge must never DOWNGRADE stakes —
+// 'confirm_change' (a director's confirmed value is being overwritten)
+// always dominates 'confirm_value' (a routine review prompt), regardless of
+// arrival order. Losing that upgrade would let buckets.changed count a
+// CHANGED fact while the surfaced decision silently reverts to
+// confirm_value, hiding the human field + its proposedValue — the exact
+// drift the ADR's "buckets and decisions cannot drift apart" promise rules
+// out. 'resolve_conflict' is left out of this ordering: a conflict has no
+// entity_id (see decisionId), so it can never collide with an update/clear
+// decision under today's keying.
+function mergeDecisions(existing, incoming) {
+  const existingWins = existing.kind === 'confirm_change'
+  const changeWins = incoming.kind === 'confirm_change'
+  const winner = changeWins && !existingWins ? incoming : existing
+  const loser = winner === existing ? incoming : existing
+
+  const mergedField = Array.isArray(winner.field) && Array.isArray(loser.field)
+    ? [...new Set([...winner.field, ...loser.field])]
+    : winner.field
+
+  // Only merge proposedValue when both sides are field-keyed decisions
+  // (confirm_change/confirm_value carry one); a conflict's null proposedValue
+  // must never overwrite a real one, and vice versa.
+  let mergedProposedValue = winner.proposedValue
+  if (winner.kind === 'confirm_change' && loser.kind === 'confirm_change'
+    && Array.isArray(winner.field) && Array.isArray(loser.field)) {
+    const winnerMap = winner.field.length === 1
+      ? { [winner.field[0]]: winner.proposedValue }
+      : winner.proposedValue
+    const loserMap = loser.field.length === 1
+      ? { [loser.field[0]]: loser.proposedValue }
+      : loser.proposedValue
+    const combined = { ...loserMap, ...winnerMap }
+    mergedProposedValue = mergedField.length === 1 ? combined[mergedField[0]] : combined
+  }
+
+  return { ...winner, field: mergedField, proposedValue: mergedProposedValue }
+}
+
 export function buildReconciliationReport(input) {
   const {
     planItems = [], readiness = [], now = null, fixedEventsReport = {},
     legacyPriorityActivities = [], fieldProvenance = null,
   } = input ?? {}
+
+  assertFieldProvenanceShape(fieldProvenance)
 
   const buckets = { understood: 0, needsAttention: 0, notInSource: 0, changed: 0 }
   const decisionsByKey = new Map() // dedup-by-root-cause: (entity, entityId) -> merged decision
@@ -231,9 +295,8 @@ export function buildReconciliationReport(input) {
     // Same row already produced a decision (shouldn't happen within a single
     // planItems walk today — one buildPlan item per entity — but the merge
     // is defined so a future multi-item-per-row source folds correctly).
-    if (Array.isArray(existing.field) && Array.isArray(decision.field)) {
-      existing.field = [...new Set([...existing.field, ...decision.field])]
-    }
+    // See mergeDecisions above: CHANGED always dominates on merge, never lost.
+    decisionsByKey.set(decision.id, mergeDecisions(existing, decision))
   }
 
   // Rule 6: readiness rows with state 'optional' contribute to notInSource

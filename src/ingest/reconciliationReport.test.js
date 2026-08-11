@@ -647,3 +647,183 @@ describe('buildReconciliationReport — C4 (fieldProvenance-aware CHANGED)', () 
     expect(report.buckets.changed).toBe(1)
   })
 })
+
+// Round-2 hardening — FIX 1: a merge collision on (entity, entityId) must
+// never DOWNGRADE stakes. CHANGED (confirm_change) dominates confirm_value
+// on merge — see the merge-rule comment in buildReconciliationReport.
+describe('buildReconciliationReport — round-2 FIX 1 (merge preserves CHANGED classification)', () => {
+  it('an ordinary field decision arriving BEFORE a human-field decision on the same row merges to confirm_change, preserving the human field + proposedValue', () => {
+    // Two synthetic planItems on the SAME entity_id simulate a future multi-item
+    // source colliding in decisionsByKey (today's single-item-per-row buildPlan
+    // never produces this, but the merge must be correct regardless — Red Hat).
+    const planItems = [
+      {
+        op: 'update', entity: 'activities', entity_id: 'a20',
+        fields: { min_per_week: { from: 1, to: 2, source: 'import' } },
+        evidence: { tier: 'medium', matched_name: 'Sail' }, _name: 'Sail',
+      },
+      {
+        op: 'update', entity: 'activities', entity_id: 'a20',
+        fields: { location: { from: 'Dock', to: 'Field', source: 'import' } },
+        evidence: { tier: 'medium', matched_name: 'Sail' }, _name: 'Sail',
+      },
+    ]
+    const fieldProvenance = new Map([['activities:a20:location', 'human']])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    const decisions = report.decisions.filter((d) => d.entityId === 'a20')
+    expect(decisions).toHaveLength(1)
+    const merged = decisions[0]
+    expect(merged.kind).toBe('confirm_change')
+    expect(merged.confidence).toBe('changed')
+    expect(merged.field).toContain('location')
+    expect(merged.proposedValue).toBe('Field')
+
+    // buckets stay consistent with the final (merged) decision content: exactly
+    // one CHANGED decision exists, so buckets.changed must be >= 1, and the
+    // needsAttention count from the first (now-superseded) classification must
+    // not leave a phantom confirm_value decision behind.
+    expect(report.buckets.changed).toBeGreaterThanOrEqual(1)
+    expect(report.decisions.filter((d) => d.entityId === 'a20' && d.kind === 'confirm_value')).toHaveLength(0)
+  })
+
+  it('the reverse order (human-field decision arrives FIRST) also merges to confirm_change', () => {
+    const planItems = [
+      {
+        op: 'update', entity: 'activities', entity_id: 'a21',
+        fields: { location: { from: 'Dock', to: 'Field', source: 'import' } },
+        evidence: { tier: 'medium', matched_name: 'Sail' }, _name: 'Sail',
+      },
+      {
+        op: 'update', entity: 'activities', entity_id: 'a21',
+        fields: { min_per_week: { from: 1, to: 2, source: 'import' } },
+        evidence: { tier: 'medium', matched_name: 'Sail' }, _name: 'Sail',
+      },
+    ]
+    const fieldProvenance = new Map([['activities:a21:location', 'human']])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    const decisions = report.decisions.filter((d) => d.entityId === 'a21')
+    expect(decisions).toHaveLength(1)
+    expect(decisions[0].kind).toBe('confirm_change')
+    expect(decisions[0].field).toContain('location')
+    expect(decisions[0].proposedValue).toBe('Field')
+  })
+})
+
+// Round-2 hardening — FIX 2: a non-Map truthy fieldProvenance must fail
+// loud at the boundary with a clear contract error, not throw a confusing
+// TypeError deep inside classifyItem.
+describe('buildReconciliationReport — round-2 FIX 2 (fieldProvenance boundary validation)', () => {
+  it('throws a clear contract error when fieldProvenance is a plain object, not a Map', () => {
+    const planItems = [
+      {
+        op: 'update', entity: 'activities', entity_id: 'a30',
+        fields: { location: { from: 'Dock', to: 'Field', source: 'import' } },
+        evidence: { tier: 'medium', matched_name: 'Sail' }, _name: 'Sail',
+      },
+    ]
+    const badFieldProvenance = { 'activities:a30:location': 'human' }
+    expect(() => buildReconciliationReport({ planItems, readiness: [], fieldProvenance: badFieldProvenance }))
+      .toThrow(/fieldProvenance must be a Map/)
+  })
+
+  it('null/undefined fieldProvenance still degrades silently to pre-C4 output (additive property preserved)', () => {
+    const planItems = [
+      {
+        op: 'update', entity: 'activities', entity_id: 'a31',
+        fields: { location: { from: 'Dock', to: 'Field', source: 'import' } },
+        evidence: { tier: 'medium', matched_name: 'Sail' }, _name: 'Sail',
+      },
+    ]
+    expect(() => buildReconciliationReport({ planItems, readiness: [], fieldProvenance: null })).not.toThrow()
+    expect(() => buildReconciliationReport({ planItems, readiness: [], fieldProvenance: undefined })).not.toThrow()
+    expect(() => buildReconciliationReport({ planItems, readiness: [] })).not.toThrow()
+  })
+})
+
+// Round-2 hardening — FIX 3 (Tester): tier coverage gap + bucket invariant.
+describe('buildReconciliationReport — round-2 FIX 3 (tier coverage + bucket invariant)', () => {
+  it('a MEDIUM-tier update to a HUMAN-provenance field yields exactly one confirm_change decision (rule 4 overrides tier at non-HIGH)', () => {
+    const planItems = [
+      {
+        op: 'update', entity: 'activities', entity_id: 'a40',
+        fields: { location: { from: 'Dock', to: 'Field', source: 'import' } },
+        evidence: { tier: 'medium', matched_name: 'Sail' }, _name: 'Sail',
+      },
+    ]
+    const fieldProvenance = new Map([['activities:a40:location', 'human']])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    expect(report.decisions).toHaveLength(1)
+    expect(report.decisions[0].kind).toBe('confirm_change')
+    expect(report.decisions[0].confidence).toBe('changed')
+    expect(report.buckets.changed).toBe(1)
+  })
+
+  it('a LOW-tier update to a HUMAN-provenance field yields exactly one confirm_change decision', () => {
+    const planItems = [
+      {
+        op: 'update', entity: 'activities', entity_id: 'a41',
+        fields: { location: { from: 'Dock', to: 'Field', source: 'import' } },
+        evidence: { tier: 'low', matched_name: 'Sail' }, _name: 'Sail',
+      },
+    ]
+    const fieldProvenance = new Map([['activities:a41:location', 'human']])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    expect(report.decisions).toHaveLength(1)
+    expect(report.decisions[0].kind).toBe('confirm_change')
+    expect(report.decisions[0].confidence).toBe('changed')
+    expect(report.buckets.changed).toBe(1)
+  })
+
+  it('a 3-field row (human, import, human) at HIGH tier yields ONE confirm_change decision listing exactly the two human fields', () => {
+    const planItems = [
+      {
+        op: 'update', entity: 'activities', entity_id: 'a42',
+        fields: {
+          location: { from: 'Dock', to: 'Field', source: 'import' },
+          min_per_week: { from: 1, to: 2, source: 'import' },
+          prefer_before_day: { from: null, to: 'wednesday', source: 'import' },
+        },
+        evidence: { tier: 'exact_name', matched_name: 'Sail' }, _name: 'Sail',
+      },
+    ]
+    const fieldProvenance = new Map([
+      ['activities:a42:location', 'human'],
+      ['activities:a42:min_per_week', 'import'],
+      ['activities:a42:prefer_before_day', 'human'],
+    ])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    expect(report.decisions).toHaveLength(1)
+    const d = report.decisions[0]
+    expect(d.kind).toBe('confirm_change')
+    expect(d.field.sort()).toEqual(['location', 'prefer_before_day'])
+  })
+
+  it('bucket invariant: buckets.changed equals the number of decisions with confidence "changed" for a mixed fixture', () => {
+    const planItems = [
+      // understood
+      { op: 'unchanged', entity: 'activities', entity_id: 'a50', fields: {}, evidence: { tier: 'exact_name' }, _name: 'Swim' },
+      // needsAttention, ordinary
+      {
+        op: 'update', entity: 'activities', entity_id: 'a51',
+        fields: { min_per_week: { from: 1, to: 2, source: 'import' } },
+        evidence: { tier: 'medium', matched_name: 'Kayak' }, _name: 'Kayak',
+      },
+      // changed via human field
+      {
+        op: 'update', entity: 'activities', entity_id: 'a52',
+        fields: { location: { from: 'Dock', to: 'Field', source: 'import' } },
+        evidence: { tier: 'exact_name', matched_name: 'Sail' }, _name: 'Sail',
+      },
+    ]
+    const fieldProvenance = new Map([['activities:a52:location', 'human']])
+    const report = buildReconciliationReport({ planItems, readiness: [], fieldProvenance })
+
+    const changedDecisionCount = report.decisions.filter((d) => d.confidence === 'changed').length
+    expect(report.buckets.changed).toBe(changedDecisionCount)
+  })
+})

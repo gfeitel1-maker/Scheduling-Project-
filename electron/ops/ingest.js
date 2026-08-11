@@ -339,12 +339,21 @@ export function listLegacyPriorityActivities(db, camp_id) {
 // OQ2 resolved EXTRACT): builds the `fieldProvenance` input
 // buildReconciliationReport's C4 rule needs. Reuses the SAME isProtected
 // primitive decideFieldItem already runs inline per-field at commit time
-// (`latest.source !== 'import'`, ~line 915) — not a parallel provenance
-// system. This is read-only, caller-side glue that assembles Phase C's input;
-// it does not touch and is never called from the live commit-path gate,
-// which is deliberately left untouched (extracting the gate itself out of
-// decideFieldItem's closure was judged riskier than adding this sibling read
-// for a not-yet-wired consumer).
+// (`latest.source !== 'import'` — see decideFieldItem's isProtected gate) —
+// not a parallel provenance system. This is read-only, caller-side glue that
+// assembles Phase C's input; it does not touch and is never called from the
+// live commit-path gate, which is deliberately left untouched (extracting
+// the gate itself out of decideFieldItem's closure was judged riskier than
+// adding this sibling read for a not-yet-wired consumer).
+//
+// CONTRACT (Phase-D wiring): any DB-backed caller that invokes
+// buildReconciliationReport against a REAL import MUST build fieldProvenance
+// via this function and pass it through. Omitting it silently classifies
+// every 'human'-owned field as non-human (buildReconciliationReport degrades
+// additively to pre-C4 behavior — see that function's own contract comment),
+// so a director-confirmed value can be silently overwritten with no CHANGED
+// decision ever surfaced. That data-safety obligation belongs to the caller,
+// not to this pure function.
 //
 // The map is keyed by the PLAN item's field name (e.g. 'unit',
 // 'eligible_groups') because that's what buildReconciliationReport sees in
