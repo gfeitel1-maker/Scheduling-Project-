@@ -543,9 +543,10 @@ export default function ImportScreen({ campId, onNavigate }) {
     const tickedFixedEvents = fixedEvents.filter((fe) => chosenFixedEvents.has(fixedEventKey(fe)))
     // Only rules for activities the director actually approved — an
     // activity they unticked must not carry a rule into commitIngest, same
-    // principle as groupUnits above. priority is already 'high'/'low', the
-    // same value the activities table reads — no conversion at this
-    // boundary (round 2 review, Fix 1).
+    // principle as groupUnits above. priority passes through as-is: post-B2
+    // (commit 57f75ed) an inferred rule's priority is UNKNOWN (undefined) unless
+    // the director set it in the editor, and undefined is resolved to the
+    // engine's two-valued contract at generation time, not here.
     const outgoingRules = {}
     // Per approved activity, the SOURCE field names the director hand-edited —
     // marked source:'human' at commit so a later re-import cannot silently

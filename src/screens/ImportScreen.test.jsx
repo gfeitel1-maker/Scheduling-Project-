@@ -85,10 +85,13 @@ async function uploadFile() {
 describe('ImportScreen — inferred activity rules (T35)', () => {
   it('renders a rule summary for a proposed activity, collapsed by default with the full editor behind Adjust', async () => {
     await uploadFile()
-    // Swim: 4 appearances / 1 matched group / 2 days = 2/wk; unitShare 0.9 -> High.
+    // Swim: 4 appearances / 1 matched group / 2 days = 2/wk.
     expect(screen.getByText(/Groups: Yeladim/)).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: /Adjust/ }))
-    expect(screen.getByRole('option', { name: 'High', selected: true })).toBeTruthy()
+    // B2 (commit 57f75ed): prevalence alone never manufactures a priority, so an
+    // inferred rule carries no priority and the editor's select shows its
+    // UNKNOWN→low default rather than a fabricated "High".
+    expect(screen.getByRole('option', { name: 'Low', selected: true })).toBeTruthy()
   })
 
   // Round 2 — the eligibility-unknown signal (T35 Fix 2b) must stay
@@ -124,7 +127,11 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     await userEvent.click(await screen.findByText(/Commit \d+ record/))
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
     const [{ activityRules }] = localClient.ingestCommit.mock.calls[0]
-    expect(activityRules.Swim).toMatchObject({ min_per_week: 2, max_per_week: 3, priority: 'high' })
+    expect(activityRules.Swim).toMatchObject({ min_per_week: 2, max_per_week: 3 })
+    // B2 (commit 57f75ed): an inferred rule carries no priority VALUE — it stays
+    // UNKNOWN (undefined) and is resolved to the engine's two-valued contract at
+    // generation time, not manufactured from prevalence here.
+    expect(activityRules.Swim.priority).toBeUndefined()
   })
 
   // Provenance follow-up (docs/adr/2026-08-09-activity-rule-hand-edit-provenance.md):
@@ -134,6 +141,8 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
   // the activity-rule half of the same mechanism the unit column uses for groups.
   it('flags a hand-edited rule field in humanEditedFields.activities, field-level', async () => {
     await uploadFile()
+    // The number inputs live in the editor behind Adjust (collapsed by default).
+    await userEvent.click(screen.getByRole('button', { name: /Adjust/ }))
     // The Swim row's first number input is min_per_week; edit it.
     const minInput = screen.getAllByRole('spinbutton')[0]
     fireEvent.change(minInput, { target: { value: '5' } })

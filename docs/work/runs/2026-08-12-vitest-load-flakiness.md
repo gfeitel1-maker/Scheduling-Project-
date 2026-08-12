@@ -87,15 +87,30 @@ uses an inline `vi.mock('../localClient', …)` that omitted `getCamp`, throwing
 that passive effect. Added `getCamp: vi.fn().mockResolvedValue({ id, name })` to
 all five inline mocks. Recovers **46 of the 49**.
 
-## Still red after both fixes — separate findings, NOT flakiness
+## Also fixed — 3 stale T35 tests the mock fix unmasked
 
-1. **`ImportScreen.test.jsx` — 3 tests (T35 "inferred activity rules").** These
-   assert Swim infers `priority: 'high'` and that the Adjust editor exposes a
-   selected "High" option. They fail identically whether `getCamp` resolves a
-   camp or `null`, so this is independent of the mock fix — a pre-existing issue
-   in the T35 rule-summary path (inference and/or the Adjust editor), masked
-   until now by the `getCamp` throw. Given the recent D1–D4 rework of this
-   screen, these may be stale assertions or a real regression; needs a product
-   decision, not a mock change.
-2. **`test/governance.test.js` (2 tests).** Pre-existing doc-governance
-   assertions (documents missing `document_type` / `governing_docs`). Baseline.
+`ImportScreen.test.jsx`'s three "inferred activity rules (T35)" tests asserted
+pre-**B2** behaviour and had drifted invisibly because the `getCamp` throw kept
+the whole file red. Diagnosis (systematic-debugging): commit `57f75ed` ("Stop
+manufacturing priority certainty; resolve UNKNOWN safely at generation time")
+deliberately stopped the ingest inference from assigning `priority` from
+prevalence — the canonical `src/ingest/activityRules.test.js:62` already asserts
+the new "no priority key" behaviour; only these three assertions were left
+stale. Two also assumed the pre-rework layout where the rule editor's number
+inputs were not collapsed behind **Adjust**.
+
+Updated to match current behaviour (not a product change):
+- priority default in the editor is now the UNKNOWN→`low` selection, not a
+  fabricated "High";
+- the committed rule's `priority` is `undefined` (UNKNOWN), resolved to the
+  engine's two-valued contract at generation time;
+- the hand-edit test now clicks **Adjust** before editing the min input.
+
+Also refreshed a stale code comment in `ImportScreen.jsx` (the commit-assembly
+still claimed "priority is already 'high'/'low'", pre-B2).
+
+## Still red — one pre-existing baseline, NOT flakiness
+
+- **`test/governance.test.js` (2 tests).** Pre-existing doc-governance
+  assertions (documents missing `document_type` / `governing_docs`). Unrelated
+  to this work; unchanged baseline.
