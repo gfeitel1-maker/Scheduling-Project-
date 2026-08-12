@@ -9,8 +9,8 @@ import { normalizeName } from '../../ingest/preview.js'
 //
 // This hook orchestrates but owns NO state: the route-scoped values and the
 // route-PINNED setters come from the injected `routeState` (T31's useRouteState);
-// pushUndo, the repo, setDisplacedItems, recalcStats, the geometry getSlot,
-// actMap, setActivities and the data lists are injected too.
+// pushUndo, the repo, recalcStats, the geometry getSlot, actMap, setActivities
+// and the data lists are injected too.
 //
 // The delicate part, preserved verbatim: several handlers push undo/redo closures
 // that capture `repo`, the route-pinned `setSlots` (bound to the route the entry
@@ -29,7 +29,6 @@ export function useSlotMutations({
   repo,
   pushUndo,
   setActionError,
-  setDisplacedItems,
   recalcStats,
   recalcFindings,
   getSlot,
@@ -372,19 +371,6 @@ export function useSlotMutations({
       return s
     }))
 
-    // Add displaced activity to palette
-    if (tailActivityId) {
-      setDisplacedItems(prev => [
-        ...prev,
-        {
-          activityId: tailActivityId,
-          activityName: tailActivityName,
-          fromBlockName: tailBlockName,
-          dayLabel,
-        },
-      ])
-    }
-
     const prevHeadFlags = headSlot.flags ?? {}
     const prevTailActivityId = tailSlot.activity_id ?? null
     pushUndo({
@@ -399,7 +385,6 @@ export function useSlotMutations({
             return { ...s, flags: prevHeadFlags }
           return s
         }))
-        if (tailActivityId) setDisplacedItems(prev => prev.filter(i => !(i.activityId === tailActivityId && i.fromBlockName === tailBlockName)))
       },
       redo: async () => {
         await repo.writeSlotFields(tailSlot.id, { activity_id: headActivityId, is_span_head: false })
@@ -411,9 +396,6 @@ export function useSlotMutations({
             return { ...s, flags: newFlags }
           return s
         }))
-        if (tailActivityId) {
-          setDisplacedItems(prev => [...prev, { activityId: tailActivityId, activityName: tailActivityName, fromBlockName: tailBlockName, dayLabel }])
-        }
       },
     })
   }
@@ -424,7 +406,7 @@ export function useSlotMutations({
     const headSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
     if (!headSlot || !headSlot.flags?.expanded) return
 
-    const { displacedActivityId, displacedActivityName, from_block: tailBlockId } = headSlot.flags.expanded
+    const { from_block: tailBlockId } = headSlot.flags.expanded
     const tailSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
     if (!tailSlot) return
 
@@ -452,20 +434,6 @@ export function useSlotMutations({
     const prevTailActivityId = tailSlot.activity_id ?? null
     const prevTailIsSpanHead = tailSlot.is_span_head
 
-    if (displacedActivityId && displacedActivityName) {
-      const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
-      const day = days.find(d => d.id === dayId)
-      setDisplacedItems(prev => [
-        ...prev,
-        {
-          activityId: displacedActivityId,
-          activityName: displacedActivityName,
-          fromBlockName: tailBlock?.name ?? '',
-          dayLabel: day?.label ?? '',
-        },
-      ])
-    }
-
     pushUndo({
       // T18: was `Split merged slot ${headBlockId}` — a raw uuid in a tooltip.
       description: (() => {
@@ -484,10 +452,6 @@ export function useSlotMutations({
             return { ...s, flags: prevHeadFlags }
           return s
         }))
-        if (displacedActivityId) {
-          const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
-          setDisplacedItems(prev => prev.filter(i => !(i.activityId === displacedActivityId && i.fromBlockName === (tailBlock?.name ?? ''))))
-        }
       },
       redo: async () => {
         await repo.writeSlotFields(tailSlot.id, { activity_id: null, is_span_head: true, flags: {} })

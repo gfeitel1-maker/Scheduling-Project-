@@ -70,26 +70,14 @@ describe('useOverlayFillStamp', () => {
     expect(result.current.fillState).toBeNull()
   })
 
-  it('dismissDisplaced removes the matching tray entry only', () => {
-    const { result } = setup()
-    act(() => result.current.setDisplacedItems([
-      { activityId: 'a1', fromBlockName: 'Morning' },
-      { activityId: 'a1', fromBlockName: 'Afternoon' },
-    ]))
-    act(() => result.current.dismissDisplaced('a1', 'Morning'))
-    expect(result.current.displacedItems).toEqual([{ activityId: 'a1', fromBlockName: 'Afternoon' }])
-  })
-
-  it('reset() clears stamp, fill, and displaced state', () => {
+  it('reset() clears stamp and fill state', () => {
     const { result } = setup()
     act(() => {
       result.current.setStampMode('Field Trip')
       result.current.startFill(overlays[0])
-      result.current.setDisplacedItems([{ activityId: 'a1', fromBlockName: 'Morning' }])
     })
     act(() => result.current.reset())
     expect(result.current.stampMode).toBeNull()
     expect(result.current.fillState).toBeNull()
-    expect(result.current.displacedItems).toEqual([])
   })
 })

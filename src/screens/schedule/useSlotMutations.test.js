@@ -38,7 +38,6 @@ function makeProps(overrides = {}) {
     repo: repoOver || makeRepo(),
     pushUndo: vi.fn(),
     setActionError: vi.fn(),
-    setDisplacedItems: vi.fn(),
     recalcStats: vi.fn(),
     recalcFindings: vi.fn(),
     getSlot,
@@ -345,7 +344,7 @@ describe('useSlotMutations — expandSlot', () => {
     return hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', 'actTail', 'Archery', 'Block 2', 'Mon')
   }
 
-  it('merges the two cells (tail owned by head + span flag, head gets the expanded flag), updates state and the displaced tray', async () => {
+  it('merges the two cells (tail owned by head + span flag, head gets the expanded flag) and updates state', async () => {
     const { hook, props } = setup({ slots: [headSlot, tailSlot], activities })
     await act(async () => { await expand(hook) })
 
@@ -353,33 +352,22 @@ describe('useSlotMutations — expandSlot', () => {
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: 'actHead', is_span_head: false })
     // Head cell records the merge in its flags.
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('h1', { flags: expandedFlags })
-    // Optimistic setSlots + one displaced-tray add + one undo entry.
+    // Optimistic setSlots + one undo entry.
     expect(props.routeState.setSlots).toHaveBeenCalledTimes(1)
-    expect(props.setDisplacedItems).toHaveBeenCalledTimes(1)
     expect(props.pushUndo).toHaveBeenCalledTimes(1)
-
-    // The displaced entry appended carries the ousted activity.
-    const trayUpdater = props.setDisplacedItems.mock.calls[0][0]
-    expect(trayUpdater([])).toEqual([
-      { activityId: 'actTail', activityName: 'Archery', fromBlockName: 'Block 2', dayLabel: 'Mon' },
-    ])
   })
 
-  it('undo() reverses both writes and removes the displaced-tray entry', async () => {
+  it('undo() reverses both writes', async () => {
     const { hook, props } = setup({ slots: [headSlot, tailSlot], activities })
     await act(async () => { await expand(hook) })
     const entry = props.pushUndo.mock.calls[0][0]
 
     props.repo.writeSlotFields.mockClear()
-    props.setDisplacedItems.mockClear()
     await act(async () => { await entry.undo() })
 
     // Tail restored to its own activity as a span head; head's flags restored.
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: 'actTail', is_span_head: true })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('h1', { flags: {} })
-    // The tray entry added by expand is filtered back out.
-    const trayUpdater = props.setDisplacedItems.mock.calls[0][0]
-    expect(trayUpdater([{ activityId: 'actTail', fromBlockName: 'Block 2' }])).toEqual([])
   })
 })
 
@@ -393,14 +381,13 @@ describe('useSlotMutations — splitSlot', () => {
   const timeBlocks = [{ id: 'b1', name: 'Block 1', sort_order: 1 }, { id: 'b2', name: 'Block 2', sort_order: 2 }]
   const days = [{ id: 'd1', label: 'Mon' }]
 
-  it('splits the merged span back into two (tail cleared to a fresh span head, head flags cleaned) and re-offers the displaced activity', async () => {
+  it('splits the merged span back into two (tail cleared to a fresh span head, head flags cleaned)', async () => {
     const { hook, props } = setup({ slots: [headSlot, tailSlot], timeBlocks, days })
     await act(async () => { await hook.result.current.splitSlot('g1', 'd1', 'b1') })
 
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: null, is_span_head: true, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('h1', { flags: {} })
     expect(props.routeState.setSlots).toHaveBeenCalledTimes(1)
-    expect(props.setDisplacedItems).toHaveBeenCalledTimes(1)
     expect(props.pushUndo).toHaveBeenCalledTimes(1)
   })
 
