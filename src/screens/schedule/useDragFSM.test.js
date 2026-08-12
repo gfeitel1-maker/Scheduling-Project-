@@ -72,7 +72,8 @@ describe('useDragFSM — static-ghost replace attribute', () => {
     })
     expect(commit).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ toPalette: true, valid: true })
+      expect.objectContaining({ toPalette: true, valid: true }),
+      expect.anything()
     )
   })
 

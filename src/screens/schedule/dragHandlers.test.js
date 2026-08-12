@@ -47,7 +47,8 @@ describe('makeDragHandlers.commit', () => {
     commit(active, hit('g1', 'd1', 'b2'))
     expect(deps.replaceSlot).toHaveBeenCalledWith(
       { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' },
-      { groupId: 'g1', dayId: 'd1', blockId: 'b2' }
+      { groupId: 'g1', dayId: 'd1', blockId: 'b2' },
+      undefined
     )
   })
 
@@ -58,7 +59,8 @@ describe('makeDragHandlers.commit', () => {
     commit(active, hit('g1', 'd1', 'b2'))
     expect(deps.replaceSlot).toHaveBeenCalledWith(
       { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' },
-      { groupId: 'g1', dayId: 'd1', blockId: 'b2' }
+      { groupId: 'g1', dayId: 'd1', blockId: 'b2' },
+      undefined
     )
   })
 
@@ -69,7 +71,8 @@ describe('makeDragHandlers.commit', () => {
     commit(active, hit('g1', 'd1', 'b2'))
     expect(deps.replaceSlot).toHaveBeenCalledWith(
       { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' },
-      { groupId: 'g1', dayId: 'd1', blockId: 'b2' }
+      { groupId: 'g1', dayId: 'd1', blockId: 'b2' },
+      undefined
     )
   })
 
@@ -112,7 +115,8 @@ describe('makeDragHandlers.commit', () => {
     commit(active, { toPalette: true, valid: true })
     expect(deps.replaceSlot).toHaveBeenCalledWith(
       { activityId: null },
-      { groupId: 'g1', dayId: 'd1', blockId: 'b1' }
+      { groupId: 'g1', dayId: 'd1', blockId: 'b1' },
+      undefined
     )
   })
 
@@ -134,7 +138,7 @@ describe('makeDragHandlers.commit', () => {
         const { commit } = makeDragHandlers(deps)
         const active = { data: { current: { expandDrag: { groupId: 'g1', dayId: 'd1', blockId: 'b1' } } } }
         commit(active, hit('g1', 'd1', 'b2'))
-        expect(deps.expandSlot).toHaveBeenCalledWith('g1', 'd1', 'b1', 'b2', 'act-1', 'Swim', 'Block 2', 'Monday')
+        expect(deps.expandSlot).toHaveBeenCalledWith('g1', 'd1', 'b1', 'b2', 'act-1', 'Swim', 'Block 2', 'Monday', undefined)
         expect(deps.replaceSlot).not.toHaveBeenCalled()
       })
 
@@ -179,7 +183,8 @@ describe('makeDragHandlers.commit', () => {
         commit(active, hit('g1', 'd1', 'b1'))
         expect(deps.replaceSlot).toHaveBeenCalledWith(
           { activityId: 'act-1' },
-          { groupId: 'g1', dayId: 'd1', blockId: 'b1' }
+          { groupId: 'g1', dayId: 'd1', blockId: 'b1' },
+          undefined
         )
         expect(deps.placeActivityManual).not.toHaveBeenCalled()
       })

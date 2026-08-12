@@ -11,7 +11,7 @@ export function makeDragHandlers({
   timeBlocks, days, slots, actMap, getSlot,
   expandSlot, placeActivityManual, replaceSlot,
 }) {
-  function commit(active, hit) {
+  function commit(active, hit, gestureId) {
     if (!active || !hit) return
 
     const data = active.data.current || {}
@@ -24,7 +24,7 @@ export function makeDragHandlers({
     // to clear, so it is a no-op.
     if (hit.toPalette) {
       if (data.slot) {
-        replaceSlot({ activityId: null }, { groupId: data.slot.groupId, dayId: data.slot.dayId, blockId: data.slot.blockId })
+        replaceSlot({ activityId: null }, { groupId: data.slot.groupId, dayId: data.slot.dayId, blockId: data.slot.blockId }, gestureId)
       }
       return
     }
@@ -47,7 +47,8 @@ export function makeDragHandlers({
       const day = days.find(d => d.id === dayId)
       expandSlot(
         headGroupId, headDayId, headBlockId, blockId,
-        tailSlot.activity_id, tailActivity?.name || '', tailBlock.name, day?.label ?? dayId
+        tailSlot.activity_id, tailActivity?.name || '', tailBlock.name, day?.label ?? dayId,
+        gestureId
       )
       return
     }
@@ -57,8 +58,12 @@ export function makeDragHandlers({
       const targetSlot = getSlot(slots, groupId, dayId, blockId)
       if (targetSlot?.is_anchor) return
       if (targetSlot?.activity_id) {
-        replaceSlot({ activityId: data.paletteActivity.id }, { groupId, dayId, blockId })
+        replaceSlot({ activityId: data.paletteActivity.id }, { groupId, dayId, blockId }, gestureId)
       } else {
+        // placeActivityManual is out of scope for the ledger (ADR "Non-goals" —
+        // it only ever writes an empty cell, so the same-cell write race this
+        // ledger fixes can't occur on its own writes). Its 5th positional
+        // param is activityOverride, not gestureId — do not pass gestureId here.
         placeActivityManual(data.paletteActivity.id, groupId, dayId, blockId)
       }
       return
@@ -73,7 +78,8 @@ export function makeDragHandlers({
 
     replaceSlot(
       { groupId: slotA.groupId, dayId: slotA.dayId, blockId: slotA.blockId, activityId: slotA.activity_id },
-      { groupId, dayId, blockId }
+      { groupId, dayId, blockId },
+      gestureId
     )
   }
 
