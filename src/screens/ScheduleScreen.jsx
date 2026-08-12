@@ -184,25 +184,24 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // from the transient-reset block below on a route switch.
   const { undoStack, redoStack, pushUndo, handleUndo, handleRedo, reset: resetUndoRedo } = useUndoRedo({ setActionError })
 
-  // Overlay fill / field-trip stamp / displaced-activity tray. Transient
-  // direct-manipulation state; orchestrates persistence through the slot
-  // mutations' addOverlay/updateOverlayRange (wrapped below). reset() runs from
-  // the block below.
+  // Overlay fill / field-trip stamp. Transient direct-manipulation state;
+  // orchestrates persistence through the slot mutations' addOverlay/
+  // updateOverlayRange (wrapped below). reset() runs from the block below.
   const {
-    fillState, stampMode, setStampMode, setDisplacedItems,
+    fillState, stampMode, setStampMode,
     startFill, handleFillEnter, handleStampClick, reset: resetOverlayFillStamp,
   } = useOverlayFillStamp({ groups, timeBlocks, overlays, addOverlay, updateOverlayRange })
 
   // T32 — the per-cell slot/overlay mutation cluster lives in its own hook: the
   // ~11 handlers that write a slot/overlay through the T28 repo and record the
   // undo entry. It owns no state — route-scoped values and the route-PINNED
-  // setters come from routeState; pushUndo, setDisplacedItems, recalcStats, the
-  // geometry getSlot and the data lists are injected. `slots` is the screen's
-  // overlap-flagged value (what the inline handlers read pre-extraction), so
-  // prevFlags in the undo closures stays byte-identical.
+  // setters come from routeState; pushUndo, recalcStats, the geometry getSlot
+  // and the data lists are injected. `slots` is the screen's overlap-flagged
+  // value (what the inline handlers read pre-extraction), so prevFlags in the
+  // undo closures stays byte-identical.
   const slotMutations = useSlotMutations({
     routeState, repo, pushUndo, setActionError,
-    setDisplacedItems, recalcStats, recalcFindings,
+    recalcStats, recalcFindings,
     getSlot, setActivities,
     slots, groups, activities, days, timeBlocks, campId,
   })
@@ -254,10 +253,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // runs BEFORE useSlotMutations, so they are provided as thin hoisted wrappers
   // that delegate to the hook. The fill/stamp hook only calls them from event
   // handlers (stamp click, fill pointer-up), never during render, so
-  // `slotMutations` is always assigned by the time they fire. This breaks the
-  // genuine cycle — the mutations need setDisplacedItems (owned by the fill/stamp
-  // hook) and that hook needs the overlay mutations — without lifting the
-  // displaced-tray state out of its hook.
+  // `slotMutations` is always assigned by the time they fire.
   function addOverlay(args) { return slotMutations.addOverlay(args) }
   function updateOverlayRange(overlayId, toBlockOrder) { return slotMutations.updateOverlayRange(overlayId, toBlockOrder) }
 

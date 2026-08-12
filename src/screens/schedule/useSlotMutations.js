@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { normalizeName } from '../../ingest/preview.js'
 
@@ -8,8 +9,8 @@ import { normalizeName } from '../../ingest/preview.js'
 //
 // This hook orchestrates but owns NO state: the route-scoped values and the
 // route-PINNED setters come from the injected `routeState` (T31's useRouteState);
-// pushUndo, the repo, setDisplacedItems, recalcStats, the geometry getSlot,
-// actMap, setActivities and the data lists are injected too.
+// pushUndo, the repo, recalcStats, the geometry getSlot, actMap, setActivities
+// and the data lists are injected too.
 //
 // The delicate part, preserved verbatim: several handlers push undo/redo closures
 // that capture `repo`, the route-pinned `setSlots` (bound to the route the entry
@@ -28,7 +29,6 @@ export function useSlotMutations({
   repo,
   pushUndo,
   setActionError,
-  setDisplacedItems,
   recalcStats,
   recalcFindings,
   getSlot,
@@ -53,6 +53,27 @@ export function useSlotMutations({
   // actMap shape (the screen keeps its own copy for the DnD handlers + JSX).
   const actMap = new Map(activities.map(a => [a.id, { ...a, colorIdx: a.id }]))
 
+  // Fresh-read snapshot seam for replaceSlot's undo capture (Deviation A on the
+  // 2026-08-12 drag-FSM gesture-correlation ADR). `slots` is this render's prop —
+  // a second same-cell drag can call replaceSlot before React re-renders with the
+  // first drag's optimistic update, and both calls would then close over the
+  // identical stale array, computing the same wrong "previous" activity for undo.
+  // slotsRef is kept current by every render AND by replaceSlot's own setSlots
+  // updater (which runs in true state-application order regardless of whether a
+  // re-render/paint has happened yet), so a snapshot read through it reflects the
+  // truest state known at the moment each replaceSlot call actually runs.
+  //
+  // ASSUMPTION (see the ADR's medium-high confidence note): the in-updater
+  // `slotsRef.current = next` writes below depend on `setSlots` being a plain
+  // useState setter whose updater is invoked exactly once per call. If this file
+  // is ever moved under StrictMode double-invocation or a concurrent feature
+  // (startTransition/useDeferredValue) that can call an updater more than once or
+  // discard a run, the ref could latch a value from a thrown-away invocation and
+  // silently defeat the race-safety this seam exists for. Revisit here, not just
+  // in the ADR, if the schedule tree adopts concurrent rendering.
+  const slotsRef = useRef(slots)
+  useEffect(() => { slotsRef.current = slots }, [slots])
+
   async function replaceSlot(incoming, target) {
     // incoming: { groupId?, dayId?, blockId?, activityId } — coords present only
     // for a grid-to-grid drag; a palette drop supplies activityId alone.
@@ -69,10 +90,16 @@ export function useSlotMutations({
       : null
 
     setActionError(null)
-    const prevTargetActivityId = targetRow.activity_id ?? null
-    const prevTargetFlags = targetRow.flags ?? {}
-    const prevSourceActivityId = sourceRow?.activity_id ?? null
-    const prevSourceFlags = sourceRow?.flags ?? {}
+
+    const freshSlots = slotsRef.current
+    const freshTargetRow = freshSlots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId) ?? targetRow
+    const freshSourceRow = sourceRow
+      ? (freshSlots.find(s => s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId) ?? sourceRow)
+      : null
+    const prevTargetActivityId = freshTargetRow.activity_id ?? null
+    const prevTargetFlags = freshTargetRow.flags ?? {}
+    const prevSourceActivityId = freshSourceRow?.activity_id ?? null
+    const prevSourceFlags = freshSourceRow?.flags ?? {}
 
     try {
       const writes = [repo.writeSlotFields(targetRow.id, { activity_id: incoming.activityId, flags: {} })]
@@ -93,6 +120,7 @@ export function useSlotMutations({
       })
       recalcStats(next)
       recalcFindings(next)
+      slotsRef.current = next
       return next
     })
 
@@ -109,26 +137,34 @@ export function useSlotMutations({
           repo.writeSlotFields(targetRow.id, { activity_id: prevTargetActivityId, flags: prevTargetFlags }),
           ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { activity_id: prevSourceActivityId, flags: prevSourceFlags })] : []),
         ])
-        setSlots(prev => prev.map(s => {
-          if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-            return { ...s, activity_id: prevTargetActivityId, flags: prevTargetFlags }
-          if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
-            return { ...s, activity_id: prevSourceActivityId, flags: prevSourceFlags }
-          return s
-        }))
+        setSlots(prev => {
+          const next = prev.map(s => {
+            if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+              return { ...s, activity_id: prevTargetActivityId, flags: prevTargetFlags }
+            if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
+              return { ...s, activity_id: prevSourceActivityId, flags: prevSourceFlags }
+            return s
+          })
+          slotsRef.current = next
+          return next
+        })
       },
       redo: async () => {
         await Promise.all([
           repo.writeSlotFields(targetRow.id, { activity_id: incoming.activityId, flags: {} }),
           ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { activity_id: null, flags: {} })] : []),
         ])
-        setSlots(prev => prev.map(s => {
-          if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-            return { ...s, activity_id: incoming.activityId, flags: {} }
-          if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
-            return { ...s, activity_id: null, flags: {} }
-          return s
-        }))
+        setSlots(prev => {
+          const next = prev.map(s => {
+            if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+              return { ...s, activity_id: incoming.activityId, flags: {} }
+            if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
+              return { ...s, activity_id: null, flags: {} }
+            return s
+          })
+          slotsRef.current = next
+          return next
+        })
       },
     })
   }
@@ -344,19 +380,6 @@ export function useSlotMutations({
       return s
     }))
 
-    // Add displaced activity to palette
-    if (tailActivityId) {
-      setDisplacedItems(prev => [
-        ...prev,
-        {
-          activityId: tailActivityId,
-          activityName: tailActivityName,
-          fromBlockName: tailBlockName,
-          dayLabel,
-        },
-      ])
-    }
-
     const prevHeadFlags = headSlot.flags ?? {}
     const prevTailActivityId = tailSlot.activity_id ?? null
     pushUndo({
@@ -371,7 +394,6 @@ export function useSlotMutations({
             return { ...s, flags: prevHeadFlags }
           return s
         }))
-        if (tailActivityId) setDisplacedItems(prev => prev.filter(i => !(i.activityId === tailActivityId && i.fromBlockName === tailBlockName)))
       },
       redo: async () => {
         await repo.writeSlotFields(tailSlot.id, { activity_id: headActivityId, is_span_head: false })
@@ -383,9 +405,6 @@ export function useSlotMutations({
             return { ...s, flags: newFlags }
           return s
         }))
-        if (tailActivityId) {
-          setDisplacedItems(prev => [...prev, { activityId: tailActivityId, activityName: tailActivityName, fromBlockName: tailBlockName, dayLabel }])
-        }
       },
     })
   }
@@ -396,7 +415,7 @@ export function useSlotMutations({
     const headSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
     if (!headSlot || !headSlot.flags?.expanded) return
 
-    const { displacedActivityId, displacedActivityName, from_block: tailBlockId } = headSlot.flags.expanded
+    const { from_block: tailBlockId } = headSlot.flags.expanded
     const tailSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
     if (!tailSlot) return
 
@@ -424,20 +443,6 @@ export function useSlotMutations({
     const prevTailActivityId = tailSlot.activity_id ?? null
     const prevTailIsSpanHead = tailSlot.is_span_head
 
-    if (displacedActivityId && displacedActivityName) {
-      const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
-      const day = days.find(d => d.id === dayId)
-      setDisplacedItems(prev => [
-        ...prev,
-        {
-          activityId: displacedActivityId,
-          activityName: displacedActivityName,
-          fromBlockName: tailBlock?.name ?? '',
-          dayLabel: day?.label ?? '',
-        },
-      ])
-    }
-
     pushUndo({
       // T18: was `Split merged slot ${headBlockId}` — a raw uuid in a tooltip.
       description: (() => {
@@ -456,10 +461,6 @@ export function useSlotMutations({
             return { ...s, flags: prevHeadFlags }
           return s
         }))
-        if (displacedActivityId) {
-          const tailBlock = timeBlocks.find(b => b.id === tailBlockId)
-          setDisplacedItems(prev => prev.filter(i => !(i.activityId === displacedActivityId && i.fromBlockName === (tailBlock?.name ?? ''))))
-        }
       },
       redo: async () => {
         await repo.writeSlotFields(tailSlot.id, { activity_id: null, is_span_head: true, flags: {} })

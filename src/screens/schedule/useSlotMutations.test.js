@@ -38,7 +38,6 @@ function makeProps(overrides = {}) {
     repo: repoOver || makeRepo(),
     pushUndo: vi.fn(),
     setActionError: vi.fn(),
-    setDisplacedItems: vi.fn(),
     recalcStats: vi.fn(),
     recalcFindings: vi.fn(),
     getSlot,
@@ -164,6 +163,88 @@ describe('useSlotMutations — replaceSlot', () => {
   })
 })
 
+// Deviation A (2026-08-12 drag-FSM gesture-correlation ADR): the undo snapshot
+// must reflect the freshest known state, not the `slots` this render closed
+// over — a second same-cell replaceSlot call, made before a re-render, must not
+// capture the same stale "previous activity" the first call already captured.
+describe('useSlotMutations — replaceSlot fresh-read undo snapshot (Issue 2)', () => {
+  // A stateful stand-in for the route-pinned setSlots setter: real React
+  // applies a functional update's `prev` in true chronological order even
+  // without a re-render, which is exactly the guarantee slotsRef relies on.
+  // The plain `vi.fn()` used elsewhere in this file never calls the updater at
+  // all, so it can't exercise that guarantee — this test needs one that does.
+  function makeStatefulSetSlots(initialSlots) {
+    let current = initialSlots
+    const fn = vi.fn((updater) => {
+      current = typeof updater === 'function' ? updater(current) : updater
+    })
+    return fn
+  }
+
+  it('two fast same-cell replaceSlot calls (no re-render between them): the second undo restores what the FIRST call actually placed, not the original pre-both-drags state', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-orig', flags: {} },
+    ]
+    const activities = [
+      { id: 'act-orig', name: 'Original' },
+      { id: 'act-1', name: 'First Drag' },
+      { id: 'act-2', name: 'Second Drag' },
+    ]
+    const { hook, props } = setup({ slots, activities, routeState: { setSlots: makeStatefulSetSlots(slots) } })
+
+    // Drag 1: places act-1 over the original occupant. Its own optimistic
+    // setSlots call lands (updating slotsRef), same as it would in the app —
+    // but the hook is never re-rendered with a fresh `slots` prop afterward,
+    // reproducing "two fast drags before a re-render".
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    const firstEntry = props.pushUndo.mock.calls[0][0]
+
+    // Drag 2: places act-2 over what drag 1 just placed. Called on the SAME
+    // hook instance, still closed over the original stale `slots` prop.
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-2' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    const secondEntry = props.pushUndo.mock.calls[1][0]
+
+    // The second drag's undo must restore act-1 (what drag 1 actually left
+    // behind), never act-orig (the pre-either-drag value both calls' stale
+    // `slots` closure would have agreed on before this fix).
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await secondEntry.undo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
+
+    // And the first drag's own undo is untouched by this fix — still restores
+    // the true original.
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await firstEntry.undo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-orig', flags: {} })
+  })
+
+  it('a single drag keeps byte-identical undo/redo semantics (regression guard for the fresh-read change)', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-occupant', flags: { someFlag: true } },
+    ]
+    const activities = [{ id: 'act-1', name: 'Swim' }, { id: 'act-occupant', name: 'Art' }]
+    const { hook, props } = setup({ slots, activities })
+
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    const entry = props.pushUndo.mock.calls[0][0]
+
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await entry.undo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-occupant', flags: { someFlag: true } })
+
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await entry.redo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
+  })
+})
+
 describe('useSlotMutations — releaseCell', () => {
   it('writes is_released and updates the route setter', async () => {
     const { hook, props } = setup()
@@ -263,7 +344,7 @@ describe('useSlotMutations — expandSlot', () => {
     return hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', 'actTail', 'Archery', 'Block 2', 'Mon')
   }
 
-  it('merges the two cells (tail owned by head + span flag, head gets the expanded flag), updates state and the displaced tray', async () => {
+  it('merges the two cells (tail owned by head + span flag, head gets the expanded flag) and updates state', async () => {
     const { hook, props } = setup({ slots: [headSlot, tailSlot], activities })
     await act(async () => { await expand(hook) })
 
@@ -271,33 +352,22 @@ describe('useSlotMutations — expandSlot', () => {
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: 'actHead', is_span_head: false })
     // Head cell records the merge in its flags.
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('h1', { flags: expandedFlags })
-    // Optimistic setSlots + one displaced-tray add + one undo entry.
+    // Optimistic setSlots + one undo entry.
     expect(props.routeState.setSlots).toHaveBeenCalledTimes(1)
-    expect(props.setDisplacedItems).toHaveBeenCalledTimes(1)
     expect(props.pushUndo).toHaveBeenCalledTimes(1)
-
-    // The displaced entry appended carries the ousted activity.
-    const trayUpdater = props.setDisplacedItems.mock.calls[0][0]
-    expect(trayUpdater([])).toEqual([
-      { activityId: 'actTail', activityName: 'Archery', fromBlockName: 'Block 2', dayLabel: 'Mon' },
-    ])
   })
 
-  it('undo() reverses both writes and removes the displaced-tray entry', async () => {
+  it('undo() reverses both writes', async () => {
     const { hook, props } = setup({ slots: [headSlot, tailSlot], activities })
     await act(async () => { await expand(hook) })
     const entry = props.pushUndo.mock.calls[0][0]
 
     props.repo.writeSlotFields.mockClear()
-    props.setDisplacedItems.mockClear()
     await act(async () => { await entry.undo() })
 
     // Tail restored to its own activity as a span head; head's flags restored.
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: 'actTail', is_span_head: true })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('h1', { flags: {} })
-    // The tray entry added by expand is filtered back out.
-    const trayUpdater = props.setDisplacedItems.mock.calls[0][0]
-    expect(trayUpdater([{ activityId: 'actTail', fromBlockName: 'Block 2' }])).toEqual([])
   })
 })
 
@@ -311,14 +381,13 @@ describe('useSlotMutations — splitSlot', () => {
   const timeBlocks = [{ id: 'b1', name: 'Block 1', sort_order: 1 }, { id: 'b2', name: 'Block 2', sort_order: 2 }]
   const days = [{ id: 'd1', label: 'Mon' }]
 
-  it('splits the merged span back into two (tail cleared to a fresh span head, head flags cleaned) and re-offers the displaced activity', async () => {
+  it('splits the merged span back into two (tail cleared to a fresh span head, head flags cleaned)', async () => {
     const { hook, props } = setup({ slots: [headSlot, tailSlot], timeBlocks, days })
     await act(async () => { await hook.result.current.splitSlot('g1', 'd1', 'b1') })
 
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: null, is_span_head: true, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('h1', { flags: {} })
     expect(props.routeState.setSlots).toHaveBeenCalledTimes(1)
-    expect(props.setDisplacedItems).toHaveBeenCalledTimes(1)
     expect(props.pushUndo).toHaveBeenCalledTimes(1)
   })
 
