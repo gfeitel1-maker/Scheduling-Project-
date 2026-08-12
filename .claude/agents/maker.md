@@ -79,6 +79,17 @@ You do not have opinions about the design or architecture. Governor and Designer
 - Trust internal code and framework guarantees
 - Only validate at system boundaries (user input, external APIs)
 
+### Running gates (avoid the stall trap)
+- Run every gate **synchronously in the foreground** and act on its raw output. **Never** background a
+  long run and then end your turn waiting on a `Monitor` (or any notification) to re-wake you — a
+  subagent that parks on a background wait stalls and blocks the whole loop.
+- Run the **focused** suite for the files you touched —
+  `npx vitest run --no-file-parallelism <the specific test files>` — which finishes in seconds. That
+  is your gate. Do **not** run the full suite yourself; if the brief needs the whole suite, Governor
+  (the orchestrator) runs it and hands you/Verifier the raw result.
+- If any command genuinely exceeds the foreground timeout, say so in your DONE/INTERRUPTED signal and
+  let Governor run it — do not silently move it to the background and wait.
+
 ---
 
 ## When Designer Spec Is Present
