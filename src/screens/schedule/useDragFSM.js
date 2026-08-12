@@ -158,8 +158,8 @@ export function useDragFSM({ commit, describeDrag, describeHit, isOccupied }) {
         announce(`Dropped on ${describeHit(effect.finalHit)}.`)
         Promise.resolve()
           .then(() => commit(active, effect.finalHit))
-          .then(() => dispatch({ type: 'COMMIT_SUCCESS' }))
-          .catch((error) => dispatch({ type: 'COMMIT_FAILURE', error }))
+          .then(() => dispatch({ type: 'COMMIT_SUCCESS', gestureId: effect.gestureId }))
+          .catch((error) => dispatch({ type: 'COMMIT_FAILURE', error, gestureId: effect.gestureId }))
         break
       }
       case 'announceCommitFailure':
@@ -193,7 +193,7 @@ export function useDragFSM({ commit, describeDrag, describeHit, isOccupied }) {
     pointRef.current = { x: e.clientX, y: e.clientY }
     const kind = kindFromTarget(e.target)
     if (!kind) return
-    dispatch({ type: 'POINTER_DOWN', kind, hit: resolveHit(pointRef.current) })
+    dispatch({ type: 'POINTER_DOWN', kind, hit: resolveHit(pointRef.current), gestureId: crypto.randomUUID() })
   }
 
   // Only the click branch. Once dnd-kit has crossed its threshold the release is
@@ -206,7 +206,7 @@ export function useDragFSM({ commit, describeDrag, describeHit, isOccupied }) {
     activeRef.current = event.active
     const kind = kindFromActive(event.active) ?? DRAG_KINDS.SLOT_MOVE
     if (stateRef.current.name !== POINTING || stateRef.current.context.kind !== kind) {
-      dispatch({ type: 'POINTER_DOWN', kind, hit: resolveHit(pointRef.current) })
+      dispatch({ type: 'POINTER_DOWN', kind, hit: resolveHit(pointRef.current), gestureId: crypto.randomUUID() })
     }
     pointRef.current = pointFor(event) ?? pointRef.current
     dispatch({ type: 'DRAG_START', hit: resolveHit(pointRef.current) })
