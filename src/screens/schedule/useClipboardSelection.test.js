@@ -79,12 +79,15 @@ describe('useClipboardSelection', () => {
     act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'c', ctrlKey: true })))
 
     await act(async () => result.current.handleCellSelect({ groupId: 'g1', dayId: 'd1', blockId: 'b1', is_anchor: false, is_span_head: true }, {}))
-    expect(placeActivityManual).toHaveBeenCalledWith('act-1', 'g1', 'd1', 'b1')
+    // A paste has no drag gestureId — it synthesizes its own one-off claim id
+    // (2026-08-12 ADR, FIX 1) so it still participates in the per-cell write
+    // queue rather than bypassing it.
+    expect(placeActivityManual).toHaveBeenCalledWith('act-1', 'g1', 'd1', 'b1', undefined, expect.any(String))
     expect(result.current.pasteModeIndex).toBe(1)
     expect(result.current.pasteMode).toBe(true)
 
     await act(async () => result.current.handleCellSelect({ groupId: 'g1', dayId: 'd1', blockId: 'b2', is_anchor: false, is_span_head: true }, {}))
-    expect(placeActivityManual).toHaveBeenCalledWith('act-2', 'g1', 'd1', 'b2')
+    expect(placeActivityManual).toHaveBeenCalledWith('act-2', 'g1', 'd1', 'b2', undefined, expect.any(String))
     // Last item placed → paste mode exits and clears.
     expect(result.current.pasteMode).toBe(false)
     expect(result.current.clipboardItems).toEqual([])

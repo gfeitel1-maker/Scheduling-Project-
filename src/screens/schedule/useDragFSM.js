@@ -157,7 +157,7 @@ export function useDragFSM({ commit, describeDrag, describeHit, isOccupied }) {
         const active = activeRef.current
         announce(`Dropped on ${describeHit(effect.finalHit)}.`)
         Promise.resolve()
-          .then(() => commit(active, effect.finalHit))
+          .then(() => commit(active, effect.finalHit, effect.gestureId))
           .then(() => dispatch({ type: 'COMMIT_SUCCESS', gestureId: effect.gestureId }))
           .catch((error) => dispatch({ type: 'COMMIT_FAILURE', error, gestureId: effect.gestureId }))
         break

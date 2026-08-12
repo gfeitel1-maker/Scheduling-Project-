@@ -238,7 +238,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     if (targetSlot?.activity_id) {
       replaceSlot({ activityId }, { groupId, dayId, blockId })
     } else {
-      placeActivityManual(activityId, groupId, dayId, blockId)
+      // No drag gestureId on this path (click/typeahead) — synthesize a
+      // one-off claim id exactly like the undo/redo closures already do, so
+      // this write participates in the same per-cell ordering as a drag
+      // drop instead of bypassing it (2026-08-12 ADR, FIX 1).
+      placeActivityManual(activityId, groupId, dayId, blockId, undefined, crypto.randomUUID())
     }
   }
 
