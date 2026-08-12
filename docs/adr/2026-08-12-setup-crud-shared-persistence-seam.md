@@ -249,6 +249,31 @@ build on `useCrudScreen` rather than hand-rolling a sixth copy — but nothing h
 
 ---
 
+## Implementation note / deviation from sketch
+
+The sketch above shows `useCrudScreen` taking an `errorMessages: { uniqueCollision, addFailed,
+saveFailed, deleteFailed, adminOnlyDelete }` config map. The shipped implementation
+(`src/hooks/useCrudScreen.js`) instead takes flat string/function props —
+`addFailedText`, `saveFailedText`, `adminOnlyDeleteAllText`, `partialDeleteAllText` — and routes
+failures through the existing `describeWriteFailure(err, fallbackText)` util
+(`src/utils/writeErrorMessage.js`) rather than a hook-owned `uniqueCollision` string.
+
+Why: `describeWriteFailure` already encodes the UNIQUE/FK/NOT NULL/transport-aware copy each
+screen relied on before this refactor (e.g. `/UNIQUE/i` → "Another record already has that
+name."), and every screen's characterization tests pin its exact existing wording. Re-deriving
+that logic as a static `uniqueCollision` string in the config map would either (a) duplicate
+`describeWriteFailure`'s pattern-matching inside the hook, or (b) require each screen to
+pre-compute the matched message itself before handing it to the hook — both strictly worse than
+calling the already-tested util directly and passing only the fallback text. This is a case of
+Approach 3 as adopted, not Approach 3 as literally sketched; the seam (`add`/`save` surface a
+single error string on failure, callers supply their own copy) is unchanged, only how that string
+is produced.
+
+Confirmed non-issue: `deleteFailed`/`adminOnlyDelete` fold into `adminOnlyDeleteAllText`/
+`partialDeleteAllText` for `deleteAll()`'s two failure modes; the per-row `deleteEntity` failure
+path (`deleteDay`/`deleteTier` etc.) stays screen-local per the ADR's own "delete-confirmation
+stays screen-specific" decision and was never part of this config surface to begin with.
+
 ## Open questions for Governor
 
 1. **Migration order** — the plan (below) proposes Days first (smallest, 410 lines, no cohort
