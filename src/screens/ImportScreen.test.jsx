@@ -41,6 +41,9 @@ vi.mock('../hooks/useCohorts', () => ({ useCohorts: () => ({ activeCohort: { id:
 vi.mock('../localClient', () => ({
   localClient: {
     list: vi.fn().mockResolvedValue([]),
+    // useSetupCounts calls getCamp() in a mount effect on every ImportScreen
+    // render, so the mock must implement it or every test throws in that effect.
+    getCamp: vi.fn().mockResolvedValue({ id: 'camp-1', name: 'Camp' }),
     // T61 — present so the "the renderer deletes nothing" test can assert it
     // was never reached, not because this screen may call it.
     deleteEntity: vi.fn(),

@@ -183,7 +183,9 @@ describe('ReadinessHub render', () => {
     render(<ReadinessHub campId="camp-1" onNavigate={() => {}} />)
     expect(screen.queryByText('Download worksheet')).toBeNull()
     fireEvent.click(screen.getByLabelText('Download worksheet'))
-    await vi.waitFor(() => expect(downloadWorkbook).toHaveBeenCalled())
+    // vi.waitFor keeps its own 1000ms default — it is NOT governed by RTL's
+    // asyncUtilTimeout (vitest.setup.js), so the load headroom is set explicitly.
+    await vi.waitFor(() => expect(downloadWorkbook).toHaveBeenCalled(), { timeout: 3000 })
   })
 
   it('renders the needs-attention headline with the bronze accent treatment, not the ready green', () => {

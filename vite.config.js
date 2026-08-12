@@ -40,6 +40,12 @@ export default defineConfig({
     // as here. Do not treat a rising timeout as the fix — it is the symptom.
     testTimeout: 20000,
     hookTimeout: 20000,
+    // Runs before every test file. Raises RTL's waitFor/findBy budget from its
+    // 1000ms default to 3000ms so a green run does not depend on machine load —
+    // the same contention concern as testTimeout above, at a different layer
+    // (waitFor's budget is independent of testTimeout). See vitest.setup.js for
+    // the measurements.
+    setupFiles: ['./vitest.setup.js'],
   },
   server: {
     port: 5200,

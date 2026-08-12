@@ -39,6 +39,9 @@ vi.mock('../hooks/useCohorts', () => ({ useCohorts: () => ({ activeCohort: { id:
 vi.mock('../localClient', () => ({
   localClient: {
     list: vi.fn().mockResolvedValue([]),
+    // useSetupCounts calls getCamp() in a mount effect on every ImportScreen
+    // render, so the mock must implement it or every test throws in that effect.
+    getCamp: vi.fn().mockResolvedValue({ id: 'camp-1', name: 'Camp' }),
     ingestCommit: vi.fn(),
     confirmAlias: vi.fn().mockResolvedValue({ id: 'alias-1', superseded: null }),
   },
