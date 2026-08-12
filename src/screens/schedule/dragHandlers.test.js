@@ -172,8 +172,16 @@ describe('makeDragHandlers.commit', () => {
         const { commit } = makeDragHandlers(deps)
         const active = { data: { current: { paletteActivity: { id: 'act-1' } } } }
         commit(active, hit('g1', 'd1', 'b1'))
-        expect(deps.placeActivityManual).toHaveBeenCalledWith('act-1', 'g1', 'd1', 'b1')
+        expect(deps.placeActivityManual).toHaveBeenCalledWith('act-1', 'g1', 'd1', 'b1', undefined, undefined)
         expect(deps.replaceSlot).not.toHaveBeenCalled()
+      })
+
+      it(`${view}: palette-drop onto an EMPTY cell forwards the drag gestureId as placeActivityManual's claim id (2026-08-12 ADR, FIX 1)`, () => {
+        const deps = baseDeps({ getSlot: vi.fn(() => ({ is_anchor: false, activity_id: null })) })
+        const { commit } = makeDragHandlers(deps)
+        const active = { data: { current: { paletteActivity: { id: 'act-1' } } } }
+        commit(active, hit('g1', 'd1', 'b1'), 'gesture-xyz')
+        expect(deps.placeActivityManual).toHaveBeenCalledWith('act-1', 'g1', 'd1', 'b1', undefined, 'gesture-xyz')
       })
 
       it(`${view}: palette-drop onto an occupied cell calls replaceSlot, not placeActivityManual`, () => {

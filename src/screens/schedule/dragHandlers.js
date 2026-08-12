@@ -60,11 +60,12 @@ export function makeDragHandlers({
       if (targetSlot?.activity_id) {
         replaceSlot({ activityId: data.paletteActivity.id }, { groupId, dayId, blockId }, gestureId)
       } else {
-        // placeActivityManual is out of scope for the ledger (ADR "Non-goals" —
-        // it only ever writes an empty cell, so the same-cell write race this
-        // ledger fixes can't occur on its own writes). Its 5th positional
-        // param is activityOverride, not gestureId — do not pass gestureId here.
-        placeActivityManual(data.paletteActivity.id, groupId, dayId, blockId)
+        // placeActivityManual now goes through the same claim/chain/dispatch
+        // path as replaceSlot/expandSlot/splitSlot (2026-08-12 ADR, FIX 1):
+        // two empty-cell writers can still race the same cell. Its 5th
+        // positional param is activityOverride, not gestureId — pass
+        // `undefined` there and the gesture id as the 6th.
+        placeActivityManual(data.paletteActivity.id, groupId, dayId, blockId, undefined, gestureId)
       }
       return
     }
