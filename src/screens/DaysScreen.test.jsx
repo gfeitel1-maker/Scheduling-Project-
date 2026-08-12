@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 vi.mock('../localClient', () => ({
   localClient: {
@@ -12,8 +13,19 @@ vi.mock('../localClient', () => ({
   },
 }))
 
+vi.mock('xlsx', () => ({
+  utils: {
+    book_new: vi.fn(() => ({})),
+    book_append_sheet: vi.fn(),
+    sheet_to_json: vi.fn(() => []),
+  },
+  writeFile: vi.fn(),
+  read: vi.fn(() => ({ SheetNames: ['Sheet1'], Sheets: { Sheet1: {} } })),
+}))
+
 import DaysScreen from './DaysScreen'
 import { localClient } from '../localClient'
+import * as XLSX from 'xlsx'
 
 const CAMP_ID = 'camp-1'
 
@@ -40,6 +52,8 @@ beforeEach(() => {
   localClient.list.mockReset()
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
+  XLSX.utils.sheet_to_json.mockReset().mockReturnValue([])
+  XLSX.read.mockReset().mockReturnValue({ SheetNames: ['Sheet1'], Sheets: { Sheet1: {} } })
   localClient.previewDelete.mockReset().mockResolvedValue({
     ok: true, entity: 'days_of_operation', entity_id: 'day-1', name: 'Monday',
     destructive: true, slot_count: 0, routes: [], unprotected_count: 0,
@@ -165,5 +179,68 @@ describe('DaysScreen', () => {
     await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
 
     expect(screen.getByText('Delete All').disabled).toBe(true)
+  })
+
+  it('shows a collision-specific message when adding a day whose name already exists', async () => {
+    localClient.list.mockResolvedValue([])
+    // First write (label) succeeds and "creates" the row; a later field fails
+    // with a UNIQUE violation (mirrors a real SQLite constraint failure).
+    localClient.write.mockImplementation((token, entity, id, field) => {
+      if (field === 'sort_order') {
+        return Promise.reject(new Error('UNIQUE constraint failed: days_of_operation.camp_id, days_of_operation.name'))
+      }
+      return Promise.resolve({ status: 'applied' })
+    })
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+
+    fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Monday' } })
+    fireEvent.click(screen.getByText('+ Add'))
+
+    await waitFor(() => expect(screen.queryByText(/Another record already has that name/)).not.toBeNull())
+  })
+
+  it('saves an edited day by writing only the changed fields via localClient.write', async () => {
+    localClient.list.mockResolvedValue([day()])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Edit'))
+    const labelInput = screen.getAllByDisplayValue('Monday')[0]
+    fireEvent.change(labelInput, { target: { value: 'Mon' } })
+    fireEvent.click(screen.getByText('Save'))
+
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'day-1', 'label', 'Mon')
+    )
+  })
+
+  it('imports rows from Excel, skipping duplicates (case-insensitive) and rows with a validation warning', async () => {
+    localClient.list.mockResolvedValue([day({ label: 'Monday' })])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+
+    const file = new File(['dummy'], 'days.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+
+    const rows = [
+      { label: 'monday', day_of_week: 1, sort_order: 1 }, // duplicate, case-insensitive
+      { label: '', day_of_week: 2, sort_order: 2 }, // missing label -> warning
+      { label: 'Tuesday', day_of_week: 2, sort_order: 2 }, // new, valid
+    ]
+    XLSX.utils.sheet_to_json.mockReturnValue(rows)
+    XLSX.read.mockReturnValue({ SheetNames: ['Days'], Sheets: { Days: {} } })
+
+    await userEvent.upload(fileInput, file)
+
+    // The preview's ready/warning split reflects PARSE validity only ("monday"
+    // parses fine — the name-collision check happens later, at commit).
+    await waitFor(() => expect(screen.queryByText(/2 ready/)).not.toBeNull())
+    fireEvent.click(screen.getByText(/Import 2/))
+
+    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
+    expect(screen.queryByText(/2 skipped/)).not.toBeNull()
+    const labelsWritten = localClient.write.mock.calls.filter(c => c[3] === 'label').map(c => c[4])
+    expect(labelsWritten).toEqual(['Tuesday'])
   })
 })
