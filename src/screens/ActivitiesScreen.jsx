@@ -363,6 +363,8 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
     return Object.fromEntries(Object.entries(fields).map(([field, value]) => [field, serializeFieldValue(field, value)]))
   }
 
+  // Thin wrapper, not a reimplementation: curries the entity name and composes
+  // Activities-only serialization before delegating to the shared repository.
   async function writeFields(id, fields) {
     await repository.writeFields('activities', id, serializeFields(fields))
   }

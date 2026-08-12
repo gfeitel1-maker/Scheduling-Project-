@@ -291,3 +291,20 @@ stays screen-specific" decision and was never part of this config surface to beg
    ordering).
 3. **`DayOverridesScreen`** — confirmed out of scope for this program (see premise correction
    above). No action needed unless Governor disagrees with the exclusion.
+
+## Post-implementation notes (all 5 screens migrated)
+
+- **`useCrudScreen` ended up used by only one screen (Days).** This is the disclosed, empirical
+  outcome of the plan's assumption turning out ~1/5 true: Tiers/TimeBlocks/Groups/Activities each
+  have a load model (compound cohort scoping, parallel `Promise.all` fetches, race guards) that the
+  hook's single-entity/single-`scopeFilter` load does not cover, so they use `setupCrudRepository`
+  directly and keep load orchestration screen-local. Decision (Code Reviewer + Governor): **keep the
+  hook, do not inline it back into Days** — it does real orchestration work Days would otherwise
+  hand-roll, and it is the intended base for a future sixth simple-load-model setup screen. Tracked
+  as unconfirmed-until-proven: no second simple-load screen has yet validated that the hook slots in
+  cleanly; the next such screen should confirm it rather than assume.
+- **Deferred follow-up: `AnchorsScreen` and `CohortsScreen`** still carry local
+  `writeFields`/`cleanupPartialRow`/`deleteAll` implementations structurally identical to the five
+  migrated here. They were outside this program's explicit five-screen premise, but they are natural
+  next candidates to migrate onto `setupCrudRepository` (repository-only path, same as Tiers et al.).
+  Not an oversight — deferred.
