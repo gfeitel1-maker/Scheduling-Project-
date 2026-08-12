@@ -62,6 +62,15 @@ export function useSlotMutations({
   // updater (which runs in true state-application order regardless of whether a
   // re-render/paint has happened yet), so a snapshot read through it reflects the
   // truest state known at the moment each replaceSlot call actually runs.
+  //
+  // ASSUMPTION (see the ADR's medium-high confidence note): the in-updater
+  // `slotsRef.current = next` writes below depend on `setSlots` being a plain
+  // useState setter whose updater is invoked exactly once per call. If this file
+  // is ever moved under StrictMode double-invocation or a concurrent feature
+  // (startTransition/useDeferredValue) that can call an updater more than once or
+  // discard a run, the ref could latch a value from a thrown-away invocation and
+  // silently defeat the race-safety this seam exists for. Revisit here, not just
+  // in the ADR, if the schedule tree adopts concurrent rendering.
   const slotsRef = useRef(slots)
   useEffect(() => { slotsRef.current = slots }, [slots])
 
