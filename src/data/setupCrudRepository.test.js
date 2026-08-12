@@ -1,7 +1,7 @@
 // Drives the persistence seam with a FAKE localClient (a plain object that
 // captures every call) — no React render, no Electron. Mirrors
 // scheduleRepository.test.js's fake-collaborator style.
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { createSetupCrudRepository } from './setupCrudRepository'
 
 function makeFakeClient({ writeResult = { status: 'applied' }, deleteResult = { status: 'applied' } } = {}) {
