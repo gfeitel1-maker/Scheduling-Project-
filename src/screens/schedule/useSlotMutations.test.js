@@ -48,6 +48,7 @@ function makeProps(overrides = {}) {
     activities: [],
     days: [],
     timeBlocks: [],
+    campId: 'camp-1',
     ...rest,
   }
 }
@@ -361,5 +362,53 @@ describe('useSlotMutations — placeActivityManual', () => {
     await act(async () => { await hook.result.current.placeActivityManual('a1', 'g1', 'd1', 'b1') })
 
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'a1', flags: { UNFILLABLE: true } })
+  })
+})
+
+describe('useSlotMutations — createActivityFromCell', () => {
+  it('creates a camp-scoped activity with usage-derived rule (min_per_week=1, max=null, all-groups eligible), adds it to the palette list, and places it', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+    ]
+    const { hook, props } = setup({ slots, activities: [], campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }] })
+    await act(async () => {
+      await hook.result.current.createActivityFromCell('Kayaking', { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    const createCall = props.repo.writeActivityFields.mock.calls[0]
+    expect(createCall[1]).toMatchObject({
+      name: 'Kayaking', camp_id: 'camp-1', min_per_week: 1, max_per_week: null,
+      eligible_tier_ids: [], eligible_group_ids: [], priority: null,
+    })
+    expect(props.setActivities).toHaveBeenCalled()
+    // placeActivityManual's own write follows — assert the slot write landed too:
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', expect.objectContaining({ activity_id: createCall[0] }))
+  })
+
+  it('a name that collapses (case/space-insensitive) to an existing activity places the existing one instead of creating a duplicate', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+    ]
+    const { hook, props } = setup({
+      slots, campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }],
+      activities: [{ id: 'act-existing', name: 'Kayaking', eligible_tier_ids: [], eligible_group_ids: [] }],
+    })
+    await act(async () => {
+      await hook.result.current.createActivityFromCell('  kayaking  ', { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeActivityFields).not.toHaveBeenCalled()
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', expect.objectContaining({ activity_id: 'act-existing' }))
+  })
+
+  it('does not place when the activity write fails', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+    ]
+    const repo = makeRepo({ writeActivityFields: vi.fn(async () => { throw new Error('boom') }) })
+    const { hook, props } = setup({ slots, campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }], activities: [], repo })
+    await act(async () => {
+      await hook.result.current.createActivityFromCell('Kayaking', { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.setActionError).toHaveBeenCalled()
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
   })
 })

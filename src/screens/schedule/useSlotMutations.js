@@ -1,4 +1,5 @@
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
+import { normalizeName } from '../../ingest/preview.js'
 
 // The per-cell slot / overlay mutation cluster (T32), over the T28 repository.
 // Every handler follows the same shape: read the target from `slots` ->
@@ -37,6 +38,7 @@ export function useSlotMutations({
   activities,
   days,
   timeBlocks,
+  campId,
 }) {
   const {
     route,
@@ -222,12 +224,16 @@ export function useSlotMutations({
     setOverlays(prev => prev.map(o => o.id === overlayId ? { ...o, to_block_order: toBlockOrder } : o))
   }
 
-  async function placeActivityManual(activityId, groupId, dayId, blockId) {
+  // activityOverride lets createActivityFromCell place an activity it just
+  // created without waiting for a re-render: setActivities is async, so
+  // `activities` in this closure would not yet contain the new row within the
+  // same call.
+  async function placeActivityManual(activityId, groupId, dayId, blockId, activityOverride) {
     if (!existingTemplates[route]) return
     const slot = getSlot(slots, groupId, dayId, blockId)
     if (!slot || slot.is_anchor) return
 
-    const activity = activities.find(a => a.id === activityId)
+    const activity = activityOverride ?? activities.find(a => a.id === activityId)
     if (!activity) return
 
     const group = groups.find(g => g.id === groupId)
@@ -469,6 +475,60 @@ export function useSlotMutations({
     })
   }
 
+  // Cell-created activity from the inline-write editor's "create new" path
+  // (2026-08-09 spec): usage-derived rule (min_per_week starts at 1 because
+  // this write IS the activity's first placement), max ∞, all-groups
+  // eligible, human provenance free from repo.writeActivityFields' existing
+  // default. Re-checks for a normalized-name dup defensively — CellInlineEditor
+  // already resolves an exact match to onPlace, not onCreateNew, but a second
+  // inline-write could race the same name between typing and Enter.
+  async function createActivityFromCell(name, target) {
+    const trimmed = String(name ?? '').trim()
+    if (!trimmed) return
+
+    const dupe = activities.find(a => normalizeName(a.name) === normalizeName(trimmed))
+    if (dupe) {
+      await placeActivityManual(dupe.id, target.groupId, target.dayId, target.blockId)
+      return
+    }
+
+    const newId = crypto.randomUUID()
+    const fields = {
+      name: trimmed,
+      camp_id: campId,
+      priority: null,
+      is_locked: false,
+      span_blocks: 1,
+      location: null,
+      is_outdoor: false,
+      max_groups_per_slot: 1,
+      // Usage-derived: this write IS the activity's first placement, so the
+      // target starts at 1 — never a spurious under-served flag on the week
+      // it was hand-created for.
+      min_per_week: 1,
+      max_per_week: null,
+      same_tier_only: false,
+      eligible_tier_ids: [],
+      eligible_group_ids: [],
+      prefer_before_day: null,
+      prefer_before_day_min: null,
+      weather_alternative_id: null,
+      notes: null,
+    }
+
+    setActionError(null)
+    try {
+      await repo.writeActivityFields(newId, fields)
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That activity could not be created.'))
+      return
+    }
+
+    const newRow = { id: newId, ...fields }
+    setActivities(prev => [...prev, newRow])
+    await placeActivityManual(newId, target.groupId, target.dayId, target.blockId, newRow)
+  }
+
   return {
     replaceSlot,
     dismissFlag,
@@ -480,5 +540,6 @@ export function useSlotMutations({
     placeActivityManual,
     expandSlot,
     splitSlot,
+    createActivityFromCell,
   }
 }

@@ -209,6 +209,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const {
     replaceSlot, dismissFlag, lockActivity, releaseCell,
     removeOverlay, placeActivityManual, expandSlot, splitSlot,
+    createActivityFromCell,
   } = slotMutations
 
   // Inline-write cell editor (replaces the removed EditModal picklist,
@@ -242,10 +243,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     }
   }
 
-  // TODO Task 6: replace with a call to createActivityFromCell (usage-derived
-  // rule, human provenance, immediate palette appearance).
   function handleCellCreateNew(slot, name) {
-    console.warn('create-new not yet implemented', name, slot)
+    const groupId = slot.groupId ?? slot.group_id
+    const dayId = slot.dayId ?? slot.day_id
+    const blockId = slot.blockId ?? slot.time_block_id
+    createActivityFromCell(name, { groupId, dayId, blockId })
   }
 
   // addOverlay / updateOverlayRange are consumed by useOverlayFillStamp, which
