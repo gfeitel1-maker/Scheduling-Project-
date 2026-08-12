@@ -46,6 +46,16 @@ Start from the task brief's stated success predicate and any "Not done if" / "Te
 owns the gate list. It is the source of truth; this section summarizes it.
 
 - `npm run test` (or the specific test file(s) the brief names, if running the full suite is impractical mid-loop)
+  - **Run it synchronously and read the raw output.** The full suite is ~11 min — past the foreground
+    command ceiling. Do **not** background it and then park on a `Monitor`/notification to re-wake you;
+    a subagent that waits on a background run stalls. If it will not finish in the foreground, either
+    scope to the named files above, or adjudicate the **raw full-suite output the orchestrator
+    (Governor) captured for you** — you remain the judge of that output either way. Evidence still
+    outranks consensus; the orchestrator only *runs* the command, it never decides the verdict.
+  - When reading a captured run, get the **per-file** failure list (never a `| tail`-truncated tail —
+    it drops the FAIL lines). Baseline is ~52–53 pre-existing failures, mostly
+    `src/screens/ImportScreen.*.test.jsx` (`localClient.getCamp is not a function`); a change is clean
+    if every failing file is outside the paths it touched.
 - `npm run lint`
 - `npm run build`, when the task could plausibly break the build (schema/dependency/import changes — always; a pure copy change — use judgment, but default to running it)
 - **`node test/integration/run.js` — mandatory** for any change touching sync, auth, or schema
