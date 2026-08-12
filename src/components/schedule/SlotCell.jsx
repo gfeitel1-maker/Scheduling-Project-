@@ -219,6 +219,26 @@ export default function SlotCell({
     setEditing(true)
   }
 
+  // T59's roving tabindex makes every cell a keyboard focus stop; dnd-kit's
+  // keyboard sensor owns arrow-key movement, but Enter activating inline
+  // write was a gap until now — the accessibility concern the spec's testing
+  // seams call out. Space is deliberately left alone: dnd-kit's default
+  // keyboard codes use BOTH Space and Enter to start a keyboard-initiated
+  // drag (its own stated reason for being retained at all, per this file's
+  // header note), so claiming Space here for inline-write would silently
+  // break that existing accessibility path. Enter for edit, Space for
+  // pick-up-to-drag is the same split common list/grid widgets use. Same
+  // click precedence as handleClick, minus onSelect (multi-select has no
+  // keyboard entry point today) and onCellClick (stamp mode is pointer-only).
+  function handleEnterKeyDown(e) {
+    if (editing) return
+    e.preventDefault()
+    triggerPress()
+    if (isLocked) { onRelease?.(slot); return }
+    if (onCellClick) { onCellClick(slot); return }
+    setEditing(true)
+  }
+
   // Only data-derived paint composes inline. The static half (radius, padding,
   // min-height, flex box) is .cell-inner in the stylesheet, and the rowSpan > 1
   // centring is `.cell[aria-rowspan] .cell-inner` — both because T55's collapsed
@@ -267,6 +287,15 @@ export default function SlotCell({
       title={tooltipText}
       aria-label={nameFor(activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned'))}
       {...(canDrag ? { ...listeners, ...attributes } : {})}
+      // Composed AFTER the dnd-kit spread so it wins the single onKeyDown slot
+      // (object spread, last write wins) rather than being silently replaced
+      // by dnd-kit's own listener. Enter is intercepted outright — inline
+      // write, never a drag pickup; every other key (Space included) still
+      // reaches dnd-kit's listener when the cell is draggable.
+      onKeyDown={e => {
+        if (e.key === 'Enter') { handleEnterKeyDown(e); return }
+        if (canDrag) listeners?.onKeyDown?.(e)
+      }}
       // dnd-kit's `attributes` carry role="button", which on a table cell was inert
       // but on a grid child silently replaces role="gridcell" and collapses the
       // grid -> row -> gridcell tree. Spec §8 wants the gridcell; dnd-kit's
