@@ -1,11 +1,16 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
+import { createSetupCrudRepository } from '../data/setupCrudRepository'
+import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ScreenIntro from '../components/ScreenIntro'
+
+const repository = createSetupCrudRepository({ localClient })
+const scopeFilter = (row, campId) => row.camp_id === campId
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
@@ -63,94 +68,41 @@ function DayRow({ day, role, onSave, onDelete }) {
 }
 
 export default function DaysScreen({ campId, role, onNavigate }) {
-  const [days, setDays] = useState([])
-  const [loading, setLoading] = useState(true)
+  const { rows: unsortedDays, loading, error, setError, adding, add, save, deleteAll: deleteAllRecords, importRows: importViaHook, reload } =
+    useCrudScreen({
+      entity: 'days_of_operation',
+      campId,
+      localClient,
+      repository,
+      scopeFilter,
+      buildCreateFields: ({ label, dayOfWeek, sortOrder }) => ({
+        label,
+        camp_id: campId,
+        day_of_week: dayOfWeek,
+        sort_order: sortOrder,
+      }),
+      addFailedText: 'That day could not be added.',
+      saveFailedText: 'That day could not be saved.',
+      adminOnlyDeleteAllText: 'Only an admin can delete days — no days were deleted.',
+      partialDeleteAllText: (succeeded, total, failed) => `Deleted ${succeeded} of ${total} days (${failed} failed — see console).`,
+    })
+  const days = [...unsortedDays].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.day_of_week ?? 0) - (b.day_of_week ?? 0))
+
   const [newLabel, setNewLabel] = useState('')
   const [newDow, setNewDow] = useState(1)
   const [newSort, setNewSort] = useState('')
-  const [adding, setAdding] = useState(false)
   const [importStep, setImportStep] = useState(null)
   const [importRows, setImportRows] = useState([])
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
-  const [error, setError] = useState(null)
   const [pendingDelete, setPendingDelete] = useState(null)
   const fileRef = useRef()
 
-  useEffect(() => { load() }, [campId])
-
-  async function load() {
-    setLoading(true)
-    setError(null)
-    try {
-      const data = await localClient.list('days_of_operation')
-      const list = (data || [])
-        .filter(d => d.camp_id === campId)
-        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.day_of_week ?? 0) - (b.day_of_week ?? 0))
-      setDays(list)
-    } catch {
-      setError('Failed to load data — check your connection and refresh')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  // Fires one write() per field (the op-log is field-level) and surfaces
-  // the first failure rather than a silent partial write — see
-  // GroupsScreen.jsx's identical helper.
-  async function writeFields(id, fields) {
-    const token = localStorage.getItem('shoresh-token')
-    for (const [field, value] of Object.entries(fields)) {
-      const result = await localClient.write(token, 'days_of_operation', id, field, value)
-      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error(`write failed for field "${field}"`)
-      }
-    }
-  }
-
-  async function cleanupPartialRow(id) {
-    try {
-      const token = localStorage.getItem('shoresh-token')
-      await localClient.deleteEntity(token, 'days_of_operation', id)
-    } catch {
-      // best-effort only
-    }
-  }
-
   async function addDay() {
     if (!newLabel.trim()) return
-    setAdding(true)
-    try {
-      const id = crypto.randomUUID()
-      const sortVal = newSort !== '' ? Number(newSort) : (days.length + 1)
-      try {
-        await writeFields(id, {
-          label: newLabel.trim(),
-          camp_id: campId,
-          day_of_week: Number(newDow),
-          sort_order: sortVal,
-        })
-      } catch (err) {
-        await cleanupPartialRow(id)
-        throw err
-      }
-      setNewLabel(''); setNewSort('')
-      await load()
-    } catch (err) {
-      setError(describeWriteFailure(err, 'That day could not be added.'))
-    } finally {
-      setAdding(false)
-    }
-  }
-
-  async function saveDay(id, fields) {
-    try {
-      await writeFields(id, fields)
-      await load()
-    } catch (err) {
-      setError(describeWriteFailure(err, 'That day could not be saved.'))
-      throw err
-    }
+    const sortVal = newSort !== '' ? Number(newSort) : (days.length + 1)
+    const succeeded = await add({ label: newLabel.trim(), dayOfWeek: Number(newDow), sortOrder: sortVal })
+    if (succeeded) { setNewLabel(''); setNewSort('') }
   }
 
   // Deleting a record a schedule uses: count first, confirm with the count
@@ -178,39 +130,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
 
   async function deleteAll() {
     if (!window.confirm('Delete all days? They can be restored from Trash.')) return
-    const token = localStorage.getItem('shoresh-token')
-    // Re-fetch immediately before building the id list rather than using the
-    // closed-over `days` state — if another device synced in new days
-    // between page-load and this click, the stale in-memory snapshot would
-    // silently skip them with no indication anything was missed.
-    const freshDays = await localClient.list('days_of_operation')
-    const ids = (freshDays || [])
-      .filter(d => d.camp_id === campId)
-      .map(d => d.id)
-    let succeeded = 0
-    let failedDueToRole = false
-    for (const id of ids) {
-      try {
-        const result = await localClient.deleteEntity(token, 'days_of_operation', id)
-        if (result && (result.status === 'applied' || result.status === 'queued')) {
-          succeeded++
-        } else {
-          console.error(`Failed to delete day ${id}`)
-        }
-      } catch (err) {
-        if (/admin role required/i.test(err?.message ?? '')) failedDueToRole = true
-        console.error(`Failed to delete day ${id}`, err)
-      }
-    }
-    await load()
-    const failed = ids.length - succeeded
-    if (failed > 0) {
-      setError(
-        failedDueToRole
-          ? 'Only an admin can delete days — no days were deleted.'
-          : `Deleted ${succeeded} of ${ids.length} days (${failed} failed — see console).`
-      )
-    }
+    await deleteAllRecords()
   }
 
   function downloadTemplate() {
@@ -247,44 +167,20 @@ export default function DaysScreen({ campId, role, onNavigate }) {
   async function confirmImport() {
     setImporting(true)
     try {
-      // Defense-in-depth: a row with a null/undefined label should never
-      // reach this point (import parsing and load() both normalize label
-      // to a string), but a stray malformed row here must not throw and
-      // wedge the modal on "Importing…" forever — coerce rather than crash.
-      const existingLabels = new Set(days.map(d => String(d.label ?? '').toLowerCase()))
-      let added = 0, skipped = 0
-      for (const row of importRows) {
-        if (!row.label || row.warning) { skipped++; continue }
-        const lower = String(row.label).toLowerCase()
-        if (existingLabels.has(lower)) { skipped++; continue }
-        const sortVal = row.sort_order !== null ? row.sort_order : (days.length + added + 1)
-        try {
-          const id = crypto.randomUUID()
-          try {
-            await writeFields(id, {
-              label: row.label,
-              camp_id: campId,
-              day_of_week: row.day_of_week,
-              sort_order: sortVal,
-            })
-          } catch (err) {
-            await cleanupPartialRow(id)
-            throw err
-          }
-          added++
-          existingLabels.add(lower)
-        } catch (err) {
-          console.error(`Failed to import day "${row.label}"`, err)
-          skipped++
-        }
-      }
-      setImportResult({ added, skipped }); setImportStep('done')
-    } catch (err) {
-      console.error('Import failed', err)
-      setError(describeWriteFailure(err, 'That import could not be completed.'))
-      setImportStep(null); setImportRows([])
+      const duplicateCheck = (existing, row) =>
+        existing.some((r) => String(r.label ?? '').toLowerCase() === String(row.label).toLowerCase())
+      const result = await importViaHook(importRows, {
+        mapRow: (row, addedSoFar) => ({
+          label: row.label,
+          camp_id: campId,
+          day_of_week: row.day_of_week,
+          sort_order: row.sort_order !== null ? row.sort_order : (days.length + addedSoFar + 1),
+        }),
+        duplicateCheck,
+      })
+      setImportResult(result); setImportStep('done')
     } finally {
-      setImporting(false); await load()
+      setImporting(false)
     }
   }
 
@@ -337,7 +233,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
                   <div style={S.emptyStateBody}>Add your first day below or import from Excel.</div>
                 </td></tr>
               ) : days.map(day => (
-                <DayRow key={day.id} day={day} role={role} onSave={saveDay} onDelete={deleteDay} />
+                <DayRow key={day.id} day={day} role={role} onSave={save} onDelete={deleteDay} />
               ))}
             </tbody>
           </table>
@@ -402,7 +298,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
         <DeleteRecordDialog
           preview={pendingDelete}
           onCancel={() => setPendingDelete(null)}
-          onDeleted={() => { setPendingDelete(null); load() }}
+          onDeleted={() => { setPendingDelete(null); reload() }}
         />
       )}
     </div>
