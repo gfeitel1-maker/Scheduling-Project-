@@ -208,7 +208,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const {
     replaceSlot, dismissFlag, lockActivity, releaseCell,
     removeOverlay, placeActivityManual, expandSlot, splitSlot,
-    createActivityFromCell, clearCellQueue,
+    createActivityFromCell,
   } = slotMutations
 
   // Inline-write cell editor (replaces the removed EditModal picklist,
@@ -325,7 +325,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     resetUndoRedo()
     resetClipboardSelection()
     resetOverlayFillStamp()
-    clearCellQueue()
   }
 
   // loadAll() re-runs on every op-applied event. Defaulting the selection

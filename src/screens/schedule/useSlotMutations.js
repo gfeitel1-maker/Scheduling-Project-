@@ -97,27 +97,29 @@ export function useSlotMutations({
   // superseded write is never dispatched, not gated after the fact.
   //
   // Lifetime: useSlotMutations is instantiated once per ScheduleScreen mount
-  // and persists across route switches (it is not remounted), so this Map
-  // would otherwise grow for the mount's whole lifetime. Cell identity already
-  // includes route/templateId, so a stale entry from a route the director has
-  // left can never collide with the route now on screen — but it can still
-  // pin a claim on a cell that (per the ADR's Red Hat probe (c)) would
-  // otherwise never resolve if left dangling. `clearCellQueue` is exposed
-  // below and called from ScheduleScreen's route-switch transient-reset
-  // block, the same place undo/redo and the clipboard are reset for the
-  // identical reason (a value captured on one route must not act on another).
+  // and persists across route switches (it is not remounted), so this Map is
+  // never cleared and lives for the mount's whole lifetime — DELIBERATELY.
+  // An earlier revision cleared it on route switch (mirroring undo/redo and
+  // the clipboard reset); a Red Hat delta pass found that this reintroduced
+  // the exact same-cell DB-divergence race the queue exists to prevent: a
+  // write that had already passed its currency check and was mid-dispatch
+  // (post step 3, pre step 5 below) would find its cellQueueRef entry wiped,
+  // so a subsequent same-cell write saw an empty queue and dispatched
+  // CONCURRENTLY instead of waiting on the in-flight tail — reopening the
+  // seq-order divergence, and poisoning the undo stack with the stranded
+  // write's pushUndo. Persisting the map instead is safe on every axis that
+  // matters: (a) route/templateId is baked into cellKey, so an entry from a
+  // route the director has left can never be consulted by the route now on
+  // screen — no cross-route collision; (b) every claim's tail self-resolves
+  // via `run.finally(resolveTail)` below, so no continuation is ever left
+  // dangling regardless of which route is on screen when it settles; (c) the
+  // map is bounded by the number of distinct cells touched over the whole
+  // ScheduleScreen mount lifetime — a few hundred entries at most, not a
+  // real leak. Do NOT reintroduce a clear-on-route-switch here.
   const cellQueueRef = useRef(new Map())
 
   function cellKey(groupId, dayId, blockId) {
     return `${route}|${templateId}|${groupId}|${dayId}|${blockId}`
-  }
-
-  // Called from ScheduleScreen's route-switch transient-reset block (see the
-  // cellQueueRef comment above). Any claim/tail pinned by the outgoing route
-  // is dropped outright, not settled — nothing awaits `.tail` across this
-  // clear, so there is no dangling continuation left to resolve.
-  function clearCellQueue() {
-    cellQueueRef.current.clear()
   }
 
   // claimAndRun(keys, claimId, dispatch) — the single write-serialization
@@ -801,6 +803,5 @@ export function useSlotMutations({
     expandSlot,
     splitSlot,
     createActivityFromCell,
-    clearCellQueue,
   }
 }
