@@ -7,6 +7,16 @@ import { S, useEnterTransition } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ScreenIntro from '../components/ScreenIntro'
+import { createSetupCrudRepository } from '../data/setupCrudRepository'
+
+// Repository-only migration (not the full useCrudScreen hook): load() fans out
+// across five parallel list() calls with per-cohort scoping, and the create
+// path is a per-day fan-out with granular orphan reporting that the shared
+// createRecord's swallow-and-rethrow cleanup cannot express — so saveAnchor's
+// rollback bookkeeping and cleanupPartialRow stay screen-local. The seam owns
+// the field-level write loop (writeFields) and the delete-all loop.
+// See docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md.
+const repository = createSetupCrudRepository({ localClient })
 
 // operations.value only accepts strings/null (better-sqlite3 throws on a raw
 // boolean/array) — every write must pre-serialize through these before
@@ -277,17 +287,19 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
     }
   }
 
-  // Fires one write() per field (the op-log is field-level) and surfaces the
-  // first failure rather than a silent partial write — see
-  // ActivitiesScreen.jsx's identical helper.
+  // Boolean/array fields are serialized here since operations.value only
+  // accepts strings/null — the shared repository writes whatever value it's
+  // given. Mirrors ActivitiesScreen.jsx's serializeFields.
+  function serializeFields(fields) {
+    return Object.fromEntries(
+      Object.entries(fields).map(([field, value]) => [field, serializeFieldValue(field, value)])
+    )
+  }
+
+  // Thin wrapper, not a reimplementation: composes Anchors-only serialization
+  // then delegates the field-level write loop to the shared repository.
   async function writeFields(id, fields) {
-    const token = localStorage.getItem('shoresh-token')
-    for (const [field, value] of Object.entries(fields)) {
-      const result = await localClient.write(token, 'anchor_activities', id, field, serializeFieldValue(field, value))
-      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error(`write failed for field "${field}"`)
-      }
-    }
+    await repository.writeFields('anchor_activities', id, serializeFields(fields))
   }
 
   // Best-effort rollback of a row from a mid-fan-out failure. Returns
@@ -388,28 +400,16 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
   async function deleteAll() {
     if (!window.confirm('Delete all fixed events? They can be restored from Trash.')) return
     try {
-      const token = localStorage.getItem('shoresh-token')
       // Re-fetch immediately rather than using the closed-over `anchors`
       // state — a row synced in from another device between page-load and
-      // this click must not be silently skipped.
+      // this click must not be silently skipped. The delete loop itself now
+      // lives in the shared repository; scoping (camp + cohort) stays here.
       const freshAnchors = await localClient.list('anchor_activities')
       const ids = (freshAnchors || [])
         .filter(a => a.camp_id === campId && a.cohort_id === activeCohort?.id)
         .map(a => a.id)
-      let succeeded = 0
-      let failedDueToRole = false
-      for (const anchorId of ids) {
-        try {
-          const result = await localClient.deleteEntity(token, 'anchor_activities', anchorId)
-          if (result && (result.status === 'applied' || result.status === 'queued')) {
-            succeeded++
-          }
-        } catch (err) {
-          if (/admin role required/i.test(err?.message ?? '')) failedDueToRole = true
-        }
-      }
+      const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('anchor_activities', ids)
       await load()
-      const failed = ids.length - succeeded
       if (failed > 0) {
         setError(
           failedDueToRole

@@ -303,8 +303,18 @@ stays screen-specific" decision and was never part of this config surface to beg
   hand-roll, and it is the intended base for a future sixth simple-load-model setup screen. Tracked
   as unconfirmed-until-proven: no second simple-load screen has yet validated that the hook slots in
   cleanly; the next such screen should confirm it rather than assume.
-- **Deferred follow-up: `AnchorsScreen` and `CohortsScreen`** still carry local
-  `writeFields`/`cleanupPartialRow`/`deleteAll` implementations structurally identical to the five
-  migrated here. They were outside this program's explicit five-screen premise, but they are natural
-  next candidates to migrate onto `setupCrudRepository` (repository-only path, same as Tiers et al.).
-  Not an oversight — deferred.
+- **Follow-up done: `AnchorsScreen` and `CohortsScreen` migrated.** Both were migrated onto
+  `setupCrudRepository` via the repository-only path (same as Tiers et al.), behavior-preserving,
+  under characterization tests pinned green against the pre-migration screens first. Scope of each:
+  - `CohortsScreen` — `writeFields` now delegates to `repository.writeFields('cohorts', …)`. No
+    serialization is composed (every field is a string/number/null). `addCohort` deliberately keeps
+    calling `writeFields`, **not** `createRecord`: a `name`-first UNIQUE collision fails atomically, so
+    there is no partial row to compensate-delete, and adopting `createRecord` would add a rollback
+    delete that changes behavior. The single-row `deleteCohort` (last-program guard + FK-specific copy)
+    stays screen-local; there is no delete-all.
+  - `AnchorsScreen` — `writeFields` composes Anchors-only `serializeFields` (boolean→number,
+    array→JSON string) then delegates to `repository.writeFields('anchor_activities', …)`; `deleteAll`
+    delegates to `repository.deleteAllRecords`. `saveAnchor`'s per-day fan-out with granular orphan
+    reporting and `cleanupPartialRow` stay screen-local — the shared `createRecord`'s
+    swallow-and-rethrow cleanup cannot express the "how many rows could not be rolled back" count the
+    UI surfaces.
