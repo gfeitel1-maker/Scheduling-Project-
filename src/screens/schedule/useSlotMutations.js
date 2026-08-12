@@ -7,8 +7,8 @@ import { describeWriteFailure } from '../../utils/writeErrorMessage'
 //
 // This hook orchestrates but owns NO state: the route-scoped values and the
 // route-PINNED setters come from the injected `routeState` (T31's useRouteState);
-// pushUndo, the repo, editSlot/setEditSlot, setDisplacedItems, recalcStats, the
-// geometry getSlot, actMap, setActivities and the data lists are injected too.
+// pushUndo, the repo, setDisplacedItems, recalcStats, the geometry getSlot,
+// actMap, setActivities and the data lists are injected too.
 //
 // The delicate part, preserved verbatim: several handlers push undo/redo closures
 // that capture `repo`, the route-pinned `setSlots` (bound to the route the entry
@@ -27,8 +27,6 @@ export function useSlotMutations({
   repo,
   pushUndo,
   setActionError,
-  editSlot,
-  setEditSlot,
   setDisplacedItems,
   recalcStats,
   recalcFindings,
@@ -52,59 +50,6 @@ export function useSlotMutations({
   // description reads `actMap.get(id)?.name`, and this is the screen's exact
   // actMap shape (the screen keeps its own copy for the DnD handlers + JSX).
   const actMap = new Map(activities.map(a => [a.id, { ...a, colorIdx: a.id }]))
-
-  async function editSlotSave(newActivityId) {
-    if (!editSlot || !templateId) return
-    const { groupId, dayId, blockId } = editSlot
-    const slot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId)
-    if (!slot) return
-
-    const prevActivityId = slot.activity_id ?? null
-    const prevFlags = slot.flags ?? {}
-    const nextActivityId = newActivityId || null
-
-    setActionError(null)
-    try {
-      await repo.writeSlotFields(slot.id, { activity_id: nextActivityId, flags: {} })
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That cell could not be saved.'))
-      return
-    }
-    setSlots(prev => {
-      const next = prev.map(s =>
-        s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-          ? { ...s, activity_id: nextActivityId, flags: {} }
-          : s
-      )
-      recalcStats(next)
-      recalcFindings(next)
-      return next
-    })
-    setEditSlot(null)
-
-    const actAfter = activities.find(a => a.id === nextActivityId)
-    const day = days.find(d => d.id === dayId)
-    const block = timeBlocks.find(b => b.id === blockId)
-    pushUndo({
-      description: `Changed to ${actAfter?.name ?? 'empty'} → ${day?.label ?? ''} ${block?.name ?? ''}`.replace(/\s+/g, ' ').trim(),
-      undo: async () => {
-        await repo.writeSlotFields(slot.id, { activity_id: prevActivityId, flags: prevFlags })
-        setSlots(prev => prev.map(s =>
-          s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-            ? { ...s, activity_id: prevActivityId, flags: prevFlags }
-            : s
-        ))
-      },
-      redo: async () => {
-        await repo.writeSlotFields(slot.id, { activity_id: nextActivityId, flags: {} })
-        setSlots(prev => prev.map(s =>
-          s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-            ? { ...s, activity_id: nextActivityId, flags: {} }
-            : s
-        ))
-      },
-    })
-  }
 
   async function replaceSlot(incoming, target) {
     // incoming: { groupId?, dayId?, blockId?, activityId } — coords present only
@@ -525,7 +470,6 @@ export function useSlotMutations({
   }
 
   return {
-    editSlotSave,
     replaceSlot,
     dismissFlag,
     lockActivity,

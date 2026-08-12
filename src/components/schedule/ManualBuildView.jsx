@@ -34,7 +34,8 @@ export default function ManualBuildView({
   groups, days, timeBlocks,
   selectedGroup, onSelectGroup,
   actMap, anchorMap,
-  geometry, onEditSlot,
+  geometry,
+  eligibleActivitiesFor, onPlace, onCreateNew,
   onExpandSlot, onSplitSlot,
   selectedSlotKeys, pasteMode, onCellSelect,
   collapsedBlockIds = NO_COLLAPSE,
@@ -140,7 +141,6 @@ export default function ManualBuildView({
                             anchor={anchor}
                             actColorIdx={0}
                             weatherMode={false}
-                            onEdit={() => {}}
                             isDndEnabled={false}
                             ariaColIndex={ariaColIndex}
                             cellKey={cellKey}
@@ -174,7 +174,9 @@ export default function ManualBuildView({
                             activity={act}
                             actColorIdx={slot.activity_id}
                             weatherMode={false}
-                            onEdit={s => onEditSlot(s)}
+                            eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
+                            onPlace={onPlace}
+                            onCreateNew={onCreateNew}
                             onSelect={onCellSelect}
                             isDndEnabled={true}
                             isSelected={isSelected}

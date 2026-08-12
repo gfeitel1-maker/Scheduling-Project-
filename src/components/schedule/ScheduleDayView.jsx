@@ -43,7 +43,7 @@ export default function ScheduleDayView({
   releaseCell,
   geometry,
   handleFillEnter, startFill, removeOverlay, handleStampClick,
-  onEditSlot, fillState,
+  eligibleActivitiesFor, onPlace, onCreateNew, fillState,
   // Generated "track changes" review; empty/true on the manual route so its
   // day view is unchanged. highlightMap is Map<slotId, reason>.
   showIdentityDot = true,
@@ -198,7 +198,10 @@ export default function ScheduleDayView({
                           anchor={anchor}
                           actColorIdx={act?.colorIdx || 0}
                           weatherMode={weatherMode}
-                          onEdit={cellClickHandler || (s => onEditSlot(s))}
+                          onCellClick={cellClickHandler}
+                          eligibleActivities={eligibleActivitiesFor?.(group.id) ?? []}
+                          onPlace={onPlace}
+                          onCreateNew={onCreateNew}
                           onRelease={s => releaseCell(s.id)}
                           isLocked={isLocked}
                           isDndEnabled={!isLocked && !stampMode}

@@ -161,7 +161,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const [selectedGroup, setSelectedGroup] = useState(null)
   const [selectedDay, setSelectedDay] = useState(null)
   const [weatherMode, setWeatherMode] = useState(false)
-  const [editSlot, setEditSlot] = useState(null)
   const [confirmRegen, setConfirmRegen] = useState(false)
   const [selectedActivity, setSelectedActivity] = useState(null)
   const [actionError, setActionError] = useState(null)
@@ -203,14 +202,51 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // prevFlags in the undo closures stays byte-identical.
   const slotMutations = useSlotMutations({
     routeState, repo, pushUndo, setActionError,
-    editSlot, setEditSlot, setDisplacedItems, recalcStats, recalcFindings,
+    setDisplacedItems, recalcStats, recalcFindings,
     getSlot, setActivities,
-    slots, groups, activities, days, timeBlocks,
+    slots, groups, activities, days, timeBlocks, campId,
   })
   const {
     replaceSlot, dismissFlag, lockActivity, releaseCell,
     removeOverlay, placeActivityManual, expandSlot, splitSlot,
   } = slotMutations
+
+  // Inline-write cell editor (replaces the removed EditModal picklist,
+  // 2026-08-09): eligibleActivitiesFor is the same eligibility rule
+  // placeActivityManual already applies, lifted so both the drag path and the
+  // typeahead read one definition. handleCellPlace mirrors dragHandlers'
+  // palette-drop branching (replace if occupied, place if empty) because
+  // Enter-to-place is semantically a drop, just typed instead of dragged.
+  function eligibleActivitiesFor(groupId) {
+    const g = groups.find(g => g.id === groupId)
+    if (!g) return []
+    return activities.filter(a => {
+      const tierIds = a.eligible_tier_ids || []
+      const groupIds = a.eligible_group_ids || []
+      if (tierIds.length === 0 && groupIds.length === 0) return true
+      if (tierIds.includes(g.tier_id)) return true
+      if (groupIds.includes(g.id)) return true
+      return false
+    })
+  }
+
+  function handleCellPlace(slot, activityId) {
+    const groupId = slot.groupId ?? slot.group_id
+    const dayId = slot.dayId ?? slot.day_id
+    const blockId = slot.blockId ?? slot.time_block_id
+    const targetSlot = getSlot(slots, groupId, dayId, blockId)
+    if (targetSlot?.activity_id) {
+      replaceSlot({ activityId }, { groupId, dayId, blockId })
+    } else {
+      placeActivityManual(activityId, groupId, dayId, blockId)
+    }
+  }
+
+  // TODO Task 6: replace with a call to createActivityFromCell (usage-derived
+  // rule, human provenance, immediate palette appearance).
+  function handleCellCreateNew(slot, name) {
+    console.warn('create-new not yet implemented', name, slot)
+  }
 
   // addOverlay / updateOverlayRange are consumed by useOverlayFillStamp, which
   // runs BEFORE useSlotMutations, so they are provided as thin hoisted wrappers
@@ -286,7 +322,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setTransientRoute(route)
     resetUndoRedo()
     resetClipboardSelection()
-    setEditSlot(null)
     resetOverlayFillStamp()
   }
 
@@ -1028,7 +1063,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 actMap={actMap}
                 anchorMap={anchorMap}
                 geometry={geometry}
-                onEditSlot={setEditSlot}
+                eligibleActivitiesFor={eligibleActivitiesFor}
+                onPlace={handleCellPlace}
+                onCreateNew={handleCellCreateNew}
                 onExpandSlot={expandSlot}
                 onSplitSlot={splitSlot}
                 selectedSlotKeys={selectedSlotKeys}
@@ -1056,7 +1093,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 startFill={startFill}
                 removeOverlay={removeOverlay}
                 handleStampClick={handleStampClick}
-                onEditSlot={setEditSlot}
+                eligibleActivitiesFor={eligibleActivitiesFor}
+                onPlace={handleCellPlace}
+                onCreateNew={handleCellCreateNew}
                 fillState={fillState}
                 onExpandSlot={expandSlot}
                 onSplitSlot={splitSlot}
@@ -1090,7 +1129,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 startFill={startFill}
                 removeOverlay={removeOverlay}
                 handleStampClick={handleStampClick}
-                onEditSlot={setEditSlot}
+                eligibleActivitiesFor={eligibleActivitiesFor}
+                onPlace={handleCellPlace}
+                onCreateNew={handleCellCreateNew}
                 fillState={fillState}
                 showIdentityDot={isManual}
                 highlightMap={highlightMap}

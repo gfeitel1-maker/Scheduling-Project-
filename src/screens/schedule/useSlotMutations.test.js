@@ -38,8 +38,6 @@ function makeProps(overrides = {}) {
     repo: repoOver || makeRepo(),
     pushUndo: vi.fn(),
     setActionError: vi.fn(),
-    editSlot: null,
-    setEditSlot: vi.fn(),
     setDisplacedItems: vi.fn(),
     recalcStats: vi.fn(),
     recalcFindings: vi.fn(),
@@ -60,70 +58,12 @@ function setup(overrides = {}) {
   return { hook, props }
 }
 
-describe('useSlotMutations — editSlotSave', () => {
-  const slot = { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'old', flags: { keep: true } }
-  const editSlot = { groupId: 'g1', dayId: 'd1', blockId: 'b1' }
-
-  it('writes activity_id + cleared flags, updates the route setter, closes the modal, and pushes an undo', async () => {
-    const { hook, props } = setup({ slots: [slot], editSlot })
-    await act(async () => { await hook.result.current.editSlotSave('new') })
-
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'new', flags: {} })
-    expect(props.routeState.setSlots).toHaveBeenCalledTimes(1)
-    expect(props.setEditSlot).toHaveBeenCalledWith(null)
-    expect(props.pushUndo).toHaveBeenCalledTimes(1)
-    expect(props.pushUndo.mock.calls[0][0]).toMatchObject({
-      undo: expect.any(Function),
-      redo: expect.any(Function),
-    })
-  })
-})
-
-// The delicate part (T32): the undo closure must replay against the SAME
+// The delicate part (T32): undo closures must replay against the SAME
 // route-pinned setter + repo + slot id the entry was made on — even after the
 // director has switched routes — so an undo never writes the candidate on
-// screen instead of the one it belongs to.
-describe('useSlotMutations — route-pinned undo closure (the delicate part)', () => {
-  const slot = { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'old', flags: { keep: true } }
-  const editSlot = { groupId: 'g1', dayId: 'd1', blockId: 'b1' }
-
-  it('editSlotSave undo writes the original activity/flags via the entry-route setter after a route switch', async () => {
-    const originalSetSlots = vi.fn()
-    const pushUndo = vi.fn()
-    const repo = makeRepo()
-
-    const props = makeProps({
-      slots: [slot],
-      editSlot,
-      repo,
-      pushUndo,
-      routeState: { setSlots: originalSetSlots },
-    })
-    const hook = renderHook((p) => useSlotMutations(p), { initialProps: props })
-
-    await act(async () => { await hook.result.current.editSlotSave('new') })
-    const entry = pushUndo.mock.calls[0][0]
-
-    // Director switches routes: the on-screen setter is now a DIFFERENT spy.
-    const afterSwitchSetSlots = vi.fn()
-    hook.rerender(makeProps({
-      slots: [slot],
-      editSlot,
-      repo,
-      pushUndo,
-      routeState: { setSlots: afterSwitchSetSlots },
-    }))
-
-    repo.writeSlotFields.mockClear()
-    await act(async () => { await entry.undo() })
-
-    // Repo replays the ORIGINAL values against the ORIGINAL slot id.
-    expect(repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'old', flags: { keep: true } })
-    // And the setter it drives is the entry's route setter — NOT the one now on screen.
-    expect(originalSetSlots).toHaveBeenCalled()
-    expect(afterSwitchSetSlots).not.toHaveBeenCalled()
-  })
-})
+// screen instead of the one it belongs to. Exercised directly against
+// replaceSlot below (`replaceSlot`'s own describe block's "undo restores..."
+// test covers the mechanism now that editSlotSave is gone).
 
 describe('useSlotMutations — replaceSlot', () => {
   it('places the incoming activity into an empty target and pushes an undo', async () => {
@@ -268,31 +208,32 @@ describe('useSlotMutations — overlays', () => {
 // against the SAME route-pinned setter + repo + slot id, even after a route
 // switch — the exact mirror of the route-pinned undo test above.
 describe('useSlotMutations — route-pinned redo closure', () => {
-  const slot = { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'old', flags: { keep: true } }
-  const editSlot = { groupId: 'g1', dayId: 'd1', blockId: 'b1' }
+  const slot = { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} }
 
-  it('editSlotSave redo re-applies the new activity/cleared flags via the entry-route setter after a route switch', async () => {
+  it('replaceSlot redo re-applies the new activity via the entry-route setter after a route switch', async () => {
     const originalSetSlots = vi.fn()
     const pushUndo = vi.fn()
     const repo = makeRepo()
 
     const props = makeProps({
       slots: [slot],
-      editSlot,
+      activities: [{ id: 'act-1', name: 'Swim' }],
       repo,
       pushUndo,
       routeState: { setSlots: originalSetSlots },
     })
     const hook = renderHook((p) => useSlotMutations(p), { initialProps: props })
 
-    await act(async () => { await hook.result.current.editSlotSave('new') })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
     const entry = pushUndo.mock.calls[0][0]
 
     // Director switches routes: the on-screen setter is now a DIFFERENT spy.
     const afterSwitchSetSlots = vi.fn()
     hook.rerender(makeProps({
       slots: [slot],
-      editSlot,
+      activities: [{ id: 'act-1', name: 'Swim' }],
       repo,
       pushUndo,
       routeState: { setSlots: afterSwitchSetSlots },
@@ -303,7 +244,7 @@ describe('useSlotMutations — route-pinned redo closure', () => {
     await act(async () => { await entry.redo() })
 
     // Repo replays the NEW value against the ORIGINAL slot id.
-    expect(repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'new', flags: {} })
+    expect(repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'act-1', flags: {} })
     // Driven through the entry's route setter — NOT the one now on screen.
     expect(originalSetSlots).toHaveBeenCalled()
     expect(afterSwitchSetSlots).not.toHaveBeenCalled()

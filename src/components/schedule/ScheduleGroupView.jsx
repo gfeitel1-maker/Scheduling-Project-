@@ -41,7 +41,7 @@ export default function ScheduleGroupView({
   releaseCell,
   geometry,
   handleFillEnter, startFill, removeOverlay, handleStampClick,
-  onEditSlot, fillState,
+  eligibleActivitiesFor, onPlace, onCreateNew, fillState,
   onExpandSlot,
   onSplitSlot,
   selectedSlotKeys,
@@ -231,7 +231,10 @@ export default function ScheduleGroupView({
                             anchor={anchor}
                             actColorIdx={act?.colorIdx || 0}
                             weatherMode={weatherMode}
-                            onEdit={cellClickHandler || (s => onEditSlot(s))}
+                            onCellClick={cellClickHandler}
+                            eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
+                            onPlace={onPlace}
+                            onCreateNew={onCreateNew}
                             onRelease={s => releaseCell(s.id)}
                             isLocked={isLocked}
                             onSelect={!stampMode && !slot.is_anchor ? onCellSelect : undefined}
