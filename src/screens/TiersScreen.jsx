@@ -3,10 +3,22 @@ import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
+import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { S } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ScreenIntro from '../components/ScreenIntro'
+
+// Tiers' load is cohort-scoped (camp_id AND cohort_id), fetches groups
+// alongside tiers for groupCounts, and guards against a stale response
+// overwriting the UI when the user switches cohorts mid-load — none of
+// which fits useCrudScreen's single-entity/single-scopeFilter load model
+// without growing its config surface (loadDeps, compound scope, a race
+// guard) for this one consumer. Per the migration plan's own guidance, that
+// stays screen-local; only the write/create/delete-all primitives — the
+// actual duplicated code the ADR measured — are shared via
+// setupCrudRepository. See docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md.
+const repository = createSetupCrudRepository({ localClient })
 
 function TierRow({ tier, groupCount, role, onSave, onDelete }) {
   const [editing, setEditing] = useState(false)
@@ -154,28 +166,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
     }
   }
 
-  // Fires one write() per field (the op-log is field-level) and surfaces
-  // the first failure rather than a silent partial write — see
-  // DaysScreen.jsx/TimeBlocksScreen.jsx's identical helper.
-  async function writeFields(id, fields) {
-    const token = localStorage.getItem('shoresh-token')
-    for (const [field, value] of Object.entries(fields)) {
-      const result = await localClient.write(token, 'tiers', id, field, value)
-      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error(`write failed for field "${field}"`)
-      }
-    }
-  }
-
-  async function cleanupPartialRow(id) {
-    try {
-      const token = localStorage.getItem('shoresh-token')
-      await localClient.deleteEntity(token, 'tiers', id)
-    } catch {
-      // best-effort only
-    }
-  }
-
   async function addTier() {
     if (!newName.trim() || !activeCohort) return
     const trimmedName = newName.trim()
@@ -190,22 +180,18 @@ export default function TiersScreen({ campId, role, onNavigate }) {
     try {
       const id = crypto.randomUUID()
       const sortVal = newSort !== '' ? Number(newSort) : (tiers.length + 1)
-      try {
-        // `name` written FIRST — ensureExists creates the row as part of
-        // applying whichever field write lands first, so a UNIQUE(camp_id,
-        // cohort_id, name) collision on the `name` write fails atomically
-        // before the row ever exists, rather than leaving a
-        // camp_id/cohort_id-only orphan behind.
-        await writeFields(id, {
-          name: trimmedName,
-          camp_id: campId,
-          cohort_id: activeCohort.id,
-          sort_order: sortVal,
-        })
-      } catch (err) {
-        await cleanupPartialRow(id)
-        throw err
-      }
+      // `name` written FIRST — ensureExists creates the row as part of
+      // applying whichever field write lands first, so a UNIQUE(camp_id,
+      // cohort_id, name) collision on the `name` write fails atomically
+      // before the row ever exists, rather than leaving a
+      // camp_id/cohort_id-only orphan behind. createRecord does the
+      // write-then-cleanup-on-failure dance.
+      await repository.createRecord('tiers', id, {
+        name: trimmedName,
+        camp_id: campId,
+        cohort_id: activeCohort.id,
+        sort_order: sortVal,
+      })
       setNewName('')
       setNewSort('')
       await load()
@@ -222,7 +208,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
 
   async function saveTier(id, fields) {
     try {
-      await writeFields(id, fields)
+      await repository.writeFields('tiers', id, fields)
       await load()
     } catch (err) {
       setError(describeWriteFailure(err, 'That unit could not be saved.'))
@@ -267,7 +253,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       return
     }
     if (!window.confirm('Delete all units? They can be restored from Trash.')) return
-    const token = localStorage.getItem('shoresh-token')
     // Re-fetch immediately before building the id list rather than using the
     // closed-over `tiers` state — if another device synced in new units
     // between page-load and this click, the stale in-memory snapshot would
@@ -276,20 +261,8 @@ export default function TiersScreen({ campId, role, onNavigate }) {
     const ids = (freshTiers || [])
       .filter(t => t.camp_id === campId && t.cohort_id === activeCohort.id)
       .map(t => t.id)
-    let succeeded = 0
-    let failedDueToRole = false
-    for (const id of ids) {
-      try {
-        const result = await localClient.deleteEntity(token, 'tiers', id)
-        if (result && (result.status === 'applied' || result.status === 'queued')) {
-          succeeded++
-        }
-      } catch (err) {
-        if (/admin role required/i.test(err?.message ?? '')) failedDueToRole = true
-      }
-    }
+    const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('tiers', ids)
     await load()
-    const failed = ids.length - succeeded
     if (failed > 0) {
       setError(
         failedDueToRole
@@ -349,18 +322,13 @@ export default function TiersScreen({ campId, role, onNavigate }) {
         const sortVal = row.sort_order !== null ? row.sort_order : (tiers.length + added + 1)
         try {
           const id = crypto.randomUUID()
-          try {
-            // `name` first — same collision-fails-atomically reasoning as addTier.
-            await writeFields(id, {
-              name: row.name,
-              camp_id: campId,
-              cohort_id: activeCohort.id,
-              sort_order: sortVal,
-            })
-          } catch (err) {
-            await cleanupPartialRow(id)
-            throw err
-          }
+          // `name` first — same collision-fails-atomically reasoning as addTier.
+          await repository.createRecord('tiers', id, {
+            name: row.name,
+            camp_id: campId,
+            cohort_id: activeCohort.id,
+            sort_order: sortVal,
+          })
           added++
           existingNames.add(lower)
         } catch {
