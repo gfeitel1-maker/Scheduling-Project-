@@ -3,6 +3,15 @@ import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 import ScreenIntro from '../components/ScreenIntro'
+import { createSetupCrudRepository } from '../data/setupCrudRepository'
+
+// Repository-only migration (not the full useCrudScreen hook): load() is a
+// single camp-scoped list() with a two-key sort, and this screen has no
+// delete-all — only a single-row delete with a last-program guard and
+// FK-specific copy that stays screen-local. The shared seam owns just the
+// field-level write loop. See
+// docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md.
+const repository = createSetupCrudRepository({ localClient })
 
 const ANCHOR_MODELS = [
   { value: 'none',     label: 'None — no fixed events' },
@@ -157,18 +166,12 @@ export default function CohortsScreen({ campId }) {
     }
   }
 
-  // Fires one write() per field (the op-log is field-level — see
-  // CLAUDE.md's op-log note) and surfaces the first failure rather than a
-  // silent partial write, per the project convention of checking
-  // `result.status !== 'applied'`/'queued' after each write.
+  // The field-level write loop now lives in the shared setupCrudRepository.
+  // No serialization is composed here (every cohort field is a string, number,
+  // or null, which localClient.write accepts as-is) — this thin wrapper only
+  // curries the entity name so the call sites read unchanged.
   async function writeFields(id, fields) {
-    const token = localStorage.getItem('shoresh-token')
-    for (const [field, value] of Object.entries(fields)) {
-      const result = await localClient.write(token, 'cohorts', id, field, value)
-      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error(`write failed for field "${field}"`)
-      }
-    }
+    await repository.writeFields('cohorts', id, fields)
   }
 
   async function addCohort() {
