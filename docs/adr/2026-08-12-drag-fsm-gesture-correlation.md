@@ -1,7 +1,9 @@
 # Gesture-correlated commit results in the drag FSM
 
 ## Status
-Accepted (design). Not yet implemented — Maker to build test-first per this ADR.
+Implemented. Parts 1, 2, 3, and 5 shipped as designed below. Part 4 (Issue 2)
+was folded into this pass per Governor decision — see the note at the end of
+that section for the mechanism actually built.
 
 ## Context
 
@@ -126,8 +128,8 @@ outcomes (not just outcomes the FSM itself can detect, like a `commit()` throw),
 requires deciding whether mutation hooks should stop swallowing their own errors —
 a bigger, separable product/architecture decision, not part of this bug fix.
 
-**4. Issue 2 (stale undo snapshot) — separate mechanism, not closed by the
-correlation-id fix. Confidence: medium-high.**
+**4. Issue 2 (stale undo snapshot) — fixed in this pass via a fresh-read
+snapshot. Confidence: medium-high.**
 
 The correlation-id fix only serializes/discards stale **FSM commit-result events**
 (`COMMIT_SUCCESS`/`COMMIT_FAILURE`). `replaceSlot`'s undo-snapshot staleness is a
@@ -138,15 +140,36 @@ React has not yet re-rendered between them, both `replaceSlot` invocations can c
 over the *same* stale `slots` array and compute the same `prevTargetActivityId` for
 their undo snapshots — independent of whether the FSM's gesture correlation is
 fixed, because this happens inside `dragHandlers.js`/`useSlotMutations.js`, entirely
-downstream of the FSM's `commit` side effect being *issued*. Recommend: do not fix
-this as part of the FSM change. It needs either (a) `replaceSlot` re-reading the
-target/source row fresh from `repo`/local truth immediately before computing the undo
-snapshot (a data-layer read-freshness fix), or (b) serializing same-cell writes
-(reject/queue a second `replaceSlot` targeting a cell already mid-write). Both are
-changes to `useSlotMutations.js`'s write path, not to `dragFSM.js`, and out of scope
-for this ADR — flag as a follow-up ticket. No permanent data loss either way (per
-the problem statement); this is a polish-tier UX correctness issue, not a
-correctness-of-persisted-data issue.
+downstream of the FSM's `commit` side effect being *issued*.
+
+This ADR originally recommended deferring the fix as a separate follow-up. Governor
+decided to fold it into this pass instead (ticket scope), choosing the fresh-read
+mechanism over serializing same-cell writes. **Mechanism built:**
+`useSlotMutations.js` keeps a `slotsRef` (`useRef`, synced to the `slots` prop on
+every render via `useEffect`) that `replaceSlot`'s own `setSlots` updater also
+writes into, from inside the updater callback, every time it runs. Because React
+applies queued functional updates in true chronological order regardless of
+whether a repaint/re-render has actually happened, `slotsRef.current` reflects the
+truest known state at the moment each `replaceSlot` call actually executes — not
+just the state as of the render that produced the closure calling it. `replaceSlot`
+now reads its pre-write `prevTargetActivityId`/`prevTargetFlags`/
+`prevSourceActivityId`/`prevSourceFlags` snapshot through `slotsRef.current` instead
+of the closed-over `slots` prop, immediately before issuing its writes. `targetRow`/
+`sourceRow` themselves (used for their stable `id` and the anchor/existence checks)
+are still read from the closed-over `slots` — only the snapshot *values* being
+preserved for undo/redo are fresh-read.
+
+This closes the specific, testable race: two `replaceSlot` calls made on the same
+hook instance with no re-render between them (`useSlotMutations.test.js`, "two fast
+same-cell replaceSlot calls") now produce a second undo that restores what the
+*first* call actually placed, not the value both calls would previously have agreed
+on from a shared stale closure. Single-drag undo/redo is unchanged (regression test
+in the same file). A fully-simultaneous race — two writes both in flight with
+neither's result locally known yet at capture time — is not addressed by this
+mechanism, since no client-side snapshot can know an outcome that hasn't happened;
+that residual case still requires a data-layer fix (repo-level read-freshness or
+write serialization) and was already out of scope for a client-side gesture-timing
+change. No permanent data loss either way (per the original problem statement).
 
 **5. LOW cleanup — dead `displacedItems` plumbing.**
 
@@ -242,5 +265,13 @@ and can't be proven at the pure boundary alone.
 - No change to stored/synced data, the op-log, sync/replay, migrations, or the
   Manual/Generated route split — this is purely an in-memory gesture-sequencing fix
   local to one browser tab's DOM interaction layer.
-- Issue 2 (stale undo snapshot) is explicitly NOT fixed by this change and is
-  tracked as a separate, smaller follow-up against `useSlotMutations.js`.
+- Issue 2 (stale undo snapshot) IS fixed by this change (Governor decision,
+  Part 4 above): `useSlotMutations.js` gains a `slotsRef` used only by
+  `replaceSlot`'s undo/redo snapshot capture. No change to the write shape
+  sent to `repo`, the op-log, or any other handler in the file.
+- Dead `displacedItems` tray plumbing (state, setter, and the construction
+  sites in `expandSlot`/`splitSlot` that fed it) is removed from
+  `useOverlayFillStamp.js`, `useSlotMutations.js`, and `ScheduleScreen.jsx`.
+  `flags.expanded`'s `displacedActivityId`/`displacedActivityName`/
+  `from_block` shape is untouched — `splitSlot` still reads it to restore a
+  split; only the now-unrendered tray built on top of it is gone.
