@@ -38,10 +38,9 @@ function makeProps(overrides = {}) {
     repo: repoOver || makeRepo(),
     pushUndo: vi.fn(),
     setActionError: vi.fn(),
-    editSlot: null,
-    setEditSlot: vi.fn(),
     setDisplacedItems: vi.fn(),
     recalcStats: vi.fn(),
+    recalcFindings: vi.fn(),
     getSlot,
     setActivities: vi.fn(),
     slots: [],
@@ -49,6 +48,7 @@ function makeProps(overrides = {}) {
     activities: [],
     days: [],
     timeBlocks: [],
+    campId: 'camp-1',
     ...rest,
   }
 }
@@ -59,102 +59,108 @@ function setup(overrides = {}) {
   return { hook, props }
 }
 
-describe('useSlotMutations — editSlotSave', () => {
-  const slot = { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'old', flags: { keep: true } }
-  const editSlot = { groupId: 'g1', dayId: 'd1', blockId: 'b1' }
-
-  it('writes activity_id + cleared flags, updates the route setter, closes the modal, and pushes an undo', async () => {
-    const { hook, props } = setup({ slots: [slot], editSlot })
-    await act(async () => { await hook.result.current.editSlotSave('new') })
-
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'new', flags: {} })
-    expect(props.routeState.setSlots).toHaveBeenCalledTimes(1)
-    expect(props.setEditSlot).toHaveBeenCalledWith(null)
-    expect(props.pushUndo).toHaveBeenCalledTimes(1)
-    expect(props.pushUndo.mock.calls[0][0]).toMatchObject({
-      undo: expect.any(Function),
-      redo: expect.any(Function),
-    })
-  })
-})
-
-// The delicate part (T32): the undo closure must replay against the SAME
+// The delicate part (T32): undo closures must replay against the SAME
 // route-pinned setter + repo + slot id the entry was made on — even after the
 // director has switched routes — so an undo never writes the candidate on
-// screen instead of the one it belongs to.
-describe('useSlotMutations — route-pinned undo closure (the delicate part)', () => {
-  const slot = { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'old', flags: { keep: true } }
-  const editSlot = { groupId: 'g1', dayId: 'd1', blockId: 'b1' }
+// screen instead of the one it belongs to. Exercised directly against
+// replaceSlot below (`replaceSlot`'s own describe block's "undo restores..."
+// test covers the mechanism now that editSlotSave is gone).
 
-  it('editSlotSave undo writes the original activity/flags via the entry-route setter after a route switch', async () => {
-    const originalSetSlots = vi.fn()
-    const pushUndo = vi.fn()
-    const repo = makeRepo()
-
-    const props = makeProps({
-      slots: [slot],
-      editSlot,
-      repo,
-      pushUndo,
-      routeState: { setSlots: originalSetSlots },
-    })
-    const hook = renderHook((p) => useSlotMutations(p), { initialProps: props })
-
-    await act(async () => { await hook.result.current.editSlotSave('new') })
-    const entry = pushUndo.mock.calls[0][0]
-
-    // Director switches routes: the on-screen setter is now a DIFFERENT spy.
-    const afterSwitchSetSlots = vi.fn()
-    hook.rerender(makeProps({
-      slots: [slot],
-      editSlot,
-      repo,
-      pushUndo,
-      routeState: { setSlots: afterSwitchSetSlots },
-    }))
-
-    repo.writeSlotFields.mockClear()
-    await act(async () => { await entry.undo() })
-
-    // Repo replays the ORIGINAL values against the ORIGINAL slot id.
-    expect(repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'old', flags: { keep: true } })
-    // And the setter it drives is the entry's route setter — NOT the one now on screen.
-    expect(originalSetSlots).toHaveBeenCalled()
-    expect(afterSwitchSetSlots).not.toHaveBeenCalled()
-  })
-})
-
-describe('useSlotMutations — swapSlots', () => {
-  it('writes both cells swapped and pushes an undo', async () => {
-    const rowA = { id: 'a', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actA' }
-    const rowB = { id: 'b', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actB' }
-    const { hook, props } = setup({ slots: [rowA, rowB] })
-
+describe('useSlotMutations — replaceSlot', () => {
+  it('places the incoming activity into an empty target and pushes an undo', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }] })
     await act(async () => {
-      await hook.result.current.swapSlots(
-        { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'actA' },
-        { groupId: 'g1', dayId: 'd1', blockId: 'b2', activityId: 'actB' },
+      await hook.result.current.replaceSlot(
+        { activityId: 'act-1' }, // palette drop: no source coords
+        { groupId: 'g1', dayId: 'd1', blockId: 'b1' }
       )
     })
-
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('a', { activity_id: 'actB', flags: {} })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('b', { activity_id: 'actA', flags: {} })
-    expect(props.routeState.setSlots).toHaveBeenCalledTimes(1)
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
     expect(props.pushUndo).toHaveBeenCalledTimes(1)
   })
 
-  it('does nothing when the route has no template', async () => {
-    const { hook, props } = setup({
-      slots: [],
-      routeState: { existingTemplates: { generated: false, manual: false } },
-    })
+  it('replaces an occupied target — the occupant is not written anywhere, just overwritten', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-occupant', flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }, { id: 'act-occupant', name: 'Art' }] })
     await act(async () => {
-      await hook.result.current.swapSlots(
-        { groupId: 'g1', dayId: 'd1', blockId: 'b1' },
-        { groupId: 'g1', dayId: 'd1', blockId: 'b2' },
+      await hook.result.current.replaceSlot(
+        { activityId: 'act-1' },
+        { groupId: 'g1', dayId: 'd1', blockId: 'b1' }
+      )
+    })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(1)
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
+  })
+
+  it('grid-to-grid: clears the source slot in addition to writing the target', async () => {
+    const slots = [
+      { id: 'row-source', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {} },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot(
+        { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' },
+        { groupId: 'g1', dayId: 'd1', blockId: 'b2' }
+      )
+    })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source', { activity_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(2)
+  })
+
+  it('refuses to write onto an anchor target', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', is_anchor: true, activity_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot(
+        { activityId: 'act-1' },
+        { groupId: 'g1', dayId: 'd1', blockId: 'b1' }
       )
     })
     expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+    expect(props.pushUndo).not.toHaveBeenCalled()
+  })
+
+  it('does nothing when the route has no template', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({
+      slots,
+      activities: [{ id: 'act-1', name: 'Swim' }],
+      routeState: { existingTemplates: { manual: false, generated: false } },
+    })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+  })
+
+  it('undo restores both target and (grid-to-grid) source to their previous activity_id', async () => {
+    const slots = [
+      { id: 'row-source', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {} },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-occupant', flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }, { id: 'act-occupant', name: 'Art' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot(
+        { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' },
+        { groupId: 'g1', dayId: 'd1', blockId: 'b2' }
+      )
+    })
+    const entry = props.pushUndo.mock.calls[0][0]
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await entry.undo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-occupant', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source', { activity_id: 'act-1', flags: {} })
   })
 })
 
@@ -203,31 +209,32 @@ describe('useSlotMutations — overlays', () => {
 // against the SAME route-pinned setter + repo + slot id, even after a route
 // switch — the exact mirror of the route-pinned undo test above.
 describe('useSlotMutations — route-pinned redo closure', () => {
-  const slot = { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'old', flags: { keep: true } }
-  const editSlot = { groupId: 'g1', dayId: 'd1', blockId: 'b1' }
+  const slot = { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} }
 
-  it('editSlotSave redo re-applies the new activity/cleared flags via the entry-route setter after a route switch', async () => {
+  it('replaceSlot redo re-applies the new activity via the entry-route setter after a route switch', async () => {
     const originalSetSlots = vi.fn()
     const pushUndo = vi.fn()
     const repo = makeRepo()
 
     const props = makeProps({
       slots: [slot],
-      editSlot,
+      activities: [{ id: 'act-1', name: 'Swim' }],
       repo,
       pushUndo,
       routeState: { setSlots: originalSetSlots },
     })
     const hook = renderHook((p) => useSlotMutations(p), { initialProps: props })
 
-    await act(async () => { await hook.result.current.editSlotSave('new') })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
     const entry = pushUndo.mock.calls[0][0]
 
     // Director switches routes: the on-screen setter is now a DIFFERENT spy.
     const afterSwitchSetSlots = vi.fn()
     hook.rerender(makeProps({
       slots: [slot],
-      editSlot,
+      activities: [{ id: 'act-1', name: 'Swim' }],
       repo,
       pushUndo,
       routeState: { setSlots: afterSwitchSetSlots },
@@ -238,7 +245,7 @@ describe('useSlotMutations — route-pinned redo closure', () => {
     await act(async () => { await entry.redo() })
 
     // Repo replays the NEW value against the ORIGINAL slot id.
-    expect(repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'new', flags: {} })
+    expect(repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'act-1', flags: {} })
     // Driven through the entry's route setter — NOT the one now on screen.
     expect(originalSetSlots).toHaveBeenCalled()
     expect(afterSwitchSetSlots).not.toHaveBeenCalled()
@@ -355,5 +362,53 @@ describe('useSlotMutations — placeActivityManual', () => {
     await act(async () => { await hook.result.current.placeActivityManual('a1', 'g1', 'd1', 'b1') })
 
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'a1', flags: { UNFILLABLE: true } })
+  })
+})
+
+describe('useSlotMutations — createActivityFromCell', () => {
+  it('creates a camp-scoped activity with usage-derived rule (min_per_week=1, max=null, all-groups eligible), adds it to the palette list, and places it', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+    ]
+    const { hook, props } = setup({ slots, activities: [], campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }] })
+    await act(async () => {
+      await hook.result.current.createActivityFromCell('Kayaking', { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    const createCall = props.repo.writeActivityFields.mock.calls[0]
+    expect(createCall[1]).toMatchObject({
+      name: 'Kayaking', camp_id: 'camp-1', min_per_week: 1, max_per_week: null,
+      eligible_tier_ids: [], eligible_group_ids: [], priority: null,
+    })
+    expect(props.setActivities).toHaveBeenCalled()
+    // placeActivityManual's own write follows — assert the slot write landed too:
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', expect.objectContaining({ activity_id: createCall[0] }))
+  })
+
+  it('a name that collapses (case/space-insensitive) to an existing activity places the existing one instead of creating a duplicate', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+    ]
+    const { hook, props } = setup({
+      slots, campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }],
+      activities: [{ id: 'act-existing', name: 'Kayaking', eligible_tier_ids: [], eligible_group_ids: [] }],
+    })
+    await act(async () => {
+      await hook.result.current.createActivityFromCell('  kayaking  ', { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeActivityFields).not.toHaveBeenCalled()
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', expect.objectContaining({ activity_id: 'act-existing' }))
+  })
+
+  it('does not place when the activity write fails', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+    ]
+    const repo = makeRepo({ writeActivityFields: vi.fn(async () => { throw new Error('boom') }) })
+    const { hook, props } = setup({ slots, campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }], activities: [], repo })
+    await act(async () => {
+      await hook.result.current.createActivityFromCell('Kayaking', { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.setActionError).toHaveBeenCalled()
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
   })
 })

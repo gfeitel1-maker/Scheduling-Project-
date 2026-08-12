@@ -5,8 +5,8 @@
 // OverlayCell must default to <td> while three views were still tables). What
 // remains is the invariant that replaced it: both components are unconditional
 // role="gridcell" divs, and both carry the placement their caller computed.
-import { describe, it, expect } from 'vitest'
-import { render } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { DndContext } from '@dnd-kit/core'
 import SlotCell from './SlotCell'
 import OverlayCell from './OverlayCell'
@@ -107,5 +107,132 @@ describe('shared cell components render placed gridcells (T56)', () => {
     const cell = container.querySelector('[data-cell-key="g1|d1|b1"]')
     expect(cell.getAttribute('role')).toBe('gridcell')
     expect(cell.getAttribute('aria-roledescription')).toBe('draggable')
+  })
+
+  it('clicking an unlocked, unselected activity cell activates inline write instead of opening a modal', () => {
+    render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          actColorIdx={0}
+          isDndEnabled
+          eligibleActivities={[{ id: 'a1', name: 'Soccer' }]}
+          onPlace={vi.fn()}
+          onCreateNew={vi.fn()}
+        />
+      </DndContext>
+    )
+    fireEvent.click(screen.getByRole('gridcell'))
+    expect(screen.getByRole('textbox')).toBeTruthy()
+  })
+
+  it('does not activate inline write on an anchor cell', () => {
+    const anchorSlot = { id: 's2', groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'anchor' }
+    render(
+      <DndContext>
+        <SlotCell slot={anchorSlot} anchor={{ name: 'Flag' }} />
+      </DndContext>
+    )
+    fireEvent.click(screen.getByRole('gridcell'))
+    expect(screen.queryByRole('textbox')).toBeNull()
+  })
+
+  it('a click calls onCellClick (stamp mode) instead of activating inline write when onCellClick is supplied', () => {
+    const onCellClick = vi.fn()
+    render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          actColorIdx={0}
+          isDndEnabled
+          onCellClick={onCellClick}
+          eligibleActivities={[{ id: 'a1', name: 'Soccer' }]}
+          onPlace={vi.fn()}
+          onCreateNew={vi.fn()}
+        />
+      </DndContext>
+    )
+    fireEvent.click(screen.getByRole('gridcell'))
+    expect(onCellClick).toHaveBeenCalledWith(slot)
+    expect(screen.queryByRole('textbox')).toBeNull()
+  })
+
+  it('Enter on a focused, unlocked activity cell activates inline write', () => {
+    render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          actColorIdx={0}
+          isDndEnabled
+          eligibleActivities={[{ id: 'a1', name: 'Soccer' }]}
+          onPlace={vi.fn()}
+          onCreateNew={vi.fn()}
+        />
+      </DndContext>
+    )
+    const cell = screen.getByRole('gridcell')
+    cell.focus()
+    fireEvent.keyDown(cell, { key: 'Enter' })
+    expect(screen.getByRole('textbox')).toBeTruthy()
+  })
+
+  it('Enter on a focused, LOCKED cell releases it instead of activating inline write', () => {
+    const onRelease = vi.fn()
+    render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          actColorIdx={0}
+          isDndEnabled
+          isLocked
+          onRelease={onRelease}
+          eligibleActivities={[{ id: 'a1', name: 'Soccer' }]}
+          onPlace={vi.fn()}
+          onCreateNew={vi.fn()}
+        />
+      </DndContext>
+    )
+    const cell = screen.getByRole('gridcell')
+    cell.focus()
+    fireEvent.keyDown(cell, { key: 'Enter' })
+    expect(onRelease).toHaveBeenCalledWith(slot)
+    expect(screen.queryByRole('textbox')).toBeNull()
+  })
+
+  it('Space on a focused, draggable cell does NOT activate inline write (reserved for dnd-kit keyboard-drag pickup)', () => {
+    render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          actColorIdx={0}
+          isDndEnabled
+          eligibleActivities={[{ id: 'a1', name: 'Soccer' }]}
+          onPlace={vi.fn()}
+          onCreateNew={vi.fn()}
+        />
+      </DndContext>
+    )
+    const cell = screen.getByRole('gridcell')
+    cell.focus()
+    fireEvent.keyDown(cell, { key: ' ' })
+    expect(screen.queryByRole('textbox')).toBeNull()
+  })
+
+  it('Enter on an anchor cell does nothing (anchors are not writable)', () => {
+    const anchorSlot = { id: 's2', groupId: 'g1', dayId: 'd1', blockId: 'b1', type: 'anchor' }
+    render(
+      <DndContext>
+        <SlotCell slot={anchorSlot} anchor={{ name: 'Flag' }} />
+      </DndContext>
+    )
+    const cell = screen.getByRole('gridcell')
+    cell.focus()
+    fireEvent.keyDown(cell, { key: 'Enter' })
+    expect(screen.queryByRole('textbox')).toBeNull()
   })
 })

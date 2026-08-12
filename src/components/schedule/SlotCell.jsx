@@ -3,6 +3,7 @@ import { useDraggable } from '@dnd-kit/core'
 import { S, prefersReducedMotion } from '../../styles/shared'
 import { ANCHOR_COLOR, FLAG_COLORS, activityColor } from './slotCellConstants'
 import { cellAccessibleName } from './cellLabel'
+import CellInlineEditor from './CellInlineEditor'
 import './scheduleGrid.css'
 
 // Hover is a CSS selector (`.cell:hover .expand-handle`, `.expand-handle:hover`)
@@ -66,7 +67,16 @@ function OutdoorIcon() {
 
 export default function SlotCell({
   slot, activity, anchor, actColorIdx, weatherMode,
-  onEdit, onRelease, onSelect,
+  onRelease, onSelect,
+  // Inline-write (replaces the removed EditModal picklist, 2026-08-09):
+  // eligibleActivities is this cell's group's eligible activity list (computed
+  // by the caller, ScheduleScreen's eligibleActivitiesFor); onPlace/onCreateNew
+  // are called with (slot, ...) once the inline editor resolves.
+  eligibleActivities = [], onPlace, onCreateNew,
+  // Stamp mode (field-trip overlay tool) intercepts a plain click with its own
+  // action instead of activating inline write — same precedence the old
+  // `onEdit={cellClickHandler || ...}` gave it.
+  onCellClick,
   isLocked, isDndEnabled, rowSpan = 1,
   isSelected = false, isMultiSelected = false, pasteMode = false,
   hasMergeDown = false, isMerged = false,
@@ -104,6 +114,7 @@ export default function SlotCell({
   // reason-focus were all deleted in T56: :hover and :focus-within in
   // scheduleGrid.css do that work now, so hovering a cell re-renders nothing.
   const [pressed, setPressed] = useState(false)
+  const [editing, setEditing] = useState(false)
 
   const nameFor = subject => cellAccessibleName({ subject, blockNames, column })
 
@@ -152,7 +163,7 @@ export default function SlotCell({
 
   if (slot.type === 'anchor') {
     return (
-      <div {...shellProps} aria-label={nameFor(anchor?.name || 'Anchor')} ref={setRef} onClick={() => { triggerPress(); onEdit(slot) }}>
+      <div {...shellProps} aria-label={nameFor(anchor?.name || 'Anchor')} ref={setRef} onClick={() => triggerPress()}>
         <div
           className="cell-inner cell-inner--anchor"
           style={{
@@ -199,17 +210,33 @@ export default function SlotCell({
     triggerPress()
     if (isLocked) { onRelease?.(slot); return }
     if (onSelect) { onSelect(slot, e); return }
-    onEdit(slot)
-  }
-
-  function handleDoubleClick() {
-    if (isLocked) return
-    onEdit(slot)
+    if (onCellClick) { onCellClick(slot); return }
+    setEditing(true)
   }
 
   function handleContextMenu(e) {
     e.preventDefault()
-    onEdit(slot)
+    setEditing(true)
+  }
+
+  // T59's roving tabindex makes every cell a keyboard focus stop; dnd-kit's
+  // keyboard sensor owns arrow-key movement, but Enter activating inline
+  // write was a gap until now — the accessibility concern the spec's testing
+  // seams call out. Space is deliberately left alone: dnd-kit's default
+  // keyboard codes use BOTH Space and Enter to start a keyboard-initiated
+  // drag (its own stated reason for being retained at all, per this file's
+  // header note), so claiming Space here for inline-write would silently
+  // break that existing accessibility path. Enter for edit, Space for
+  // pick-up-to-drag is the same split common list/grid widgets use. Same
+  // click precedence as handleClick, minus onSelect (multi-select has no
+  // keyboard entry point today) and onCellClick (stamp mode is pointer-only).
+  function handleEnterKeyDown(e) {
+    if (editing) return
+    e.preventDefault()
+    triggerPress()
+    if (isLocked) { onRelease?.(slot); return }
+    if (onCellClick) { onCellClick(slot); return }
+    setEditing(true)
   }
 
   // Only data-derived paint composes inline. The static half (radius, padding,
@@ -250,7 +277,6 @@ export default function SlotCell({
       style={{ ...shellProps.style, cursor: canDrag ? (isDragging ? 'grabbing' : 'grab') : undefined }}
       data-paste-target={isPasteTarget ? '' : undefined}
       onClick={handleClick}
-      onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
       // No `tabIndex` here any more. It used to be 0 on a flag-highlighted cell
       // only, as the keyboard path to the reason callout that a mouse gets on
@@ -261,6 +287,15 @@ export default function SlotCell({
       title={tooltipText}
       aria-label={nameFor(activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned'))}
       {...(canDrag ? { ...listeners, ...attributes } : {})}
+      // Composed AFTER the dnd-kit spread so it wins the single onKeyDown slot
+      // (object spread, last write wins) rather than being silently replaced
+      // by dnd-kit's own listener. Enter is intercepted outright — inline
+      // write, never a drag pickup; every other key (Space included) still
+      // reaches dnd-kit's listener when the cell is draggable.
+      onKeyDown={e => {
+        if (e.key === 'Enter') { handleEnterKeyDown(e); return }
+        if (canDrag) listeners?.onKeyDown?.(e)
+      }}
       // dnd-kit's `attributes` carry role="button", which on a table cell was inert
       // but on a grid child silently replaces role="gridcell" and collapses the
       // grid -> row -> gridcell tree. Spec §8 wants the gridcell; dnd-kit's
@@ -301,12 +336,22 @@ export default function SlotCell({
             onClick={e => { e.stopPropagation(); onSplitSlot?.() }}
           >↕</button>
         )}
-        <div className="cell-name" data-unassigned={!activity ? '' : undefined}>
-          {showIdentityDot && activity && (
-            <span className="identity-dot" style={{ background: color }} />
-          )}
-          {activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned')}
-        </div>
+        {editing ? (
+          <CellInlineEditor
+            eligibleActivities={eligibleActivities}
+            currentActivityName={activity?.name ?? null}
+            onPlace={(activityId) => { setEditing(false); onPlace?.(slot, activityId) }}
+            onCreateNew={(name) => { setEditing(false); onCreateNew?.(slot, name) }}
+            onCancel={() => setEditing(false)}
+          />
+        ) : (
+          <div className="cell-name" data-unassigned={!activity ? '' : undefined}>
+            {showIdentityDot && activity && (
+              <span className="identity-dot" style={{ background: color }} />
+            )}
+            {activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned')}
+          </div>
+        )}
         {isOverlapping && (
           <div
             className="flag flag--overlap"

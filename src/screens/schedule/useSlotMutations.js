@@ -1,4 +1,5 @@
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
+import { normalizeName } from '../../ingest/preview.js'
 
 // The per-cell slot / overlay mutation cluster (T32), over the T28 repository.
 // Every handler follows the same shape: read the target from `slots` ->
@@ -7,8 +8,8 @@ import { describeWriteFailure } from '../../utils/writeErrorMessage'
 //
 // This hook orchestrates but owns NO state: the route-scoped values and the
 // route-PINNED setters come from the injected `routeState` (T31's useRouteState);
-// pushUndo, the repo, editSlot/setEditSlot, setDisplacedItems, recalcStats, the
-// geometry getSlot, actMap, setActivities and the data lists are injected too.
+// pushUndo, the repo, setDisplacedItems, recalcStats, the geometry getSlot,
+// actMap, setActivities and the data lists are injected too.
 //
 // The delicate part, preserved verbatim: several handlers push undo/redo closures
 // that capture `repo`, the route-pinned `setSlots` (bound to the route the entry
@@ -27,8 +28,6 @@ export function useSlotMutations({
   repo,
   pushUndo,
   setActionError,
-  editSlot,
-  setEditSlot,
   setDisplacedItems,
   recalcStats,
   recalcFindings,
@@ -39,6 +38,7 @@ export function useSlotMutations({
   activities,
   days,
   timeBlocks,
+  campId,
 }) {
   const {
     route,
@@ -53,81 +53,42 @@ export function useSlotMutations({
   // actMap shape (the screen keeps its own copy for the DnD handlers + JSX).
   const actMap = new Map(activities.map(a => [a.id, { ...a, colorIdx: a.id }]))
 
-  async function editSlotSave(newActivityId) {
-    if (!editSlot || !templateId) return
-    const { groupId, dayId, blockId } = editSlot
-    const slot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId)
-    if (!slot) return
-
-    const prevActivityId = slot.activity_id ?? null
-    const prevFlags = slot.flags ?? {}
-    const nextActivityId = newActivityId || null
-
-    setActionError(null)
-    try {
-      await repo.writeSlotFields(slot.id, { activity_id: nextActivityId, flags: {} })
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That cell could not be saved.'))
-      return
-    }
-    setSlots(prev => {
-      const next = prev.map(s =>
-        s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-          ? { ...s, activity_id: nextActivityId, flags: {} }
-          : s
-      )
-      recalcStats(next)
-      recalcFindings(next)
-      return next
-    })
-    setEditSlot(null)
-
-    const actAfter = activities.find(a => a.id === nextActivityId)
-    const day = days.find(d => d.id === dayId)
-    const block = timeBlocks.find(b => b.id === blockId)
-    pushUndo({
-      description: `Changed to ${actAfter?.name ?? 'empty'} → ${day?.label ?? ''} ${block?.name ?? ''}`.replace(/\s+/g, ' ').trim(),
-      undo: async () => {
-        await repo.writeSlotFields(slot.id, { activity_id: prevActivityId, flags: prevFlags })
-        setSlots(prev => prev.map(s =>
-          s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-            ? { ...s, activity_id: prevActivityId, flags: prevFlags }
-            : s
-        ))
-      },
-      redo: async () => {
-        await repo.writeSlotFields(slot.id, { activity_id: nextActivityId, flags: {} })
-        setSlots(prev => prev.map(s =>
-          s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-            ? { ...s, activity_id: nextActivityId, flags: {} }
-            : s
-        ))
-      },
-    })
-  }
-
-  async function swapSlots(slotA, slotB) {
-    // slotA and slotB are { groupId, dayId, blockId, activityId }
+  async function replaceSlot(incoming, target) {
+    // incoming: { groupId?, dayId?, blockId?, activityId } — coords present only
+    // for a grid-to-grid drag; a palette drop supplies activityId alone.
+    // target: { groupId, dayId, blockId } — replaceSlot reads its CURRENT row
+    // itself rather than trusting a caller-supplied activityId, so a stale drag
+    // payload can never overwrite a newer local edit to the target cell.
     if (!existingTemplates[route]) return
-    const rowA = slots.find(s => s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
-    const rowB = slots.find(s => s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
-    if (!rowA || !rowB) return
+    const targetRow = slots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+    if (!targetRow || targetRow.is_anchor) return
+
+    const hasSource = incoming.groupId != null && incoming.dayId != null && incoming.blockId != null
+    const sourceRow = hasSource
+      ? slots.find(s => s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
+      : null
+
     setActionError(null)
+    const prevTargetActivityId = targetRow.activity_id ?? null
+    const prevTargetFlags = targetRow.flags ?? {}
+    const prevSourceActivityId = sourceRow?.activity_id ?? null
+    const prevSourceFlags = sourceRow?.flags ?? {}
+
     try {
-      await Promise.all([
-        repo.writeSlotFields(rowA.id, { activity_id: slotB.activityId || null, flags: {} }),
-        repo.writeSlotFields(rowB.id, { activity_id: slotA.activityId || null, flags: {} }),
-      ])
+      const writes = [repo.writeSlotFields(targetRow.id, { activity_id: incoming.activityId, flags: {} })]
+      if (sourceRow) writes.push(repo.writeSlotFields(sourceRow.id, { activity_id: null, flags: {} }))
+      await Promise.all(writes)
     } catch (err) {
-      setActionError(describeWriteFailure(err, 'Those two cells could not be swapped.'))
+      setActionError(describeWriteFailure(err, 'That activity could not be placed.'))
       return
     }
+
     setSlots(prev => {
       const next = prev.map(s => {
-        if (s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
-          return { ...s, activity_id: slotB.activityId || null, flags: {} }
-        if (s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
-          return { ...s, activity_id: slotA.activityId || null, flags: {} }
+        if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+          return { ...s, activity_id: incoming.activityId, flags: {} }
+        if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
+          return { ...s, activity_id: null, flags: {} }
         return s
       })
       recalcStats(next)
@@ -135,33 +96,37 @@ export function useSlotMutations({
       return next
     })
 
-    const actA = activities.find(a => a.id === slotA.activityId)
-    const actB = activities.find(a => a.id === slotB.activityId)
+    const incomingActivity = activities.find(a => a.id === incoming.activityId)
+    const occupantActivity = activities.find(a => a.id === prevTargetActivityId)
+    const description = occupantActivity
+      ? `Replaced ${occupantActivity.name} with ${incomingActivity?.name ?? 'an activity'}`
+      : `Placed ${incomingActivity?.name ?? 'an activity'}`
+
     pushUndo({
-      description: `Swapped ${actA?.name ?? 'an empty cell'} ↔ ${actB?.name ?? 'an empty cell'}`,
+      description,
       undo: async () => {
         await Promise.all([
-          repo.writeSlotFields(rowA.id, { activity_id: slotA.activityId || null, flags: {} }),
-          repo.writeSlotFields(rowB.id, { activity_id: slotB.activityId || null, flags: {} }),
+          repo.writeSlotFields(targetRow.id, { activity_id: prevTargetActivityId, flags: prevTargetFlags }),
+          ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { activity_id: prevSourceActivityId, flags: prevSourceFlags })] : []),
         ])
         setSlots(prev => prev.map(s => {
-          if (s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
-            return { ...s, activity_id: slotA.activityId || null, flags: {} }
-          if (s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
-            return { ...s, activity_id: slotB.activityId || null, flags: {} }
+          if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+            return { ...s, activity_id: prevTargetActivityId, flags: prevTargetFlags }
+          if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
+            return { ...s, activity_id: prevSourceActivityId, flags: prevSourceFlags }
           return s
         }))
       },
       redo: async () => {
         await Promise.all([
-          repo.writeSlotFields(rowA.id, { activity_id: slotB.activityId || null, flags: {} }),
-          repo.writeSlotFields(rowB.id, { activity_id: slotA.activityId || null, flags: {} }),
+          repo.writeSlotFields(targetRow.id, { activity_id: incoming.activityId, flags: {} }),
+          ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { activity_id: null, flags: {} })] : []),
         ])
         setSlots(prev => prev.map(s => {
-          if (s.group_id === slotA.groupId && s.day_id === slotA.dayId && s.time_block_id === slotA.blockId)
-            return { ...s, activity_id: slotB.activityId || null, flags: {} }
-          if (s.group_id === slotB.groupId && s.day_id === slotB.dayId && s.time_block_id === slotB.blockId)
-            return { ...s, activity_id: slotA.activityId || null, flags: {} }
+          if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+            return { ...s, activity_id: incoming.activityId, flags: {} }
+          if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
+            return { ...s, activity_id: null, flags: {} }
           return s
         }))
       },
@@ -259,12 +224,16 @@ export function useSlotMutations({
     setOverlays(prev => prev.map(o => o.id === overlayId ? { ...o, to_block_order: toBlockOrder } : o))
   }
 
-  async function placeActivityManual(activityId, groupId, dayId, blockId) {
+  // activityOverride lets createActivityFromCell place an activity it just
+  // created without waiting for a re-render: setActivities is async, so
+  // `activities` in this closure would not yet contain the new row within the
+  // same call.
+  async function placeActivityManual(activityId, groupId, dayId, blockId, activityOverride) {
     if (!existingTemplates[route]) return
     const slot = getSlot(slots, groupId, dayId, blockId)
     if (!slot || slot.is_anchor) return
 
-    const activity = activities.find(a => a.id === activityId)
+    const activity = activityOverride ?? activities.find(a => a.id === activityId)
     if (!activity) return
 
     const group = groups.find(g => g.id === groupId)
@@ -506,9 +475,62 @@ export function useSlotMutations({
     })
   }
 
+  // Cell-created activity from the inline-write editor's "create new" path
+  // (2026-08-09 spec): usage-derived rule (min_per_week starts at 1 because
+  // this write IS the activity's first placement), max ∞, all-groups
+  // eligible, human provenance free from repo.writeActivityFields' existing
+  // default. Re-checks for a normalized-name dup defensively — CellInlineEditor
+  // already resolves an exact match to onPlace, not onCreateNew, but a second
+  // inline-write could race the same name between typing and Enter.
+  async function createActivityFromCell(name, target) {
+    const trimmed = String(name ?? '').trim()
+    if (!trimmed) return
+
+    const dupe = activities.find(a => normalizeName(a.name) === normalizeName(trimmed))
+    if (dupe) {
+      await placeActivityManual(dupe.id, target.groupId, target.dayId, target.blockId)
+      return
+    }
+
+    const newId = crypto.randomUUID()
+    const fields = {
+      name: trimmed,
+      camp_id: campId,
+      priority: null,
+      is_locked: false,
+      span_blocks: 1,
+      location: null,
+      is_outdoor: false,
+      max_groups_per_slot: 1,
+      // Usage-derived: this write IS the activity's first placement, so the
+      // target starts at 1 — never a spurious under-served flag on the week
+      // it was hand-created for.
+      min_per_week: 1,
+      max_per_week: null,
+      same_tier_only: false,
+      eligible_tier_ids: [],
+      eligible_group_ids: [],
+      prefer_before_day: null,
+      prefer_before_day_min: null,
+      weather_alternative_id: null,
+      notes: null,
+    }
+
+    setActionError(null)
+    try {
+      await repo.writeActivityFields(newId, fields)
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That activity could not be created.'))
+      return
+    }
+
+    const newRow = { id: newId, ...fields }
+    setActivities(prev => [...prev, newRow])
+    await placeActivityManual(newId, target.groupId, target.dayId, target.blockId, newRow)
+  }
+
   return {
-    editSlotSave,
-    swapSlots,
+    replaceSlot,
     dismissFlag,
     lockActivity,
     releaseCell,
@@ -518,5 +540,6 @@ export function useSlotMutations({
     placeActivityManual,
     expandSlot,
     splitSlot,
+    createActivityFromCell,
   }
 }
