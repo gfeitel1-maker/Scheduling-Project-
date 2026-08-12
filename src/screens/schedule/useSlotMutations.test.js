@@ -58,6 +58,26 @@ function setup(overrides = {}) {
   return { hook, props }
 }
 
+// A promise + resolver pair for hand-controlled write resolution order — no
+// setTimeout/timing-dependent flakiness (2026-08-12 write-serialization ADR
+// test seam plan).
+function deferred() {
+  let resolve
+  const promise = new Promise((res) => { resolve = res })
+  return { promise, resolve }
+}
+
+// Same stateful stand-in as the fresh-read undo snapshot describe block above,
+// but exposed with a `.get()` so these tests can assert on the final slots
+// array directly, without needing a re-render.
+function statefulSetSlots(initialSlots) {
+  let current = initialSlots
+  const fn = vi.fn((updater) => {
+    current = typeof updater === 'function' ? updater(current) : updater
+  })
+  return { fn, get: () => current }
+}
+
 // The delicate part (T32): undo closures must replay against the SAME
 // route-pinned setter + repo + slot id the entry was made on — even after the
 // director has switched routes — so an undo never writes the candidate on
@@ -479,5 +499,250 @@ describe('useSlotMutations — createActivityFromCell', () => {
     })
     expect(props.setActionError).toHaveBeenCalled()
     expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+  })
+})
+
+// 2026-08-12 drag-live-write-serialization ADR/spec: the per-cell
+// cellGestureRef ledger. All 8 tests from the spec's "Test seam plan".
+describe('useSlotMutations — recency-gated live writes (write-serialization ADR)', () => {
+  it('1. facet 1 fixed: a same-cell replaceSlot whose write resolves LATE does not clobber the gesture that superseded it', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-orig', flags: {} },
+    ]
+    const activities = [
+      { id: 'act-orig', name: 'Original' },
+      { id: 'act-1', name: 'First Drag' },
+      { id: 'act-2', name: 'Second Drag' },
+    ]
+    const d1 = deferred()
+    const d2 = deferred()
+    let call = 0
+    const writeSlotFields = vi.fn(() => {
+      call += 1
+      return call === 1 ? d1.promise : d2.promise
+    })
+    const repo = makeRepo({ writeSlotFields })
+    const setSlots = statefulSetSlots(slots)
+    const { hook } = setup({ slots, activities, repo, routeState: { setSlots: setSlots.fn } })
+
+    // g1 starts first (claims the cell), write left in flight.
+    const p1 = hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, 'g1')
+    // g2 starts before g1's write resolves (claims the cell over g1), write also in flight.
+    const p2 = hook.result.current.replaceSlot({ activityId: 'act-2' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, 'g2')
+
+    // g2's write resolves FIRST.
+    await act(async () => { d2.resolve({ status: 'applied' }); await p2 })
+    // g1's write resolves AFTER — even though it's the earlier gesture.
+    await act(async () => { d1.resolve({ status: 'applied' }); await p1 })
+
+    expect(setSlots.get().find(s => s.id === 'row-target').activity_id).toBe('act-2')
+  })
+
+  it('2. happy path unchanged: same two calls resolved IN gesture order produce the same final state as today', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-orig', flags: {} },
+    ]
+    const activities = [
+      { id: 'act-orig', name: 'Original' },
+      { id: 'act-1', name: 'First Drag' },
+      { id: 'act-2', name: 'Second Drag' },
+    ]
+    const setSlots = statefulSetSlots(slots)
+    const { hook, props } = setup({ slots, activities, routeState: { setSlots: setSlots.fn } })
+
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, 'g1')
+    })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-2' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, 'g2')
+    })
+
+    expect(setSlots.get().find(s => s.id === 'row-target').activity_id).toBe('act-2')
+    expect(props.pushUndo).toHaveBeenCalledTimes(2)
+  })
+
+  it('3. facet 2 fixed for expandSlot: two racing same-head-cell calls with no re-render between them — the second undo entry captures the FIRST call\'s actual result, not a shared stale snapshot', async () => {
+    const headSlot = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', flags: {}, is_span_head: true }
+    const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actTail', flags: {}, is_span_head: true }
+    const activities = [{ id: 'actHead', name: 'Swim' }, { id: 'actTail', name: 'Archery' }]
+    const setSlots = statefulSetSlots([headSlot, tailSlot])
+    const { hook, props } = setup({ slots: [headSlot, tailSlot], activities, routeState: { setSlots: setSlots.fn } })
+
+    // Gesture g1 expands b1 over b2 first.
+    await act(async () => {
+      await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', 'actTail', 'Archery', 'Block 2', 'Mon', 'g1')
+    })
+    // Gesture g2 does the same expand call again, still closed over the same
+    // stale `slots` prop (no re-render happened) — mirrors the replaceSlot
+    // fresh-read regression test's structure, applied to expandSlot.
+    await act(async () => {
+      await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', 'actTail', 'Archery', 'Block 2', 'Mon', 'g2')
+    })
+    const g2Entry = props.pushUndo.mock.calls[1][0]
+
+    // g2's undo must restore what g1 ACTUALLY left behind (head flags carrying
+    // g1's own `expanded` marker), not the pre-either-call state both calls'
+    // stale `slots` closure would agree on without the fresh-read fix.
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await g2Entry.undo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('h1', {
+      flags: { expanded: { displacedActivityId: 'actTail', displacedActivityName: 'Archery', from_block: 'b2' } },
+    })
+  })
+
+  it('4. facet 2 fixed for splitSlot: same shape as expandSlot, applied to the head/tail snapshot', async () => {
+    const headSlot = {
+      id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', is_span_head: true,
+      flags: { expanded: { displacedActivityId: 'actTail', displacedActivityName: 'Archery', from_block: 'b2' } },
+    }
+    const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actHead', is_span_head: false }
+    const timeBlocks = [{ id: 'b1', name: 'Block 1', sort_order: 1 }, { id: 'b2', name: 'Block 2', sort_order: 2 }]
+    const days = [{ id: 'd1', label: 'Mon' }]
+    const setSlots = statefulSetSlots([headSlot, tailSlot])
+    const { hook, props } = setup({ slots: [headSlot, tailSlot], timeBlocks, days, routeState: { setSlots: setSlots.fn } })
+
+    // g1 splits first — tail is freed (activity_id: null, is_span_head: true).
+    await act(async () => {
+      await hook.result.current.splitSlot('g1', 'd1', 'b1', 'g1')
+    })
+    // g2 splits "again", still closed over the original (unsplit) `slots` prop.
+    await act(async () => {
+      await hook.result.current.splitSlot('g1', 'd1', 'b1', 'g2')
+    })
+    const g2Entry = props.pushUndo.mock.calls[1][0]
+
+    // g2's undo must restore the tail to what g1's split ACTUALLY left it as
+    // (freed: null / is_span_head true) — not the stale pre-split values
+    // (owned by the head activity / is_span_head false) both calls' shared
+    // `slots` closure would otherwise agree on.
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await g2Entry.undo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: null, is_span_head: true, flags: {} })
+  })
+
+  it('5. facet 3 fixed: a fully-superseded call does not push a phantom undo entry', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-orig', flags: {} },
+    ]
+    const activities = [
+      { id: 'act-orig', name: 'Original' },
+      { id: 'act-1', name: 'First Drag' },
+      { id: 'act-2', name: 'Second Drag' },
+    ]
+    const d1 = deferred()
+    const d2 = deferred()
+    let call = 0
+    const writeSlotFields = vi.fn(() => {
+      call += 1
+      return call === 1 ? d1.promise : d2.promise
+    })
+    const repo = makeRepo({ writeSlotFields })
+    const setSlots = statefulSetSlots(slots)
+    const { hook, props } = setup({ slots, activities, repo, routeState: { setSlots: setSlots.fn } })
+
+    const p1 = hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, 'g1')
+    const p2 = hook.result.current.replaceSlot({ activityId: 'act-2' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, 'g2')
+    await act(async () => { d2.resolve({ status: 'applied' }); await p2 })
+    await act(async () => { d1.resolve({ status: 'applied' }); await p1 })
+
+    // Only g2 (the surviving gesture) gets an undo entry — g1's fully
+    // superseded call must not push a phantom entry for a change that never
+    // took visible effect.
+    expect(props.pushUndo).toHaveBeenCalledTimes(1)
+    expect(props.pushUndo.mock.calls[0][0].description).toMatch(/act-2|Second Drag/i)
+  })
+
+  it('6. undo/redo re-check: an undo run after a newer gesture has since claimed the cell still writes correctly, and the newer gesture\'s own redo still restores cleanly afterward', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-orig', flags: {} },
+    ]
+    const activities = [
+      { id: 'act-orig', name: 'Original' },
+      { id: 'act-1', name: 'First' },
+      { id: 'act-2', name: 'Second' },
+    ]
+    const setSlots = statefulSetSlots(slots)
+    const { hook, props } = setup({ slots, activities, routeState: { setSlots: setSlots.fn } })
+
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, 'g1')
+    })
+    const g1Entry = props.pushUndo.mock.calls[0][0]
+
+    // g2 comes along afterward and claims + writes the same cell — this is
+    // "g2 has since claimed the cell" per the spec's test 6.
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-2' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, 'g2')
+    })
+    const g2Entry = props.pushUndo.mock.calls[1][0]
+    expect(setSlots.get().find(s => s.id === 'row-target').activity_id).toBe('act-2')
+
+    // g1's undo is an explicit user action — it always writes — and because it
+    // re-claims the cell for its own gestureId immediately before writing, the
+    // ledger (and the cell) correctly reflect g1 as current again afterward.
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await g1Entry.undo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-orig', flags: {} })
+    expect(setSlots.get().find(s => s.id === 'row-target').activity_id).toBe('act-orig')
+
+    // g2's redo re-claims for itself and restores cleanly — no crash, no
+    // dropped stack entry, no doubled write.
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await g2Entry.redo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-2', flags: {} })
+    expect(setSlots.get().find(s => s.id === 'row-target').activity_id).toBe('act-2')
+  })
+
+  it('7. gestureId === undefined always claims and always wins its own check (non-drag call regression guard)', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }] })
+    await act(async () => {
+      // No gestureId argument at all — the CellInlineEditor / typeahead path.
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
+    expect(props.routeState.setSlots).toHaveBeenCalledTimes(1)
+    expect(props.pushUndo).toHaveBeenCalledTimes(1)
+  })
+
+  it('8. cross-handler race: the target of one gesture is the SOURCE of another — the per-cell ledger (not per-call) decides the shared cell\'s final value', async () => {
+    const rowA = { id: 'row-a', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-a', flags: {} }
+    const rowC = { id: 'row-c', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: null, flags: {} }
+    const activities = [{ id: 'act-a', name: 'Art' }, { id: 'act-x', name: 'Extra' }]
+    const slots = [rowA, rowC]
+
+    const dA = deferred() // g1's target (A) write
+    const dB = deferred() // g2's target(C) + source(A) writes
+    let call = 0
+    const writeSlotFields = vi.fn(() => {
+      call += 1
+      return call === 1 ? dA.promise : dB.promise
+    })
+    const repo = makeRepo({ writeSlotFields })
+    const setSlots = statefulSetSlots(slots)
+    const { hook } = setup({ slots, activities, repo, routeState: { setSlots: setSlots.fn } })
+
+    // g1: places act-x directly into cell A. Claims A for g1, write in flight.
+    const p1 = hook.result.current.replaceSlot({ activityId: 'act-x' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, 'g1')
+    // g2: moves A's occupant to cell C — source=A, target=C. Claims C AND A
+    // (as its source) for g2, superseding g1's claim on A. Writes in flight.
+    const p2 = hook.result.current.replaceSlot(
+      { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-a' },
+      { groupId: 'g1', dayId: 'd1', blockId: 'b3' },
+      'g2'
+    )
+
+    // g2's writes (target C + source A) resolve first.
+    await act(async () => { dB.resolve({ status: 'applied' }); await p2 })
+    // g1's write (target A only) resolves after — but A is no longer g1's claim.
+    await act(async () => { dA.resolve({ status: 'applied' }); await p1 })
+
+    const final = setSlots.get()
+    // A ends up matching g2's write (cleared, since g2 moved its occupant out),
+    // not g1's write (act-x) — proving per-cell, not per-call, granularity.
+    expect(final.find(s => s.id === 'row-a').activity_id).toBeNull()
+    expect(final.find(s => s.id === 'row-c').activity_id).toBe('act-a')
   })
 })

@@ -74,7 +74,35 @@ export function useSlotMutations({
   const slotsRef = useRef(slots)
   useEffect(() => { slotsRef.current = slots }, [slots])
 
-  async function replaceSlot(incoming, target) {
+  // Per-cell gesture-recency ledger (2026-08-12 write-serialization ADR).
+  // key: `${groupId}|${dayId}|${blockId}` -> the gestureId that last CLAIMED
+  // that cell. A "claim" is a synchronous `.set()` made right before a write
+  // is issued (before any `await`), so the ledger always reflects "the last
+  // gesture that STARTED touching this cell" -- not which write finishes
+  // first. A write that resolves later checks its claim is still current
+  // before applying `setSlots`; a superseded write is dropped silently (the
+  // newer gesture already committed the cell to what the director actually
+  // chose -- nothing failed).
+  //
+  // gestureId === undefined is the "no concurrent gesture" case (any
+  // non-drag caller, e.g. the click-driven "merge down"/"split" handlers) --
+  // such a call always claims and always reads back current, by design: a
+  // single click-driven mutation has nothing of its own to race against, and
+  // making every call site synthesize an id would be needless plumbing for
+  // paths that provably cannot race with themselves.
+  const cellGestureRef = useRef(new Map())
+
+  function cellKey(groupId, dayId, blockId) {
+    return `${groupId}|${dayId}|${blockId}`
+  }
+  function claimCell(key, gestureId) {
+    cellGestureRef.current.set(key, gestureId)
+  }
+  function cellIsCurrent(key, gestureId) {
+    return gestureId === undefined || cellGestureRef.current.get(key) === gestureId
+  }
+
+  async function replaceSlot(incoming, target, gestureId) {
     // incoming: { groupId?, dayId?, blockId?, activityId } — coords present only
     // for a grid-to-grid drag; a palette drop supplies activityId alone.
     // target: { groupId, dayId, blockId } — replaceSlot reads its CURRENT row
@@ -90,6 +118,15 @@ export function useSlotMutations({
       : null
 
     setActionError(null)
+
+    const targetKey = cellKey(target.groupId, target.dayId, target.blockId)
+    const sourceKey = sourceRow ? cellKey(incoming.groupId, incoming.dayId, incoming.blockId) : null
+    // Claim BEFORE issuing the write(s) — synchronous, before any `await` — so a
+    // second same-cell call arriving before this one's write resolves overwrites
+    // the claim immediately, and the ledger always reflects the last gesture
+    // that STARTED touching this cell.
+    claimCell(targetKey, gestureId)
+    if (sourceKey) claimCell(sourceKey, gestureId)
 
     const freshSlots = slotsRef.current
     const freshTargetRow = freshSlots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId) ?? targetRow
@@ -110,11 +147,18 @@ export function useSlotMutations({
       return
     }
 
+    // Recency check: only apply the slice of this write whose cell is still
+    // claimed by THIS gestureId. A cell a newer gesture has since claimed is
+    // left untouched here — that newer gesture's own call owns it.
+    const targetCurrent = cellIsCurrent(targetKey, gestureId)
+    const sourceCurrent = sourceKey ? cellIsCurrent(sourceKey, gestureId) : false
+    if (!targetCurrent && !sourceCurrent) return // fully superseded: no setSlots, no pushUndo
+
     setSlots(prev => {
       const next = prev.map(s => {
-        if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+        if (targetCurrent && s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
           return { ...s, activity_id: incoming.activityId, flags: {} }
-        if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
+        if (sourceRow && sourceCurrent && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
           return { ...s, activity_id: null, flags: {} }
         return s
       })
@@ -133,15 +177,23 @@ export function useSlotMutations({
     pushUndo({
       description,
       undo: async () => {
+        // Re-claim for this entry's own gestureId immediately before writing,
+        // exactly like the forward path — an undo run after a newer gesture
+        // has since touched the cell must not silently stomp it.
+        claimCell(targetKey, gestureId)
+        if (sourceKey) claimCell(sourceKey, gestureId)
         await Promise.all([
           repo.writeSlotFields(targetRow.id, { activity_id: prevTargetActivityId, flags: prevTargetFlags }),
           ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { activity_id: prevSourceActivityId, flags: prevSourceFlags })] : []),
         ])
+        const tCurrent = cellIsCurrent(targetKey, gestureId)
+        const sCurrent = sourceKey ? cellIsCurrent(sourceKey, gestureId) : false
+        if (!tCurrent && !sCurrent) return
         setSlots(prev => {
           const next = prev.map(s => {
-            if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+            if (tCurrent && s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
               return { ...s, activity_id: prevTargetActivityId, flags: prevTargetFlags }
-            if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
+            if (sourceRow && sCurrent && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
               return { ...s, activity_id: prevSourceActivityId, flags: prevSourceFlags }
             return s
           })
@@ -150,15 +202,20 @@ export function useSlotMutations({
         })
       },
       redo: async () => {
+        claimCell(targetKey, gestureId)
+        if (sourceKey) claimCell(sourceKey, gestureId)
         await Promise.all([
           repo.writeSlotFields(targetRow.id, { activity_id: incoming.activityId, flags: {} }),
           ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { activity_id: null, flags: {} })] : []),
         ])
+        const tCurrent = cellIsCurrent(targetKey, gestureId)
+        const sCurrent = sourceKey ? cellIsCurrent(sourceKey, gestureId) : false
+        if (!tCurrent && !sCurrent) return
         setSlots(prev => {
           const next = prev.map(s => {
-            if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+            if (tCurrent && s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
               return { ...s, activity_id: incoming.activityId, flags: {} }
-            if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
+            if (sourceRow && sCurrent && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
               return { ...s, activity_id: null, flags: {} }
             return s
           })
@@ -340,7 +397,7 @@ export function useSlotMutations({
     })
   }
 
-  async function expandSlot(groupId, dayId, headBlockId, tailBlockId, tailActivityId, tailActivityName, tailBlockName, dayLabel) {
+  async function expandSlot(groupId, dayId, headBlockId, tailBlockId, tailActivityId, tailActivityName, tailBlockName, dayLabel, gestureId) {
     if (!existingTemplates[route]) return
     const headSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
     const tailSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
@@ -358,6 +415,22 @@ export function useSlotMutations({
     }
 
     setActionError(null)
+
+    const headKey = cellKey(groupId, dayId, headBlockId)
+    const tailKey = cellKey(groupId, dayId, tailBlockId)
+    claimCell(headKey, gestureId)
+    claimCell(tailKey, gestureId)
+
+    // Fresh-read snapshot (facet 2, same mechanism as replaceSlot's fix): read
+    // the undo-relevant "previous" values off slotsRef, not the `slots` prop
+    // this call closed over, so a second racing expand/split on the same head
+    // cell can't compute an identical, stale "previous" value.
+    const freshSlots = slotsRef.current
+    const freshHeadSlot = freshSlots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId) ?? headSlot
+    const freshTailSlot = freshSlots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId) ?? tailSlot
+    const prevHeadFlags = freshHeadSlot.flags ?? {}
+    const prevTailActivityId = freshTailSlot.activity_id ?? null
+
     try {
       // Update tail slot: now owned by head activity, marked as tail (is_span_head = false)
       await repo.writeSlotFields(tailSlot.id, { activity_id: headActivityId, is_span_head: false })
@@ -369,48 +442,72 @@ export function useSlotMutations({
       return
     }
 
-    // Update local state
-    setSlots(prev => prev.map(s => {
-      if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId) {
-        return { ...s, activity_id: headActivityId, is_span_head: false }
-      }
-      if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId) {
-        return { ...s, flags: newFlags }
-      }
-      return s
-    }))
+    const headCurrent = cellIsCurrent(headKey, gestureId)
+    const tailCurrent = cellIsCurrent(tailKey, gestureId)
+    if (!headCurrent && !tailCurrent) return // fully superseded: no setSlots, no pushUndo
 
-    const prevHeadFlags = headSlot.flags ?? {}
-    const prevTailActivityId = tailSlot.activity_id ?? null
+    // Update local state
+    setSlots(prev => {
+      const next = prev.map(s => {
+        if (tailCurrent && s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId) {
+          return { ...s, activity_id: headActivityId, is_span_head: false }
+        }
+        if (headCurrent && s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId) {
+          return { ...s, flags: newFlags }
+        }
+        return s
+      })
+      slotsRef.current = next
+      return next
+    })
+
     pushUndo({
       description: `Made ${headActivityId ? actMap.get(headActivityId)?.name ?? 'an activity' : 'an activity'} run longer → ${tailBlockName} ${dayLabel}`,
       undo: async () => {
+        claimCell(headKey, gestureId)
+        claimCell(tailKey, gestureId)
         await repo.writeSlotFields(tailSlot.id, { activity_id: prevTailActivityId, is_span_head: true })
         await repo.writeSlotFields(headSlot.id, { flags: prevHeadFlags })
-        setSlots(prev => prev.map(s => {
-          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-            return { ...s, activity_id: prevTailActivityId, is_span_head: true }
-          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-            return { ...s, flags: prevHeadFlags }
-          return s
-        }))
+        const hCurrent = cellIsCurrent(headKey, gestureId)
+        const tCurrent = cellIsCurrent(tailKey, gestureId)
+        if (!hCurrent && !tCurrent) return
+        setSlots(prev => {
+          const next = prev.map(s => {
+            if (tCurrent && s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+              return { ...s, activity_id: prevTailActivityId, is_span_head: true }
+            if (hCurrent && s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+              return { ...s, flags: prevHeadFlags }
+            return s
+          })
+          slotsRef.current = next
+          return next
+        })
       },
       redo: async () => {
+        claimCell(headKey, gestureId)
+        claimCell(tailKey, gestureId)
         await repo.writeSlotFields(tailSlot.id, { activity_id: headActivityId, is_span_head: false })
         await repo.writeSlotFields(headSlot.id, { flags: newFlags })
-        setSlots(prev => prev.map(s => {
-          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-            return { ...s, activity_id: headActivityId, is_span_head: false }
-          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-            return { ...s, flags: newFlags }
-          return s
-        }))
+        const hCurrent = cellIsCurrent(headKey, gestureId)
+        const tCurrent = cellIsCurrent(tailKey, gestureId)
+        if (!hCurrent && !tCurrent) return
+        setSlots(prev => {
+          const next = prev.map(s => {
+            if (tCurrent && s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+              return { ...s, activity_id: headActivityId, is_span_head: false }
+            if (hCurrent && s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+              return { ...s, flags: newFlags }
+            return s
+          })
+          slotsRef.current = next
+          return next
+        })
       },
     })
   }
 
   // T4 — split a merged span back into two independent slots
-  async function splitSlot(groupId, dayId, headBlockId) {
+  async function splitSlot(groupId, dayId, headBlockId, gestureId) {
     if (!existingTemplates[route]) return
     const headSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
     if (!headSlot || !headSlot.flags?.expanded) return
@@ -423,6 +520,21 @@ export function useSlotMutations({
     delete cleanedFlags.expanded
 
     setActionError(null)
+
+    const headKey = cellKey(groupId, dayId, headBlockId)
+    const tailKey = cellKey(groupId, dayId, tailBlockId)
+    claimCell(headKey, gestureId)
+    claimCell(tailKey, gestureId)
+
+    // Fresh-read snapshot (facet 2, same mechanism as replaceSlot/expandSlot).
+    const freshSlots = slotsRef.current
+    const freshHeadSlot = freshSlots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId) ?? headSlot
+    const freshTailSlot = freshSlots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId) ?? tailSlot
+    const prevHeadFlags = freshHeadSlot.flags
+    const prevTailActivityId = freshTailSlot.activity_id ?? null
+    const prevTailIsSpanHead = freshTailSlot.is_span_head
+    const prevTailFlags = freshTailSlot.flags ?? {}
+
     try {
       await repo.writeSlotFields(tailSlot.id, { activity_id: null, is_span_head: true, flags: {} })
       await repo.writeSlotFields(headSlot.id, { flags: cleanedFlags })
@@ -431,17 +543,21 @@ export function useSlotMutations({
       return
     }
 
-    setSlots(prev => prev.map(s => {
-      if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-        return { ...s, activity_id: null, is_span_head: true, flags: {} }
-      if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-        return { ...s, flags: cleanedFlags }
-      return s
-    }))
+    const headCurrent = cellIsCurrent(headKey, gestureId)
+    const tailCurrent = cellIsCurrent(tailKey, gestureId)
+    if (!headCurrent && !tailCurrent) return // fully superseded: no setSlots, no pushUndo
 
-    const prevHeadFlags = headSlot.flags
-    const prevTailActivityId = tailSlot.activity_id ?? null
-    const prevTailIsSpanHead = tailSlot.is_span_head
+    setSlots(prev => {
+      const next = prev.map(s => {
+        if (tailCurrent && s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+          return { ...s, activity_id: null, is_span_head: true, flags: {} }
+        if (headCurrent && s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+          return { ...s, flags: cleanedFlags }
+        return s
+      })
+      slotsRef.current = next
+      return next
+    })
 
     pushUndo({
       // T18: was `Split merged slot ${headBlockId}` — a raw uuid in a tooltip.
@@ -452,26 +568,44 @@ export function useSlotMutations({
         return where ? `Split back into two → ${where}` : 'Split back into two'
       })(),
       undo: async () => {
-        await repo.writeSlotFields(tailSlot.id, { activity_id: prevTailActivityId, is_span_head: prevTailIsSpanHead ?? false, flags: tailSlot.flags ?? {} })
+        claimCell(headKey, gestureId)
+        claimCell(tailKey, gestureId)
+        await repo.writeSlotFields(tailSlot.id, { activity_id: prevTailActivityId, is_span_head: prevTailIsSpanHead ?? false, flags: prevTailFlags })
         await repo.writeSlotFields(headSlot.id, { flags: prevHeadFlags })
-        setSlots(prev => prev.map(s => {
-          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-            return { ...s, activity_id: prevTailActivityId, is_span_head: prevTailIsSpanHead ?? false }
-          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-            return { ...s, flags: prevHeadFlags }
-          return s
-        }))
+        const hCurrent = cellIsCurrent(headKey, gestureId)
+        const tCurrent = cellIsCurrent(tailKey, gestureId)
+        if (!hCurrent && !tCurrent) return
+        setSlots(prev => {
+          const next = prev.map(s => {
+            if (tCurrent && s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+              return { ...s, activity_id: prevTailActivityId, is_span_head: prevTailIsSpanHead ?? false }
+            if (hCurrent && s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+              return { ...s, flags: prevHeadFlags }
+            return s
+          })
+          slotsRef.current = next
+          return next
+        })
       },
       redo: async () => {
+        claimCell(headKey, gestureId)
+        claimCell(tailKey, gestureId)
         await repo.writeSlotFields(tailSlot.id, { activity_id: null, is_span_head: true, flags: {} })
         await repo.writeSlotFields(headSlot.id, { flags: cleanedFlags })
-        setSlots(prev => prev.map(s => {
-          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-            return { ...s, activity_id: null, is_span_head: true, flags: {} }
-          if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-            return { ...s, flags: cleanedFlags }
-          return s
-        }))
+        const hCurrent = cellIsCurrent(headKey, gestureId)
+        const tCurrent = cellIsCurrent(tailKey, gestureId)
+        if (!hCurrent && !tCurrent) return
+        setSlots(prev => {
+          const next = prev.map(s => {
+            if (tCurrent && s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+              return { ...s, activity_id: null, is_span_head: true, flags: {} }
+            if (hCurrent && s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+              return { ...s, flags: cleanedFlags }
+            return s
+          })
+          slotsRef.current = next
+          return next
+        })
       },
     })
   }
