@@ -361,6 +361,102 @@ describe('all four drag kinds use the same machine', () => {
   }
 })
 
+// ---------------------------------------------------------------------------
+// Gesture correlation: RESOLVING must only act on a commit result from the
+// gesture that is actually occupying it. A second gesture can enter RESOLVING
+// while the first gesture's commit is still in flight (POINTER_DOWN re-arms
+// even from RESOLVING) — its late result must not act on the new gesture.
+// ---------------------------------------------------------------------------
+
+describe('gesture-correlated commit results', () => {
+  const resolvingWithGesture = (gestureId) => ({
+    name: RESOLVING,
+    context: { kind: DRAG_KINDS.SLOT_MOVE, initialHit: hit('a'), movingHit: hit('b'), finalHit: hit('b'), gestureId },
+  })
+
+  it('a stale COMMIT_SUCCESS (wrong gestureId) is ignored', () => {
+    const state = resolvingWithGesture('g1')
+    const result = transition(state, { type: 'COMMIT_SUCCESS', gestureId: 'g2' })
+    expect(result.nextState).toBe(state)
+    expect(result.sideEffects).toEqual([])
+  })
+
+  it('a stale COMMIT_FAILURE (wrong gestureId) is ignored', () => {
+    const state = resolvingWithGesture('g1')
+    const result = transition(state, { type: 'COMMIT_FAILURE', gestureId: 'g2', error: new Error('x') })
+    expect(result.nextState).toBe(state)
+    expect(result.sideEffects).toEqual([])
+  })
+
+  it('a matching COMMIT_SUCCESS still transitions to Idle and clears the indicator', () => {
+    const state = resolvingWithGesture('g1')
+    const result = transition(state, { type: 'COMMIT_SUCCESS', gestureId: 'g1' })
+    expect(result.nextState).toBe(idleState)
+    expect(result.sideEffects).toEqual([{ type: 'clearDropIndicator' }])
+  })
+
+  it('a matching COMMIT_FAILURE still transitions to Idle and announces the failure', () => {
+    const state = resolvingWithGesture('g1')
+    const error = new Error('op-log write rejected')
+    const result = transition(state, { type: 'COMMIT_FAILURE', gestureId: 'g1', error })
+    expect(result.nextState).toBe(idleState)
+    expect(result.sideEffects).toEqual([
+      { type: 'clearDropIndicator' },
+      { type: 'announceCommitFailure', kind: DRAG_KINDS.SLOT_MOVE, error },
+    ])
+  })
+
+  it('reArm from RESOLVING still self-heals and stamps a fresh gestureId', () => {
+    const state = resolvingWithGesture('g1')
+    const result = transition(state, { type: 'POINTER_DOWN', kind: DRAG_KINDS.SLOT_MOVE, hit: hit('z'), gestureId: 'g2' })
+    expect(result.nextState.name).toBe(POINTING)
+    expect(result.nextState.context.gestureId).toBe('g2')
+    expect(result.sideEffects).toEqual([{ type: 'clearDropIndicator' }])
+  })
+
+  it('the commit side effect carries the gestureId of the gesture that produced it', () => {
+    const armedState = transition(idleState, { type: 'POINTER_DOWN', kind: DRAG_KINDS.SLOT_MOVE, hit: hit('a'), gestureId: 'g1' })
+    const dragStarted = transition(armedState.nextState, { type: 'DRAG_START', hit: hit('a') })
+    const released = transition(dragStarted.nextState, { type: 'POINTER_UP', hit: hit('b') })
+    const commitEffect = released.sideEffects.find(e => e.type === 'commit')
+    expect(commitEffect.gestureId).toBe('g1')
+  })
+
+  it('end-to-end interleaving: gesture 2 owns RESOLVING, gesture 1s late result is dropped, gesture 2s own result lands', () => {
+    // Gesture 1: armed, dragged, released over a valid hit -> Resolving(g1).
+    let step = transition(idleState, { type: 'POINTER_DOWN', kind: DRAG_KINDS.SLOT_MOVE, hit: hit('a'), gestureId: 'g1' })
+    step = transition(step.nextState, { type: 'DRAG_START', hit: hit('a') })
+    step = transition(step.nextState, { type: 'POINTER_UP', hit: hit('b') })
+    expect(step.nextState.name).toBe(RESOLVING)
+    expect(step.nextState.context.gestureId).toBe('g1')
+
+    // Gesture 2 starts before gesture 1's commit resolves: POINTER_DOWN re-arms,
+    // tearing Resolving(g1) down.
+    step = transition(step.nextState, { type: 'POINTER_DOWN', kind: DRAG_KINDS.SLOT_MOVE, hit: hit('c'), gestureId: 'g2' })
+    expect(step.nextState.name).toBe(POINTING)
+    step = transition(step.nextState, { type: 'DRAG_START', hit: hit('c') })
+    step = transition(step.nextState, { type: 'POINTER_UP', hit: hit('d') })
+    expect(step.nextState.name).toBe(RESOLVING)
+    expect(step.nextState.context.gestureId).toBe('g2')
+
+    // Gesture 1's late COMMIT_SUCCESS arrives — must be ignored; state stays
+    // Resolving(g2) unchanged (the bug: before the fix this would flip to Idle).
+    const stateBeforeStaleResult = step.nextState
+    step = transition(step.nextState, { type: 'COMMIT_SUCCESS', gestureId: 'g1' })
+    expect(step.nextState).toBe(stateBeforeStaleResult)
+    expect(step.sideEffects).toEqual([])
+
+    // Gesture 2's own COMMIT_FAILURE lands and is the only one that acts.
+    const error = new Error('write rejected')
+    step = transition(step.nextState, { type: 'COMMIT_FAILURE', gestureId: 'g2', error })
+    expect(step.nextState).toBe(idleState)
+    expect(step.sideEffects).toEqual([
+      { type: 'clearDropIndicator' },
+      { type: 'announceCommitFailure', kind: DRAG_KINDS.SLOT_MOVE, error },
+    ])
+  })
+})
+
 describe('purity', () => {
   it('does not mutate the state it is given', () => {
     const state = dragging()

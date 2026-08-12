@@ -42,7 +42,14 @@ function isValidHit(hit) {
 function armed(event, extra) {
   return {
     name: POINTING,
-    context: { kind: event.kind, initialHit: event.hit ?? null, movingHit: null, finalHit: null, ...extra },
+    context: {
+      kind: event.kind,
+      initialHit: event.hit ?? null,
+      movingHit: null,
+      finalHit: null,
+      gestureId: event.gestureId,
+      ...extra,
+    },
   }
 }
 
@@ -115,7 +122,13 @@ const table = {
         nextState: { name: RESOLVING, context: { ...state.context, finalHit } },
         sideEffects: [
           { type: 'hideDragPreview' },
-          { type: 'commit', kind: state.context.kind, initialHit: state.context.initialHit, finalHit },
+          {
+            type: 'commit',
+            kind: state.context.kind,
+            initialHit: state.context.initialHit,
+            finalHit,
+            gestureId: state.context.gestureId,
+          },
         ],
       }
     },
@@ -130,14 +143,24 @@ const table = {
     DRAG_START: ignore,
     POINTER_MOVE: ignore,
     POINTER_UP: ignore,
-    COMMIT_SUCCESS: () => ({ nextState: idleState, sideEffects: [{ type: 'clearDropIndicator' }] }),
-    COMMIT_FAILURE: (state, event) => ({
-      nextState: idleState,
-      sideEffects: [
-        { type: 'clearDropIndicator' },
-        { type: 'announceCommitFailure', kind: state.context.kind, error: event.error ?? null },
-      ],
-    }),
+    // A commit result only belongs to the gesture that issued it. A second
+    // gesture can enter RESOLVING while the first gesture's commit is still
+    // in flight (POINTER_DOWN re-arms even from RESOLVING); its late result
+    // must not act on the gesture now occupying this state.
+    COMMIT_SUCCESS: (state, event) => {
+      if (event.gestureId !== state.context.gestureId) return ignore(state)
+      return { nextState: idleState, sideEffects: [{ type: 'clearDropIndicator' }] }
+    },
+    COMMIT_FAILURE: (state, event) => {
+      if (event.gestureId !== state.context.gestureId) return ignore(state)
+      return {
+        nextState: idleState,
+        sideEffects: [
+          { type: 'clearDropIndicator' },
+          { type: 'announceCommitFailure', kind: state.context.kind, error: event.error ?? null },
+        ],
+      }
+    },
     // Esc during an in-flight write: stop showing in-flight. The write may still
     // land; the op-log, not this machine, is the authority on whether it did.
     CANCEL: () => ({ nextState: idleState, sideEffects: [{ type: 'clearDropIndicator' }] }),
