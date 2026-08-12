@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 vi.mock('../localClient', () => ({
   localClient: {
@@ -12,8 +13,19 @@ vi.mock('../localClient', () => ({
   },
 }))
 
+vi.mock('xlsx', () => ({
+  utils: {
+    book_new: vi.fn(() => ({})),
+    book_append_sheet: vi.fn(),
+    sheet_to_json: vi.fn(() => []),
+  },
+  writeFile: vi.fn(),
+  read: vi.fn(() => ({ SheetNames: ['Sheet1'], Sheets: { Sheet1: {} } })),
+}))
+
 import GroupsScreen from './GroupsScreen'
 import { localClient } from '../localClient'
+import * as XLSX from 'xlsx'
 
 const CAMP_ID = 'camp-1'
 
@@ -331,5 +343,56 @@ describe('GroupsScreen', () => {
         screen.queryByText('Only an admin can delete groups — no groups were deleted.')
       ).not.toBeNull()
     )
+  })
+})
+
+describe('GroupsScreen — import', () => {
+  it('imports rows from Excel, resolving unit names and skipping duplicates and rows with a warning', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [group({ id: 'g1', name: 'Yeladim 1' })] : [tier({ id: 'tier-1', name: 'Yeladim' })])
+    )
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+
+    const file = new File(['dummy'], 'groups.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+
+    const rows = [
+      { name: 'yeladim 1', tier_name: 'Yeladim', availability: 'all' }, // duplicate, case-insensitive
+      { name: '', tier_name: '', availability: 'all' }, // missing name -> warning
+      { name: 'Bogrim 1', tier_name: 'Yeladim', availability: 'morning' }, // new, valid
+    ]
+    XLSX.utils.sheet_to_json.mockReturnValue(rows)
+
+    await userEvent.upload(fileInput, file)
+
+    await waitFor(() => expect(screen.queryByText(/1 with warnings/)).not.toBeNull())
+    fireEvent.click(screen.getByText(/Import 2/))
+
+    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
+    expect(screen.queryByText(/2 skipped/)).not.toBeNull()
+    const namesWritten = localClient.write.mock.calls.filter(c => c[3] === 'name').map(c => c[4])
+    expect(namesWritten).toEqual(['Bogrim 1'])
+    const availWritten = localClient.write.mock.calls.filter(c => c[3] === 'availability').map(c => c[4])
+    expect(availWritten).toEqual(['morning'])
+  })
+
+  it('flags an import row whose unit name does not match any existing unit', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [] : [tier({ id: 'tier-1', name: 'Yeladim' })])
+    )
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('No groups yet')).not.toBeNull())
+
+    const file = new File(['dummy'], 'groups.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'Ghost Group', tier_name: 'Nonexistent Unit', availability: 'all' },
+    ])
+
+    await userEvent.upload(fileInput, file)
+
+    await waitFor(() => expect(screen.queryByText('Unit "Nonexistent Unit" not found')).not.toBeNull())
   })
 })

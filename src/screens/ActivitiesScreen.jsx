@@ -9,6 +9,7 @@ import ScreenIntro from '../components/ScreenIntro'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { createScheduleRepository } from '../data/scheduleRepository'
+import { createSetupCrudRepository } from '../data/setupCrudRepository'
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
@@ -264,6 +265,11 @@ function Field({ label, children }) {
 }
 
 const repo = createScheduleRepository({ localClient })
+// Repository-only migration (not the full useCrudScreen hook): load() fetches
+// activities, tiers, AND groups in parallel plus a separate weekId-driven
+// exclusions effect, which is outside the hook's single-entity load model.
+// See docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md.
+const repository = createSetupCrudRepository({ localClient })
 
 export default function ActivitiesScreen({ campId, role, onNavigate, weekId, weeks = [], onSelectWeek }) {
   const [activities, setActivities] = useState([])
@@ -351,27 +357,16 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
     setPendingExclusion(null)
   }
 
-  // Fires one write() per field (the op-log is field-level) and surfaces
-  // the first failure rather than a silent partial write — see
-  // TiersScreen.jsx's identical helper. Boolean/array fields are serialized
-  // here since operations.value only accepts strings/null.
-  async function writeFields(id, fields) {
-    const token = localStorage.getItem('shoresh-token')
-    for (const [field, value] of Object.entries(fields)) {
-      const result = await localClient.write(token, 'activities', id, field, serializeFieldValue(field, value))
-      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error(`write failed for field "${field}"`)
-      }
-    }
+  // Boolean/array fields are serialized here since operations.value only
+  // accepts strings/null — the repository writes whatever value it's given.
+  function serializeFields(fields) {
+    return Object.fromEntries(Object.entries(fields).map(([field, value]) => [field, serializeFieldValue(field, value)]))
   }
 
-  async function cleanupPartialRow(id) {
-    try {
-      const token = localStorage.getItem('shoresh-token')
-      await localClient.deleteEntity(token, 'activities', id)
-    } catch {
-      // best-effort only
-    }
+  // Thin wrapper, not a reimplementation: curries the entity name and composes
+  // Activities-only serialization before delegating to the shared repository.
+  async function writeFields(id, fields) {
+    await repository.writeFields('activities', id, serializeFields(fields))
   }
 
   // Called by ActivityModal. Re-throws on failure so the modal's own
@@ -391,12 +386,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         await writeFields(id, { name: trimmedName, ...rest })
       } else {
         const newId = crypto.randomUUID()
-        try {
-          await writeFields(newId, { name: trimmedName, camp_id: campId, ...rest })
-        } catch (err) {
-          await cleanupPartialRow(newId)
-          throw err
-        }
+        await repository.createRecord('activities', newId, serializeFields({ name: trimmedName, camp_id: campId, ...rest }))
       }
       await load()
       setModal(null)
@@ -448,7 +438,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
     }
     const newId = crypto.randomUUID()
     try {
-      await writeFields(newId, {
+      await repository.createRecord('activities', newId, serializeFields({
         name: copyName,
         camp_id: campId,
         location: a.location,
@@ -465,10 +455,9 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         prefer_before_day_min: a.prefer_before_day_min,
         weather_alternative_id: a.weather_alternative_id,
         notes: a.notes,
-      })
+      }))
       await load()
     } catch (err) {
-      await cleanupPartialRow(newId)
       setError(
         /UNIQUE/i.test(err?.message ?? '')
           ? `An activity named "${copyName}" already exists — rename it before duplicating again.`
@@ -490,7 +479,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
     setQuickAdding(true)
     const newId = crypto.randomUUID()
     try {
-      await writeFields(newId, {
+      await repository.createRecord('activities', newId, serializeFields({
         name: trimmedName,
         camp_id: campId,
         location: null,
@@ -507,11 +496,10 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         prefer_before_day_min: null,
         weather_alternative_id: null,
         notes: null,
-      })
+      }))
       setQuickName('')
       await load()
     } catch (err) {
-      await cleanupPartialRow(newId)
       setError(
         /UNIQUE/i.test(err?.message ?? '')
           ? 'An activity with this name already exists — choose a different name.'
@@ -524,27 +512,14 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
 
   async function deleteAll() {
     if (!window.confirm('Delete all activities? They can be restored from Trash.')) return
-    const token = localStorage.getItem('shoresh-token')
     // Re-fetch immediately before building the id list rather than using the
     // closed-over `activities` state — if another device synced in new
     // activities between page-load and this click, the stale in-memory
     // snapshot would silently skip them with no indication anything was missed.
     const freshActivities = await localClient.list('activities')
     const ids = (freshActivities || []).filter(a => a.camp_id === campId).map(a => a.id)
-    let succeeded = 0
-    let failedDueToRole = false
-    for (const id of ids) {
-      try {
-        const result = await localClient.deleteEntity(token, 'activities', id)
-        if (result && (result.status === 'applied' || result.status === 'queued')) {
-          succeeded++
-        }
-      } catch (err) {
-        if (/admin role required/i.test(err?.message ?? '')) failedDueToRole = true
-      }
-    }
+    const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('activities', ids)
     await load()
-    const failed = ids.length - succeeded
     if (failed > 0) {
       setError(
         failedDueToRole
@@ -633,7 +608,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         const newId = crypto.randomUUID()
         try {
           // `name` first — same collision-fails-atomically reasoning as saveActivity.
-          await writeFields(newId, {
+          await repository.createRecord('activities', newId, serializeFields({
             name: row.name,
             camp_id: campId,
             location: row.location,
@@ -649,9 +624,8 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
             prefer_before_day_min: row.prefer_before_day_min,
             weather_alternative_id: row.weather_alternative_id,
             notes: row.notes,
-          })
+          }))
         } catch {
-          await cleanupPartialRow(newId)
           skipped++
           continue
         }
