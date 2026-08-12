@@ -60,7 +60,9 @@ function renderGroupView(extra = {}) {
         startFill={noop}
         removeOverlay={noop}
         handleStampClick={noop}
-        onEditSlot={noop}
+        eligibleActivitiesFor={() => []}
+        onPlace={noop}
+        onCreateNew={noop}
         fillState={null}
         {...extra}
       />
@@ -229,7 +231,8 @@ describe('T59 — accessible names', () => {
           actMap={actMap} anchorMap={new Map()}
           releaseCell={noop} geometry={geometry}
           handleFillEnter={noop} startFill={noop} removeOverlay={noop}
-          handleStampClick={noop} onEditSlot={noop} fillState={null}
+          handleStampClick={noop} eligibleActivitiesFor={() => []}
+          onPlace={noop} onCreateNew={noop} fillState={null}
         />
       </DndContext>,
     )

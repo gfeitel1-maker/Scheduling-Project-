@@ -10,8 +10,14 @@ import ScreenIntro from '../components/ScreenIntro'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { createScheduleRepository } from '../data/scheduleRepository'
+import { createSetupCrudRepository } from '../data/setupCrudRepository'
 
 const repo = createScheduleRepository({ localClient })
+// Repository-only migration (not the full useCrudScreen hook): load() fetches
+// groups AND tiers in parallel plus a separate weekId-driven exclusions
+// effect, which is outside the hook's single-entity load model.
+// See docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md.
+const repository = createSetupCrudRepository({ localClient })
 
 const AVAIL_OPTIONS = [
   { value: 'all', label: 'All Day' },
@@ -164,19 +170,6 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
     setPendingExclusion(null)
   }
 
-  // Fires one write() per field (the op-log is field-level) and surfaces
-  // the first failure rather than a silent partial write — see
-  // CohortsScreen.jsx's identical helper.
-  async function writeFields(id, fields) {
-    const token = localStorage.getItem('shoresh-token')
-    for (const [field, value] of Object.entries(fields)) {
-      const result = await localClient.write(token, 'groups', id, field, value)
-      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error(`write failed for field "${field}"`)
-      }
-    }
-  }
-
   async function addGroup() {
     if (!newName.trim()) return
     setAdding(true)
@@ -186,30 +179,14 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       // ordering. ensureExists creates the row as part of applying whichever
       // field write lands first, so a UNIQUE(camp_id, name) collision on the
       // `name` write fails atomically before the row ever exists, rather
-      // than leaving a camp_id-only orphan behind.
-      try {
-        await writeFields(id, {
-          name: newName.trim(),
-          camp_id: campId,
-          tier_id: newTierId || null,
-          availability: newAvail,
-        })
-      } catch (err) {
-        // Defense-in-depth backstop for failure causes OTHER than a name
-        // collision (IPC/disk failure mid-loop): if ensureExists already
-        // created the row on an earlier field write in this same "add" and
-        // a later field write then failed, clean up the partial row rather
-        // than leaving a half-populated group behind. Swallow any error
-        // from the delete attempt itself so a failed cleanup doesn't mask
-        // the original failure.
-        try {
-          const token = localStorage.getItem('shoresh-token')
-          await localClient.deleteEntity(token, 'groups', id)
-        } catch {
-          // best-effort only
-        }
-        throw err
-      }
+      // than leaving a camp_id-only orphan behind. createRecord does the
+      // write-then-cleanup-on-failure dance.
+      await repository.createRecord('groups', id, {
+        name: newName.trim(),
+        camp_id: campId,
+        tier_id: newTierId || null,
+        availability: newAvail,
+      })
       setNewName(''); setNewTierId(''); setNewAvail('all')
       await load()
     } catch (err) {
@@ -225,7 +202,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
 
   async function saveGroup(id, fields) {
     try {
-      await writeFields(id, fields)
+      await repository.writeFields('groups', id, fields)
       await load()
     } catch (err) {
       setError(describeWriteFailure(err, 'That group could not be saved.'))
@@ -258,7 +235,6 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
 
   async function deleteAll() {
     if (!window.confirm('Delete all groups? They can be restored from Trash.')) return
-    const token = localStorage.getItem('shoresh-token')
     // Re-fetch immediately before building the id list rather than using the
     // closed-over `groups` state — if another device synced in new groups
     // between page-load and this click, the stale in-memory snapshot would
@@ -267,23 +243,8 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
     const ids = (freshGroups || [])
       .filter(g => g.camp_id === campId)
       .map(g => g.id)
-    let succeeded = 0
-    let failedDueToRole = false
-    for (const id of ids) {
-      try {
-        const result = await localClient.deleteEntity(token, 'groups', id)
-        if (result && (result.status === 'applied' || result.status === 'queued')) {
-          succeeded++
-        } else {
-          console.error(`Failed to delete group ${id}`)
-        }
-      } catch (err) {
-        if (/admin role required/i.test(err?.message ?? '')) failedDueToRole = true
-        console.error(`Failed to delete group ${id}`, err)
-      }
-    }
+    const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('groups', ids)
     await load()
-    const failed = ids.length - succeeded
     if (failed > 0) {
       setError(
         failedDueToRole
@@ -335,23 +296,14 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       if (existingNames.has(row.name.toLowerCase())) { skipped++; continue }
       try {
         const id = crypto.randomUUID()
-        try {
-          // `name` first — same collision-fails-atomically reasoning as addGroup.
-          await writeFields(id, {
-            name: row.name,
-            camp_id: campId,
-            tier_id: row.tierId,
-            availability: row.availability,
-          })
-        } catch (err) {
-          try {
-            const token = localStorage.getItem('shoresh-token')
-            await localClient.deleteEntity(token, 'groups', id)
-          } catch {
-            // best-effort only
-          }
-          throw err
-        }
+        // `name` first — same collision-fails-atomically reasoning as
+        // addGroup. createRecord does the write-then-cleanup-on-failure dance.
+        await repository.createRecord('groups', id, {
+          name: row.name,
+          camp_id: campId,
+          tier_id: row.tierId,
+          availability: row.availability,
+        })
         added++
       } catch (err) {
         console.error(`Failed to import group "${row.name}"`, err)

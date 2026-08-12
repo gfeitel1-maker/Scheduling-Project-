@@ -32,8 +32,7 @@ function baseDeps(overrides = {}) {
     getSlot: vi.fn(),
     expandSlot: vi.fn(),
     placeActivityManual: vi.fn(),
-    swapSlots: vi.fn(),
-    allowSwap: true,
+    replaceSlot: vi.fn(),
     ...overrides,
   }
 }
@@ -41,83 +40,110 @@ function baseDeps(overrides = {}) {
 const filledTarget = { activity_id: 'act-2', is_anchor: false }
 
 describe('makeDragHandlers.commit', () => {
-  it('group view: drop onto a filled cell calls swapSlots (allowSwap true)', () => {
-    const deps = baseDeps({ allowSwap: true, getSlot: vi.fn(() => filledTarget) })
+  it('group view: drop onto a filled cell calls replaceSlot', () => {
+    const deps = baseDeps({ getSlot: vi.fn(() => filledTarget) })
     const { commit } = makeDragHandlers(deps)
     const active = { data: { current: { slot: { groupId: 'g1', dayId: 'd1', blockId: 'b1', activity_id: 'act-1' } } } }
     commit(active, hit('g1', 'd1', 'b2'))
-    expect(deps.swapSlots).toHaveBeenCalledTimes(1)
+    expect(deps.replaceSlot).toHaveBeenCalledWith(
+      { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' },
+      { groupId: 'g1', dayId: 'd1', blockId: 'b2' },
+      undefined
+    )
   })
 
-  it('day view: drop onto a filled cell still calls swapSlots (regression)', () => {
-    const deps = baseDeps({ allowSwap: true, getSlot: vi.fn(() => filledTarget) })
+  it('day view: drop onto a filled cell also calls replaceSlot', () => {
+    const deps = baseDeps({ getSlot: vi.fn(() => filledTarget) })
     const { commit } = makeDragHandlers(deps)
     const active = { data: { current: { slot: { groupId: 'g1', dayId: 'd1', blockId: 'b1', activity_id: 'act-1' } } } }
     commit(active, hit('g1', 'd1', 'b2'))
-    expect(deps.swapSlots).toHaveBeenCalledTimes(1)
+    expect(deps.replaceSlot).toHaveBeenCalledWith(
+      { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' },
+      { groupId: 'g1', dayId: 'd1', blockId: 'b2' },
+      undefined
+    )
   })
 
-  it('allowSwap: false short-circuits without crashing', () => {
-    const deps = baseDeps({ allowSwap: false, getSlot: vi.fn(() => filledTarget) })
-    const { commit } = makeDragHandlers(deps)
-    const active = { data: { current: { slot: { groupId: 'g1', dayId: 'd1', blockId: 'b1', activity_id: 'act-1' } } } }
-    expect(() => commit(active, hit('g1', 'd1', 'b2'))).not.toThrow()
-    expect(deps.swapSlots).not.toHaveBeenCalled()
-  })
-
-  // The old code got this for free: an empty cell's droppable carried no `slot`
-  // in its data, so the swap branch returned early. Pointer resolution hits
-  // every cell equally, so the rule has to be stated. Moving an activity into an
-  // empty cell would be a NEW capability, which T58 is explicitly not.
-  it('does not swap onto an empty cell (no slot row)', () => {
-    const deps = baseDeps({ allowSwap: true, getSlot: vi.fn(() => undefined) })
+  it('drop onto an EMPTY cell also calls replaceSlot (grid-to-grid move, not a no-op)', () => {
+    const deps = baseDeps({ getSlot: vi.fn(() => ({ activity_id: null, is_anchor: false })) })
     const { commit } = makeDragHandlers(deps)
     const active = { data: { current: { slot: { groupId: 'g1', dayId: 'd1', blockId: 'b1', activity_id: 'act-1' } } } }
     commit(active, hit('g1', 'd1', 'b2'))
-    expect(deps.swapSlots).not.toHaveBeenCalled()
+    expect(deps.replaceSlot).toHaveBeenCalledWith(
+      { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' },
+      { groupId: 'g1', dayId: 'd1', blockId: 'b2' },
+      undefined
+    )
   })
 
-  it('does not swap onto an anchor', () => {
-    const deps = baseDeps({ allowSwap: true, getSlot: vi.fn(() => ({ is_anchor: true, activity_id: 'act-2' })) })
+  it('does not replace onto an empty target when there is no slot row at all (getSlot returns undefined)', () => {
+    const deps = baseDeps({ getSlot: vi.fn(() => undefined) })
     const { commit } = makeDragHandlers(deps)
     const active = { data: { current: { slot: { groupId: 'g1', dayId: 'd1', blockId: 'b1', activity_id: 'act-1' } } } }
     commit(active, hit('g1', 'd1', 'b2'))
-    expect(deps.swapSlots).not.toHaveBeenCalled()
+    expect(deps.replaceSlot).not.toHaveBeenCalled()
   })
 
-  it('does not swap a cell onto itself', () => {
-    const deps = baseDeps({ allowSwap: true, getSlot: vi.fn(() => filledTarget) })
+  it('drop onto an anchor cell does not call replaceSlot', () => {
+    const deps = baseDeps({ getSlot: vi.fn(() => ({ is_anchor: true })) })
+    const { commit } = makeDragHandlers(deps)
+    const active = { data: { current: { slot: { groupId: 'g1', dayId: 'd1', blockId: 'b1', activity_id: 'act-1' } } } }
+    commit(active, hit('g1', 'd1', 'b2'))
+    expect(deps.replaceSlot).not.toHaveBeenCalled()
+  })
+
+  it('does not replace a cell onto itself', () => {
+    const deps = baseDeps({ getSlot: vi.fn(() => filledTarget) })
     const { commit } = makeDragHandlers(deps)
     const active = { data: { current: { slot: { groupId: 'g1', dayId: 'd1', blockId: 'b1', activity_id: 'act-1' } } } }
     commit(active, hit('g1', 'd1', 'b1'))
-    expect(deps.swapSlots).not.toHaveBeenCalled()
+    expect(deps.replaceSlot).not.toHaveBeenCalled()
   })
 
   it('is inert when there is no resolved hit', () => {
-    const deps = baseDeps({ allowSwap: true, getSlot: vi.fn(() => filledTarget) })
+    const deps = baseDeps({ getSlot: vi.fn(() => filledTarget) })
     const { commit } = makeDragHandlers(deps)
     const active = { data: { current: { slot: { groupId: 'g1', dayId: 'd1', blockId: 'b1', activity_id: 'act-1' } } } }
     expect(() => commit(active, null)).not.toThrow()
-    expect(deps.swapSlots).not.toHaveBeenCalled()
+    expect(deps.replaceSlot).not.toHaveBeenCalled()
+  })
+
+  it('dragging a grid card onto the palette clears the source slot', () => {
+    const deps = baseDeps()
+    const { commit } = makeDragHandlers(deps)
+    const active = { data: { current: { slot: { groupId: 'g1', dayId: 'd1', blockId: 'b1', activity_id: 'act-1' } } } }
+    commit(active, { toPalette: true, valid: true })
+    expect(deps.replaceSlot).toHaveBeenCalledWith(
+      { activityId: null },
+      { groupId: 'g1', dayId: 'd1', blockId: 'b1' },
+      undefined
+    )
+  })
+
+  it('a toPalette release with no source slot (e.g. a palette-to-palette drag) is a no-op', () => {
+    const deps = baseDeps()
+    const { commit } = makeDragHandlers(deps)
+    const active = { data: { current: { paletteActivity: { id: 'act-1' } } } }
+    expect(() => commit(active, { toPalette: true, valid: true })).not.toThrow()
+    expect(deps.replaceSlot).not.toHaveBeenCalled()
+    expect(deps.placeActivityManual).not.toHaveBeenCalled()
   })
 
   describe('expand-drag and palette-drop behave identically for both views', () => {
     for (const view of ['group', 'day']) {
       it(`${view}: expand-drag calls expandSlot when the tail block is adjacent`, () => {
         const deps = baseDeps({
-          allowSwap: true,
           getSlot: vi.fn(() => ({ activity_id: 'act-1', is_anchor: false })),
         })
         const { commit } = makeDragHandlers(deps)
         const active = { data: { current: { expandDrag: { groupId: 'g1', dayId: 'd1', blockId: 'b1' } } } }
         commit(active, hit('g1', 'd1', 'b2'))
-        expect(deps.expandSlot).toHaveBeenCalledWith('g1', 'd1', 'b1', 'b2', 'act-1', 'Swim', 'Block 2', 'Monday')
-        expect(deps.swapSlots).not.toHaveBeenCalled()
+        expect(deps.expandSlot).toHaveBeenCalledWith('g1', 'd1', 'b1', 'b2', 'act-1', 'Swim', 'Block 2', 'Monday', undefined)
+        expect(deps.replaceSlot).not.toHaveBeenCalled()
       })
 
       it(`${view}: expand-drag ignores a non-adjacent tail block`, () => {
         const deps = baseDeps({
-          allowSwap: true,
           timeBlocks: [
             { id: 'b1', sort_order: 0, name: 'Block 1' },
             { id: 'b2', sort_order: 1, name: 'Block 2' },
@@ -133,7 +159,6 @@ describe('makeDragHandlers.commit', () => {
 
       it(`${view}: expand-drag ignores a tail in another column`, () => {
         const deps = baseDeps({
-          allowSwap: true,
           getSlot: vi.fn(() => ({ activity_id: 'act-1', is_anchor: false })),
         })
         const { commit } = makeDragHandlers(deps)
@@ -142,21 +167,43 @@ describe('makeDragHandlers.commit', () => {
         expect(deps.expandSlot).not.toHaveBeenCalled()
       })
 
-      it(`${view}: palette-drop calls placeActivityManual`, () => {
-        const deps = baseDeps({ allowSwap: true, getSlot: vi.fn(() => ({ is_anchor: false })) })
+      it(`${view}: palette-drop onto an EMPTY cell calls placeActivityManual`, () => {
+        const deps = baseDeps({ getSlot: vi.fn(() => ({ is_anchor: false, activity_id: null })) })
         const { commit } = makeDragHandlers(deps)
         const active = { data: { current: { paletteActivity: { id: 'act-1' } } } }
         commit(active, hit('g1', 'd1', 'b1'))
-        expect(deps.placeActivityManual).toHaveBeenCalledWith('act-1', 'g1', 'd1', 'b1')
-        expect(deps.swapSlots).not.toHaveBeenCalled()
+        expect(deps.placeActivityManual).toHaveBeenCalledWith('act-1', 'g1', 'd1', 'b1', undefined, undefined)
+        expect(deps.replaceSlot).not.toHaveBeenCalled()
+      })
+
+      it(`${view}: palette-drop onto an EMPTY cell forwards the drag gestureId as placeActivityManual's claim id (2026-08-12 ADR, FIX 1)`, () => {
+        const deps = baseDeps({ getSlot: vi.fn(() => ({ is_anchor: false, activity_id: null })) })
+        const { commit } = makeDragHandlers(deps)
+        const active = { data: { current: { paletteActivity: { id: 'act-1' } } } }
+        commit(active, hit('g1', 'd1', 'b1'), 'gesture-xyz')
+        expect(deps.placeActivityManual).toHaveBeenCalledWith('act-1', 'g1', 'd1', 'b1', undefined, 'gesture-xyz')
+      })
+
+      it(`${view}: palette-drop onto an occupied cell calls replaceSlot, not placeActivityManual`, () => {
+        const deps = baseDeps({ getSlot: vi.fn(() => ({ is_anchor: false, activity_id: 'act-2' })) })
+        const { commit } = makeDragHandlers(deps)
+        const active = { data: { current: { paletteActivity: { id: 'act-1' } } } }
+        commit(active, hit('g1', 'd1', 'b1'))
+        expect(deps.replaceSlot).toHaveBeenCalledWith(
+          { activityId: 'act-1' },
+          { groupId: 'g1', dayId: 'd1', blockId: 'b1' },
+          undefined
+        )
+        expect(deps.placeActivityManual).not.toHaveBeenCalled()
       })
 
       it(`${view}: palette-drop onto an anchor is refused`, () => {
-        const deps = baseDeps({ allowSwap: true, getSlot: vi.fn(() => ({ is_anchor: true })) })
+        const deps = baseDeps({ getSlot: vi.fn(() => ({ is_anchor: true })) })
         const { commit } = makeDragHandlers(deps)
         const active = { data: { current: { paletteActivity: { id: 'act-1' } } } }
         commit(active, hit('g1', 'd1', 'b1'))
         expect(deps.placeActivityManual).not.toHaveBeenCalled()
+        expect(deps.replaceSlot).not.toHaveBeenCalled()
       })
     }
   })
@@ -165,11 +212,6 @@ describe('makeDragHandlers.commit', () => {
 // ---------------------------------------------------------------------------
 // Call-site wiring guard.
 //
-// Every test above constructs allowSwap itself, so none of them can observe what
-// ScheduleScreen.jsx actually passes. Before this guard existed, flipping the
-// group call site to `allowSwap: false` left the ENTIRE suite green — the factory
-// logic was covered, the wiring was not.
-//
 // The third assertion (distinct setExpandDragActive setters) is GONE, deliberately:
 // T58 deleted those setters. Its purpose was to stop one shared boolean
 // cross-highlighting expand state between the group and day views; that class of
@@ -177,27 +219,23 @@ describe('makeDragHandlers.commit', () => {
 // DndContext gets its own useDragFSM, and drag-over is a data attribute on one
 // element rather than a flag broadcast to every cell. The two greps below are
 // what replace it.
+//
+// The swap-gating boolean this file used to guard is retired
+// (drag-first-placement, 2026-08-09): every grid-to-grid or palette-onto-
+// occupied drop now always replaces, so there is no longer a product-decision
+// toggle to guard here.
 // ---------------------------------------------------------------------------
 describe('ScheduleScreen call-site wiring', () => {
   const source = fs.readFileSync(SCHEDULE_SCREEN_FILE, 'utf8')
   const callSites = source
     .split('\n')
-    .filter((line) => line.includes('makeDragHandlers({'))
+    .filter((line) => line.includes('makeDragHandlers({') || line.includes('makeDragHandlers(dragDeps'))
 
   it('has exactly two makeDragHandlers call sites', () => {
     expect(
       callSites.length,
       `Expected 2 makeDragHandlers call sites in ScheduleScreen.jsx, found ${callSites.length}. If a view was added or removed, update this guard deliberately.`
     ).toBe(2)
-  })
-
-  it('passes allowSwap: true at BOTH call sites (group view swap is an approved product decision)', () => {
-    for (const line of callSites) {
-      expect(
-        /allowSwap:\s*true/.test(line),
-        `A makeDragHandlers call site in ScheduleScreen.jsx does not pass 'allowSwap: true':\n  ${line.trim()}\nGroup view supporting slot-swap is a recorded product decision (see "C2 — Product decision (resolved 2026-08-04)" in docs/work/specs/architecture-restructure-proposal.md). Changing this is a director-visible behavior change and needs a new recorded decision, not a code edit.`
-      ).toBe(true)
-    }
   })
 
   it('keeps no boolean drag flag in ScheduleScreen.jsx (T58)', () => {

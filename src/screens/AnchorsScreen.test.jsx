@@ -44,8 +44,8 @@ beforeEach(() => {
     removeItem: () => {},
   })
   vi.stubGlobal('crypto', { randomUUID: () => `new-anchor-id-${idCounter++}` })
-  vi.spyOn(window, 'confirm').mockReturnValue(true)
-  vi.spyOn(console, 'error').mockImplementation(() => {})
+  vi.spyOn(window, 'confirm').mockReset().mockReturnValue(true)
+  vi.spyOn(console, 'error').mockReset().mockImplementation(() => {})
   localClient.list.mockReset()
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
@@ -147,6 +147,112 @@ describe('AnchorsScreen cleanup-failure surfacing', () => {
     })
     // The old generic message must NOT be shown — it falsely implies nothing happened.
     expect(screen.queryByText('Failed to save — check your connection and try again')).toBeNull()
+  })
+})
+
+// Characterization tests pinning the CURRENT write/serialize/delete-all
+// behavior before the setupCrudRepository migration. They must stay green,
+// unedited, against both the pre- and post-migration screen. See
+// docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md (Anchors/Cohorts
+// follow-up).
+describe('AnchorsScreen write serialization (characterization)', () => {
+  it('serializes is_all_groups to a number and group_ids to a JSON string on write', async () => {
+    const days = [day({ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 1 })]
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'anchor_activities') return Promise.resolve([])
+      if (entity === 'days_of_operation') return Promise.resolve(days)
+      if (entity === 'time_blocks') return Promise.resolve([block()])
+      if (entity === 'tiers') return Promise.resolve([])
+      if (entity === 'groups') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('+ Add Fixed Event'))
+    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'Mifkad' } })
+    fireEvent.click(screen.getByText('Monday'))
+    fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add Fixed Event' }))
+
+    await waitFor(() => {
+      const allGroupsCall = localClient.write.mock.calls.find(c => c[3] === 'is_all_groups')
+      expect(allGroupsCall).toBeTruthy()
+      // Boolean true is serialized to the number 1, never the raw boolean.
+      expect(allGroupsCall[4]).toBe(1)
+    })
+    const groupIdsCall = localClient.write.mock.calls.find(c => c[3] === 'group_ids')
+    expect(groupIdsCall).toBeTruthy()
+    // Array is serialized to a JSON string, never the raw array.
+    expect(groupIdsCall[4]).toBe('[]')
+  })
+})
+
+describe('AnchorsScreen deleteAll (characterization)', () => {
+  function existing(overrides = {}) {
+    return {
+      id: 'anchor-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Mifkad',
+      day_id: 'd1', time_block_id: 'block-1', is_all_groups: 1, group_ids: null,
+      ...overrides,
+    }
+  }
+
+  it('re-fetches immediately before deleting and deletes every camp+cohort-scoped row, catching rows synced in after load', async () => {
+    // Initial load sees only anchor-1.
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'anchor_activities' ? [existing()] : [])
+    )
+    render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+
+    // Another device synced in anchor-2 between load and the click.
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'anchor_activities'
+        ? [existing(), existing({ id: 'anchor-2', name: 'Second' })]
+        : [])
+    )
+    fireEvent.click(screen.getByText('Delete All'))
+
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'anchor_activities', 'anchor-2'))
+    expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'anchor_activities', 'anchor-1')
+  })
+
+  it('surfaces a partial-failure count rather than silently succeeding or aborting', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'anchor_activities'
+        ? [existing({ id: 'a1' }), existing({ id: 'a2', name: 'Second' })]
+        : [])
+    )
+    localClient.deleteEntity.mockImplementation((token, entity, id) => {
+      if (id === 'a1') return Promise.resolve({ status: 'applied' })
+      return Promise.reject(new Error('boom'))
+    })
+    render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+
+    await waitFor(() =>
+      expect(screen.queryByText('Deleted 1 of 2 fixed events — please try again for the rest.')).not.toBeNull()
+    )
+  })
+
+  it('shows an admin-specific message when every delete is refused for role', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'anchor_activities'
+        ? [existing({ id: 'a1' }), existing({ id: 'a2', name: 'Second' })]
+        : [])
+    )
+    localClient.deleteEntity.mockRejectedValue(new Error('admin role required'))
+    render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+
+    await waitFor(() =>
+      expect(screen.queryByText('Only an admin can delete fixed events — no fixed events were deleted.')).not.toBeNull()
+    )
   })
 })
 

@@ -70,7 +70,10 @@ export function useClipboardSelection({ slots, activities, selectedGroup, placeA
     }
     const item = clipboardItems[pasteModeIndex]
     if (!item) return
-    await placeActivityManual(item.activityId, slot.groupId, slot.dayId, slot.blockId)
+    // No drag gestureId on the paste path — synthesize a one-off claim id so
+    // this write is guarded by the same per-cell queue as every other
+    // mutation (2026-08-12 ADR, FIX 1; no gestureId-undefined bypass).
+    await placeActivityManual(item.activityId, slot.groupId, slot.dayId, slot.blockId, undefined, crypto.randomUUID())
     const nextIndex = pasteModeIndex + 1
     if (nextIndex >= clipboardItems.length) {
       setPasteMode(false)

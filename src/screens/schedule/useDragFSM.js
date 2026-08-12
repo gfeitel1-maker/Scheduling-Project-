@@ -20,8 +20,18 @@ import { closestEdge } from './closestEdge'
 
 export function resolveHit(point) {
   if (!point) return null
-  const el = document.elementFromPoint(point.x, point.y)?.closest('[data-cell-key]')
-  if (!el) return null
+  const pointEl = document.elementFromPoint(point.x, point.y)
+  const el = pointEl?.closest('[data-cell-key]')
+  if (!el) {
+    // A release over the ActivityPalette resolves to a distinct, valid,
+    // commit-worthy hit (not null) so the FSM proceeds to commit instead of
+    // silently tearing down — that commit is what clears the drag's source
+    // slot ("drag a grid card out to the palette clears it").
+    if (pointEl?.closest('[data-activity-palette]')) {
+      return { toPalette: true, valid: true, el: null }
+    }
+    return null
+  }
   const cellKey = el.getAttribute('data-cell-key')
   const [groupId, dayId, blockId] = cellKey.split('|')
   return {
@@ -59,7 +69,7 @@ function kindFromActive(active) {
   return null
 }
 
-export function useDragFSM({ commit, describeDrag, describeHit }) {
+export function useDragFSM({ commit, describeDrag, describeHit, isOccupied }) {
   const stateRef = useRef(idleState)
   const activeRef = useRef(null)
   const targetRef = useRef(null)
@@ -77,6 +87,8 @@ export function useDragFSM({ commit, describeDrag, describeHit }) {
       el.removeAttribute('data-drag-over')
       el.removeAttribute('data-drop-edge')
       el.removeAttribute('data-drag-kind')
+      el.removeAttribute('data-drag-replace')
+      el.removeAttribute('data-drag-ghost-label')
     }
     targetRef.current = null
   }
@@ -92,6 +104,12 @@ export function useDragFSM({ commit, describeDrag, describeHit }) {
     el.setAttribute('data-drag-over', '')
     el.setAttribute('data-drop-edge', hit.edge)
     el.setAttribute('data-drag-kind', kind)
+
+    const replaceKinds = kind === DRAG_KINDS.PALETTE_DROP || kind === DRAG_KINDS.SLOT_MOVE
+    if (replaceKinds && isOccupied?.(hit)) {
+      el.setAttribute('data-drag-replace', '')
+      el.setAttribute('data-drag-ghost-label', describeDrag(activeRef.current))
+    }
   }
 
   function moveGhost() {
@@ -139,9 +157,9 @@ export function useDragFSM({ commit, describeDrag, describeHit }) {
         const active = activeRef.current
         announce(`Dropped on ${describeHit(effect.finalHit)}.`)
         Promise.resolve()
-          .then(() => commit(active, effect.finalHit))
-          .then(() => dispatch({ type: 'COMMIT_SUCCESS' }))
-          .catch((error) => dispatch({ type: 'COMMIT_FAILURE', error }))
+          .then(() => commit(active, effect.finalHit, effect.gestureId))
+          .then(() => dispatch({ type: 'COMMIT_SUCCESS', gestureId: effect.gestureId }))
+          .catch((error) => dispatch({ type: 'COMMIT_FAILURE', error, gestureId: effect.gestureId }))
         break
       }
       case 'announceCommitFailure':
@@ -175,7 +193,7 @@ export function useDragFSM({ commit, describeDrag, describeHit }) {
     pointRef.current = { x: e.clientX, y: e.clientY }
     const kind = kindFromTarget(e.target)
     if (!kind) return
-    dispatch({ type: 'POINTER_DOWN', kind, hit: resolveHit(pointRef.current) })
+    dispatch({ type: 'POINTER_DOWN', kind, hit: resolveHit(pointRef.current), gestureId: crypto.randomUUID() })
   }
 
   // Only the click branch. Once dnd-kit has crossed its threshold the release is
@@ -188,7 +206,7 @@ export function useDragFSM({ commit, describeDrag, describeHit }) {
     activeRef.current = event.active
     const kind = kindFromActive(event.active) ?? DRAG_KINDS.SLOT_MOVE
     if (stateRef.current.name !== POINTING || stateRef.current.context.kind !== kind) {
-      dispatch({ type: 'POINTER_DOWN', kind, hit: resolveHit(pointRef.current) })
+      dispatch({ type: 'POINTER_DOWN', kind, hit: resolveHit(pointRef.current), gestureId: crypto.randomUUID() })
     }
     pointRef.current = pointFor(event) ?? pointRef.current
     dispatch({ type: 'DRAG_START', hit: resolveHit(pointRef.current) })

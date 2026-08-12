@@ -201,7 +201,11 @@ function classifyItem(item, fieldProvenance, activityEvidence) {
 // dedup-by-root-cause key shape as create/conflict above, qualified by kind
 // so a confirm_change and a confirm_value sharing (reason, name) never merge.
 function fixedEventDecisionId(kind, reason, name) {
-  return `anchor_activities:null:${kind}:${reason}:${name ?? ''}`
+  // Full key shape is `entity:entityId:kind:reason:name` where entity is the
+  // literal 'anchor_activities' and entityId is the literal null (fixed-event
+  // decisions carry no entity_id). Both reason and name are `?? ''`-guarded so
+  // a missing segment collapses to empty rather than interpolating 'undefined'.
+  return `anchor_activities:null:${kind}:${reason ?? ''}:${name ?? ''}`
 }
 
 // D3: fixed-event decisions carry no entity_id (see fixedEventDecisionId) —
@@ -382,7 +386,7 @@ export function buildReconciliationReport(input) {
   // onto fixedScopeChanged; :1347 attaches it as fixedEvents.scopeChanged.
   // Folded identically to `moved` above — same addFixedEventDecision call,
   // same kind, so dedup/no-double-count works via the existing
-  // (entity, kind, reason, name) key with no parallel dedup path.
+  // (entity, entityId=null, kind, reason, name) key with no parallel dedup path.
   // docs/adr/2026-08-10-ingestion-phaseC-compression-layer.md, C3.
   for (const entry of asArray(scopeChanged)) {
     buckets.changed += 1

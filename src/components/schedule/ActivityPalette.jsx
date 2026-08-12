@@ -118,17 +118,22 @@ export default function ActivityPalette({
   }
 
   return (
-    <div style={{
-      width: 210,
-      flexShrink: 0,
-      display: 'flex',
-      flexDirection: 'column',
-      gap: 6,
-      paddingRight: 12,
-      borderRight: '1px solid var(--border)',
-      maxHeight: '70vh',
-      overflowY: 'auto',
-    }}>
+    <div
+      // Lets the drag FSM recognize a release over the palette as a distinct,
+      // commit-worthy "clear the source slot" target — not just a resolved-to-
+      // nothing pointer-up (drag-first-placement, 2026-08-09).
+      data-activity-palette=""
+      style={{
+        width: 210,
+        flexShrink: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        paddingRight: 12,
+        borderRight: '1px solid var(--border)',
+        maxHeight: '70vh',
+        overflowY: 'auto',
+      }}>
       <div style={{
         display: 'flex',
         alignItems: 'center',

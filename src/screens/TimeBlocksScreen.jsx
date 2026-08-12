@@ -3,10 +3,19 @@ import { describeWriteFailure } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
+import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { S } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ScreenIntro from '../components/ScreenIntro'
+
+// TimeBlocks' load is cohort-scoped (camp_id AND cohort_id) and guards
+// against a stale response overwriting the UI when the user switches
+// cohorts mid-load — the same reasons TiersScreen doesn't fit
+// useCrudScreen's single-entity/single-scopeFilter load model. That stays
+// screen-local; only the write/create/delete-all primitives are shared via
+// setupCrudRepository. See docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md.
+const repository = createSetupCrudRepository({ localClient })
 
 const POD_OPTIONS = [
   { value: 'morning', label: 'Morning' },
@@ -154,28 +163,6 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
     }
   }
 
-  // Fires one write() per field (the op-log is field-level) and surfaces
-  // the first failure rather than a silent partial write — see
-  // DaysScreen.jsx/GroupsScreen.jsx's identical helper.
-  async function writeFields(id, fields) {
-    const token = localStorage.getItem('shoresh-token')
-    for (const [field, value] of Object.entries(fields)) {
-      const result = await localClient.write(token, 'time_blocks', id, field, value)
-      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error(`write failed for field "${field}"`)
-      }
-    }
-  }
-
-  async function cleanupPartialRow(id) {
-    try {
-      const token = localStorage.getItem('shoresh-token')
-      await localClient.deleteEntity(token, 'time_blocks', id)
-    } catch {
-      // best-effort only
-    }
-  }
-
   async function addBlock() {
     if (!newName.trim() || !newStart || !newEnd || !activeCohort) return
     const trimmedName = newName.trim()
@@ -192,26 +179,21 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
     try {
       const id = crypto.randomUUID()
       const sortVal = newSort !== '' ? Number(newSort) : (blocks.length + 1)
-      try {
-        // `name` written FIRST — mirrors GroupsScreen.jsx's addGroup
-        // ordering. ensureExists creates the row as part of applying
-        // whichever field write lands first, so a UNIQUE(camp_id,
-        // cohort_id, name) collision on the `name` write fails atomically
-        // before the row ever exists, rather than leaving a
-        // camp_id/cohort_id-only orphan behind.
-        await writeFields(id, {
-          name: trimmedName,
-          camp_id: campId,
-          cohort_id: activeCohort.id,
-          start_time: newStart,
-          end_time: newEnd,
-          part_of_day: newPod,
-          sort_order: sortVal,
-        })
-      } catch (err) {
-        await cleanupPartialRow(id)
-        throw err
-      }
+      // `name` written FIRST — mirrors GroupsScreen.jsx's addGroup ordering.
+      // ensureExists creates the row as part of applying whichever field
+      // write lands first, so a UNIQUE(camp_id, cohort_id, name) collision
+      // on the `name` write fails atomically before the row ever exists,
+      // rather than leaving a camp_id/cohort_id-only orphan behind.
+      // createRecord does the write-then-cleanup-on-failure dance.
+      await repository.createRecord('time_blocks', id, {
+        name: trimmedName,
+        camp_id: campId,
+        cohort_id: activeCohort.id,
+        start_time: newStart,
+        end_time: newEnd,
+        part_of_day: newPod,
+        sort_order: sortVal,
+      })
       setNewName(''); setNewStart(''); setNewEnd(''); setNewSort('')
       await load()
     } catch (err) {
@@ -227,7 +209,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
 
   async function saveBlock(id, fields) {
     try {
-      await writeFields(id, fields)
+      await repository.writeFields('time_blocks', id, fields)
       await load()
     } catch (err) {
       setError(describeWriteFailure(err, 'That time block could not be saved.'))
@@ -272,7 +254,6 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       return
     }
     if (!window.confirm('Delete all time blocks? They can be restored from Trash.')) return
-    const token = localStorage.getItem('shoresh-token')
     // Re-fetch immediately before building the id list rather than using the
     // closed-over `blocks` state — if another device synced in new blocks
     // between page-load and this click, the stale in-memory snapshot would
@@ -281,23 +262,8 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
     const ids = (freshBlocks || [])
       .filter(b => b.camp_id === campId && b.cohort_id === activeCohort.id)
       .map(b => b.id)
-    let succeeded = 0
-    let failedDueToRole = false
-    for (const id of ids) {
-      try {
-        const result = await localClient.deleteEntity(token, 'time_blocks', id)
-        if (result && (result.status === 'applied' || result.status === 'queued')) {
-          succeeded++
-        } else {
-          console.error(`Failed to delete time block ${id}`)
-        }
-      } catch (err) {
-        if (/admin role required/i.test(err?.message ?? '')) failedDueToRole = true
-        console.error(`Failed to delete time block ${id}`, err)
-      }
-    }
+    const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('time_blocks', ids)
     await load()
-    const failed = ids.length - succeeded
     if (failed > 0) {
       setError(
         failedDueToRole
@@ -358,21 +324,16 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
         const sortVal = row.sort_order !== null ? row.sort_order : (blocks.length + added + 1)
         try {
           const id = crypto.randomUUID()
-          try {
-            // `name` first — same collision-fails-atomically reasoning as addBlock.
-            await writeFields(id, {
-              name: row.name,
-              camp_id: campId,
-              cohort_id: activeCohort.id,
-              start_time: row.start_time,
-              end_time: row.end_time,
-              part_of_day: row.part_of_day,
-              sort_order: sortVal,
-            })
-          } catch (err) {
-            await cleanupPartialRow(id)
-            throw err
-          }
+          // `name` first — same collision-fails-atomically reasoning as addBlock.
+          await repository.createRecord('time_blocks', id, {
+            name: row.name,
+            camp_id: campId,
+            cohort_id: activeCohort.id,
+            start_time: row.start_time,
+            end_time: row.end_time,
+            part_of_day: row.part_of_day,
+            sort_order: sortVal,
+          })
           added++
           existingNames.add(lower)
         } catch (err) {

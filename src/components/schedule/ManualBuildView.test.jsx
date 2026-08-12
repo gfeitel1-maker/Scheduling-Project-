@@ -55,7 +55,9 @@ function renderView(extra = {}) {
         actMap={actMap}
         anchorMap={anchorMap}
         geometry={geometry}
-        onEditSlot={noop}
+        eligibleActivitiesFor={() => []}
+        onPlace={noop}
+        onCreateNew={noop}
         onExpandSlot={noop}
         onSplitSlot={noop}
         selectedSlotKeys={new Set()}
@@ -175,7 +177,7 @@ describe('ManualBuildView — collapse (T56 extends T55)', () => {
     const shut = renderView({
       collapsedBlockIds: new Set(['b3']),
       onToggleBlockCollapsed: id => folded.push(id),
-      onEditSlot: () => { throw new Error('a collapsed cell must re-expand, not open its editor') },
+      onPlace: () => { throw new Error('a collapsed cell must re-expand, not activate inline write') },
     })
     fireEvent.click(cellAt(shut, 'g1|d1|b3'))
     expect(folded).toEqual(['b3'])

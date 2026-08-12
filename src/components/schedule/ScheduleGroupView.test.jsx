@@ -69,7 +69,9 @@ function renderView(extra = {}) {
         startFill={noop}
         removeOverlay={noop}
         handleStampClick={noop}
-        onEditSlot={noop}
+        eligibleActivitiesFor={() => []}
+        onPlace={noop}
+        onCreateNew={noop}
         fillState={null}
         onExpandSlot={noop}
         onSplitSlot={noop}
@@ -287,7 +289,7 @@ describe('ScheduleGroupView — collapse (T55)', () => {
     const container = renderView({
       collapsedBlockIds: new Set(['b2']),
       onToggleBlockCollapsed: id => toggled.push(id),
-      onEditSlot: () => { throw new Error('a collapsed cell must re-expand, not open its editor') },
+      onPlace: () => { throw new Error('a collapsed cell must re-expand, not activate inline write') },
     })
     expect(rowHeaderFor(container, 'Block 2').querySelector('.row-header-toggle')
       .getAttribute('aria-expanded')).toBe('false')

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 vi.mock('../localClient', () => ({
   localClient: {
@@ -19,8 +20,19 @@ vi.mock('../data/scheduleRepository', () => ({
   }),
 }))
 
+vi.mock('xlsx', () => ({
+  utils: {
+    book_new: vi.fn(() => ({})),
+    book_append_sheet: vi.fn(),
+    sheet_to_json: vi.fn(() => []),
+  },
+  writeFile: vi.fn(),
+  read: vi.fn(() => ({ SheetNames: ['Sheet1'], Sheets: { Sheet1: {} } })),
+}))
+
 import ActivitiesScreen from './ActivitiesScreen'
 import { localClient } from '../localClient'
+import * as XLSX from 'xlsx'
 
 const CAMP_ID = 'camp-1'
 
@@ -129,5 +141,112 @@ describe('ActivitiesScreen quick-add', () => {
       expect(screen.queryByText(/An activity with this name already exists/)).not.toBeNull()
     )
     expect(localClient.write).not.toHaveBeenCalled()
+  })
+
+  it('compensating-deletes the partially-created row when a later field write fails', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+    localClient.write.mockImplementation((token, entity, id, field) => {
+      if (field === 'camp_id') return Promise.reject(new Error('write failed'))
+      return Promise.resolve({ status: 'applied' })
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('0 activities')).not.toBeNull())
+
+    fireEvent.change(screen.getByPlaceholderText('Activity name (e.g. Archery)'), { target: { value: 'Archery' } })
+    fireEvent.click(screen.getByText('+ Add'))
+
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id'))
+  })
+})
+
+describe('ActivitiesScreen — delete all', () => {
+  it('re-fetches activities immediately before deleting, then reports partial failure', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([activity({ id: 'a1' }), activity({ id: 'a2', name: 'Swim' })])
+      return Promise.resolve([])
+    })
+    localClient.deleteEntity.mockImplementation((token, entity, id) => {
+      if (id === 'a2') return Promise.reject(new Error('boom'))
+      return Promise.resolve({ status: 'applied' })
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+
+    await waitFor(() => expect(screen.queryByText(/Deleted 1 of 2 activities/)).not.toBeNull())
+    expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'activities', 'a1')
+    expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'activities', 'a2')
+  })
+
+  it('shows an admin-specific message when every delete fails due to role', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([activity({ id: 'a1' })])
+      return Promise.resolve([])
+    })
+    localClient.deleteEntity.mockRejectedValue(new Error('admin role required'))
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+
+    await waitFor(() => expect(screen.queryByText(/Only an admin can delete activities/)).not.toBeNull())
+  })
+})
+
+describe('ActivitiesScreen — import', () => {
+  it('imports rows from Excel, resolving unit names and skipping duplicates and rows with a warning', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([activity({ id: 'a1', name: 'Archery' })])
+      if (entity === 'tiers') return Promise.resolve([{ id: 'tier-1', camp_id: CAMP_ID, name: 'Yeladim' }])
+      return Promise.resolve([])
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    const file = new File(['dummy'], 'activities.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'archery', location: '', is_outdoor: '', max_groups_per_slot: '', min_per_week: '', max_per_week: '', same_tier_only: '', priority: '', eligible_tiers: 'Yeladim', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '' }, // duplicate, case-insensitive
+      { name: '', location: '', is_outdoor: '', max_groups_per_slot: '', min_per_week: '', max_per_week: '', same_tier_only: '', priority: '', eligible_tiers: '', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '' }, // missing name -> warning
+      { name: 'Water Play', location: 'Pool', is_outdoor: 'TRUE', max_groups_per_slot: 2, min_per_week: 1, max_per_week: 3, same_tier_only: 'FALSE', priority: 'high', eligible_tiers: 'Yeladim', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '' }, // new, valid
+    ])
+
+    await userEvent.upload(fileInput, file)
+
+    await waitFor(() => expect(screen.queryByText(/1 with warnings/)).not.toBeNull())
+    fireEvent.click(screen.getByText(/Import 2/))
+
+    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
+    expect(screen.queryByText(/2 skipped/)).not.toBeNull()
+    const namesWritten = localClient.write.mock.calls.filter(c => c[3] === 'name').map(c => c[4])
+    expect(namesWritten).toEqual(['Water Play'])
+    const priorityWritten = localClient.write.mock.calls.filter(c => c[3] === 'priority').map(c => c[4])
+    expect(priorityWritten).toEqual(['high'])
+  })
+
+  it('flags an import row whose unit name does not match any existing unit', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([])
+      if (entity === 'tiers') return Promise.resolve([{ id: 'tier-1', camp_id: CAMP_ID, name: 'Yeladim' }])
+      return Promise.resolve([])
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
+
+    const file = new File(['dummy'], 'activities.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'Ghost Activity', location: '', is_outdoor: '', max_groups_per_slot: '', min_per_week: '', max_per_week: '', same_tier_only: '', priority: '', eligible_tiers: 'Nonexistent Unit', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '' },
+    ])
+
+    await userEvent.upload(fileInput, file)
+
+    await waitFor(() => expect(screen.queryByText(/Unit\(s\) not found: nonexistent unit/)).not.toBeNull())
   })
 })

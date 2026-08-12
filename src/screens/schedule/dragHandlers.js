@@ -9,22 +9,26 @@
 // `over.data.current.slot` shape used to reject.
 export function makeDragHandlers({
   timeBlocks, days, slots, actMap, getSlot,
-  expandSlot, placeActivityManual, swapSlots,
-  allowSwap,
+  expandSlot, placeActivityManual, replaceSlot,
 }) {
-  // A cell was a swap target only when it rendered a SlotCell — i.e. a slot row
-  // exists and it is neither an anchor nor the `unavailable` kind. An empty cell
-  // never was one, and this ticket does not add that capability.
-  function isSwapTarget(slot) {
-    if (!slot || slot.is_anchor) return false
-    const unfillable = Boolean(slot.flags?.UNFILLABLE) && !slot.flags?.UNFILLABLE_dismissed
-    return Boolean(slot.activity_id) || unfillable
-  }
-
-  function commit(active, hit) {
+  function commit(active, hit, gestureId) {
     if (!active || !hit) return
 
     const data = active.data.current || {}
+
+    // A grid card dragged out and released over the ActivityPalette: the FSM
+    // resolves this to a distinct `{ toPalette: true }` hit (not the usual
+    // cell coordinates), so it is handled before anything reads groupId/dayId/
+    // blockId off `hit`. Only a grid-card source clears — a palette-to-palette
+    // release (e.g. a bare click that resolves as a drag) has no source slot
+    // to clear, so it is a no-op.
+    if (hit.toPalette) {
+      if (data.slot) {
+        replaceSlot({ activityId: null }, { groupId: data.slot.groupId, dayId: data.slot.dayId, blockId: data.slot.blockId }, gestureId)
+      }
+      return
+    }
+
     const { groupId, dayId, blockId } = hit
 
     if (data.expandDrag) {
@@ -43,7 +47,8 @@ export function makeDragHandlers({
       const day = days.find(d => d.id === dayId)
       expandSlot(
         headGroupId, headDayId, headBlockId, blockId,
-        tailSlot.activity_id, tailActivity?.name || '', tailBlock.name, day?.label ?? dayId
+        tailSlot.activity_id, tailActivity?.name || '', tailBlock.name, day?.label ?? dayId,
+        gestureId
       )
       return
     }
@@ -52,22 +57,30 @@ export function makeDragHandlers({
       if (!groupId || !dayId || !blockId) return
       const targetSlot = getSlot(slots, groupId, dayId, blockId)
       if (targetSlot?.is_anchor) return
-      placeActivityManual(data.paletteActivity.id, groupId, dayId, blockId)
+      if (targetSlot?.activity_id) {
+        replaceSlot({ activityId: data.paletteActivity.id }, { groupId, dayId, blockId }, gestureId)
+      } else {
+        // placeActivityManual now goes through the same claim/chain/dispatch
+        // path as replaceSlot/expandSlot/splitSlot (2026-08-12 ADR, FIX 1):
+        // two empty-cell writers can still race the same cell. Its 5th
+        // positional param is activityOverride, not gestureId — pass
+        // `undefined` there and the gesture id as the 6th.
+        placeActivityManual(data.paletteActivity.id, groupId, dayId, blockId, undefined, gestureId)
+      }
       return
     }
-
-    if (!allowSwap) return
 
     const slotA = data.slot
     if (!slotA) return
     if (slotA.groupId === groupId && slotA.dayId === dayId && slotA.blockId === blockId) return
 
     const slotB = getSlot(slots, groupId, dayId, blockId)
-    if (!isSwapTarget(slotB)) return
+    if (!slotB || slotB.is_anchor) return
 
-    swapSlots(
+    replaceSlot(
       { groupId: slotA.groupId, dayId: slotA.dayId, blockId: slotA.blockId, activityId: slotA.activity_id },
-      { groupId, dayId, blockId, activityId: slotB.activity_id ?? null }
+      { groupId, dayId, blockId },
+      gestureId
     )
   }
 

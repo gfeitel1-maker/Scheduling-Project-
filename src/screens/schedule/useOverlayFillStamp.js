@@ -1,17 +1,16 @@
 import { useState, useEffect } from 'react'
 
-// Overlay fill / stamp / displaced-activity cluster. Owns the transient
-// direct-manipulation state: the in-progress fill drag (fillState), the active
-// field-trip stamp (stampMode), and the displaced-activity tray (displacedItems).
+// Overlay fill / stamp cluster. Owns the transient direct-manipulation state:
+// the in-progress fill drag (fillState) and the active field-trip stamp
+// (stampMode).
 //
 // It orchestrates persistence through the screen's overlay handlers rather than
 // re-implementing them: handleStampClick calls addOverlay, and the fill drag
 // commits through updateOverlayRange on pointer-up. groups/timeBlocks/overlays
 // are injected because those reads describe the week on screen.
 //
-// setStampMode and setDisplacedItems are exposed raw: the screen's own toolbar
-// (Field Trip drawer) drives stampMode, and expand/split slot handlers push and
-// pop displaced items. fillState stays readable so the screen can feed it into
+// setStampMode is exposed raw: the screen's own toolbar (Field Trip drawer)
+// drives stampMode. fillState stays readable so the screen can feed it into
 // makeGridGeometry (the grid draws the live fill preview from it).
 //
 // Transient across a route switch: reset() is called from the screen's
@@ -19,7 +18,6 @@ import { useState, useEffect } from 'react'
 export function useOverlayFillStamp({ groups, timeBlocks, overlays, addOverlay, updateOverlayRange }) {
   const [stampMode, setStampMode] = useState(null) // null | string (label of active stamp)
   const [fillState, setFillState] = useState(null)  // null | { overlayId, previewToOrder }
-  const [displacedItems, setDisplacedItems] = useState([])
 
   useEffect(() => {
     if (!fillState) return
@@ -68,28 +66,18 @@ export function useOverlayFillStamp({ groups, timeBlocks, overlays, addOverlay, 
     }
   }
 
-  function dismissDisplaced(activityId, fromBlockName) {
-    setDisplacedItems(prev => prev.filter(
-      item => !(item.activityId === activityId && item.fromBlockName === fromBlockName)
-    ))
-  }
-
   function reset() {
     setStampMode(null)
     setFillState(null)
-    setDisplacedItems([])
   }
 
   return {
     fillState,
     stampMode,
     setStampMode,
-    displacedItems,
-    setDisplacedItems,
     startFill,
     handleFillEnter,
     handleStampClick,
-    dismissDisplaced,
     reset,
   }
 }

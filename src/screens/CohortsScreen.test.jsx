@@ -184,6 +184,33 @@ describe('CohortsScreen', () => {
     expect(screen.queryByText('Cancel')).not.toBeNull()
   })
 
+  // Characterization test pinning the CURRENT add-failure behavior before the
+  // setupCrudRepository migration: addCohort writes fields directly and does
+  // NOT compensating-delete a partially-created row (a UNIQUE collision fails
+  // atomically on the name-first write, so there is nothing to clean up). This
+  // distinguishes the writeFields-delegation migration from a createRecord one,
+  // which would add a rollback delete that changes behavior. Must stay green,
+  // unedited, post-migration.
+  it('does not compensating-delete when a later field write fails while adding a program', async () => {
+    localClient.list.mockResolvedValue([])
+    localClient.write.mockImplementation((token, entity, id, field) => {
+      if (field === 'name') return Promise.resolve({ status: 'applied' })
+      return Promise.reject(new Error('disk failure'))
+    })
+    render(<CohortsScreen campId={CAMP_ID} />)
+    await waitFor(() => expect(screen.queryByText('No programs yet')).not.toBeNull())
+
+    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Main, Specialty)'), {
+      target: { value: 'Specialty' },
+    })
+    fireEvent.click(screen.getByText('+ Add Program'))
+
+    await waitFor(() =>
+      expect(screen.queryByText(/That program could not be added\./)).not.toBeNull()
+    )
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+  })
+
   it('shows a specific message (not the generic connectivity one) when deleting fails due to a foreign-key reference', async () => {
     localClient.list.mockResolvedValue([cohort({ id: 'c1' }), cohort({ id: 'c2', name: 'Second' })])
     localClient.deleteEntity.mockRejectedValue(

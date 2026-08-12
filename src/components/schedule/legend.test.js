@@ -104,14 +104,16 @@ describe('route-aware legend', () => {
   })
 })
 
-// T17. `activityColor()` hashes whatever it is handed, so the SEED matters:
-// feeding it an array index gives a different colour from feeding it the
-// activity's id. The grid keys off the stable id (ScheduleScreen's actMap), and
-// three displaced-item construction sites used to attach a `colorIdx` derived
-// from activities.findIndex(...) instead. Nothing read it — DisplacedPalette
-// colours from activityId — so no colours actually diverged, but the field sat
-// one destructure away from the component that would have rendered it, encoding
-// the wrong convention and waiting for someone to "wire it up".
+// T17 (historical). `activityColor()` hashes whatever it is handed, so the SEED
+// matters: feeding it an array index gives a different colour from feeding it
+// the activity's id. The grid keys off the stable id (ScheduleScreen's actMap),
+// and three now-removed displaced-item construction sites used to attach a
+// `colorIdx` derived from activities.findIndex(...) instead. Nothing ever read
+// it, so no colours actually diverged, but the field encoded the wrong
+// convention. The construction sites and their tray are gone (dead
+// `displacedItems` plumbing removed alongside the drag-FSM gesture-correlation
+// fix); this test still guards the one colour convention `activityColor()` must
+// keep.
 describe('T17: one colour convention, keyed on the activity id', () => {
   it('gives the same colour for the same activity id, and a different one for an index', () => {
     const id = 'a1b2c3d4-5e6f-7890-abcd-ef1234567890'
