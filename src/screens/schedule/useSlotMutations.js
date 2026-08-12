@@ -95,10 +95,29 @@ export function useSlotMutations({
   // decides, BEFORE a write is ever handed to repo.writeSlotFields, whether
   // it is still the most recent claim on every cell it touches — a
   // superseded write is never dispatched, not gated after the fact.
+  //
+  // Lifetime: useSlotMutations is instantiated once per ScheduleScreen mount
+  // and persists across route switches (it is not remounted), so this Map
+  // would otherwise grow for the mount's whole lifetime. Cell identity already
+  // includes route/templateId, so a stale entry from a route the director has
+  // left can never collide with the route now on screen — but it can still
+  // pin a claim on a cell that (per the ADR's Red Hat probe (c)) would
+  // otherwise never resolve if left dangling. `clearCellQueue` is exposed
+  // below and called from ScheduleScreen's route-switch transient-reset
+  // block, the same place undo/redo and the clipboard are reset for the
+  // identical reason (a value captured on one route must not act on another).
   const cellQueueRef = useRef(new Map())
 
   function cellKey(groupId, dayId, blockId) {
     return `${route}|${templateId}|${groupId}|${dayId}|${blockId}`
+  }
+
+  // Called from ScheduleScreen's route-switch transient-reset block (see the
+  // cellQueueRef comment above). Any claim/tail pinned by the outgoing route
+  // is dropped outright, not settled — nothing awaits `.tail` across this
+  // clear, so there is no dangling continuation left to resolve.
+  function clearCellQueue() {
+    cellQueueRef.current.clear()
   }
 
   // claimAndRun(keys, claimId, dispatch) — the single write-serialization
@@ -171,8 +190,16 @@ export function useSlotMutations({
     const claimId = gestureId ?? crypto.randomUUID()
     const targetKey = cellKey(target.groupId, target.dayId, target.blockId)
     const sourceKey = sourceRow ? cellKey(incoming.groupId, incoming.dayId, incoming.blockId) : null
-    // Canonical (lexical) order — deadlock avoidance for two multi-cell ops
-    // that share cells in opposite order (ADR "Mechanism").
+    // Canonical (lexical) order. Not load-bearing for deadlock-freedom today:
+    // claimAndRun claims every key in one synchronous pass (no sequential
+    // per-key acquisition to interleave), so two multi-cell ops can never
+    // block on each other regardless of key order. Kept anyway so the same
+    // pair of cells always produces the same `keys` array however a caller
+    // orders target/source — a stable, order-independent identity for the
+    // combined claim. Do NOT remove this on the assumption it's dead: if a
+    // future refactor of claimAndRun ever acquires per-key locks sequentially
+    // instead of snapshotting synchronously, deadlock-freedom would then
+    // depend on this sort, not merely benefit from it.
     const keys = sourceKey ? [targetKey, sourceKey].sort() : [targetKey]
 
     const freshSlots = slotsRef.current
@@ -372,7 +399,7 @@ export function useSlotMutations({
   // created without waiting for a re-render: setActivities is async, so
   // `activities` in this closure would not yet contain the new row within the
   // same call.
-  async function placeActivityManual(activityId, groupId, dayId, blockId, activityOverride) {
+  async function placeActivityManual(activityId, groupId, dayId, blockId, activityOverride, gestureId) {
     if (!existingTemplates[route]) return
     const slot = getSlot(slots, groupId, dayId, blockId)
     if (!slot || slot.is_anchor) return
@@ -403,16 +430,37 @@ export function useSlotMutations({
     const flags = {}
     if (route !== 'manual' && (!eligible || locationFull)) flags.UNFILLABLE = true
 
-    const prevActivityId = slot.activity_id ?? null
-    const prevFlags = slot.flags ?? {}
+    // Routed through the same claim/chain/dispatch primitive as every other
+    // write (finding 1 of the reversed-design Red Hat pass, extended to this
+    // handler): placeActivityManual only ever targets an empty cell, but two
+    // empty-cell writers (a drag drop and a click/typeahead/paste, or two of
+    // the same) can still race the same empty cell, and without this guard
+    // both `repo.writeSlotFields` calls would fire unconditionally — same
+    // silent DB-divergence class the queue exists to close. Every call site
+    // synthesizes a claim id when it has none (paste, click, typeahead) —
+    // there is no bypass path.
+    const claimId = gestureId ?? crypto.randomUUID()
+    const key = cellKey(groupId, dayId, blockId)
+
+    const freshSlot = slotsRef.current.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId) ?? slot
+    const prevActivityId = freshSlot.activity_id ?? null
+    const prevFlags = freshSlot.flags ?? {}
 
     setActionError(null)
-    try {
-      await repo.writeSlotFields(slot.id, { activity_id: activityId, flags })
-    } catch (err) {
-      setActionError(describeWriteFailure(err, 'That activity could not be placed.'))
+    let writeError = null
+    const outcome = await claimAndRun([key], claimId, async () => {
+      try {
+        await repo.writeSlotFields(slot.id, { activity_id: activityId, flags })
+      } catch (err) {
+        writeError = err
+      }
+    })
+
+    if (writeError) {
+      setActionError(describeWriteFailure(writeError, 'That activity could not be placed.'))
       return
     }
+    if (outcome.dropped) return // fully superseded before dispatch: no write, no setSlots, no pushUndo
 
     setSlots(prev => {
       const next = prev.map(s =>
@@ -422,6 +470,7 @@ export function useSlotMutations({
       )
       recalcStats(next)
       recalcFindings(next)
+      slotsRef.current = next
       return next
     })
 
@@ -430,20 +479,34 @@ export function useSlotMutations({
     pushUndo({
       description: `Placed ${activity.name} → ${group?.name ?? groupId} ${day?.label ?? dayId} ${block?.name ?? blockId}`,
       undo: async () => {
-        await repo.writeSlotFields(slot.id, { activity_id: prevActivityId, flags: prevFlags })
-        setSlots(prev => prev.map(s =>
-          s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-            ? { ...s, activity_id: prevActivityId, flags: prevFlags }
-            : s
-        ))
+        const undoOutcome = await claimAndRun([key], crypto.randomUUID(), async () => {
+          await repo.writeSlotFields(slot.id, { activity_id: prevActivityId, flags: prevFlags })
+        })
+        if (undoOutcome.dropped) return
+        setSlots(prev => {
+          const next = prev.map(s =>
+            s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
+              ? { ...s, activity_id: prevActivityId, flags: prevFlags }
+              : s
+          )
+          slotsRef.current = next
+          return next
+        })
       },
       redo: async () => {
-        await repo.writeSlotFields(slot.id, { activity_id: activityId, flags })
-        setSlots(prev => prev.map(s =>
-          s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-            ? { ...s, activity_id: activityId, flags }
-            : s
-        ))
+        const redoOutcome = await claimAndRun([key], crypto.randomUUID(), async () => {
+          await repo.writeSlotFields(slot.id, { activity_id: activityId, flags })
+        })
+        if (redoOutcome.dropped) return
+        setSlots(prev => {
+          const next = prev.map(s =>
+            s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
+              ? { ...s, activity_id: activityId, flags }
+              : s
+          )
+          slotsRef.current = next
+          return next
+        })
       },
     })
   }
@@ -738,5 +801,6 @@ export function useSlotMutations({
     expandSlot,
     splitSlot,
     createActivityFromCell,
+    clearCellQueue,
   }
 }

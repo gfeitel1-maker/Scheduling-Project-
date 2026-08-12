@@ -454,6 +454,114 @@ describe('useSlotMutations — placeActivityManual', () => {
   })
 })
 
+describe('useSlotMutations — placeActivityManual same-cell race (2026-08-12 ADR, FIX 1)', () => {
+  it('two empty-cell writers racing the same cell: the superseded claim\'s write is NEVER dispatched to repo.writeSlotFields', async () => {
+    const slot = { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} }
+    const activities = [{ id: 'a1', name: 'Swim' }, { id: 'a2', name: 'Archery' }]
+    const d1 = deferred()
+    const writeSlotFields = vi.fn(() => d1.promise)
+    const repo = makeRepo({ writeSlotFields })
+    const setSlots = statefulSetSlots([slot])
+    const { hook, props } = setup({
+      slots: [slot],
+      groups: [{ id: 'g1', tier_id: 't1' }],
+      activities,
+      repo,
+      routeState: { setSlots: setSlots.fn },
+    })
+
+    // g1 claims first, but no microtask flush happens before g2 claims — g2's
+    // synchronous claim overwrite lands before g1's own async continuation
+    // ever reaches its currency check, so g1 is superseded BEFORE it ever
+    // calls repo.writeSlotFields (mirrors the replaceSlot atomicity tests'
+    // no-flush pattern above, not the "genuinely in-flight" pattern — the
+    // point here is the never-dispatched case, not the already-dispatched one).
+    const p1 = hook.result.current.placeActivityManual('a1', 'g1', 'd1', 'b1', undefined, 'g1')
+    const p2 = hook.result.current.placeActivityManual('a2', 'g1', 'd1', 'b1', undefined, 'g2')
+
+    d1.resolve({ status: 'applied' })
+    await act(async () => { await Promise.all([p1, p2]) })
+
+    // Only g2's write ever reaches the repo — g1's is dropped before dispatch,
+    // not merely overwritten in setSlots (this is the direct fix for the same
+    // silent DB-divergence class finding 1 closed for replaceSlot/expandSlot/
+    // splitSlot: repo.writeSlotFields must never fire for a superseded claim).
+    expect(writeSlotFields).toHaveBeenCalledTimes(1)
+    expect(writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'a2', flags: {} })
+    expect(setSlots.get().find(s => s.id === 's1').activity_id).toBe('a2')
+    expect(props.pushUndo).toHaveBeenCalledTimes(1) // only g2's — g1 pushes nothing
+  })
+
+  it('route dimension: identical (groupId, dayId, blockId) on different (route, templateId) do not collide — both dispatch independently', async () => {
+    const rowManual = { id: 'row-manual', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} }
+    const rowGenerated = { id: 'row-generated', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} }
+    const activities = [{ id: 'a1', name: 'Swim' }]
+    const dManual = deferred()
+    const dGenerated = deferred()
+    let call = 0
+    const writeSlotFields = vi.fn(() => {
+      call += 1
+      return call === 1 ? dManual.promise : dGenerated.promise
+    })
+    const repo = makeRepo({ writeSlotFields })
+    const setSlotsManual = statefulSetSlots([rowManual])
+    const setSlotsGenerated = statefulSetSlots([rowGenerated])
+
+    const manualProps = makeProps({
+      slots: [rowManual], groups: [{ id: 'g1', tier_id: 't1' }], activities, repo,
+      routeState: makeRouteState({ route: 'manual', templateId: 'tid-manual', setSlots: setSlotsManual.fn }),
+    })
+    const { result, rerender } = renderHook((p) => useSlotMutations(p), { initialProps: manualProps })
+
+    const pManual = result.current.placeActivityManual('a1', 'g1', 'd1', 'b1', undefined, 'g1')
+
+    rerender({
+      ...manualProps,
+      slots: [rowGenerated],
+      routeState: makeRouteState({ route: 'generated', templateId: 'tid-generated', setSlots: setSlotsGenerated.fn }),
+    })
+    const pGenerated = result.current.placeActivityManual('a1', 'g1', 'd1', 'b1', undefined, 'g2')
+
+    await act(async () => { dManual.resolve({ status: 'applied' }); await pManual })
+    await act(async () => { dGenerated.resolve({ status: 'applied' }); await pGenerated })
+
+    expect(writeSlotFields).toHaveBeenCalledTimes(2)
+    expect(setSlotsManual.get().find(s => s.id === 'row-manual').activity_id).toBe('a1')
+    expect(setSlotsGenerated.get().find(s => s.id === 'row-generated').activity_id).toBe('a1')
+  })
+
+  it('a call with no gestureId (synthesized claim id, matching the paste/click call sites) still participates in the ordering and can be superseded', async () => {
+    const slot = { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} }
+    const activities = [{ id: 'a1', name: 'Swim' }, { id: 'a2', name: 'Archery' }]
+    const d1 = deferred()
+    const writeSlotFields = vi.fn(() => d1.promise)
+    const repo = makeRepo({ writeSlotFields })
+    const setSlots = statefulSetSlots([slot])
+    const { hook } = setup({
+      slots: [slot],
+      groups: [{ id: 'g1', tier_id: 't1' }],
+      activities,
+      repo,
+      routeState: { setSlots: setSlots.fn },
+    })
+
+    // No gestureId argument at all (the 6th param is omitted) — this must not
+    // bypass the queue; a paste/click call site relies on the hook's own
+    // internal `gestureId ?? crypto.randomUUID()` fallback for this exact shape.
+    const pNoGesture = hook.result.current.placeActivityManual('a1', 'g1', 'd1', 'b1')
+    const pDrag = hook.result.current.placeActivityManual('a2', 'g1', 'd1', 'b1', undefined, 'g2')
+
+    d1.resolve({ status: 'applied' })
+    await act(async () => { await Promise.all([pNoGesture, pDrag]) })
+
+    // The later claim (g2, the drag) wins; the earlier no-gestureId call is
+    // superseded — proving no gestureId-undefined exemption exists here either.
+    expect(writeSlotFields).toHaveBeenCalledTimes(1)
+    expect(writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'a2', flags: {} })
+    expect(setSlots.get().find(s => s.id === 's1').activity_id).toBe('a2')
+  })
+})
+
 describe('useSlotMutations — createActivityFromCell', () => {
   it('creates a camp-scoped activity with usage-derived rule (min_per_week=1, max=null, all-groups eligible), adds it to the palette list, and places it', async () => {
     const slots = [
