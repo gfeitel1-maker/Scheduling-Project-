@@ -1,7 +1,7 @@
 ---
 title: C1b-anchor-slot-drift-moved-signal
 document_type: ticket
-status: in_progress
+status: in-progress
 created: 2026-08-10
 governing_docs: [docs/adr/2026-08-10-ingestion-reconciliation-semantics.md]
 related_adrs: [docs/adr/2026-08-10-ingestion-reconciliation-semantics.md]

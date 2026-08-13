@@ -5,7 +5,7 @@ authority: normative
 status: accepted
 date: 2026-08-08
 supersedes: []
-implementation_state: not_started
+implementation_state: implemented
 affects:
   - docs/adr/2026-08-08-reconciliation-plan-as-commit-input.md
   - docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md

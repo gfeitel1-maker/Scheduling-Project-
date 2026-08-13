@@ -91,8 +91,8 @@ rm -rf node_modules/better-sqlite3/build && npm rebuild better-sqlite3
 ## Tests
 
 ```bash
-npm run test                          # Vitest unit tests (~1,800+ across 133 files)
-node test/integration/run.js          # 16 multi-process integration scenarios
+npm run test                          # Vitest unit tests (~2,500+ across ~160 files)
+node test/integration/run.js          # 21 multi-process integration scenarios
 npm run lint                          # ESLint
 ```
 

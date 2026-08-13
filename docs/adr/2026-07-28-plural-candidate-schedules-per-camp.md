@@ -5,7 +5,7 @@ authority: normative
 status: accepted
 date: 2026-07-28
 supersedes: []
-implementation_state: not-started
+implementation_state: implemented
 affects:
   - docs/work/specs/2026-07-28-separate-manual-and-generated-flows.md
   - docs/adr/2026-07-28-first-pairing-domain-sync-and-template-identity.md

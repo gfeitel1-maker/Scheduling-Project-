@@ -3,11 +3,46 @@ task: vitest-load-induced-flakiness
 document_type: run
 date: 2026-08-12
 round: 1
-status: completed
+status: pass
 risk: medium
 task_class: test-infrastructure
 created: 2026-08-12
 governing_docs: [docs/governance/standards/TESTING_STANDARD.md]
+selected_agents: []
+omitted_agents:
+  - agent: governor
+    reason: human-waived
+    note: "Solo systematic-debugging session; the Governor loop was not dispatched for this test-infrastructure fix. Frontmatter retro-normalized 2026-08-13 to satisfy the run schema without inventing agent runs."
+  - agent: architect
+    reason: no-predicate
+    note: no architectural decision — a test-harness async-timeout budget
+  - agent: designer
+    reason: not-applicable
+    note: no UI surface
+  - agent: maker
+    reason: human-waived
+    note: change authored directly in the debugging session
+  - agent: code-reviewer
+    reason: human-waived
+    note: solo session, no separate review pass
+  - agent: verifier
+    reason: human-waived
+    note: gates run directly — full vitest suite before and after the fix (same 51 baseline)
+  - agent: tester
+    reason: not-applicable
+    note: no running-app UX surface
+  - agent: security
+    reason: not-applicable
+    note: no auth, secrets, PIN, LAN protocol, IPC, or packaging surface — test config only
+  - agent: red-hat
+    reason: not-applicable
+    note: no stored-data, op-log, sync, or migration change
+  - agent: grader
+    reason: human-waived
+    note: solo session — no panel of reports to consolidate
+deterministic_checks: [test, lint, build]
+human_gates: []
+archive_when: superseded by a later test-stability record, or when this flakiness fix is no longer the current explanation
 ---
 
 # Full-suite non-determinism under load — investigation and fix

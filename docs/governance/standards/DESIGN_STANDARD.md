@@ -206,7 +206,7 @@ Token-based replacements. `color-mix()` is already used in this file (`S.errorBa
 ### Additional retheme surface (out of scope for this doc's line-item fixes — noted so it is not forgotten)
 The schedule components carry hardcoded colors a future retheme ticket must migrate to these tokens — they are the real visual center of the app and deserve a scoped retheme spec:
 - `src/components/schedule/SlotCell.jsx` — `ACTIVITY_COLORS` array, `ANCHOR_COLOR = '#A63595'` (→ `--anchor`), and `FLAG_COLORS`.
-- `src/components/schedule/ActivityPalette.jsx` and `DisplacedPalette.jsx` — local `COLORS` arrays (→ shared `ACTIVITY_COLORS`).
+- `src/components/schedule/ActivityPalette.jsx` — local `COLORS` array (→ shared `ACTIVITY_COLORS`).
 - `src/screens/ScheduleScreen.jsx` — weather `#2F7DE1` / `#EEF4FD`, flag `StatBadge` colors (`#F0585D`, `#2F7DE1`, `#7DC433`).
 - `src/components/schedule/VersionsDropdown.jsx` — `#00ADBB08` / `#00ADBB14`.
 - `src/components/schedule/EditModal.jsx` — `#EEF4FD` / `#2F7DE1`.

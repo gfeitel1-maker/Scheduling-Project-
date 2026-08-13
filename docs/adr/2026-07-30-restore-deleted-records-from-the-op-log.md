@@ -5,7 +5,7 @@ authority: normative
 status: accepted
 date: 2026-07-30
 supersedes: []
-implementation_state: not-started
+implementation_state: implemented
 affects:
   - docs/work/specs/2026-07-29-trash-and-record-history-design.md
   - docs/adr/2026-07-25-device-trust-revocation.md
