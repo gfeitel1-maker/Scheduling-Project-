@@ -1,6 +1,9 @@
 ---
 title: "ADR: Ingestion Phase C — Compression Layer (reconciliation model + decision generation)"
+document_type: adr
 status: proposed
+authority: normative
+implementation_state: in-progress
 date: 2026-08-10
 decided: null
 deciders: [product-owner]

@@ -1,3 +1,13 @@
+---
+title: "Backfill: clear import-manufactured activities.priority left over from before B2"
+document_type: adr
+status: rejected
+authority: normative
+implementation_state: not-started
+date: 2026-08-10
+governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
+---
+
 # Backfill: clear import-manufactured `activities.priority` left over from before B2
 
 ## Status

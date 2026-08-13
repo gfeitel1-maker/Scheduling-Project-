@@ -1,3 +1,12 @@
+---
+title: "Shoresh Ingestion UX — Reconciliation and Uncertainty Compression"
+document_type: spec
+status: active
+created: 2026-08-09
+governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
+archive_when: the ingestion-reconciliation initiative closes and its ADRs record Verifier PASS
+---
+
 # Shoresh Ingestion UX — Reconciliation and Uncertainty Compression
 
 > **Founding brief for the `work/ingestion-reconciliation` initiative.** This is the product owner's directive, captured verbatim as the authoritative source. It is DISCOVERY-FIRST: do NOT begin by implementing new screens. Phase A (architecture audit → ADR) precedes any feature code. Governor decomposes into tickets after repository inspection.

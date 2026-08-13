@@ -1,3 +1,12 @@
+---
+title: "Schedule grid: drag-first placement + inline write — design"
+document_type: spec
+status: approved
+created: 2026-08-09
+governing_docs: [docs/governance/standards/DESIGN_STANDARD.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
+archive_when: the drag-first placement work is merged and Verifier PASS recorded
+---
+
 # Schedule grid: drag-first placement + inline write — design
 
 **Status:** Design (approved via brainstorming 2026-08-09). Awaiting spec review, then implementation plan.

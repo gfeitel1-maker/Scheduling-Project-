@@ -74,6 +74,14 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Source aliases — host-local table, no sync (S1b revised)](../../docs/adr/2026-08-09-s1b-host-local-aliases.md) | accepted | implemented | — |
 | [Source aliases — durable alias memory and the confirmed-alias tier (S1b-core)](../../docs/adr/2026-08-09-s1b-source-aliases.md) | superseded | not-started | [2026-08-09-s1b-host-local-aliases](../../docs/adr/2026-08-09-s1b-host-local-aliases.md) |
 | [Work-record status drift prevention](../../docs/adr/2026-08-09-work-record-status-drift-prevention.md) | accepted | implemented | [2026-08-09-status-drift-gate](../../docs/work/runs/2026-08-09-status-drift-gate.md) · [T76-status-drift-commit-gate](../../docs/work/tickets/T76-status-drift-commit-gate.md) · [T77-completion-reference-vocabulary](../../docs/work/tickets/T77-completion-reference-vocabulary.md) |
+| [ADR: Ingestion Evidence Persistence — the B4 host-local evidence artifact](../../docs/adr/2026-08-10-ingestion-evidence-persistence.md) | proposed | not-started | — |
+| [ADR: Ingestion Phase C — Compression Layer (reconciliation model + decision generation)](../../docs/adr/2026-08-10-ingestion-phaseC-compression-layer.md) | proposed | in-progress | — |
+| [ADR: Ingestion Phase D — Experience (reconciliation summary, decision resolution, why-disclosure, readiness integration)](../../docs/adr/2026-08-10-ingestion-phaseD-experience.md) | accepted | in-progress | — |
+| [ADR: Ingestion Reconciliation Semantics — OBSERVED / INFERRED / CONFIRMED / UNKNOWN](../../docs/adr/2026-08-10-ingestion-reconciliation-semantics.md) | accepted | implemented | [2026-08-10-ingestion-B0-baseline](../../docs/work/specs/2026-08-10-ingestion-B0-baseline.md) · [C1b-anchor-slot-drift-moved-signal](../../docs/work/tickets/C1b-anchor-slot-drift-moved-signal.md) · [C1b-anchor-slot-drift-moved-signal](../../docs/work/tickets/C1b-anchor-slot-drift-moved-signal.md) |
+| [Backfill: clear import-manufactured activities.priority left over from before B2](../../docs/adr/2026-08-10-legacy-import-priority-backfill.md) | rejected | not-started | — |
+| [Gesture-correlated commit results in the drag FSM](../../docs/adr/2026-08-12-drag-fsm-gesture-correlation.md) | accepted | implemented | [2026-08-12-drag-live-write-serialization-design](../../docs/work/specs/2026-08-12-drag-live-write-serialization-design.md) |
+| [Per-cell write serialization for same-cell drag mutations](../../docs/adr/2026-08-12-drag-live-write-serialization.md) | accepted | implemented | [2026-08-12-drag-live-write-serialization-design](../../docs/work/specs/2026-08-12-drag-live-write-serialization-design.md) |
+| [A shared persistence seam for the setup-CRUD screens](../../docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md) | proposed | not-started | — |
 
 ## Runs
 
@@ -82,6 +90,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
+| 2026-08-12 | [vitest-load-induced-flakiness](../../docs/work/runs/2026-08-12-vitest-load-flakiness.md) | test-infrastructure | completed | _no verdict yet_ |
 | 2026-08-10 | [GateReport graph node — implement migration steps 1–3 (ADR 2026-08-09-gate-stack-as-fixed-fanin-graph)](../../docs/work/runs/2026-08-10-gatereport-graph-node-implementation-run.md) | documentation-governance | pass | pass |
 | 2026-08-09 | [T76+T77 — work-record status-drift commit gate](../../docs/work/runs/2026-08-09-status-drift-gate.md) | documentation-governance | pass | pass |
 | 2026-08-08 | [T69 — the engine layer still tolerates JSON-stringified id lists](../../docs/work/runs/2026-08-08-t69-engine-id-list-purity.md) | scheduling-engine | pass | pass |
@@ -99,13 +108,11 @@ They are different facts and a run can carry a bad one of each.
 Referenced by nothing and referencing nothing. Usually a real defect —
 either the document is stranded or an edge was never declared.
 
-- [docs/adr/2026-08-10-legacy-import-priority-backfill.md](../../docs/adr/2026-08-10-legacy-import-priority-backfill.md)
 - [docs/work/handoffs/2026-08-09-agent-quality-cut-wasted-work-brief.md](../../docs/work/handoffs/2026-08-09-agent-quality-cut-wasted-work-brief.md)
 - [docs/work/handoffs/2026-08-09-doc-staleness-remediation-handoff.md](../../docs/work/handoffs/2026-08-09-doc-staleness-remediation-handoff.md)
 - [docs/work/handoffs/2026-08-09-graph-engineering-exploration-brief.md](../../docs/work/handoffs/2026-08-09-graph-engineering-exploration-brief.md)
 - [docs/work/handoffs/slices-2-3-handoff.md](../../docs/work/handoffs/slices-2-3-handoff.md)
 - [docs/work/handoffs/T50-schedule-canvas-handoff.md](../../docs/work/handoffs/T50-schedule-canvas-handoff.md)
-- [docs/work/specs/2026-08-09-schedule-drag-first-placement-design.md](../../docs/work/specs/2026-08-09-schedule-drag-first-placement-design.md)
 
 ## Dangling references
 

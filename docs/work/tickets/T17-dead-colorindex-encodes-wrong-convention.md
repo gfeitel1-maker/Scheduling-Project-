@@ -66,7 +66,7 @@ All three fall back to `0` when the activity is not found, which is a second wro
 Designer reported that "the same activity can render a different dot colour in the main grid
 versus a displaced-item chip." **It cannot, today.** Verified by reading the consumer:
 
-[DisplacedPalette.jsx:5-6](../../../src/components/schedule/DisplacedPalette.jsx) destructures
+`DisplacedPalette.jsx:5-6` (the component was later removed in `936e963`) destructured
 `{ activityId, activityName, fromBlockName, dayLabel }` — **`colorIdx` is never read** — and
 colours the chip with `activityColor(activityId)`, the same stable-id convention the grid uses.
 

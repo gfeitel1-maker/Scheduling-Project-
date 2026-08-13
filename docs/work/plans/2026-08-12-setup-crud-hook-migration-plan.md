@@ -1,3 +1,11 @@
+---
+title: "Setup-CRUD shared persistence seam: migration plan"
+document_type: plan
+status: complete
+created: 2026-08-12
+governing_docs: [docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md]
+---
+
 # Setup-CRUD shared persistence seam: migration plan
 
 **For agentic workers:** each task below is a self-contained, behavior-preserving unit of work: write characterization test(s) capturing CURRENT behavior first, run green against the unmigrated screen, then (for migration tasks) swap the screen's internals to use the new seam, re-run the SAME characterization tests green with zero edits to their assertions. Do not start a task until the previous one is committed. Tasks are ordered so the tree stays green after every commit.

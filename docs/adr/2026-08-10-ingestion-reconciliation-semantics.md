@@ -1,6 +1,9 @@
 ---
 title: "ADR: Ingestion Reconciliation Semantics — OBSERVED / INFERRED / CONFIRMED / UNKNOWN"
+document_type: adr
 status: accepted
+authority: normative
+implementation_state: implemented
 date: 2026-08-10
 decided: 2026-08-09
 deciders: [product-owner]
