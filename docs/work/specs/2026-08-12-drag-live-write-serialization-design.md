@@ -1,7 +1,7 @@
 ---
 title: "Per-cell write serialization closes the same-cell drag write race"
 document_type: spec
-status: revised
+status: implemented
 created: 2026-08-12
 task_class: concurrency
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]

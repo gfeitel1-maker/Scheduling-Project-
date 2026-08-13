@@ -40,7 +40,6 @@ Legend: **Owner** is where the decision is made. **Contributors** are files that
 | Route-keyed state | `useRouteState.js` | | Eight atoms; `view`/`selectedGroup`/`selectedDay`/`railView` are *not* route-keyed — see BOUNDARY_AUDIT |
 | Findings presentation | **Split** — `FindingsRail.jsx` renders; `ScheduleScreen.findingReason` (`:647`) writes the copy; `findingHighlight.js` maps findings to cells | | Copy generation sits in a render file |
 | Overlay / field-trip stamp mode | `useOverlayFillStamp.js` | `FieldTripDrawer.jsx`, `OverlayCell.jsx` | Single owner |
-| Displaced-activity tray | `useOverlayFillStamp.js` | `DisplacedPalette.jsx` | |
 
 ## Domain responsibilities
 

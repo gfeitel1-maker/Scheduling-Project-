@@ -29,6 +29,7 @@ export const AGENTS = [
 export const TASK_CLASSES = [
   'architecture', 'ui-ux-design', 'security-auth', 'scheduling-engine',
   'database-sync', 'copy-terminology', 'documentation-governance',
+  'concurrency', 'test-infrastructure',
 ]
 
 const OMISSION_REASONS = ['no-predicate', 'not-applicable', 'human-waived']
@@ -48,6 +49,8 @@ const STATUS_BY_TYPE = {
   handoff: ['active', 'superseded'],
   index: ['active'],
   reference: ['active', 'superseded'],
+  discovery: ['draft', 'active', 'complete', 'superseded'],
+  'baseline-inventory': ['draft', 'active', 'complete', 'superseded'],
 }
 
 const REQUIRED_BY_TYPE = {
@@ -60,6 +63,8 @@ const REQUIRED_BY_TYPE = {
   handoff: ['task', 'document_type', 'status', 'created', 'archive_when'],
   index: ['title', 'document_type', 'status'],
   reference: ['title', 'document_type', 'status'],
+  discovery: ['title', 'document_type', 'status', 'created'],
+  'baseline-inventory': ['title', 'document_type', 'status', 'created'],
 }
 
 const finding = (code, message) => ({ code, message })

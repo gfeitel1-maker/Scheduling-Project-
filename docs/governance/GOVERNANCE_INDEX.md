@@ -43,6 +43,8 @@ Nothing else by default. Everything below is loaded because a task class calls f
 | **Database / sync** | relevant ADRs · `2026-07-24-bulk-replace-seq-fix`, `2026-07-28-first-pairing-domain-sync-and-template-identity` | `PLATFORM_STATE.md` §schema | **integration (mandatory)** · fresh-vs-migrated schema equivalence · test · lint · build | **ADR + migration/rollback plan** |
 | **Copy / terminology** | `CONSTITUTION.md` Art. V | — | lint | terminology is product judgement |
 | **Documentation / governance** | this index · `CONSTITUTION.md` · [`standards/WORK_RECORD_STANDARD.md`](standards/WORK_RECORD_STANDARD.md) | `../work/INDEX.md` | link + reference check · `check:governance` | **any change to a constitution or standard** |
+| **Concurrency** | [`standards/ARCHITECTURE_STANDARD.md`](standards/ARCHITECTURE_STANDARD.md) · relevant sync/op-log ADRs | `PLATFORM_STATE.md` §sync | **integration (mandatory)** · test · lint · build | **any change to write-ordering or op-log replay semantics** |
+| **Test infrastructure** | [`standards/TESTING_STANDARD.md`](standards/TESTING_STANDARD.md) | `../work/INDEX.md` | test · lint · build | changing a shared harness, setup file, or gate budget |
 
 **[`standards/WORK_RECORD_STANDARD.md`](standards/WORK_RECORD_STANDARD.md) applies to every row
 above, not only to the documentation row.** It owns the frontmatter schema for runs, tickets,
@@ -136,7 +138,7 @@ Every agent always loads `CONSTITUTION.md` and its own constitution. Beyond that
 | Tester | `references/*.md`, Designer's spec if any | schema and architecture docs — **it must not know what `template_slots` is** |
 | Security | `SECURITY.md`, the three auth ADRs | **`docs/archive/legacy-architecture/**` — especially `2026-05-24-security-design.md` — and all archived security material** |
 | Red Hat | `PLATFORM_STATE.md` §known-issues, accepted tradeoffs | design standard |
-| Grader | the four reports, its rubric | source code — it must form no independent opinion |
+| Grader | the five reports (Verifier + the four opinion reports), its rubric | source code — it must form no independent opinion |
 
 The "must not load" column is load-bearing. Security's entry exists because a retired threat model
 sat in an active agent constitution for weeks without being noticed.

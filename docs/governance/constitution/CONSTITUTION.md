@@ -151,7 +151,7 @@ Twelve agents. This roster is authoritative; `.claude/agents/` must match it exa
 | **Tester** | Director's-eye UX and visual fidelity in the running app. Judgement, not gates. |
 | **Security** | Confirmed vulnerabilities against the real threat surface. |
 | **Red Hat** | Broken assumptions and edge cases. Explicitly not bugs and not vulnerabilities. |
-| **Grader** | Calibrated score from the four opinion reports. Runs nothing, decides nothing. |
+| **Grader** | Calibrated score from the five agent reports (Verifier's deterministic results plus the four opinion reports). Runs nothing, decides nothing. |
 | **Architecture Auditor** | Periodic codebase depth audit. Runs independently — does not plug into the Governor/Maker/Verifier loop. Invoked after significant feature work or on demand. |
 
 **Deprecated terms.** "Reviewer" is an informal alias for **Code Reviewer** — there is no separate

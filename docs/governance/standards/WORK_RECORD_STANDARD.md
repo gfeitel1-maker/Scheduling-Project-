@@ -45,10 +45,10 @@ Every document under `docs/work/**` and `docs/adr/**` carries:
 | Field | Type | Required | Notes |
 |---|---|---|---|
 | `title` | string | yes | Quote it if it contains a colon |
-| `document_type` | enum | yes | `run` · `ticket` · `spec` · `adr` · `index` · `plan` · `handoff` |
+| `document_type` | enum | yes | `run` · `ticket` · `spec` · `adr` · `index` · `plan` · `handoff` · `reference` · `discovery` · `baseline-inventory` |
 | `status` | enum | yes | See §3 — the allowed set depends on `document_type` |
 | `created` or `date` | ISO date | yes | ADRs use `date`; everything else uses `created` |
-| `archive_when` | string | yes, except ADRs | Prose. The condition under which this leaves `docs/work/` |
+| `archive_when` | string | yes, except ADRs and the two report types | Prose. The condition under which this leaves `docs/work/`. Not required on `adr`, `discovery`, or `baseline-inventory` — a decision record and a dated point-in-time report are archived by their program, not by a self-scheduled condition |
 
 ### Reference fields
 
@@ -81,12 +81,14 @@ both directions by hand creates two sources of truth that drift.
 | `document_type` | Allowed `status` |
 |---|---|
 | `run` | `in-progress` · `pass` · `retry` · `escalated` · `abandoned` |
-| `ticket` | `open` · `in-progress` · `completed` · `parked` · `wont-fix` |
+| `ticket` | `open` · `in-progress` · `completed` · `closed` · `parked` · `wont-fix` |
 | `spec` | `draft` · `active` · `approved` · `implemented` · `superseded` |
 | `reference` | `active` · `superseded` |
 | `adr` | `proposed` · `accepted` · `superseded` · `rejected` |
 | `plan` | `draft` · `approved` · `complete` · `abandoned` |
 | `handoff` | `active` · `superseded` |
+| `discovery` | `draft` · `active` · `complete` · `superseded` |
+| `baseline-inventory` | `draft` · `active` · `complete` · `superseded` |
 
 A **handoff** (`docs/work/handoffs/`) is not a routed task: it has no agents, gates, or verdict,
 and it must not be typed as a `run`. It records what a new session needs that the repository
@@ -199,14 +201,20 @@ Required on runs and on any spec that scopes implementation. The value must be o
 [`../GOVERNANCE_INDEX.md`](../GOVERNANCE_INDEX.md) §3–8, in kebab-case:
 
 `architecture` · `ui-ux-design` · `security-auth` · `scheduling-engine` · `database-sync` ·
-`copy-terminology` · `documentation-governance`
+`copy-terminology` · `documentation-governance` · `concurrency` · `test-infrastructure`
 
 The task class is what resolves which standards govern the work and which gates are mandatory.
 **It is not a label applied afterwards** — Governor selects it before dispatch, and the standards
 it names are the ones the work is held to.
 
 A task that genuinely spans two classes takes the **stricter** gate list from both. It does not get
-a new hyphenated class invented for it.
+a new hyphenated class invented for it. `concurrency` and `test-infrastructure` are not such
+spans: they were added (2026-08-13) because the corpus produced work the original seven classes
+genuinely did not cover — op-log write-ordering / same-cell race work is a recurring concern
+distinct from `database-sync`'s replication/migration focus, and test-harness engineering (flakiness
+budgets, setup files, ABI probes) is not `documentation-governance`. Per §7, this is a
+"the rule was incomplete" amendment with its reason recorded here, not an enum widened to clear a
+finding.
 
 ---
 
@@ -273,8 +281,11 @@ keeps both.
 
 ### 5.3 Omission requires a reason
 
-Every one of the ten agents in Article VI either appears in `selected_agents` or has an entry in
-`omitted_agents`. There is no third state, and a missing agent is a checker failure.
+Every one of the ten Governor-loop agents in Article VI either appears in `selected_agents` or has
+an entry in `omitted_agents`. (Article VI also defines the two standalone auditors — Design Auditor
+and Architecture Auditor — which run outside the loop and are not part of this accounting; the
+checker's `AGENTS` list is exactly the ten loop agents.) There is no third state, and a missing
+agent is a checker failure.
 
 `reason` must be one of:
 
