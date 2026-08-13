@@ -1,3 +1,13 @@
+---
+title: "Per-cell write serialization for same-cell drag mutations"
+document_type: adr
+status: accepted
+authority: normative
+implementation_state: implemented
+date: 2026-08-12
+governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
+---
+
 # Per-cell write serialization for same-cell drag mutations
 
 ## Status

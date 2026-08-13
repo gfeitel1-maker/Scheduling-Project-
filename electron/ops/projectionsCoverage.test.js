@@ -380,7 +380,19 @@ beforeAll(() => {
       defCallIndex = text.indexOf('writeFields(', defMatch.index)
       if (params.length === 2 && params[0] === 'id' && params[1] === 'fields') {
         wrapperArity = 2
-        const entMatch = text.slice(defMatch.index).match(/localClient\.write\(\s*token\s*,\s*'([a-zA-Z_]+)'/)
+        // The wrapper body resolves its entity one of two ways: a direct
+        // localClient.write(token, 'entity', ...) OR a delegation to the shared
+        // setup-CRUD repository, <recv>.writeFields('entity', ...) /
+        // <recv>.createRecord('entity', ...) (the setupCrudRepository migration,
+        // PR #53, moved ActivitiesScreen/AnchorsScreen/CohortsScreen's local
+        // writeFields wrapper onto that path). Scan only the wrapper's own body
+        // so a later unrelated call site can't be mistaken for its entity.
+        const braceIdx = text.indexOf('{', defMatch.index)
+        const bodyEnd = braceIdx === -1 ? -1 : findMatchingClose(text, braceIdx)
+        const body = bodyEnd === -1 ? text.slice(defMatch.index) : text.slice(braceIdx, bodyEnd)
+        const entMatch =
+          body.match(/localClient\.write\(\s*token\s*,\s*'([a-zA-Z_]+)'/) ||
+          body.match(/\.(?:writeFields|createRecord)\(\s*'([a-zA-Z_]+)'/)
         if (entMatch) wrapperEntity = entMatch[1]
       } else if (params.length === 3) {
         wrapperArity = 3
@@ -461,6 +473,49 @@ beforeAll(() => {
       if (!entMatch) continue
       bulkReplaceHits.push({ file: rel, entity: entMatch[1] })
     }
+
+    // (e) Shared setup-CRUD repository call sites:
+    //       <recv>.createRecord('entity', id, { ...literal })
+    //       <recv>.writeFields('entity', id, { ...literal } | fieldsVar)
+    // The setupCrudRepository migration (PR #53) moved several Setup screens'
+    // write path (groups, tiers, time_blocks, cohorts, activities,
+    // anchor_activities) off a local writeFields wrapper onto a shared
+    // repository whose methods take the entity as their FIRST literal arg —
+    // see src/data/setupCrudRepository.js. Field keys come from the last arg
+    // when it is a raw object literal; screens that forward a prebuilt `fields`
+    // variable (or wrap the literal in serializeFields(...)) register the
+    // entity only, like an unresolved spread. The repository's own definition
+    // and useCrudScreen call these with `entity` as a VARIABLE, so those sites
+    // resolve to nothing — only literal-entity call sites count.
+    for (const call of findCallArgs(text, /\b\w+\.(?:createRecord|writeFields)\(/)) {
+      const args = splitTopLevel(call.argsText)
+      const entMatch = args[0]?.trim().match(/^'([a-zA-Z_]+)'$/)
+      if (!entMatch) continue
+      const entity = entMatch[1]
+      foundEntities.add(entity)
+      const fieldsArg = args[args.length - 1]?.trim()
+      if (!fieldsArg || !fieldsArg.startsWith('{')) continue
+      const closeIdx = findMatchingClose(fieldsArg, 0)
+      const inner = fieldsArg.slice(1, closeIdx === -1 ? undefined : closeIdx)
+      const { keys, hasSpread } = parseObjectKeys(inner)
+      for (const k of keys) {
+        addPair(entity, k)
+        addDirectField(rel, entity, k)
+        if (`${entity}.${k}` === 'activities.is_locked') canaryHits.add('activities.is_locked')
+      }
+      if (hasSpread) spreadHits.push({ file: rel, entity })
+    }
+
+    // (f) useCrudScreen({ entity: 'x', ... }) — the DaysScreen path. The hook
+    // (src/hooks/useCrudScreen.js) internally calls the repository with the
+    // `entity` config value as a variable, so the entity literal is only
+    // visible here at the call site. Fields flow through a per-screen
+    // buildFields mapper (not an inline literal), so this registers the entity
+    // only — enough to keep the entity off the "unregistered write" list.
+    for (const call of findCallArgs(text, /\buseCrudScreen\(/)) {
+      const m = call.argsText.match(/\bentity\s*:\s*'([a-zA-Z_]+)'/)
+      if (m) foundEntities.add(m[1])
+    }
   }
 
   scanResult = { filesScanned: files.length, foundEntities, foundPairs, spreadHits, canaryHits, directFieldsByFileEntity, bulkReplaceHits }
@@ -485,8 +540,11 @@ describe('scanner anti-vacuity floors', () => {
   })
 
   it('found at least a floor number of distinct (entity, field) pairs', () => {
-    // Observed: 82 distinct entity.field pairs. Floor set to 55, same margin
-    // logic as the entity floor above.
+    // Observed: 63 distinct entity.field pairs (down from 82 after the
+    // setupCrudRepository migration routed several screens' field literals
+    // through serializeFields(...)/forwarded `fields` vars the scanner can't
+    // resolve to keys — the entity is still counted, the individual fields
+    // aren't). Floor set to 55, same margin logic as the entity floor above.
     expect(scanResult.foundPairs.size).toBeGreaterThanOrEqual(55)
   })
 
@@ -501,7 +559,7 @@ describe('scanner anti-vacuity floors', () => {
     const canaries = [
       'activities.is_locked', // commit 9f4b178 — pattern (c): repo.<method>() indirection
       'camps.name', // CampScreen.jsx — pattern (a): direct fully-literal localClient.write call
-      'groups.name', // GroupsScreen.jsx — pattern (b): local 2-arg writeFields(id, fields) wrapper
+      'groups.name', // GroupsScreen.jsx — pattern (e): repository.createRecord('groups', id, {…}) setup-CRUD call site
       'day_override_templates.name', // DayOverridesScreen.jsx — pattern (b): local 3-arg writeFields(entity, id, fields) wrapper
     ]
     for (const c of canaries) {

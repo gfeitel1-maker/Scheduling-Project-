@@ -1,3 +1,13 @@
+---
+title: "Gesture-correlated commit results in the drag FSM"
+document_type: adr
+status: accepted
+authority: normative
+implementation_state: implemented
+date: 2026-08-12
+governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/TESTING_STANDARD.md]
+---
+
 # Gesture-correlated commit results in the drag FSM
 
 ## Status

@@ -1,3 +1,13 @@
+---
+title: "Design notes — Phase D reconciliation experience mockups"
+document_type: spec
+status: active
+created: 2026-08-10
+parent_spec: [docs/work/specs/2026-08-09-ingestion-reconciliation-brief.md]
+governing_docs: [docs/governance/standards/DESIGN_STANDARD.md]
+archive_when: the Phase D reconciliation experience ships and Verifier PASS recorded
+---
+
 # Design notes — Phase D reconciliation experience mockups
 
 Mockup: `docs/work/specs/mockups/2026-08-10-phaseD-reconciliation/reconciliation-experience.html`

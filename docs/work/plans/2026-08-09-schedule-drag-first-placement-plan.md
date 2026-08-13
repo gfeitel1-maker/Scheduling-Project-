@@ -1,3 +1,11 @@
+---
+title: "Schedule grid: drag-first placement + inline write — implementation plan"
+document_type: plan
+status: draft
+created: 2026-08-09
+governing_docs: [docs/work/specs/2026-08-09-schedule-drag-first-placement-design.md]
+---
+
 # Schedule grid: drag-first placement + inline write — implementation plan
 
 **For agentic workers:** this plan is executed with `superpowers:subagent-driven-development`. Each task below is a self-contained unit of work: write the failing test(s), run them, write the minimal implementation, run green, commit. Do not start a task until the previous one is committed. Tasks are ordered so the tree stays green after every commit — no task depends on a *later* task's code.

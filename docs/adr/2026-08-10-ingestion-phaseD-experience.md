@@ -1,6 +1,9 @@
 ---
 title: "ADR: Ingestion Phase D — Experience (reconciliation summary, decision resolution, why-disclosure, readiness integration)"
+document_type: adr
 status: accepted
+authority: normative
+implementation_state: in-progress
 date: 2026-08-10
 decided: 2026-08-11
 deciders: [product-owner]

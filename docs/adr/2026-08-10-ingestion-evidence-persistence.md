@@ -1,6 +1,9 @@
 ---
 title: "ADR: Ingestion Evidence Persistence — the B4 host-local evidence artifact"
+document_type: adr
 status: proposed
+authority: normative
+implementation_state: not-started
 date: 2026-08-10
 decided: null
 deciders: [product-owner]
