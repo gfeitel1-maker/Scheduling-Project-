@@ -5,6 +5,7 @@ import {
   getSetupGaps,
   ALL_CATEGORIES,
   FORWARD_AREAS,
+  OPTIONAL_AREAS,
   REQUIRED_AREAS,
 } from './readiness'
 
@@ -12,9 +13,14 @@ import {
 //
 // The six-state layer is strictly additive over getSetupGaps. These tests fence
 // the two load-bearing guarantees: Missing == getSetupGaps membership (red only
-// for the five required areas), and forward categories (Location/Staffing) can
-// never reach Missing. The blocking core's own fence lives in readiness.test.js
-// and must stay byte-identical.
+// for the five required areas), and every non-required category (Fixed Events,
+// Day Overrides, Locations, Staffing) can never reach Missing. The blocking
+// core's own fence lives in readiness.test.js and must stay byte-identical.
+//
+// M3 (docs/adr/2026-08-15-camp-locations-entity.md) promoted `location` out of
+// FORWARD_AREAS into OPTIONAL_AREAS now that a real Locations screen and
+// collection exist — it can reach Ready, unlike Staffing, but like Staffing
+// (and unlike the five REQUIRED_AREAS) it can never reach Missing.
 
 const FULL = {
   cohorts: [{ id: 'c1' }],
@@ -64,16 +70,39 @@ describe('getReadiness: the six-state layer', () => {
     }
   })
 
-  it('keeps Location and Staffing structurally unable to be Missing', () => {
-    for (const key of FORWARD_AREAS.map((a) => a.key)) {
-      // even with no data and an attention signal, forward areas never go red
+  it('keeps every optional and forward category — including Location and Staffing — structurally unable to be Missing', () => {
+    const nonRequiredKeys = [...OPTIONAL_AREAS, ...FORWARD_AREAS].map((a) => a.key)
+    for (const key of nonRequiredKeys) {
+      // even with no data and an attention signal, non-required areas never go red
       const r = getReadiness({}, { attention: { [key]: 5 } })
       expect(stateOf(r, key)).not.toBe('missing')
       expect(stateOf(r, key)).toBe('optional')
     }
-    // REQUIRED_AREAS never grows to include a forward key.
+    // REQUIRED_AREAS never grows to include an optional/forward key.
     const requiredKeys = new Set(REQUIRED_AREAS.map((a) => a.key))
-    for (const key of FORWARD_AREAS.map((a) => a.key)) expect(requiredKeys.has(key)).toBe(false)
+    for (const key of nonRequiredKeys) expect(requiredKeys.has(key)).toBe(false)
+  })
+
+  // M3 — location is now optional (not forward), never required, and a camp
+  // with zero locations still passes the weekly-build gate.
+  it('promotes location to OPTIONAL_AREAS: never required, never missing, reaches Ready with data', () => {
+    expect(OPTIONAL_AREAS.some((a) => a.key === 'location')).toBe(true)
+    expect(FORWARD_AREAS.some((a) => a.key === 'location')).toBe(false)
+    expect(REQUIRED_AREAS.some((a) => a.key === 'location')).toBe(false)
+
+    const locationCat = ALL_CATEGORIES.find((c) => c.key === 'location')
+    expect(locationCat.kind).toBe('optional')
+    expect(locationCat.screen).toBe('locations')
+
+    // A camp with zero locations is not a gap — getSetupGaps (the weekly-build
+    // gate) never mentions it, empty or full.
+    expect(getSetupGaps({}).map((g) => g.key)).not.toContain('location')
+    expect(getSetupGaps(FULL).map((g) => g.key)).not.toContain('location')
+    expect(stateOf(getReadiness({}), 'location')).toBe('optional')
+
+    // Unlike a forward category, it can reach Ready once it has real rows.
+    const r = getReadiness({ ...FULL, locations: [{ id: 'loc-1' }] })
+    expect(stateOf(r, 'location')).toBe('ready')
   })
 })
 

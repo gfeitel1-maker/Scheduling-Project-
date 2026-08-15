@@ -53,6 +53,7 @@ export default function ReadinessHub({ campId, onNavigate }) {
     activities: Array(counts.activities || 0),
     anchors: Array(counts.anchors || 0),
     dayOverrides: Array(counts.dayoverrides || 0),
+    locations: Array(counts.locations || 0),
   }
 
   const readiness = getReadiness(collections)

@@ -76,6 +76,12 @@ export const REQUIRED_AREAS = [
 export const OPTIONAL_AREAS = [
   { key: 'anchors', label: 'Fixed Events', screen: 'anchors' },
   { key: 'dayoverrides', label: 'Day Overrides', screen: 'dayoverrides' },
+  // M3 — promoted out of FORWARD_AREAS now that a real Locations screen and
+  // collection exist (docs/adr/2026-08-15-camp-locations-entity.md M3 row).
+  // Fixes the dead Review button (gap 14): `screen` used to be 'camp', a
+  // dead end. Still never REQUIRED_AREAS — a camp with zero locations builds
+  // a week fine; getSetupGaps/COLLECTION_FOR above is untouched.
+  { key: 'location', label: 'Locations', screen: 'locations' },
 ]
 
 // Maps each required area to the collection the caller supplies.
@@ -135,7 +141,6 @@ export function describeSetupGaps(gaps) {
 // of the state machine is gated on kind==='required', and neither is in
 // REQUIRED_AREAS, which never grows. They rest at Optional ("not started").
 export const FORWARD_AREAS = [
-  { key: 'location', label: 'Locations', screen: 'camp' },
   { key: 'staffing', label: 'Staffing', screen: null },
 ]
 
@@ -153,6 +158,7 @@ export const ALL_CATEGORIES = [
 const OPTIONAL_COLLECTION = {
   anchors: 'anchors',
   dayoverrides: 'dayOverrides',
+  location: 'locations',
 }
 
 /**

@@ -8,7 +8,7 @@ import Sidebar from './Sidebar'
 
 const DEFAULT_COUNTS = {
   cohorts: 1, tiers: 4, groups: 14, days: 5, timeblocks: 6, activities: 8,
-  anchors: 0, dayoverrides: 0,
+  anchors: 0, dayoverrides: 0, locations: 0,
 }
 
 let storage
@@ -78,11 +78,12 @@ describe('Sidebar: the three sections', () => {
   })
 
   it('never shows the blocking mark on an optional area', () => {
-    // A camp with no day overrides is finished, not unfinished. Marking it
-    // otherwise trains directors to ignore the mark that matters.
-    renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 0, dayoverrides: 0 } })
-    expect(screen.getAllByText('optional').length).toBe(2)
-    for (const label of ['Fixed Events', 'Day Overrides']) {
+    // A camp with no day overrides (or locations) is finished, not
+    // unfinished. Marking it otherwise trains directors to ignore the mark
+    // that matters.
+    renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 0, dayoverrides: 0, locations: 0 } })
+    expect(screen.getAllByText('optional').length).toBe(3)
+    for (const label of ['Fixed Events', 'Day Overrides', 'Locations']) {
       const row = screen.getByText(label).closest('button')
       expect(within(row).queryByText('!')).toBeNull()
     }

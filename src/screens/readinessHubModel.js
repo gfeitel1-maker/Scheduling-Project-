@@ -60,7 +60,11 @@ export function buildHubRows(readiness, counts = {}) {
 
   const optional = [
     row(by.anchors, 'Fixed Events', countFor('anchors'), 'review'),
-    row(by.location, 'Locations', null, 'review', { forward: true }),
+    // M3 — no longer `forward: true` (readiness.js promoted `location` into
+    // OPTIONAL_AREAS): it now has a real screen and collection, so it shows
+    // a count like every other optional row once places exist, "optional"
+    // rather than "not started" while empty.
+    row(by.location, 'Locations', countFor('locations'), 'review'),
     row(by.staffing, 'Staffing', null, 'none', { forward: true }),
   ]
 

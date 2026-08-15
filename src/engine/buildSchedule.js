@@ -44,8 +44,8 @@ function mulberry32(seed) {
 
 // Normalize both call signatures into the cohorts-array format.
 // Omitting `locations` defaults it to [] → an empty capacity map, so every
-// place a placement maps to via location_id falls back to capacity 1 (the more
-// restrictive default). Callers that rely on place capacity must therefore pass
+// activity's location_id is unmapped and therefore unconstrained (see
+// placeBlocked). Callers that rely on place capacity must therefore pass
 // `locations`; both live callers do.
 function normalizeInput(input) {
   if (input.cohorts) {
@@ -217,14 +217,20 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   // Place capacity + same_tier_only at ONE block. Only constrains an activity
   // bound to a location — location_id == null has no place (interim M1→M3
   // state) and is unconstrained, identical to today's no-location behavior.
+  // A location_id that IS set but resolves to nothing in locationCapById (a
+  // deleted place, a cross-device race, a stale import — "dangling") gets the
+  // same unconstrained treatment, not a silent capacity-1 default: an absent
+  // map entry is not evidence of a capacity-1 place, it's evidence the place
+  // doesn't exist, and the director sees that via the DANGLING_LOCATION
+  // finding in buildSchedule() rather than an invisibly tightened schedule.
   // Returns true when the place at this block cannot admit `act` for `group`.
   // Applied at the head AND at every span tail (a span occupies its place at
   // every block it covers — place()/occupyPlace push tails into placeUsage, so
   // the check side must match, or a span overfills its place at the tail).
   function placeBlocked(act, group, dayId, blockId) {
     const locId = act.location_id ?? null
-    if (locId == null) return false
-    const capacity = locationCapById.get(locId) ?? 1
+    if (locId == null || !locationCapById.has(locId)) return false
+    const capacity = locationCapById.get(locId)
     const occupants = placeUsage.get(`${locId}|${dayId}|${blockId}`) || []
     if (occupants.length >= capacity) return true
     if (act.same_tier_only && occupants.length > 0) {
@@ -533,18 +539,41 @@ function buildSchedule(input) {
   const { cohorts, days, activities, campId, locations, anchorsOnly } = normalizeInput(input)
 
   // location_id → capacity (how many GROUPS fit in this place at once). Built
-  // once from the camp's locations rows. A place absent from the map defaults
-  // to 1 — the schema default (locations.capacity NOT NULL DEFAULT 1), the
-  // most restrictive safe value, never today's accidental "unlimited."
+  // once from the camp's locations rows. A stored capacity of 0 or negative
+  // (not reachable via the M3a UI — CapacityStepper floors at 1 — but
+  // reachable via the op-log or a future import) floors to 1, matching M1's
+  // migration; a place always holds at least 1 group. A location_id absent
+  // from this map entirely (dangling — see placeBlocked) is a different case
+  // and is NOT defaulted here: its absence from the map is exactly what tells
+  // placeBlocked to treat it as unconstrained.
   const locationCapById = new Map()
   for (const loc of (locations || [])) {
-    if (loc && loc.id != null) locationCapById.set(loc.id, loc.capacity ?? 1)
+    if (loc && loc.id != null) locationCapById.set(loc.id, loc.capacity > 0 ? loc.capacity : 1)
+  }
+
+  // Findings that are properties of an activity, not of any one cohort/group,
+  // so computed once here rather than per cohort. Gated by anchorsOnly like
+  // the rest of the findings work (Pass 3), since anchorsOnly is an
+  // anchors-grid-only audit.
+  const danglingFindings = []
+  if (!anchorsOnly) {
+    for (const act of activities) {
+      if (act.location_id != null && !locationCapById.has(act.location_id)) {
+        danglingFindings.push({
+          kind: 'DANGLING_LOCATION',
+          groupId: null,
+          activityId: act.id,
+          severity: 'caution',
+          reason: `"${act.name || act.id}" is set to a place that isn't in your locations list, so it has no place limit`,
+        })
+      }
+    }
   }
 
   // Pass 1: schedule each cohort independently
   // (multi-cohort cross-resource conflict detection is Sub-project 3)
   const allSlots = []
-  const allFindings = []
+  const allFindings = [...danglingFindings]
 
   for (let idx = 0; idx < cohorts.length; idx++) {
     const cohortEntry = cohorts[idx]
