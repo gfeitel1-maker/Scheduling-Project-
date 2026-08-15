@@ -2,10 +2,16 @@
 //
 // Per docs/adr/2026-07-24-centralized-authorization-layer.md: action names
 // are `<resource>.<verb>`, resource names match this repo's actual table
-// names (DIRECT_CAMP_ENTITIES ∪ PARENT_SCOPED_ENTITIES from electron/main.js,
-// plus users/camps/devices/conflicts), not the design doc's shorthand
-// (`schedule.*`) — those map onto `schedule_templates.*`/`schedule_snapshots.*`/
-// `template_slots.*` here.
+// names (DIRECT_CAMP_ENTITIES ∪ PARENT_SCOPED_ENTITIES from
+// electron/ops/campScopedEntities.js, plus users/camps/devices/conflicts),
+// not the design doc's shorthand (`schedule.*`) — those map onto
+// `schedule_templates.*`/`schedule_snapshots.*`/`template_slots.*` here.
+//
+// ENTITIES below MUST stay equal to that union (minus any deliberate,
+// documented admin-only exception) — an entity registered as camp-scoped but
+// omitted here silently resolves to admin-only for staff via authorize()'s
+// default-deny. That parity is guarded by
+// electron/auth/permissionsEntityParity.test.js.
 //
 // Default-deny is enforced by authorize()'s lookup, not by this file listing
 // every action for every role — PERMISSIONS.admin = ['*'] is shorthand for
@@ -22,10 +28,13 @@ export const ENTITIES = [
   'anchor_activities',
   'schedule_templates',
   'day_override_templates',
+  'schedule_weeks',
   'template_slots',
   'template_overlays',
   'schedule_snapshots',
   'day_override_template_slots',
+  'week_activity_exclusions',
+  'week_group_exclusions',
 ]
 
 const staffReadWrite = ENTITIES.flatMap((entity) => [`${entity}.read`, `${entity}.write`])
@@ -38,6 +47,22 @@ export const PERMISSIONS = {
     'devices.read',
     'conflicts.read',
     'conflicts.resolve',
+    // Week-exclusion removal is a ROW DELETE, not a field write: excluded ==
+    // "row exists", not-excluded == "row absent", so the toggle-off half of
+    // scheduleRepository's toggleActivity/GroupExclusion routes through the
+    // DELETE_FIELD sentinel and derives to '<entity>.delete' (deriveWriteAction).
+    // These two are therefore granted explicitly to staff — without them, staff
+    // could CHECK an exclusion box (a '.write') but never UNCHECK it. This is the
+    // deliberate exception to "delete is admin-only": for a symmetric toggle whose
+    // OFF state IS a delete, the delete is as ordinary as the write. It does NOT
+    // generalize — deleting a group/activity/slot remains admin-only, and a
+    // permanent WEEK delete is admin-only too: deleteWeekHandler
+    // (electron/main.js) authorizes 'schedule_weeks.delete', which staff do NOT
+    // hold, even though staff hold 'schedule_weeks.write' for create/edit/
+    // duplicate. The pinned boundary lives in electron/auth/authorize.test.js
+    // ("lets staff DELETE week-exclusion rows").
+    'week_activity_exclusions.delete',
+    'week_group_exclusions.delete',
     // Trash and per-record history are read-only and available to every
     // authenticated role: hiding "who changed this" from staff serves nobody
     // (docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md §6).

@@ -187,6 +187,15 @@ describe('authorize', () => {
       'schedule_templates.write',
       'template_slots.read',
       'template_slots.write',
+      // Multi-week entities: ordinary camp-scoped field writes, so staff+admin
+      // per the matrix (same as their sibling schedule entities above). These
+      // regressed to admin-only once — see permissionsEntityParity.test.js.
+      'schedule_weeks.read',
+      'schedule_weeks.write',
+      'week_activity_exclusions.read',
+      'week_activity_exclusions.write',
+      'week_group_exclusions.read',
+      'week_group_exclusions.write',
       'conflicts.read',
       'conflicts.resolve',
     ]
@@ -204,6 +213,27 @@ describe('authorize', () => {
     expect(authorize({ db, token: staffToken, action: 'groups.delete' }).allowed).toBe(false)
     expect(authorize({ db, token: staffToken, action: 'groups.bulk_replace' }).allowed).toBe(false)
     expect(authorize({ db, token: staffToken, action: 'camps.rename' }).allowed).toBe(false)
+    // Permanent week delete is admin-only: deleteWeekHandler (electron/main.js)
+    // authorizes 'schedule_weeks.delete', which staff do NOT hold — staff keep
+    // 'schedule_weeks.write' (create/edit/duplicate) but cannot permanently
+    // delete a week and cascade away its snapshots/slots/overlays. This
+    // assertion is the matrix half of that gate; deleteWeekHandler's use of the
+    // '.delete' action is what makes it load-bearing.
+    expect(authorize({ db, token: staffToken, action: 'schedule_weeks.delete' }).allowed).toBe(false)
+  })
+
+  it('lets staff DELETE week-exclusion rows (toggle-off), the deliberate delete exception', () => {
+    const staffId = insertUser({ role: 'staff' })
+    const staffToken = issueSessionToken(db, staffId, 'device-1')
+
+    // Toggling an exclusion off is a row delete (DELETE_FIELD sentinel ->
+    // '<entity>.delete'); staff must be able to un-exclude what they excluded.
+    expect(authorize({ db, token: staffToken, action: 'week_activity_exclusions.delete' }).allowed).toBe(true)
+    expect(authorize({ db, token: staffToken, action: 'week_group_exclusions.delete' }).allowed).toBe(true)
+    // The exception is scoped to those two entities only — no other camp entity
+    // gains a staff '.delete' from this grant.
+    expect(authorize({ db, token: staffToken, action: 'activities.delete' }).allowed).toBe(false)
+    expect(authorize({ db, token: staffToken, action: 'template_slots.delete' }).allowed).toBe(false)
   })
 
   it('accepts an unused resourceId without affecting the result', () => {

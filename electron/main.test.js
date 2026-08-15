@@ -832,10 +832,15 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     anchor_activities: 'name',
     schedule_templates: 'name',
     day_override_templates: 'name',
+    schedule_weeks: 'name',
     template_slots: 'activity_id',
     template_overlays: 'label',
     schedule_snapshots: 'name',
     day_override_template_slots: 'time_block_id',
+    // Exclusion rows have no name-shaped field; 'week_id' is the field their
+    // projection's ensureExists keys on (electron/ops/projections.js:205-226).
+    week_activity_exclusions: 'week_id',
+    week_group_exclusions: 'week_id',
   }
 
   // Login is scoped to the single camp in this db (`SELECT id FROM camps
@@ -885,6 +890,32 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
         `admin write ${entity}`
       ).resolves.toBeTruthy()
     }
+  })
+
+  // deleteWeekHandler is the one week op that is admin-only: it authorizes
+  // 'schedule_weeks.delete' (not '.write'), because deleteWeek() is a
+  // permanent, non-restorable cascade. Auth is checked BEFORE weekId/camp
+  // lookup, so a bogus weekId still exercises the gate. This guards against a
+  // regression to the '.write' gate, which staff hold — the matrix assertion in
+  // authorize.test.js only bites if the handler actually uses '.delete'.
+  it('deletes a week for an admin but denies a staff session (admin-only, .delete-gated)', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7112 })
+    const { staffToken, adminToken } = await seedTwoRoleSessions(handlers, {
+      staffName: 'WeekDelStaff',
+      adminName: 'WeekDelAdmin',
+    })
+
+    expect(() => handlers.deleteWeek({ token: staffToken, weekId: 'nonexistent' })).toThrow(
+      'admin role required'
+    )
+    // Admin clears the authorization gate and reaches the data layer — the only
+    // remaining failure is a benign data-layer guard (here 'last-week', since
+    // this camp was seeded with no weeks), never 'admin role required'.
+    expect(() => handlers.deleteWeek({ token: adminToken, weekId: 'nonexistent' })).not.toThrow()
+    expect(handlers.deleteWeek({ token: adminToken, weekId: 'nonexistent' })).toEqual({
+      error: 'last-week',
+    })
   })
 })
 
