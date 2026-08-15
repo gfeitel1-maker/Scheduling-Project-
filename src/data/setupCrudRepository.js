@@ -12,6 +12,19 @@
 // Collaborators are injected (mirrors src/data/scheduleRepository.js) so the
 // seam is the test surface: a test drives it with a fake localClient, no
 // React, no Electron.
+//
+// T9 (docs/adr/2026-08-15-locations-concurrent-create-collision.md addendum,
+// Decision B): the renderer-side half of electron/ops/operations.js's
+// UNIQUE_FIELD_ENTITIES — not imported directly, since that module pulls in
+// better-sqlite3/node:crypto and cannot cross into the renderer bundle — so
+// this is a verbatim transcription, kept honest by
+// electron/uniqueFirstFieldRegistryParity.test.js, which imports BOTH
+// modules under Vitest (same runner, no bundler involved) and fails if a key
+// is added to one registry without the other, the same duplication
+// discipline MOCK_WRITE_ALLOWLIST (src/localClient.mock.js) already uses
+// against electron/ops/projections.js.
+export const UNIQUE_FIRST_FIELD = { locations: 'name' }
+
 export function createSetupCrudRepository({
   localClient,
   getToken = () => localStorage.getItem('shoresh-token'),
@@ -36,7 +49,27 @@ export function createSetupCrudRepository({
     // deletes the partially-created row (a field write earlier in the order —
     // typically `name` — may already have created it via ensureExists), then
     // rethrows the ORIGINAL error, never a cleanup error.
+    //
+    // T9 / Decision B: a UNIQUE_FIRST_FIELD-registered entity MUST write that
+    // field first. This is a programmer-error guard, not a user-facing error
+    // path — it should never fire given correctly written callers. Writing
+    // any other field first can create a permanently orphaned row: if a
+    // non-unique field (e.g. capacity) writes first and succeeds, then the
+    // unique field collides and is rejected, ensureExists has already
+    // materialized a blank-name row nothing will ever finish naming. This
+    // guard is the one place `createRecord` is reused by a future call site
+    // (the M4 CSV importer) whose field order isn't hand-written the way
+    // LocationsScreen.jsx's is — see
+    // docs/adr/2026-08-15-locations-concurrent-create-collision.md.
     async createRecord(entity, id, orderedFields) {
+      const requiredFirst = UNIQUE_FIRST_FIELD[entity]
+      if (requiredFirst && Object.keys(orderedFields)[0] !== requiredFirst) {
+        throw new Error(
+          `createRecord(${entity}): "${requiredFirst}" must be the first field — got "${Object.keys(orderedFields)[0]}". ` +
+          `A create on this entity has an app-level UNIQUE constraint (docs/adr/2026-08-15-locations-concurrent-create-collision.md); ` +
+          `writing any other field first can create a permanently orphaned row if the constrained field is later rejected.`
+        )
+      }
       try {
         await writeFields(entity, id, orderedFields)
       } catch (err) {

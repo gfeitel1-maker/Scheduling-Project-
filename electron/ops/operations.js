@@ -494,6 +494,56 @@ export function detectConflict(db, incomingOp) {
   return { conflict: true, existingOp }
 }
 
+// D2 (docs/adr/2026-08-15-locations-concurrent-create-collision.md): entities
+// with an app-level uniqueness constraint detectConflict cannot see, because
+// detectConflict is keyed on a single entity_id and this constraint spans
+// DIFFERENT entity_ids (two devices concurrently creating a location with the
+// same exact name mint different uuids for the same name). Checked only for
+// the field the constraint is actually on — a normal field-level conflict on
+// any OTHER field of an already-created row still goes through detectConflict
+// unchanged. Mirrors BULK_REPLACE_ENTITIES's registry-of-config-objects shape
+// above: a future entity with its own app-level UNIQUE constraint registers
+// here rather than needing new collision-detection machinery.
+//
+// Finding E (addendum): any code that reads a detectUniqueFieldCollision
+// result and forwards it — to a wire message, to IPC, to a log line — must
+// field-pick, never spread/passthrough the raw row; a future entry on a
+// sensitive field (e.g. anything on `users`) inherits this obligation
+// automatically only if every call site honors it, which is why this
+// sentence exists. detectUniqueFieldCollision itself stays `SELECT *` (a
+// caller needs the full row to choose what to expose) — the discipline lives
+// at the edges (see D3's `{ id, name, capacity, notes }` picks and
+// electron/main.js's sanitizeOpRejectedForIpc), matching how
+// sanitizeOpForIpc/IPC_PIN_FIELDS already work.
+export const UNIQUE_FIELD_ENTITIES = {
+  locations: { table: 'locations', field: 'name', scopeColumn: 'camp_id' },
+}
+
+// Returns the colliding row's current { id, ...fields } if `op` would
+// violate a registered UNIQUE(scopeColumn, field) constraint against a
+// DIFFERENT entity_id, else null. Deliberately excludes op.entity_id itself
+// (`id != ?`) so a legitimate no-op rewrite of a row's own current name — or
+// a rename of some OTHER row into a name that already belongs to op.entity_id
+// itself, which cannot happen — is never flagged; this also means a rename
+// INTO another existing row's name is correctly flagged, exactly like a
+// create is (both are just "op.entity_id wants a name a different row
+// already holds"). Called at both write-entry points BEFORE appendOp, so the
+// doomed write (which would otherwise roll back inside appendOp's own
+// transaction on Path 2, or worse, silently orphan a blank-name row via
+// ensureExists on Path 1 — see the ADR) is never attempted at all.
+export function detectUniqueFieldCollision(db, op) {
+  const config = UNIQUE_FIELD_ENTITIES[op.entity]
+  if (!config || op.field !== config.field || op.value == null || op.value === '') return null
+  const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+  if (!camp) return null
+  return (
+    getStmt(
+      db,
+      `SELECT * FROM ${config.table} WHERE ${config.scopeColumn} = ? AND ${config.field} = ? AND id != ?`
+    ).get(camp.id, op.value, op.entity_id) || null
+  )
+}
+
 // Durably records a detected conflict so it can be rehydrated after an app
 // restart — the live usePendingConflicts hook is fed exclusively by
 // in-memory broadcast events, so without this a pending (or even a

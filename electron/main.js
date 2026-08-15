@@ -147,6 +147,17 @@ export function sanitizeConflictForIpc(msg) {
   }
 }
 
+// Finding E (docs/adr/2026-08-15-locations-concurrent-create-collision.md
+// addendum): op_rejected's `op` is the full submitted op, unsanitized — the
+// same PIN-bearing-field risk sanitizeOpForIpc already exists to close for
+// op-applied/op-conflict. `existing` is separately safe: D3 already
+// field-picks it to `{ id, name, capacity, notes }` before it ever reaches
+// this file (never a raw `SELECT *` row), so only `op` needs sanitizing here.
+export function sanitizeOpRejectedForIpc(msg) {
+  if (!msg) return msg
+  return { ...msg, op: sanitizeOpForIpc(msg.op) }
+}
+
 function ensureDeviceRow(db, deviceId) {
   db.prepare('INSERT OR IGNORE INTO devices (id, name) VALUES (?, ?)').run(deviceId, os.hostname())
 }
@@ -184,6 +195,21 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       syncClient.onOpConflict((msg) => {
         const mainWindow = getMainWindow ? getMainWindow() : null
         if (mainWindow) mainWindow.webContents.send('shoresh:op-conflict', sanitizeConflictForIpc(msg))
+      })
+    }
+    // D3/D4 (docs/adr/2026-08-15-locations-concurrent-create-collision.md):
+    // mirrors onOpConflict's wiring exactly. This is what makes the offline-
+    // queue case (D4) reach the renderer at all — flushQueue runs with no
+    // live caller waiting on any one write, so the push event is the only
+    // way the director learns a queued create was rejected. Finding E
+    // (addendum): `existing` is safe unsanitized — D3 already field-picks it
+    // to `{ id, name, capacity, notes }`, never a raw `SELECT *` row — but
+    // `msg.op` is the full submitted op, unsanitized, so it goes through
+    // sanitizeOpRejectedForIpc the same way op-applied/op-conflict do above.
+    if (typeof syncClient.onOpRejected === 'function') {
+      syncClient.onOpRejected((msg) => {
+        const mainWindow = getMainWindow ? getMainWindow() : null
+        if (mainWindow) mainWindow.webContents.send('shoresh:op-rejected', sanitizeOpRejectedForIpc(msg))
       })
     }
     // Completion push for the first-sync write-gate (design doc Part 4.2).

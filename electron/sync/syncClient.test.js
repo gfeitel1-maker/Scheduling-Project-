@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -1183,6 +1183,269 @@ describe('remote client mode', () => {
     expect(result.status).toBe('error')
 
     client.close()
+  })
+})
+
+// docs/adr/2026-08-15-locations-concurrent-create-collision.md — T3/D3/D4/D5.
+describe('locations UNIQUE(camp_id, name) collision rejection (D2/D3/D4/D5)', () => {
+  it('host-local no-serverUrl write() returns a structured rejection instead of throwing a raw SQLITE_CONSTRAINT_UNIQUE (D2 point 2)', async () => {
+    const client = createSyncClient(hostDb, { device_id: deviceId, author_user_id: userId })
+    const rejected = []
+    client.onOpRejected((msg) => rejected.push(msg))
+
+    const first = await client.write({ entity: 'locations', entity_id: 'loc-host-a', field: 'name', value: 'Pool' })
+    expect(first.status).toBe('applied')
+
+    const opCountBefore = hostDb.prepare('SELECT COUNT(*) as c FROM operations').get().c
+
+    const second = await client.write({ entity: 'locations', entity_id: 'loc-host-b', field: 'name', value: 'Pool' })
+    expect(second.status).toBe('rejected')
+    expect(second.reason).toBe('unique_field')
+    expect(second.existing).toMatchObject({ id: 'loc-host-a', name: 'Pool' })
+    expect(rejected).toHaveLength(1)
+
+    const opCountAfter = hostDb.prepare('SELECT COUNT(*) as c FROM operations').get().c
+    expect(opCountAfter).toBe(opCountBefore)
+    expect(hostDb.prepare('SELECT * FROM locations WHERE id = ?').get('loc-host-b')).toBeUndefined()
+  })
+
+  it('remote connected client: performWrite returns { status: "rejected" } promptly on a collision — not a 10s timeout, not a thrown error', async () => {
+    const client = createSyncClient(clientDb, { device_id: deviceId, author_user_id: userId, serverUrl: `ws://localhost:${PORT}`, token })
+    await client.waitUntilConnected()
+
+    const first = await client.write({ entity: 'locations', entity_id: 'loc-remote-a', field: 'name', value: 'Gym' })
+    expect(first.status).toBe('applied')
+
+    const started = Date.now()
+    const second = await client.write({ entity: 'locations', entity_id: 'loc-remote-b', field: 'name', value: 'Gym' })
+    expect(Date.now() - started).toBeLessThan(2000) // proves this resolved via op_rejected, not the 10s resolver-timeout safety net
+    expect(second.status).toBe('rejected')
+    expect(second.reason).toBe('unique_field')
+    expect(second.existing.id).toBe('loc-remote-a')
+
+    expect(hostDb.prepare('SELECT * FROM locations WHERE id = ?').get('loc-remote-b')).toBeUndefined()
+    expect(clientDb.prepare('SELECT * FROM locations WHERE id = ?').get('loc-remote-b')).toBeUndefined()
+
+    client.close()
+  })
+
+  it('D4: flushQueue purges EVERY queued field for a rejected entity_id, not just the field that collided, and does not touch an unrelated queued item', async () => {
+    const d4Port = 8271
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${d4Port}`,
+      token,
+    })
+
+    // Offline: name (the field that will collide), camp_id, and capacity all
+    // queue up front for the SAME new entity_id, before anyone knows the
+    // name-write is doomed — exactly write()'s real ordering for a Locations
+    // create (name is written first — see LocationsScreen.jsx buildCreateFields).
+    const nameQueued = await client.write({ entity: 'locations', entity_id: 'loc-d4-b', field: 'name', value: 'Pool' })
+    const campIdQueued = await client.write({ entity: 'locations', entity_id: 'loc-d4-b', field: 'camp_id', value: campId })
+    const capacityQueued = await client.write({ entity: 'locations', entity_id: 'loc-d4-b', field: 'capacity', value: '2' })
+    // An unrelated queued item for a DIFFERENT entity_id in the same batch —
+    // D4 must not regress flushQueue's existing per-item independence for it.
+    const unrelatedQueued = await client.write({ entity: 'template_slots', entity_id: 'slot-unrelated', field: 'activity_id', value: 'archery' })
+    expect([nameQueued.status, campIdQueued.status, capacityQueued.status, unrelatedQueued.status]).toEqual([
+      'queued', 'queued', 'queued', 'queued',
+    ])
+    expect(client.getQueuedOps()).toHaveLength(4)
+
+    // Bring the Host up with an EXISTING "Pool" row already there, so the
+    // queued name-write is a genuine collision once flushed.
+    const d4Server = startSyncServer(hostDb, { port: d4Port })
+    const rejected = []
+    client.onOpRejected((msg) => rejected.push(msg))
+    try {
+      const seedClient = createSyncClient(hostDb, { device_id: deviceId, author_user_id: userId })
+      await seedClient.write({ entity: 'locations', entity_id: 'loc-d4-a', field: 'name', value: 'Pool' })
+
+      await client.flushQueue()
+
+      // All three sibling items for loc-d4-b are gone from the durable queue —
+      // not just the one that collided — and the unrelated item was
+      // processed normally (applied, so it's ALSO gone, just via the
+      // ordinary success path, not the D4 purge).
+      expect(client.getQueuedOps()).toHaveLength(0)
+      const pendingRows = clientDb.prepare('SELECT * FROM pending_writes WHERE entity_id = ?').all('loc-d4-b')
+      expect(pendingRows).toHaveLength(0)
+
+      // A subsequent flush does not retry any of the purged siblings.
+      await client.flushQueue()
+      expect(client.getQueuedOps()).toHaveLength(0)
+
+      // Neither camp_id nor capacity ever reached the Host — no orphan row.
+      expect(hostDb.prepare('SELECT * FROM locations WHERE id = ?').get('loc-d4-b')).toBeUndefined()
+
+      // The unrelated item WAS processed normally (not purged, not skipped).
+      const hostSlotRow = hostDb.prepare('SELECT * FROM operations WHERE entity_id = ?').get('slot-unrelated')
+      expect(hostSlotRow).toBeTruthy()
+
+      // Exactly one notification — the message-handler's own op_rejected
+      // case (mirroring op_conflict) fires it once per rejected submission;
+      // flushQueue's D4 purge does not ALSO notify separately, since that
+      // would double-fire for the interactive-write path.
+      expect(rejected).toHaveLength(1)
+      expect(rejected[0]).toMatchObject({ type: 'op_rejected', reason: 'unique_field' })
+      expect(rejected[0].op.entity_id).toBe('loc-d4-b')
+    } finally {
+      d4Server.close()
+      client.close()
+    }
+  })
+
+  // T9 (docs/adr/2026-08-15-locations-concurrent-create-collision.md
+  // addendum, Findings B+C, Decision C): the exact data-loss bug Red Hat
+  // found in the original D4 purge — an offline EDIT (not a create) batching
+  // a colliding rename with a legitimate, unrelated field change to the SAME
+  // already-existing row must not have the legitimate change purged too.
+  it('edit case: a legitimate capacity change queued alongside a colliding rename to an EXISTING row SURVIVES — only the rename is dropped', async () => {
+    const editPort = 8272
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${editPort}`,
+      token,
+    })
+
+    // This device already knows about 'loc-edit-1' — a materialized row from
+    // an earlier, already-synced create (write()'s !authenticated branch
+    // never optimistically applies a NEW row, but an EXISTING one can
+    // certainly already be here from a prior sync — the same fact
+    // stillDeletedLocally's "materialized row" reasoning already relies on).
+    clientDb.prepare('INSERT INTO locations (id, camp_id, name, capacity) VALUES (?, ?, ?, ?)').run('loc-edit-1', campId, 'Beach', '1')
+
+    // Offline: a rename that will collide, batched with an unrelated,
+    // legitimate capacity change to the SAME row — the director renamed a
+    // place AND bumped its capacity in one sitting, then went offline.
+    const renameQueued = await client.write({ entity: 'locations', entity_id: 'loc-edit-1', field: 'name', value: 'Pool' })
+    const capacityQueued = await client.write({ entity: 'locations', entity_id: 'loc-edit-1', field: 'capacity', value: '5' })
+    expect([renameQueued.status, capacityQueued.status]).toEqual(['queued', 'queued'])
+    expect(client.getQueuedOps()).toHaveLength(2)
+
+    const editServer = startSyncServer(hostDb, { port: editPort })
+    try {
+      const seedClient = createSyncClient(hostDb, { device_id: deviceId, author_user_id: userId })
+      // The row this client believes it's editing is real on the Host too.
+      await seedClient.write({ entity: 'locations', entity_id: 'loc-edit-1', field: 'name', value: 'Beach' })
+      // A DIFFERENT existing row already holds the name being renamed into.
+      await seedClient.write({ entity: 'locations', entity_id: 'loc-edit-pool', field: 'name', value: 'Pool' })
+
+      await client.flushQueue()
+
+      // Nothing for loc-edit-1 is left queued — the rename was rejected and
+      // dropped, the capacity change was applied normally.
+      expect(clientDb.prepare('SELECT * FROM pending_writes WHERE entity_id = ?').all('loc-edit-1')).toHaveLength(0)
+      expect(client.getQueuedOps()).toHaveLength(0)
+
+      // The rename never applied — the Host's row name is unchanged.
+      expect(hostDb.prepare('SELECT name FROM locations WHERE id = ?').get('loc-edit-1').name).toBe('Beach')
+
+      // The capacity change SURVIVED and applied — this is the exact
+      // data-loss Finding C found: the original, unnarrowed D4 purge would
+      // have discarded this too, solely because it shared an entity_id with
+      // the doomed rename.
+      expect(hostDb.prepare('SELECT capacity FROM locations WHERE id = ?').get('loc-edit-1').capacity).toBe(5)
+    } finally {
+      editServer.close()
+      client.close()
+    }
+  })
+
+  it('D5: a non-DELETE/FK projection failure during applyRemoteOp is logged, not silently swallowed', async () => {
+    const client = createSyncClient(clientDb, { device_id: deviceId, author_user_id: userId, serverUrl: `ws://localhost:${PORT}`, token })
+    await client.waitUntilConnected()
+
+    // Simulate this client's local projection having already diverged from
+    // Host canonical state (the ADR's "Path 1" — a Host role change, a
+    // restored/merged DB, or any other future source of client/host
+    // projection skew): a row named "Pool" already exists locally under a
+    // DIFFERENT id than the one the incoming op targets.
+    clientDb.prepare('INSERT INTO locations (id, camp_id, name) VALUES (?, ?, ?)').run('local-only-id', campId, 'Pool')
+
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const ws = client.__getWs()
+    const badOp = {
+      id: randomUUID(),
+      entity: 'locations',
+      entity_id: 'other-id',
+      field: 'name',
+      value: 'Pool',
+      author_user_id: userId,
+      device_id: deviceId,
+      timestamp: new Date().toISOString(),
+      seq: 999999,
+      parent_op_id: null,
+    }
+
+    // No wait needed: ws.on('message', ...) here is a plain (non-async)
+    // function and applyRemoteOp is fully synchronous (db.transaction +
+    // applyProjection, no awaits) — ws.emit() runs the handler to completion,
+    // including the console.error call, before it returns.
+    expect(() => ws.emit('message', Buffer.from(JSON.stringify({ type: 'op_applied', op: badOp })))).not.toThrow()
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('applyRemoteOp: projection failed for locations/other-id.name'),
+      expect.anything()
+    )
+
+    errorSpy.mockRestore()
+    client.close()
+  })
+
+  it('two-client race (equivalent to ADR test 6): Device A creates "Pool" and it applies; Device B concurrently creates "Pool" and is rejected, not hung, not silently ghost-created', async () => {
+    const clientA = createSyncClient(clientDb, { device_id: deviceId, author_user_id: userId, serverUrl: `ws://localhost:${PORT}`, token })
+
+    const otherDeviceId = randomUUID()
+    insertAuthorizedHostDevice(hostDb, otherDeviceId, 'Device B')
+    const otherToken = issueCampToken(hostDb, userId, otherDeviceId)
+    const clientBDb = openLocalDb(path.join(os.tmpdir(), `shoresh-sc-clientB-${Date.now()}-${Math.random()}.sqlite`))
+    clientBDb.prepare('INSERT INTO camps (id, name, signing_secret) VALUES (?, ?, ?)').run(campId, 'Test Camp', 'c'.repeat(64))
+    const hostKeyRow = hostDb.prepare('SELECT signing_public_key FROM camps WHERE id = ?').get(campId)
+    clientBDb.prepare('UPDATE camps SET signing_public_key = ? WHERE id = ?').run(hostKeyRow.signing_public_key, campId)
+    clientBDb.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(otherDeviceId, 'Device B')
+    clientBDb.prepare('INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(userId, campId, 'Alice', 'x', 'x', 'admin')
+    const clientB = createSyncClient(clientBDb, { device_id: otherDeviceId, author_user_id: userId, serverUrl: `ws://localhost:${PORT}`, token: otherToken })
+
+    try {
+      await clientA.waitUntilConnected()
+      await clientB.waitUntilConnected()
+
+      // Genuinely concurrent: both submissions in flight before either
+      // resolves.
+      const [resultA, resultB] = await Promise.all([
+        clientA.write({ entity: 'locations', entity_id: 'loc-race-a', field: 'name', value: 'Pool' }),
+        clientB.write({ entity: 'locations', entity_id: 'loc-race-b', field: 'name', value: 'Pool' }),
+      ])
+
+      const results = [resultA, resultB]
+      const applied = results.filter((r) => r.status === 'applied')
+      const rejected = results.filter((r) => r.status === 'rejected')
+      // Exactly one side wins — the Host's single synchronous
+      // handleSubmitOp/appendOp per submission means the SECOND submission
+      // to reach it always hits the collision, so this is deterministic, not
+      // a race in the outcome (only in which entity_id happens to win).
+      expect(applied).toHaveLength(1)
+      expect(rejected).toHaveLength(1)
+      expect(rejected[0].reason).toBe('unique_field')
+
+      const winningId = applied[0].op.entity_id
+      const rows = hostDb.prepare("SELECT * FROM locations WHERE camp_id = ? AND name = 'Pool'").all(campId)
+      expect(rows).toHaveLength(1)
+      expect(rows[0].id).toBe(winningId)
+
+      // No orphan/blank-named row on the Host or on either client.
+      expect(hostDb.prepare("SELECT * FROM locations WHERE name = ''").all()).toHaveLength(0)
+      expect(clientDb.prepare("SELECT * FROM locations WHERE name = ''").all()).toHaveLength(0)
+      expect(clientBDb.prepare("SELECT * FROM locations WHERE name = ''").all()).toHaveLength(0)
+    } finally {
+      clientA.close()
+      clientB.close()
+      clientBDb.close()
+    }
   })
 })
 

@@ -195,6 +195,69 @@ describe('restoring rebuilds the record from its last-known field values', () =>
 })
 
 // ---------------------------------------------------------------------------
+// 2b. T7 — Finding A (addendum, docs/adr/2026-08-15-locations-concurrent-
+// create-collision.md): restoreEntity is a third appendOp call site, guarded
+// the same way handleSubmitOp/the host-local write branch already are.
+// ---------------------------------------------------------------------------
+
+describe('restoreEntity refuses a colliding restore (T7 / Finding A)', () => {
+  function makeLocation(id, { name, capacity = 1 } = {}) {
+    write('locations', id, 'camp_id', 'camp1')
+    write('locations', id, 'name', name)
+    write('locations', id, 'capacity', capacity)
+  }
+
+  it('returns a structured unique_field error, appends zero ops, and leaves the winning row byte-unchanged', () => {
+    // "Pool" was deleted...
+    makeLocation('loc-deleted', { name: 'Pool', capacity: 3 })
+    del('locations', 'loc-deleted')
+    // ...then a DIFFERENT row was created with the same name, as would
+    // happen if another device reused it after the delete.
+    makeLocation('loc-live', { name: 'Pool', capacity: 5 })
+    const winningRowBefore = db.prepare('SELECT * FROM locations WHERE id = ?').get('loc-live')
+    const opsBefore = db.prepare('SELECT COUNT(*) c FROM operations').get().c
+
+    const result = restoreEntity(db, { entity: 'locations', entity_id: 'loc-deleted', ...session })
+
+    expect(result).toEqual({
+      error: 'unique_field',
+      field: 'name',
+      existing: { id: 'loc-live', name: 'Pool', capacity: 5, notes: null },
+    })
+    // No ops appended for the refused restore attempt.
+    expect(db.prepare('SELECT COUNT(*) c FROM operations').get().c).toBe(opsBefore)
+    // The deleted row is still deleted — restore never partially applied.
+    expect(db.prepare('SELECT * FROM locations WHERE id = ?').get('loc-deleted')).toBeUndefined()
+    // The winning row is byte-unchanged.
+    expect(db.prepare('SELECT * FROM locations WHERE id = ?').get('loc-live')).toEqual(winningRowBefore)
+  })
+
+  it('restores normally when no other row holds the name (no false positive)', () => {
+    makeLocation('loc-1', { name: 'Gym', capacity: 2 })
+    del('locations', 'loc-1')
+
+    const result = restoreEntity(db, { entity: 'locations', entity_id: 'loc-1', ...session })
+
+    expect(result.ok).toBe(true)
+    expect(db.prepare('SELECT * FROM locations WHERE id = ?').get('loc-1').name).toBe('Gym')
+  })
+
+  it('does not apply the unique-field guard to a non-registered entity (groups has no UNIQUE_FIELD_ENTITIES entry)', () => {
+    // A restore for an entity absent from UNIQUE_FIELD_ENTITIES must not even
+    // consult detectUniqueFieldCollision — this is the registry-driven `if
+    // (uniqueConfig && ...)` guard's own opt-in, exercised directly rather
+    // than via groups' unrelated real DB-level UNIQUE(camp_id, name), which
+    // would throw for a different reason regardless of this guard's presence.
+    makeGroup('g1', { name: 'Aleph' })
+    del('groups', 'g1')
+
+    const result = restoreEntity(db, { entity: 'groups', entity_id: 'g1', ...session })
+
+    expect(result.ok).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // 3. Children
 // ---------------------------------------------------------------------------
 

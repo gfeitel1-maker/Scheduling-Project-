@@ -9,6 +9,7 @@ import {
   isBulkReplaceOp,
   latestScopeOpSeq,
   coerceOpValue,
+  detectUniqueFieldCollision,
   DELETE_FIELD,
 } from '../ops/operations.js'
 import { PROJECTIONS, applyProjection } from '../ops/projections.js'
@@ -120,6 +121,13 @@ export function createSyncClient(
 ) {
   const opAppliedListeners = []
   const opConflictListeners = []
+  // D3/D4 (docs/adr/2026-08-15-locations-concurrent-create-collision.md):
+  // mirrors opConflictListeners exactly. Needed independently of the
+  // synchronous return value performWrite/the host-local write() already
+  // give their own caller — the offline-queue case (D4) has no live caller
+  // left waiting by the time flushQueue discovers the rejection, so this is
+  // the only way the director ever finds out.
+  const opRejectedListeners = []
   const pairingApprovedListeners = []
   const pairingDeniedListeners = []
   const tokenRenewedListeners = []
@@ -133,6 +141,19 @@ export function createSyncClient(
 
   function notifyOpConflict(msg) {
     for (const listener of opConflictListeners) listener(msg)
+  }
+
+  function notifyOpRejected(msg) {
+    for (const listener of opRejectedListeners) listener(msg)
+  }
+
+  // Shared shape for the collision payload handed to a caller/listener —
+  // matches D3's wire shape exactly (`existing: { id, name, capacity, notes }`),
+  // used by both the host-local direct-write branch below and the WS
+  // op_rejected case further down, so a caller sees the same shape regardless
+  // of which path produced it.
+  function pickExistingLocation(row) {
+    return { id: row.id, name: row.name, capacity: row.capacity, notes: row.notes }
   }
 
   function notifyFullSyncApplied() {
@@ -150,6 +171,19 @@ export function createSyncClient(
       // The closure value remains the fallback for callers with no user, such
       // as bootstrap and pairing, which are honestly unattributed.
       async write({ entity, entity_id, field, value, parent_op_id = null, author_user_id: opAuthor, source = 'human' }) {
+        // D2/D3 (docs/adr/2026-08-15-locations-concurrent-create-collision.md):
+        // check BEFORE appendOp, same as handleSubmitOp's Host-side check —
+        // this is the Host operator's OWN interactive write, so without this
+        // it would hit appendOp's transaction, throw a raw
+        // SQLITE_CONSTRAINT_UNIQUE, and propagate unhandled through main.js's
+        // write() IPC handler straight to the renderer instead of a clean,
+        // typed rejection through the normal IPC promise.
+        const collision = detectUniqueFieldCollision(db, { entity, entity_id, field, value })
+        if (collision) {
+          const rejection = { status: 'rejected', reason: 'unique_field', existing: pickExistingLocation(collision) }
+          notifyOpRejected(rejection)
+          return rejection
+        }
         const op = appendOp(db, {
           entity,
           entity_id,
@@ -188,6 +222,9 @@ export function createSyncClient(
       },
       onOpConflict(callback) {
         opConflictListeners.push(callback)
+      },
+      onOpRejected(callback) {
+        opRejectedListeners.push(callback)
       },
       onFullSyncApplied(callback) {
         fullSyncAppliedListeners.push(callback)
@@ -459,9 +496,22 @@ export function createSyncClient(
         )
         return
       }
-      // Every other projection failure on an already-logged, already-canonical
-      // op is still swallowed: there's no observability infra yet to surface it
-      // further. The op-log entry above remains authoritative.
+      // D5 (docs/adr/2026-08-15-locations-concurrent-create-collision.md):
+      // every OTHER projection failure on an already-logged, already-canonical
+      // op used to be a pure swallow — no log line, no signal anywhere. D1-D4
+      // structurally prevent a locations name collision from ever reaching
+      // here (it's rejected before appendOp on the submitting side), so this
+      // is defense-in-depth for the wider class of "a canonical op still
+      // fails to project on some receiver" bugs this catch was built to
+      // absorb — extending the exact pattern the branch above already uses.
+      // The op-log entry itself remains authoritative either way; this only
+      // makes the resulting local divergence discoverable instead of silent.
+      else {
+        console.error(
+          `applyRemoteOp: projection failed for ${op.entity}/${op.entity_id}.${op.field} — op is logged but not materialized on this device`,
+          err
+        )
+      }
     }
   }
 
@@ -647,6 +697,29 @@ export function createSyncClient(
           const resolve = submitResolvers.shift()
           if (resolve) resolve(msg)
         }
+
+        // D3 (docs/adr/2026-08-15-locations-concurrent-create-collision.md):
+        // mirrors op_conflict's handling exactly, EXCEPT no recordConflict —
+        // there is nothing to persist, since the rejected write never became
+        // canonical (unlike a conflict, which records two REAL competing ops).
+        //
+        // Finding F (addendum, accepted, no code fix): there is no protocol-
+        // version or capability handshake anywhere in this file or
+        // syncServer.js. An OLD client talking to a NEW Host that sends
+        // op_rejected has no `case` for it here — the message is silently
+        // ignored, and that client's pending submission can only resolve via
+        // the 10s resolver timeout, indistinguishable from a dead connection,
+        // identical to this whole ADR's PRE-fix behavior. op_conflict had the
+        // exact same exposure when it was introduced and still has it today;
+        // this is an accepted, known gap during any rolling-upgrade window,
+        // not a regression this fix introduces — a real fix is a
+        // protocol-wide versioning primitive, its own architectural decision,
+        // not something to retrofit for one message type as a side effect.
+        if (msg.type === 'op_rejected') {
+          notifyOpRejected(msg)
+          const resolve = submitResolvers.shift()
+          if (resolve) resolve(msg)
+        }
       } catch {
         // defense-in-depth: never let a malformed/unexpected message crash the process
       }
@@ -816,6 +889,13 @@ export function createSyncClient(
     }
     if (submitResult.type === 'op_conflict') {
       return { status: 'conflict', existingOp: submitResult.existingOp }
+    }
+    // D3: terminal, same tier as 'conflict' — the Host has already decided
+    // and will never apply this write. reason/existing carry through so a
+    // caller (or flushQueue, for the offline path — D4) can act on the
+    // rejection instead of retrying a doomed write forever.
+    if (submitResult.type === 'op_rejected') {
+      return { status: 'rejected', reason: submitResult.reason, existing: submitResult.existing }
     }
     return { status: 'applied', op: submitResult.op }
   }
@@ -1042,6 +1122,9 @@ export function createSyncClient(
     onOpConflict(callback) {
       opConflictListeners.push(callback)
     },
+    onOpRejected(callback) {
+      opRejectedListeners.push(callback)
+    },
     onFullSyncApplied(callback) {
       fullSyncAppliedListeners.push(callback)
     },
@@ -1080,8 +1163,18 @@ export function createSyncClient(
       // A terminal refusal is the Host's answer and is reported as-is —
       // including 'not-deleted', which on this path means the director asked
       // to restore something that is not deleted, not that a queued request
-      // has already been satisfied.
-      if (reply.error) return { error: reply.error }
+      // has already been satisfied. `field`/`existing` are forwarded too
+      // (spread conditionally so the other four error strings stay
+      // byte-identical) — T12: without them, TrashScreen could not name the
+      // colliding record and fell back to a misleading "try again" message
+      // for a refusal that is actually deterministic and permanent.
+      if (reply.error) {
+        return {
+          error: reply.error,
+          ...(reply.field ? { field: reply.field } : {}),
+          ...(reply.existing ? { existing: reply.existing } : {}),
+        }
+      }
 
       // timeout / disconnected: undelivered, so record the intent and say it
       // is waiting rather than that it failed.
@@ -1131,6 +1224,15 @@ export function createSyncClient(
       // silently thrown away with no retry and no signal to the caller.
       const items = queue.slice()
       for (const item of items) {
+        // D4 (docs/adr/2026-08-15-locations-concurrent-create-collision.md):
+        // an earlier iteration of THIS SAME pass may already have purged this
+        // item as a sibling of a just-rejected entity_id (see the 'rejected'
+        // branch below). It must not still be performed here — that would
+        // resubmit the sibling write to the Host after the purge, recreating
+        // the exact blank-name orphan D4 exists to prevent, just one
+        // iteration later than the bug it's guarding against.
+        if (!queue.some((q) => q.pendingId === item.pendingId)) continue
+
         const result = await performWrite(item)
 
         if (result.status === 'applied' || result.status === 'conflict') {
@@ -1145,6 +1247,76 @@ export function createSyncClient(
           const index = queue.findIndex((q) => q.pendingId === item.pendingId)
           if (index !== -1) queue.splice(index, 1)
           deletePendingWrite(db, item.pendingId)
+          continue
+        }
+
+        if (result.status === 'rejected') {
+          // Always drop the rejected item itself — it can never succeed as
+          // written (D3: the Host has already decided and will never apply
+          // it).
+          const rejectedIndex = queue.findIndex((q) => q.pendingId === item.pendingId)
+          if (rejectedIndex !== -1) queue.splice(rejectedIndex, 1)
+          deletePendingWrite(db, item.pendingId)
+
+          // Addendum Findings B+C (docs/adr/2026-08-15-locations-concurrent-
+          // create-collision.md): the ORIGINAL D4 purge below fired for every
+          // rejection unconditionally, which is correct for a CREATE but a
+          // real data-loss bug for an EDIT — an offline rename batched with a
+          // legitimate, unrelated field change (e.g. a capacity bump) to the
+          // SAME already-existing row would silently drop the capacity write
+          // too, just because it shared an entity_id with the doomed rename.
+          //
+          // The two cases are distinguished by whether a materialized local
+          // row for (entity, entity_id) already exists at this moment — the
+          // same technique stillDeletedLocally already uses, and sound for
+          // the same reason: write()'s !authenticated branch (above) never
+          // optimistically applies a row before Host acknowledgment, so:
+          //   - CREATE: no local row exists — the whole entity_id is doomed
+          //     (ensureExists would otherwise materialize a blank-name
+          //     orphan the moment any sibling field reaches the Host), so
+          //     every sibling queued for it must be purged too.
+          //   - EDIT: a local row already exists — only the rejected field is
+          //     invalid; a sibling field on the SAME real row is independent
+          //     and must be allowed to proceed normally on this or the next
+          //     flush pass.
+          const projection = PROJECTIONS[item.entity]
+          const rowExistsLocally = !!(
+            projection &&
+            db.prepare(`SELECT 1 FROM ${projection.table} WHERE ${projection.key} = ?`).get(item.entity_id)
+          )
+
+          if (!rowExistsLocally) {
+            const siblings = queue.filter((q) => q.entity === item.entity && q.entity_id === item.entity_id)
+            if (siblings.length > 0) {
+              // Finding D: one transaction for the whole purge. Narrowed to
+              // the create-case (Decision C) also narrows this finding's
+              // blast radius — a crash mid-purge can now only leave a
+              // surviving sibling of a DOOMED, never-valid entity_id (inert:
+              // that row can never become real either way), never a
+              // surviving sibling of a row that matters.
+              const purgeSiblings = db.transaction(() => {
+                for (const sibling of siblings) deletePendingWrite(db, sibling.pendingId)
+              })
+              purgeSiblings()
+              for (const sibling of siblings) {
+                const siblingIndex = queue.findIndex((q) => q.pendingId === sibling.pendingId)
+                if (siblingIndex !== -1) queue.splice(siblingIndex, 1)
+              }
+            }
+          }
+
+          // No separate notifyOpRejected call here: performWrite got here via
+          // submitOpRemote, which already ran the rejected submission through
+          // the SAME op_rejected message-handler case an interactive write
+          // uses (see the ws.on('message') handler above) — that already
+          // called notifyOpRejected(msg) once, with the full wire shape
+          // (msg.op.entity_id, reason, existing). This is precisely what
+          // makes the notification reach the renderer for the offline case
+          // too: there is no live caller left waiting on THIS specific write
+          // (write()'s !authenticated branch already returned 'queued' and
+          // moved on), but the listener registered via onOpRejected still
+          // fires, because it fires on message receipt, not on a caller
+          // awaiting a promise.
           continue
         }
 

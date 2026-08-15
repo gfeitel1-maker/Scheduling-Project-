@@ -7,7 +7,7 @@ import { randomUUID, randomBytes } from 'node:crypto'
 import WebSocket from 'ws'
 import { openLocalDb } from '../db/localDb.js'
 import { createUser, issueCampToken, issueLocalToken, ensureHostSigningKey } from '../auth/localAuth.js'
-import { appendOp } from '../ops/operations.js'
+import { appendOp, DELETE_FIELD } from '../ops/operations.js'
 import { startSyncServer, sendMissedOps, sendWithAck } from './syncServer.js'
 import { ENTITIES } from '../auth/permissions.js'
 import { LOGIN_MIN_INTERVAL_MS } from './rateLimit.js'
@@ -281,6 +281,181 @@ describe('submit_op', () => {
     expect(countAfter).toBe(countBefore)
 
     ws1.close()
+  })
+})
+
+// D2/D3/T2 (docs/adr/2026-08-15-locations-concurrent-create-collision.md):
+// the everyday two-device same-name race — this is "Path 2" in the ADR, the
+// path that actually fires when two devices race to create the same new
+// name, since every Client write round-trips through the Host's one
+// synchronous handleSubmitOp/appendOp.
+describe('submit_op: locations UNIQUE(camp_id, name) collision (D2/D3/T2)', () => {
+  it('sends op_rejected (not op_applied) on a colliding create, appends no operations row, and leaves the winning row byte-unchanged', async () => {
+    const ws1 = connect()
+    await onceOpen(ws1)
+    // No wait after authenticate: this is a single TCP connection, so the
+    // Host processes the authenticate frame (synchronously setting
+    // ws.deviceId) before the submit_op frame that follows it, matching the
+    // immediate-send pattern already used elsewhere in this file (e.g. the
+    // acquire_lock tests above) rather than a fixed-duration sleep.
+    ws1.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+
+    // Device A creates "Pool" and it applies.
+    ws1.send(
+      JSON.stringify({
+        type: 'submit_op',
+        op: { entity: 'locations', entity_id: 'loc-a', field: 'name', value: 'Pool', author_user_id: userId, parent_op_id: null },
+      })
+    )
+    const applied = await onceMessage(ws1)
+    expect(applied.type).toBe('op_applied')
+
+    const winningRowBefore = db.prepare('SELECT * FROM locations WHERE id = ?').get('loc-a')
+    expect(winningRowBefore.name).toBe('Pool')
+    const opCountBefore = db.prepare('SELECT COUNT(*) as c FROM operations').get().c
+
+    // Device B concurrently creates a DIFFERENT row with the SAME name.
+    const rejectedPromise = onceMessage(ws1)
+    ws1.send(
+      JSON.stringify({
+        type: 'submit_op',
+        op: { entity: 'locations', entity_id: 'loc-b', field: 'name', value: 'Pool', author_user_id: userId, parent_op_id: null },
+      })
+    )
+    const rejectedMsg = await rejectedPromise
+    expect(rejectedMsg.type).toBe('op_rejected')
+    expect(rejectedMsg.reason).toBe('unique_field')
+    expect(rejectedMsg.field).toBe('name')
+    expect(rejectedMsg.existing).toMatchObject({ id: 'loc-a', name: 'Pool' })
+
+    // No new row for loc-b, no new operations row for the rejected submission,
+    // and the winning row is byte-unchanged.
+    const loserRow = db.prepare('SELECT * FROM locations WHERE id = ?').get('loc-b')
+    expect(loserRow).toBeUndefined()
+    const opCountAfter = db.prepare('SELECT COUNT(*) as c FROM operations').get().c
+    expect(opCountAfter).toBe(opCountBefore)
+    const winningRowAfter = db.prepare('SELECT * FROM locations WHERE id = ?').get('loc-a')
+    expect(winningRowAfter).toEqual(winningRowBefore)
+
+    ws1.close()
+  })
+
+  it('rejects a RENAME of an existing location into another existing location\'s name, the same way a create collision is rejected', async () => {
+    const ws1 = connect()
+    await onceOpen(ws1)
+    // No wait after authenticate — see the sibling test above.
+    ws1.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+
+    ws1.send(
+      JSON.stringify({
+        type: 'submit_op',
+        op: { entity: 'locations', entity_id: 'loc-pool', field: 'name', value: 'Pool', author_user_id: userId, parent_op_id: null },
+      })
+    )
+    await onceMessage(ws1)
+    ws1.send(
+      JSON.stringify({
+        type: 'submit_op',
+        op: { entity: 'locations', entity_id: 'loc-gym', field: 'name', value: 'Gym', author_user_id: userId, parent_op_id: null },
+      })
+    )
+    const gymCreated = await onceMessage(ws1)
+
+    // Rename "Gym" to "Pool" — a name another existing row already holds.
+    // parent_op_id points at the prior op for this SAME entity_id/field
+    // (an honest "based on the state I actually observed" write) so
+    // detectConflict — a DIFFERENT check, keyed on one entity_id — reports
+    // no conflict and this genuinely reaches detectUniqueFieldCollision.
+    const rejectedPromise = onceMessage(ws1)
+    ws1.send(
+      JSON.stringify({
+        type: 'submit_op',
+        op: { entity: 'locations', entity_id: 'loc-gym', field: 'name', value: 'Pool', author_user_id: userId, parent_op_id: gymCreated.op.id },
+      })
+    )
+    const rejectedMsg = await rejectedPromise
+    expect(rejectedMsg.type).toBe('op_rejected')
+    expect(rejectedMsg.existing.id).toBe('loc-pool')
+
+    const gymRow = db.prepare('SELECT * FROM locations WHERE id = ?').get('loc-gym')
+    expect(gymRow.name).toBe('Gym') // unchanged — the rename never applied
+
+    ws1.close()
+  })
+
+  it('does not flag a rename of a location to its own current name (self no-op)', async () => {
+    const ws1 = connect()
+    await onceOpen(ws1)
+    // No wait after authenticate — see the sibling test above.
+    ws1.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+
+    ws1.send(
+      JSON.stringify({
+        type: 'submit_op',
+        op: { entity: 'locations', entity_id: 'loc-pool', field: 'name', value: 'Pool', author_user_id: userId, parent_op_id: null },
+      })
+    )
+    const poolCreated = await onceMessage(ws1)
+
+    const appliedAgainPromise = onceMessage(ws1)
+    ws1.send(
+      JSON.stringify({
+        type: 'submit_op',
+        op: { entity: 'locations', entity_id: 'loc-pool', field: 'name', value: 'Pool', author_user_id: userId, parent_op_id: poolCreated.op.id },
+      })
+    )
+    const msg = await appliedAgainPromise
+    expect(msg.type).toBe('op_applied')
+
+    ws1.close()
+  })
+})
+
+// T7 (docs/adr/2026-08-15-locations-concurrent-create-collision.md addendum,
+// Finding A): restoreEntity's colliding-restore refusal must reach the wire
+// as a structured restore_result, forwarding `field`/`existing` the same way
+// op_rejected already does — not just the bare `error` string.
+describe('restore_request: locations UNIQUE(camp_id, name) collision guard (T7 / Finding A)', () => {
+  it('sends restore_result with error "unique_field", forwarding field and existing', async () => {
+    appendOp(db, { entity: 'locations', entity_id: 'loc-deleted', field: 'camp_id', value: campId, author_user_id: userId, device_id: deviceId })
+    appendOp(db, { entity: 'locations', entity_id: 'loc-deleted', field: 'name', value: 'Pool', author_user_id: userId, device_id: deviceId })
+    appendOp(db, { entity: 'locations', entity_id: 'loc-deleted', field: DELETE_FIELD, value: 1, author_user_id: userId, device_id: deviceId })
+    // A different, live row now holds the same name.
+    appendOp(db, { entity: 'locations', entity_id: 'loc-live', field: 'camp_id', value: campId, author_user_id: userId, device_id: deviceId })
+    appendOp(db, { entity: 'locations', entity_id: 'loc-live', field: 'name', value: 'Pool', author_user_id: userId, device_id: deviceId })
+
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+
+    ws.send(JSON.stringify({ type: 'restore_request', request_id: 'req-1', entity: 'locations', entity_id: 'loc-deleted' }))
+    const msg = await onceMessageOfType(ws, 'restore_result')
+
+    expect(msg).toMatchObject({
+      type: 'restore_result',
+      request_id: 'req-1',
+      error: 'unique_field',
+      field: 'name',
+      existing: { id: 'loc-live', name: 'Pool' },
+    })
+
+    ws.close()
+  })
+
+  it('an ordinary refusal reason (not-deleted) still carries no field/existing (no regression)', async () => {
+    appendOp(db, { entity: 'locations', entity_id: 'loc-live', field: 'camp_id', value: campId, author_user_id: userId, device_id: deviceId })
+    appendOp(db, { entity: 'locations', entity_id: 'loc-live', field: 'name', value: 'Beach', author_user_id: userId, device_id: deviceId })
+
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+
+    ws.send(JSON.stringify({ type: 'restore_request', request_id: 'req-2', entity: 'locations', entity_id: 'loc-live' }))
+    const msg = await onceMessageOfType(ws, 'restore_result')
+
+    expect(msg).toEqual({ type: 'restore_result', request_id: 'req-2', error: 'not-deleted' })
+
+    ws.close()
   })
 })
 

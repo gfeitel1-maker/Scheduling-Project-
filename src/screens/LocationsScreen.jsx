@@ -170,6 +170,17 @@ export default function LocationsScreen({ campId, role, onNavigate }) {
       localClient,
       repository,
       scopeFilter,
+      // `name` MUST stay the first key: writeFields (setupCrudRepository.js)
+      // writes fields in this object's insertion order, and a locations
+      // create is the one entry point where that order is load-bearing, not
+      // cosmetic (docs/adr/2026-08-15-locations-concurrent-create-collision.md
+      // D3). If `name` collides, being first stops the sequential write loop
+      // before capacity/notes ever go out — but more importantly, if ANY
+      // field before `name` succeeded first, ensureExists
+      // (electron/ops/projections.js) would INSERT OR IGNORE a blank-name
+      // placeholder row for the new id BEFORE the collision on `name` ever
+      // fires, reintroducing this ADR's orphan-row defect via a different
+      // field. Pinned by a regression test in LocationsScreen.test.jsx.
       buildCreateFields: ({ name, capacity, notes }) => ({
         name,
         camp_id: campId,

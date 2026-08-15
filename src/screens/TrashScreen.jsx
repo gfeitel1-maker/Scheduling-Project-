@@ -19,9 +19,19 @@ const OUTCOME_COPY = {
   'no-history': 'The main computer does not hold enough of this record’s history to rebuild it.',
   'not-deleted': 'This record is already back.',
   forbidden: 'Only an admin can restore records.',
+  // Unlike every refusal above, this one is deterministic and permanent: the
+  // colliding name still belongs to a different, live record, so retrying
+  // does nothing until that record is renamed or removed. "Try again" would
+  // be a lie here — this is the generic form, used when the colliding
+  // record's name isn't available (e.g. the queued-restore list, which has
+  // no `existing` detail); outcomeMessage names it when it can.
+  unique_field: 'A record with that name already exists, so this can’t be restored. Rename or remove the existing one first.',
 }
 
-function outcomeMessage(error) {
+function outcomeMessage(error, existing) {
+  if (error === 'unique_field' && existing?.name) {
+    return `A record named “${existing.name}” already exists, so this can’t be restored. Rename or remove the existing one first.`
+  }
   return OUTCOME_COPY[error] ?? 'That restore did not go through. Try again in a moment.'
 }
 
@@ -108,7 +118,7 @@ export default function TrashScreen({ role }) {
           setChildOffer({ parent: row, children: result.deleted_children })
         }
       } else {
-        setNotice({ tone: 'danger', text: outcomeMessage(result?.error) })
+        setNotice({ tone: 'danger', text: outcomeMessage(result?.error, result?.existing) })
       }
     } catch (err) {
       setNotice({

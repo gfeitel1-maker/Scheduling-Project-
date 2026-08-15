@@ -113,6 +113,46 @@ describe('TrashScreen', () => {
     expect(screen.queryByText('no-history')).toBeNull()
   })
 
+  // T12 (Red Hat re-review, MEDIUM): a unique-field collision is deterministic
+  // and permanent — retrying does nothing until the colliding live record is
+  // renamed or removed — so the copy must say that, never "try again".
+  it('names the colliding record on a unique_field refusal, honestly and permanently', async () => {
+    localClient.listDeleted.mockResolvedValue([deletedGroup({ entity: 'locations', entity_id: 'loc1', name: 'Pool (deleted)' })])
+    localClient.restoreEntity.mockResolvedValue({
+      error: 'unique_field',
+      field: 'name',
+      existing: { id: 'loc-live', name: 'Pool', capacity: 5, notes: null },
+    })
+    render(<TrashScreen role="admin" />)
+
+    fireEvent.click(await screen.findByText('Restore'))
+
+    const notice = await screen.findByText(/already exists/)
+    expect(notice.textContent).toContain('Pool')
+    expect(notice.textContent).not.toMatch(/try again/i)
+  })
+
+  it('falls back to an honest, generic, still-permanent unique_field message when no collision name is available', async () => {
+    localClient.listDeleted.mockResolvedValue([deletedGroup({ entity: 'locations', entity_id: 'loc1', name: 'Pool (deleted)' })])
+    localClient.restoreEntity.mockResolvedValue({ error: 'unique_field' })
+    render(<TrashScreen role="admin" />)
+
+    fireEvent.click(await screen.findByText('Restore'))
+
+    const notice = await screen.findByText(/already exists/)
+    expect(notice.textContent).not.toMatch(/try again/i)
+  })
+
+  it('surfaces a queued restore\'s unique_field failure with the same honest, permanent copy', async () => {
+    localClient.listPendingRestores.mockResolvedValue([
+      { pendingId: 'p1', entity: 'locations', entity_id: 'loc1', name: 'Pool (deleted)', last_error: 'unique_field' },
+    ])
+    render(<TrashScreen role="admin" />)
+
+    const notice = await screen.findByText(/already exists/)
+    expect(notice.textContent).not.toMatch(/try again/i)
+  })
+
   it('shows a restore still waiting on the main computer, and one that has failed', async () => {
     localClient.listPendingRestores.mockResolvedValue([
       { pendingId: 'p1', entity: 'groups', entity_id: 'g1', last_error: null },

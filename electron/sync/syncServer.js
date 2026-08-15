@@ -5,6 +5,7 @@ import { verifySessionToken, attemptLogin, issueCampToken } from '../auth/localA
 import { acquireLock, expireLocks, releaseLocksForDevice } from './lockManager.js'
 import {
   detectConflict,
+  detectUniqueFieldCollision,
   appendOp,
   recordConflict,
   findOpByClientWriteId,
@@ -600,6 +601,26 @@ function handleSubmitOp(db, wss, ws, msg) {
     send(ws, { type: 'op_conflict', incomingOp, existingOp })
     return
   }
+
+  // D2/D3 (docs/adr/2026-08-15-locations-concurrent-create-collision.md):
+  // an app-level UNIQUE(camp_id, name) collision detectConflict cannot see
+  // (it spans a DIFFERENT entity_id, not this one). Checked before appendOp
+  // so the doomed write is never attempted — appendOp's own transaction
+  // would otherwise roll back the whole thing on SQLITE_CONSTRAINT_UNIQUE,
+  // but only after propagating a generic, uncorrelated error the Client has
+  // no case for (see the ADR's Path 2). Never call appendOp on a hit.
+  const collision = detectUniqueFieldCollision(db, incomingOp)
+  if (collision) {
+    send(ws, {
+      type: 'op_rejected',
+      op: incomingOp,
+      reason: 'unique_field',
+      field: incomingOp.field,
+      existing: { id: collision.id, name: collision.name, capacity: collision.capacity, notes: collision.notes },
+    })
+    return
+  }
+
   const op = appendOp(db, incomingOp)
   for (const client of wss.clients) {
     if (client.deviceId) {
@@ -757,7 +778,19 @@ function handleRestoreRequest(db, wss, ws, msg) {
   })
 
   if (result.error) {
-    send(ws, { type: 'restore_result', request_id, error: result.error })
+    // Finding A (addendum): restoreEntity's 'unique_field' refusal carries
+    // two extra fields (field, existing) beyond the four pre-existing error
+    // strings — forward them only when present so the other refusal reasons
+    // are byte-identical to before. requestRestore's `if (reply.error)`
+    // branch (syncClient.js) is generic over the error value, so no
+    // Client-side change is required to receive these.
+    send(ws, {
+      type: 'restore_result',
+      request_id,
+      error: result.error,
+      ...(result.field ? { field: result.field } : {}),
+      ...(result.existing ? { existing: result.existing } : {}),
+    })
     return
   }
 

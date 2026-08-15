@@ -200,6 +200,43 @@ describe('restore requested on a Client executes on the Host and replicates back
     expect(hostDb.prepare('SELECT COUNT(*) c FROM operations').get().c).toBe(opsBefore)
     expect(hostDb.prepare('SELECT COUNT(*) c FROM groups WHERE id = ?').get('g1').c).toBe(0)
   })
+
+  // T7 (docs/adr/2026-08-15-locations-concurrent-create-collision.md addendum,
+  // Finding A): a restore whose last-known name now belongs to a different,
+  // live row must fail with a structured, terminal error over the wire — not
+  // an unhandled SQLITE_CONSTRAINT_UNIQUE inside restoreEntity's transaction.
+  //
+  // T12 (Red Hat re-review, MEDIUM): the crash fix alone left the
+  // director-facing message misleading — TrashScreen's fallback copy implied
+  // a transient failure ("try again in a moment") for a refusal that is
+  // actually deterministic and permanent. Closing that required
+  // requestRestore's interactive path to ALSO forward `field`/`existing`
+  // (previously dropped by `if (reply.error) return { error: reply.error }`,
+  // proven to cross only the WIRE by syncServer.test.js's raw-message test,
+  // not all the way to this caller) so TrashScreen can name the colliding
+  // record instead of falling back to its generic "try again" text.
+  it('refuses a colliding restore, resolving requestRestore with a terminal unique_field error that names the collision', async () => {
+    hostWrite('locations', 'loc-deleted', 'camp_id', campId)
+    hostWrite('locations', 'loc-deleted', 'name', 'Pool')
+    hostWrite('locations', 'loc-deleted', 'capacity', '3')
+    hostWrite('locations', 'loc-deleted', DELETE_FIELD, 1)
+    // A different, live row now holds the same name.
+    hostWrite('locations', 'loc-live', 'camp_id', campId)
+    hostWrite('locations', 'loc-live', 'name', 'Pool')
+    hostWrite('locations', 'loc-live', 'capacity', '5')
+    const opsBefore = hostDb.prepare('SELECT COUNT(*) c FROM operations').get().c
+
+    client = connectClient()
+    await client.waitUntilConnected()
+
+    const result = await client.requestRestore({ entity: 'locations', entity_id: 'loc-deleted', requested_by: adminId })
+
+    expect(result.error).toBe('unique_field')
+    expect(result.field).toBe('name')
+    expect(result.existing).toMatchObject({ name: 'Pool' })
+    expect(hostDb.prepare('SELECT COUNT(*) c FROM operations').get().c).toBe(opsBefore)
+    expect(hostDb.prepare('SELECT * FROM locations WHERE id = ?').get('loc-deleted')).toBeUndefined()
+  })
 })
 
 describe('with the Host unreachable, the request queues and survives a restart', () => {

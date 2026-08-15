@@ -64,6 +64,8 @@ export const localClient = {
   latestOpSeq: () => (shoresh.latestOpSeq ? shoresh.latestOpSeq() : Promise.resolve(0)),
   onSyncStatusChanged: (cb) => shoresh.onSyncStatusChanged?.(cb) ?? (() => {}),
   onOpConflict: (cb) => shoresh.onOpConflict(cb),
+  // docs/adr/2026-08-15-locations-concurrent-create-collision.md
+  onOpRejected: (cb) => shoresh.onOpRejected(cb),
   getCamp: () => shoresh.getCamp(),
   listUsers: () => shoresh.listUsers(currentToken()),
   getDeviceId: () => shoresh.getDeviceId(currentToken()),
