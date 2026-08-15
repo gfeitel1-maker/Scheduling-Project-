@@ -254,22 +254,26 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       return
     }
     if (!window.confirm('Delete all time blocks? They can be restored from Trash.')) return
-    // Re-fetch immediately before building the id list rather than using the
-    // closed-over `blocks` state — if another device synced in new blocks
-    // between page-load and this click, the stale in-memory snapshot would
-    // silently skip them with no indication anything was missed.
-    const freshBlocks = await localClient.list('time_blocks')
-    const ids = (freshBlocks || [])
-      .filter(b => b.camp_id === campId && b.cohort_id === activeCohort.id)
-      .map(b => b.id)
-    const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('time_blocks', ids)
-    await load()
-    if (failed > 0) {
-      setError(
-        failedDueToRole
-          ? 'Only an admin can delete time blocks — no time blocks were deleted.'
-          : `Deleted ${succeeded} of ${ids.length} time blocks — please try again for the rest.`
-      )
+    try {
+      // Re-fetch immediately before building the id list rather than using the
+      // closed-over `blocks` state — if another device synced in new blocks
+      // between page-load and this click, the stale in-memory snapshot would
+      // silently skip them with no indication anything was missed.
+      const freshBlocks = await localClient.list('time_blocks')
+      const ids = (freshBlocks || [])
+        .filter(b => b.camp_id === campId && b.cohort_id === activeCohort.id)
+        .map(b => b.id)
+      const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('time_blocks', ids)
+      await load()
+      if (failed > 0) {
+        setError(
+          failedDueToRole
+            ? 'Only an admin can delete time blocks — no time blocks were deleted.'
+            : `Deleted ${succeeded} of ${ids.length} time blocks — please try again for the rest.`
+        )
+      }
+    } catch (err) {
+      setError(describeWriteFailure(err, 'Those time blocks could not be deleted.'))
     }
   }
 

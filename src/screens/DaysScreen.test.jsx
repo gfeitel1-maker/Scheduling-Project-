@@ -173,6 +173,19 @@ describe('DaysScreen', () => {
     expect(localClient.deleteEntity).not.toHaveBeenCalledWith('token-abc', 'days_of_operation', 'd-other')
   })
 
+  it('surfaces an error banner when Delete All fails unexpectedly instead of silently closing', async () => {
+    localClient.list.mockResolvedValue([day({ id: 'd1', label: 'Monday' })])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+
+    // The re-fetch inside deleteAll (in useCrudScreen) throws — an unexpected
+    // failure must surface an error banner, not close the confirm silently.
+    localClient.list.mockRejectedValue(new Error('disk failure'))
+    fireEvent.click(screen.getByText('Delete All'))
+
+    await waitFor(() => expect(screen.queryByText(/Those days could not be deleted/)).not.toBeNull())
+  })
+
   it('disables Delete All for non-admin roles', async () => {
     localClient.list.mockResolvedValue([day()])
     render(<DaysScreen campId={CAMP_ID} role="staff" onNavigate={() => {}} />)

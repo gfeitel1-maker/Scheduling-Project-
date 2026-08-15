@@ -344,6 +344,23 @@ describe('GroupsScreen', () => {
       ).not.toBeNull()
     )
   })
+
+  it('surfaces an error banner when deleteAll fails unexpectedly instead of silently closing', async () => {
+    localClient.list.mockImplementation(entity =>
+      Promise.resolve(entity === 'groups' ? [group({ id: 'g1' })] : [])
+    )
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+
+    // The re-fetch inside deleteAll throws — an unexpected failure must surface
+    // an error banner, not close the confirm and look like a successful delete.
+    localClient.list.mockRejectedValue(new Error('disk failure'))
+    fireEvent.click(screen.getByText('Delete All'))
+
+    await waitFor(() =>
+      expect(screen.queryByText(/Those groups could not be deleted/)).not.toBeNull()
+    )
+  })
 })
 
 describe('GroupsScreen — import', () => {

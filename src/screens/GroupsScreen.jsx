@@ -235,22 +235,26 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
 
   async function deleteAll() {
     if (!window.confirm('Delete all groups? They can be restored from Trash.')) return
-    // Re-fetch immediately before building the id list rather than using the
-    // closed-over `groups` state — if another device synced in new groups
-    // between page-load and this click, the stale in-memory snapshot would
-    // silently skip them with no indication anything was missed.
-    const freshGroups = await localClient.list('groups')
-    const ids = (freshGroups || [])
-      .filter(g => g.camp_id === campId)
-      .map(g => g.id)
-    const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('groups', ids)
-    await load()
-    if (failed > 0) {
-      setError(
-        failedDueToRole
-          ? 'Only an admin can delete groups — no groups were deleted.'
-          : `Deleted ${succeeded} of ${ids.length} groups (${failed} failed — see console).`
-      )
+    try {
+      // Re-fetch immediately before building the id list rather than using the
+      // closed-over `groups` state — if another device synced in new groups
+      // between page-load and this click, the stale in-memory snapshot would
+      // silently skip them with no indication anything was missed.
+      const freshGroups = await localClient.list('groups')
+      const ids = (freshGroups || [])
+        .filter(g => g.camp_id === campId)
+        .map(g => g.id)
+      const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('groups', ids)
+      await load()
+      if (failed > 0) {
+        setError(
+          failedDueToRole
+            ? 'Only an admin can delete groups — no groups were deleted.'
+            : `Deleted ${succeeded} of ${ids.length} groups (${failed} failed — see console).`
+        )
+      }
+    } catch (err) {
+      setError(describeWriteFailure(err, 'Those groups could not be deleted.'))
     }
   }
 

@@ -298,6 +298,25 @@ describe('TiersScreen — deleteAll', () => {
 
     expect(screen.getByText('Delete All').disabled).toBe(true)
   })
+
+  it('surfaces an error banner when deleteAll fails unexpectedly instead of silently closing', async () => {
+    let tiersCalls = 0
+    localClient.list.mockReset().mockImplementation(entity => {
+      if (entity === 'cohorts') return Promise.resolve([cohort()])
+      if (entity === 'tiers') {
+        tiersCalls += 1
+        // Call 1 = initial load; call 2 = deleteAll's re-fetch, which throws.
+        return tiersCalls === 1 ? Promise.resolve([tier()]) : Promise.reject(new Error('disk failure'))
+      }
+      return Promise.resolve([])
+    })
+    render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+
+    await waitFor(() => expect(screen.queryByText(/Those units could not be deleted/)).not.toBeNull())
+  })
 })
 
 describe('TiersScreen — import', () => {
