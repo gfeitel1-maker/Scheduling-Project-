@@ -63,6 +63,7 @@ const EMPTY_DOMAIN_SNAPSHOT_TABLES = {
   tiers: [],
   time_blocks: [],
   activities: [],
+  locations: [],
   anchor_activities: [],
   schedule_templates: [],
   day_override_templates: [],

@@ -22,7 +22,14 @@ import { shouldThrottle, LOGIN_MIN_INTERVAL_MS, PAIRING_RATE_MS } from './rateLi
 // The parent-scoped entities shipped in the first-pairing domain snapshot —
 // deliberately excludes `schedule_snapshots` (see design doc Consequences:
 // unbounded historical growth over a season, out of scope for this ticket).
-const DOMAIN_PARENT_SCOPED_ENTITIES = ['template_slots', 'template_overlays', 'day_override_template_slots', 'week_activity_exclusions', 'week_group_exclusions']
+// week_location_exclusions (v32) is the third instance of the v28 pattern and
+// joins its two siblings here. NOTE: like its siblings, it is NOT yet in
+// syncClient's DOMAIN_SNAPSHOT_TABLES, so a first-pairing Client currently drops
+// these rows (they replicate to already-paired devices via the op log). That
+// client-side snapshot gap predates this slice and is shared by all three
+// week_*_exclusions tables; wiring the client snapshot for them is out of M1's
+// scope (no week_location_exclusions rows exist until slice M5).
+const DOMAIN_PARENT_SCOPED_ENTITIES = ['template_slots', 'template_overlays', 'day_override_template_slots', 'week_activity_exclusions', 'week_group_exclusions', 'week_location_exclusions']
 
 // Task 10 round-5 Fix 4: report success/failure back to the caller instead
 // of unconditionally swallowing it. sendMissedOps needs this to know exactly

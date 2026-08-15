@@ -35,6 +35,15 @@ export const ENTITIES = [
   'day_override_template_slots',
   'week_activity_exclusions',
   'week_group_exclusions',
+  // v32 (INV-3, docs/adr/2026-08-15-camp-locations-entity.md): locations is a
+  // DIRECT_CAMP_ENTITY and week_location_exclusions is PARENT_SCOPED; both MUST
+  // be here or they resolve to admin-only for staff via default-deny, so staff
+  // could not read/write locations. Parity with
+  // DIRECT_CAMP_ENTITIES ∪ PARENT_SCOPED_ENTITIES is guarded by
+  // permissionsEntityParity.test.js (added by the gap-16 fix that also landed
+  // week_activity_exclusions/week_group_exclusions above).
+  'locations',
+  'week_location_exclusions',
 ]
 
 const staffReadWrite = ENTITIES.flatMap((entity) => [`${entity}.read`, `${entity}.write`])

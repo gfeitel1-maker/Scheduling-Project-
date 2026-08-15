@@ -264,6 +264,13 @@ CREATE TABLE IF NOT EXISTS activities (
   priority INTEGER,
   is_locked INTEGER,
   span_blocks INTEGER,
+  -- FROZEN from schema v32 (docs/adr/2026-08-15-camp-locations-entity.md D5):
+  -- `location` is the pre-entity free-text place string. It is RETAINED (kept
+  -- in PROJECTIONS.activities.fields so historical op-log replay stays exact,
+  -- and as the v32 rollback anchor) but stops being written once the UI moves
+  -- to the location_id picker (slice M3). No code path should WRITE this column
+  -- after that migration; place identity now lives in `locations`, referenced
+  -- by location_id below. The engine still READS it until slice M2.
   location TEXT,
   is_outdoor INTEGER,
   max_groups_per_slot INTEGER,
@@ -276,6 +283,12 @@ CREATE TABLE IF NOT EXISTS activities (
   prefer_before_day_min INTEGER,
   weather_alternative_id TEXT,
   notes TEXT,
+  -- v32: nullable FK-by-convention to locations(id), NO DB-level FOREIGN KEY
+  -- (matches weather_alternative_id). MUST be the LAST column: it is ALTER-added
+  -- on a migrated db (localDb.js v32), which always appends, so declaring it
+  -- last here keeps a fresh install's column order byte-identical to a migrated
+  -- one (docs/adr/2026-08-15-camp-locations-entity.md, "column-order trap").
+  location_id TEXT,
   UNIQUE(camp_id, name)
 );
 -- Round 2 Red Hat fix (ActivitiesScreen migration): the UNIQUE above only
@@ -557,6 +570,38 @@ CREATE TABLE IF NOT EXISTS week_group_exclusions (
   id TEXT PRIMARY KEY,
   week_id TEXT NOT NULL REFERENCES schedule_weeks(id),
   group_id TEXT NOT NULL REFERENCES groups(id)
+);
+
+-- Camp locations become a first-class entity (schema v32,
+-- docs/adr/2026-08-15-camp-locations-entity.md). A physical place and a
+-- schedulable location are one thing; capacity is a property of the PLACE
+-- ("how many groups fit here at once"), not of the activity. Ordinary
+-- camp-scoped replicated entity — field-level ops, DIRECT_CAMP_ENTITIES,
+-- nothing host-local. The DDL text below is duplicated verbatim in localDb.js's
+-- v32 block (LOCATIONS_DDL); the two copies are asserted byte-identical by
+-- locations.migration.test.js. map_geometry is reserved for the optional map
+-- (slice M6) and stays NULL until then.
+CREATE TABLE IF NOT EXISTS locations (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  name TEXT NOT NULL,
+  capacity INTEGER NOT NULL DEFAULT 1,
+  notes TEXT,
+  sort_order INTEGER,
+  map_geometry TEXT,
+  UNIQUE(camp_id, name)
+);
+
+-- Per-week location availability — "the lake is closed weeks 1 and 2". The
+-- third instance of the v28 week_*_exclusions pattern (parent-keyed by week_id,
+-- ensureExists gated on week_id). Duplicated verbatim in localDb.js's v32 block
+-- (WEEK_LOCATION_EXCLUSIONS_DDL). idx_week_location_exclusions_week_location is
+-- created by migration v32, not here (schema.sql re-executes on every open),
+-- matching the v28 exclusion indexes.
+CREATE TABLE IF NOT EXISTS week_location_exclusions (
+  id TEXT PRIMARY KEY,
+  week_id TEXT NOT NULL REFERENCES schedule_weeks(id),
+  location_id TEXT NOT NULL
 );
 
 -- C4 (scope-filtered IPC reads): indexes for the three template-scoped

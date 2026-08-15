@@ -1324,6 +1324,12 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
       // projection's ensureExists keys on (electron/ops/projections.js:205-226).
       week_activity_exclusions: 'week_id',
       week_group_exclusions: 'week_id',
+      locations: 'name',
+      // location_id, not week_id: week_id triggers ensureExists (INSERT with a
+      // FK to schedule_weeks), and the sweep's 'V' is not a real week. Writing a
+      // non-ensureExists field UPDATEs zero rows and still logs the op — same
+      // trick template_slots uses with activity_id.
+      week_location_exclusions: 'location_id',
     }
     const ws = connect()
     await onceOpen(ws)
