@@ -46,6 +46,7 @@ tools: Read, Grep, Glob, Bash
 - Error handling only at real boundaries (per this project's established no-defensive-code-for-impossible-cases convention) — not missing at a real boundary, not present where it can't fire.
 - DRY without premature abstraction — three similar lines beats a generalized helper built for a case that doesn't exist yet.
 - Edge cases the brief actually named are handled; edge cases it didn't name aren't manufactured as scope creep.
+- **When the diff touches UI** (a component, screen, or style in `src/`): check it against `docs/governance/standards/DESIGN_STANDARD.md` §5 (motion/feedback) and §8 (transitions) — an async/loading state without its required feedback (skeleton, indeterminate bar, banner entry, crossfade), or a change that strips the reduced-motion equivalent, is a plan-alignment finding, because "reduced motion is never *no* feedback." Skip this check entirely for backend-only, test-only, or docs-only diffs.
 
 **Testing:**
 - Tests assert real behavior (a genuine assertion on the property the task cares about), not a mock configured to always pass.

@@ -59,6 +59,8 @@ Check against [`docs/governance/references/director-persona.md`](../../docs/gove
 - Does the new UI match the existing design DNA? (same spacing conventions, same color usage, same component patterns)
 - Does anything look out of place compared to the rest of the app?
 
+**Motion & feedback (when the feature touches UI):** the app has a ratified `docs/governance/standards/DESIGN_STANDARD.md` — §5 (motion/feedback) and §8 (transitions). As the director, watch for whether the behaviours it requires actually happen on screen: does a loading area show a skeleton or an indeterminate bar instead of just sitting blank, does an error/warning banner animate in rather than snapping, do view switches crossfade rather than jump? And if my machine has "reduce motion" turned on, do I still get *some* signal that something happened — reduced motion is never *no* feedback. A missing one of these is a Visual Fidelity finding. This only applies to UI features; skip it for anything that isn't a screen or component.
+
 ---
 
 ## Report Format
