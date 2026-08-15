@@ -36,6 +36,7 @@ const DOMAIN_SNAPSHOT_TABLES = [
   'tiers', // references cohorts.id, nullable
   'time_blocks', // references cohorts.id, nullable
   'activities',
+  'locations', // v32; references camps.id only (applied above via the `camps` key). activities.location_id has NO DB-level FK, so order relative to activities is unconstrained. The migration backfills locations rows with NO op, so a first-pairing Client — which receives materialized rows, not op history — can only get them here.
   'anchor_activities', // references cohorts.id/days_of_operation.id, both nullable
   'schedule_templates',
   'day_override_templates', // references cohorts.id, nullable
@@ -59,8 +60,10 @@ const DOMAIN_TABLE_COLUMNS = {
     'id', 'camp_id', 'name', 'priority', 'is_locked', 'span_blocks', 'location', 'is_outdoor',
     'max_groups_per_slot', 'min_per_week', 'max_per_week', 'same_tier_only', 'eligible_tier_ids',
     'eligible_group_ids', 'prefer_before_day', 'prefer_before_day_min', 'weather_alternative_id', 'notes',
+    'location_id', // v32 — the migration sets this as a side effect (no op), so it must travel in the snapshot or a first-pairing Client's activities land unbound from their place.
   ],
   anchor_activities: ['id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks', 'is_all_groups', 'group_ids', 'notes'],
+  locations: ['id', 'camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry'],
   schedule_templates: ['id', 'camp_id', 'name', 'kind'],
   day_override_templates: ['id', 'camp_id', 'cohort_id', 'name', 'frequency_mode'],
   template_slots: ['id', 'template_id', 'group_id', 'activity_id', 'day_id', 'time_block_id', 'flags', 'is_released', 'is_span_head', 'anchor_id', 'is_anchor'],

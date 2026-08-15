@@ -1,5 +1,6 @@
 import { appendOp, DELETE_FIELD, BULK_REPLACE_FIELD } from './operations.js'
 import { PROJECTIONS } from './projections.js'
+import { deriveLocationId } from './locationId.js'
 
 // Which projected entities may be restored, and — for the ones that may not —
 // why. Every key of PROJECTIONS must appear here; restore.test.js fails if a
@@ -24,6 +25,7 @@ export const RESTORE_DECISIONS = Object.freeze({
   time_blocks: 'restorable',
   anchor_activities: 'restorable',
   day_override_templates: 'restorable',
+  locations: 'restorable',
 
   users: 'refused: a restore would re-emit pin_hash and pin_salt as replicating ops',
   camps: 'refused: singleton identity row, created only by bootstrapCamp',
@@ -36,6 +38,7 @@ export const RESTORE_DECISIONS = Object.freeze({
   day_override_template_slots: 'refused: rebuilt with its parent override, not on its own',
   week_activity_exclusions: 'refused: rebuilt by toggling the exclusion UI or duplicating the week',
   week_group_exclusions: 'refused: rebuilt by toggling the exclusion UI or duplicating the week',
+  week_location_exclusions: 'refused: rebuilt by toggling the exclusion UI or duplicating the week',
   conflicts: 'refused: conflicts are closed by resolution or by a week delete, never by trash',
 })
 
@@ -185,11 +188,40 @@ export function restoreEntity(db, { entity, entity_id, author_user_id, device_id
   // before any other field can update it.
   const ordered = [['camp_id', fields.get('camp_id')], ...[...fields].filter(([f]) => f !== 'camp_id')]
 
-  const ops = db.transaction(() =>
-    ordered.map(([field, value]) =>
+  // INV-2 (v32, docs/adr/2026-08-15-camp-locations-entity.md): a pre-v32
+  // activity's location_id is a MIGRATION side effect that exists nowhere in the
+  // op log, so lastKnownFields cannot carry it — a naive restore would leave it
+  // NULL and silently un-bind the activity from its place. Re-resolve it from
+  // the frozen `location` string by the SAME TRIM-only, case-sensitive key the
+  // migration used (INV-1 / deriveLocationId). If no locations row matches (the
+  // place was deleted), leave location_id NULL and keep the string — the
+  // coherent frozen-column-only state. If location_id was itself written via an
+  // op (a post-v32 edit), it is already in `fields` and restored normally; do
+  // not override it.
+  let rebindLocationId = null
+  if (entity === 'activities' && !fields.has('location_id')) {
+    const name = String(fields.get('location') ?? '').trim()
+    if (name !== '') {
+      const derivedId = deriveLocationId(fields.get('camp_id'), name)
+      if (db.prepare('SELECT 1 FROM locations WHERE id = ?').get(derivedId)) {
+        rebindLocationId = derivedId
+      }
+    }
+  }
+
+  const ops = db.transaction(() => {
+    const emitted = ordered.map(([field, value]) =>
       appendOp(db, { entity, entity_id, field, value, author_user_id, device_id, source: sources.get(field) ?? null })
     )
-  )()
+    if (rebindLocationId) {
+      // A restore-time re-binding is a fresh human-authored fact, not import
+      // provenance — source null (= human) protects it like any manual edit.
+      emitted.push(
+        appendOp(db, { entity, entity_id, field: 'location_id', value: rebindLocationId, author_user_id, device_id, source: null })
+      )
+    }
+    return emitted
+  })()
 
   return {
     ok: true,

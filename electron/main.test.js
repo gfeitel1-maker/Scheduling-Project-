@@ -841,6 +841,11 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     // projection's ensureExists keys on (electron/ops/projections.js:205-226).
     week_activity_exclusions: 'week_id',
     week_group_exclusions: 'week_id',
+    locations: 'name',
+    // location_id, not week_id: week_id would trigger ensureExists's INSERT with
+    // a FK to schedule_weeks (the sweep's 'V' is not a real week). Same
+    // non-ensureExists-field trick template_slots uses with activity_id.
+    week_location_exclusions: 'location_id',
   }
 
   // Login is scoped to the single camp in this db (`SELECT id FROM camps

@@ -14,6 +14,7 @@ export const ENTITY_LABEL = {
   time_blocks: 'Time block',
   anchor_activities: 'Fixed event',
   day_override_templates: 'Day override',
+  locations: 'Location',
 }
 
 export function entityLabel(entity) {
@@ -36,6 +37,7 @@ const FIELD_LABEL = {
   availability: 'Availability',
   sort_order: 'Order',
   location: 'Location',
+  location_id: 'Location',
   is_outdoor: 'Outdoors',
   max_groups_per_slot: 'Groups per slot',
   min_per_week: 'Fewest per week',
@@ -86,6 +88,7 @@ export const FK_TARGET = {
   time_block_id: 'time_blocks',
   activity_id: 'activities',
   weather_alternative_id: 'activities',
+  location_id: 'locations',
 }
 
 export function fieldLabel(field) {

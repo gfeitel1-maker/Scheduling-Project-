@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { writePreMigrationBackup } from './projectManager.js'
 import { deriveScheduleTemplateId } from '../ops/scheduleTemplateId.js'
+import { deriveLocationId } from '../ops/locationId.js'
 import { applyProjection } from '../ops/projections.js'
 import { isBulkReplaceOp, applyBulkReplaceProjection } from '../ops/operations.js'
 
@@ -13,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 31
+export const CURRENT_SCHEMA_VERSION = 32
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1417,7 +1418,210 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v32 — camp locations become a first-class entity
+  // (docs/adr/2026-08-15-camp-locations-entity.md). Three schema changes plus a
+  // deterministic backfill of every existing free-text activities.location
+  // string into a `locations` row.
+  //
+  // Both-places DDL for the two new tables (LOCATIONS_DDL /
+  // WEEK_LOCATION_EXCLUSIONS_DDL), same discipline as v30/v31: byte-identical
+  // text here and in schema.sql, asserted by locations.migration.test.js. The
+  // index and the activities.location_id column live only here (an ALTER-added
+  // column's index cannot live in schema.sql, which re-runs against
+  // pre-migration dbs).
+  //
+  // Gated `>= 31` (matching how v31 gates `>= 30`) so it runs only once v31 has
+  // completed, including in the same fresh-install pass right after v31 stamps.
+  //
+  // THE BACKFILL EMITS NO OP. It is a DDL-time side effect, exactly like the
+  // v27 schedule_weeks backfill. INV-1 (the ADR's single most important
+  // invariant): each device runs this independently, so every id it mints MUST
+  // be a pure function of replicated inputs (camp_id + the TRIM-only,
+  // case-sensitive place name) or an already-paired Host and its tablets would
+  // mint different ids for the same place. See deriveLocationId. Trimming is
+  // plain JS `.trim()` done in JS (not SQL TRIM, whose whitespace semantics
+  // differ) so this migration and the restore re-resolution path agree.
+  if (getSchemaVersion(db) >= 31 && getSchemaVersion(db) < 32) {
+    db.transaction(() => {
+      db.exec(LOCATIONS_DDL)
+      db.exec(WEEK_LOCATION_EXCLUSIONS_DDL)
+      db.exec(WEEK_LOCATION_EXCLUSIONS_INDEX_DDL)
+
+      const hasLocationId = db
+        .pragma('table_info(activities)')
+        .some((c) => c.name === 'location_id')
+      if (!hasLocationId) db.exec('ALTER TABLE activities ADD COLUMN location_id TEXT')
+
+      // Local-only review journal (like migration_v24_repoint_log): recomputed
+      // identically on every device, never replicated, never in any sync
+      // registry. Holds the three review kinds the M3 Locations screen renders
+      // before first regeneration. Created inside the migration (not schema.sql)
+      // so a fresh install — which runs this block too — gets it as well,
+      // keeping the fresh/migrated table set identical.
+      db.exec(`CREATE TABLE IF NOT EXISTS location_migration_reviews (
+        id TEXT PRIMARY KEY,
+        camp_id TEXT NOT NULL,
+        location_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        kind TEXT NOT NULL,        -- 'capacity_disagreement' | 'was_unlimited' | 'near_duplicate'
+        detail TEXT,               -- compact JSON, see backfillLocations
+        created_at TEXT NOT NULL
+      )`)
+
+      backfillLocations(db)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (32, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
+
+// Deterministic v32 backfill (INV-1). One `locations` row per distinct
+// (camp_id, TRIM-only/case-sensitive name); id derived purely from those two
+// inputs; activities.location_id set to that id; three kinds of review item
+// recorded for the M3 screen. Emits NO op — a DDL-time side effect. Runs inside
+// the v32 transaction.
+//
+// Dedupe is TRIM-only and case-sensitive: `"Pool"` and `"pool"` stay two rows
+// (CONSTITUTION Art. V forbids a silent merge by a migration the director never
+// saw). Case-variant names are SURFACED as a near_duplicate review, never
+// merged. Capacity is seeded to the most permissive DECLARED value —
+// MAX(COALESCE(NULLIF(cap, 0), 1)) — so NULL and 0 read as 1 (closing today's
+// accidental "unlimited"), never tighter than any activity stated.
+export function backfillLocations(db) {
+  const rows = db
+    .prepare('SELECT id, camp_id, location, max_groups_per_slot FROM activities WHERE location IS NOT NULL')
+    .all()
+
+  // key: `${camp_id} ${trimmedName}` -> { camp_id, name, activityIds, caps }
+  const places = new Map()
+  for (const r of rows) {
+    const name = String(r.location).trim()
+    if (name === '') continue
+    const key = `${r.camp_id} ${name}`
+    let place = places.get(key)
+    if (!place) {
+      place = { camp_id: r.camp_id, name, activityIds: [], caps: [] }
+      places.set(key, place)
+    }
+    place.activityIds.push(r.id)
+    place.caps.push(r.max_groups_per_slot)
+  }
+
+  if (places.size === 0) return
+
+  // sort_order by name, per camp.
+  const byCamp = new Map()
+  for (const place of places.values()) {
+    if (!byCamp.has(place.camp_id)) byCamp.set(place.camp_id, [])
+    byCamp.get(place.camp_id).push(place)
+  }
+  for (const list of byCamp.values()) {
+    list.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+    list.forEach((place, i) => {
+      place.sort_order = i
+    })
+  }
+
+  const insertLoc = db.prepare(
+    'INSERT OR IGNORE INTO locations (id, camp_id, name, capacity, notes, sort_order, map_geometry) VALUES (?, ?, ?, ?, NULL, ?, NULL)'
+  )
+  const setLocId = db.prepare('UPDATE activities SET location_id = ? WHERE id = ?')
+  const insertReview = db.prepare(
+    'INSERT OR IGNORE INTO location_migration_reviews (id, camp_id, location_id, name, kind, detail, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)'
+  )
+  const now = new Date().toISOString()
+
+  // Normalize one declared cap the same way the seeded capacity does: NULL/0
+  // (accidental "unlimited") read as 1. Math.max(1, ...) also floors a negative
+  // cap to 1 — capacity must never be < 1 or M2's occupancy check corrupts.
+  const declared = (cap) => Math.max(1, cap == null || cap === 0 ? 1 : cap)
+
+  for (const place of places.values()) {
+    const id = deriveLocationId(place.camp_id, place.name)
+    const declaredCaps = place.caps.map(declared)
+    const capacity = Math.max(...declaredCaps)
+
+    insertLoc.run(id, place.camp_id, place.name, capacity, place.sort_order)
+    for (const activityId of place.activityIds) setLocId.run(id, activityId)
+
+    // (a) Capacity disagreement — contributing activities declared different
+    //     numbers. Keeps the permissive value (above) and asks (Q1).
+    const distinctCaps = [...new Set(declaredCaps)]
+    if (distinctCaps.length > 1) {
+      insertReview.run(
+        `review:capacity_disagreement:${id}`,
+        place.camp_id, id, place.name, 'capacity_disagreement',
+        JSON.stringify({ declaredCaps: distinctCaps.sort((a, b) => a - b), seededCapacity: capacity }),
+        now
+      )
+    }
+
+    // (b) Was-effectively-unlimited, now capped at 1 (Red Hat, Q2). Every
+    //     contributing activity had a NULL/0 cap, so there is no disagreement to
+    //     raise (a) — this case needs its own flag.
+    if (place.caps.every((cap) => cap == null || cap === 0)) {
+      insertReview.run(
+        `review:was_unlimited:${id}`,
+        place.camp_id, id, place.name, 'was_unlimited',
+        JSON.stringify({ seededCapacity: capacity }),
+        now
+      )
+    }
+  }
+
+  // (c) Near-duplicate names — TRIM-equal but case-different, per camp. A
+  //     first-run merge review the director must see before capacity (now a
+  //     trusted number) is under-enforced across the split (Red Hat).
+  for (const [camp_id, list] of byCamp) {
+    const byLower = new Map()
+    for (const place of list) {
+      const lower = place.name.toLowerCase()
+      if (!byLower.has(lower)) byLower.set(lower, [])
+      byLower.get(lower).push(place.name)
+    }
+    for (const variants of byLower.values()) {
+      if (variants.length < 2) continue
+      for (const name of variants) {
+        const id = deriveLocationId(camp_id, name)
+        insertReview.run(
+          `review:near_duplicate:${id}`,
+          camp_id, id, name, 'near_duplicate',
+          JSON.stringify({ variants: [...variants].sort() }),
+          now
+        )
+      }
+    }
+  }
+}
+
+// Byte-identical duplicate of the locations block in schema.sql
+// (docs/adr/2026-08-15-camp-locations-entity.md D1). Kept as a constant so the
+// v32 migration cannot drift from it by a stray space — same discipline as
+// SOURCE_ALIASES_DDL / IMPORT_EVIDENCE_DDL above.
+export const LOCATIONS_DDL = `CREATE TABLE IF NOT EXISTS locations (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  name TEXT NOT NULL,
+  capacity INTEGER NOT NULL DEFAULT 1,
+  notes TEXT,
+  sort_order INTEGER,
+  map_geometry TEXT,
+  UNIQUE(camp_id, name)
+)`
+
+// Byte-identical duplicate of the week_location_exclusions block in schema.sql.
+// The third instance of the v28 week_*_exclusions pattern.
+export const WEEK_LOCATION_EXCLUSIONS_DDL = `CREATE TABLE IF NOT EXISTS week_location_exclusions (
+  id TEXT PRIMARY KEY,
+  week_id TEXT NOT NULL REFERENCES schedule_weeks(id),
+  location_id TEXT NOT NULL
+)`
+
+export const WEEK_LOCATION_EXCLUSIONS_INDEX_DDL =
+  'CREATE UNIQUE INDEX IF NOT EXISTS idx_week_location_exclusions_week_location ON week_location_exclusions(week_id, location_id)'
 
 // Director-facing, and it appears in Versions beside weeks they saved
 // themselves — months later, with no memory of saving it. It has to explain

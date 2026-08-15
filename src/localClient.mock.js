@@ -165,6 +165,7 @@ function seedDemoCamp() {
     days_of_operation: days,
     time_blocks,
     activities,
+    locations: [],
     anchor_activities: [],
     // One week; the generated schedule belongs to it (week_id). The switcher
     // renders it and "+ New Week" adds more, all in localStorage.
@@ -207,6 +208,7 @@ const UNIQUE_KEYS = {
   activities:  ['camp_id', 'name'],
   tiers:       ['camp_id', 'cohort_id', 'name'],
   time_blocks: ['camp_id', 'cohort_id', 'name'],
+  locations:   ['camp_id', 'name'],
 }
 
 // Registered listeners for the mock's event-style methods (onOpApplied,
@@ -280,12 +282,15 @@ export const MOCK_WRITE_ALLOWLIST = {
     'weather_alternative_id',
     'notes',
     'span_blocks',
+    'location_id',
   ],
+  locations: ['camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry'],
   anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes'],
   day_override_templates: ['camp_id', 'cohort_id', 'name', 'frequency_mode'],
   day_override_template_slots: ['day_override_template_id', 'time_block_id', 'activity_id'],
   week_activity_exclusions: ['week_id', 'activity_id'],
   week_group_exclusions: ['week_id', 'group_id'],
+  week_location_exclusions: ['week_id', 'location_id'],
   schedule_weeks: ['camp_id', 'name', 'sort_order', 'is_archived'],
   schedule_templates: ['kind', 'camp_id', 'week_id', 'name'],
   schedule_snapshots: ['template_id', 'name', 'is_auto', 'created_at', 'slots', 'overlays'],

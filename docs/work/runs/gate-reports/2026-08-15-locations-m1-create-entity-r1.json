@@ -1,0 +1,28 @@
+{
+  "task_id": "2026-08-15-locations-m1-create-entity",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": 5,
+    "red_hat": 4,
+    "tester": null,
+    "code_reviewer": 5
+  },
+  "overall_score": 4.666666666666667,
+  "lowest_dimension": 4,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [
+    {
+      "ref": "docs/adr/2026-08-15-camp-locations-entity.md",
+      "gate_names": [
+        "code_reviewer",
+        "red_hat"
+      ]
+    }
+  ],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": []
+}

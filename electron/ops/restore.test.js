@@ -89,7 +89,7 @@ describe('the restore allowlist is enforced, not merely documented', () => {
     expect(restoreEntity(db, { entity: 'wat', entity_id: 'x', ...session })).toEqual({ error: 'not-restorable' })
   })
 
-  it('accepts exactly the eight setup entities the ADR names', () => {
+  it('accepts exactly the setup entities the ADR names (incl. v32 locations)', () => {
     expect([...RESTORABLE_ENTITIES].sort()).toEqual([
       'activities',
       'anchor_activities',
@@ -97,6 +97,7 @@ describe('the restore allowlist is enforced, not merely documented', () => {
       'day_override_templates',
       'days_of_operation',
       'groups',
+      'locations',
       'tiers',
       'time_blocks',
     ])

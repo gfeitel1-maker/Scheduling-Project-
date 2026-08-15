@@ -24,6 +24,7 @@ export const DIRECT_CAMP_ENTITIES = new Set([
   'schedule_templates',
   'day_override_templates',
   'schedule_weeks',
+  'locations',
 ])
 
 export const PARENT_SCOPED_ENTITIES = {
@@ -54,6 +55,11 @@ export const PARENT_SCOPED_ENTITIES = {
   },
   week_group_exclusions: {
     table: 'week_group_exclusions',
+    parentTable: 'schedule_weeks',
+    parentKey: 'week_id',
+  },
+  week_location_exclusions: {
+    table: 'week_location_exclusions',
     parentTable: 'schedule_weeks',
     parentKey: 'week_id',
   },

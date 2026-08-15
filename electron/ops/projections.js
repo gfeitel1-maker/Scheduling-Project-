@@ -140,6 +140,12 @@ export const PROJECTIONS = {
       'weather_alternative_id',
       'notes',
       'span_blocks',
+      // v32: FK-by-convention to locations(id). `location` (the frozen
+      // free-text string) stays above for op-log replay + rollback (D5);
+      // location_id is the live binding. Written by the migration as a side
+      // effect (no op) and by restore re-resolution (INV-2); the UI switches to
+      // it at M3.
+      'location_id',
     ],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/days_of_operation/time_blocks/tiers.ensureExists above.
@@ -148,6 +154,38 @@ export const PROJECTIONS = {
         id,
         camp?.id ?? null
       )
+    },
+  },
+  // Camp locations, first-classed in schema v32
+  // (docs/adr/2026-08-15-camp-locations-entity.md). Ordinary camp-scoped
+  // replicated entity, same shape as groups/tiers — direct-camp-scoped, so it
+  // also belongs in DIRECT_CAMP_ENTITIES. NOT host-local (any authorized device
+  // may edit it). map_geometry is a nullable JSON field reserved for the M6 map.
+  locations: {
+    table: 'locations',
+    key: 'id',
+    fields: ['camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry'],
+    ensureExists: (db, id) => {
+      // Same zero-camps caveat as cohorts/groups/etc.ensureExists above.
+      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+      getStmt(db, "INSERT OR IGNORE INTO locations (id, camp_id, name) VALUES (?, ?, '')").run(
+        id,
+        camp?.id ?? null
+      )
+    },
+  },
+  // Per-week location availability (v32). Third instance of the v28
+  // week_*_exclusions pattern above — parent-keyed by week_id, ensureExists
+  // gated on week_id arriving first (no other NOT NULL column to seed).
+  week_location_exclusions: {
+    table: 'week_location_exclusions',
+    key: 'id',
+    fields: ['week_id', 'location_id'],
+    ensureExists: (db, id, field, value) => {
+      if (field !== 'week_id') return
+      getStmt(db,
+        'INSERT OR IGNORE INTO week_location_exclusions (id, week_id) VALUES (?, ?)'
+      ).run(id, value)
     },
   },
   anchor_activities: {
