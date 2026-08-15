@@ -9,6 +9,7 @@ import {
   appendBulkReplaceOp,
   latestOp,
   detectConflict,
+  detectUniqueFieldCollision,
   recordConflict,
   listPendingConflicts,
   DELETE_FIELD,
@@ -491,6 +492,146 @@ describe('detectConflict', () => {
     const result = detectConflict(db, incomingOp)
     expect(result.conflict).toBe(true)
     expect(result.existingOp.id).toBe(appliedOp.id)
+  })
+})
+
+// D2 (docs/adr/2026-08-15-locations-concurrent-create-collision.md): the
+// app-level UNIQUE(camp_id, name) collision check detectConflict cannot
+// express, because it spans two DIFFERENT entity_ids rather than one.
+describe('detectUniqueFieldCollision (D2 — locations UNIQUE(camp_id, name))', () => {
+  it('reports no collision when the incoming name differs from every existing location', () => {
+    appendOp(db, {
+      entity: 'locations',
+      entity_id: 'loc-pool',
+      field: 'name',
+      value: 'Pool',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    const result = detectUniqueFieldCollision(db, {
+      entity: 'locations',
+      entity_id: 'loc-gym',
+      field: 'name',
+      value: 'Gym',
+    })
+    expect(result).toBeNull()
+  })
+
+  it('detects a collision against a DIFFERENT entity_id already holding that name (the concurrent-create race)', () => {
+    appendOp(db, {
+      entity: 'locations',
+      entity_id: 'loc-pool',
+      field: 'name',
+      value: 'Pool',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    // A second device concurrently creating a location named "Pool" mints a
+    // DIFFERENT entity_id for the same name — this is the exact race D1
+    // rejects rather than silently orphaning or merging.
+    const result = detectUniqueFieldCollision(db, {
+      entity: 'locations',
+      entity_id: 'loc-pool-2',
+      field: 'name',
+      value: 'Pool',
+    })
+    expect(result).toBeTruthy()
+    expect(result.id).toBe('loc-pool')
+    expect(result.name).toBe('Pool')
+  })
+
+  it('does NOT flag a no-op rewrite of a row to its own current name (id != ? exclusion)', () => {
+    appendOp(db, {
+      entity: 'locations',
+      entity_id: 'loc-pool',
+      field: 'name',
+      value: 'Pool',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    const result = detectUniqueFieldCollision(db, {
+      entity: 'locations',
+      entity_id: 'loc-pool',
+      field: 'name',
+      value: 'Pool',
+    })
+    expect(result).toBeNull()
+  })
+
+  it('rejects a RENAME of an existing row into another existing row\'s name (rename-into-collision, not just create)', () => {
+    appendOp(db, {
+      entity: 'locations',
+      entity_id: 'loc-a',
+      field: 'name',
+      value: 'Pool',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+    appendOp(db, {
+      entity: 'locations',
+      entity_id: 'loc-b',
+      field: 'name',
+      value: 'Gym',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    // Director renames "Gym" (loc-b) to "Pool" — loc-a's existing name.
+    const result = detectUniqueFieldCollision(db, {
+      entity: 'locations',
+      entity_id: 'loc-b',
+      field: 'name',
+      value: 'Pool',
+    })
+    expect(result).toBeTruthy()
+    expect(result.id).toBe('loc-a')
+  })
+
+  it('is a no-op for an entity not registered in UNIQUE_FIELD_ENTITIES', () => {
+    const result = detectUniqueFieldCollision(db, {
+      entity: 'groups',
+      entity_id: 'group-1',
+      field: 'name',
+      value: 'Anything',
+    })
+    expect(result).toBeNull()
+  })
+
+  it('is a no-op for a field other than the registered unique field', () => {
+    appendOp(db, {
+      entity: 'locations',
+      entity_id: 'loc-pool',
+      field: 'name',
+      value: 'Pool',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    const result = detectUniqueFieldCollision(db, {
+      entity: 'locations',
+      entity_id: 'loc-pool-2',
+      field: 'capacity',
+      value: '4',
+    })
+    expect(result).toBeNull()
+  })
+
+  it('is a no-op for a null/empty value', () => {
+    expect(
+      detectUniqueFieldCollision(db, { entity: 'locations', entity_id: 'loc-x', field: 'name', value: null })
+    ).toBeNull()
+    expect(
+      detectUniqueFieldCollision(db, { entity: 'locations', entity_id: 'loc-x', field: 'name', value: '' })
+    ).toBeNull()
   })
 })
 

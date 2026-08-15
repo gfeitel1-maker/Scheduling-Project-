@@ -211,17 +211,30 @@ const UNIQUE_KEYS = {
   locations:   ['camp_id', 'name'],
 }
 
+// Mirrors electron/ops/operations.js's UNIQUE_FIELD_ENTITIES exactly (D2,
+// docs/adr/2026-08-15-locations-concurrent-create-collision.md): the ONE
+// entity/field pair whose UNIQUE(camp_id, name) collision is rejected via a
+// structured {status:'rejected', reason:'unique_field', existing} result —
+// matching handleSubmitOp's op_rejected / the host-local direct-write path —
+// rather than a thrown SQLITE_CONSTRAINT_UNIQUE-shaped Error. Every OTHER
+// UNIQUE_KEYS entity above still throws raw, because the real app-level
+// pre-check (detectUniqueFieldCollision) is registered for locations only.
+const UNIQUE_FIELD_ENTITIES = {
+  locations: 'name',
+}
+
 // Registered listeners for the mock's event-style methods (onOpApplied,
-// onOpConflict). Stored here — rather than left as no-ops — so a future
-// test/dev session can trigger a synthetic op-applied or conflict event
-// (e.g. via mockShoresh._triggerOpConflict(msg)) without monkey-patching
-// this file each time.
+// onOpConflict, onOpRejected). Stored here — rather than left as no-ops — so
+// a future test/dev session can trigger a synthetic op-applied/conflict/
+// rejected event (e.g. via mockShoresh._triggerOpConflict(msg)) without
+// monkey-patching this file each time.
 let opAppliedListeners = []
 let pairingRequestListeners = []
 let pairingApprovedListeners = []
 let pairingDeniedListeners = []
 let tokenRenewedListeners = []
 let opConflictListeners = []
+let opRejectedListeners = []
 
 // Hand-maintained, independent transcription of every PROJECTIONS[entity].fields
 // in electron/ops/projections.js — deliberately NOT an import. src/ must never
@@ -404,13 +417,24 @@ export const mockShoresh = {
     const candidate = { ...base, [field]: value }
 
     // Emulate the UNIQUE constraint: once every key field is present, reject a
-    // write that would duplicate another row's key tuple (throwing a
-    // better-sqlite3-shaped message the app already matches on with /UNIQUE/i).
+    // write that would duplicate another row's key tuple. Entities registered
+    // in UNIQUE_FIELD_ENTITIES (D2) get the real app-level structured
+    // rejection; every other entity throws a better-sqlite3-shaped message
+    // the app already matches on with /UNIQUE/i (see writeErrorMessage.js).
     if (uniqueKey && uniqueKey.every((k) => candidate[k] != null && candidate[k] !== '')) {
-      const collision = rows.some(
+      const collisionRow = rows.find(
         (r) => r.id !== entity_id && uniqueKey.every((k) => r[k] === candidate[k])
       )
-      if (collision) {
+      if (collisionRow) {
+        if (UNIQUE_FIELD_ENTITIES[entity] === field) {
+          const rejection = {
+            status: 'rejected',
+            reason: 'unique_field',
+            existing: { id: collisionRow.id, name: collisionRow.name, capacity: collisionRow.capacity, notes: collisionRow.notes },
+          }
+          opRejectedListeners.forEach((cb) => cb({ type: 'op_rejected', op: { entity, entity_id, field, value }, reason: rejection.reason, field, existing: rejection.existing }))
+          return rejection
+        }
         throw new Error(`UNIQUE constraint failed: ${entity}.${uniqueKey.join(', ' + entity + '.')}`)
       }
     }
@@ -914,6 +938,12 @@ export const mockShoresh = {
   onOpConflict(cb) {
     if (typeof cb === 'function') opConflictListeners.push(cb)
     return () => { opConflictListeners = opConflictListeners.filter((l) => l !== cb) }
+  },
+  // docs/adr/2026-08-15-locations-concurrent-create-collision.md — mirrors
+  // onOpConflict's exact shape.
+  onOpRejected(cb) {
+    if (typeof cb === 'function') opRejectedListeners.push(cb)
+    return () => { opRejectedListeners = opRejectedListeners.filter((l) => l !== cb) }
   },
   // Test/dev-only helpers — not part of the real window.shoresh contract,
   // used to synthesize events for manual/automated UI verification of

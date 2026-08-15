@@ -2,7 +2,7 @@
 // captures every call) — no React render, no Electron. Mirrors
 // scheduleRepository.test.js's fake-collaborator style.
 import { describe, it, expect, vi } from 'vitest'
-import { createSetupCrudRepository } from './setupCrudRepository'
+import { createSetupCrudRepository, UNIQUE_FIRST_FIELD } from './setupCrudRepository'
 
 function makeFakeClient({ writeResult = { status: 'applied' }, deleteResult = { status: 'applied' } } = {}) {
   const calls = { write: [], deleteEntity: [] }
@@ -83,6 +83,48 @@ describe('createSetupCrudRepository — createRecord', () => {
     await expect(repo.createRecord('days_of_operation', 'd1', { label: 'Monday' })).rejects.toThrow(
       /write failed for field "label"/
     )
+  })
+
+  it('a locations UNIQUE-collision rejected write (D3 shape: status+reason+existing) throws and stops before later fields — zero setupCrudRepository changes needed (docs/adr/2026-08-15-locations-concurrent-create-collision.md T5)', async () => {
+    const client = makeFakeClient()
+    client.write.mockImplementationOnce((token, entity, id, field, value) => {
+      client.calls.write.push([token, entity, id, field, value])
+      return Promise.resolve({
+        status: 'rejected',
+        reason: 'unique_field',
+        existing: { id: 'loc-existing', name: 'Pool', capacity: 2, notes: null },
+      })
+    })
+    const repo = createSetupCrudRepository({ localClient: client, getToken })
+    await expect(
+      repo.createRecord('locations', 'loc-new', { name: 'Pool', camp_id: 'camp-1', capacity: 1, notes: null })
+    ).rejects.toThrow(/write failed for field "name"/)
+    // Stopped after the first (name) write — camp_id/capacity/notes never sent.
+    expect(client.calls.write).toHaveLength(1)
+    // Best-effort cleanup still fires (createRecord's existing contract).
+    expect(client.calls.deleteEntity).toEqual([['tok', 'locations', 'loc-new']])
+  })
+
+  // T9 (docs/adr/2026-08-15-locations-concurrent-create-collision.md
+  // addendum, Decision B): a programmer-error guard, not a user-facing path.
+  it('UNIQUE_FIRST_FIELD guard: throws synchronously, before any write, when the registered unique field is not first', async () => {
+    expect(UNIQUE_FIRST_FIELD.locations).toBe('name')
+    const client = makeFakeClient()
+    const repo = createSetupCrudRepository({ localClient: client, getToken })
+    await expect(
+      repo.createRecord('locations', 'loc-new', { camp_id: 'camp-1', name: 'Pool', capacity: 1 })
+    ).rejects.toThrow(/"name" must be the first field — got "camp_id"/)
+    // Zero writes and zero cleanup attempts — the guard fires before
+    // writeFields is ever called, so nothing was created to clean up.
+    expect(client.calls.write).toHaveLength(0)
+    expect(client.calls.deleteEntity).toHaveLength(0)
+  })
+
+  it('UNIQUE_FIRST_FIELD guard: does not fire for an entity absent from the registry', async () => {
+    const client = makeFakeClient()
+    const repo = createSetupCrudRepository({ localClient: client, getToken })
+    await repo.createRecord('days_of_operation', 'd1', { sort_order: 1, label: 'Monday' })
+    expect(client.calls.write.map((c) => c[3])).toEqual(['sort_order', 'label'])
   })
 })
 

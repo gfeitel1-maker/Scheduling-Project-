@@ -79,6 +79,7 @@ vi.mock('./sync/syncClient.js', () => ({
       }),
       onOpApplied: vi.fn(),
       onOpConflict: vi.fn(),
+      onOpRejected: vi.fn(),
       loginRemote: vi.fn(async ({ name, pin }) => {
         if (!connected) return { status: 'disconnected' }
         const result = attemptLoginRef({ name, pin, deviceId: opts.device_id })
@@ -113,7 +114,7 @@ import { openLocalDb, getOrCreateDeviceId } from './db/localDb.js'
 import { createUser, attemptLogin, ensureHostSigningKey } from './auth/localAuth.js'
 let attemptLoginRef = (args) => attemptLogin(db, args)
 import { appendOp, appendBulkReplaceOp, latestOp } from './ops/operations.js'
-import { makeHandlers, sanitizeConflictForIpc } from './main.js'
+import { makeHandlers, sanitizeConflictForIpc, sanitizeOpRejectedForIpc } from './main.js'
 import { startSyncServer } from './sync/syncServer.js'
 import { advertiseHost } from './sync/discovery.js'
 import { createSyncClient } from './sync/syncClient.js'
@@ -1044,6 +1045,92 @@ describe('wireOpApplied: op-conflict forwarding to renderer (Round 2 Fix 1)', ()
     expect(JSON.stringify(sentMsg)).not.toContain('RAW-SCRYPT-DIGEST')
     expect(sentMsg.incomingOp).not.toHaveProperty('value')
     expect(sentMsg.existingOp).not.toHaveProperty('value')
+  })
+})
+
+// T8 (docs/adr/2026-08-15-locations-concurrent-create-collision.md addendum,
+// Finding E): op_rejected's `op` is the full submitted op, unsanitized — the
+// same PIN-bearing-field risk op-applied/op-conflict already close. Mirrors
+// the op-conflict forwarding test above exactly.
+describe('sanitizeOpRejectedForIpc (Finding E)', () => {
+  it('strips value from a users.pin_hash op inside msg.op', () => {
+    const msg = {
+      type: 'op_rejected',
+      op: { id: 'op1', entity: 'users', entity_id: 'u1', field: 'pin_hash', value: 'RAW-SCRYPT-DIGEST', device_id: 'dA' },
+      reason: 'unique_field',
+      field: 'pin_hash',
+      existing: { id: 'u2', name: 'someone' },
+    }
+    const sanitized = sanitizeOpRejectedForIpc(msg)
+    expect(sanitized.op).not.toHaveProperty('value')
+    expect(JSON.stringify(sanitized)).not.toContain('RAW-SCRYPT-DIGEST')
+    // Everything else passes through untouched.
+    expect(sanitized.reason).toBe('unique_field')
+    expect(sanitized.existing).toEqual({ id: 'u2', name: 'someone' })
+  })
+
+  it('leaves a non-PIN op (the real locations case) untouched, value included', () => {
+    const msg = {
+      type: 'op_rejected',
+      op: { id: 'op1', entity: 'locations', entity_id: 'loc-b', field: 'name', value: 'Pool', device_id: 'dA' },
+      reason: 'unique_field',
+      field: 'name',
+      existing: { id: 'loc-a', name: 'Pool', capacity: 2, notes: null },
+    }
+    const sanitized = sanitizeOpRejectedForIpc(msg)
+    expect(sanitized.op.value).toBe('Pool')
+  })
+
+  it('handles a msg with no op (the host-local direct-write rejection shape) without throwing', () => {
+    const msg = { status: 'rejected', reason: 'unique_field', existing: { id: 'loc-a', name: 'Pool' } }
+    expect(() => sanitizeOpRejectedForIpc(msg)).not.toThrow()
+  })
+})
+
+describe('wireOpApplied: op-rejected forwarding to renderer (T8 / Finding E)', () => {
+  it('sends a SANITIZED rejected message via webContents.send — the raw PIN op never crosses the IPC boundary', async () => {
+    const sendSpy = vi.fn()
+    const fakeWindow = { webContents: { send: sendSpy } }
+    const handlers = makeHandlers(db, deviceId, { getMainWindow: () => fakeWindow })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7151 })
+
+    expect(lastCreatedSyncClient.onOpRejected).toHaveBeenCalled()
+    const registeredCallback = lastCreatedSyncClient.onOpRejected.mock.calls[0][0]
+
+    const rawMsg = {
+      type: 'op_rejected',
+      op: { id: 'op1', entity: 'users', entity_id: 'u1', field: 'pin_hash', value: 'RAW-SCRYPT-DIGEST', device_id: 'dA' },
+      reason: 'unique_field',
+      field: 'pin_hash',
+      existing: { id: 'u2', name: 'someone' },
+    }
+    registeredCallback(rawMsg)
+
+    expect(sendSpy).toHaveBeenCalledWith('shoresh:op-rejected', expect.any(Object))
+    const sentMsg = sendSpy.mock.calls.find((c) => c[0] === 'shoresh:op-rejected')[1]
+    expect(JSON.stringify(sentMsg)).not.toContain('RAW-SCRYPT-DIGEST')
+    expect(sentMsg.op).not.toHaveProperty('value')
+  })
+
+  it('leaves the real (non-PIN) locations rejection untouched, value included', async () => {
+    const sendSpy = vi.fn()
+    const fakeWindow = { webContents: { send: sendSpy } }
+    const handlers = makeHandlers(db, deviceId, { getMainWindow: () => fakeWindow })
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7152 })
+
+    const registeredCallback = lastCreatedSyncClient.onOpRejected.mock.calls[0][0]
+    const rawMsg = {
+      type: 'op_rejected',
+      op: { id: 'op1', entity: 'locations', entity_id: 'loc-b', field: 'name', value: 'Pool', device_id: 'dA' },
+      reason: 'unique_field',
+      field: 'name',
+      existing: { id: 'loc-a', name: 'Pool', capacity: 2, notes: null },
+    }
+    registeredCallback(rawMsg)
+
+    const sentMsg = sendSpy.mock.calls.find((c) => c[0] === 'shoresh:op-rejected')[1]
+    expect(sentMsg.op.value).toBe('Pool')
+    expect(sentMsg.existing).toEqual({ id: 'loc-a', name: 'Pool', capacity: 2, notes: null })
   })
 })
 

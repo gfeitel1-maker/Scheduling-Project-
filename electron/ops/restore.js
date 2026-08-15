@@ -1,4 +1,4 @@
-import { appendOp, DELETE_FIELD, BULK_REPLACE_FIELD } from './operations.js'
+import { appendOp, DELETE_FIELD, BULK_REPLACE_FIELD, UNIQUE_FIELD_ENTITIES, detectUniqueFieldCollision } from './operations.js'
 import { PROJECTIONS } from './projections.js'
 import { deriveLocationId } from './locationId.js'
 
@@ -182,6 +182,39 @@ export function restoreEntity(db, { entity, entity_id, author_user_id, device_id
   // path writes it — so its absence means this device does not hold the
   // record's creation, and restoring would produce a shell.
   if (!fields.has('camp_id')) return { error: 'no-history' }
+
+  // Finding A (docs/adr/2026-08-15-locations-concurrent-create-collision.md
+  // addendum): restoreEntity is a THIRD appendOp call site D2/D3 never
+  // guarded — a deleted "Pool" restored after a live "Pool" was created in
+  // the meantime would otherwise hit appendOp's own transaction and throw
+  // SQLITE_CONSTRAINT_UNIQUE deep inside restoreEntity's transaction below,
+  // rather than failing cleanly through the existing restore error channel.
+  // Registry-driven (checked generically, not hardcoded to 'locations') so a
+  // future UNIQUE_FIELD_ENTITIES entry inherits restore protection for free,
+  // the same way it inherits D2/D3 protection at the other two call sites.
+  // Checked BEFORE the transaction opens, matching D1's own stated principle
+  // ("reject... before it is ever appended to the op-log") rather than a
+  // try/catch around it.
+  const uniqueConfig = UNIQUE_FIELD_ENTITIES[entity]
+  if (uniqueConfig && fields.has(uniqueConfig.field)) {
+    const collision = detectUniqueFieldCollision(db, {
+      entity,
+      entity_id,
+      field: uniqueConfig.field,
+      value: fields.get(uniqueConfig.field),
+    })
+    if (collision) {
+      return {
+        error: 'unique_field',
+        field: uniqueConfig.field,
+        // Field-picked, not `SELECT *` passthrough — matches D3's existing
+        // `{ id, name, capacity, notes }` shape exactly (Finding E: the
+        // discipline that closes E is "never forward a raw row," and this
+        // seam follows it from the start).
+        existing: { id: collision.id, name: collision.name, capacity: collision.capacity, notes: collision.notes },
+      }
+    }
+  }
 
   // camp_id first: applyProjection's camp guard rejects a camp_id that does
   // not match this device's camp, and ensureExists needs the row to exist

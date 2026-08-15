@@ -23,6 +23,13 @@ contextBridge.exposeInMainWorld('shoresh', {
     ipcRenderer.on('shoresh:op-conflict', wrapped)
     return () => ipcRenderer.removeListener('shoresh:op-conflict', wrapped)
   },
+  // docs/adr/2026-08-15-locations-concurrent-create-collision.md — mirrors
+  // onOpConflict's exact shape.
+  onOpRejected: (callback) => {
+    const wrapped = (_event, msg) => callback(msg)
+    ipcRenderer.on('shoresh:op-rejected', wrapped)
+    return () => ipcRenderer.removeListener('shoresh:op-rejected', wrapped)
+  },
   // No payload — mirrors onOpApplied's exact shape (subscribe/unsubscribe),
   // but the event itself carries nothing beyond "it happened". Consumed by
   // the first-sync write-gate (slice 2).

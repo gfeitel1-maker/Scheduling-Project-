@@ -63,7 +63,10 @@ const SCHEDULE_ROUTE_BY_SCREEN = {
   'schedule:generated': 'generated',
 }
 
-function AppShell({ campId, role, onLogout }) {
+// Exported (in addition to the default App below) so App.test.jsx can drive
+// it directly with fixed props, bypassing useDeviceMode's async init — the
+// same reasoning every screen test already applies to its own component.
+export function AppShell({ campId, role, onLogout }) {
   // The Setup Readiness hub is the in-session landing (S5, OF-1): every director
   // lands on the honest "can this camp build a week yet" home base rather than
   // mid-setup on Units. Every other screen stays reachable from the sidebar.
@@ -72,6 +75,32 @@ function AppShell({ campId, role, onLogout }) {
   // both the Sidebar badge count and ConflictsScreen's list read from it, so
   // they can never disagree.
   const pendingConflicts = usePendingConflicts()
+
+  // docs/adr/2026-08-15-locations-concurrent-create-collision.md (D3/D4):
+  // this is the offline-queue case's only path to the renderer — flushQueue
+  // runs with no live caller waiting on any one queued write, so without
+  // this subscription a director who created a place while offline would
+  // never learn the create was silently rejected once the queue flushed.
+  // Owner decision (addendum, remediation round): the original ADR scoped UI
+  // out of this fix and called a real notice "future polish" — the owner has
+  // since decided offline rejection must be VISIBLE, not console-only, so
+  // this now shows a minimal, dismissible banner reusing the shared
+  // S.errorBanner visual language already used for error surfaces across the
+  // app, rather than inventing a new toast framework.
+  // Single scalar, not a queue: a second rejection while one is already
+  // showing replaces it rather than stacking. Accepted as adequate for this
+  // minimal notice (T12) — a real queue is out of scope here.
+  const [opRejectedNotice, setOpRejectedNotice] = useState(null)
+  useEffect(() => {
+    const unsub = localClient.onOpRejected?.((msg) => {
+      setOpRejectedNotice(
+        msg.existing?.name
+          ? `A location named "${msg.existing.name}" already exists and wasn't created.`
+          : 'A change could not be saved because it conflicts with existing data.'
+      )
+    })
+    return () => unsub?.()
+  }, [])
 
   // Shared week state threaded into Activities and Groups screens so the
   // director stays on the same week as they navigate between setup screens
@@ -121,17 +150,67 @@ function AppShell({ campId, role, onLogout }) {
       }
 
   return (
-    <Shell
-      currentScreen={screen}
-      onNavigate={setScreen}
-      campId={campId}
-      role={role}
-      onLogout={onLogout}
-      sidebarBadges={{ conflicts: pendingConflicts.conflicts.length }}
-    >
-      <Screen {...screenProps} />
-    </Shell>
+    <>
+      {opRejectedNotice && (
+        <div style={opRejectedNoticeStyles.wrap} role="alert">
+          <span>{opRejectedNotice}</span>
+          <button
+            type="button"
+            onClick={() => setOpRejectedNotice(null)}
+            aria-label="Dismiss"
+            style={opRejectedNoticeStyles.dismissBtn}
+          >×</button>
+        </div>
+      )}
+      <Shell
+        currentScreen={screen}
+        onNavigate={setScreen}
+        campId={campId}
+        role={role}
+        onLogout={onLogout}
+        sidebarBadges={{ conflicts: pendingConflicts.conflicts.length }}
+      >
+        <Screen {...screenProps} />
+      </Shell>
+    </>
   )
+}
+
+// A fixed, top-of-viewport placement (rather than inline in the scrolling
+// screen content) so the notice is visible regardless of which screen the
+// director is on when the offline queue flushes — reuses S.errorBanner's
+// visual language (color/border/radius/type) with layout overrides for the
+// fixed-position toast placement, and mirrors the existing dismiss-button
+// pattern from src/components/schedule/ErrorBanner.jsx.
+const opRejectedNoticeStyles = {
+  wrap: {
+    ...S.errorBanner,
+    position: 'fixed',
+    top: 16,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    // Below S.overlay's zIndex 1000 (src/styles/shared.js), not above it: an
+    // open modal's own title/close controls must win where the two overlap,
+    // never be covered by this banner (T12, Red Hat LOW).
+    zIndex: 900,
+    maxWidth: 480,
+    width: 'calc(100% - 32px)',
+    marginBottom: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    boxShadow: '0 2px 12px color-mix(in srgb, var(--text) 12%, transparent)',
+  },
+  dismissBtn: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    color: 'inherit',
+    fontSize: 16,
+    lineHeight: 1,
+    flexShrink: 0,
+  },
 }
 
 export default function App() {
