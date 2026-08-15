@@ -43,6 +43,10 @@ function mulberry32(seed) {
 }
 
 // Normalize both call signatures into the cohorts-array format.
+// Omitting `locations` defaults it to [] → an empty capacity map, so every
+// place a placement maps to via location_id falls back to capacity 1 (the more
+// restrictive default). Callers that rely on place capacity must therefore pass
+// `locations`; both live callers do.
 function normalizeInput(input) {
   if (input.cohorts) {
     return {
@@ -50,6 +54,7 @@ function normalizeInput(input) {
       days: input.days,
       activities: input.activities,
       campId: input.campId || '',
+      locations: input.locations || [],
       anchorsOnly: input.anchorsOnly || false,
     }
   }
@@ -66,11 +71,12 @@ function normalizeInput(input) {
     days: input.days || [],
     activities: input.activities || [],
     campId: input.campId || '',
+    locations: input.locations || [],
     anchorsOnly: input.anchorsOnly || false,
   }
 }
 
-function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = false }) {
+function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, anchorsOnly = false }) {
   const { cohort, timeBlocks, tiers: _tiers, groups, preplacedSlots, activityTargets, _legacyAnchors } = cohortEntry
   const cohortId = cohort?.id ?? null
 
@@ -183,7 +189,16 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
   const spanTails = new Set() // keys for tail blocks of multi-block placements
   const usageCount = new Map() // "groupId|activityId" → count
   const dailyUsage = new Set() // "groupId|dayId|activityId" — per-day dedup guard
-  const locationUsage = new Map() // "location|dayId|blockId" → [{ groupId, tierId }]
+  // Two independent occupancy ledgers, two independent constraints (ADR D2):
+  //   placeUsage — how many groups are in a PLACE at once, keyed by the shared
+  //     location_id, capped at locations.capacity. Occupant list (not a count)
+  //     because same_tier_only reasons about who else is there.
+  //   activityUsage — how many groups can do an ACTIVITY at once (an
+  //     instructor/equipment cap), keyed per activity, capped at
+  //     max_groups_per_slot. NOT a min() of the two — different key, different
+  //     constraint; the engine checks both.
+  const placeUsage = new Map()    // "locationId|dayId|blockId" → [{ groupId, tierId }]
+  const activityUsage = new Map() // "activityId|dayId|blockId" → count
 
   function getCount(groupId, actId) {
     return usageCount.get(`${groupId}|${actId}`) || 0
@@ -199,17 +214,36 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
     return dailyUsage.has(`${groupId}|${dayId}|${actId}`)
   }
 
-  function locationKey(location, dayId, blockId) { return `${location}|${dayId}|${blockId}` }
+  // Place capacity + same_tier_only at ONE block. Only constrains an activity
+  // bound to a location — location_id == null has no place (interim M1→M3
+  // state) and is unconstrained, identical to today's no-location behavior.
+  // Returns true when the place at this block cannot admit `act` for `group`.
+  // Applied at the head AND at every span tail (a span occupies its place at
+  // every block it covers — place()/occupyPlace push tails into placeUsage, so
+  // the check side must match, or a span overfills its place at the tail).
+  function placeBlocked(act, group, dayId, blockId) {
+    const locId = act.location_id ?? null
+    if (locId == null) return false
+    const capacity = locationCapById.get(locId) ?? 1
+    const occupants = placeUsage.get(`${locId}|${dayId}|${blockId}`) || []
+    if (occupants.length >= capacity) return true
+    if (act.same_tier_only && occupants.length > 0) {
+      if (!occupants.every(o => o.tierId === group?.tier_id)) return true
+    }
+    return false
+  }
 
   function canPlace(act, groupId, dayId, blockId) {
     if (getCount(groupId, act.id) >= act.max_per_week) return false
     if (placedTodayForGroup(groupId, dayId, act.id)) return false
 
+    const group = groupMap.get(groupId)
+    if (placeBlocked(act, group, dayId, blockId)) return false
+
     const spanCount = act.span_blocks || 1
     if (spanCount > 1) {
       const blockIdx = blockOrder.get(blockId)
       if (blockIdx === undefined) return false
-      const group = groupMap.get(groupId)
       const avail = group?.availability
       for (let i = 1; i < spanCount; i++) {
         const nextBlock = timeBlocksSorted[blockIdx + i]
@@ -218,29 +252,38 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
         if (assigned.has(nextKey) || anchorLookup.has(nextKey)) return false
         // Tail block must also be within the group's available part of day
         if (avail !== 'all' && avail !== nextBlock.part_of_day) return false
+        // Tail block occupies the place too — same capacity + same_tier_only
+        // guard as the head.
+        if (placeBlocked(act, group, dayId, nextBlock.id)) return false
       }
     }
 
-    if (act.location && act.max_groups_per_slot > 1) {
-      const lk = locationKey(act.location, dayId, blockId)
-      const occupants = locationUsage.get(lk) || []
-      if (occupants.length >= act.max_groups_per_slot) return false
-      const group = groupMap.get(groupId)
-      if (act.same_tier_only && occupants.length > 0) {
-        const allSameTier = occupants.every(o => o.tierId === group.tier_id)
-        if (!allSameTier) return false
-      }
-    } else if (act.location && act.max_groups_per_slot === 1) {
-      const lk = locationKey(act.location, dayId, blockId)
-      if ((locationUsage.get(lk) || []).length >= 1) return false
+    // Activity (instructor/equipment) capacity, per activity per (day, block).
+    // null/0 mean "no per-activity cap" — unchanged from today, and matching
+    // computeOverlaps/normalizeActivityEligibility's documented `null = no cap`.
+    if (act.max_groups_per_slot > 0) {
+      if ((activityUsage.get(`${act.id}|${dayId}|${blockId}`) || 0) >= act.max_groups_per_slot) return false
     }
 
     return true
   }
 
+  function occupyPlace(act, safeGroup, groupId, dayId, blockId) {
+    const locId = act.location_id ?? null
+    if (locId != null) {
+      const lk = `${locId}|${dayId}|${blockId}`
+      const list = placeUsage.get(lk) || []
+      list.push({ groupId, tierId: safeGroup.tier_id })
+      placeUsage.set(lk, list)
+    }
+    const ak = `${act.id}|${dayId}|${blockId}`
+    activityUsage.set(ak, (activityUsage.get(ak) || 0) + 1)
+  }
+
   function place(act, groupId, dayId, blockId) {
     const group = groupMap.get(groupId)
-    // Guard: if group is not in this cohort, skip location tracking (can't read tier_id)
+    // Guard: if group is not in this cohort, occupancy still tracks with a null
+    // tier_id (can't read it) — same_tier_only then treats it as its own tier.
     const safeGroup = group ?? { tier_id: null }
     const headKey = `${groupId}|${dayId}|${blockId}`
     assigned.set(headKey, act.id)
@@ -255,23 +298,13 @@ function scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly = fal
           const tailKey = `${groupId}|${dayId}|${nextBlock.id}`
           assigned.set(tailKey, act.id)
           spanTails.add(tailKey)
-          // Track location usage for tail blocks too
-          if (act.location) {
-            const lk = locationKey(act.location, dayId, nextBlock.id)
-            const list = locationUsage.get(lk) || []
-            list.push({ groupId, tierId: safeGroup.tier_id })
-            locationUsage.set(lk, list)
-          }
+          // A span tail occupies both the place and the activity at its block.
+          occupyPlace(act, safeGroup, groupId, dayId, nextBlock.id)
         }
       }
     }
 
-    if (act.location) {
-      const lk = locationKey(act.location, dayId, blockId)
-      const list = locationUsage.get(lk) || []
-      list.push({ groupId, tierId: safeGroup.tier_id })
-      locationUsage.set(lk, list)
-    }
+    occupyPlace(act, safeGroup, groupId, dayId, blockId)
   }
 
   // Pre-place locked slots (anchors from new signature + any explicit preplacedSlots)
@@ -497,7 +530,16 @@ export function computeFindings({ slots, groups, activities, days }) {
 }
 
 function buildSchedule(input) {
-  const { cohorts, days, activities, campId, anchorsOnly } = normalizeInput(input)
+  const { cohorts, days, activities, campId, locations, anchorsOnly } = normalizeInput(input)
+
+  // location_id → capacity (how many GROUPS fit in this place at once). Built
+  // once from the camp's locations rows. A place absent from the map defaults
+  // to 1 — the schema default (locations.capacity NOT NULL DEFAULT 1), the
+  // most restrictive safe value, never today's accidental "unlimited."
+  const locationCapById = new Map()
+  for (const loc of (locations || [])) {
+    if (loc && loc.id != null) locationCapById.set(loc.id, loc.capacity ?? 1)
+  }
 
   // Pass 1: schedule each cohort independently
   // (multi-cohort cross-resource conflict detection is Sub-project 3)
@@ -508,7 +550,7 @@ function buildSchedule(input) {
     const cohortEntry = cohorts[idx]
     const cohortSeed = campId + (cohortEntry.cohort?.id || String(idx))
     const rand = mulberry32(djb2(cohortSeed))
-    const { slots, findings } = scheduleCohort({ cohortEntry, days, activities, rand, anchorsOnly })
+    const { slots, findings } = scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, anchorsOnly })
     allSlots.push(...slots)
     allFindings.push(...findings)
   }

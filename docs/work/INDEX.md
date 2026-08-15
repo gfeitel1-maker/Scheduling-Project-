@@ -83,7 +83,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Gesture-correlated commit results in the drag FSM](../../docs/adr/2026-08-12-drag-fsm-gesture-correlation.md) | accepted | implemented | [2026-08-12-drag-live-write-serialization-design](../../docs/work/specs/2026-08-12-drag-live-write-serialization-design.md) |
 | [Per-cell write serialization for same-cell drag mutations](../../docs/adr/2026-08-12-drag-live-write-serialization.md) | accepted | implemented | [2026-08-15-camp-locations-entity](../../docs/adr/2026-08-15-camp-locations-entity.md) · [2026-08-15-camp-spatial-model-m0-architecture](../../docs/work/runs/2026-08-15-camp-spatial-model-m0-architecture.md) · [2026-08-12-drag-live-write-serialization-design](../../docs/work/specs/2026-08-12-drag-live-write-serialization-design.md) · [2026-08-15-camp-spatial-model-assessment](../../docs/work/specs/2026-08-15-camp-spatial-model-assessment.md) |
 | [A shared persistence seam for the setup-CRUD screens](../../docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md) | proposed | not-started | [2026-08-15-camp-spatial-model-m0-architecture](../../docs/work/runs/2026-08-15-camp-spatial-model-m0-architecture.md) · [2026-08-15-camp-spatial-model-assessment](../../docs/work/specs/2026-08-15-camp-spatial-model-assessment.md) |
-| [ADR: Camp Locations become a first-class entity (schema v32)](../../docs/adr/2026-08-15-camp-locations-entity.md) | accepted | in-progress | [2026-08-15-locations-m1-create-entity](../../docs/work/runs/2026-08-15-locations-m1-create-entity.md) |
+| [ADR: Camp Locations become a first-class entity (schema v32)](../../docs/adr/2026-08-15-camp-locations-entity.md) | accepted | in-progress | [2026-08-15-locations-m1-create-entity](../../docs/work/runs/2026-08-15-locations-m1-create-entity.md) · [2026-08-15-locations-m2-engine-capacity](../../docs/work/runs/2026-08-15-locations-m2-engine-capacity.md) |
 
 ## Runs
 
@@ -94,6 +94,7 @@ They are different facts and a run can carry a bad one of each.
 |---|---|---|---|---|
 | 2026-08-15 | [M0 — camp location / spatial model architecture assessment](../../docs/work/runs/2026-08-15-camp-spatial-model-m0-architecture.md) | architecture | escalated | _no verdict yet_ |
 | 2026-08-15 | [M1 — create the locations entity (schema v32)](../../docs/work/runs/2026-08-15-locations-m1-create-entity.md) | database-sync | pass | pass |
+| 2026-08-15 | [M2 — fix place capacity in the scheduling engine](../../docs/work/runs/2026-08-15-locations-m2-engine-capacity.md) | scheduling-engine | pass | pass |
 | 2026-08-12 | [vitest-load-induced-flakiness](../../docs/work/runs/2026-08-12-vitest-load-flakiness.md) | test-infrastructure | pass | _no verdict yet_ |
 | 2026-08-10 | [GateReport graph node — implement migration steps 1–3 (ADR 2026-08-09-gate-stack-as-fixed-fanin-graph)](../../docs/work/runs/2026-08-10-gatereport-graph-node-implementation-run.md) | documentation-governance | pass | pass |
 | 2026-08-09 | [T76+T77 — work-record status-drift commit gate](../../docs/work/runs/2026-08-09-status-drift-gate.md) | documentation-governance | pass | pass |

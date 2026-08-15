@@ -1,4 +1,15 @@
-// OVERLAP — "more groups are booked into this than it holds."
+// OVERLAP — "a slot is booked past a limit it shares with other slots."
+//
+// Two limits are surfaced, both under the single OVERLAP vocabulary and told
+// apart only by their message text:
+//   • PLACE capacity — more groups are booked into this PLACE than it holds.
+//   • ACTIVITY cap — more groups are booked for this ACTIVITY in one (day,block)
+//     than its max_groups_per_slot allows.
+// Pre-M2 only the activity cap existed (the marker was keyed by activity_id);
+// M2 re-keyed it to location_id for the place limit and dropped the activity
+// cap. The director wants both back, reading differently, so they know which
+// limit they hit. (A director whose Archery has a 2-group instructor cap still
+// needs the warning even before M3 assigns Archery a location.)
 //
 // Derived at render time from the slots on screen, never persisted: it has the
 // same character as the aggregate findings (recomputed fresh, no dismissal
@@ -11,44 +22,85 @@
 // `flags` entry only and deliberately does NOT go into buildSchedule()'s
 // `conflicts` array, which stays [] until the multi-cohort engine.
 //
+// Place capacity is a property of the PLACE (ADR D2, docs/adr/2026-08-15-camp-
+// locations-entity.md): keyed by the activity's location_id, checked against
+// locations.capacity — so two DIFFERENT activities sharing one place are
+// counted together (assessment §3.3). An activity with no location_id (interim
+// M1→M3 state) has no place, so no place-capacity marker; its activity cap is
+// still checked.
+//
+// Activity cap null/0 mean "no per-activity cap", matching the engine's
+// `act.max_groups_per_slot > 0` guard and normalizeActivityEligibility.
+//
+// When one slot trips BOTH limits the two reasons are joined into a single
+// string, keeping the consumer's marker shape (one reason per slot) unchanged.
+//
 // Rows carry the persisted snake_case shape (group_id/day_id/time_block_id/
 // activity_id), the same shape computeFindings() reads.
 
-export function computeOverlaps({ slots, activities }) {
-  const overlapping = new Map() // slot id → reason
-
-  if (!slots || !activities) return overlapping
+export function computeOverlaps({ slots, activities, locations }) {
+  if (!slots || !activities) return new Map()
 
   const actMap = new Map(activities.map(a => [a.id, a]))
-  const buckets = new Map() // "dayId|blockId|activityId" → slot rows
+  const locMap = new Map((locations || []).map(l => [l.id, l]))
+  const placeBuckets = new Map() // "dayId|blockId|locationId" → { locId, rows }
+  const actBuckets = new Map()   // "dayId|blockId|activityId" → { actId, rows }
 
   for (const s of slots) {
     if (s.is_anchor || !s.activity_id) continue
-    const key = `${s.day_id}|${s.time_block_id}|${s.activity_id}`
-    const list = buckets.get(key) || []
-    list.push(s)
-    buckets.set(key, list)
+    const locId = actMap.get(s.activity_id)?.location_id ?? null
+    if (locId != null) {
+      const key = `${s.day_id}|${s.time_block_id}|${locId}`
+      let bucket = placeBuckets.get(key)
+      if (!bucket) { bucket = { locId, rows: [] }; placeBuckets.set(key, bucket) }
+      bucket.rows.push(s)
+    }
+    // Activity cap runs even with no location_id — that is the point of keeping
+    // it: it warns before M3 assigns the activity a place.
+    const aKey = `${s.day_id}|${s.time_block_id}|${s.activity_id}`
+    let aBucket = actBuckets.get(aKey)
+    if (!aBucket) { aBucket = { actId: s.activity_id, rows: [] }; actBuckets.set(aKey, aBucket) }
+    aBucket.rows.push(s)
   }
 
-  for (const [key, rows] of buckets) {
-    const activityId = key.split('|')[2]
-    const act = actMap.get(activityId)
-    const capacity = act?.max_groups_per_slot
-    if (capacity == null) continue
+  const reasons = new Map() // slot id → [reason, ...]
+  const add = (id, reason) => {
+    const arr = reasons.get(id)
+    if (arr) arr.push(reason)
+    else reasons.set(id, [reason])
+  }
+
+  for (const { locId, rows } of placeBuckets.values()) {
+    const loc = locMap.get(locId)
+    // Default to 1 — the schema default (locations.capacity NOT NULL DEFAULT 1),
+    // the same restrictive default the engine uses for an unmapped place.
+    const capacity = loc?.capacity ?? 1
     const groupCount = new Set(rows.map(r => r.group_id)).size
     if (groupCount <= capacity) continue
-    const where = act?.location || act?.name || 'this activity'
+    const where = loc?.name || 'this place'
     const reason = `${groupCount} groups booked into ${where} — it holds ${capacity}`
-    for (const r of rows) overlapping.set(r.id, reason)
+    for (const r of rows) add(r.id, reason)
   }
 
+  for (const { actId, rows } of actBuckets.values()) {
+    const cap = actMap.get(actId)?.max_groups_per_slot
+    if (!(cap > 0)) continue // null/0 = no per-activity cap
+    const groupCount = new Set(rows.map(r => r.group_id)).size
+    if (groupCount <= cap) continue
+    const name = actMap.get(actId)?.name || 'this activity'
+    const reason = `${groupCount} groups booked for ${name} — its limit is ${cap} per slot`
+    for (const r of rows) add(r.id, reason)
+  }
+
+  const overlapping = new Map() // slot id → reason (both limits joined when tripped)
+  for (const [id, arr] of reasons) overlapping.set(id, arr.join('; '))
   return overlapping
 }
 
 // Merges the derived marker into the flags each cell renders from, leaving the
 // persisted rows untouched.
-export function withOverlapFlags(slots, activities) {
-  const overlapping = computeOverlaps({ slots, activities })
+export function withOverlapFlags(slots, activities, locations) {
+  const overlapping = computeOverlaps({ slots, activities, locations })
   if (overlapping.size === 0) return slots
   return slots.map(s =>
     overlapping.has(s.id)

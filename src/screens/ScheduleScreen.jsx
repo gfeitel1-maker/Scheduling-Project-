@@ -101,7 +101,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     weekId, weekDeletedBanner, setWeekDeletedBanner, exclusions,
     templateData, loading, loadError, templateError, reload,
   } = useScheduleData({ campId, weekId: preferredWeekId, repo, routes: ROUTES })
-  const { groups, days, timeBlocks, activities, anchors, tiers, cohorts } = setupLists
+  const { groups, days, timeBlocks, activities, anchors, tiers, cohorts, locations } = setupLists
   const { activityExclusions, groupExclusions } = exclusions
 
   // Keep `preferredWeekId` converged with the resolved week so the NEXT load
@@ -134,8 +134,8 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // cell the moment any one of them moves, and only on the manual route, where
   // a clashing placement is accepted rather than refused.
   const slots = useMemo(
-    () => (route === 'manual' ? withOverlapFlags(rawSlots, activities) : rawSlots),
-    [route, rawSlots, activities]
+    () => (route === 'manual' ? withOverlapFlags(rawSlots, activities, locations) : rawSlots),
+    [route, rawSlots, activities, locations]
   )
   // The generated "track changes" review (docs/work/specs/2026-08-01-generated-
   // flag-review.md). One piece of state is the single source of truth for both
@@ -293,7 +293,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     routeState, repo, campId, setActionError, setGenerating,
     resetUndoRedo, saveSnapshot, ensureTemplateRow,
     setConfirmRegen, setSelectedGroup, statsFor: recalcStatsPure,
-    groups, tiers, days, timeBlocks, activities, anchors,
+    groups, tiers, days, timeBlocks, activities, anchors, locations,
     weekId, activityExclusions, groupExclusions,
   })
   // Generation reloads slots wholesale — bump the flag-ack resync so the
