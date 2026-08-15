@@ -795,7 +795,12 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
           onArchive={weeksHook.archiveWeek}
           onUnarchive={weeksHook.unarchiveWeek}
           onDuplicate={weeksHook.duplicateWeek}
-          onDelete={(week) => setDeletingWeek(week)}
+          // Permanent week delete is admin-only (deleteWeekHandler authorizes
+          // 'schedule_weeks.delete'): withholding onDelete hides the "Delete
+          // permanently" menu item for staff, so they never reach a button that
+          // would be rejected server-side. Staff keep create/edit/duplicate/
+          // archive. Mirrors the admin-only regenerate gate above.
+          onDelete={role === 'admin' ? (week) => setDeletingWeek(week) : undefined}
         />
         {anyRouteStarted && (
           <>

@@ -251,6 +251,23 @@ doomed week would point at a `template_id` deleted in the same transaction — o
 the in-flight edit's op fails to project (parent gone) and the editing screen redirects to another week
 with a plain message. Silent failure or a frozen drag is not acceptable.
 
+**Authorization — permanent week delete is ADMIN-ONLY (owner decision, 2026-08-15).** The other week
+operations (create, rename, archive/unarchive, duplicate, and per-week activity/group exclusion toggles)
+are staff-capable, gated `schedule_weeks.write` and the two `week_*_exclusions.*` grants. Permanent
+delete is different in kind: it is non-restorable (`electron/ops/restore.js` refuses every entity the
+cascade above touches) and it destroys `schedule_snapshots` wholesale, whose *individual* deletion is
+itself admin-only (`src/screens/schedule/useSnapshots.js`). Allowing staff to erase those en masse via
+the week delete would contradict that existing invariant, so `deleteWeekHandler` (`electron/main.js`)
+authorizes `schedule_weeks.delete` — a verb staff do not hold — and `ScheduleScreen.jsx` withholds
+`onDelete` from the WeekSwitcher for non-admins, hiding the "Delete permanently" menu item rather than
+presenting a control that would be rejected. This was clarified while fixing a separate `permissions.js`
+matrix gap (the multi-week entities `schedule_weeks` / `week_activity_exclusions` / `week_group_exclusions`
+were accidentally absent from `permissions.ENTITIES`, so staff were wrongly denied ordinary week
+read/write); granting staff `schedule_weeks.write` surfaced the fact that `deleteWeekHandler` had been
+gated on `.write`, which — before the matrix gap fix — had made permanent delete unreachable for staff by
+accident. The gate above makes admin-only the deliberate, tested state. Boundary pinned in
+`electron/auth/authorize.test.js` and `electron/main.test.js`.
+
 ---
 
 ## Consequences

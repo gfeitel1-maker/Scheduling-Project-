@@ -1315,10 +1315,15 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
       anchor_activities: 'name',
       schedule_templates: 'name',
       day_override_templates: 'name',
+      schedule_weeks: 'name',
       template_slots: 'activity_id',
       template_overlays: 'label',
       schedule_snapshots: 'name',
       day_override_template_slots: 'time_block_id',
+      // Exclusion rows have no name-shaped field; 'week_id' is the field their
+      // projection's ensureExists keys on (electron/ops/projections.js:205-226).
+      week_activity_exclusions: 'week_id',
+      week_group_exclusions: 'week_id',
     }
     const ws = connect()
     await onceOpen(ws)

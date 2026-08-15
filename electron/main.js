@@ -1014,7 +1014,18 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
   function deleteWeekHandler({ token, weekId } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
-    const { userId } = requireAuthorized(db, { token, action: 'schedule_weeks.write' })
+    // ADMIN-ONLY, deliberately '.delete' not '.write': deleteWeek() is a
+    // permanent, non-restorable cascade (restore.js refuses every entity it
+    // touches) across BOTH route schedules, all saved snapshots, slots,
+    // overlays and exclusions. It is the single largest irreversible action in
+    // the app, and it destroys schedule_snapshots wholesale — whose INDIVIDUAL
+    // delete is already admin-only (src/screens/schedule/useSnapshots.js). So
+    // it must not derive to '<entity>.write', which staff hold. Staff keep
+    // create/edit/duplicate/exclusion control over weeks; only permanent delete
+    // is withheld. See the owner decision recorded in
+    // docs/adr/2026-08-03-multi-week-slices-2-3.md and the boundary test in
+    // electron/auth/authorize.test.js.
+    const { userId } = requireAuthorized(db, { token, action: 'schedule_weeks.delete' })
     if (!isNonEmptyString(weekId)) throw new Error('weekId is required')
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) throw new Error('no camp')
