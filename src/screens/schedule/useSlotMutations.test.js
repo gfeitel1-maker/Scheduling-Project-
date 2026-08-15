@@ -452,6 +452,154 @@ describe('useSlotMutations — placeActivityManual', () => {
 
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'a1', flags: { UNFILLABLE: true } })
   })
+
+  // M3b re-key: locationFull is now keyed by location_id -> locations.capacity
+  // (was activity_id -> max_groups_per_slot, place-blind). This closes the
+  // M2-carried blind spot: dragging into an over-capacity PLACE on the
+  // generated route now flags UNFILLABLE.
+  describe('locationFull (M3b re-key: location_id -> locations.capacity)', () => {
+    // g1 already occupies the Pool (capacity 1) via a DIFFERENT activity that
+    // shares the same location_id — g2's target slot is empty.
+    const occupied = { id: 's-g1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-other', flags: {} }
+    const target = { id: 's-g2', group_id: 'g2', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} }
+    const groups = [{ id: 'g1', tier_id: 't1' }, { id: 'g2', tier_id: 't1' }]
+    const activities = [
+      { id: 'act-other', name: 'Swim A', location_id: 'loc-pool', eligible_tier_ids: [], eligible_group_ids: [] },
+      { id: 'act-target', name: 'Swim B', location_id: 'loc-pool', eligible_tier_ids: [], eligible_group_ids: [] },
+    ]
+
+    it('flags UNFILLABLE on the generated route when placing would push the shared PLACE over locations.capacity', async () => {
+      const locations = [{ id: 'loc-pool', name: 'Pool', capacity: 1 }]
+      const { hook, props } = setup({
+        slots: [occupied, target], groups, activities, locations,
+        routeState: { route: 'generated', templateId: 'tid-generated' },
+      })
+      await act(async () => { await hook.result.current.placeActivityManual('act-target', 'g2', 'd1', 'b1') })
+
+      expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', flags: { UNFILLABLE: true } })
+    })
+
+    it('capacity 0 sentinel: does not spuriously flag UNFILLABLE (the `> 0` fix, was `!= null`)', async () => {
+      const locations = [{ id: 'loc-pool', name: 'Pool', capacity: 0 }]
+      const { hook, props } = setup({
+        slots: [occupied, target], groups, activities, locations,
+        routeState: { route: 'generated', templateId: 'tid-generated' },
+      })
+      await act(async () => { await hook.result.current.placeActivityManual('act-target', 'g2', 'd1', 'b1') })
+
+      expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', flags: {} })
+    })
+
+    it('an activity with no location_id is never place-full (no place to be full at)', async () => {
+      const locations = [{ id: 'loc-pool', name: 'Pool', capacity: 1 }]
+      const noLocationActivities = [
+        { id: 'act-other', name: 'Swim A', location_id: 'loc-pool', eligible_tier_ids: [], eligible_group_ids: [] },
+        { id: 'act-target', name: 'Swim B', location_id: null, eligible_tier_ids: [], eligible_group_ids: [] },
+      ]
+      const { hook, props } = setup({
+        slots: [occupied, target], groups, activities: noLocationActivities, locations,
+        routeState: { route: 'generated', templateId: 'tid-generated' },
+      })
+      await act(async () => { await hook.result.current.placeActivityManual('act-target', 'g2', 'd1', 'b1') })
+
+      expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', flags: {} })
+    })
+
+    it('the manual route never flags UNFILLABLE even when the shared place is over capacity', async () => {
+      const locations = [{ id: 'loc-pool', name: 'Pool', capacity: 1 }]
+      const { hook, props } = setup({ slots: [occupied, target], groups, activities, locations })
+      await act(async () => { await hook.result.current.placeActivityManual('act-target', 'g2', 'd1', 'b1') })
+
+      expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', flags: {} })
+    })
+  })
+
+  // Round-2 fix pass (Code Reviewer MEDIUM x2): the self-count false positive
+  // (A2) and the lost per-activity over-book warning (A3).
+  describe('locationFull round-2: self-count exclusion + activity-cap arm restored (A2/A3)', () => {
+    it('A2: excludes the target group\'s OWN existing slot at this (day,block) — dragging a same-place activity onto a cell the group already occupies there is not spuriously flagged', async () => {
+      const locations = [{ id: 'loc-pool', name: 'Pool', capacity: 1 }]
+      // g1's own slot here is already bound to the same place via a DIFFERENT
+      // activity; dragging another loc-pool activity onto THIS SAME cell must
+      // not count g1's own outgoing slot against the capacity it's vacating.
+      const occupied = { id: 's-g1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-other', flags: {} }
+      const groups = [{ id: 'g1', tier_id: 't1' }]
+      const activities = [
+        { id: 'act-other', name: 'Swim A', location_id: 'loc-pool', eligible_tier_ids: [], eligible_group_ids: [] },
+        { id: 'act-target', name: 'Swim B', location_id: 'loc-pool', eligible_tier_ids: [], eligible_group_ids: [] },
+      ]
+      const { hook, props } = setup({
+        slots: [occupied], groups, activities, locations,
+        routeState: { route: 'generated', templateId: 'tid-generated' },
+      })
+      await act(async () => { await hook.result.current.placeActivityManual('act-target', 'g1', 'd1', 'b1') })
+
+      expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g1', { activity_id: 'act-target', flags: {} })
+    })
+
+    describe('A3: activity-cap arm (max_groups_per_slot) restored ALONGSIDE the place-cap arm — either alone trips UNFILLABLE, no min()', () => {
+      const groups = [{ id: 'g1', tier_id: 't1' }, { id: 'g2', tier_id: 't1' }]
+      const occupiedWith = (activityId) => ({ id: 's-g1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: activityId, flags: {} })
+      const target = { id: 's-g2', group_id: 'g2', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} }
+
+      it('over-activity-cap, no location_id at all (place-blind case ADR D2 keeps a warning for)', async () => {
+        const activities = [{ id: 'act-cap', name: 'Archery', location_id: null, max_groups_per_slot: 1, eligible_tier_ids: [], eligible_group_ids: [] }]
+        const { hook, props } = setup({
+          slots: [occupiedWith('act-cap'), target], groups, activities,
+          routeState: { route: 'generated', templateId: 'tid-generated' },
+        })
+        await act(async () => { await hook.result.current.placeActivityManual('act-cap', 'g2', 'd1', 'b1') })
+        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-cap', flags: { UNFILLABLE: true } })
+      })
+
+      it('over-activity-cap even though the bound PLACE itself has room (independent arms, not min())', async () => {
+        const locations = [{ id: 'loc-big', name: 'Big Field', capacity: 10 }]
+        const activities = [{ id: 'act-cap', name: 'Archery', location_id: 'loc-big', max_groups_per_slot: 1, eligible_tier_ids: [], eligible_group_ids: [] }]
+        const { hook, props } = setup({
+          slots: [occupiedWith('act-cap'), target], groups, activities, locations,
+          routeState: { route: 'generated', templateId: 'tid-generated' },
+        })
+        await act(async () => { await hook.result.current.placeActivityManual('act-cap', 'g2', 'd1', 'b1') })
+        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-cap', flags: { UNFILLABLE: true } })
+      })
+
+      it('over-place-cap even though the activity cap itself has room', async () => {
+        const locations = [{ id: 'loc-pool', name: 'Pool', capacity: 1 }]
+        const activities = [
+          { id: 'act-other', name: 'Swim A', location_id: 'loc-pool', max_groups_per_slot: 5, eligible_tier_ids: [], eligible_group_ids: [] },
+          { id: 'act-target', name: 'Swim B', location_id: 'loc-pool', max_groups_per_slot: 5, eligible_tier_ids: [], eligible_group_ids: [] },
+        ]
+        const { hook, props } = setup({
+          slots: [occupiedWith('act-other'), target], groups, activities, locations,
+          routeState: { route: 'generated', templateId: 'tid-generated' },
+        })
+        await act(async () => { await hook.result.current.placeActivityManual('act-target', 'g2', 'd1', 'b1') })
+        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', flags: { UNFILLABLE: true } })
+      })
+
+      it('both caps exceeded at once — still just one UNFILLABLE flag', async () => {
+        const locations = [{ id: 'loc-pool', name: 'Pool', capacity: 1 }]
+        const activities = [{ id: 'act-cap', name: 'Swim', location_id: 'loc-pool', max_groups_per_slot: 1, eligible_tier_ids: [], eligible_group_ids: [] }]
+        const { hook, props } = setup({
+          slots: [occupiedWith('act-cap'), target], groups, activities, locations,
+          routeState: { route: 'generated', templateId: 'tid-generated' },
+        })
+        await act(async () => { await hook.result.current.placeActivityManual('act-cap', 'g2', 'd1', 'b1') })
+        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-cap', flags: { UNFILLABLE: true } })
+      })
+
+      it('neither cap exceeded — not flagged', async () => {
+        const locations = [{ id: 'loc-big', name: 'Big Field', capacity: 10 }]
+        const activities = [{ id: 'act-cap', name: 'Archery', location_id: 'loc-big', max_groups_per_slot: 5, eligible_tier_ids: [], eligible_group_ids: [] }]
+        const { hook, props } = setup({
+          slots: [occupiedWith('act-cap'), target], groups, activities, locations,
+          routeState: { route: 'generated', templateId: 'tid-generated' },
+        })
+        await act(async () => { await hook.result.current.placeActivityManual('act-cap', 'g2', 'd1', 'b1') })
+        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-cap', flags: {} })
+      })
+    })
+  })
 })
 
 describe('useSlotMutations — placeActivityManual same-cell race (2026-08-12 ADR, FIX 1)', () => {

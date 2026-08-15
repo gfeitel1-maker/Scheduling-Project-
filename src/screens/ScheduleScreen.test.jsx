@@ -662,19 +662,20 @@ describe('placeActivityManual eligibility (T6 — DB-shaped eligible_tier_ids/el
     expect(flagsWriteFor('slot-2')).toEqual({ UNFILLABLE: true })
   })
 
-  it('locationFull (max_groups_per_slot reached) still flags UNFILLABLE independent of eligibility', async () => {
+  it('locationFull (M3b: location_id -> locations.capacity reached) still flags UNFILLABLE independent of eligibility', async () => {
     mockList({
       time_blocks: [timeBlock(), timeBlock({ id: 'b2', name: 'Afternoon', sort_order: 2, start_time: '10:00:00', end_time: '11:00:00' })],
       activities: [
-        activity({ id: 'act-1', name: 'Swim', eligible_tier_ids: '[]', eligible_group_ids: '[]', max_groups_per_slot: 1 }),
+        activity({ id: 'act-1', name: 'Swim', eligible_tier_ids: '[]', eligible_group_ids: '[]', location_id: 'loc-pool' }),
         activity({ id: 'act-2', name: 'Soccer' }),
       ],
+      locations: [{ id: 'loc-pool', camp_id: CAMP_ID, name: 'Pool', capacity: 1 }],
       template_slots: [
         slotRow({ id: 'slot-1', time_block_id: 'b1', activity_id: 'act-1' }),
         slotRow({ id: 'slot-2', time_block_id: 'b2', activity_id: 'act-2' }),
-        // Another group already has "Swim" (act-1) at the same day+block —
-        // pasting it into slot-2 too would put two groups in one activity
-        // slot whose cap is 1.
+        // Another group already has "Swim" (act-1, bound to the Pool) at the
+        // same day+block — pasting it into slot-2 too would put two groups
+        // into a place whose capacity is 1.
         slotRow({ id: 'slot-3', group_id: 'g2', time_block_id: 'b2', activity_id: 'act-1' }),
       ],
     })

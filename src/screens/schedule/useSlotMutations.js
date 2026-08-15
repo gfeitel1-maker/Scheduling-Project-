@@ -36,6 +36,7 @@ export function useSlotMutations({
   slots,
   groups,
   activities,
+  locations = [],
   days,
   timeBlocks,
   campId,
@@ -416,8 +417,39 @@ export function useSlotMutations({
       || tierIds.includes(group?.tier_id)
       || groupIds.includes(groupId)
 
-    const coScheduled = slots.filter(s => s.day_id === dayId && s.time_block_id === blockId && s.activity_id === activityId).length
-    const locationFull = activity.max_groups_per_slot != null && coScheduled >= activity.max_groups_per_slot
+    // M3b re-key, round 2 (was activity-keyed/place-blind — see history
+    // below): `locationFull` on the generated route checks BOTH caps ADR D2
+    // keeps distinct, independently — the PLACE's capacity (locations.
+    // capacity, keyed by location_id) and the ACTIVITY's own instructor/
+    // equipment cap (max_groups_per_slot, keyed by activity_id) — mirroring
+    // computeOverlaps' two OVERLAP buckets (src/utils/computeOverlaps.js).
+    // Either arm alone can trip UNFILLABLE; there is no min(). An activity
+    // with no location_id has no place to be full at, so only its
+    // activity-cap arm can fire.
+    //
+    // Both counts exclude the TARGET GROUP's own existing slot at this
+    // (day,block): without that exclusion, dragging a same-place/same-
+    // activity activity onto a cell the group already occupies there counts
+    // the group's own outgoing slot against the cap it's about to vacate,
+    // spuriously flagging UNFILLABLE even though net occupancy is unchanged.
+    //
+    // Sentinel is `> 0`, not `!= null`, for both caps — a stored cap of 0
+    // means "no cap enforced", the same convention computeOverlaps uses for
+    // max_groups_per_slot. For locations.capacity this branch is unreachable
+    // via the UI/migration (min-1 invariant), so the `> 0` guard there is
+    // defensive parity with computeOverlaps rather than a live path.
+    const activityLocationId = activity.location_id ?? null
+    const placeCapacity = activityLocationId ? locations.find(l => l.id === activityLocationId)?.capacity : undefined
+    const coScheduledAtPlace = activityLocationId
+      ? slots.filter(s => s.day_id === dayId && s.time_block_id === blockId && s.activity_id && s.group_id !== groupId && actMap.get(s.activity_id)?.location_id === activityLocationId).length
+      : 0
+    const placeFull = placeCapacity > 0 && coScheduledAtPlace >= placeCapacity
+
+    const activityCapacity = activity.max_groups_per_slot
+    const coScheduledForActivity = slots.filter(s => s.day_id === dayId && s.time_block_id === blockId && s.activity_id === activityId && s.group_id !== groupId).length
+    const activityFull = activityCapacity > 0 && coScheduledForActivity >= activityCapacity
+
+    const locationFull = placeFull || activityFull
 
     // Weekly-max enforcement is ActivityPalette disabling the drag source —
     // it's not a per-slot flag kind anymore (UNDERSERVED moved to
@@ -427,18 +459,13 @@ export function useSlotMutations({
     // their own week is never blocked and never has a placement silently
     // corrected. There is no UNFILLABLE here at all — an empty cell is simply
     // not filled yet. After M2, computeOverlaps (src/utils/computeOverlaps.js)
-    // surfaces two distinguishable OVERLAP markers on the manual route:
-    // place-capacity over-bookings (keyed by location_id, cap =
-    // locations.capacity) and per-activity instructor/equipment cap
-    // over-bookings (keyed by activity_id, cap = max_groups_per_slot when > 0
-    // — this one fires even before a location is picked). The remaining M3
-    // gap is the generated-route drag/manual-edit path: `locationFull` below
-    // is activity-keyed and place-blind, and is consumed only under
-    // `route !== 'manual'`, so dragging into an over-capacity place on the
-    // generated route raises neither UNFILLABLE (place-blind) nor OVERLAP
-    // (manual-route-only). Do not re-key `locationFull` here — that (and its
-    // max_groups_per_slot === 0 vs > 0 sentinel inconsistency) is pending M3.
-    // On the generated route the existing behaviour is otherwise unchanged.
+    // surfaces the same two distinguishable OVERLAP markers on the manual
+    // route (place-capacity, keyed by location_id, and per-activity
+    // instructor/equipment cap, keyed by activity_id) that `locationFull`
+    // above checks for the generated route — this is the generated-route/
+    // manual-edit-path mirror of both computeOverlaps buckets, not a new flag
+    // kind. On the generated route the eligibility half of `flags.UNFILLABLE`
+    // is otherwise unchanged.
     const flags = {}
     if (route !== 'manual' && (!eligible || locationFull)) flags.UNFILLABLE = true
 
@@ -771,7 +798,7 @@ export function useSlotMutations({
       priority: null,
       is_locked: false,
       span_blocks: 1,
-      location: null,
+      location_id: null,
       is_outdoor: false,
       max_groups_per_slot: 1,
       // Usage-derived: this write IS the activity's first placement, so the

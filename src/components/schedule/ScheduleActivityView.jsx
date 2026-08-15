@@ -8,14 +8,29 @@ import './scheduleGrid.css'
 
 const NO_COLLAPSE = new Set()
 
+// M3b round-2 fix (A1): M3b stopped populating the free-text activities.location
+// column for anything bound via the picker, so reading act.location here went
+// blank for any activity with a location_id. Resolve the place through
+// location_id first; only an activity whose location_id is null but whose
+// legacy location string is still set (migrated-but-untouched) falls back to
+// it. A location_id that doesn't resolve to a real location (dangling) shows
+// nothing here — same unconstrained-not-stale treatment as the other
+// place-capacity consumers, not the display-affordance C5 gives the edit modal.
+function placeNameFor(act, locMap) {
+  if (act?.location_id) return locMap.get(act.location_id)?.name || null
+  return act?.location || null
+}
+
 export default function ScheduleActivityView({
   activities, groups, days, timeBlocks, slots,
+  locations = [],
   selectedActivity, onSelectActivity,
   // T55/T56. Collapse is per-route state, shared by every view of that route.
   collapsedBlockIds = NO_COLLAPSE,
   onToggleBlockCollapsed,
 }) {
   const gridNav = useGridKeyboardNav()
+  const locMap = new Map(locations.map(l => [l.id, l]))
   return (
     <div>
       {!selectedActivity ? (
@@ -25,6 +40,7 @@ export default function ScheduleActivityView({
             const color = activityColor(act.id)
             const totalSlots = slots.filter(s => s.activity_id === act.id).length
             const weeklyGroups = new Set(slots.filter(s => s.activity_id === act.id).map(s => s.group_id)).size
+            const place = placeNameFor(act, locMap)
             return (
               <button
                 key={act.id}
@@ -39,7 +55,7 @@ export default function ScheduleActivityView({
                 }}
               >
                 <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)', marginBottom: 6, lineHeight: 1.3 }}>{act.name}</div>
-                {act.location && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>{act.location}</div>}
+                {place && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>{place}</div>}
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                   {act.priority === 'high' && (
                     <span style={{ fontSize: 10, background: color, color: '#fff', borderRadius: 3, padding: '1px 6px', fontWeight: 600 }}>HIGH</span>
@@ -59,6 +75,7 @@ export default function ScheduleActivityView({
         /* Drilldown: weekly schedule for selected activity */
         (() => {
           const act = activities.find(a => a.id === selectedActivity)
+          const place = placeNameFor(act, locMap)
           const color = activityColor(selectedActivity)
           const gridTemplateColumns = columnTracks(days.length)
           const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
@@ -71,7 +88,7 @@ export default function ScheduleActivityView({
                 >← All Activities</button>
                 <span style={{ width: 12, height: 12, borderRadius: '50%', background: color, display: 'inline-block' }} />
                 <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 18, color: 'var(--text)' }}>{act?.name}</span>
-                {act?.location && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{act.location}</span>}
+                {place && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{place}</span>}
                 {act?.priority === 'high' && <span style={{ fontSize: 11, background: color, color: '#fff', borderRadius: 3, padding: '2px 8px', fontWeight: 600 }}>HIGH PRIORITY</span>}
                 {act?.is_outdoor && <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>OUTDOOR</span>}
               </div>

@@ -87,12 +87,22 @@ describe('OVERLAP', () => {
     expect(computeOverlaps({ slots, activities: [placeless], locations: [pool] }).size).toBe(0)
   })
 
-  // A place absent from locations defaults to capacity 1 (schema default).
-  it('defaults an unmapped place to capacity 1', () => {
+  // Round-2 fix (B1, Red Hat edge): a location_id that doesn't resolve to a
+  // real locations row (deleted place, cross-device race, stale import —
+  // "dangling") is UNCONSTRAINED, not a capacity-1 default — matching
+  // buildSchedule's placeBlocked and useSlotMutations' locationFull. Pre-fix
+  // this defaulted to capacity 1 and flagged OVERLAP, disagreeing with both.
+  it('does not flag OVERLAP for a dangling location_id (unconstrained, same as the engine)', () => {
+    const slots = [slot('s1', 'g1'), slot('s2', 'g2'), slot('s3', 'g3')]
+    expect(computeOverlaps({ slots, activities: [swim], locations: [] }).size).toBe(0)
+  })
+
+  it('the activity-cap bucket still applies to a slot at a dangling place', () => {
+    const capped = { id: 'swim', name: 'Swimming', location_id: 'poolL', max_groups_per_slot: 1 }
     const slots = [slot('s1', 'g1'), slot('s2', 'g2')]
-    const result = computeOverlaps({ slots, activities: [swim], locations: [] })
+    const result = computeOverlaps({ slots, activities: [capped], locations: [] })
     expect([...result.keys()].sort()).toEqual(['s1', 's2'])
-    expect(result.get('s1')).toBe('2 groups booked into this place — it holds 1')
+    expect(result.get('s1')).toBe('2 groups booked for Swimming — its limit is 1 per slot')
   })
 
   // ACTIVITY cap (max_groups_per_slot) — the pre-M2 marker the director wants
