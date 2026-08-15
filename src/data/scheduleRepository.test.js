@@ -298,16 +298,17 @@ describe('reads — fetch + normalize', () => {
     expect(data.snapshots).toEqual([{ id: 'snap1', template_id: 'tid' }])
   })
 
-  it('loadSetupLists fetches the seven setup entities and keys them by entity name', async () => {
+  it('loadSetupLists fetches the eight setup entities and keys them by entity name', async () => {
     const client = makeFakeClient()
-    client.setListStore({ groups: [{ id: 'g1' }], activities: [{ id: 'a1' }] })
+    client.setListStore({ groups: [{ id: 'g1' }], activities: [{ id: 'a1' }], locations: [{ id: 'L1' }] })
     const repo = createScheduleRepository({ localClient: client, getToken })
     const lists = await repo.loadSetupLists()
     expect(client.calls.list).toEqual([
-      'groups', 'days_of_operation', 'time_blocks', 'activities', 'anchor_activities', 'tiers', 'cohorts',
+      'groups', 'days_of_operation', 'time_blocks', 'activities', 'anchor_activities', 'tiers', 'cohorts', 'locations',
     ])
     expect(lists.groups).toEqual([{ id: 'g1' }])
     expect(lists.activities).toEqual([{ id: 'a1' }])
+    expect(lists.locations).toEqual([{ id: 'L1' }])
   })
 
   it('reloadSlots calls listByScope(template_slots, templateId) and normalizes the result', async () => {

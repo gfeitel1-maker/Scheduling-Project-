@@ -267,6 +267,190 @@ describe('preplacedSlots (locking)', () => {
   })
 })
 
+// M2 — place capacity is a property of the PLACE, read from locations.capacity
+// and keyed by activity.location_id (NOT the free-text `location` string, NOT
+// whichever activity was placed first). See ADR D2
+// (docs/adr/2026-08-15-camp-locations-entity.md) and assessment §3.2.
+describe('place capacity keyed by location_id (M2)', () => {
+  const mDay = { id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }
+  const mBlock = { id: 'b1', name: 'Morning', start_time: '09:00', end_time: '10:00', sort_order: 0, part_of_day: 'morning' }
+  const grp = (id, tierId = 't1') => ({ id, name: id, tier_id: tierId, availability: 'all' })
+  const mAct = (over = {}) => ({
+    id: 'a', name: 'A', priority: 'low', max_per_week: 5, min_per_week: 0, span_blocks: 1,
+    is_outdoor: false, location: null, location_id: null, max_groups_per_slot: 1, same_tier_only: false,
+    eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null,
+    ...over,
+  })
+
+  function run({ activities, locations = [], groups, tiers = [{ id: 't1', name: 'Junior' }] }) {
+    return buildSchedule({
+      groups, tiers, days: [mDay], timeBlocks: [mBlock],
+      activities, anchors: [], campId: 'test', locations,
+    })
+  }
+
+  // Groups placed into ANY of the given activities at d1/b1 — i.e. total
+  // occupancy of the place those activities share, regardless of which one.
+  function groupsAtPlace(slots, activityIds) {
+    const set = new Set(activityIds)
+    return slots.filter(s => s.type === 'activity' && s.dayId === 'd1' && s.blockId === 'b1' && set.has(s.activityId)).length
+  }
+
+  // THE CORE FIX. Two activities share one place capped at 1; they declare
+  // different max_groups_per_slot. The place must never hold more than its
+  // capacity, no matter which activity the engine happens to place first.
+  // (Assessment §3.2 CASE A/B: today the string path lets 3 groups into a
+  // cap-1 pool in one ordering and starves the other.)
+  it('caps a shared place at locations.capacity, independent of placement order', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Pool', capacity: 1 }]
+    const groups = [grp('g1'), grp('g2'), grp('g3'), grp('g4')]
+    const swim = mAct({ id: 'a1', name: 'Swim Lessons', location_id: 'L', max_groups_per_slot: 1 })
+    const free = mAct({ id: 'a2', name: 'Free Swim', location_id: 'L', max_groups_per_slot: 3 })
+    const both = ['a1', 'a2']
+
+    const orderingA = run({ activities: [{ ...swim, priority: 'high' }, { ...free, priority: 'low' }], locations, groups })
+    const orderingB = run({ activities: [{ ...free, priority: 'high' }, { ...swim, priority: 'low' }], locations, groups })
+
+    expect(groupsAtPlace(orderingA.slots, both)).toBeLessThanOrEqual(1)
+    expect(groupsAtPlace(orderingB.slots, both)).toBeLessThanOrEqual(1)
+  })
+
+  it('a place with capacity 3 shared by two activities holds 3 groups total — not 3 per activity', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Court', capacity: 3 }]
+    const groups = [grp('g1'), grp('g2'), grp('g3'), grp('g4'), grp('g5')]
+    const a1 = mAct({ id: 'a1', location_id: 'L', max_groups_per_slot: 3, priority: 'high' })
+    const a2 = mAct({ id: 'a2', location_id: 'L', max_groups_per_slot: 3, priority: 'low' })
+    const { slots } = run({ activities: [a1, a2], locations, groups })
+    expect(groupsAtPlace(slots, ['a1', 'a2'])).toBe(3)
+  })
+
+  // Interim state (M1→M3): the picker that sets location_id is M3, so activities
+  // still carry only a free-text `location`. An activity with location_id null
+  // gets NO place-capacity constraint — max_groups_per_slot still applies per
+  // activity (and, per ADR D2, is no longer dead when no place is set).
+  it('an activity with location_id null has no place constraint; max_groups_per_slot still caps it per activity', () => {
+    const groups = [grp('g1'), grp('g2'), grp('g3')]
+    const a1 = mAct({ id: 'a1', location: null, location_id: null, max_groups_per_slot: 2, priority: 'high' })
+    const { slots } = run({ activities: [a1], locations: [], groups })
+    const placed = slots.filter(s => s.type === 'activity' && s.activityId === 'a1')
+    expect(placed.length).toBe(2)
+  })
+
+  // same_tier_only exercised WITH a shared place (assessment gap 5 — untested
+  // today, and the only branch that reads same_tier_only never ran without a
+  // location). Capacity would allow 3, but the activity refuses to share the
+  // place with a different tier, so the second (cross-tier) group is blocked.
+  it('same_tier_only blocks a cross-tier group from a shared place even under capacity', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Studio', capacity: 3 }]
+    const groups = [grp('g1', 't1'), grp('g2', 't2')]
+    const tiers = [{ id: 't1', name: 'Junior' }, { id: 't2', name: 'Senior' }]
+    const a1 = mAct({ id: 'a1', location_id: 'L', max_groups_per_slot: 3, same_tier_only: true, priority: 'high' })
+    const { slots } = run({ activities: [a1], locations, groups, tiers })
+    const placed = slots.filter(s => s.type === 'activity' && s.activityId === 'a1')
+    expect(placed.length).toBe(1)
+  })
+
+  it('is deterministic: identical inputs including locations produce byte-identical slots', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Pool', capacity: 2 }]
+    const groups = [grp('g1'), grp('g2'), grp('g3')]
+    const a1 = mAct({ id: 'a1', location_id: 'L', max_groups_per_slot: 2, priority: 'high' })
+    const a2 = mAct({ id: 'a2', location_id: null, max_groups_per_slot: 1, priority: 'low' })
+    const r1 = run({ activities: [a1, a2], locations, groups })
+    const r2 = run({ activities: [a1, a2], locations, groups })
+    expect(JSON.stringify(r1.slots)).toBe(JSON.stringify(r2.slots))
+  })
+})
+
+// M2 round-2 (Red Hat) — a multi-block span occupies its PLACE at every block
+// it spans, so canPlace must check place capacity + same_tier_only at each TAIL
+// block, not only the head. Previously the span loop checked tail cell-freeness
+// but not tail place occupancy, so a span could put a second group into a
+// capacity-1 place at its tail (common trigger: lock/anchor a slot in that
+// place, then regenerate).
+describe('span-tail place capacity (M2 round-2)', () => {
+  const d1 = { id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }
+  const b1 = { id: 'b1', name: 'Block 1', start_time: '09:00', end_time: '10:00', sort_order: 0, part_of_day: 'morning' }
+  const b2 = { id: 'b2', name: 'Block 2', start_time: '10:00', end_time: '11:00', sort_order: 1, part_of_day: 'morning' }
+  const grp = (id, tierId = 't1') => ({ id, name: id, tier_id: tierId, availability: 'all' })
+  const sAct = (over = {}) => ({
+    id: 'a', name: 'A', priority: 'low', max_per_week: 5, min_per_week: 0, span_blocks: 1,
+    is_outdoor: false, location: null, location_id: null, max_groups_per_slot: 5, same_tier_only: false,
+    eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null,
+    ...over,
+  })
+
+  function run({ activities, locations = [], groups, tiers = [{ id: 't1', name: 'Junior' }], preplacedSlots = [] }) {
+    return buildSchedule({
+      groups, tiers, days: [d1], timeBlocks: [b1, b2],
+      activities, anchors: [], campId: 'test', locations, preplacedSlots,
+    })
+  }
+
+  // Occupancy of a PLACE at one (day, block): every activity slot whose
+  // activity is bound to that location_id.
+  function placeOccupancy(slots, activities, locId, dayId, blockId) {
+    const locOf = new Map(activities.map(a => [a.id, a.location_id ?? null]))
+    return slots.filter(s => s.type === 'activity' && s.dayId === dayId && s.blockId === blockId && locOf.get(s.activityId) === locId).length
+  }
+
+  // CORE PROBE — must FAIL before the fix. Place L (capacity 1) already holds a
+  // group at the TAIL block b2 (a preplaced/locked slot). A span (b1→b2) at L
+  // for a different group must NOT be placed, because its tail would put a
+  // second group into the cap-1 place.
+  it('does not place a span whose tail block would overfill a capacity-1 place', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Pool', capacity: 1 }]
+    const groups = [grp('g1'), grp('g2')]
+    // blocker: only ever preplaced (eligible for no real group), occupies L at b2.
+    const blocker = sAct({ id: 'blocker', location_id: 'L', eligible_group_ids: ['none'] })
+    const span = sAct({ id: 'span', location_id: 'L', span_blocks: 2, priority: 'high', eligible_group_ids: ['g2'] })
+    const preplacedSlots = [{ groupId: 'g1', dayId: 'd1', blockId: 'b2', activityId: 'blocker' }]
+
+    const { slots } = run({ activities: [blocker, span], locations, groups, preplacedSlots })
+
+    const spanPlaced = slots.filter(s => s.type === 'activity' && s.activityId === 'span')
+    expect(spanPlaced).toHaveLength(0)
+    // Place L never exceeds capacity 1 at any block.
+    expect(placeOccupancy(slots, [blocker, span], 'L', 'd1', 'b1')).toBeLessThanOrEqual(1)
+    expect(placeOccupancy(slots, [blocker, span], 'L', 'd1', 'b2')).toBeLessThanOrEqual(1)
+  })
+
+  // same_tier_only at a TAIL block (ADR gap 5's tail case — untested and wrong
+  // before the fix). Capacity has slack, but a different-tier tail occupant must
+  // still block the span.
+  it('blocks a span when same_tier_only conflicts with a different-tier occupant at the tail', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Studio', capacity: 3 }]
+    const tiers = [{ id: 't1', name: 'Junior' }, { id: 't2', name: 'Senior' }]
+    const groups = [grp('g1', 't1'), grp('g2', 't2')]
+    // blocker belongs to g1 (tier t1) and sits in L at the tail block b2.
+    const blocker = sAct({ id: 'blocker', location_id: 'L', eligible_group_ids: ['none'] })
+    // span for g2 (tier t2), same_tier_only — would share L at b2 with g1 (t1).
+    const span = sAct({ id: 'span', location_id: 'L', span_blocks: 2, same_tier_only: true, priority: 'high', eligible_group_ids: ['g2'] })
+    const preplacedSlots = [{ groupId: 'g1', dayId: 'd1', blockId: 'b2', activityId: 'blocker' }]
+
+    const { slots } = run({ activities: [blocker, span], locations, groups, tiers, preplacedSlots })
+    const spanPlaced = slots.filter(s => s.type === 'activity' && s.activityId === 'span')
+    expect(spanPlaced).toHaveLength(0)
+  })
+
+  // Guard against over-rejection: a span whose tail place has capacity to spare
+  // still places.
+  it('still places a span when the tail place has capacity to spare', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Pool', capacity: 2 }]
+    const groups = [grp('g1'), grp('g2')]
+    const blocker = sAct({ id: 'blocker', location_id: 'L', eligible_group_ids: ['none'] })
+    const span = sAct({ id: 'span', location_id: 'L', span_blocks: 2, priority: 'high', eligible_group_ids: ['g2'] })
+    const preplacedSlots = [{ groupId: 'g1', dayId: 'd1', blockId: 'b2', activityId: 'blocker' }]
+
+    const { slots } = run({ activities: [blocker, span], locations, groups, preplacedSlots })
+    const spanPlaced = slots.filter(s => s.type === 'activity' && s.activityId === 'span')
+    expect(spanPlaced).toHaveLength(2)
+    expect(spanPlaced.some(s => s.blockId === 'b1' && s.is_span_head === true)).toBe(true)
+    expect(spanPlaced.some(s => s.blockId === 'b2' && s.is_span_head === false)).toBe(true)
+    // L at b2 holds blocker (g1) + span tail (g2) = 2, exactly capacity.
+    expect(placeOccupancy(slots, [blocker, span], 'L', 'd1', 'b2')).toBe(2)
+  })
+})
+
 // ── Helpers shared by new tests ──────────────────────────────────────────────
 
 const baseAct = {
@@ -709,13 +893,18 @@ describe('activity eligible_group_ids as a raw array (T69)', () => {
   const eg3 = { id: 'g3', name: 'Gimel', tier_id: 't2', availability: 'all' }
   const tiers = [{ id: 't1', name: 'Junior' }, { id: 't2', name: 'Senior' }]
 
+  // These tests isolate ELIGIBILITY resolution, not capacity. Since M2 (ADR D2)
+  // made max_groups_per_slot a live per-activity cap even with no location,
+  // baseAct's cap of 1 would otherwise limit how many eligible groups get
+  // placed per block — orthogonal to what's under test. Null = no per-activity
+  // cap, so every eligible group is placeable.
   function build(activities) {
     return buildSchedule({
       groups: [eg1, eg2, eg3],
       tiers,
       days: [baseDay],
       timeBlocks: [blockA, blockB],
-      activities,
+      activities: activities.map(a => ({ ...a, max_groups_per_slot: null })),
       anchors: [],
       campId: 'test',
     })

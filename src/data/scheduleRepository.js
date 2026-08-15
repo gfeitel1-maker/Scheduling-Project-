@@ -75,7 +75,7 @@ export function createScheduleRepository({
   return {
     // --- reads -------------------------------------------------------------
     async loadSetupLists() {
-      const [groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts] =
+      const [groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts, locations] =
         await Promise.all([
           localClient.list('groups'),
           localClient.list('days_of_operation'),
@@ -84,8 +84,9 @@ export function createScheduleRepository({
           localClient.list('anchor_activities'),
           localClient.list('tiers'),
           localClient.list('cohorts'),
+          localClient.list('locations'),
         ])
-      return { groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts }
+      return { groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts, locations }
     },
 
     async loadTemplateData() {

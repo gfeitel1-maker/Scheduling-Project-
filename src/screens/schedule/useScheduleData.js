@@ -55,7 +55,7 @@ export function recalcFindings(slotList, ctx) {
   return computeFindings({ slots: slotList, groups: ctx.groups, activities: ctx.activities, days: ctx.days })
 }
 
-const EMPTY_SETUP_LISTS = { groups: [], days: [], timeBlocks: [], activities: [], anchors: [], tiers: [], cohorts: [] }
+const EMPTY_SETUP_LISTS = { groups: [], days: [], timeBlocks: [], activities: [], anchors: [], tiers: [], cohorts: [], locations: [] }
 const EMPTY_EXCLUSIONS = { activityExclusions: [], groupExclusions: [] }
 const EMPTY_TEMPLATE_DATA = {
   existingTemplates: {}, templateIdByRoute: {},
@@ -108,7 +108,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes 
       // exact disagreement getSetupGaps exists to end.
       const {
         groups: gd, days_of_operation: td, time_blocks: bd, activities: ad,
-        anchor_activities: ancd, tiers: tierd, cohorts: cohd,
+        anchor_activities: ancd, tiers: tierd, cohorts: cohd, locations: locd,
       } = await repo.loadSetupLists()
       if (gen !== generationRef.current) return
       g = [...(gd || [])].filter(x => x.camp_id === campId).sort((x, y) => x.name.localeCompare(y.name))
@@ -130,8 +130,9 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes 
         return ox !== oy ? ox - oy : x.name.localeCompare(y.name)
       })
       const coh = (cohd || []).filter(x => x.camp_id === campId)
+      const loc = (locd || []).filter(x => x.camp_id === campId)
       if (gen !== generationRef.current) return
-      setSetupLists({ groups: sortedG, days: d, timeBlocks: b, activities: a, anchors: anc, tiers: t, cohorts: coh })
+      setSetupLists({ groups: sortedG, days: d, timeBlocks: b, activities: a, anchors: anc, tiers: t, cohorts: coh, locations: loc })
     } catch {
       if (gen !== generationRef.current) return
       setLoadError('Failed to load schedule data — check your connection and refresh')

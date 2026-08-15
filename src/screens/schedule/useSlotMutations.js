@@ -425,10 +425,20 @@ export function useSlotMutations({
     //
     // On the MANUAL route the placement is always accepted: a director building
     // their own week is never blocked and never has a placement silently
-    // corrected. An over-booking is surfaced instead, as a derived OVERLAP
-    // marker computed from the week on screen (src/utils/computeOverlaps.js),
-    // and there is no UNFILLABLE here at all — an empty cell is simply not
-    // filled yet. On the generated route the existing behaviour is unchanged.
+    // corrected. There is no UNFILLABLE here at all — an empty cell is simply
+    // not filled yet. After M2, computeOverlaps (src/utils/computeOverlaps.js)
+    // surfaces two distinguishable OVERLAP markers on the manual route:
+    // place-capacity over-bookings (keyed by location_id, cap =
+    // locations.capacity) and per-activity instructor/equipment cap
+    // over-bookings (keyed by activity_id, cap = max_groups_per_slot when > 0
+    // — this one fires even before a location is picked). The remaining M3
+    // gap is the generated-route drag/manual-edit path: `locationFull` below
+    // is activity-keyed and place-blind, and is consumed only under
+    // `route !== 'manual'`, so dragging into an over-capacity place on the
+    // generated route raises neither UNFILLABLE (place-blind) nor OVERLAP
+    // (manual-route-only). Do not re-key `locationFull` here — that (and its
+    // max_groups_per_slot === 0 vs > 0 sentinel inconsistency) is pending M3.
+    // On the generated route the existing behaviour is otherwise unchanged.
     const flags = {}
     if (route !== 'manual' && (!eligible || locationFull)) flags.UNFILLABLE = true
 
