@@ -37,7 +37,6 @@ afterEach(() => {
 const opCount = () => db.prepare('SELECT COUNT(*) c FROM operations').get().c
 const commit = (extra) => commitIngest(db, { camp_id: campId, device_id: deviceId, author_user_id: 'u1', ...extra })
 const actId = (name) => db.prepare('SELECT id FROM activities WHERE camp_id = ? AND name = ?').get(campId, name)?.id
-const grpId = (name) => db.prepare('SELECT id FROM groups WHERE camp_id = ? AND name = ?').get(campId, name)?.id
 const actField = (id, f) => db.prepare(`SELECT ${f} AS v FROM activities WHERE id = ?`).get(id)?.v
 
 // Seed a camp via the import path, then read it back into the localClient.list

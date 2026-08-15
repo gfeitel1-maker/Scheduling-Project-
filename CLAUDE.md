@@ -25,6 +25,8 @@ npm run electron:build  # Vite build + electron-builder (packaged app)
 npm run lint            # ESLint
 npm run test             # Run all Vitest tests
 npm test -- src/path/to/file.test.js  # Run a single test file
+npm run test:integration # Run the LAN-sync/ingest integration scenarios (test/integration/run.js)
+npm run verify           # lint && test && test:integration && check:governance — the full gate
 ```
 
 **`electron:dev:fresh` uses `pkill -x Electron`, which kills every Electron process owned by the

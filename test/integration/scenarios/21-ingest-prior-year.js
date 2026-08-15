@@ -106,24 +106,44 @@ export async function run() {
     )
     assert.equal(countOf('template_slots'), 0, 'no placement row was written')
 
-    // ---- d. a failed commit changes nothing ---------------------------------
+    // ---- d. a held commit changes nothing -----------------------------------
+    // S1a recognition (docs/adr/2026-08-08-s1a-import-recognizes-existing-entities.md)
+    // changed what a name collision DOES. Before S1a, a name the camp already had
+    // was blindly re-created and hit UNIQUE(camp_id, name), so a colliding import
+    // THREW. Now such a name is recognized as the same entity — an `unchanged`
+    // no-op that writes zero ops (see the F4 unit contract in
+    // electron/ops/ingestRecognition.test.js). The genuine preview→confirm race
+    // this section stands for — a peer adds, in the review window, a second row
+    // whose name normalizes to one the import proposes — is no longer a raw throw
+    // either: commit-time re-resolution surfaces it as an `ambiguous_identity`
+    // conflict and HOLDS the whole import (`held: true`), rolling everything back
+    // atomically. This section proves that atomic no-op still holds, using the
+    // modern trigger; the old raw-UNIQUE-throw expectation was retired with S1a.
+    const collide = listNames('activities')[0]
+    // A second live row that normalizes to the same name — legal under the raw
+    // UNIQUE ('Activity' vs 'activity ') — reproducing the peer-added-a-colliding
+    // -row race the old throw stood in for. Inserted directly (not via an op), so
+    // it is the only change to the camp and is removed again below.
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)')
+      .run(randomUUID(), campId, `${collide} `)
+
     const groupsBefore = countOf('groups')
     const activitiesBefore = countOf('activities')
     const opsBefore = countOf('operations')
 
-    // A name that already exists collides with UNIQUE(camp_id, name). This is
-    // the real race: someone adds a record in another window between the
-    // preview and the confirm.
-    assert.throws(
-      () => commitIngest(db, {
-        approved: { groups: ['A Brand New Bunk'], activities: [listNames('activities')[0]] },
-        camp_id: campId, device_id: deviceId,
-      }),
-      'a colliding import throws'
-    )
-    assert.equal(countOf('groups'), groupsBefore, 'the new group was rolled back too')
+    const held = commitIngest(db, {
+      approved: { groups: ['A Brand New Bunk'], activities: [collide] },
+      camp_id: campId, device_id: deviceId,
+    })
+    assert.equal(held.held, true, 'a commit-time name collision holds the whole import instead of throwing')
+    assert.equal(held.conflicts[0].reason, 'ambiguous_identity', 'the collision is surfaced for review, not silently applied')
+    assert.equal(countOf('groups'), groupsBefore, 'the new group was rolled back too — nothing partial landed')
     assert.equal(countOf('activities'), activitiesBefore, 'no activity was added')
-    assert.equal(countOf('operations'), opsBefore, 'no op survived the rollback')
+    assert.equal(countOf('operations'), opsBefore, 'no op survived the held rollback')
+
+    // Restore the pre-(d) camp exactly, so the later sections read the same state
+    // the throwing version left them (the held import itself wrote nothing).
+    db.prepare('DELETE FROM activities WHERE camp_id = ? AND name = ?').run(campId, `${collide} `)
 
     // ---- e. importing the same file twice adds nothing -----------------------
     const existing = {}

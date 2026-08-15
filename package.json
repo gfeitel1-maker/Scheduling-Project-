@@ -11,6 +11,8 @@
     "preview": "vite preview",
     "pretest": "node scripts/ensure-abi.js node",
     "test": "vitest run",
+    "pretest:integration": "node scripts/ensure-abi.js node",
+    "test:integration": "node test/integration/run.js",
     "preelectron:dev": "node scripts/ensure-abi.js electron",
     "electron:dev": "concurrently -k \"vite\" \"cross-env VITE_DEV_SERVER_URL=http://localhost:5200 electron electron/main.js\"",
     "electron:dev:fresh": "pkill -x Electron; sleep 1 && npm run electron:dev",
@@ -19,7 +21,7 @@
     "deploy:local": "bash scripts/deploy-local.sh",
     "index:work": "node scripts/build-work-index.js",
     "check:governance": "node scripts/check-governance.js",
-    "verify": "npm run lint && npm run test && npm run check:governance"
+    "verify": "npm run lint && npm run test && npm run test:integration && npm run check:governance"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
