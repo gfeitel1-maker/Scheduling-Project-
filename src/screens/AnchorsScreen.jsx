@@ -7,6 +7,7 @@ import { S, useEnterTransition } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ScreenIntro from '../components/ScreenIntro'
+import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 
 // Repository-only migration (not the full useCrudScreen hook): load() fans out
@@ -230,6 +231,8 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
   const [error, setError] = useState(null)
   const [pendingDelete, setPendingDelete] = useState(null) // anchor being confirmed for delete
   const [deleting, setDeleting] = useState(false)
+  const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
   const deleteInFlight = useRef(false)
   const fileRef = useRef()
   const { cohorts, activeCohort, setActiveCohortId } = useCohorts(campId)
@@ -238,15 +241,6 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
   useEffect(() => {
     if (activeCohort) load()
   }, [campId, activeCohort?.id])
-
-  useEffect(() => {
-    if (!pendingDelete) return
-    function onKeyDown(e) {
-      if (e.key === 'Escape' && !deleting) setPendingDelete(null)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [pendingDelete, deleting])
 
   async function load() {
     if (!activeCohort) return
@@ -397,8 +391,12 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
     }
   }
 
-  async function deleteAll() {
-    if (!window.confirm('Delete all fixed events? They can be restored from Trash.')) return
+  function deleteAll() {
+    setPendingDeleteAll(true)
+  }
+
+  async function confirmDeleteAll() {
+    setDeletingAll(true)
     try {
       // Re-fetch immediately rather than using the closed-over `anchors`
       // state — a row synced in from another device between page-load and
@@ -419,6 +417,9 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       }
     } catch (err) {
       setError(describeWriteFailure(err, 'That fixed events could not be deleted.'))
+    } finally {
+      setDeletingAll(false)
+      setPendingDeleteAll(false)
     }
   }
 
@@ -717,19 +718,26 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       )}
 
       {pendingDelete && (
-        <div style={deleteOverlay} onClick={() => !deleting && setPendingDelete(null)}>
-          <div style={deletePanel} onClick={e => e.stopPropagation()}>
-            <div style={deleteTitle}>Delete "{pendingDelete.name}"?</div>
-            <p style={deleteBody}>This fixed event will be removed from your schedules.</p>
-            <div style={deleteRecovery}>"{pendingDelete.name}" goes to Trash, and you can put it back from there.</div>
-            <div style={deleteActions}>
-              <button className="press-97" onClick={() => setPendingDelete(null)} disabled={deleting} style={S.btnSecondary}>Cancel</button>
-              <button onClick={confirmAnchorDelete} disabled={deleting} style={S.btnDanger}>
-                {deleting ? 'Working…' : 'Delete Fixed Event'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDangerDialog
+          title={`Delete "${pendingDelete.name}"?`}
+          body="This fixed event will be removed from your schedules."
+          recovery={`"${pendingDelete.name}" goes to Trash, and you can put it back from there.`}
+          confirmLabel="Delete Fixed Event"
+          busy={deleting}
+          onConfirm={confirmAnchorDelete}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
+
+      {pendingDeleteAll && (
+        <ConfirmDangerDialog
+          title="Delete all fixed events?"
+          recovery="They can be restored from Trash."
+          confirmLabel="Delete All Fixed Events"
+          busy={deletingAll}
+          onConfirm={confirmDeleteAll}
+          onCancel={() => setPendingDeleteAll(false)}
+        />
       )}
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
@@ -737,48 +745,4 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       </div>
     </div>
   )
-}
-
-// Local styled confirm modal reusing TimeBlocksScreen's visual chrome — the
-// DeleteRecordDialog backend contract does not cover anchor_activities, so
-// this is the honest in-scope fallback rather than a fabricated preview.
-const deleteOverlay = {
-  position: 'fixed',
-  inset: 0,
-  background: 'rgba(0,0,0,0.45)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  zIndex: 1000,
-  padding: '24px 16px',
-}
-
-const deletePanel = {
-  background: 'var(--surface-elevated)',
-  borderRadius: 12,
-  padding: 28,
-  width: 520,
-  maxWidth: '100%',
-}
-
-const deleteTitle = {
-  fontFamily: 'var(--font-condensed)',
-  fontWeight: 700,
-  fontSize: 18,
-  marginBottom: 14,
-}
-
-const deleteBody = { fontSize: 14, lineHeight: 1.55, margin: '0 0 14px' }
-
-const deleteRecovery = {
-  fontSize: 13,
-  lineHeight: 1.55,
-  color: 'var(--text-secondary)',
-}
-
-const deleteActions = {
-  display: 'flex',
-  gap: 10,
-  justifyContent: 'flex-end',
-  marginTop: 22,
 }

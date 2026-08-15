@@ -224,6 +224,33 @@ describe('TimeBlocksScreen — save', () => {
 })
 
 describe('TimeBlocksScreen — deleteAll', () => {
+  it('shows a styled confirm modal (not window.confirm) before deleting, and confirming deletes', async () => {
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByText('Delete all time blocks?')).not.toBeNull())
+    expect(screen.queryByText('They can be restored from Trash.')).not.toBeNull()
+
+    fireEvent.click(screen.getByText('Delete All Time Blocks'))
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'time_blocks', 'block-1'))
+  })
+
+  it('cancels without deleting', async () => {
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all time blocks?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Cancel'))
+
+    expect(screen.queryByText('Delete all time blocks?')).toBeNull()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+  })
+
   it('re-fetches fresh, cohort-scoped time blocks via localClient.list before deleting, not the stale rows state', async () => {
     let blocksCallCount = 0
     localClient.list.mockReset().mockImplementation(entity => {
@@ -242,6 +269,8 @@ describe('TimeBlocksScreen — deleteAll', () => {
     await waitFor(() => expect(screen.queryByText('1 block')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all time blocks?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Time Blocks'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledTimes(2))
     expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'time_blocks', 'block-1')
@@ -254,6 +283,8 @@ describe('TimeBlocksScreen — deleteAll', () => {
     await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all time blocks?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Time Blocks'))
 
     await waitFor(() => expect(screen.queryByText(/Only an admin can delete time blocks — no time blocks were deleted/)).not.toBeNull())
   })
@@ -280,6 +311,8 @@ describe('TimeBlocksScreen — deleteAll', () => {
     await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all time blocks?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Time Blocks'))
 
     await waitFor(() => expect(screen.queryByText(/Those time blocks could not be deleted/)).not.toBeNull())
   })

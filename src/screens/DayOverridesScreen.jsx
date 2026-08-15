@@ -5,6 +5,7 @@ import { S, useEnterTransition } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ScreenIntro from '../components/ScreenIntro'
+import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 
 // Frequency mode is not yet a real choice — neither behaviour is built — so the
 // control is hidden rather than shown disabled ("coming soon" advertises unfinished
@@ -286,15 +287,6 @@ export default function DayOverridesScreen({ campId, role, onNavigate }) {
     if (activeCohort) load()
   }, [campId, activeCohort?.id])
 
-  useEffect(() => {
-    if (!pendingDelete) return
-    function onKeyDown(e) {
-      if (e.key === 'Escape' && !deleting) setPendingDelete(null)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [pendingDelete, deleting])
-
   async function load() {
     if (!activeCohort) return
     setLoading(true)
@@ -440,19 +432,15 @@ export default function DayOverridesScreen({ campId, role, onNavigate }) {
       )}
 
       {pendingDelete && (
-        <div style={deleteOverlay} onClick={() => !deleting && setPendingDelete(null)}>
-          <div style={deletePanel} onClick={e => e.stopPropagation()}>
-            <div style={deleteTitle}>Delete "{pendingDelete.name}"?</div>
-            <p style={deleteBody}>{deleteBodyText(pendingDelete)}</p>
-            <div style={deleteRecovery}>"{pendingDelete.name}" goes to Trash, and you can put it back from there.</div>
-            <div style={deleteActions}>
-              <button className="press-97" onClick={() => setPendingDelete(null)} disabled={deleting} style={S.btnSecondary}>Cancel</button>
-              <button onClick={confirmTemplateDelete} disabled={deleting} style={S.btnDanger}>
-                {deleting ? 'Working…' : 'Delete Template'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDangerDialog
+          title={`Delete "${pendingDelete.name}"?`}
+          body={deleteBodyText(pendingDelete)}
+          recovery={`"${pendingDelete.name}" goes to Trash, and you can put it back from there.`}
+          confirmLabel="Delete Template"
+          busy={deleting}
+          onConfirm={confirmTemplateDelete}
+          onCancel={() => setPendingDelete(null)}
+        />
       )}
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
@@ -467,48 +455,4 @@ function deleteBodyText(template) {
   if (n === 0) return 'This template has no block overrides. It will be removed from your programs.'
   if (n === 1) return 'This template and its 1 block override will be removed from your programs.'
   return `This template and its ${n} block overrides will be removed from your programs.`
-}
-
-// Local styled confirm modal reusing TimeBlocksScreen's visual chrome — the
-// DeleteRecordDialog backend contract does not cover day_override_templates,
-// so this is the honest in-scope fallback rather than a fabricated preview.
-const deleteOverlay = {
-  position: 'fixed',
-  inset: 0,
-  background: 'rgba(0,0,0,0.45)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  zIndex: 1000,
-  padding: '24px 16px',
-}
-
-const deletePanel = {
-  background: 'var(--surface-elevated)',
-  borderRadius: 12,
-  padding: 28,
-  width: 520,
-  maxWidth: '100%',
-}
-
-const deleteTitle = {
-  fontFamily: 'var(--font-condensed)',
-  fontWeight: 700,
-  fontSize: 18,
-  marginBottom: 14,
-}
-
-const deleteBody = { fontSize: 14, lineHeight: 1.55, margin: '0 0 14px' }
-
-const deleteRecovery = {
-  fontSize: 13,
-  lineHeight: 1.55,
-  color: 'var(--text-secondary)',
-}
-
-const deleteActions = {
-  display: 'flex',
-  gap: 10,
-  justifyContent: 'flex-end',
-  marginTop: 22,
 }

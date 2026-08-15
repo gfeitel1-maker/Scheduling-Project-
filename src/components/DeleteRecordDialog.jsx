@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 import { localClient } from '../localClient'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import { deleteRefusalMessage } from '../utils/writeErrorMessage'
 
 // The confirmation for deleting a setup record a schedule uses.
@@ -64,6 +64,7 @@ function howItComesBack(preview) {
 export default function DeleteRecordDialog({ preview, onCancel, onDeleted }) {
   const [working, setWorking] = useState(false)
   const [error, setError] = useState(null)
+  const enterStyle = useEnterTransition('liftFade')
 
   async function confirm() {
     setWorking(true)
@@ -95,7 +96,7 @@ export default function DeleteRecordDialog({ preview, onCancel, onDeleted }) {
       : `Delete ${LABEL[preview.entity].the}`
 
   return (
-    <div style={overlay}>
+    <div style={{ ...overlay, ...enterStyle }}>
       <div style={panel}>
         <div style={title}>Delete “{preview.name || 'this record'}”?</div>
 

@@ -7,6 +7,7 @@ import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
+import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ScreenIntro from '../components/ScreenIntro'
 
 const repository = createSetupCrudRepository({ localClient })
@@ -97,6 +98,8 @@ export default function DaysScreen({ campId, role, onNavigate }) {
   const [importResult, setImportResult] = useState(null)
   const [importing, setImporting] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(null)
+  const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
   const fileRef = useRef()
 
   async function addDay() {
@@ -129,9 +132,18 @@ export default function DaysScreen({ campId, role, onNavigate }) {
     setPendingDelete(preview)
   }
 
-  async function deleteAll() {
-    if (!window.confirm('Delete all days? They can be restored from Trash.')) return
-    await deleteAllRecords()
+  function deleteAll() {
+    setPendingDeleteAll(true)
+  }
+
+  async function confirmDeleteAll() {
+    setDeletingAll(true)
+    try {
+      await deleteAllRecords()
+    } finally {
+      setDeletingAll(false)
+      setPendingDeleteAll(false)
+    }
   }
 
   function downloadTemplate() {
@@ -300,6 +312,16 @@ export default function DaysScreen({ campId, role, onNavigate }) {
           preview={pendingDelete}
           onCancel={() => setPendingDelete(null)}
           onDeleted={() => { setPendingDelete(null); reload() }}
+        />
+      )}
+      {pendingDeleteAll && (
+        <ConfirmDangerDialog
+          title="Delete all days?"
+          recovery="They can be restored from Trash."
+          confirmLabel="Delete All Days"
+          busy={deletingAll}
+          onConfirm={confirmDeleteAll}
+          onCancel={() => setPendingDeleteAll(false)}
         />
       )}
     </div>

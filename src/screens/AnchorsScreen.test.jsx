@@ -198,6 +198,39 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
     }
   }
 
+  it('shows a styled confirm modal (not window.confirm) before deleting, and confirming deletes', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'anchor_activities' ? [existing()] : [])
+    )
+    render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByText('Delete all fixed events?')).not.toBeNull())
+    expect(screen.queryByText('They can be restored from Trash.')).not.toBeNull()
+
+    fireEvent.click(screen.getByText('Delete All Fixed Events'))
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'anchor_activities', 'anchor-1'))
+  })
+
+  it('cancels without deleting', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'anchor_activities' ? [existing()] : [])
+    )
+    render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all fixed events?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Cancel'))
+
+    expect(screen.queryByText('Delete all fixed events?')).toBeNull()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+  })
+
   it('re-fetches immediately before deleting and deletes every camp+cohort-scoped row, catching rows synced in after load', async () => {
     // Initial load sees only anchor-1.
     localClient.list.mockImplementation((entity) =>
@@ -213,6 +246,8 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
         : [])
     )
     fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all fixed events?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Fixed Events'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'anchor_activities', 'anchor-2'))
     expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'anchor_activities', 'anchor-1')
@@ -232,6 +267,8 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all fixed events?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Fixed Events'))
 
     await waitFor(() =>
       expect(screen.queryByText('Deleted 1 of 2 fixed events — please try again for the rest.')).not.toBeNull()
@@ -249,6 +286,8 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all fixed events?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Fixed Events'))
 
     await waitFor(() =>
       expect(screen.queryByText('Only an admin can delete fixed events — no fixed events were deleted.')).not.toBeNull()
