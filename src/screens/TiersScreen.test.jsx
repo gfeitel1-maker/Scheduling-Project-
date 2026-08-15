@@ -257,6 +257,33 @@ describe('TiersScreen — save', () => {
 })
 
 describe('TiersScreen — deleteAll', () => {
+  it('shows a styled confirm modal (not window.confirm) before deleting, and confirming deletes', async () => {
+    render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByText('Delete all units?')).not.toBeNull())
+    expect(screen.queryByText('They can be restored from Trash.')).not.toBeNull()
+
+    fireEvent.click(screen.getByText('Delete All Units'))
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'tiers', 'tier-1'))
+  })
+
+  it('cancels without deleting', async () => {
+    render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all units?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Cancel'))
+
+    expect(screen.queryByText('Delete all units?')).toBeNull()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+  })
+
   it('re-fetches fresh, cohort-scoped tiers via localClient.list before deleting, not the stale rows state', async () => {
     let tiersCallCount = 0
     localClient.list.mockReset().mockImplementation(entity => {
@@ -276,6 +303,8 @@ describe('TiersScreen — deleteAll', () => {
     await waitFor(() => expect(screen.queryByText('1 unit')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all units?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Units'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledTimes(2))
     expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'tiers', 'tier-1')
@@ -288,6 +317,8 @@ describe('TiersScreen — deleteAll', () => {
     await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all units?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Units'))
 
     await waitFor(() => expect(screen.queryByText(/Only an admin can delete units — no units were deleted/)).not.toBeNull())
   })
@@ -297,6 +328,27 @@ describe('TiersScreen — deleteAll', () => {
     await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
 
     expect(screen.getByText('Delete All').disabled).toBe(true)
+  })
+
+  it('surfaces an error banner when deleteAll fails unexpectedly instead of silently closing', async () => {
+    let tiersCalls = 0
+    localClient.list.mockReset().mockImplementation(entity => {
+      if (entity === 'cohorts') return Promise.resolve([cohort()])
+      if (entity === 'tiers') {
+        tiersCalls += 1
+        // Call 1 = initial load; call 2 = deleteAll's re-fetch, which throws.
+        return tiersCalls === 1 ? Promise.resolve([tier()]) : Promise.reject(new Error('disk failure'))
+      }
+      return Promise.resolve([])
+    })
+    render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all units?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Units'))
+
+    await waitFor(() => expect(screen.queryByText(/Those units could not be deleted/)).not.toBeNull())
   })
 })
 

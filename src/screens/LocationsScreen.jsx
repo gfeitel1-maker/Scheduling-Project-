@@ -5,6 +5,7 @@ import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S, useEnterTransition } from '../styles/shared'
 import ScreenIntro from '../components/ScreenIntro'
+import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 
 // M3a — the Locations setup screen. docs/work/specs/2026-08-15-m3-locations-design.md Part 1.
 //
@@ -24,12 +25,12 @@ const scopeFilter = (row, campId) => row.camp_id === campId
 // carries no DB-level FK (matches weather_alternative_id) — so there is
 // nothing to preview via localClient.previewDelete/DeleteRecordDialog for
 // this entity. TiersScreen.jsx and TimeBlocksScreen.jsx are the actual
-// precedent for a setup entity outside that backend contract: a local
-// styled confirm modal reusing DeleteRecordDialog's visual chrome, computing
-// its own usage count client-side, deleting via localClient.deleteEntity
-// directly. Followed here, with the one addition Locations needs that Tiers
-// does not: unbinding the affected activities' location_id first, so a
-// deleted place is never left as a dangling reference.
+// precedent for a setup entity outside that backend contract: ConfirmDangerDialog
+// (the shared styled confirm chrome) fed a usage count computed client-side,
+// deleting via localClient.deleteEntity directly. Followed here, with the one
+// addition Locations needs that Tiers does not: unbinding the affected
+// activities' location_id first, so a deleted place is never left as a
+// dangling reference.
 async function boundActivities(campId, locationId) {
   const rows = await localClient.list('activities')
   return (rows || []).filter((a) => a.camp_id === campId && a.location_id === locationId)
@@ -199,6 +200,8 @@ export default function LocationsScreen({ campId, role, onNavigate }) {
   const [newNotes, setNewNotes] = useState('')
   const [pendingDelete, setPendingDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
+  const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
   const nameRef = useRef()
   const enter = useEnterTransition('liftFade')
 
@@ -243,9 +246,18 @@ export default function LocationsScreen({ campId, role, onNavigate }) {
     }
   }
 
-  async function deleteAll() {
-    if (!window.confirm('Delete all places? They can be restored from Trash.')) return
-    await deleteAllRecords()
+  function deleteAll() {
+    setPendingDeleteAll(true)
+  }
+
+  async function confirmDeleteAll() {
+    setDeletingAll(true)
+    try {
+      await deleteAllRecords()
+    } finally {
+      setDeletingAll(false)
+      setPendingDeleteAll(false)
+    }
   }
 
   return (
@@ -330,23 +342,30 @@ export default function LocationsScreen({ campId, role, onNavigate }) {
       </div>
 
       {pendingDelete && (
-        <div style={deleteOverlay} onClick={() => !deleting && setPendingDelete(null)}>
-          <div style={deletePanel} onClick={(e) => e.stopPropagation()}>
-            <div style={deleteTitle}>Delete "{pendingDelete.name}"?</div>
-            <p style={deleteBody}>
-              {pendingDelete.count > 0
-                ? `${pendingDelete.count} activit${pendingDelete.count === 1 ? 'y uses' : 'ies use'} "${pendingDelete.name}" right now. Deleting it takes "${pendingDelete.name}" off those activities — they stay on the schedule, just without a place.`
-                : `Nothing uses "${pendingDelete.name}" right now.`}
-            </p>
-            <div style={deleteRecovery}>"{pendingDelete.name}" goes to Trash and you can put it back — but the activities won't automatically start using it again.</div>
-            <div style={deleteActions}>
-              <button className="press-97" onClick={() => setPendingDelete(null)} disabled={deleting} style={S.btnSecondary}>Cancel</button>
-              <button onClick={confirmLocationDelete} disabled={deleting} style={S.btnDanger}>
-                {deleting ? 'Working…' : 'Delete Place'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDangerDialog
+          title={`Delete "${pendingDelete.name}"?`}
+          body={
+            pendingDelete.count > 0
+              ? `${pendingDelete.count} activit${pendingDelete.count === 1 ? 'y uses' : 'ies use'} "${pendingDelete.name}" right now. Deleting it takes "${pendingDelete.name}" off those activities — they stay on the schedule, just without a place.`
+              : `Nothing uses "${pendingDelete.name}" right now.`
+          }
+          recovery={`"${pendingDelete.name}" goes to Trash and you can put it back — but the activities won't automatically start using it again.`}
+          confirmLabel="Delete Place"
+          busy={deleting}
+          onConfirm={confirmLocationDelete}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
+
+      {pendingDeleteAll && (
+        <ConfirmDangerDialog
+          title="Delete all places?"
+          recovery="They can be restored from Trash."
+          confirmLabel="Delete All Places"
+          busy={deletingAll}
+          onConfirm={confirmDeleteAll}
+          onCancel={() => setPendingDeleteAll(false)}
+        />
       )}
     </div>
   )
@@ -420,49 +439,4 @@ const emptyStyles = {
     color: 'var(--text-secondary)',
     maxWidth: '56ch',
   },
-}
-
-// Local styled confirm modal reusing DeleteRecordDialog's visual chrome —
-// see the module comment above: the DeleteRecordDialog backend contract
-// (localClient.previewDelete) does not cover locations, so this is the
-// honest in-scope fallback, matching TiersScreen.jsx/TimeBlocksScreen.jsx.
-const deleteOverlay = {
-  position: 'fixed',
-  inset: 0,
-  background: 'rgba(0,0,0,0.45)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  zIndex: 1000,
-  padding: '24px 16px',
-}
-
-const deletePanel = {
-  background: 'var(--surface-elevated)',
-  borderRadius: 12,
-  padding: 28,
-  width: 480,
-  maxWidth: '100%',
-}
-
-const deleteTitle = {
-  fontFamily: 'var(--font-condensed)',
-  fontWeight: 700,
-  fontSize: 18,
-  marginBottom: 14,
-}
-
-const deleteBody = { fontSize: 14, lineHeight: 1.55, margin: '0 0 14px' }
-
-const deleteRecovery = {
-  fontSize: 13,
-  lineHeight: 1.55,
-  color: 'var(--text-secondary)',
-}
-
-const deleteActions = {
-  display: 'flex',
-  gap: 10,
-  justifyContent: 'flex-end',
-  marginTop: 22,
 }

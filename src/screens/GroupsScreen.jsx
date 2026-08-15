@@ -5,6 +5,7 @@ import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { S, prefersReducedMotion } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
+import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import RecordHistory from '../components/RecordHistory'
 import ScreenIntro from '../components/ScreenIntro'
 import WeekContextBar from '../components/schedule/WeekContextBar'
@@ -103,6 +104,8 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
   const [error, setError] = useState(null)
   const [historyFor, setHistoryFor] = useState(null)
   const [pendingDelete, setPendingDelete] = useState(null)
+  const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
   const [excludedGroupIds, setExcludedGroupIds] = useState(new Set())
   const [pendingExclusion, setPendingExclusion] = useState(null)
   const fileRef = useRef()
@@ -233,24 +236,35 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
     setPendingDelete(preview)
   }
 
-  async function deleteAll() {
-    if (!window.confirm('Delete all groups? They can be restored from Trash.')) return
-    // Re-fetch immediately before building the id list rather than using the
-    // closed-over `groups` state — if another device synced in new groups
-    // between page-load and this click, the stale in-memory snapshot would
-    // silently skip them with no indication anything was missed.
-    const freshGroups = await localClient.list('groups')
-    const ids = (freshGroups || [])
-      .filter(g => g.camp_id === campId)
-      .map(g => g.id)
-    const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('groups', ids)
-    await load()
-    if (failed > 0) {
-      setError(
-        failedDueToRole
-          ? 'Only an admin can delete groups — no groups were deleted.'
-          : `Deleted ${succeeded} of ${ids.length} groups (${failed} failed — see console).`
-      )
+  function deleteAll() {
+    setPendingDeleteAll(true)
+  }
+
+  async function confirmDeleteAll() {
+    setDeletingAll(true)
+    try {
+      // Re-fetch immediately before building the id list rather than using the
+      // closed-over `groups` state — if another device synced in new groups
+      // between page-load and this click, the stale in-memory snapshot would
+      // silently skip them with no indication anything was missed.
+      const freshGroups = await localClient.list('groups')
+      const ids = (freshGroups || [])
+        .filter(g => g.camp_id === campId)
+        .map(g => g.id)
+      const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('groups', ids)
+      await load()
+      if (failed > 0) {
+        setError(
+          failedDueToRole
+            ? 'Only an admin can delete groups — no groups were deleted.'
+            : `Deleted ${succeeded} of ${ids.length} groups (${failed} failed — see console).`
+        )
+      }
+    } catch (err) {
+      setError(describeWriteFailure(err, 'Those groups could not be deleted.'))
+    } finally {
+      setDeletingAll(false)
+      setPendingDeleteAll(false)
     }
   }
 
@@ -499,6 +513,17 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
           preview={pendingDelete}
           onCancel={() => setPendingDelete(null)}
           onDeleted={() => { setPendingDelete(null); load() }}
+        />
+      )}
+
+      {pendingDeleteAll && (
+        <ConfirmDangerDialog
+          title="Delete all groups?"
+          recovery="They can be restored from Trash."
+          confirmLabel="Delete All Groups"
+          busy={deletingAll}
+          onConfirm={confirmDeleteAll}
+          onCancel={() => setPendingDeleteAll(false)}
         />
       )}
 

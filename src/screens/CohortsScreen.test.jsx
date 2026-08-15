@@ -102,17 +102,37 @@ describe('CohortsScreen', () => {
     expect(localClient.write).toHaveBeenCalledWith('token-abc', 'cohorts', 'cohort-1', 'name', 'Renamed')
   })
 
-  it('deleting a cohort calls localClient.deleteEntity and reloads when more than one cohort exists', async () => {
+  it('shows a styled confirm modal (not window.confirm) before deleting a cohort, and confirming deletes and reloads', async () => {
     localClient.list.mockResolvedValue([cohort({ id: 'c1' }), cohort({ id: 'c2', name: 'Second' })])
     render(<CohortsScreen campId={CAMP_ID} />)
     await waitFor(() => expect(screen.queryByText('Main')).not.toBeNull())
 
-    localClient.list.mockResolvedValue([cohort({ id: 'c2', name: 'Second' })])
     const deleteButtons = screen.getAllByText('Delete')
     fireEvent.click(deleteButtons[0])
 
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByText('Delete this program?')).not.toBeNull())
+    expect(screen.queryByText('Units and time blocks assigned to it will lose their program reference.')).not.toBeNull()
+
+    localClient.list.mockResolvedValue([cohort({ id: 'c2', name: 'Second' })])
+    fireEvent.click(screen.getByText('Delete Program'))
+
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'cohorts', 'c1'))
     await waitFor(() => expect(screen.queryByText('Main')).toBeNull())
+  })
+
+  it('cancels without deleting', async () => {
+    localClient.list.mockResolvedValue([cohort({ id: 'c1' }), cohort({ id: 'c2', name: 'Second' })])
+    render(<CohortsScreen campId={CAMP_ID} />)
+    await waitFor(() => expect(screen.queryByText('Main')).not.toBeNull())
+
+    fireEvent.click(screen.getAllByText('Delete')[0])
+    await waitFor(() => expect(screen.queryByText('Delete this program?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Cancel'))
+
+    expect(screen.queryByText('Delete this program?')).toBeNull()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
   })
 
   it('refuses to delete the last remaining cohort without calling deleteEntity', async () => {
@@ -220,6 +240,8 @@ describe('CohortsScreen', () => {
     await waitFor(() => expect(screen.queryByText('Main')).not.toBeNull())
 
     fireEvent.click(screen.getAllByText('Delete')[0])
+    await waitFor(() => expect(screen.queryByText('Delete this program?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete Program'))
 
     await waitFor(() =>
       expect(

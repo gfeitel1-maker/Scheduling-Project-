@@ -27,7 +27,10 @@
 // locations.capacity — so two DIFFERENT activities sharing one place are
 // counted together (assessment §3.3). An activity with no location_id (interim
 // M1→M3 state) has no place, so no place-capacity marker; its activity cap is
-// still checked.
+// still checked. A location_id that IS set but doesn't resolve to a real
+// locations row (dangling — a deleted place, a cross-device race, a stale
+// import) gets the same unconstrained treatment as no location_id at all,
+// matching buildSchedule's placeBlocked and useSlotMutations' locationFull.
 //
 // Activity cap null/0 mean "no per-activity cap", matching the engine's
 // `act.max_groups_per_slot > 0` guard and normalizeActivityEligibility.
@@ -72,12 +75,17 @@ export function computeOverlaps({ slots, activities, locations }) {
 
   for (const { locId, rows } of placeBuckets.values()) {
     const loc = locMap.get(locId)
-    // Default to 1 — the schema default (locations.capacity NOT NULL DEFAULT 1),
-    // the same restrictive default the engine uses for an unmapped place.
-    const capacity = loc?.capacity ?? 1
+    // A location_id that doesn't resolve to a real location (deleted place,
+    // cross-device race, stale import — "dangling") is unconstrained, not a
+    // capacity-1 default: an absent map entry is evidence the place doesn't
+    // exist, not evidence of a capacity-1 place. Matches buildSchedule's
+    // placeBlocked and useSlotMutations' locationFull, closing the blind
+    // spot where the three place-capacity consumers disagreed on this case.
+    if (!loc) continue
+    const capacity = loc.capacity ?? 1
     const groupCount = new Set(rows.map(r => r.group_id)).size
     if (groupCount <= capacity) continue
-    const where = loc?.name || 'this place'
+    const where = loc.name || 'this place'
     const reason = `${groupCount} groups booked into ${where} — it holds ${capacity}`
     for (const r of rows) add(r.id, reason)
   }

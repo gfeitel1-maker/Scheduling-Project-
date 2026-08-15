@@ -23,6 +23,7 @@ export function useCrudScreen({
   saveFailedText,
   adminOnlyDeleteAllText,
   partialDeleteAllText,
+  deleteAllFailedText = 'Those records could not be deleted.',
 }) {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
@@ -82,20 +83,24 @@ export function useCrudScreen({
   // the id list — NOT the hook's own `rows` state — so a row another device
   // synced in between page-load and this call is not silently skipped.
   async function deleteAll() {
-    const freshRows = await localClient.list(entity)
-    const ids = (freshRows || []).filter((row) => scopeFilter(row, campId)).map((row) => row.id)
-    const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords(entity, ids)
-    await load()
-    if (failed > 0) {
-      setError(
-        failedDueToRole
-          ? adminOnlyDeleteAllText
-          : partialDeleteAllText
-            ? partialDeleteAllText(succeeded, ids.length, failed)
-            : `Deleted ${succeeded} of ${ids.length} (${failed} failed — see console).`
-      )
+    try {
+      const freshRows = await localClient.list(entity)
+      const ids = (freshRows || []).filter((row) => scopeFilter(row, campId)).map((row) => row.id)
+      const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords(entity, ids)
+      await load()
+      if (failed > 0) {
+        setError(
+          failedDueToRole
+            ? adminOnlyDeleteAllText
+            : partialDeleteAllText
+              ? partialDeleteAllText(succeeded, ids.length, failed)
+              : `Deleted ${succeeded} of ${ids.length} (${failed} failed — see console).`
+        )
+      }
+      return { succeeded, failed, failedDueToRole }
+    } catch (err) {
+      setError(describeWriteFailure(err, deleteAllFailedText))
     }
-    return { succeeded, failed, failedDueToRole }
   }
 
   // Skips warned rows and rows duplicateCheck flags against rows seen so far

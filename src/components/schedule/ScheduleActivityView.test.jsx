@@ -128,6 +128,58 @@ describe('ScheduleActivityView — CSS Grid conversion (T56)', () => {
   })
 })
 
+// A1 (round-2 fix). M3b stopped populating activities.location for anything
+// bound through the picker, so this view — which pre-M3b read only that
+// free-text column — went blank for a picker-bound activity even though the
+// Activities screen showed its place correctly.
+describe('ScheduleActivityView — place resolution via location_id (round-2 A1)', () => {
+  const withLocations = [
+    { id: 'a1', name: 'Swim', location_id: 'loc-1' },
+    { id: 'a2', name: 'Soccer', location_id: null, location: 'Old Field' },
+    { id: 'a3', name: 'Archery', location_id: 'loc-missing' },
+    { id: 'a4', name: 'Crafts', location_id: null, location: null },
+  ]
+  const locations = [{ id: 'loc-1', name: 'Pool' }]
+
+  const cardFor = (container, name) =>
+    [...container.querySelectorAll('.activity-card')].find(c => c.textContent.includes(name))
+
+  it('card grid resolves location_id to the location name', () => {
+    const container = renderView({ activities: withLocations, selectedActivity: null, locations })
+    expect(container.textContent).toContain('Pool')
+    // Name div + place div + badges wrap + stats div = 4 direct children.
+    expect(cardFor(container, 'Swim').querySelectorAll(':scope > div').length).toBe(4)
+  })
+
+  it('card grid falls back to the legacy free-text location only when location_id is null', () => {
+    const container = renderView({ activities: withLocations, selectedActivity: null, locations })
+    expect(container.textContent).toContain('Old Field')
+  })
+
+  it('card grid renders no place line for a dangling location_id (unconstrained, not a stale id leak)', () => {
+    const container = renderView({ activities: withLocations, selectedActivity: null, locations })
+    const archeryCard = cardFor(container, 'Archery')
+    expect(archeryCard.textContent).not.toContain('loc-missing')
+    // No place div rendered: name + badges wrap + stats = 3 direct children.
+    expect(archeryCard.querySelectorAll(':scope > div').length).toBe(3)
+  })
+
+  it('card grid shows no place line at all when neither location_id nor legacy location is set', () => {
+    const container = renderView({ activities: withLocations, selectedActivity: null, locations })
+    expect(cardFor(container, 'Crafts').querySelectorAll(':scope > div').length).toBe(3)
+  })
+
+  it('drilldown header resolves location_id to the location name', () => {
+    const container = renderView({ activities: withLocations, selectedActivity: 'a1', locations })
+    expect(container.textContent).toContain('Pool')
+  })
+
+  it('drilldown header falls back to the legacy free-text location when location_id is null', () => {
+    const container = renderView({ activities: withLocations, selectedActivity: 'a2', locations })
+    expect(container.textContent).toContain('Old Field')
+  })
+})
+
 describe('ScheduleActivityView — collapse (T56 extends T55)', () => {
   const rowHeaderFor = (c, name) =>
     [...c.querySelectorAll('[role="rowheader"]')].find(h => h.textContent.includes(name))

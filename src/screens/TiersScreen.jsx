@@ -8,6 +8,7 @@ import { S } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ScreenIntro from '../components/ScreenIntro'
+import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 
 // Tiers' load is cohort-scoped (camp_id AND cohort_id), fetches groups
 // alongside tiers for groupCounts, and guards against a stale response
@@ -106,6 +107,8 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   const [error, setError] = useState(null)
   const [pendingDelete, setPendingDelete] = useState(null) // tier being confirmed for delete
   const [deleting, setDeleting] = useState(false)
+  const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
   const deleteInFlight = useRef(false)
   const fileRef = useRef()
   const { cohorts, activeCohort, loading: cohortsLoading, setActiveCohortId } = useCohorts(campId)
@@ -117,15 +120,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   useEffect(() => {
     if (activeCohort) load()
   }, [campId, activeCohort?.id])
-
-  useEffect(() => {
-    if (!pendingDelete) return
-    function onKeyDown(e) {
-      if (e.key === 'Escape' && !deleting) setPendingDelete(null)
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [pendingDelete, deleting])
 
   // Once useCohorts has finished loading with no cohort available, there is
   // nothing for load() to fetch and it will never resolve loading to false
@@ -247,28 +241,39 @@ export default function TiersScreen({ campId, role, onNavigate }) {
     }
   }
 
-  async function deleteAll() {
+  function deleteAll() {
     if (!activeCohort) {
       setError('No program selected — add a program before deleting units.')
       return
     }
-    if (!window.confirm('Delete all units? They can be restored from Trash.')) return
-    // Re-fetch immediately before building the id list rather than using the
-    // closed-over `tiers` state — if another device synced in new units
-    // between page-load and this click, the stale in-memory snapshot would
-    // silently skip them with no indication anything was missed.
-    const freshTiers = await localClient.list('tiers')
-    const ids = (freshTiers || [])
-      .filter(t => t.camp_id === campId && t.cohort_id === activeCohort.id)
-      .map(t => t.id)
-    const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('tiers', ids)
-    await load()
-    if (failed > 0) {
-      setError(
-        failedDueToRole
-          ? 'Only an admin can delete units — no units were deleted.'
-          : `Deleted ${succeeded} of ${ids.length} units — please try again for the rest.`
-      )
+    setPendingDeleteAll(true)
+  }
+
+  async function confirmDeleteAll() {
+    setDeletingAll(true)
+    try {
+      // Re-fetch immediately before building the id list rather than using the
+      // closed-over `tiers` state — if another device synced in new units
+      // between page-load and this click, the stale in-memory snapshot would
+      // silently skip them with no indication anything was missed.
+      const freshTiers = await localClient.list('tiers')
+      const ids = (freshTiers || [])
+        .filter(t => t.camp_id === campId && t.cohort_id === activeCohort.id)
+        .map(t => t.id)
+      const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('tiers', ids)
+      await load()
+      if (failed > 0) {
+        setError(
+          failedDueToRole
+            ? 'Only an admin can delete units — no units were deleted.'
+            : `Deleted ${succeeded} of ${ids.length} units — please try again for the rest.`
+        )
+      }
+    } catch (err) {
+      setError(describeWriteFailure(err, 'Those units could not be deleted.'))
+    } finally {
+      setDeletingAll(false)
+      setPendingDeleteAll(false)
     }
   }
 
@@ -498,23 +503,30 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       )}
 
       {pendingDelete && (
-        <div style={deleteOverlay} onClick={() => !deleting && setPendingDelete(null)}>
-          <div style={deletePanel} onClick={e => e.stopPropagation()}>
-            <div style={deleteTitle}>Delete "{pendingDelete.name}"?</div>
-            <p style={deleteBody}>
-              {groupCounts[pendingDelete.id]
-                ? `This unit still has ${groupCounts[pendingDelete.id]} group${groupCounts[pendingDelete.id] === 1 ? '' : 's'} assigned to it. Removing it will leave ${groupCounts[pendingDelete.id] === 1 ? 'that group' : 'those groups'} without a unit.`
-                : 'This unit has no groups, so nothing in your schedules is affected.'}
-            </p>
-            <div style={deleteRecovery}>"{pendingDelete.name}" goes to Trash, and you can put it back from there.</div>
-            <div style={deleteActions}>
-              <button className="press-97" onClick={() => setPendingDelete(null)} disabled={deleting} style={S.btnSecondary}>Cancel</button>
-              <button onClick={confirmTierDelete} disabled={deleting} style={S.btnDanger}>
-                {deleting ? 'Working…' : 'Delete Unit'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDangerDialog
+          title={`Delete "${pendingDelete.name}"?`}
+          body={
+            groupCounts[pendingDelete.id]
+              ? `This unit still has ${groupCounts[pendingDelete.id]} group${groupCounts[pendingDelete.id] === 1 ? '' : 's'} assigned to it. Removing it will leave ${groupCounts[pendingDelete.id] === 1 ? 'that group' : 'those groups'} without a unit.`
+              : 'This unit has no groups, so nothing in your schedules is affected.'
+          }
+          recovery={`"${pendingDelete.name}" goes to Trash, and you can put it back from there.`}
+          confirmLabel="Delete Unit"
+          busy={deleting}
+          onConfirm={confirmTierDelete}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
+
+      {pendingDeleteAll && (
+        <ConfirmDangerDialog
+          title="Delete all units?"
+          recovery="They can be restored from Trash."
+          confirmLabel="Delete All Units"
+          busy={deletingAll}
+          onConfirm={confirmDeleteAll}
+          onCancel={() => setPendingDeleteAll(false)}
+        />
       )}
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
@@ -522,49 +534,4 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       </div>
     </div>
   )
-}
-
-// Local styled confirm modal reusing DeleteRecordDialog's visual chrome —
-// see governance decision in docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md:
-// the DeleteRecordDialog backend contract does not cover tiers, so this is
-// the honest in-scope fallback rather than a fabricated slot-count preview.
-const deleteOverlay = {
-  position: 'fixed',
-  inset: 0,
-  background: 'rgba(0,0,0,0.45)',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  zIndex: 1000,
-  padding: '24px 16px',
-}
-
-const deletePanel = {
-  background: 'var(--surface-elevated)',
-  borderRadius: 12,
-  padding: 28,
-  width: 520,
-  maxWidth: '100%',
-}
-
-const deleteTitle = {
-  fontFamily: 'var(--font-condensed)',
-  fontWeight: 700,
-  fontSize: 18,
-  marginBottom: 14,
-}
-
-const deleteBody = { fontSize: 14, lineHeight: 1.55, margin: '0 0 14px' }
-
-const deleteRecovery = {
-  fontSize: 13,
-  lineHeight: 1.55,
-  color: 'var(--text-secondary)',
-}
-
-const deleteActions = {
-  display: 'flex',
-  gap: 10,
-  justifyContent: 'flex-end',
-  marginTop: 22,
 }
