@@ -264,6 +264,25 @@ describe('TimeBlocksScreen — deleteAll', () => {
 
     expect(screen.getByText('Delete All').disabled).toBe(true)
   })
+
+  it('surfaces an error banner when deleteAll fails unexpectedly instead of silently closing', async () => {
+    let blocksCalls = 0
+    localClient.list.mockReset().mockImplementation(entity => {
+      if (entity === 'cohorts') return Promise.resolve([cohort()])
+      if (entity === 'time_blocks') {
+        blocksCalls += 1
+        // Call 1 = initial load; call 2 = deleteAll's re-fetch, which throws.
+        return blocksCalls === 1 ? Promise.resolve([block()]) : Promise.reject(new Error('disk failure'))
+      }
+      return Promise.resolve([])
+    })
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+
+    await waitFor(() => expect(screen.queryByText(/Those time blocks could not be deleted/)).not.toBeNull())
+  })
 })
 
 describe('TimeBlocksScreen — import', () => {

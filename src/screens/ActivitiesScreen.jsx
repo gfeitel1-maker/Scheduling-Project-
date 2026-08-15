@@ -747,20 +747,24 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
 
   async function deleteAll() {
     if (!window.confirm('Delete all activities? They can be restored from Trash.')) return
-    // Re-fetch immediately before building the id list rather than using the
-    // closed-over `activities` state — if another device synced in new
-    // activities between page-load and this click, the stale in-memory
-    // snapshot would silently skip them with no indication anything was missed.
-    const freshActivities = await localClient.list('activities')
-    const ids = (freshActivities || []).filter(a => a.camp_id === campId).map(a => a.id)
-    const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('activities', ids)
-    await load()
-    if (failed > 0) {
-      setError(
-        failedDueToRole
-          ? 'Only an admin can delete activities — no activities were deleted.'
-          : `Deleted ${succeeded} of ${ids.length} activities — please try again for the rest.`
-      )
+    try {
+      // Re-fetch immediately before building the id list rather than using the
+      // closed-over `activities` state — if another device synced in new
+      // activities between page-load and this click, the stale in-memory
+      // snapshot would silently skip them with no indication anything was missed.
+      const freshActivities = await localClient.list('activities')
+      const ids = (freshActivities || []).filter(a => a.camp_id === campId).map(a => a.id)
+      const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('activities', ids)
+      await load()
+      if (failed > 0) {
+        setError(
+          failedDueToRole
+            ? 'Only an admin can delete activities — no activities were deleted.'
+            : `Deleted ${succeeded} of ${ids.length} activities — please try again for the rest.`
+        )
+      }
+    } catch (err) {
+      setError(describeWriteFailure(err, 'Those activities could not be deleted.'))
     }
   }
 

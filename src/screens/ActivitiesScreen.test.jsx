@@ -196,6 +196,23 @@ describe('ActivitiesScreen — delete all', () => {
 
     await waitFor(() => expect(screen.queryByText(/Only an admin can delete activities/)).not.toBeNull())
   })
+
+  it('surfaces an error banner when deleteAll fails unexpectedly instead of silently closing', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([activity({ id: 'a1' })])
+      return Promise.resolve([])
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    // The re-fetch inside deleteAll throws (e.g. the DB read fails). Without a
+    // catch the promise rejects unhandled while the confirm has already closed —
+    // it looks like success. It must surface an error banner instead.
+    localClient.list.mockRejectedValue(new Error('disk failure'))
+    fireEvent.click(screen.getByText('Delete All'))
+
+    await waitFor(() => expect(screen.queryByText(/Those activities could not be deleted/)).not.toBeNull())
+  })
 })
 
 describe('ActivitiesScreen — import', () => {

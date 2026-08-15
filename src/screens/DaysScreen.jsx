@@ -85,6 +85,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       saveFailedText: 'That day could not be saved.',
       adminOnlyDeleteAllText: 'Only an admin can delete days — no days were deleted.',
       partialDeleteAllText: (succeeded, total, failed) => `Deleted ${succeeded} of ${total} days (${failed} failed — see console).`,
+      deleteAllFailedText: 'Those days could not be deleted.',
     })
   const days = [...unsortedDays].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || (a.day_of_week ?? 0) - (b.day_of_week ?? 0))
 

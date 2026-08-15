@@ -253,22 +253,26 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       return
     }
     if (!window.confirm('Delete all units? They can be restored from Trash.')) return
-    // Re-fetch immediately before building the id list rather than using the
-    // closed-over `tiers` state — if another device synced in new units
-    // between page-load and this click, the stale in-memory snapshot would
-    // silently skip them with no indication anything was missed.
-    const freshTiers = await localClient.list('tiers')
-    const ids = (freshTiers || [])
-      .filter(t => t.camp_id === campId && t.cohort_id === activeCohort.id)
-      .map(t => t.id)
-    const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('tiers', ids)
-    await load()
-    if (failed > 0) {
-      setError(
-        failedDueToRole
-          ? 'Only an admin can delete units — no units were deleted.'
-          : `Deleted ${succeeded} of ${ids.length} units — please try again for the rest.`
-      )
+    try {
+      // Re-fetch immediately before building the id list rather than using the
+      // closed-over `tiers` state — if another device synced in new units
+      // between page-load and this click, the stale in-memory snapshot would
+      // silently skip them with no indication anything was missed.
+      const freshTiers = await localClient.list('tiers')
+      const ids = (freshTiers || [])
+        .filter(t => t.camp_id === campId && t.cohort_id === activeCohort.id)
+        .map(t => t.id)
+      const { succeeded, failed, failedDueToRole } = await repository.deleteAllRecords('tiers', ids)
+      await load()
+      if (failed > 0) {
+        setError(
+          failedDueToRole
+            ? 'Only an admin can delete units — no units were deleted.'
+            : `Deleted ${succeeded} of ${ids.length} units — please try again for the rest.`
+        )
+      }
+    } catch (err) {
+      setError(describeWriteFailure(err, 'Those units could not be deleted.'))
     }
   }
 
