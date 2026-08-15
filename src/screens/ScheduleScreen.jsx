@@ -203,7 +203,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     routeState, repo, pushUndo, setActionError,
     recalcStats, recalcFindings,
     getSlot, setActivities,
-    slots, groups, activities, days, timeBlocks, campId,
+    slots, groups, activities, locations, days, timeBlocks, campId,
   })
   const {
     replaceSlot, dismissFlag, lockActivity, releaseCell,
@@ -1156,6 +1156,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 days={days}
                 timeBlocks={timeBlocks}
                 slots={slots}
+                locations={locations}
                 selectedActivity={selectedActivity}
                 onSelectActivity={setSelectedActivity}
                 collapsedBlockIds={collapsedBlockIds}

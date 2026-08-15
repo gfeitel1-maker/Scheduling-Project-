@@ -404,6 +404,15 @@ beforeAll(() => {
       for (const call of findCallArgs(text, /\bwriteFields\(/)) {
         if (call.index === defCallIndex) continue
         const args = splitTopLevel(call.argsText)
+        // The local wrapper's signature is exactly writeFields(id, fields) —
+        // 2 args. A 3-arg call site matching the SAME bare regex (e.g.
+        // `repository.writeFields('locations', id, { capacity })`, a direct
+        // call to the shared repository with a literal entity that differs
+        // from this file's wrapperEntity) is a different call entirely and
+        // must not be attributed to wrapperEntity. Pattern (e) below already
+        // resolves that shape per-call-site against its own literal entity
+        // arg — skip it here so it isn't double-counted under the wrong entity.
+        if (args.length !== 2) continue
         const fieldsArg = args[args.length - 1]?.trim()
         if (!fieldsArg || !fieldsArg.startsWith('{')) continue
         const closeIdx = findMatchingClose(fieldsArg, 0)
