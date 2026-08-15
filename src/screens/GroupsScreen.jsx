@@ -5,6 +5,7 @@ import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { S, prefersReducedMotion } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
+import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import RecordHistory from '../components/RecordHistory'
 import ScreenIntro from '../components/ScreenIntro'
 import WeekContextBar from '../components/schedule/WeekContextBar'
@@ -103,6 +104,8 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
   const [error, setError] = useState(null)
   const [historyFor, setHistoryFor] = useState(null)
   const [pendingDelete, setPendingDelete] = useState(null)
+  const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
   const [excludedGroupIds, setExcludedGroupIds] = useState(new Set())
   const [pendingExclusion, setPendingExclusion] = useState(null)
   const fileRef = useRef()
@@ -233,8 +236,12 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
     setPendingDelete(preview)
   }
 
-  async function deleteAll() {
-    if (!window.confirm('Delete all groups? They can be restored from Trash.')) return
+  function deleteAll() {
+    setPendingDeleteAll(true)
+  }
+
+  async function confirmDeleteAll() {
+    setDeletingAll(true)
     try {
       // Re-fetch immediately before building the id list rather than using the
       // closed-over `groups` state — if another device synced in new groups
@@ -255,6 +262,9 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       }
     } catch (err) {
       setError(describeWriteFailure(err, 'Those groups could not be deleted.'))
+    } finally {
+      setDeletingAll(false)
+      setPendingDeleteAll(false)
     }
   }
 
@@ -503,6 +513,17 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
           preview={pendingDelete}
           onCancel={() => setPendingDelete(null)}
           onDeleted={() => { setPendingDelete(null); load() }}
+        />
+      )}
+
+      {pendingDeleteAll && (
+        <ConfirmDangerDialog
+          title="Delete all groups?"
+          recovery="They can be restored from Trash."
+          confirmLabel="Delete All Groups"
+          busy={deletingAll}
+          onConfirm={confirmDeleteAll}
+          onCancel={() => setPendingDeleteAll(false)}
         />
       )}
 

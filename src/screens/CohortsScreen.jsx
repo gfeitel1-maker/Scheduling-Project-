@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
 import { S } from '../styles/shared'
 import ScreenIntro from '../components/ScreenIntro'
+import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 
 // Repository-only migration (not the full useCrudScreen hook): load() is a
@@ -143,6 +144,9 @@ export default function CohortsScreen({ campId }) {
   const [newSort, setNewSort] = useState('')
   const [adding, setAdding] = useState(false)
   const [error, setError] = useState(null)
+  const [pendingDelete, setPendingDelete] = useState(null) // cohort being confirmed for delete
+  const [deleting, setDeleting] = useState(false)
+  const deleteInFlight = useRef(false)
 
   useEffect(() => { load() }, [campId])
 
@@ -229,18 +233,27 @@ export default function CohortsScreen({ campId }) {
     }
   }
 
-  async function deleteCohort(id) {
+  function deleteCohort(id) {
     if (cohorts.length <= 1) {
       alert('Cannot delete the last program — every camp must have at least one.')
       return
     }
-    if (!window.confirm('Delete this program? Units and time blocks assigned to it will lose their program reference.')) return
+    const cohort = cohorts.find(c => c.id === id)
+    if (!cohort) return
+    setPendingDelete(cohort)
+  }
+
+  async function confirmCohortDelete() {
+    if (!pendingDelete || deleteInFlight.current) return
+    deleteInFlight.current = true
+    setDeleting(true)
     try {
       const token = localStorage.getItem('shoresh-token')
-      const result = await localClient.deleteEntity(token, 'cohorts', id)
+      const result = await localClient.deleteEntity(token, 'cohorts', pendingDelete.id)
       if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
         throw new Error('delete failed')
       }
+      setPendingDelete(null)
       await load()
     } catch (err) {
       setError(
@@ -248,6 +261,10 @@ export default function CohortsScreen({ campId }) {
           ? "Can't delete — other data (time blocks or fixed events) still references this program. Remove those first."
           : describeWriteFailure(err, 'That program could not be deleted.')
       )
+      setPendingDelete(null)
+    } finally {
+      setDeleting(false)
+      deleteInFlight.current = false
     }
   }
 
@@ -339,6 +356,17 @@ export default function CohortsScreen({ campId }) {
           automatically — so it is not part of the setup chain and has no Next
           button. It stays reachable for a camp that genuinely runs two
           sessions on different time grids. */}
+
+      {pendingDelete && (
+        <ConfirmDangerDialog
+          title="Delete this program?"
+          body="Units and time blocks assigned to it will lose their program reference."
+          confirmLabel="Delete Program"
+          busy={deleting}
+          onConfirm={confirmCohortDelete}
+          onCancel={() => setPendingDelete(null)}
+        />
+      )}
     </div>
   )
 }

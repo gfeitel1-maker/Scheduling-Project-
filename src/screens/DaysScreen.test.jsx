@@ -156,7 +156,7 @@ describe('DaysScreen', () => {
     )
   })
 
-  it('deletes all camp-scoped days via Delete All, camp-isolated from other camps', async () => {
+  it('shows a styled confirm modal (not window.confirm) before Delete All, and confirming deletes all camp-scoped days, camp-isolated from other camps', async () => {
     localClient.list.mockResolvedValue([
       day({ id: 'd1', label: 'Monday' }),
       day({ id: 'd2', label: 'Tuesday' }),
@@ -166,6 +166,13 @@ describe('DaysScreen', () => {
     await waitFor(() => expect(screen.queryByText('2 days')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
+
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByText('Delete all days?')).not.toBeNull())
+    expect(screen.queryByText('They can be restored from Trash.')).not.toBeNull()
+
+    fireEvent.click(screen.getByText('Delete All Days'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledTimes(2))
     expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'd1')
@@ -178,12 +185,28 @@ describe('DaysScreen', () => {
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
 
-    // The re-fetch inside deleteAll (in useCrudScreen) throws — an unexpected
-    // failure must surface an error banner, not close the confirm silently.
-    localClient.list.mockRejectedValue(new Error('disk failure'))
+    // Open the confirm modal, then make the re-fetch inside deleteAll (in
+    // useCrudScreen) throw — confirming must surface an error banner, not
+    // close silently.
     fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all days?')).not.toBeNull())
+    localClient.list.mockRejectedValue(new Error('disk failure'))
+    fireEvent.click(screen.getByText('Delete All Days'))
 
     await waitFor(() => expect(screen.queryByText(/Those days could not be deleted/)).not.toBeNull())
+  })
+
+  it('cancels Delete All without deleting', async () => {
+    localClient.list.mockResolvedValue([day({ id: 'd1', label: 'Monday' })])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all days?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Cancel'))
+
+    expect(screen.queryByText('Delete all days?')).toBeNull()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
   })
 
   it('disables Delete All for non-admin roles', async () => {

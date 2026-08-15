@@ -245,6 +245,39 @@ describe('GroupsScreen', () => {
     )
   })
 
+  it('shows a styled confirm modal (not window.confirm) before Delete All, and confirming deletes', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [group({ id: 'g1' })] : [])
+    )
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByText('Delete all groups?')).not.toBeNull())
+    expect(screen.queryByText('They can be restored from Trash.')).not.toBeNull()
+
+    fireEvent.click(screen.getByText('Delete All Groups'))
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'groups', 'g1'))
+  })
+
+  it('cancels Delete All without deleting', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [group({ id: 'g1' })] : [])
+    )
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all groups?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Cancel'))
+
+    expect(screen.queryByText('Delete all groups?')).toBeNull()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+  })
+
   it('deleteAll surfaces a partial-failure count rather than silently succeeding or aborting', async () => {
     localClient.list.mockImplementation((entity) =>
       Promise.resolve(entity === 'groups' ? [group({ id: 'g1' }), group({ id: 'g2', name: 'Second' })] : [])
@@ -257,6 +290,8 @@ describe('GroupsScreen', () => {
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all groups?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Groups'))
 
     await waitFor(() =>
       expect(screen.queryByText('Deleted 1 of 2 groups (1 failed — see console).')).not.toBeNull()
@@ -280,6 +315,8 @@ describe('GroupsScreen', () => {
       Promise.resolve(entity === 'groups' ? [group({ id: 'g1' }), group({ id: 'g2', name: 'Second' })] : [])
     )
     fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all groups?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Groups'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'groups', 'g2'))
     expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'groups', 'g1')
@@ -337,6 +374,8 @@ describe('GroupsScreen', () => {
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all groups?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Groups'))
 
     await waitFor(() =>
       expect(
@@ -352,10 +391,13 @@ describe('GroupsScreen', () => {
     render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
 
-    // The re-fetch inside deleteAll throws — an unexpected failure must surface
-    // an error banner, not close the confirm and look like a successful delete.
-    localClient.list.mockRejectedValue(new Error('disk failure'))
+    // Open the confirm modal, then make the re-fetch inside confirmDeleteAll
+    // throw — an unexpected failure must surface an error banner, not close
+    // the modal and look like a successful delete.
     fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all groups?')).not.toBeNull())
+    localClient.list.mockRejectedValue(new Error('disk failure'))
+    fireEvent.click(screen.getByText('Delete All Groups'))
 
     await waitFor(() =>
       expect(screen.queryByText(/Those groups could not be deleted/)).not.toBeNull()

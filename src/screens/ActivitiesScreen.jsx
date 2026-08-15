@@ -5,6 +5,7 @@ import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
+import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ScreenIntro from '../components/ScreenIntro'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
@@ -490,6 +491,8 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   const [importing, setImporting] = useState(false)
   const [error, setError] = useState(null)
   const [pendingDelete, setPendingDelete] = useState(null)
+  const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
+  const [deletingAll, setDeletingAll] = useState(false)
   const [excludedActivityIds, setExcludedActivityIds] = useState(new Set())
   const [pendingExclusion, setPendingExclusion] = useState(null) // { activity, slotCount }
   const [quickName, setQuickName] = useState('')
@@ -745,8 +748,12 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
     }
   }
 
-  async function deleteAll() {
-    if (!window.confirm('Delete all activities? They can be restored from Trash.')) return
+  function deleteAll() {
+    setPendingDeleteAll(true)
+  }
+
+  async function confirmDeleteAll() {
+    setDeletingAll(true)
     try {
       // Re-fetch immediately before building the id list rather than using the
       // closed-over `activities` state — if another device synced in new
@@ -765,6 +772,9 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       }
     } catch (err) {
       setError(describeWriteFailure(err, 'Those activities could not be deleted.'))
+    } finally {
+      setDeletingAll(false)
+      setPendingDeleteAll(false)
     }
   }
 
@@ -1108,6 +1118,16 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
           preview={pendingDelete}
           onCancel={() => setPendingDelete(null)}
           onDeleted={() => { setPendingDelete(null); load() }}
+        />
+      )}
+      {pendingDeleteAll && (
+        <ConfirmDangerDialog
+          title="Delete all activities?"
+          recovery="They can be restored from Trash."
+          confirmLabel="Delete All Activities"
+          busy={deletingAll}
+          onConfirm={confirmDeleteAll}
+          onCancel={() => setPendingDeleteAll(false)}
         />
       )}
       {pendingExclusion && (

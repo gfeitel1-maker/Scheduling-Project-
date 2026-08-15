@@ -164,6 +164,41 @@ describe('ActivitiesScreen quick-add', () => {
 })
 
 describe('ActivitiesScreen — delete all', () => {
+  it('shows a styled confirm modal (not window.confirm) before deleting, and confirming deletes', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([activity({ id: 'a1' })])
+      return Promise.resolve([])
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByText('Delete all activities?')).not.toBeNull())
+    expect(screen.queryByText('They can be restored from Trash.')).not.toBeNull()
+
+    fireEvent.click(screen.getByText('Delete All Activities'))
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'activities', 'a1'))
+  })
+
+  it('cancels without deleting', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([activity({ id: 'a1' })])
+      return Promise.resolve([])
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all activities?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Cancel'))
+
+    expect(screen.queryByText('Delete all activities?')).toBeNull()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+  })
+
   it('re-fetches activities immediately before deleting, then reports partial failure', async () => {
     localClient.list.mockImplementation(entity => {
       if (entity === 'activities') return Promise.resolve([activity({ id: 'a1' }), activity({ id: 'a2', name: 'Swim' })])
@@ -177,6 +212,8 @@ describe('ActivitiesScreen — delete all', () => {
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all activities?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Activities'))
 
     await waitFor(() => expect(screen.queryByText(/Deleted 1 of 2 activities/)).not.toBeNull())
     expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'activities', 'a1')
@@ -193,6 +230,8 @@ describe('ActivitiesScreen — delete all', () => {
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all activities?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Activities'))
 
     await waitFor(() => expect(screen.queryByText(/Only an admin can delete activities/)).not.toBeNull())
   })
@@ -205,11 +244,14 @@ describe('ActivitiesScreen — delete all', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
-    // The re-fetch inside deleteAll throws (e.g. the DB read fails). Without a
-    // catch the promise rejects unhandled while the confirm has already closed —
-    // it looks like success. It must surface an error banner instead.
-    localClient.list.mockRejectedValue(new Error('disk failure'))
+    // Open the confirm modal, then make the re-fetch inside confirmDeleteAll
+    // throw (e.g. the DB read fails). Without a catch the promise rejects
+    // unhandled while the modal closes — it looks like success. It must
+    // surface an error banner instead.
     fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all activities?')).not.toBeNull())
+    localClient.list.mockRejectedValue(new Error('disk failure'))
+    fireEvent.click(screen.getByText('Delete All Activities'))
 
     await waitFor(() => expect(screen.queryByText(/Those activities could not be deleted/)).not.toBeNull())
   })

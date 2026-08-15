@@ -220,6 +220,44 @@ describe('LocationsScreen', () => {
     expect(screen.getByText('Delete All').disabled).toBe(true)
   })
 
+  it('shows a styled confirm modal (not window.confirm) before Delete All, and confirming deletes all camp-scoped places', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'locations') return Promise.resolve([location({ id: 'loc-1' }), location({ id: 'loc-2', name: 'Gym' })])
+      return Promise.resolve([])
+    })
+    render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+
+    expect(window.confirm).not.toHaveBeenCalled()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.queryByText('Delete all places?')).not.toBeNull())
+    expect(screen.queryByText('They can be restored from Trash.')).not.toBeNull()
+
+    fireEvent.click(screen.getByText('Delete All Places'))
+
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledTimes(2))
+    expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'locations', 'loc-1')
+    expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'locations', 'loc-2')
+  })
+
+  it('cancels Delete All without deleting', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'locations') return Promise.resolve([location()])
+      return Promise.resolve([])
+    })
+    render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete All'))
+    await waitFor(() => expect(screen.queryByText('Delete all places?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Cancel'))
+
+    expect(screen.queryByText('Delete all places?')).toBeNull()
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+  })
+
   it('navigates to Activities and to Fixed Events from its own Next chain', async () => {
     const onNavigate = vi.fn()
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={onNavigate} />)
