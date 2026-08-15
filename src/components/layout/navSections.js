@@ -35,6 +35,12 @@ export const NAV_SECTIONS = [
       { key: 'days',         label: 'Days',          area: 'days' },
       { key: 'timeblocks',   label: 'Time Blocks',   area: 'timeblocks' },
       { key: 'activities',   label: 'Activities',    area: 'activities' },
+      // Sits directly after Activities (design D-1, docs/work/specs/2026-08-15-m3-locations-design.md):
+      // the picker that binds a location to an activity lives on the
+      // Activities screen, so the two read better adjacent. Optional — its
+      // own Next chain points at Fixed Events without touching Activities'
+      // own required Next button.
+      { key: 'locations',    label: 'Locations',     area: 'locations',    optional: true },
       { key: 'anchors',      label: 'Fixed Events',  area: 'anchors',      optional: true },
       { key: 'dayoverrides', label: 'Day Overrides', area: 'dayoverrides', optional: true },
     ],
@@ -82,6 +88,7 @@ export const AREA_TABLE = {
   days: 'days_of_operation',
   timeblocks: 'time_blocks',
   activities: 'activities',
+  locations: 'locations',
   anchors: 'anchor_activities',
   dayoverrides: 'day_override_templates',
 }

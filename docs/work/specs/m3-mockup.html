@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shoresh — M3 Locations (design prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Real Shoresh tokens — copied from src/index.css so this looks like the app. */
+  :root{
+    --bg:#F4F3EF; --surface:#FCFBF8; --surface-elevated:#FFFFFF;
+    --primary:#173B63; --primary-dark:#0F2A47; --secondary:#2F6B58;
+    --accent:#B8833A; --success:#4C8A63; --danger:#B44E48; --anchor:#5C6B7A;
+    --text:#1E2A34; --text-secondary:#5C6670; --border:#D8DBD9;
+    --font-sans:'Inter',system-ui,sans-serif;
+    --font-condensed:'IBM Plex Sans',system-ui,sans-serif;
+    --font-mono:'IBM Plex Mono',ui-monospace,monospace;
+    --motion-fast:140ms; --motion-base:220ms; --motion-settle:340ms;
+    --ease-out:cubic-bezier(0.22,1,0.36,1);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font-sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;}
+  button{cursor:pointer;font-family:inherit;}
+  input,select,textarea{font-family:inherit;}
+
+  /* ---- design-board chrome (NOT part of the app; frames each state) ---- */
+  .board{max-width:1080px;margin:0 auto;padding:32px 24px 120px;}
+  .board-head{margin-bottom:36px;}
+  .kicker{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-secondary);}
+  .board-head h1{font-family:var(--font-condensed);font-weight:700;font-size:26px;letter-spacing:-.4px;margin:6px 0 8px;}
+  .board-head p{color:var(--text-secondary);max-width:70ch;margin:0;font-size:13.5px;}
+  .section{margin-top:44px;}
+  .section > .cap{display:flex;align-items:baseline;gap:10px;margin-bottom:14px;}
+  .section > .cap .n{font-family:var(--font-mono);font-size:12px;color:#fff;background:var(--primary);border-radius:5px;padding:2px 7px;font-weight:600;}
+  .section > .cap h2{font-family:var(--font-condensed);font-weight:600;font-size:16px;margin:0;}
+  .section > .cap .tag{margin-left:auto;font-size:11px;font-family:var(--font-mono);color:var(--text-secondary);border:1px solid var(--border);border-radius:99px;padding:2px 10px;}
+  .note{font-size:12.5px;color:var(--text-secondary);margin:8px 2px 0;max-width:78ch;}
+  .note b{color:var(--text);font-weight:600;}
+  /* A "device" frame: a slice of the real content pane on paper. */
+  .pane{background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:26px 28px;box-shadow:0 2px 24px color-mix(in srgb,var(--text) 5%,transparent);position:relative;overflow:hidden;}
+  .pane + .pane{margin-top:16px;}
+  .flabel{position:absolute;top:0;right:0;font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-secondary);background:var(--surface);border-left:1px solid var(--border);border-bottom:1px solid var(--border);border-radius:0 13px 0 8px;padding:5px 12px;}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media(max-width:800px){.two{grid-template-columns:1fr;}}
+
+  /* ---- real app primitives (mirror src/styles/shared.js S.*) ---- */
+  .intro{font-size:13px;line-height:1.6;color:var(--text-secondary);max-width:62ch;margin:0 0 18px;}
+  .toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap;}
+  .count{font-family:var(--font-condensed);font-weight:700;font-size:13px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;}
+  .actions{display:flex;gap:8px;}
+  .btnP{padding:7px 14px;background:var(--primary);color:#fff;border:none;border-radius:7px;font-weight:600;font-size:13px;}
+  .btnS{padding:7px 14px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:7px;font-weight:600;font-size:13px;}
+  .btnD{padding:7px 14px;background:none;color:var(--danger);border:1px solid var(--danger);border-radius:7px;font-weight:600;font-size:13px;}
+  .btnGhost{background:none;border:none;color:var(--text-secondary);font-size:12px;text-decoration:underline;padding:0;}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+  table{width:100%;border-collapse:collapse;}
+  thead tr{border-bottom:1px solid var(--border);background:var(--bg);}
+  th{padding:10px 14px;text-align:left;font-size:12px;font-family:var(--font-condensed);font-weight:500;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;}
+  td{padding:11px 14px;text-align:left;font-size:13px;vertical-align:middle;}
+  tbody tr{border-bottom:1px solid var(--border);}
+  tbody tr:last-child{border-bottom:none;}
+  .muted{color:var(--text-secondary);}
+  .mono{font-family:var(--font-mono);font-size:12px;}
+  .capcell{font-variant-numeric:tabular-nums;}
+  .input{padding:8px 10px;border:1.5px solid var(--border);border-radius:7px;font-size:13px;outline:none;background:var(--surface);width:100%;}
+  .input:focus{border-color:var(--primary);}
+  .addcard{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-top:16px;}
+  .addcard h3{font-family:var(--font-condensed);font-weight:700;font-size:13px;margin:0 0 10px;text-transform:uppercase;letter-spacing:.05em;}
+  .fieldlabel{font-size:11px;font-family:var(--font-mono);font-weight:500;text-transform:uppercase;letter-spacing:.05em;color:var(--text-secondary);margin-bottom:5px;display:block;}
+  .rowfields{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}
+  .nextrow{margin-top:26px;padding-top:18px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+
+  /* capacity stepper */
+  .stepper{display:inline-flex;align-items:stretch;border:1.5px solid var(--border);border-radius:7px;overflow:hidden;background:var(--surface);}
+  .stepper button{width:30px;border:none;background:var(--surface);color:var(--text);font-size:15px;line-height:1;}
+  .stepper button:hover{background:var(--bg);}
+  .stepper input{width:42px;border:none;border-left:1px solid var(--border);border-right:1px solid var(--border);text-align:center;font-size:13px;background:var(--surface-elevated);outline:none;font-variant-numeric:tabular-nums;}
+
+  /* empty state (DESIGN_STANDARD §5a — calm, no card) */
+  .empty{padding:60px 16px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px;}
+  .empty svg{color:var(--text-secondary);}
+  .empty h3{font-family:var(--font-condensed);font-weight:600;font-size:15px;color:var(--text);margin:8px 0 0;}
+  .empty p{font-size:13px;color:var(--text-secondary);max-width:56ch;margin:0;}
+  .empty .btnP{margin-top:14px;}
+
+  /* ---- activities picker ---- */
+  .picker-wrap{position:relative;max-width:340px;}
+  .pinput{display:flex;align-items:center;gap:8px;border:1.5px solid var(--border);border-radius:7px;background:var(--surface);padding:0 10px;}
+  .pinput:focus-within{border-color:var(--primary);}
+  .pinput svg{color:var(--text-secondary);flex-shrink:0;}
+  .pinput input{border:none;outline:none;background:none;padding:9px 0;font-size:13px;width:100%;}
+  .popover{position:absolute;top:calc(100% + 4px);left:0;right:0;background:var(--surface-elevated);border:1px solid var(--border);border-radius:8px;box-shadow:0 2px 16px color-mix(in srgb,var(--text) 12%,transparent);overflow:hidden;z-index:30;}
+  .opt{display:flex;align-items:center;gap:9px;padding:9px 11px;font-size:13px;border:none;background:none;width:100%;text-align:left;color:var(--text);}
+  .opt:hover,.opt.active{background:color-mix(in srgb,var(--primary) 8%,var(--surface-elevated));}
+  .opt .nm{font-weight:500;}
+  .opt .cap{margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);}
+  .opt.create{border-top:1px solid var(--border);color:var(--secondary);font-weight:600;}
+  .opt.create svg{color:var(--secondary);}
+  .opt .newtag{margin-left:auto;font-family:var(--font-mono);font-size:10px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.08em;}
+  .selected{display:flex;align-items:center;gap:8px;border:1.5px solid var(--border);border-radius:7px;background:var(--surface);padding:8px 10px;}
+  .selected .pin{color:var(--secondary);flex-shrink:0;}
+  .selected .nm{font-weight:600;font-size:13px;}
+  .selected .meta{font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);}
+  .selected .x{margin-left:auto;border:none;background:none;color:var(--text-secondary);width:22px;height:22px;border-radius:5px;font-size:15px;line-height:1;}
+  .selected .x:hover{background:var(--bg);color:var(--text);}
+  .subhint{font-size:11px;color:var(--text-secondary);margin-top:5px;}
+
+  /* ---- migration: soft capacity review strip (bronze / caution) ---- */
+  .reviewstrip{border:1px solid color-mix(in srgb,var(--accent) 32%,var(--border));background:color-mix(in srgb,var(--accent) 7%,var(--surface));border-radius:10px;padding:14px 16px;margin-bottom:20px;}
+  .reviewstrip .rhead{display:flex;align-items:center;gap:9px;}
+  .reviewstrip .rhead svg{color:var(--accent);}
+  .reviewstrip .rtitle{font-family:var(--font-condensed);font-weight:600;font-size:13.5px;color:color-mix(in srgb,var(--accent) 55%,var(--text));}
+  .reviewstrip .rsub{font-size:12px;color:var(--text-secondary);margin-left:auto;}
+  .ritem{display:flex;align-items:center;gap:12px;padding:12px 4px;border-top:1px solid color-mix(in srgb,var(--accent) 22%,var(--border));margin-top:12px;}
+  .ritem .body{flex:1;font-size:13px;line-height:1.5;}
+  .ritem .body b{font-weight:600;}
+  .ritem .num{font-variant-numeric:tabular-nums;font-weight:600;}
+  .ritem .ctl{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+  .lookok{padding:6px 12px;background:var(--surface);border:1px solid var(--border);border-radius:7px;font-size:12px;font-weight:600;color:var(--text);}
+
+  /* ---- migration: near-duplicate GATE (un-missable modal) ---- */
+  .scrim{position:absolute;inset:0;background:rgba(15,42,71,.42);display:flex;align-items:flex-start;justify-content:center;padding:34px 16px;z-index:50;border-radius:14px;}
+  .gate{background:var(--surface-elevated);border-radius:12px;width:460px;max-width:100%;box-shadow:0 8px 40px color-mix(in srgb,var(--text) 20%,transparent);overflow:hidden;}
+  .gate .g-top{padding:22px 24px 6px;}
+  .gate .g-eyebrow{font-family:var(--font-mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);display:flex;align-items:center;gap:7px;}
+  .gate .g-eyebrow .prog{margin-left:auto;color:var(--text-secondary);}
+  .gate h2{font-family:var(--font-condensed);font-weight:700;font-size:19px;margin:12px 0 4px;letter-spacing:-.2px;}
+  .gate .g-lede{font-size:13px;color:var(--text-secondary);line-height:1.55;margin:0;}
+  .variants{padding:16px 24px 4px;display:flex;flex-direction:column;gap:10px;}
+  .vrow{display:flex;align-items:center;gap:12px;border:1.5px solid var(--border);border-radius:9px;padding:11px 13px;background:var(--surface);cursor:pointer;}
+  .vrow.pick{border-color:var(--primary);background:color-mix(in srgb,var(--primary) 6%,var(--surface));}
+  .vrow .radio{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--border);flex-shrink:0;position:relative;}
+  .vrow.pick .radio{border-color:var(--primary);}
+  .vrow.pick .radio::after{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--primary);}
+  .vrow .vname{font-weight:600;font-size:14px;}
+  .vrow .vmeta{font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);margin-left:auto;text-align:right;}
+  .g-cap{padding:12px 24px 4px;display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text);}
+  .g-actions{padding:18px 24px 22px;display:flex;flex-direction:column;gap:9px;}
+  .g-merge{padding:11px 0;background:var(--primary);color:#fff;border:none;border-radius:8px;font-weight:700;font-size:14px;width:100%;}
+  .g-keep{padding:9px 0;background:none;border:1px solid var(--border);border-radius:8px;font-weight:600;font-size:13px;color:var(--text);width:100%;background:var(--surface);}
+  .g-undo{text-align:center;font-size:11.5px;color:var(--text-secondary);margin-top:2px;}
+  .launch{margin-top:12px;}
+  .resolved-tick{color:var(--success);font-weight:600;}
+  /* reduced motion honored */
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}
+  .fade-settle{animation:fs var(--motion-settle) var(--ease-out);}
+  @keyframes fs{from{opacity:0;transform:translateY(12px);}to{opacity:1;transform:none;}}
+  .pop{animation:pp 180ms var(--ease-out);transform-origin:top left;}
+  @keyframes pp{from{opacity:0;transform:scale(.97);}to{opacity:1;transform:none;}}
+</style>
+</head>
+<body>
+<div class="board">
+  <div class="board-head">
+    <div class="kicker">Shoresh · M3 · Design prototype (not the real app yet)</div>
+    <h1>Locations — the first time a director sees “places”</h1>
+    <p>One coherent experience in three parts: a <b>Locations setup screen</b>, a <b>place picker inside an activity</b>, and the <b>first-run reconciliation</b> of what the upgrade inferred from the old free-text data. Real Shoresh colors, type, and motion. Locations are always optional — a camp that only wants named rooms is never taxed, and nothing here makes a map mandatory.</p>
+  </div>
+
+  <!-- ============================ 1. LOCATIONS SCREEN ============================ -->
+  <div class="section">
+    <div class="cap"><span class="n">1</span><h2>Locations setup screen · empty</h2><span class="tag">new camp, never set up</span></div>
+    <div class="pane">
+      <span class="flabel">empty state</span>
+      <p class="intro">Places at your camp and how many groups fit in each — the Pool, the Gym, the Beit Midrash. Optional: add them only if you want the schedule to keep two groups out of the same room.</p>
+      <div class="empty">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10Z"/><circle cx="12" cy="11" r="2.2"/></svg>
+        <h3>No places yet</h3>
+        <p>Add a place below and say how many groups fit at once. Or skip this — the schedule works fine without it, and you can add places any time.</p>
+        <button class="btnP">Add your first place</button>
+      </div>
+      <div class="addcard">
+        <h3>Add Place</h3>
+        <div class="rowfields">
+          <div style="flex:1 1 160px;"><label class="fieldlabel">Name</label><input class="input" placeholder="e.g. Pool, Gym, Beit Midrash"></div>
+          <div><label class="fieldlabel">Groups at once</label>
+            <div class="stepper"><button type="button">–</button><input value="1"><button type="button">+</button></div>
+          </div>
+          <div style="flex:1 1 160px;"><label class="fieldlabel">Notes (optional)</label><input class="input" placeholder="e.g. shared with the town"></div>
+          <button class="btnP">+ Add</button>
+        </div>
+      </div>
+    </div>
+    <p class="note"><b>Why this shape:</b> matches Days/Groups exactly — intro line, add-card, the same inline pattern. The empty state is the calm no-card block from DESIGN_STANDARD §5a, not an alarm: locations are optional, so emptiness must read as fine. “Groups at once” is <b>capacity</b> in the director’s words — never “capacity: int”.</p>
+  </div>
+
+  <div class="section">
+    <div class="cap"><span class="n">1</span><h2>Locations setup screen · populated</h2><span class="tag">one row shown mid-edit</span></div>
+    <div class="pane">
+      <span class="flabel">populated + inline edit</span>
+      <p class="intro">Places at your camp and how many groups fit in each — the Pool, the Gym, the Beit Midrash. Optional: add them only if you want the schedule to keep two groups out of the same room.</p>
+      <div class="toolbar">
+        <div class="count">4 places</div>
+        <div class="actions"><button class="btnD">Delete All</button></div>
+      </div>
+      <div class="card">
+        <table>
+          <thead><tr><th>Name</th><th>Groups at once</th><th>Notes</th><th style="text-align:right;">Actions</th></tr></thead>
+          <tbody>
+            <tr><td style="font-weight:500;">Beit Midrash</td><td class="capcell">1 group</td><td class="muted">Quiet room</td><td style="text-align:right;"><button class="btnS">Edit</button> <button class="btnD" style="margin-left:6px;">Delete</button></td></tr>
+            <!-- inline edit row (matches DaysScreen/GroupsScreen editing state) -->
+            <tr style="background:var(--surface-elevated);">
+              <td><input class="input" value="Pool"></td>
+              <td><div class="stepper"><button type="button">–</button><input value="3"><button type="button">+</button></div></td>
+              <td><input class="input" value="Deep end roped off til July"></td>
+              <td style="text-align:right;"><button class="btnP">Save</button> <button class="btnS" style="margin-left:6px;">Cancel</button></td>
+            </tr>
+            <tr><td style="font-weight:500;">The Gym</td><td class="capcell">2 groups</td><td class="muted">—</td><td style="text-align:right;"><button class="btnS">Edit</button> <button class="btnD" style="margin-left:6px;">Delete</button></td></tr>
+            <tr><td style="font-weight:500;">Waterfront</td><td class="capcell">1 group</td><td class="muted">Weather-dependent</td><td style="text-align:right;"><button class="btnS">Edit</button> <button class="btnD" style="margin-left:6px;">Delete</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="addcard">
+        <h3>Add Place</h3>
+        <div class="rowfields">
+          <div style="flex:1 1 160px;"><label class="fieldlabel">Name</label><input class="input" placeholder="e.g. Pool, Gym, Beit Midrash"></div>
+          <div><label class="fieldlabel">Groups at once</label><div class="stepper"><button type="button">–</button><input value="1"><button type="button">+</button></div></div>
+          <div style="flex:1 1 160px;"><label class="fieldlabel">Notes (optional)</label><input class="input" placeholder="e.g. shared with the town"></div>
+          <button class="btnP">+ Add</button>
+        </div>
+      </div>
+      <div class="nextrow">
+        <button class="btnGhost">← Back to Activities</button>
+        <button class="btnP">Next: Fixed Events →</button>
+      </div>
+    </div>
+    <p class="note"><b>Capacity is the whole point:</b> “Groups at once” is the number the engine now enforces (M2) to keep two groups out of one room. Delete routes through the existing Trash/preview flow (the shared <span class="mono">DeleteRecordDialog</span>), so a place a schedule uses warns first and is restorable. Edit is inline, exactly like Days.</p>
+  </div>
+
+  <!-- ============================ 2. ACTIVITIES PICKER ============================ -->
+  <div class="section">
+    <div class="cap"><span class="n">2</span><h2>The place picker, inside an activity</h2><span class="tag">replaces the free-text Location input</span></div>
+    <div class="pane">
+      <span class="flabel">live — type to try it</span>
+      <p class="intro" style="max-width:70ch;">This is where most directors actually touch locations. Setting up “Archery”, they pick a place — or type one that doesn’t exist and create it right there, without leaving the activity. Try typing <b>be</b>, or a brand-new name like <b>Lake</b>.</p>
+      <div style="display:grid;grid-template-columns:1fr;gap:6px;max-width:340px;">
+        <label class="fieldlabel">Location</label>
+        <div class="picker-wrap" id="picker"></div>
+      </div>
+      <div class="note" style="margin-top:22px;"><b>The three states, spelled out below</b> (the live one above cycles through them):</div>
+      <div class="two" style="margin-top:10px;">
+        <div style="border:1px dashed var(--border);border-radius:10px;padding:16px;">
+          <div class="fieldlabel">a · typeahead over existing places</div>
+          <div class="picker-wrap">
+            <div class="pinput"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10Z"/><circle cx="12" cy="11" r="2.2"/></svg><input value="be" readonly></div>
+            <div class="popover" style="position:relative;top:6px;">
+              <button class="opt active"><span class="nm">Beit Midrash</span><span class="cap">1 group</span></button>
+              <button class="opt create"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg><span class="nm">Create “be”</span><span class="newtag">new place</span></button>
+            </div>
+          </div>
+        </div>
+        <div style="border:1px dashed var(--border);border-radius:10px;padding:16px;">
+          <div class="fieldlabel">b · a name that doesn’t exist yet</div>
+          <div class="picker-wrap">
+            <div class="pinput"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10Z"/><circle cx="12" cy="11" r="2.2"/></svg><input value="Lake" readonly></div>
+            <div class="popover" style="position:relative;top:6px;">
+              <button class="opt create"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg><span class="nm">Create “Lake” as a new place</span><span class="newtag">new</span></button>
+            </div>
+          </div>
+          <div class="subhint">Creates the place (1 group by default) and binds it. It shows up on the Locations screen later — no trip to go administer a list.</div>
+        </div>
+      </div>
+      <div class="two" style="margin-top:16px;">
+        <div style="border:1px dashed var(--border);border-radius:10px;padding:16px;">
+          <div class="fieldlabel">c · selected</div>
+          <div class="selected">
+            <svg class="pin" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10Z"/><circle cx="12" cy="11" r="2.2"/></svg>
+            <span class="nm">Pool</span><span class="meta">· 3 groups at once</span>
+            <button class="x" title="Clear">×</button>
+          </div>
+          <div class="subhint">The capacity meta reminds the director what the schedule will hold this activity to.</div>
+        </div>
+        <div style="border:1px dashed var(--border);border-radius:10px;padding:16px;">
+          <div class="fieldlabel">d · cleared / no place (valid — optional)</div>
+          <div class="picker-wrap">
+            <div class="pinput"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10Z"/><circle cx="12" cy="11" r="2.2"/></svg><input placeholder="Search or add a place…" readonly></div>
+          </div>
+          <div class="subhint">Leaving it blank is fine. Not every activity has a room.</div>
+        </div>
+      </div>
+    </div>
+    <p class="note"><b>Effortless is the requirement.</b> Typeahead filters as they type; the create row is the last option, set off by a hairline in forest-green so “this makes something new” reads instantly. Keyboard: ↑/↓ to move, Enter to pick, Esc to close. Popover uses the shared <span class="mono">popFade</span> (scale .97→1 + fade, 180ms).</p>
+  </div>
+
+  <!-- ============================ 3. FIRST-RUN MIGRATION REVIEW ============================ -->
+  <div class="section">
+    <div class="cap"><span class="n">3</span><h2>First-run reconciliation · the un-missable merge gate</h2><span class="tag">hard requirement — ADR + Red Hat</span></div>
+    <div class="pane" id="gatepane">
+      <span class="flabel">first open after upgrade</span>
+      <p class="intro" style="max-width:72ch;">The very first time Locations opens after the upgrade, Shoresh reconciles what it inferred from the old free-text data. Two places spelled differently (<b>Pool</b> / <b>pool</b>) are two separate rooms to the engine, silently splitting a capacity the director now trusts. So the merge is a <b>gate</b> — a blocking first-run step, not a banner you can scroll past.</p>
+      <button class="btnP launch" onclick="document.getElementById('gate').style.display='flex'">▶ Launch the gate</button>
+      <!-- the gate overlay (scoped to this pane so the owner can see it in context) -->
+      <div class="scrim" id="gate" style="display:none;">
+        <div class="gate fade-settle">
+          <div class="g-top">
+            <div class="g-eyebrow"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 7h8M8 12h8M8 17h5"/></svg> Before you start <span class="prog">1 of 1</span></div>
+            <h2>These look like the same place</h2>
+            <p class="g-lede">Your old schedule used <b>“Pool”</b> and <b>“pool”</b>. Shoresh kept them separate so it wouldn’t change your data without asking — but that splits how many groups fit. Merge them into one place, or say they’re genuinely different.</p>
+          </div>
+          <div class="g-cap" style="padding-top:14px;font-size:12px;color:var(--text-secondary);">Keep the spelling you want:</div>
+          <div class="variants" id="variants">
+            <div class="vrow pick" data-name="Pool"><span class="radio"></span><span class="vname">Pool</span><span class="vmeta">3 groups at once<br>4 activities here</span></div>
+            <div class="vrow" data-name="pool"><span class="radio"></span><span class="vname">pool</span><span class="vmeta">1 group at once<br>2 activities here</span></div>
+          </div>
+          <div class="g-cap">Room for <div class="stepper"><button type="button" onclick="capStep(-1)">–</button><input id="mcap" value="3"><button type="button" onclick="capStep(1)">+</button></div> groups at once after merging.</div>
+          <div class="g-actions">
+            <button class="g-merge" onclick="doMerge()">Merge into one place</button>
+            <button class="g-keep" onclick="closeGate('kept separate')">No — these are different places</button>
+            <div class="g-undo">You can undo this. The merged place stays in Trash if you change your mind.</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note"><b>Impossible to miss, still reversible, director in control.</b> A blocking overlay (not a dismissible chrome banner) with the deep-navy scrim from DESIGN_STANDARD. It steps one pair at a time (“1 of 1” here). “Merge” re-points both rooms’ activities to the surviving spelling and keeps the roomier capacity; “different places” is an explicit decision, not a wave-away. Both clear the gate. Everything is undoable (Trash). Motion: card Fade+Settle in; on decide, it settles closed and the screen behind is revealed.</p>
+  </div>
+
+  <div class="section">
+    <div class="cap"><span class="n">3</span><h2>First-run reconciliation · the softer capacity review</h2><span class="tag">after the gate clears</span></div>
+    <div class="pane">
+      <span class="flabel">advisory, dismissible — bronze, not red</span>
+      <p class="intro">Places at your camp and how many groups fit in each — the Pool, the Gym, the Beit Midrash.</p>
+      <!-- bronze caution strip (DESIGN_STANDARD §4 — attention, not error) -->
+      <div class="reviewstrip">
+        <div class="rhead">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+          <span class="rtitle">Shoresh set a few capacities from your old schedule</span>
+          <span class="rsub">2 to look at</span>
+        </div>
+        <!-- capacity_disagreement -->
+        <div class="ritem">
+          <div class="body"><b>Pool</b> — activities here asked for different limits (<span class="num">1</span> and <span class="num">3</span> groups at once). Shoresh kept the most room: <span class="num">3</span>.</div>
+          <div class="ctl"><div class="stepper"><button type="button">–</button><input value="3"><button type="button">+</button></div><button class="lookok">Looks right</button></div>
+        </div>
+        <!-- was_unlimited -->
+        <div class="ritem">
+          <div class="body"><b>The Gym</b> had no limit set and is now <b>one group at a time</b>. That may change a generated week or two — take a look before you regenerate.</div>
+          <div class="ctl"><div class="stepper"><button type="button">–</button><input value="1"><button type="button">+</button></div><button class="lookok">Looks right</button></div>
+        </div>
+      </div>
+      <div class="toolbar"><div class="count">4 places</div><div class="actions"><button class="btnD">Delete All</button></div></div>
+      <div class="card">
+        <table>
+          <thead><tr><th>Name</th><th>Groups at once</th><th>Notes</th><th style="text-align:right;">Actions</th></tr></thead>
+          <tbody>
+            <tr><td style="font-weight:500;">Beit Midrash</td><td class="capcell">1 group</td><td class="muted">—</td><td style="text-align:right;"><button class="btnS">Edit</button> <button class="btnD" style="margin-left:6px;">Delete</button></td></tr>
+            <tr><td style="font-weight:500;">Pool</td><td class="capcell">3 groups</td><td class="muted">—</td><td style="text-align:right;"><button class="btnS">Edit</button> <button class="btnD" style="margin-left:6px;">Delete</button></td></tr>
+            <tr><td style="font-weight:500;">The Gym</td><td class="capcell">1 group</td><td class="muted">—</td><td style="text-align:right;"><button class="btnS">Edit</button> <button class="btnD" style="margin-left:6px;">Delete</button></td></tr>
+            <tr><td style="font-weight:500;">Waterfront</td><td class="capcell">1 group</td><td class="muted">—</td><td style="text-align:right;"><button class="btnS">Edit</button> <button class="btnD" style="margin-left:6px;">Delete</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="note"><b>Progressive and honest, not a wall of alerts.</b> The gate handled the dangerous case; these two are advisory. Bronze (the caution hue), never red — red stays reserved for destructive/error. Each says exactly what happened and lets the director fix the number inline or accept it (“Looks right”). When all are handled the whole strip fades away.</p>
+  </div>
+
+  <div class="section">
+    <div class="cap"><span class="n">3</span><h2>First-run reconciliation · nothing to review</h2><span class="tag">fresh camp / a paired tablet</span></div>
+    <div class="pane">
+      <span class="flabel">empty journal = perfectly normal screen</span>
+      <p class="intro">Places at your camp and how many groups fit in each — the Pool, the Gym, the Beit Midrash.</p>
+      <div class="toolbar"><div class="count">2 places</div><div class="actions"><button class="btnD">Delete All</button></div></div>
+      <div class="card">
+        <table>
+          <thead><tr><th>Name</th><th>Groups at once</th><th>Notes</th><th style="text-align:right;">Actions</th></tr></thead>
+          <tbody>
+            <tr><td style="font-weight:500;">Pool</td><td class="capcell">2 groups</td><td class="muted">—</td><td style="text-align:right;"><button class="btnS">Edit</button> <button class="btnD" style="margin-left:6px;">Delete</button></td></tr>
+            <tr><td style="font-weight:500;">The Gym</td><td class="capcell">1 group</td><td class="muted">—</td><td style="text-align:right;"><button class="btnS">Edit</button> <button class="btnD" style="margin-left:6px;">Delete</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="note"><b>Required behavior:</b> the review journal is host-local and only exists where the migration ran over real data. A fresh camp, or a tablet that paired into an already-upgraded camp, has an empty journal — so <b>no review section renders at all</b>. The screen is just the list. No gate, no strip, no empty-review placeholder.</p>
+  </div>
+
+</div>
+
+<script>
+  // Live picker — the only interactive piece. Vanilla, lightweight.
+  const LOCS = [
+    {name:'Beit Midrash', cap:1},
+    {name:'Pool', cap:3},
+    {name:'The Gym', cap:2},
+    {name:'Waterfront', cap:1},
+  ];
+  const pin = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10Z"/><circle cx="12" cy="11" r="2.2"/></svg>';
+  const plus = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14"/></svg>';
+  const wrap = document.getElementById('picker');
+  let state = {q:'', open:false, selected:null, active:0};
+
+  function capMeta(c){ return c + (c===1?' group':' groups'); }
+
+  function render(){
+    if(state.selected){
+      const s = state.selected;
+      wrap.innerHTML =
+        '<div class="selected"><span class="pin">'+pin+'</span><span class="nm">'+s.name+'</span>'+
+        '<span class="meta">· '+capMeta(s.cap)+' at once</span>'+
+        '<button class="x" title="Clear" onclick="clearSel()">×</button></div>'+
+        '<div class="subhint">The schedule will keep this activity to '+capMeta(s.cap)+' here.</div>';
+      return;
+    }
+    const q = state.q.trim();
+    const matches = LOCS.filter(l => l.name.toLowerCase().includes(q.toLowerCase()));
+    const exact = LOCS.some(l => l.name.toLowerCase() === q.toLowerCase());
+    let pop = '';
+    if(state.open){
+      const rows = matches.map((m,i)=>
+        '<button class="opt'+(i===state.active?' active':'')+'" onmousedown="pickIdx('+i+')"><span class="nm">'+m.name+'</span><span class="cap">'+capMeta(m.cap)+'</span></button>').join('');
+      const create = (q && !exact)
+        ? '<button class="opt create" onmousedown="createNew()">'+plus+'<span class="nm">Create &ldquo;'+escapeHtml(q)+'&rdquo; as a new place</span><span class="newtag">new</span></button>'
+        : '';
+      const emptyMsg = (matches.length===0 && !q) ? '<div class="opt muted" style="cursor:default;">Type a place, or add a new one…</div>' : '';
+      pop = '<div class="popover pop">'+rows+emptyMsg+create+'</div>';
+    }
+    wrap.innerHTML =
+      '<div class="pinput"><span style="display:flex;color:var(--text-secondary)">'+pin+'</span>'+
+      '<input id="pq" placeholder="Search or add a place…" value="'+escapeHtml(state.q)+'"></div>'+pop;
+    const inp = document.getElementById('pq');
+    inp.oninput = e=>{ state.q=e.target.value; state.open=true; state.active=0; render(); document.getElementById('pq').focus(); moveCaretEnd(); };
+    inp.onfocus = ()=>{ state.open=true; render(); document.getElementById('pq').focus(); };
+    inp.onblur = ()=>{ setTimeout(()=>{ state.open=false; render(); }, 120); };
+    inp.onkeydown = e=>{
+      const m = LOCS.filter(l=>l.name.toLowerCase().includes(state.q.trim().toLowerCase()));
+      if(e.key==='ArrowDown'){ state.active=Math.min(state.active+1, m.length-1); render(); focusKeep(); e.preventDefault(); }
+      else if(e.key==='ArrowUp'){ state.active=Math.max(state.active-1,0); render(); focusKeep(); e.preventDefault(); }
+      else if(e.key==='Enter'){ if(m[state.active]) pickIdx(state.active); else if(state.q.trim()) createNew(); e.preventDefault(); }
+      else if(e.key==='Escape'){ state.open=false; render(); }
+    };
+  }
+  function focusKeep(){ const i=document.getElementById('pq'); if(i){i.focus();moveCaretEnd();} }
+  function moveCaretEnd(){ const i=document.getElementById('pq'); if(i){const v=i.value;i.value='';i.value=v;} }
+  function escapeHtml(s){ return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  window.pickIdx = i=>{ const m=LOCS.filter(l=>l.name.toLowerCase().includes(state.q.trim().toLowerCase())); state.selected=m[i]; state.open=false; render(); };
+  window.createNew = ()=>{ const nm=state.q.trim(); if(!nm)return; const loc={name:nm,cap:1}; LOCS.push(loc); state.selected=loc; state.open=false; render(); };
+  window.clearSel = ()=>{ state.selected=null; state.q=''; state.open=false; render(); };
+  render();
+
+  // Merge gate helpers
+  document.querySelectorAll('#variants .vrow').forEach(r=>{
+    r.onclick = ()=>{ document.querySelectorAll('#variants .vrow').forEach(x=>x.classList.remove('pick')); r.classList.add('pick'); };
+  });
+  window.capStep = d=>{ const i=document.getElementById('mcap'); i.value=Math.max(1, (parseInt(i.value)||1)+d); };
+  window.doMerge = ()=>{ const keep=document.querySelector('#variants .vrow.pick').dataset.name; const cap=document.getElementById('mcap').value; closeGate('merged into “'+keep+'” · '+cap+' groups'); };
+  window.closeGate = msg=>{
+    const g=document.getElementById('gate'); const pane=document.getElementById('gatepane');
+    g.style.display='none';
+    let m=document.getElementById('gatedone'); if(!m){ m=document.createElement('div'); m.id='gatedone'; m.style.marginTop='12px'; pane.appendChild(m); }
+    m.innerHTML='<span class="resolved-tick">✓ Resolved — '+msg+'.</span> <button class="btnGhost" onclick="document.getElementById(\'gate\').style.display=\'flex\'">replay</button>';
+  };
+</script>
+</body>
+</html>

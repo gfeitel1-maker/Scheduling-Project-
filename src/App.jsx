@@ -12,6 +12,7 @@ import TiersScreen from './screens/TiersScreen'
 import GroupsScreen from './screens/GroupsScreen'
 import TimeBlocksScreen from './screens/TimeBlocksScreen'
 import ActivitiesScreen from './screens/ActivitiesScreen'
+import LocationsScreen from './screens/LocationsScreen'
 import AnchorsScreen from './screens/AnchorsScreen'
 import DaysScreen from './screens/DaysScreen'
 import CohortsScreen from './screens/CohortsScreen'
@@ -39,6 +40,7 @@ const SCREENS = {
   days:         DaysScreen,
   timeblocks:   TimeBlocksScreen,
   activities:   ActivitiesScreen,
+  locations:    LocationsScreen,
   anchors:      AnchorsScreen,
   dayoverrides: DayOverridesScreen,
   // Two routes to a week, two sidebar destinations, one screen. Neither is the

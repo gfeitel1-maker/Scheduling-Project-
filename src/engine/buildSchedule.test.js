@@ -361,6 +361,85 @@ describe('place capacity keyed by location_id (M2)', () => {
   })
 })
 
+// M3a round-2 (both reviewers converged) — capacity-lookup robustness.
+// FIX 1: an activity's location_id that resolves to NOTHING in `locations`
+// (a deleted place, a dangling reference from a cross-device race, or a
+// stale import) must be treated exactly like location_id: null — no
+// place-capacity constraint — not silently pinned to capacity 1 by `?? 1`.
+// FIX 2: a stored `locations.capacity` of 0 or negative must not block all
+// placement; it floors to 1, consistent with M1's migration and the
+// CapacityStepper's min.
+describe('capacity-lookup robustness (M3a round-2)', () => {
+  const mDay = { id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }
+  const mBlock = { id: 'b1', name: 'Morning', start_time: '09:00', end_time: '10:00', sort_order: 0, part_of_day: 'morning' }
+  const grp = (id, tierId = 't1') => ({ id, name: id, tier_id: tierId, availability: 'all' })
+  const mAct = (over = {}) => ({
+    id: 'a', name: 'A', priority: 'low', max_per_week: 5, min_per_week: 0, span_blocks: 1,
+    is_outdoor: false, location: null, location_id: null, max_groups_per_slot: 5, same_tier_only: false,
+    eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null,
+    ...over,
+  })
+
+  function run({ activities, locations = [], groups, tiers = [{ id: 't1', name: 'Junior' }] }) {
+    return buildSchedule({
+      groups, tiers, days: [mDay], timeBlocks: [mBlock],
+      activities, anchors: [], campId: 'test', locations,
+    })
+  }
+
+  function groupsAtPlace(slots, activityIds) {
+    const set = new Set(activityIds)
+    return slots.filter(s => s.type === 'activity' && s.dayId === 'd1' && s.blockId === 'b1' && set.has(s.activityId)).length
+  }
+
+  it('a location_id absent from locations is unconstrained, not capacity 1', () => {
+    const groups = [grp('g1'), grp('g2'), grp('g3')]
+    const a1 = mAct({ id: 'a1', location_id: 'ghost', max_groups_per_slot: 3, priority: 'high' })
+    const { slots } = run({ activities: [a1], locations: [], groups })
+    expect(groupsAtPlace(slots, ['a1'])).toBe(3)
+  })
+
+  it('emits a finding for an activity bound to a non-existent location', () => {
+    const groups = [grp('g1')]
+    const a1 = mAct({ id: 'a1', name: 'Ghost Activity', location_id: 'ghost', max_groups_per_slot: 1, priority: 'high' })
+    const { findings } = run({ activities: [a1], locations: [], groups })
+    expect(findings.some(f => f.kind === 'DANGLING_LOCATION' && f.activityId === 'a1')).toBe(true)
+  })
+
+  it('a real, mapped location_id still enforces its capacity (control, unchanged)', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Pool', capacity: 1 }]
+    const groups = [grp('g1'), grp('g2'), grp('g3')]
+    const a1 = mAct({ id: 'a1', location_id: 'L', max_groups_per_slot: 3, priority: 'high' })
+    const { slots, findings } = run({ activities: [a1], locations, groups })
+    expect(groupsAtPlace(slots, ['a1'])).toBe(1)
+    expect(findings.some(f => f.kind === 'DANGLING_LOCATION')).toBe(false)
+  })
+
+  it('a stored capacity of 0 does not block all placement — floors to 1', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Broken', capacity: 0 }]
+    const groups = [grp('g1'), grp('g2')]
+    const a1 = mAct({ id: 'a1', location_id: 'L', max_groups_per_slot: 2, priority: 'high' })
+    const { slots } = run({ activities: [a1], locations, groups })
+    expect(groupsAtPlace(slots, ['a1'])).toBe(1)
+  })
+
+  it('a stored capacity of -1 also floors to 1', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Broken', capacity: -1 }]
+    const groups = [grp('g1'), grp('g2')]
+    const a1 = mAct({ id: 'a1', location_id: 'L', max_groups_per_slot: 2, priority: 'high' })
+    const { slots } = run({ activities: [a1], locations, groups })
+    expect(groupsAtPlace(slots, ['a1'])).toBe(1)
+  })
+
+  it('is deterministic with a dangling location_id', () => {
+    const groups = [grp('g1'), grp('g2')]
+    const a1 = mAct({ id: 'a1', location_id: 'ghost', max_groups_per_slot: 2, priority: 'high' })
+    const r1 = run({ activities: [a1], locations: [], groups })
+    const r2 = run({ activities: [a1], locations: [], groups })
+    expect(JSON.stringify(r1.slots)).toBe(JSON.stringify(r2.slots))
+  })
+})
+
 // M2 round-2 (Red Hat) — a multi-block span occupies its PLACE at every block
 // it spans, so canPlace must check place capacity + same_tier_only at each TAIL
 // block, not only the head. Previously the span loop checked tail cell-freeness

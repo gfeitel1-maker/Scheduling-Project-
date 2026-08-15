@@ -14,7 +14,9 @@ export const ENTITY_LABEL = {
   time_blocks: 'Time block',
   anchor_activities: 'Fixed event',
   day_override_templates: 'Day override',
-  locations: 'Location',
+  // "Place", not "Location" — the director's word, per the M3 design spec
+  // (docs/work/specs/2026-08-15-m3-locations-design.md Part 1 Copy).
+  locations: 'Place',
 }
 
 export function entityLabel(entity) {
@@ -132,6 +134,8 @@ const RESTORE_CAVEAT = {
     'Its week did not come back with it, though. You can bring that back from Versions on the Schedule screen.',
   days_of_operation:
     'What was scheduled on it did not come back, though. You can bring that back from Versions on the Schedule screen.',
+  locations:
+    'Activities that pointed to it are not re-bound, though — you will need to set their place again.',
 }
 
 export function restoreCaveat(entity) {
