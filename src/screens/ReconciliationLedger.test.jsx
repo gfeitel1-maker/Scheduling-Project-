@@ -7,7 +7,7 @@
 // this ledger, held routes to T73) is covered in ImportScreen.ledger.test.jsx.
 
 import { describe, it, expect, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { ReconciliationLedger } from './ReconciliationLedger'
