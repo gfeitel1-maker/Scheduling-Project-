@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { normalizeName } from '../../ingest/preview.js'
+import { isActivityEligibleForGroup } from '../../engine/eligibility'
 
 // The per-cell slot / overlay mutation cluster (T32), over the T28 repository.
 // Every handler follows the same shape: read the target from `slots` ->
@@ -170,6 +171,42 @@ export function useSlotMutations({
     return run
   }
 
+  // runMutation({ keys, claimId, dispatch, getError, onError, onSuccess }) —
+  // T82 (F1): names, once, the claim -> chain -> dispatch -> bail-on-drop/error
+  // -> onSuccess shape every mutation (forward, undo, redo) repeats around
+  // claimAndRun. Every forward/undo/redo call site in this file goes through
+  // this instead of calling claimAndRun directly.
+  //
+  // `dispatch` is still 100% caller-owned, on purpose: whether a given
+  // dispatch catches its own write error internally (every forward path, and
+  // undo/redo for replaceSlot/expandSlot/splitSlot) or lets one propagate
+  // uncaught (placeActivityManual's undo/redo, which never wrapped their
+  // write in try/catch) is a pre-existing split this extraction must not
+  // paper over — adding a try/catch here would silently change a rejecting
+  // undo()/redo() into a resolving one for those two closures. So runMutation
+  // never touches `dispatch`'s internals: a caller whose dispatch already
+  // catches passes `getError` to report what it caught; a caller whose
+  // dispatch doesn't catch simply omits `getError`, and an uncaught throw
+  // still propagates out of the `await claimAndRun(...)` below exactly as it
+  // did before this extraction.
+  //
+  // Return shape mirrors what every call site already checked by hand:
+  // `{ dropped: true }` on a superseded claim (no onError, no onSuccess —
+  // finding 1/2's multi-cell atomicity: nothing fires for a dropped op),
+  // `{ error }` when getError() reports one (onError fires, no onSuccess),
+  // otherwise onSuccess fires with the dispatch's own result.
+  async function runMutation({ keys, claimId, dispatch, getError, onError, onSuccess }) {
+    const outcome = await claimAndRun(keys, claimId, dispatch)
+    const error = getError ? getError() : undefined
+    if (error) {
+      onError?.(error)
+      return { dropped: false, error }
+    }
+    if (outcome.dropped) return { dropped: true }
+    onSuccess?.(outcome.result)
+    return { dropped: false }
+  }
+
   async function replaceSlot(incoming, target, gestureId) {
     // incoming: { groupId?, dayId?, blockId?, activityId } — coords present only
     // for a grid-to-grid drag; a palette drop supplies activityId alone.
@@ -216,35 +253,37 @@ export function useSlotMutations({
     const prevSourceFlags = freshSourceRow?.flags ?? {}
 
     let writeError = null
-    const outcome = await claimAndRun(keys, claimId, async () => {
-      try {
-        const writes = [repo.writeSlotFields(targetRow.id, { activity_id: incoming.activityId, flags: {} })]
-        if (sourceRow) writes.push(repo.writeSlotFields(sourceRow.id, { activity_id: null, flags: {} }))
-        await Promise.all(writes)
-      } catch (err) {
-        writeError = err
-      }
+    const { dropped } = await runMutation({
+      keys,
+      claimId,
+      dispatch: async () => {
+        try {
+          const writes = [repo.writeSlotFields(targetRow.id, { activity_id: incoming.activityId, flags: {} })]
+          if (sourceRow) writes.push(repo.writeSlotFields(sourceRow.id, { activity_id: null, flags: {} }))
+          await Promise.all(writes)
+        } catch (err) {
+          writeError = err
+        }
+      },
+      getError: () => writeError,
+      onError: (err) => setActionError(describeWriteFailure(err, 'That activity could not be placed.')),
+      onSuccess: () => {
+        setSlots(prev => {
+          const next = prev.map(s => {
+            if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+              return { ...s, activity_id: incoming.activityId, flags: {} }
+            if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
+              return { ...s, activity_id: null, flags: {} }
+            return s
+          })
+          recalcStats(next)
+          recalcFindings(next)
+          slotsRef.current = next
+          return next
+        })
+      },
     })
-
-    if (writeError) {
-      setActionError(describeWriteFailure(writeError, 'That activity could not be placed.'))
-      return
-    }
-    if (outcome.dropped) return // fully superseded before dispatch: no write, no setSlots, no pushUndo
-
-    setSlots(prev => {
-      const next = prev.map(s => {
-        if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-          return { ...s, activity_id: incoming.activityId, flags: {} }
-        if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
-          return { ...s, activity_id: null, flags: {} }
-        return s
-      })
-      recalcStats(next)
-      recalcFindings(next)
-      slotsRef.current = next
-      return next
-    })
+    if (writeError || dropped) return // fully superseded before dispatch, or write failed: no setSlots, no pushUndo
 
     const incomingActivity = activities.find(a => a.id === incoming.activityId)
     const occupantActivity = activities.find(a => a.id === prevTargetActivityId)
@@ -260,48 +299,60 @@ export function useSlotMutations({
         // newer gesture has since claimed the cell either queues correctly
         // behind it or is itself dropped, never dispatched out of order.
         let undoWriteError = null
-        const undoOutcome = await claimAndRun(keys, crypto.randomUUID(), async () => {
-          try {
-            await Promise.all([
-              repo.writeSlotFields(targetRow.id, { activity_id: prevTargetActivityId, flags: prevTargetFlags }),
-              ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { activity_id: prevSourceActivityId, flags: prevSourceFlags })] : []),
-            ])
-          } catch (err) { undoWriteError = err }
-        })
-        if (undoWriteError || undoOutcome.dropped) return
-        setSlots(prev => {
-          const next = prev.map(s => {
-            if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-              return { ...s, activity_id: prevTargetActivityId, flags: prevTargetFlags }
-            if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
-              return { ...s, activity_id: prevSourceActivityId, flags: prevSourceFlags }
-            return s
-          })
-          slotsRef.current = next
-          return next
+        await runMutation({
+          keys,
+          claimId: crypto.randomUUID(),
+          dispatch: async () => {
+            try {
+              await Promise.all([
+                repo.writeSlotFields(targetRow.id, { activity_id: prevTargetActivityId, flags: prevTargetFlags }),
+                ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { activity_id: prevSourceActivityId, flags: prevSourceFlags })] : []),
+              ])
+            } catch (err) { undoWriteError = err }
+          },
+          getError: () => undoWriteError,
+          onSuccess: () => {
+            setSlots(prev => {
+              const next = prev.map(s => {
+                if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+                  return { ...s, activity_id: prevTargetActivityId, flags: prevTargetFlags }
+                if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
+                  return { ...s, activity_id: prevSourceActivityId, flags: prevSourceFlags }
+                return s
+              })
+              slotsRef.current = next
+              return next
+            })
+          },
         })
       },
       redo: async () => {
         let redoWriteError = null
-        const redoOutcome = await claimAndRun(keys, crypto.randomUUID(), async () => {
-          try {
-            await Promise.all([
-              repo.writeSlotFields(targetRow.id, { activity_id: incoming.activityId, flags: {} }),
-              ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { activity_id: null, flags: {} })] : []),
-            ])
-          } catch (err) { redoWriteError = err }
-        })
-        if (redoWriteError || redoOutcome.dropped) return
-        setSlots(prev => {
-          const next = prev.map(s => {
-            if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-              return { ...s, activity_id: incoming.activityId, flags: {} }
-            if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
-              return { ...s, activity_id: null, flags: {} }
-            return s
-          })
-          slotsRef.current = next
-          return next
+        await runMutation({
+          keys,
+          claimId: crypto.randomUUID(),
+          dispatch: async () => {
+            try {
+              await Promise.all([
+                repo.writeSlotFields(targetRow.id, { activity_id: incoming.activityId, flags: {} }),
+                ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { activity_id: null, flags: {} })] : []),
+              ])
+            } catch (err) { redoWriteError = err }
+          },
+          getError: () => redoWriteError,
+          onSuccess: () => {
+            setSlots(prev => {
+              const next = prev.map(s => {
+                if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+                  return { ...s, activity_id: incoming.activityId, flags: {} }
+                if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
+                  return { ...s, activity_id: null, flags: {} }
+                return s
+              })
+              slotsRef.current = next
+              return next
+            })
+          },
         })
       },
     })
@@ -411,11 +462,7 @@ export function useSlotMutations({
     if (!activity) return
 
     const group = groups.find(g => g.id === groupId)
-    const tierIds = activity.eligible_tier_ids || []
-    const groupIds = activity.eligible_group_ids || []
-    const eligible = (tierIds.length === 0 && groupIds.length === 0)
-      || tierIds.includes(group?.tier_id)
-      || groupIds.includes(groupId)
+    const eligible = isActivityEligibleForGroup(activity, group)
 
     // M3b re-key, round 2 (was activity-keyed/place-blind — see history
     // below): `locationFull` on the generated route checks BOTH caps ADR D2
@@ -487,64 +534,76 @@ export function useSlotMutations({
 
     setActionError(null)
     let writeError = null
-    const outcome = await claimAndRun([key], claimId, async () => {
-      try {
-        await repo.writeSlotFields(slot.id, { activity_id: activityId, flags })
-      } catch (err) {
-        writeError = err
-      }
-    })
-
-    if (writeError) {
-      setActionError(describeWriteFailure(writeError, 'That activity could not be placed.'))
-      return
-    }
-    if (outcome.dropped) return // fully superseded before dispatch: no write, no setSlots, no pushUndo
-
-    setSlots(prev => {
-      const next = prev.map(s =>
-        s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-          ? { ...s, activity_id: activityId, flags }
-          : s
-      )
-      recalcStats(next)
-      recalcFindings(next)
-      slotsRef.current = next
-      return next
-    })
-
-    const day = days.find(d => d.id === dayId)
-    const block = timeBlocks.find(b => b.id === blockId)
-    pushUndo({
-      description: `Placed ${activity.name} → ${group?.name ?? groupId} ${day?.label ?? dayId} ${block?.name ?? blockId}`,
-      undo: async () => {
-        const undoOutcome = await claimAndRun([key], crypto.randomUUID(), async () => {
-          await repo.writeSlotFields(slot.id, { activity_id: prevActivityId, flags: prevFlags })
-        })
-        if (undoOutcome.dropped) return
-        setSlots(prev => {
-          const next = prev.map(s =>
-            s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-              ? { ...s, activity_id: prevActivityId, flags: prevFlags }
-              : s
-          )
-          slotsRef.current = next
-          return next
-        })
-      },
-      redo: async () => {
-        const redoOutcome = await claimAndRun([key], crypto.randomUUID(), async () => {
+    const { dropped } = await runMutation({
+      keys: [key],
+      claimId,
+      dispatch: async () => {
+        try {
           await repo.writeSlotFields(slot.id, { activity_id: activityId, flags })
-        })
-        if (redoOutcome.dropped) return
+        } catch (err) {
+          writeError = err
+        }
+      },
+      getError: () => writeError,
+      onError: (err) => setActionError(describeWriteFailure(err, 'That activity could not be placed.')),
+      onSuccess: () => {
         setSlots(prev => {
           const next = prev.map(s =>
             s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
               ? { ...s, activity_id: activityId, flags }
               : s
           )
+          recalcStats(next)
+          recalcFindings(next)
           slotsRef.current = next
           return next
+        })
+      },
+    })
+    if (writeError || dropped) return // fully superseded before dispatch, or write failed: no setSlots, no pushUndo
+
+    const day = days.find(d => d.id === dayId)
+    const block = timeBlocks.find(b => b.id === blockId)
+    pushUndo({
+      description: `Placed ${activity.name} → ${group?.name ?? groupId} ${day?.label ?? dayId} ${block?.name ?? blockId}`,
+      undo: async () => {
+        await runMutation({
+          keys: [key],
+          claimId: crypto.randomUUID(),
+          dispatch: async () => {
+            await repo.writeSlotFields(slot.id, { activity_id: prevActivityId, flags: prevFlags })
+          },
+          onSuccess: () => {
+            setSlots(prev => {
+              const next = prev.map(s =>
+                s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
+                  ? { ...s, activity_id: prevActivityId, flags: prevFlags }
+                  : s
+              )
+              slotsRef.current = next
+              return next
+            })
+          },
+        })
+      },
+      redo: async () => {
+        await runMutation({
+          keys: [key],
+          claimId: crypto.randomUUID(),
+          dispatch: async () => {
+            await repo.writeSlotFields(slot.id, { activity_id: activityId, flags })
+          },
+          onSuccess: () => {
+            setSlots(prev => {
+              const next = prev.map(s =>
+                s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
+                  ? { ...s, activity_id: activityId, flags }
+                  : s
+              )
+              slotsRef.current = next
+              return next
+            })
+          },
         })
       },
     })
@@ -585,80 +644,94 @@ export function useSlotMutations({
     const prevTailActivityId = freshTailSlot.activity_id ?? null
 
     let writeError = null
-    const outcome = await claimAndRun(keys, claimId, async () => {
-      try {
-        // Update tail slot: now owned by head activity, marked as tail (is_span_head = false)
-        await repo.writeSlotFields(tailSlot.id, { activity_id: headActivityId, is_span_head: false })
-        // Write flag to head slot
-        await repo.writeSlotFields(headSlot.id, { flags: newFlags })
-      } catch (err) {
-        writeError = err
-      }
-    })
-
-    if (writeError) {
-      setActionError(describeWriteFailure(writeError, 'That activity could not be made longer.'))
-      return
-    }
-    if (outcome.dropped) return // fully superseded before dispatch: no write, no setSlots, no pushUndo
-
-    // Update local state
-    setSlots(prev => {
-      const next = prev.map(s => {
-        if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId) {
-          return { ...s, activity_id: headActivityId, is_span_head: false }
+    const { dropped } = await runMutation({
+      keys,
+      claimId,
+      dispatch: async () => {
+        try {
+          // Update tail slot: now owned by head activity, marked as tail (is_span_head = false)
+          await repo.writeSlotFields(tailSlot.id, { activity_id: headActivityId, is_span_head: false })
+          // Write flag to head slot
+          await repo.writeSlotFields(headSlot.id, { flags: newFlags })
+        } catch (err) {
+          writeError = err
         }
-        if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId) {
-          return { ...s, flags: newFlags }
-        }
-        return s
-      })
-      slotsRef.current = next
-      return next
-    })
-
-    pushUndo({
-      description: `Made ${headActivityId ? actMap.get(headActivityId)?.name ?? 'an activity' : 'an activity'} run longer → ${tailBlockName} ${dayLabel}`,
-      undo: async () => {
-        let undoWriteError = null
-        const undoOutcome = await claimAndRun(keys, crypto.randomUUID(), async () => {
-          try {
-            await repo.writeSlotFields(tailSlot.id, { activity_id: prevTailActivityId, is_span_head: true })
-            await repo.writeSlotFields(headSlot.id, { flags: prevHeadFlags })
-          } catch (err) { undoWriteError = err }
-        })
-        if (undoWriteError || undoOutcome.dropped) return
+      },
+      getError: () => writeError,
+      onError: (err) => setActionError(describeWriteFailure(err, 'That activity could not be made longer.')),
+      onSuccess: () => {
+        // Update local state
         setSlots(prev => {
           const next = prev.map(s => {
-            if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-              return { ...s, activity_id: prevTailActivityId, is_span_head: true }
-            if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-              return { ...s, flags: prevHeadFlags }
+            if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId) {
+              return { ...s, activity_id: headActivityId, is_span_head: false }
+            }
+            if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId) {
+              return { ...s, flags: newFlags }
+            }
             return s
           })
           slotsRef.current = next
           return next
         })
       },
+    })
+    if (writeError || dropped) return // fully superseded before dispatch, or write failed: no setSlots, no pushUndo
+
+    pushUndo({
+      description: `Made ${headActivityId ? actMap.get(headActivityId)?.name ?? 'an activity' : 'an activity'} run longer → ${tailBlockName} ${dayLabel}`,
+      undo: async () => {
+        let undoWriteError = null
+        await runMutation({
+          keys,
+          claimId: crypto.randomUUID(),
+          dispatch: async () => {
+            try {
+              await repo.writeSlotFields(tailSlot.id, { activity_id: prevTailActivityId, is_span_head: true })
+              await repo.writeSlotFields(headSlot.id, { flags: prevHeadFlags })
+            } catch (err) { undoWriteError = err }
+          },
+          getError: () => undoWriteError,
+          onSuccess: () => {
+            setSlots(prev => {
+              const next = prev.map(s => {
+                if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+                  return { ...s, activity_id: prevTailActivityId, is_span_head: true }
+                if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+                  return { ...s, flags: prevHeadFlags }
+                return s
+              })
+              slotsRef.current = next
+              return next
+            })
+          },
+        })
+      },
       redo: async () => {
         let redoWriteError = null
-        const redoOutcome = await claimAndRun(keys, crypto.randomUUID(), async () => {
-          try {
-            await repo.writeSlotFields(tailSlot.id, { activity_id: headActivityId, is_span_head: false })
-            await repo.writeSlotFields(headSlot.id, { flags: newFlags })
-          } catch (err) { redoWriteError = err }
-        })
-        if (redoWriteError || redoOutcome.dropped) return
-        setSlots(prev => {
-          const next = prev.map(s => {
-            if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-              return { ...s, activity_id: headActivityId, is_span_head: false }
-            if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-              return { ...s, flags: newFlags }
-            return s
-          })
-          slotsRef.current = next
-          return next
+        await runMutation({
+          keys,
+          claimId: crypto.randomUUID(),
+          dispatch: async () => {
+            try {
+              await repo.writeSlotFields(tailSlot.id, { activity_id: headActivityId, is_span_head: false })
+              await repo.writeSlotFields(headSlot.id, { flags: newFlags })
+            } catch (err) { redoWriteError = err }
+          },
+          getError: () => redoWriteError,
+          onSuccess: () => {
+            setSlots(prev => {
+              const next = prev.map(s => {
+                if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+                  return { ...s, activity_id: headActivityId, is_span_head: false }
+                if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+                  return { ...s, flags: newFlags }
+                return s
+              })
+              slotsRef.current = next
+              return next
+            })
+          },
         })
       },
     })
@@ -694,32 +767,34 @@ export function useSlotMutations({
     const prevTailFlags = freshTailSlot.flags ?? {}
 
     let writeError = null
-    const outcome = await claimAndRun(keys, claimId, async () => {
-      try {
-        await repo.writeSlotFields(tailSlot.id, { activity_id: null, is_span_head: true, flags: {} })
-        await repo.writeSlotFields(headSlot.id, { flags: cleanedFlags })
-      } catch (err) {
-        writeError = err
-      }
+    const { dropped } = await runMutation({
+      keys,
+      claimId,
+      dispatch: async () => {
+        try {
+          await repo.writeSlotFields(tailSlot.id, { activity_id: null, is_span_head: true, flags: {} })
+          await repo.writeSlotFields(headSlot.id, { flags: cleanedFlags })
+        } catch (err) {
+          writeError = err
+        }
+      },
+      getError: () => writeError,
+      onError: (err) => setActionError(describeWriteFailure(err, 'That activity could not be split back into two.')),
+      onSuccess: () => {
+        setSlots(prev => {
+          const next = prev.map(s => {
+            if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+              return { ...s, activity_id: null, is_span_head: true, flags: {} }
+            if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+              return { ...s, flags: cleanedFlags }
+            return s
+          })
+          slotsRef.current = next
+          return next
+        })
+      },
     })
-
-    if (writeError) {
-      setActionError(describeWriteFailure(writeError, 'That activity could not be split back into two.'))
-      return
-    }
-    if (outcome.dropped) return // fully superseded before dispatch: no write, no setSlots, no pushUndo
-
-    setSlots(prev => {
-      const next = prev.map(s => {
-        if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-          return { ...s, activity_id: null, is_span_head: true, flags: {} }
-        if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-          return { ...s, flags: cleanedFlags }
-        return s
-      })
-      slotsRef.current = next
-      return next
-    })
+    if (writeError || dropped) return // fully superseded before dispatch, or write failed: no setSlots, no pushUndo
 
     pushUndo({
       // T18: was `Split merged slot ${headBlockId}` — a raw uuid in a tooltip.
@@ -731,44 +806,56 @@ export function useSlotMutations({
       })(),
       undo: async () => {
         let undoWriteError = null
-        const undoOutcome = await claimAndRun(keys, crypto.randomUUID(), async () => {
-          try {
-            await repo.writeSlotFields(tailSlot.id, { activity_id: prevTailActivityId, is_span_head: prevTailIsSpanHead ?? false, flags: prevTailFlags })
-            await repo.writeSlotFields(headSlot.id, { flags: prevHeadFlags })
-          } catch (err) { undoWriteError = err }
-        })
-        if (undoWriteError || undoOutcome.dropped) return
-        setSlots(prev => {
-          const next = prev.map(s => {
-            if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-              return { ...s, activity_id: prevTailActivityId, is_span_head: prevTailIsSpanHead ?? false }
-            if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-              return { ...s, flags: prevHeadFlags }
-            return s
-          })
-          slotsRef.current = next
-          return next
+        await runMutation({
+          keys,
+          claimId: crypto.randomUUID(),
+          dispatch: async () => {
+            try {
+              await repo.writeSlotFields(tailSlot.id, { activity_id: prevTailActivityId, is_span_head: prevTailIsSpanHead ?? false, flags: prevTailFlags })
+              await repo.writeSlotFields(headSlot.id, { flags: prevHeadFlags })
+            } catch (err) { undoWriteError = err }
+          },
+          getError: () => undoWriteError,
+          onSuccess: () => {
+            setSlots(prev => {
+              const next = prev.map(s => {
+                if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+                  return { ...s, activity_id: prevTailActivityId, is_span_head: prevTailIsSpanHead ?? false }
+                if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+                  return { ...s, flags: prevHeadFlags }
+                return s
+              })
+              slotsRef.current = next
+              return next
+            })
+          },
         })
       },
       redo: async () => {
         let redoWriteError = null
-        const redoOutcome = await claimAndRun(keys, crypto.randomUUID(), async () => {
-          try {
-            await repo.writeSlotFields(tailSlot.id, { activity_id: null, is_span_head: true, flags: {} })
-            await repo.writeSlotFields(headSlot.id, { flags: cleanedFlags })
-          } catch (err) { redoWriteError = err }
-        })
-        if (redoWriteError || redoOutcome.dropped) return
-        setSlots(prev => {
-          const next = prev.map(s => {
-            if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
-              return { ...s, activity_id: null, is_span_head: true, flags: {} }
-            if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
-              return { ...s, flags: cleanedFlags }
-            return s
-          })
-          slotsRef.current = next
-          return next
+        await runMutation({
+          keys,
+          claimId: crypto.randomUUID(),
+          dispatch: async () => {
+            try {
+              await repo.writeSlotFields(tailSlot.id, { activity_id: null, is_span_head: true, flags: {} })
+              await repo.writeSlotFields(headSlot.id, { flags: cleanedFlags })
+            } catch (err) { redoWriteError = err }
+          },
+          getError: () => redoWriteError,
+          onSuccess: () => {
+            setSlots(prev => {
+              const next = prev.map(s => {
+                if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
+                  return { ...s, activity_id: null, is_span_head: true, flags: {} }
+                if (s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
+                  return { ...s, flags: cleanedFlags }
+                return s
+              })
+              slotsRef.current = next
+              return next
+            })
+          },
         })
       },
     })

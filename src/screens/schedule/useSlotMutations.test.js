@@ -710,6 +710,173 @@ describe('useSlotMutations — placeActivityManual same-cell race (2026-08-12 AD
   })
 })
 
+// T82 characterization (written BEFORE the runMutation envelope extraction):
+// pins the write-error short-circuit (setActionError called, no setSlots, no
+// pushUndo) for all four mutations that will be routed through the envelope,
+// and pins a full undo->redo->undo round trip for the three mutations that
+// previously only had an undo-only or redo-only test (replaceSlot already has
+// separate undo and redo coverage above, folded into one round trip here too
+// so all four mutations get the identical shape of regression net).
+describe('useSlotMutations — T82 characterization: write-error short-circuits', () => {
+  it('replaceSlot: a failed write sets the action error and pushes no undo, no setSlots call', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} },
+    ]
+    const repo = makeRepo({ writeSlotFields: vi.fn(async () => { throw new Error('boom') }) })
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }], repo })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.setActionError).toHaveBeenCalled()
+    expect(props.routeState.setSlots).not.toHaveBeenCalled()
+    expect(props.pushUndo).not.toHaveBeenCalled()
+  })
+
+  it('placeActivityManual: a failed write sets the action error and pushes no undo, no setSlots call', async () => {
+    const slot = { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} }
+    const repo = makeRepo({ writeSlotFields: vi.fn(async () => { throw new Error('boom') }) })
+    const { hook, props } = setup({
+      slots: [slot], groups: [{ id: 'g1', tier_id: 't1' }], activities: [{ id: 'a1', name: 'Swim' }], repo,
+    })
+    await act(async () => { await hook.result.current.placeActivityManual('a1', 'g1', 'd1', 'b1') })
+    expect(props.setActionError).toHaveBeenCalled()
+    expect(props.routeState.setSlots).not.toHaveBeenCalled()
+    expect(props.pushUndo).not.toHaveBeenCalled()
+  })
+
+  it('expandSlot: a failed write sets the action error and pushes no undo, no setSlots call', async () => {
+    const headSlot = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', flags: {}, is_span_head: true }
+    const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actTail', flags: {}, is_span_head: true }
+    const activities = [{ id: 'actHead', name: 'Swim' }, { id: 'actTail', name: 'Archery' }]
+    const repo = makeRepo({ writeSlotFields: vi.fn(async () => { throw new Error('boom') }) })
+    const { hook, props } = setup({ slots: [headSlot, tailSlot], activities, repo })
+    await act(async () => {
+      await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', 'actTail', 'Archery', 'Block 2', 'Mon')
+    })
+    expect(props.setActionError).toHaveBeenCalled()
+    expect(props.routeState.setSlots).not.toHaveBeenCalled()
+    expect(props.pushUndo).not.toHaveBeenCalled()
+  })
+
+  it('splitSlot: a failed write sets the action error and pushes no undo, no setSlots call', async () => {
+    const headSlot = {
+      id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', is_span_head: true,
+      flags: { expanded: { displacedActivityId: 'actTail', displacedActivityName: 'Archery', from_block: 'b2' } },
+    }
+    const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actHead', is_span_head: false }
+    const timeBlocks = [{ id: 'b1', name: 'Block 1', sort_order: 1 }, { id: 'b2', name: 'Block 2', sort_order: 2 }]
+    const days = [{ id: 'd1', label: 'Mon' }]
+    const repo = makeRepo({ writeSlotFields: vi.fn(async () => { throw new Error('boom') }) })
+    const { hook, props } = setup({ slots: [headSlot, tailSlot], timeBlocks, days, repo })
+    await act(async () => { await hook.result.current.splitSlot('g1', 'd1', 'b1') })
+    expect(props.setActionError).toHaveBeenCalled()
+    expect(props.routeState.setSlots).not.toHaveBeenCalled()
+    expect(props.pushUndo).not.toHaveBeenCalled()
+  })
+})
+
+describe('useSlotMutations — T82 characterization: undo -> redo -> undo round trips', () => {
+  it('replaceSlot: undo -> redo -> undo cycles cleanly through the repo and state', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-occupant', flags: { someFlag: true } },
+    ]
+    const activities = [{ id: 'act-1', name: 'Swim' }, { id: 'act-occupant', name: 'Art' }]
+    const setSlots = statefulSetSlots(slots)
+    const { hook, props } = setup({ slots, activities, routeState: { setSlots: setSlots.fn } })
+
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    const entry = props.pushUndo.mock.calls[0][0]
+    expect(setSlots.get().find(s => s.id === 'row-target').activity_id).toBe('act-1')
+
+    await act(async () => { await entry.undo() })
+    expect(setSlots.get().find(s => s.id === 'row-target').activity_id).toBe('act-occupant')
+
+    await act(async () => { await entry.redo() })
+    expect(setSlots.get().find(s => s.id === 'row-target').activity_id).toBe('act-1')
+
+    await act(async () => { await entry.undo() })
+    expect(setSlots.get().find(s => s.id === 'row-target').activity_id).toBe('act-occupant')
+  })
+
+  it('placeActivityManual: undo -> redo -> undo cycles cleanly through the repo and state', async () => {
+    const slot = { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} }
+    const setSlots = statefulSetSlots([slot])
+    const { hook, props } = setup({
+      slots: [slot], groups: [{ id: 'g1', tier_id: 't1' }], activities: [{ id: 'a1', name: 'Swim' }],
+      routeState: { setSlots: setSlots.fn },
+    })
+
+    await act(async () => { await hook.result.current.placeActivityManual('a1', 'g1', 'd1', 'b1') })
+    const entry = props.pushUndo.mock.calls[0][0]
+    expect(setSlots.get().find(s => s.id === 's1').activity_id).toBe('a1')
+
+    await act(async () => { await entry.undo() })
+    expect(setSlots.get().find(s => s.id === 's1').activity_id).toBe(null)
+
+    await act(async () => { await entry.redo() })
+    expect(setSlots.get().find(s => s.id === 's1').activity_id).toBe('a1')
+
+    await act(async () => { await entry.undo() })
+    expect(setSlots.get().find(s => s.id === 's1').activity_id).toBe(null)
+  })
+
+  it('expandSlot: undo -> redo -> undo cycles cleanly through the repo and state', async () => {
+    const headSlot = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', flags: {}, is_span_head: true }
+    const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actTail', flags: {}, is_span_head: true }
+    const activities = [{ id: 'actHead', name: 'Swim' }, { id: 'actTail', name: 'Archery' }]
+    const setSlots = statefulSetSlots([headSlot, tailSlot])
+    const { hook, props } = setup({ slots: [headSlot, tailSlot], activities, routeState: { setSlots: setSlots.fn } })
+
+    await act(async () => {
+      await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', 'actTail', 'Archery', 'Block 2', 'Mon')
+    })
+    const entry = props.pushUndo.mock.calls[0][0]
+    expect(setSlots.get().find(s => s.id === 't1').is_span_head).toBe(false)
+
+    await act(async () => { await entry.undo() })
+    expect(setSlots.get().find(s => s.id === 't1').is_span_head).toBe(true)
+    expect(setSlots.get().find(s => s.id === 'h1').flags).toEqual({})
+
+    await act(async () => { await entry.redo() })
+    expect(setSlots.get().find(s => s.id === 't1').is_span_head).toBe(false)
+    expect(setSlots.get().find(s => s.id === 'h1').flags).toEqual({
+      expanded: { displacedActivityId: 'actTail', displacedActivityName: 'Archery', from_block: 'b2' },
+    })
+
+    await act(async () => { await entry.undo() })
+    expect(setSlots.get().find(s => s.id === 't1').is_span_head).toBe(true)
+  })
+
+  it('splitSlot: undo -> redo -> undo cycles cleanly through the repo and state', async () => {
+    const headSlot = {
+      id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', is_span_head: true,
+      flags: { expanded: { displacedActivityId: 'actTail', displacedActivityName: 'Archery', from_block: 'b2' } },
+    }
+    const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actHead', is_span_head: false }
+    const timeBlocks = [{ id: 'b1', name: 'Block 1', sort_order: 1 }, { id: 'b2', name: 'Block 2', sort_order: 2 }]
+    const days = [{ id: 'd1', label: 'Mon' }]
+    const setSlots = statefulSetSlots([headSlot, tailSlot])
+    const { hook, props } = setup({ slots: [headSlot, tailSlot], timeBlocks, days, routeState: { setSlots: setSlots.fn } })
+
+    await act(async () => { await hook.result.current.splitSlot('g1', 'd1', 'b1') })
+    const entry = props.pushUndo.mock.calls[0][0]
+    expect(setSlots.get().find(s => s.id === 't1').activity_id).toBe(null)
+
+    await act(async () => { await entry.undo() })
+    expect(setSlots.get().find(s => s.id === 't1').activity_id).toBe('actHead')
+    expect(setSlots.get().find(s => s.id === 't1').is_span_head).toBe(false)
+
+    await act(async () => { await entry.redo() })
+    expect(setSlots.get().find(s => s.id === 't1').activity_id).toBe(null)
+    expect(setSlots.get().find(s => s.id === 't1').is_span_head).toBe(true)
+
+    await act(async () => { await entry.undo() })
+    expect(setSlots.get().find(s => s.id === 't1').activity_id).toBe('actHead')
+  })
+})
+
 describe('useSlotMutations — createActivityFromCell', () => {
   it('creates a camp-scoped activity with usage-derived rule (min_per_week=1, max=null, all-groups eligible), adds it to the palette list, and places it', async () => {
     const slots = [
