@@ -324,6 +324,115 @@ describe('ActivitiesScreen — import', () => {
   })
 })
 
+// M4 follow-up (docs/adr/2026-08-15-locations-concurrent-create-collision.md):
+// The CSV template importer resolves a row's free-text `location` to a
+// `locations` row CASE-INSENSITIVELY, on purpose. This is deliberate
+// duplicate-PREVENTION at the point of entry — an imported "pool" reuses an
+// existing "Pool" rather than minting a distinct capacity-1 row. A
+// case-sensitive resolve here would fragment the engine's per-location_id
+// capacity (one physical room becomes two schedulable pools) with NO recovery
+// path: the M3c near-duplicate merge gate is fed only by the one-time v32
+// migration journal (location_migration_reviews), never by post-migration
+// creates, so an import-made case variant is permanently unreviewable
+// (Red Hat, 2026-08-16). These tests pin the case-insensitive behavior so it
+// is not "corrected" back to case-sensitive. Cross-device same-name forks are
+// closed separately by the write-time collision guard, so the fresh randomUUID
+// this path mints (asserted in the 'imports rows…' test above) stays correct.
+describe('ActivitiesScreen — import location resolve is case-insensitive (dup-prevention)', () => {
+  it('reuses an existing "Pool" for an imported "pool" — no duplicate location row is created', async () => {
+    vi.stubGlobal('crypto', { randomUUID: vi.fn().mockReturnValueOnce('new-activity-id') })
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([])
+      if (entity === 'locations') return Promise.resolve([{ id: 'loc-Pool', camp_id: CAMP_ID, name: 'Pool', capacity: 3, notes: null }])
+      return Promise.resolve([])
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
+
+    const file = new File(['dummy'], 'activities.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'Swim', location: 'pool', is_outdoor: '', max_groups_per_slot: '', min_per_week: '', max_per_week: '', same_tier_only: '', priority: '', eligible_tiers: '', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '' },
+    ])
+    await userEvent.upload(fileInput, file)
+    await waitFor(() => expect(screen.queryByText(/Import 1/)).not.toBeNull())
+    fireEvent.click(screen.getByText(/Import 1/))
+    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
+
+    // No new location row: "pool" folds onto the existing "Pool".
+    expect(localClient.write.mock.calls.some(c => c[1] === 'locations' && c[3] === 'name')).toBe(false)
+    // The activity binds to the existing "Pool", never a fresh case-variant row.
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id', 'location_id', 'loc-Pool')
+  })
+
+  it('within one import, groups case-insensitively — "Field" and "field" share ONE location row', async () => {
+    let n = 0
+    vi.stubGlobal('crypto', { randomUUID: vi.fn(() => `id-${n++}`) })
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([])
+      if (entity === 'locations') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
+
+    const file = new File(['dummy'], 'activities.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'Soccer', location: 'Field', is_outdoor: '', max_groups_per_slot: '', min_per_week: '', max_per_week: '', same_tier_only: '', priority: '', eligible_tiers: '', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '' },
+      { name: 'Frisbee', location: 'field', is_outdoor: '', max_groups_per_slot: '', min_per_week: '', max_per_week: '', same_tier_only: '', priority: '', eligible_tiers: '', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '' },
+    ])
+    await userEvent.upload(fileInput, file)
+    await waitFor(() => expect(screen.queryByText(/Import 2/)).not.toBeNull())
+    fireEvent.click(screen.getByText(/Import 2/))
+    await waitFor(() => expect(screen.queryByText(/2 added/)).not.toBeNull())
+
+    // Exactly one location created — "field" folds onto the "Field" made first,
+    // so both activities share it (no capacity-fragmenting near-duplicate).
+    const locationNamesWritten = localClient.write.mock.calls.filter(c => c[1] === 'locations' && c[3] === 'name').map(c => c[4])
+    expect(locationNamesWritten).toEqual(['Field'])
+  })
+})
+
+// The import preview must make location resolution visible BEFORE commit, so
+// the director can catch a case-variant fold ("pool" quietly reusing "Pool")
+// or an unexpected new place. This is the pre-commit visibility Red Hat flagged
+// as the one real gap left once the resolve stayed case-insensitive.
+describe('ActivitiesScreen — import preview shows new-vs-reused location', () => {
+  async function uploadRows(rows, locations = []) {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([])
+      if (entity === 'locations') return Promise.resolve(locations)
+      return Promise.resolve([])
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
+    const file = new File(['dummy'], 'activities.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue(rows)
+    await userEvent.upload(fileInput, file)
+    await waitFor(() => expect(screen.queryByText('Import Preview')).not.toBeNull())
+  }
+  const row = (over) => ({ name: 'Act', location: '', is_outdoor: '', max_groups_per_slot: '', min_per_week: '', max_per_week: '', same_tier_only: '', priority: '', eligible_tiers: '', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '', ...over })
+
+  it('flags a case-variant "pool" as reusing the existing "Pool" — not a silent fold', async () => {
+    await uploadRows([row({ name: 'Swim', location: 'pool' })], [{ id: 'loc-Pool', camp_id: CAMP_ID, name: 'Pool', capacity: 3, notes: null }])
+    expect(screen.queryByText(/reuses .*Pool/)).not.toBeNull()
+    expect(screen.queryByText(/new place/)).toBeNull()
+  })
+
+  it('flags a genuinely new place with a "new place" badge', async () => {
+    await uploadRows([row({ name: 'Kayak', location: 'Lake' })], [])
+    expect(screen.queryByText(/new place/)).not.toBeNull()
+  })
+
+  it('shows no annotation for an exact-case match — reuse is obvious', async () => {
+    await uploadRows([row({ name: 'Swim', location: 'Pool' })], [{ id: 'loc-Pool', camp_id: CAMP_ID, name: 'Pool', capacity: 3, notes: null }])
+    expect(screen.queryByText(/reuses/)).toBeNull()
+    expect(screen.queryByText(/new place/)).toBeNull()
+  })
+})
+
 // M3b — the place picker (docs/work/specs/2026-08-15-m3-locations-design.md
 // §picker) replacing the free-text Location input, and the D5 UI freeze it
 // completes: the modal save path must write location_id and must never write
