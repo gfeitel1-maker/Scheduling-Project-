@@ -34,6 +34,7 @@ describe('engine/eligibility agreement matrix', () => {
     { id: 'g3', tier_id: 't1' },
   ]
 
+  // Cases with NO explicit group are crossed against every real group below.
   const cases = [
     { name: 'empty lists (both undefined)', activity: {} },
     { name: 'empty lists (both [])', activity: { eligible_tier_ids: [], eligible_group_ids: [] } },
@@ -44,21 +45,43 @@ describe('engine/eligibility agreement matrix', () => {
     { name: 'both tier and group set, tier matches', activity: { eligible_tier_ids: ['t2'], eligible_group_ids: ['g9'] } },
     { name: 'both tier and group set, group matches', activity: { eligible_tier_ids: ['t9'], eligible_group_ids: ['g1'] } },
     { name: 'both tier and group set, neither matches', activity: { eligible_tier_ids: ['t9'], eligible_group_ids: ['g9'] } },
-    { name: 'missing tier_id on group, tier-only activity', activity: { eligible_tier_ids: ['t1'], eligible_group_ids: [] }, group: { id: 'g4' } },
-    { name: 'null group', activity: { eligible_tier_ids: ['t1'], eligible_group_ids: [] }, group: null },
   ]
 
   for (const g of groups) {
-    for (const c of cases.filter(c => !c.group)) {
+    for (const c of cases) {
       it(`${c.name} vs group ${g.id}`, () => {
         expect(isActivityEligibleForGroup(c.activity, g)).toBe(engineEligible(c.activity, g, groups))
       })
     }
   }
 
-  for (const c of cases.filter(c => c.group !== undefined)) {
-    it(c.name, () => {
-      expect(isActivityEligibleForGroup(c.activity, c.group)).toBe(engineEligible(c.activity, c.group, groups))
-    })
-  }
+  // A group whose tier_id matches nothing / is absent — still a real group object.
+  it('missing tier_id on group, tier-only activity', () => {
+    const activity = { eligible_tier_ids: ['t1'], eligible_group_ids: [] }
+    const group = { id: 'g4' }
+    expect(isActivityEligibleForGroup(activity, group)).toBe(engineEligible(activity, group, groups))
+  })
+})
+
+// The predicate accepts a null group (guards with `group?.`); the engine copies never pass one —
+// both buildSchedule.js call sites iterate the real `groups` array. This block documents that
+// boundary explicitly rather than letting the agreement matrix imply null is a tested engine input.
+describe('engine/eligibility — null group boundary (not a production input)', () => {
+  const groups = [{ id: 'g1', tier_id: 't1' }]
+
+  it('agrees on null group when the activity is RESTRICTED (both reject)', () => {
+    const activity = { eligible_tier_ids: ['t1'], eligible_group_ids: [] }
+    expect(isActivityEligibleForGroup(activity, null)).toBe(false)
+    expect(engineEligible(activity, null, groups)).toBe(false)
+  })
+
+  it('DIVERGES on null group when the activity is UNRESTRICTED — documented, unreachable from buildSchedule', () => {
+    const activity = {} // empty lists ⇒ "eligible for everyone"
+    // Predicate short-circuits on empty lists → true, before it ever looks at the group.
+    expect(isActivityEligibleForGroup(activity, null)).toBe(true)
+    // Engine builds a Set of real group ids, then asks `.has(null?.id === undefined)` → false.
+    expect(engineEligible(activity, null, groups)).toBe(false)
+    // This cell is the ONLY disagreement; it cannot occur in buildSchedule.js, which never
+    // passes a null group. If a future caller does, it must not rely on this cell.
+  })
 })
