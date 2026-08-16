@@ -140,7 +140,7 @@ export function AppShell({ campId, role, onLogout }) {
 
   const Screen = SCREENS[screen] || TiersScreen
   const scheduleRoute = SCHEDULE_ROUTE_BY_SCREEN[screen]
-  const isWeekScreen = screen === 'activities' || screen === 'groups'
+  const isWeekScreen = screen === 'activities' || screen === 'groups' || screen === 'locations'
   const screenProps = screen === 'conflicts'
     ? { campId, role, onNavigate: setScreen, pendingConflicts }
     : {

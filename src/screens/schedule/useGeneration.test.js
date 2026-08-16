@@ -161,6 +161,30 @@ describe('useGeneration', () => {
     expect(arg.activities.map(a => a.id)).toContain('a1')
   })
 
+  it('placeAnchors() runs the week-exclusion pre-pass for LOCATION closures too (guards the second resolveWeekCatalog call site)', async () => {
+    // Mirrors the activity-exclusion test above, but closes the PLACE the anchor's
+    // activity sits on. This pins the locationExclusions argument on placeAnchors()'s
+    // OWN resolveWeekCatalog call — the exact line an auto-merge once silently dropped.
+    // Without it, a2's location closure would not reach the anchors-only rebuild and
+    // the anchor would still be placed (and computeWeekClosures skips anchors, so
+    // nothing downstream would catch it).
+    const { result } = setup({
+      weekId: 'wk1',
+      activities: [{ id: 'a1', name: 'Swim' }, { id: 'a2', name: 'Pool Fixed Event', location_id: 'loc-pool' }],
+      anchors: [{ id: 'an1', activity_id: 'a2', is_all_groups: true, group_ids: [] }],
+      locations: [{ id: 'loc-pool', name: 'Pool' }],
+      activityExclusions: [],
+      groupExclusions: [],
+      locationExclusions: [{ week_id: 'wk1', location_id: 'loc-pool' }],
+    })
+    await act(async () => { await result.current.placeAnchors() })
+
+    const arg = buildSchedule.mock.calls[0][0]
+    expect(arg.anchors).toEqual([]) // the anchor whose activity's PLACE is closed is gone
+    expect(arg.activities.map(a => a.id)).not.toContain('a2')
+    expect(arg.activities.map(a => a.id)).toContain('a1')
+  })
+
   it('placeAnchors() leaves the catalog intact when the week has no exclusions', async () => {
     const { result } = setup({
       weekId: 'wk1',

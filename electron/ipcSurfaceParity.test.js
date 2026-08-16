@@ -328,6 +328,7 @@ describe('MOCK_SCOPE_KEYS stays in sync with PARENT_SCOPED_ENTITIES (C4)', () =>
     'schedule_snapshots',
     'week_activity_exclusions',
     'week_group_exclusions',
+    'week_location_exclusions',
   ]
 
   it('every SCOPED_LIST_ENTITIES entity has a matching parentKey in MOCK_SCOPE_KEYS', () => {

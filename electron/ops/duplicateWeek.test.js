@@ -245,6 +245,30 @@ describe('duplicateWeek', () => {
     db.close()
   })
 
+  it('M5: duplicating a week carries its location closures (week_location_exclusions)', () => {
+    const db = makeDb()
+    const campId = seedCamp(db)
+    seedDevice(db)
+    seedWeek(db, 'week-1', campId)
+    db.prepare('INSERT INTO week_location_exclusions (id, week_id, location_id) VALUES (?, ?, ?)')
+      .run('wlx-1', 'week-1', 'loc-pool')
+
+    const result = duplicateWeek(db, { sourceWeekId: 'week-1', campId }, CTX)
+    expect(result.ok).toBe(true)
+
+    const newExclusions = db.prepare('SELECT * FROM week_location_exclusions WHERE week_id = ?').all(result.newWeekId)
+    expect(newExclusions).toHaveLength(1)
+    expect(newExclusions[0].location_id).toBe('loc-pool')
+    // Deep copy — no shared id with the source row.
+    expect(newExclusions[0].id).not.toBe('wlx-1')
+
+    // The source is unmodified.
+    const sourceExclusions = db.prepare('SELECT * FROM week_location_exclusions WHERE week_id = ?').all('week-1')
+    expect(sourceExclusions).toHaveLength(1)
+
+    db.close()
+  })
+
   it('collision suffix: copy of a week whose copy name already exists gets (2) suffix', () => {
     const db = makeDb()
     const campId = seedCamp(db)

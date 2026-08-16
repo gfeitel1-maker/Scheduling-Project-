@@ -46,8 +46,10 @@ export function computeWeekClosures({
   slots,
   activities,
   groups,
+  locations,
   activityExclusions,
   groupExclusions,
+  locationExclusions,
   weekId,
 }) {
   const closures = new Map() // slot id -> reason string
@@ -55,10 +57,23 @@ export function computeWeekClosures({
 
   const excludedActivityIds = excludedIdSet(activityExclusions, 'activity_id', weekId)
   const excludedGroupIds = excludedIdSet(groupExclusions, 'group_id', weekId)
-  if (excludedActivityIds.size === 0 && excludedGroupIds.size === 0) return closures
+  // The location arm the header comment anticipated: a slot's activity can sit
+  // on a place the director closed this week. It reaches the slot through
+  // activity.location_id (the slot itself carries no location), mirroring how
+  // resolveWeekCatalog hops location -> activity on the generate route.
+  const excludedLocationIds = excludedIdSet(locationExclusions, 'location_id', weekId)
+  if (
+    excludedActivityIds.size === 0 &&
+    excludedGroupIds.size === 0 &&
+    excludedLocationIds.size === 0
+  ) {
+    return closures
+  }
 
   const actName = new Map((activities || []).map(a => [a.id, a.name]))
   const grpName = new Map((groups || []).map(g => [g.id, g.name]))
+  const actLocationId = new Map((activities || []).map(a => [a.id, a.location_id]))
+  const locName = new Map((locations || []).map(l => [l.id, l.name]))
 
   for (const s of slots) {
     if (s.is_anchor || !s.activity_id) continue
@@ -68,6 +83,10 @@ export function computeWeekClosures({
     }
     if (excludedGroupIds.has(s.group_id)) {
       reasons.push(`${grpName.get(s.group_id) || 'This group'} is marked closed this week`)
+    }
+    const locId = actLocationId.get(s.activity_id)
+    if (locId != null && excludedLocationIds.has(locId)) {
+      reasons.push(`${locName.get(locId) || 'This place'} is marked closed this week`)
     }
     if (reasons.length) closures.set(s.id, reasons.join('; '))
   }
@@ -79,8 +98,8 @@ export function computeWeekClosures({
 // persisted rows untouched and returning the SAME array reference when nothing
 // is closed (mirrors withOverlapFlags, so the screen's useMemo stays stable on
 // the common no-exclusions path).
-export function withWeekClosureFlags(slots, { activities, groups, activityExclusions, groupExclusions, weekId }) {
-  const closures = computeWeekClosures({ slots, activities, groups, activityExclusions, groupExclusions, weekId })
+export function withWeekClosureFlags(slots, { activities, groups, locations, activityExclusions, groupExclusions, locationExclusions, weekId }) {
+  const closures = computeWeekClosures({ slots, activities, groups, locations, activityExclusions, groupExclusions, locationExclusions, weekId })
   if (closures.size === 0) return slots
   return slots.map(s =>
     closures.has(s.id)

@@ -25,9 +25,8 @@ import { getStmt } from './stmtCache.js'
 // Whichever field arrives SECOND creates the row; the first is a deliberate
 // no-op. Order-independent and replay-safe, with no new IPC/op primitive.
 //
-// (week_location_exclusions, the third instance of this pattern, is inert until
-// slice M5 — no writer exists yet — so it is intentionally left on the old body
-// and owned by that slice; it should adopt this helper when it goes live.)
+// (week_location_exclusions, the third instance of this pattern, now also uses
+// this helper as of slice M5, which added its writer.)
 function ensureWeekJoinRow(table, secondColumn) {
   return (db, id, field, value) => {
     const readField = (wanted) => {
@@ -223,19 +222,19 @@ export const PROJECTIONS = {
       )
     },
   },
-  // Per-week location availability (v32). Third instance of the v28
-  // week_*_exclusions pattern above — parent-keyed by week_id, ensureExists
-  // gated on week_id arriving first (no other NOT NULL column to seed).
+  // Per-week location availability (v32). Third instance of the two-NOT-NULL
+  // week_*_exclusions pattern (week_id + location_id, both NOT NULL). Adopts the
+  // shared ensureWeekJoinRow helper the sibling activity/group tables use — it
+  // reconstructs both fields from the op-log and inserts the complete row once
+  // both are known, so it is order-independent and needs no placeholder. (An
+  // earlier M5 draft seeded location_id='' — safe only because this column has
+  // no FK — but the shared helper is strictly better: no '' orphan is reachable
+  // even if location_id's op ever precedes week_id's.)
   week_location_exclusions: {
     table: 'week_location_exclusions',
     key: 'id',
     fields: ['week_id', 'location_id'],
-    ensureExists: (db, id, field, value) => {
-      if (field !== 'week_id') return
-      getStmt(db,
-        'INSERT OR IGNORE INTO week_location_exclusions (id, week_id) VALUES (?, ?)'
-      ).run(id, value)
-    },
+    ensureExists: ensureWeekJoinRow('week_location_exclusions', 'location_id'),
   },
   anchor_activities: {
     table: 'anchor_activities',

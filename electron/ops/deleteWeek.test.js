@@ -129,6 +129,8 @@ describe('deleteWeek — S3-1: cascade', () => {
     seedSlotPrereqs(db, campId, 3); seedSlot(db, tidMan, 3)
     seedOverlay(db, tidGen, 1)
     seedSnapshot(db, tidGen, 1)
+    db.prepare('INSERT INTO week_location_exclusions (id, week_id, location_id) VALUES (?, ?, ?)')
+      .run('wlx-1', 'week1', 'loc-pool')
 
     const opsBefore = db.prepare('SELECT COUNT(*) as c FROM operations').get().c
 
@@ -141,6 +143,8 @@ describe('deleteWeek — S3-1: cascade', () => {
     expect(db.prepare('SELECT COUNT(*) as c FROM template_slots WHERE template_id = ?').get(tidMan).c).toBe(0)
     expect(db.prepare('SELECT COUNT(*) as c FROM template_overlays WHERE template_id = ?').get(tidGen).c).toBe(0)
     expect(db.prepare('SELECT COUNT(*) as c FROM schedule_snapshots WHERE template_id = ?').get(tidGen).c).toBe(0)
+    // M5: no orphaned week_location_exclusions rows after the parent week is gone.
+    expect(db.prepare('SELECT COUNT(*) as c FROM week_location_exclusions WHERE week_id = ?').get('week1').c).toBe(0)
 
     // operations table retains history
     const opsAfter = db.prepare('SELECT COUNT(*) as c FROM operations').get().c

@@ -52,6 +52,7 @@ const PARENT_SCOPED_DEPENDENTS = Object.freeze([
   'template_overlays',
   'week_activity_exclusions',
   'week_group_exclusions',
+  'week_location_exclusions',
   'day_override_template_slots',
 ])
 

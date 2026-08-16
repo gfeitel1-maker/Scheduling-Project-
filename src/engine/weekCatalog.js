@@ -13,6 +13,7 @@ export function resolveWeekCatalog({
   weekId,
   activityExclusions,
   groupExclusions,
+  locationExclusions,
 }) {
   const excludedActivityIds = new Set(
     (activityExclusions || [])
@@ -24,20 +25,40 @@ export function resolveWeekCatalog({
       .filter((e) => e.week_id === weekId)
       .map((e) => e.group_id)
   )
+  const excludedLocationIds = new Set(
+    (locationExclusions || [])
+      .filter((e) => e.week_id === weekId)
+      .map((e) => e.location_id)
+  )
 
-  if (excludedActivityIds.size === 0 && excludedGroupIds.size === 0) {
+  if (excludedActivityIds.size === 0 && excludedGroupIds.size === 0 && excludedLocationIds.size === 0) {
     return { groups, activities, anchors, suppressedAnchors: [] }
   }
 
-  const filteredActivities = activities.filter((a) => !excludedActivityIds.has(a.id))
+  // The location→activity hop: an activity bound to a closed place is
+  // filtered here, at the activity level — filtering the `locations`
+  // capacity array alone would be insufficient, since buildSchedule.js
+  // treats an unmapped/absent location_id as unconstrained.
+  const locationExcludedActivityIds = new Set(
+    activities.filter((a) => a.location_id != null && excludedLocationIds.has(a.location_id)).map((a) => a.id)
+  )
+
+  const filteredActivities = activities.filter(
+    (a) => !excludedActivityIds.has(a.id) && !locationExcludedActivityIds.has(a.id)
+  )
   const filteredGroups = groups.filter((g) => !excludedGroupIds.has(g.id))
 
   const keptAnchors = []
   const suppressedAnchors = []
 
   for (const anchor of anchors) {
-    if (excludedActivityIds.has(anchor.activity_id ?? anchor.unit_id)) {
+    const anchorActivityId = anchor.activity_id ?? anchor.unit_id
+    if (excludedActivityIds.has(anchorActivityId)) {
       suppressedAnchors.push({ anchor, reason: 'activity-excluded' })
+      continue
+    }
+    if (locationExcludedActivityIds.has(anchorActivityId)) {
+      suppressedAnchors.push({ anchor, reason: 'location-excluded' })
       continue
     }
 

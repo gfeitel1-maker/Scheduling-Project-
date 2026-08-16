@@ -121,13 +121,15 @@ export function createScheduleRepository({
     },
 
     async loadWeekExclusions(weekId) {
-      const [activityExclusions, groupExclusions] = await Promise.all([
+      const [activityExclusions, groupExclusions, locationExclusions] = await Promise.all([
         localClient.listByScope('week_activity_exclusions', weekId ?? null),
         localClient.listByScope('week_group_exclusions', weekId ?? null),
+        localClient.listByScope('week_location_exclusions', weekId ?? null),
       ])
       return {
         activityExclusions: activityExclusions || [],
         groupExclusions: groupExclusions || [],
+        locationExclusions: locationExclusions || [],
       }
     },
 
@@ -159,6 +161,22 @@ export function createScheduleRepository({
         const row = rows.find((r) => r.week_id === weekId && r.group_id === groupId)
         if (row) {
           await localClient.deleteEntity(getToken(), 'week_group_exclusions', row.id)
+        }
+      }
+    },
+
+    async toggleLocationExclusion(weekId, locationId, excluded) {
+      if (excluded) {
+        const id = crypto.randomUUID()
+        await writeFields('week_location_exclusions', id, {
+          week_id: weekId,
+          location_id: locationId,
+        })
+      } else {
+        const rows = (await localClient.list('week_location_exclusions')) || []
+        const row = rows.find((r) => r.week_id === weekId && r.location_id === locationId)
+        if (row) {
+          await localClient.deleteEntity(getToken(), 'week_location_exclusions', row.id)
         }
       }
     },

@@ -574,3 +574,68 @@ describe('applyProjection', () => {
     expect(firstCamp).toEqual({ id: 'camp-1' })
   })
 })
+
+// M5 — regression guard for week_location_exclusions persistence. This is the
+// third instance of the two-NOT-NULL week_*_exclusions pattern and now uses the
+// shared ensureWeekJoinRow helper (projections.js), same as its activity/group
+// siblings above: the row materializes only once BOTH week_id and location_id
+// are known (reconstructed from the op-log), so it is order-independent and
+// needs no placeholder. Drives the real appendOp -> applyProjection -> ensureExists
+// path against real SQLite — the only layer where the historical week_id-only
+// seed silently dropped the row.
+describe('applyProjection for week_location_exclusions (M5)', () => {
+  beforeEach(() => {
+    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('device-1', 'Device One')
+    db.prepare(
+      'INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, ?, ?, ?)'
+    ).run('week-1', 'camp-1', 'Week 1', 0, 0)
+    db.prepare('INSERT INTO locations (id, camp_id, name) VALUES (?, ?, ?)').run(
+      'loc-pool',
+      'camp-1',
+      'Pool'
+    )
+  })
+
+  it('persists a week_location_exclusions row after the week_id + location_id write sequence', () => {
+    appendOp(db, {
+      entity: 'week_location_exclusions', entity_id: 'wlx-1',
+      field: 'week_id', value: 'week-1',
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+    // Under the shared helper the row does NOT exist yet — location_id (also
+    // NOT NULL) is still unknown. (The retired '' placeholder would have created
+    // a garbage row here; the helper deliberately waits.)
+    expect(db.prepare('SELECT * FROM week_location_exclusions WHERE id = ?').get('wlx-1')).toBeUndefined()
+
+    appendOp(db, {
+      entity: 'week_location_exclusions', entity_id: 'wlx-1',
+      field: 'location_id', value: 'loc-pool',
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+
+    const row = db.prepare('SELECT * FROM week_location_exclusions WHERE id = ?').get('wlx-1')
+    expect(row).toBeTruthy()
+    expect(row.week_id).toBe('week-1')
+    expect(row.location_id).toBe('loc-pool')
+  })
+
+  it('persists the row even if location_id is written before week_id (order-independent)', () => {
+    appendOp(db, {
+      entity: 'week_location_exclusions', entity_id: 'wlx-rev',
+      field: 'location_id', value: 'loc-pool',
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+    expect(db.prepare('SELECT * FROM week_location_exclusions WHERE id = ?').get('wlx-rev')).toBeUndefined()
+
+    appendOp(db, {
+      entity: 'week_location_exclusions', entity_id: 'wlx-rev',
+      field: 'week_id', value: 'week-1',
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+
+    const row = db.prepare('SELECT * FROM week_location_exclusions WHERE id = ?').get('wlx-rev')
+    expect(row).toBeTruthy()
+    expect(row.week_id).toBe('week-1')
+    expect(row.location_id).toBe('loc-pool')
+  })
+})
