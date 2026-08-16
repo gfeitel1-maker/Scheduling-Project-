@@ -70,6 +70,7 @@ const SCOPED_LIST_ENTITIES = new Set([
   'schedule_snapshots',
   'week_activity_exclusions',
   'week_group_exclusions',
+  'week_location_exclusions',
 ])
 
 // Bound on how long login() waits for an in-flight WebSocket handshake to

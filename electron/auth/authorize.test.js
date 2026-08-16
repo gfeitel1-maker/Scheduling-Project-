@@ -196,6 +196,8 @@ describe('authorize', () => {
       'week_activity_exclusions.write',
       'week_group_exclusions.read',
       'week_group_exclusions.write',
+      'week_location_exclusions.read',
+      'week_location_exclusions.write',
       'conflicts.read',
       'conflicts.resolve',
     ]
@@ -230,7 +232,8 @@ describe('authorize', () => {
     // '<entity>.delete'); staff must be able to un-exclude what they excluded.
     expect(authorize({ db, token: staffToken, action: 'week_activity_exclusions.delete' }).allowed).toBe(true)
     expect(authorize({ db, token: staffToken, action: 'week_group_exclusions.delete' }).allowed).toBe(true)
-    // The exception is scoped to those two entities only — no other camp entity
+    expect(authorize({ db, token: staffToken, action: 'week_location_exclusions.delete' }).allowed).toBe(true)
+    // The exception is scoped to those three entities only — no other camp entity
     // gains a staff '.delete' from this grant.
     expect(authorize({ db, token: staffToken, action: 'activities.delete' }).allowed).toBe(false)
     expect(authorize({ db, token: staffToken, action: 'template_slots.delete' }).allowed).toBe(false)

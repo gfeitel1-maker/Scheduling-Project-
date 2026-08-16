@@ -4,9 +4,9 @@ import { resolveWeekCatalog } from './weekCatalog.js'
 const WEEK = 'week-1'
 
 const activities = [
-  { id: 'act-swim', name: 'Swim' },
-  { id: 'act-art', name: 'Art' },
-  { id: 'act-soccer', name: 'Soccer' },
+  { id: 'act-swim', name: 'Swim', location_id: 'loc-pool' },
+  { id: 'act-art', name: 'Art', location_id: null },
+  { id: 'act-soccer', name: 'Soccer', location_id: 'loc-field' },
 ]
 
 const groups = [
@@ -160,6 +160,61 @@ describe('resolveWeekCatalog', () => {
     })
     expect(result.activities).toBe(activities)
     expect(result.groups).toBe(groups)
+    expect(result.suppressedAnchors).toEqual([])
+  })
+
+  // M5 — location-excluded → the location→activity hop. A closed location
+  // filters every activity bound to it, not the locations array (the engine
+  // treats an unmapped location_id as unconstrained — filtering activities is
+  // the only enforcement that actually stops placement).
+  it('location excluded → activities bound to that location are filtered, others kept', () => {
+    const result = resolveWeekCatalog({
+      groups, activities, anchors, weekId: WEEK,
+      activityExclusions: [], groupExclusions: [],
+      locationExclusions: [{ week_id: WEEK, location_id: 'loc-pool' }],
+    })
+    expect(result.activities.map((a) => a.id)).not.toContain('act-swim')
+    expect(result.activities.map((a) => a.id)).toContain('act-art')
+    expect(result.activities.map((a) => a.id)).toContain('act-soccer')
+  })
+
+  it('activity with no location_id is never filtered by a location exclusion', () => {
+    const result = resolveWeekCatalog({
+      groups, activities, anchors, weekId: WEEK,
+      activityExclusions: [], groupExclusions: [],
+      locationExclusions: [{ week_id: WEEK, location_id: 'loc-pool' }, { week_id: WEEK, location_id: 'loc-field' }],
+    })
+    expect(result.activities.map((a) => a.id)).toEqual(['act-art'])
+  })
+
+  it('anchor whose activity\'s location is excluded → suppressed with reason location-excluded', () => {
+    const result = resolveWeekCatalog({
+      groups, activities, anchors, weekId: WEEK,
+      activityExclusions: [], groupExclusions: [],
+      locationExclusions: [{ week_id: WEEK, location_id: 'loc-pool' }],
+    })
+    expect(result.suppressedAnchors).toHaveLength(1)
+    expect(result.suppressedAnchors[0].anchor.id).toBe('anch-1')
+    expect(result.suppressedAnchors[0].reason).toBe('location-excluded')
+    expect(result.anchors.map((a) => a.id)).not.toContain('anch-1')
+  })
+
+  it('null/undefined locationExclusions → treated as no location exclusions', () => {
+    const result = resolveWeekCatalog({
+      groups, activities, anchors, weekId: WEEK,
+      activityExclusions: [], groupExclusions: [], locationExclusions: null,
+    })
+    expect(result.activities).toBe(activities)
+    expect(result.suppressedAnchors).toEqual([])
+  })
+
+  it('location exclusion for a different week is ignored', () => {
+    const result = resolveWeekCatalog({
+      groups, activities, anchors, weekId: WEEK,
+      activityExclusions: [], groupExclusions: [],
+      locationExclusions: [{ week_id: 'other-week', location_id: 'loc-pool' }],
+    })
+    expect(result.activities).toBe(activities)
     expect(result.suppressedAnchors).toEqual([])
   })
 })

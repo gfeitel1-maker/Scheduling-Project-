@@ -17,6 +17,7 @@ const FAKE_SCOPE_KEYS = {
   template_overlays: 'template_id',
   week_activity_exclusions: 'week_id',
   week_group_exclusions: 'week_id',
+  week_location_exclusions: 'week_id',
 }
 
 function makeFakeClient({ writeResult = { status: 'applied' } } = {}) {
@@ -389,15 +390,21 @@ describe('week exclusions — loadWeekExclusions / toggleActivityExclusion / tog
         { id: 'g1', week_id: 'week-1', group_id: 'grp-1' },
         { id: 'g2', week_id: 'week-2', group_id: 'grp-2' },
       ],
+      week_location_exclusions: [
+        { id: 'l1', week_id: 'week-1', location_id: 'loc-1' },
+        { id: 'l2', week_id: 'week-2', location_id: 'loc-2' },
+      ],
     })
     const repo = createScheduleRepository({ localClient: client, getToken })
     const result = await repo.loadWeekExclusions('week-1')
     expect(result.activityExclusions).toEqual([{ id: 'e1', week_id: 'week-1', activity_id: 'act-1' }])
     expect(result.groupExclusions).toEqual([{ id: 'g1', week_id: 'week-1', group_id: 'grp-1' }])
+    expect(result.locationExclusions).toEqual([{ id: 'l1', week_id: 'week-1', location_id: 'loc-1' }])
     expect(client.calls.listByScope).toEqual(
       expect.arrayContaining([
         ['week_activity_exclusions', 'week-1'],
         ['week_group_exclusions', 'week-1'],
+        ['week_location_exclusions', 'week-1'],
       ])
     )
   })
@@ -436,5 +443,30 @@ describe('week exclusions — loadWeekExclusions / toggleActivityExclusion / tog
     expect(client.calls.write[1][3]).toBe('group_id')
     expect(client.calls.write[1][4]).toBe('grp-3')
     expect(client.calls.write[0][1]).toBe('week_group_exclusions')
+  })
+
+  it('toggleLocationExclusion(true) calls write with week_id first then location_id', async () => {
+    const client = makeFakeClient()
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    await repo.toggleLocationExclusion('week-1', 'loc-pool', true)
+    expect(client.calls.write[0][3]).toBe('week_id')
+    expect(client.calls.write[0][4]).toBe('week-1')
+    expect(client.calls.write[1][3]).toBe('location_id')
+    expect(client.calls.write[1][4]).toBe('loc-pool')
+    expect(client.calls.write[0][1]).toBe('week_location_exclusions')
+  })
+
+  it('toggleLocationExclusion(false) calls deleteEntity for the matching row', async () => {
+    const client = makeFakeClient()
+    client.setListStore({
+      week_location_exclusions: [
+        { id: 'excl-loc-1', week_id: 'week-1', location_id: 'loc-pool' },
+      ],
+    })
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    await repo.toggleLocationExclusion('week-1', 'loc-pool', false)
+    expect(client.calls.deleteEntity).toEqual([
+      ['tok', 'week_location_exclusions', 'excl-loc-1'],
+    ])
   })
 })

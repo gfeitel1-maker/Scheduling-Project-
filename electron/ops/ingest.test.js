@@ -573,7 +573,7 @@ const ALL_TABLES = [
   'time_blocks', 'anchor_activities', 'schedule_templates', 'schedule_weeks',
   'day_override_templates', 'template_slots', 'template_overlays',
   'schedule_snapshots', 'day_override_template_slots',
-  'week_activity_exclusions', 'week_group_exclusions',
+  'week_activity_exclusions', 'week_group_exclusions', 'week_location_exclusions',
 ]
 const snapshotCounts = () => Object.fromEntries(ALL_TABLES.map((t) => [t, count(t)]))
 
@@ -610,6 +610,8 @@ function seedCampWithSchedule() {
     .run(id('wax'), weekId, activityId)
   db.prepare('INSERT INTO week_group_exclusions (id, week_id, group_id) VALUES (?, ?, ?)')
     .run(id('wgx'), weekId, groupId)
+  db.prepare('INSERT INTO week_location_exclusions (id, week_id, location_id) VALUES (?, ?, ?)')
+    .run(id('wlx'), weekId, id('loc'))
 
   const overrideId = id('dot')
   db.prepare('INSERT INTO day_override_templates (id, camp_id, cohort_id, name) VALUES (?, ?, ?, ?)')
@@ -641,6 +643,7 @@ describe('replace mode tears the camp down inside the import transaction (T61)',
     expect(count('template_overlays')).toBe(0)
     expect(count('week_activity_exclusions')).toBe(0)
     expect(count('week_group_exclusions')).toBe(0)
+    expect(count('week_location_exclusions')).toBe(0)
     expect(count('day_override_template_slots')).toBe(0)
     expect(count('anchor_activities')).toBe(0)
 
@@ -674,7 +677,7 @@ describe('replace mode tears the camp down inside the import transaction (T61)',
     })
     expect(result.replaced.dependents).toEqual({
       template_slots: 1, template_overlays: 1, week_activity_exclusions: 1,
-      week_group_exclusions: 1, day_override_template_slots: 1, anchor_activities: 1,
+      week_group_exclusions: 1, week_location_exclusions: 1, day_override_template_slots: 1, anchor_activities: 1,
     })
   })
 
@@ -684,8 +687,8 @@ describe('replace mode tears the camp down inside the import transaction (T61)',
       mode: 'replace', approved: {}, camp_id: campId, author_user_id: 'u1', device_id: deviceId,
     })
     const deletes = db.prepare("SELECT entity FROM operations WHERE field = '__deleted__'").all()
-    // 5 entities + 6 dependent rows.
-    expect(deletes.length).toBe(11)
+    // 5 entities + 7 dependent rows.
+    expect(deletes.length).toBe(12)
     expect(new Set(deletes.map((d) => d.entity))).toContain('day_override_template_slots')
   })
 
