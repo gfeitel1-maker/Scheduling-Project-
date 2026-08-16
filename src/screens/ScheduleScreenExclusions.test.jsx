@@ -28,6 +28,7 @@ const SWIM_ID = 'act-swim'
 const ANCHOR_ID = 'anc-flagpole'
 
 const TEMPLATE_ID = deriveScheduleTemplateId(WEEK_ID, 'generated')
+const MANUAL_TEMPLATE_ID = deriveScheduleTemplateId(WEEK_ID, 'manual')
 
 // replaceWeek calls bulkReplace twice: once for template_overlays (empty [])
 // and once for template_slots (the actual rows). Filter to the slots call.
@@ -177,6 +178,108 @@ describe('S2-9: generated rebuild respects week exclusions', () => {
     // This is the persistence-across-rebuilds assertion.
     const postGenerateExclusions = await localClient.list('week_activity_exclusions')
     expect(postGenerateExclusions.some(e => e.activity_id === ARCHERY_ID && e.week_id === WEEK_ID)).toBe(true)
+  })
+})
+
+// Manual route: week exclusions were enforced only on the generate route (via
+// resolveWeekCatalog). This pins the manual-route mirror — a hand-placed slot
+// whose activity is marked closed this week shows the soft, derived WEEK_CLOSED
+// marker (never blocks the placement), and the marker is absent without the
+// exclusion. This drives the whole path: useScheduleData loads the exclusions,
+// ScheduleScreen chains withWeekClosureFlags on the manual route, SlotCell
+// renders the marker.
+describe('manual route surfaces week exclusions as a soft WEEK_CLOSED marker', () => {
+  function makeManualBase({ withArcheryExclusion }) {
+    const base = makeBase({ withArcheryExclusion })
+    base.schedule_templates = [
+      { id: MANUAL_TEMPLATE_ID, camp_id: CAMP_ID, name: 'Manual', kind: 'manual', week_id: WEEK_ID },
+    ]
+    // One filled, non-anchor Archery slot the director hand-placed.
+    base.template_slots = [
+      { id: 'slot-arch', template_id: MANUAL_TEMPLATE_ID, group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: ARCHERY_ID, is_anchor: 0 },
+    ]
+    return base
+  }
+
+  function mount(base) {
+    localClient.list.mockImplementation((entity) => Promise.resolve(base[entity] ?? []))
+    localClient.listByScope.mockImplementation((entity, scopeId) => {
+      const key = entity === 'week_activity_exclusions' || entity === 'week_group_exclusions' ? 'week_id' : 'template_id'
+      return Promise.resolve((base[entity] ?? []).filter((row) => row[key] === scopeId))
+    })
+    return render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="manual" />)
+  }
+
+  it('marks a hand-placed slot whose activity is closed this week, keeping the placement', async () => {
+    const { container } = mount(makeManualBase({ withArcheryExclusion: true }))
+
+    await waitFor(() => {
+      const marker = container.querySelector('.flag--week-closed')
+      expect(marker).toBeTruthy()
+    })
+    // Soft, not a block: the Archery placement is still on the grid.
+    const cell = container.querySelector('[data-cell-key="g1|d1|b1"]')
+    expect(cell.textContent).toContain('Archery')
+    expect(container.querySelector('.flag--week-closed').getAttribute('title'))
+      .toBe('Archery is marked closed this week')
+  })
+
+  it('shows no marker for the same placement when the week has no exclusion (control)', async () => {
+    const { container } = mount(makeManualBase({ withArcheryExclusion: false }))
+
+    // Wait for the grid to render the placed cell, then assert no marker.
+    await waitFor(() => {
+      const cell = container.querySelector('[data-cell-key="g1|d1|b1"]')
+      expect(cell?.textContent).toContain('Archery')
+    })
+    expect(container.querySelector('.flag--week-closed')).toBeNull()
+  })
+})
+
+// Gap 1: WEEK_CLOSED is route-agnostic. Generation drops excluded entities up
+// front, but the generated candidate can still ACQUIRE a closed placement — a
+// post-generation drag edit, or an activity marked closed AFTER the week was
+// built. So the derived marker must appear on the generated route too.
+describe('generated route also surfaces week exclusions as a WEEK_CLOSED marker', () => {
+  function mount(base) {
+    localClient.list.mockImplementation((entity) => Promise.resolve(base[entity] ?? []))
+    localClient.listByScope.mockImplementation((entity, scopeId) => {
+      const key = entity === 'week_activity_exclusions' || entity === 'week_group_exclusions' ? 'week_id' : 'template_id'
+      return Promise.resolve((base[entity] ?? []).filter((row) => row[key] === scopeId))
+    })
+    return render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="generated" />)
+  }
+
+  it('marks a placed excluded activity on the generated candidate', async () => {
+    const base = makeBase({ withArcheryExclusion: true })
+    // A generated schedule that already holds an Archery placement (as if placed
+    // before the exclusion, or dragged in after generation).
+    base.template_slots = [
+      { id: 'gslot-arch', template_id: TEMPLATE_ID, group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: ARCHERY_ID, is_anchor: 0 },
+    ]
+    const { container } = mount(base)
+
+    await waitFor(() => expect(container.querySelector('.flag--week-closed')).toBeTruthy())
+    expect(container.querySelector('.flag--week-closed').getAttribute('title'))
+      .toBe('Archery is marked closed this week')
+    // Still present — never blocked or removed.
+    expect(container.querySelector('[data-cell-key="g1|d1|b1"]').textContent).toContain('Archery')
+    // The generated grid is normally legend-free (kept calm), but once it
+    // carries a WEEK_CLOSED mark the legend must appear to document it —
+    // a mark on the grid is never left unexplained.
+    expect(container.textContent).toContain('Closed this week')
+  })
+
+  it('leaves the generated grid legend-free when nothing is closed (control)', async () => {
+    const base = makeBase({ withArcheryExclusion: false })
+    base.template_slots = [
+      { id: 'gslot-arch', template_id: TEMPLATE_ID, group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: ARCHERY_ID, is_anchor: 0 },
+    ]
+    const { container } = mount(base)
+
+    await waitFor(() => expect(container.querySelector('[data-cell-key="g1|d1|b1"]')?.textContent).toContain('Archery'))
+    expect(container.querySelector('.flag--week-closed')).toBeNull()
+    expect(container.textContent).not.toContain('Closed this week')
   })
 })
 

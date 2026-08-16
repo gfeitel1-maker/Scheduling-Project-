@@ -146,7 +146,20 @@ export function useGeneration({
     const setManualOverlays = routeSetter(setOverlaysByRoute, 'manual')
     const setManualStats = routeSetter(setStatsByRoute, 'manual')
 
-    const result = buildSchedule({ groups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(activities), anchors, campId, locations, anchorsOnly: true })
+    // Same week-exclusion pre-pass generate() runs (above): the manual blank
+    // week must not lay down anchors for an activity or a fully-excluded group
+    // that is marked not to run this week. Without this, a fixed event closed
+    // for the week (or a meal for a closed group) would still be placed and,
+    // because computeWeekClosures deliberately skips anchors, would never be
+    // flagged either.
+    const { groups: effGroups, activities: effActivities, anchors: effAnchors } = resolveWeekCatalog({
+      groups, activities, anchors,
+      weekId,
+      activityExclusions: activityExclusions || [],
+      groupExclusions: groupExclusions || [],
+    })
+
+    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), anchors: effAnchors, campId, locations, anchorsOnly: true })
     setManualFindings(result.findings || [])
     setManualDismissed(new Set())
 
@@ -190,7 +203,9 @@ export function useGeneration({
     setManualStats(statsFor(freshSlots))
     // Findings are shown the moment the blank week opens — every activity still
     // under its weekly target, as an honest list of what the week owes you.
-    setManualFindings(computeFindings({ slots: freshSlots, groups, activities, days }))
+    // Computed against the week-effective catalog (effGroups/effActivities) so a
+    // closed group or activity does not show up owing time it will never run.
+    setManualFindings(computeFindings({ slots: freshSlots, groups: effGroups, activities: effActivities, days }))
     setManualDismissed(new Set())
     if (groups.length > 0) setSelectedGroup(prev => prev ?? groups[0].id)
     setGenerating(false)

@@ -48,10 +48,11 @@ export default function FindingsRail({ rows, onDismiss, onLocate, onClose, intro
             </div>
             {/* "Accept" is the Word track-changes verb: I've seen this and I
                 can live with it — hide it. It IS the old dismiss, relabelled so
-                the action reads as a decision, not a deletion. OVERLAP (manual
-                only) has nothing to accept — it clears when a clashing
-                placement moves — so it shows no button. */}
-            {row.kind !== 'OVERLAP' && (
+                the action reads as a decision, not a deletion. OVERLAP and
+                WEEK_CLOSED (manual only) have nothing to accept — they clear
+                when the clashing / closed-week placement moves or the exclusion
+                is lifted — so they show no button. */}
+            {row.kind !== 'OVERLAP' && row.kind !== 'WEEK_CLOSED' && (
               <button
                 onClick={() => onDismiss(row)}
                 title="I can live with this — hide it"

@@ -139,6 +139,43 @@ describe('useGeneration', () => {
     expect(props.setSelectedGroup).toHaveBeenCalledTimes(1)
   })
 
+  it('placeAnchors() runs the week-exclusion pre-pass: an anchor for a closed activity is suppressed', async () => {
+    // resolveWeekCatalog is NOT mocked here (only buildSchedule is), so this
+    // pins the real seam: placeAnchors filters the catalog for the week before
+    // laying down anchors, exactly as generate() does. Without the pre-pass a
+    // closed activity's anchor would still be placed — and computeWeekClosures
+    // skips anchors, so nothing downstream would catch it.
+    const { result } = setup({
+      weekId: 'wk1',
+      activities: [{ id: 'a1', name: 'Swim' }, { id: 'a2', name: 'Closed Fixed Event' }],
+      anchors: [{ id: 'an1', activity_id: 'a2', is_all_groups: true, group_ids: [] }],
+      activityExclusions: [{ week_id: 'wk1', activity_id: 'a2' }],
+      groupExclusions: [],
+    })
+    await act(async () => { await result.current.placeAnchors() })
+
+    const arg = buildSchedule.mock.calls[0][0]
+    expect(arg.anchorsOnly).toBe(true)
+    expect(arg.anchors).toEqual([]) // the excluded activity's anchor is gone
+    expect(arg.activities.map(a => a.id)).not.toContain('a2')
+    expect(arg.activities.map(a => a.id)).toContain('a1')
+  })
+
+  it('placeAnchors() leaves the catalog intact when the week has no exclusions', async () => {
+    const { result } = setup({
+      weekId: 'wk1',
+      activities: [{ id: 'a1', name: 'Swim' }],
+      anchors: [{ id: 'an1', activity_id: 'a1', is_all_groups: true, group_ids: [] }],
+      activityExclusions: [],
+      groupExclusions: [],
+    })
+    await act(async () => { await result.current.placeAnchors() })
+
+    const arg = buildSchedule.mock.calls[0][0]
+    expect(arg.anchors).toEqual([{ id: 'an1', activity_id: 'a1', is_all_groups: true, group_ids: [] }])
+    expect(arg.activities.map(a => a.id)).toContain('a1')
+  })
+
   it('placeAnchors() aborts the replace when the manual auto-snapshot fails', async () => {
     const saveSnapshot = vi.fn(async () => { throw new Error('snap failed') })
     const { result, props } = setup({

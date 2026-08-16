@@ -35,6 +35,11 @@ export const ANCHOR_COLOR = 'var(--anchor)'
 export const FLAG_COLORS = {
   UNFILLABLE: 'var(--danger)',
   OVERLAP: 'var(--accent)',
+  // Slate, distinct from OVERLAP's bronze so the two manual-route dots are told
+  // apart by hue, not position alone. Still out of the reserved red. The exact
+  // token is the director's aesthetic call (like OVERLAP's); see
+  // docs/work/specs/2026-08-16-manual-route-week-exclusions-design.md §5.
+  WEEK_CLOSED: 'var(--secondary)',
 }
 
 // Severity is a distinct lookup from FLAG_COLORS (hue) on purpose — kept
@@ -43,6 +48,7 @@ export const FLAG_COLORS = {
 export const FLAG_SEVERITY = {
   UNFILLABLE: 'danger',
   OVERLAP: 'caution',
+  WEEK_CLOSED: 'caution',
   UNDERSERVED: 'caution',
   DISTRIBUTION: 'info',
 }
@@ -92,9 +98,20 @@ const UNFILLABLE_ENTRY = {
   description: 'No eligible activity could be placed here',
 }
 
+// Manual route only, like OVERLAP: the activity or its group is marked not to
+// run this week (week availability). A soft marker — the placement is kept.
+const WEEK_CLOSED_ENTRY = {
+  flagKey: 'WEEK_CLOSED',
+  label: 'Closed this week',
+  shape: 'dot',
+  color: FLAG_COLORS.WEEK_CLOSED,
+  description: 'This activity or group is marked not to run this week',
+}
+
 export const LEGEND_ENTRIES = [
   UNFILLABLE_ENTRY,
   OVERLAP_ENTRY,
+  WEEK_CLOSED_ENTRY,
   {
     flagKey: null,
     label: 'Locked',
@@ -206,6 +223,9 @@ export function activityColor(activityId) {
 // and 'Overlapping' does not exist on the generated route, where the engine
 // refuses a clashing placement rather than making one.
 export function legendEntriesFor(route) {
-  const omit = route === 'manual' ? 'UNFILLABLE' : 'OVERLAP'
-  return LEGEND_ENTRIES.filter(e => e.flagKey !== omit)
+  // WEEK_CLOSED derives on BOTH routes (a closed-week placement is equally wrong
+  // on either), so it stays in both legends. Only UNFILLABLE (generated) and
+  // OVERLAP (manual) are route-specific.
+  const omit = route === 'manual' ? ['UNFILLABLE'] : ['OVERLAP']
+  return LEGEND_ENTRIES.filter(e => !omit.includes(e.flagKey))
 }

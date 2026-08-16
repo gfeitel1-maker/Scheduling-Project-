@@ -201,6 +201,9 @@ export default function SlotCell({
   // the same corner UNFILLABLE's glyph occupies. Dot vs glyph is the
   // non-colour channel that keeps the two from reading alike.
   const isOverlapping = Boolean(flags.OVERLAP)
+  // Manual route only. Slate dot in the top-LEFT corner (clear of the top-right
+  // flag cluster) — the activity or its group is marked not to run this week.
+  const isWeekClosed = Boolean(flags.WEEK_CLOSED)
   const isOutdoor = Boolean(activity?.is_outdoor)
   const showOutdoorIcon = isOutdoor && !isUnfillable
   const isWeatherHighlight = weatherMode && showOutdoorIcon
@@ -357,6 +360,13 @@ export default function SlotCell({
             className="flag flag--overlap"
             style={{ background: FLAG_COLORS.OVERLAP }}
             title={flags.OVERLAP_reason || 'More groups booked in than this holds'}
+          />
+        )}
+        {isWeekClosed && (
+          <div
+            className="flag flag--week-closed"
+            style={{ background: FLAG_COLORS.WEEK_CLOSED }}
+            title={flags.WEEK_CLOSED_reason || 'Marked not to run this week'}
           />
         )}
         {isUnfillable && (

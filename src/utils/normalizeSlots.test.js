@@ -82,6 +82,11 @@ describe('normalizeSlots — flags', () => {
       DISTRIBUTION_reason: 'Goal: 2× before day 3 — only 0× placed',
       WEATHER_RISK: true,
       WEATHER_RISK_reason: 'Outdoor activity scheduled in this slot',
+      // Both derived-at-render markers must be dropped on read too.
+      OVERLAP: true,
+      OVERLAP_reason: '3 groups booked into the Lake — it holds 2',
+      WEEK_CLOSED: true,
+      WEEK_CLOSED_reason: 'Swim is marked closed this week',
     })
     const [row] = normalizeSlots([{ id: 'legacy', flags: legacyFlags }])
     expect(row.flags).toEqual({
@@ -93,7 +98,7 @@ describe('normalizeSlots — flags', () => {
   it('also strips stale keys when flags is already a plain object (field-at-a-time write path)', () => {
     const [row] = normalizeSlots([{
       id: 'legacy-obj',
-      flags: { UNFILLABLE: true, DISTRIBUTION: true, DISTRIBUTION_reason: 'x' },
+      flags: { UNFILLABLE: true, DISTRIBUTION: true, DISTRIBUTION_reason: 'x', WEEK_CLOSED: true, OVERLAP: true },
     }])
     expect(row.flags).toEqual({ UNFILLABLE: true })
   })

@@ -45,6 +45,11 @@ const STALE_FLAG_KEYS = new Set([
   // the instant any one of them moves. A persisted copy could only ever go
   // stale, so any that reaches the db is dropped on read.
   'OVERLAP', 'OVERLAP_reason', 'OVERLAP_dismissed',
+  // WEEK_CLOSED is derived the same way (src/utils/computeWeekClosures.js) from
+  // the slots on screen and this week's exclusion rows — same stale-by-
+  // construction reasoning, so a persisted copy (a legacy row, or one planted
+  // by a peer over sync) is dropped on read and only the fresh value shows.
+  'WEEK_CLOSED', 'WEEK_CLOSED_reason', 'WEEK_CLOSED_dismissed',
 ])
 
 // `flags` crosses the LAN op-log sync boundary as JSON.parse'd input, so a
