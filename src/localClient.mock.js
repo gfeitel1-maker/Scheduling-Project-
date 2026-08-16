@@ -305,6 +305,10 @@ export const MOCK_WRITE_ALLOWLIST = {
     'location_id',
   ],
   locations: ['camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry'],
+  // M6 (docs/adr/2026-08-16-locations-optional-map.md D1) — hand-transcribed
+  // mirror of PROJECTIONS.camp_maps.fields, per this file's "do not import
+  // from electron/" rule (kept honest by electron/ipcSurfaceParity.test.js).
+  camp_maps: ['camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'],
   anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes'],
   day_override_templates: ['camp_id', 'cohort_id', 'name', 'frequency_mode'],
   day_override_template_slots: ['day_override_template_id', 'time_block_id', 'activity_id'],

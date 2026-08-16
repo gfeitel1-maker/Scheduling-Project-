@@ -13,6 +13,7 @@ import {
   recordConflict,
   listPendingConflicts,
   DELETE_FIELD,
+  MAX_FIELD_VALUE_LENGTH,
 } from './operations.js'
 
 let tmpFile
@@ -363,6 +364,100 @@ describe('appendOp field allowlist + transaction', () => {
 
     const row = db.prepare('SELECT camp_id FROM users WHERE id = ?').get('user-1')
     expect(row.camp_id).toBe('camp-1')
+  })
+})
+
+// M6 (D2, docs/adr/2026-08-16-locations-optional-map.md): the size guard on
+// operations.value. `appendOp` is the single choke point both the local
+// write() path and the Host's handleSubmitOp (a remote Client's WS
+// submission) go through — this is the AUTHORITATIVE gate, not a convenience
+// check, so the fail-first evidence here matters more than the happy path:
+// the write must be rejected BEFORE any row is written, on both paths.
+describe('appendOp size guard (MAX_FIELD_VALUE_LENGTH, D2)', () => {
+  it('registers exactly the one entity/field this codebase needs it for', () => {
+    expect(MAX_FIELD_VALUE_LENGTH).toEqual({ camp_maps: { image_data: 1_400_000 } })
+  })
+
+  it('rejects an oversized camp_maps.image_data write and inserts NO operations row (fail-first, before the transaction opens)', () => {
+    const before = db.prepare('SELECT COUNT(*) AS n FROM operations').get().n
+    const oversized = 'a'.repeat(MAX_FIELD_VALUE_LENGTH.camp_maps.image_data + 1)
+
+    expect(() =>
+      appendOp(db, {
+        entity: 'camp_maps',
+        entity_id: 'camp-1',
+        field: 'image_data',
+        value: oversized,
+        author_user_id: 'user-1',
+        device_id: 'device-1',
+        parent_op_id: null,
+      })
+    ).toThrow(/exceeds MAX_FIELD_VALUE_LENGTH/)
+
+    const after = db.prepare('SELECT COUNT(*) AS n FROM operations').get().n
+    expect(after).toBe(before)
+    // No camp_maps row was ever created via ensureExists either — the throw
+    // happens before appendOp's transaction (which runs ensureExists) opens.
+    expect(db.prepare('SELECT COUNT(*) c FROM camp_maps WHERE id = ?').get('camp-1').c).toBe(0)
+  })
+
+  it('accepts a camp_maps.image_data write exactly at the limit', () => {
+    const atLimit = 'a'.repeat(MAX_FIELD_VALUE_LENGTH.camp_maps.image_data)
+    const op = appendOp(db, {
+      entity: 'camp_maps',
+      entity_id: 'camp-1',
+      field: 'image_data',
+      value: atLimit,
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+    expect(op).toBeTruthy()
+    const row = db.prepare('SELECT image_data FROM camp_maps WHERE id = ?').get('camp-1')
+    expect(row.image_data).toBe(atLimit)
+  })
+
+  it('accepts a small camp_maps.image_data write (happy path, well under the cap)', () => {
+    const op = appendOp(db, {
+      entity: 'camp_maps',
+      entity_id: 'camp-1',
+      field: 'image_data',
+      value: 'small-base64-stub',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+    expect(op).toBeTruthy()
+    const row = db.prepare('SELECT image_data FROM camp_maps WHERE id = ?').get('camp-1')
+    expect(row.image_data).toBe('small-base64-stub')
+  })
+
+  it('does not cap an unregistered entity/field — the guard is scoped, not generic', () => {
+    // A long users.name is unusual but not the concern this guard exists for
+    // (every other field is small by construction, per D2's rationale) — it
+    // must not be silently capped by a blanket rule.
+    const longName = 'x'.repeat(2_000_000)
+    const op = appendOp(db, {
+      entity: 'users',
+      entity_id: 'user-1',
+      field: 'name',
+      value: longName,
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+    expect(op).toBeTruthy()
+    expect(db.prepare('SELECT name FROM users WHERE id = ?').get('user-1').name).toBe(longName)
+  })
+
+  it('is enforced on the Host handleSubmitOp path exactly like the local write() path — both call the same appendOp choke point', () => {
+    // syncServer.js's handleSubmitOp calls appendOp(db, incomingOp) directly
+    // with no additional size check of its own (electron/sync/syncServer.js
+    // ~:624) — confirmed by reading the source, asserted here as a structural
+    // fact so a future refactor that adds a SEPARATE, divergent check on that
+    // path (rather than relying on the shared appendOp gate) fails loudly.
+    const src = fs.readFileSync(path.join(import.meta.dirname, '..', 'sync', 'syncServer.js'), 'utf8')
+    expect(src).toMatch(/const op = appendOp\(db, incomingOp\)/)
   })
 })
 

@@ -1,4 +1,5 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, useDraggable, useDroppable } from '@dnd-kit/core'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
@@ -17,6 +18,18 @@ import {
   wasUnlimitedCopy,
   variantList,
 } from './locationMigrationReview'
+// M6 — the optional camp map. docs/adr/2026-08-16-locations-optional-map.md,
+// docs/work/specs/2026-08-16-m6-map-design.md. A plain JS import — the
+// src/components/schedule/ CSS-exception boundary (D9) is about the
+// *stylesheet*, not this constant array, so importing ACTIVITY_COLORS here
+// does not touch that boundary.
+import { ACTIVITY_COLORS } from '../components/schedule/slotCellConstants'
+import '../components/locations/locationMap.css'
+import { useLocationGeometryMutations } from './locations/useLocationGeometryMutations'
+import { useMapDragFSM } from './locations/useMapDragFSM'
+import { MOVE, RESIZE } from './locations/mapDragFSM'
+import { defaultTrayGeometry } from './locations/mapGeometry'
+import { processMapImage, MapImageError } from './locations/mapImageProcessing'
 
 // M3a — the Locations setup screen. docs/work/specs/2026-08-15-m3-locations-design.md Part 1.
 // M3c — the first-run migration review region (Part 3) + the delete path's
@@ -24,6 +37,7 @@ import {
 // docs/adr/2026-08-15-locations-merge-and-delete-rehome.md
 // M5 — per-week location availability (the toggle column), mirroring
 // ActivitiesScreen/GroupsScreen's week-exclusion pattern exactly.
+// M6 — the optional camp map (List | Map toggle, Part 1 of the M6 spec).
 const repository = createSetupCrudRepository({ localClient })
 const repo = createScheduleRepository({ localClient })
 const scopeFilter = (row, campId) => row.camp_id === campId
@@ -222,6 +236,215 @@ function CapacityAdvisoryStrip({ items, locations, onAccept, busyId }) {
   )
 }
 
+// ---------------------------------------------------------------------------
+// M6 — the optional camp map. docs/adr/2026-08-16-locations-optional-map.md,
+// docs/work/specs/2026-08-16-m6-map-design.md.
+// ---------------------------------------------------------------------------
+
+// Part 1 — the persistent List | Map segmented toggle, mirroring
+// ScheduleScreen.jsx's REAL View toggle (:861-865) verbatim, per the
+// Designer spec's correction to the ADR's stale citation.
+function ListMapToggle({ tab, onChange }) {
+  return (
+    <div style={{ display: 'flex', gap: 2, background: 'var(--border)', borderRadius: 8, padding: 3, marginBottom: 20 }}>
+      {[['list', 'List'], ['map', 'Map']].map(([v, label]) => (
+        <button
+          key={v}
+          onClick={() => onChange(v)}
+          style={{
+            padding: '6px 14px', borderRadius: 6, border: 'none',
+            borderBottom: tab === v ? '2px solid var(--primary)' : '2px solid transparent',
+            cursor: 'pointer', fontSize: 12, fontWeight: tab === v ? 700 : 600,
+            fontFamily: 'var(--font-sans)',
+            background: tab === v ? 'var(--surface)' : 'none',
+            color: tab === v ? 'var(--primary)' : 'var(--text-secondary)',
+            boxShadow: tab === v ? '0 1px 4px rgba(0,0,0,0.12)' : 'none',
+            transition: 'color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)',
+          }}
+        >{label}</button>
+      ))}
+    </div>
+  )
+}
+
+// Part 2 — the calm, no-card empty block (DESIGN_STANDARD §5a), reused from
+// M3's "No places yet" treatment, not reinvented.
+function MapEmptyState({ role, onUploadClick, busy }) {
+  const enter = useEnterTransition('liftFade')
+  return (
+    <div style={{ ...emptyStyles.wrap, ...enter }}>
+      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="1.5">
+        <rect x="3" y="4" width="18" height="16" rx="2" />
+        <circle cx="8.5" cy="9.5" r="1.5" />
+        <path d="M21 16l-5.5-5.5a1.5 1.5 0 0 0-2.1 0L4 19" />
+      </svg>
+      <div style={emptyStyles.title}>No map yet</div>
+      {role === 'admin' ? (
+        <>
+          <div style={emptyStyles.body}>
+            Add a photo or drawing of your camp grounds, then drag each place onto it. Optional — the schedule
+            works fine without a map.
+          </div>
+          <button className="press-97" onClick={onUploadClick} disabled={busy} style={{ ...S.btnPrimary, marginTop: 14 }}>
+            {busy ? 'Preparing…' : 'Upload a map image'}
+          </button>
+        </>
+      ) : (
+        <div style={emptyStyles.body}>
+          Your director hasn't added a camp map yet. Places still work everywhere else in Shoresh — check back
+          later.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Part 3 — a single placed location, drawn as a positioned/draggable/
+// resizable rectangle. Per-location computed geometry (left/top/width/
+// height) stays INLINE (ADR D9) — only pseudo-state/attribute rules live in
+// locationMap.css. The DOM node is registered with the FSM binding hook so
+// it can be imperatively updated during a live drag without a React
+// re-render (useMapDragFSM.js's own rationale).
+function LocationMarker({ location, color, geometry, registerLocationEl, dragFsm }) {
+  // Destructured directly, matching SlotCell.jsx/ActivityPalette.jsx's own
+  // useDraggable convention exactly (a plain `ref={setNodeRef}`, never a
+  // member-expression read off the hook's return object as the ref/spread
+  // value — eslint-plugin-react-hooks' refs rule flags the latter).
+  const { attributes: moveAttrs, listeners: moveListeners, setNodeRef: setMoveNodeRef } = useDraggable({
+    id: `move:${location.id}`,
+    data: { kind: MOVE, locationId: location.id, geometry },
+  })
+  const { attributes: resizeAttrs, listeners: resizeListeners, setNodeRef: setResizeNodeRef } = useDraggable({
+    id: `resize:${location.id}`,
+    data: { kind: RESIZE, locationId: location.id, geometry },
+  })
+
+  function setMarkerRef(el) {
+    setMoveNodeRef(el)
+    registerLocationEl(location.id, el)
+  }
+
+  return (
+    <div
+      ref={setMarkerRef}
+      className="map-location"
+      tabIndex={0}
+      role="button"
+      aria-label={`Move ${location.name}`}
+      onClick={() => dragFsm.selectLocation(location.id)}
+      {...moveListeners}
+      {...moveAttrs}
+      style={{
+        left: `${geometry.x * 100}%`,
+        top: `${geometry.y * 100}%`,
+        width: `${geometry.w * 100}%`,
+        height: `${geometry.h * 100}%`,
+        border: `2px solid ${color}`,
+        // Designer spec §4 — 10% at rest, 16% selected/hovered (border weight
+        // never changes). --marker-wash is set ONLY by locationMap.css's
+        // [data-selected] rule; the var() fallback is the at-rest value.
+        background: `color-mix(in srgb, ${color} var(--marker-wash, 10%), transparent)`,
+      }}
+    >
+      <span style={markerStyles.chip(color)}>
+        <span style={markerStyles.dot(color)} />
+        {location.name}
+      </span>
+      <button
+        ref={setResizeNodeRef}
+        className="map-location-handle"
+        data-resize-handle=""
+        tabIndex={0}
+        aria-label={`Resize ${location.name}`}
+        onClick={(e) => e.stopPropagation()}
+        {...resizeListeners}
+        {...resizeAttrs}
+      />
+    </div>
+  )
+}
+
+// Part 3 — the unplaced tray. Renders only when at least one location has
+// map_geometry IS NULL (mirrors M3's "absent, not empty" discipline).
+function UnplacedTray({ items }) {
+  return (
+    <div style={trayStyles.wrap}>
+      <div style={trayStyles.head}>
+        <span style={trayStyles.title}>Not yet placed</span>
+        <span style={trayStyles.count}>({items.length})</span>
+      </div>
+      <div style={trayStyles.row}>
+        {items.map((location) => (
+          <UnplacedChip key={location.id} location={location} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function UnplacedChip({ location }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `tray:${location.id}`,
+    data: { kind: 'tray', locationId: location.id },
+  })
+  return (
+    <div
+      ref={setNodeRef}
+      className="map-tray-chip"
+      data-dragging={isDragging ? '' : undefined}
+      style={trayStyles.chip}
+      {...listeners}
+      {...attributes}
+    >
+      <svg width="10" height="14" viewBox="0 0 10 14" fill="var(--text-secondary)" aria-hidden="true">
+        <circle cx="2" cy="2" r="1.3" /><circle cx="8" cy="2" r="1.3" />
+        <circle cx="2" cy="7" r="1.3" /><circle cx="8" cy="7" r="1.3" />
+        <circle cx="2" cy="12" r="1.3" /><circle cx="8" cy="12" r="1.3" />
+      </svg>
+      <span style={{ fontWeight: 500 }}>{location.name}</span>
+      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)' }}>
+        {capacityWord(location.capacity)}
+      </span>
+    </div>
+  )
+}
+
+// Part 3 — the populated map canvas: background image at natural aspect
+// ratio (set inline, before the data: URL decodes, per ADR D10) + every
+// placed location's marker. Wrapped in one DndContext shared with the
+// unplaced tray so a tray chip can be dropped onto the canvas.
+function MapCanvas({ mapRow, locations, dragFsm, containerRef }) {
+  const { setNodeRef: setDroppableRef } = useDroppable({ id: 'map-canvas' })
+  const { registerLocationEl, liveRef } = dragFsm
+  const placed = locations.filter((l) => l.map_geometry)
+
+  function setCanvasRef(el) {
+    containerRef.current = el
+    setDroppableRef(el)
+  }
+
+  return (
+    <div
+      ref={setCanvasRef}
+      className="map-canvas"
+      style={{ aspectRatio: `${mapRow.image_width || 1} / ${mapRow.image_height || 1}` }}
+    >
+      <img className="map-image" src={`data:image/jpeg;base64,${mapRow.image_data}`} alt="" />
+      {placed.map((location, i) => (
+        <LocationMarker
+          key={location.id}
+          location={location}
+          color={ACTIVITY_COLORS[(location.sort_order ?? i) % ACTIVITY_COLORS.length]}
+          geometry={JSON.parse(location.map_geometry)}
+          registerLocationEl={registerLocationEl}
+          dragFsm={dragFsm}
+        />
+      ))}
+      <div ref={liveRef} className="map-drag-live" aria-live="polite" />
+    </div>
+  )
+}
+
 function LocationRow({ location, role, onSave, onDelete, weekToggle }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(location.name)
@@ -324,6 +547,127 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
   const [pendingExclusion, setPendingExclusion] = useState(null) // { location, slotCount }
   const nameRef = useRef()
   const enter = useEnterTransition('liftFade')
+
+  // M6 — the optional camp map. docs/adr/2026-08-16-locations-optional-map.md,
+  // docs/work/specs/2026-08-16-m6-map-design.md.
+  const [tab, setTab] = useState('list')
+  const [mapRow, setMapRow] = useState(null)
+  const [mapBusy, setMapBusy] = useState(false)
+  const [mapError, setMapError] = useState(null)
+  const [pendingRemoveMap, setPendingRemoveMap] = useState(false)
+  const [removingMap, setRemovingMap] = useState(false)
+  const mapFileInputRef = useRef()
+  const mapContainerRef = useRef(null)
+  const { writeGeometry } = useLocationGeometryMutations({ repository })
+  const handleGeometryCommitError = useCallback(() => {
+    setMapError('That change could not be saved. Try again.')
+  }, [])
+  const dragFsm = useMapDragFSM({ writeGeometry, containerRef: mapContainerRef, onCommitError: handleGeometryCommitError })
+  const mapSensors = useSensors(
+    // distance: 5, matching ScheduleScreen.jsx:203 exactly (ADR D8) — not the
+    // brief's stale 8 (Designer spec's Implementation Notes).
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor)
+  )
+
+  async function loadCampMap() {
+    try {
+      const rows = (await localClient.list('camp_maps')) || []
+      setMapRow(rows.find((r) => r.camp_id === campId) ?? null)
+    } catch {
+      setMapRow(null)
+    }
+  }
+
+  useEffect(() => {
+    ;(async () => { await loadCampMap() })()
+  }, [campId])
+
+  function triggerMapUpload() {
+    mapFileInputRef.current?.click()
+  }
+
+  async function handleMapFileSelected(e) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-selecting the same file next time
+    if (!file) return
+    setMapError(null)
+    setMapBusy(true)
+    try {
+      const { base64, mime, width, height } = await processMapImage(file)
+      // camp_id must be included here, not left to the real backend's
+      // ensureExists to stamp: src/localClient.mock.js's write() only
+      // auto-stamps camp_id for UNIQUE_KEYS composite entities, and camp_maps
+      // is correctly not one (a singleton keyed by id = camp_id already) —
+      // so in the browser dev mock, an upload without this field is
+      // unfindable by camp_id and loadCampMap never matches it. Harmless on
+      // the real backend, and matches every other entity's create write in
+      // this same file (buildCreateFields above, and DaysScreen.jsx).
+      await repository.writeFields('camp_maps', campId, {
+        camp_id: campId,
+        image_data: base64,
+        image_mime: mime,
+        image_width: width,
+        image_height: height,
+      })
+      await loadCampMap()
+    } catch (err) {
+      setMapError(err instanceof MapImageError ? err.message : "That file isn't a photo Shoresh can use. Choose a JPG, PNG, or WEBP image.")
+    } finally {
+      setMapBusy(false)
+    }
+  }
+
+  async function confirmRemoveMap() {
+    setRemovingMap(true)
+    try {
+      await repository.writeFields('camp_maps', campId, { image_data: null })
+      await loadCampMap()
+    } finally {
+      setRemovingMap(false)
+      setPendingRemoveMap(false)
+    }
+  }
+
+  // Shared DndContext handlers for the Map tab: `move:`/`resize:` ids
+  // delegate to useMapDragFSM (D7/D8); `tray:` ids are the unplaced-tray
+  // drop-to-place gesture, handled as a single synthesized 'move' write
+  // (Designer spec "Design judgment calls" #3) rather than a third FSM kind.
+  function handleMapDragStart(event) {
+    const id = String(event.active.id)
+    if (id.startsWith('move:') || id.startsWith('resize:')) dragFsm.dndProps.onDragStart(event)
+  }
+  function handleMapDragMove(event) {
+    const id = String(event.active.id)
+    if (id.startsWith('move:') || id.startsWith('resize:')) dragFsm.dndProps.onDragMove(event)
+  }
+  function handleMapDragEnd(event) {
+    const id = String(event.active.id)
+    if (id.startsWith('move:') || id.startsWith('resize:')) {
+      dragFsm.dndProps.onDragEnd(event)
+      return
+    }
+    if (id.startsWith('tray:') && event.over?.id === 'map-canvas') {
+      const locationId = id.slice('tray:'.length)
+      const container = mapContainerRef.current?.getBoundingClientRect()
+      const translated = event.active.rect.current.translated
+      if (!container || !translated) return
+      const centerXPx = translated.left + translated.width / 2 - container.left
+      const centerYPx = translated.top + translated.height / 2 - container.top
+      const dropFraction = {
+        x: container.width > 0 ? centerXPx / container.width : 0.5,
+        y: container.height > 0 ? centerYPx / container.height : 0.5,
+      }
+      const geometry = defaultTrayGeometry(dropFraction)
+      writeGeometry(locationId, geometry, crypto.randomUUID()).catch(() => {
+        setMapError('That change could not be saved. Try again.')
+      })
+    }
+  }
+  function handleMapDragCancel(event) {
+    const id = String(event.active.id)
+    if (id.startsWith('move:') || id.startsWith('resize:')) dragFsm.dndProps.onDragCancel()
+  }
 
   async function loadExclusions() {
     if (!weekId) { setExcludedLocationIds(new Set()); return }
@@ -535,121 +879,169 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
   return (
     <div style={{ maxWidth: 720 }}>
       <ScreenIntro screen="locations" />
-      {weeks.length > 0 && (
-        <WeekContextBar
-          weekId={weekId}
-          weeks={weeks}
-          onSelectWeek={onSelectWeek}
-          exclusionCount={excludedLocationIds.size}
-          totalCount={locations.length}
-          entityLabel="places"
-        />
-      )}
+      <ListMapToggle tab={tab} onChange={setTab} />
       {error && (
         <div style={S.errorBanner}>
           {error}
         </div>
       )}
 
-      {/* D-3.3 — an absent/empty journal renders no review region at all. */}
-      {nearDuplicateGroups.length === 0 && advisoryItems.length > 0 && (
-        <CapacityAdvisoryStrip
-          items={advisoryItems}
-          locations={locations}
-          onAccept={handleAdvisoryAccept}
-          busyId={stripBusyId}
-        />
-      )}
-
-      {loading ? (
-        <div style={S.stateLoading}>Loading…</div>
-      ) : locations.length === 0 ? (
-        <div style={{ ...emptyStyles.wrap, ...enter }}>
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="1.5">
-            <path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10Z" />
-            <circle cx="12" cy="11" r="2.2" />
-          </svg>
-          <div style={emptyStyles.title}>No places yet</div>
-          <div style={emptyStyles.body}>Add a place below and say how many groups fit at once. Or skip this — the schedule works fine without it, and you can add places any time.</div>
-          <button className="press-97" onClick={() => nameRef.current?.focus()} style={{ ...S.btnPrimary, marginTop: 14 }}>Add your first place</button>
-        </div>
-      ) : (
+      {tab === 'list' && (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-            <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              {locations.length} place{locations.length !== 1 ? 's' : ''}
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button
-                onClick={deleteAll}
-                disabled={role !== 'admin'}
-                title={role !== 'admin' ? 'Admin only' : undefined}
-                style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-              >Delete All</button>
-            </div>
-          </div>
+          {weeks.length > 0 && (
+            <WeekContextBar
+              weekId={weekId}
+              weeks={weeks}
+              onSelectWeek={onSelectWeek}
+              exclusionCount={excludedLocationIds.size}
+              totalCount={locations.length}
+              entityLabel="places"
+            />
+          )}
 
-          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
-                  <th style={S.th}>Name</th>
-                  <th style={S.th}>Groups at once</th>
-                  <th style={S.th}>Notes</th>
-                  {weekId && <th style={{ ...S.th, textAlign: 'center' }}>{currentWeek?.name ?? 'Week'}</th>}
-                  <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {locations.map((location) => (
-                  <LocationRow
-                    key={location.id}
-                    location={location}
-                    role={role}
-                    onSave={save}
-                    onDelete={deleteLocation}
-                    weekToggle={weekId ? (
-                      <td style={{ ...S.td, textAlign: 'center' }}>
-                        <WeekToggle
-                          on={!excludedLocationIds.has(location.id)}
-                          label={excludedLocationIds.has(location.id)
-                            ? `Off in ${currentWeek?.name ?? 'this week'}`
-                            : `Open in ${currentWeek?.name ?? 'this week'}`}
-                          onToggle={() => handleToggleExclusion(location, excludedLocationIds.has(location.id))}
-                        />
-                      </td>
-                    ) : null}
-                  />
-                ))}
-              </tbody>
-            </table>
+          {/* D-3.3 — an absent/empty journal renders no review region at all. */}
+          {nearDuplicateGroups.length === 0 && advisoryItems.length > 0 && (
+            <CapacityAdvisoryStrip
+              items={advisoryItems}
+              locations={locations}
+              onAccept={handleAdvisoryAccept}
+              busyId={stripBusyId}
+            />
+          )}
+
+          {loading ? (
+            <div style={S.stateLoading}>Loading…</div>
+          ) : locations.length === 0 ? (
+            <div style={{ ...emptyStyles.wrap, ...enter }}>
+              <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="1.5">
+                <path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10Z" />
+                <circle cx="12" cy="11" r="2.2" />
+              </svg>
+              <div style={emptyStyles.title}>No places yet</div>
+              <div style={emptyStyles.body}>Add a place below and say how many groups fit at once. Or skip this — the schedule works fine without it, and you can add places any time.</div>
+              <button className="press-97" onClick={() => nameRef.current?.focus()} style={{ ...S.btnPrimary, marginTop: 14 }}>Add your first place</button>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  {locations.length} place{locations.length !== 1 ? 's' : ''}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    onClick={deleteAll}
+                    disabled={role !== 'admin'}
+                    title={role !== 'admin' ? 'Admin only' : undefined}
+                    style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
+                  >Delete All</button>
+                </div>
+              </div>
+
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
+                      <th style={S.th}>Name</th>
+                      <th style={S.th}>Groups at once</th>
+                      <th style={S.th}>Notes</th>
+                      {weekId && <th style={{ ...S.th, textAlign: 'center' }}>{currentWeek?.name ?? 'Week'}</th>}
+                      <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {locations.map((location) => (
+                      <LocationRow
+                        key={location.id}
+                        location={location}
+                        role={role}
+                        onSave={save}
+                        onDelete={deleteLocation}
+                        weekToggle={weekId ? (
+                          <td style={{ ...S.td, textAlign: 'center' }}>
+                            <WeekToggle
+                              on={!excludedLocationIds.has(location.id)}
+                              label={excludedLocationIds.has(location.id)
+                                ? `Off in ${currentWeek?.name ?? 'this week'}`
+                                : `Open in ${currentWeek?.name ?? 'this week'}`}
+                              onToggle={() => handleToggleExclusion(location, excludedLocationIds.has(location.id))}
+                            />
+                          </td>
+                        ) : null}
+                      />
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
+            <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Place</div>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div style={{ flex: '1 1 160px' }}>
+                <label style={fieldLabel}>Name</label>
+                <input ref={nameRef} placeholder="e.g. Pool, Gym, Beit Midrash" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLocation()} style={S.input} />
+              </div>
+              <div>
+                <label style={fieldLabel}>Groups at once</label>
+                <CapacityStepper value={newCapacity} onChange={setNewCapacity} />
+              </div>
+              <div style={{ flex: '1 1 160px' }}>
+                <label style={fieldLabel}>Notes (optional)</label>
+                <input placeholder="e.g. shared with the town" value={newNotes} onChange={(e) => setNewNotes(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLocation()} style={S.input} />
+              </div>
+              <button className="press-97" onClick={addLocation} disabled={adding || !newName.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
+            </div>
           </div>
         </>
       )}
 
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Place</div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
-          <div style={{ flex: '1 1 160px' }}>
-            <label style={fieldLabel}>Name</label>
-            <input ref={nameRef} placeholder="e.g. Pool, Gym, Beit Midrash" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLocation()} style={S.input} />
-          </div>
-          <div>
-            <label style={fieldLabel}>Groups at once</label>
-            <CapacityStepper value={newCapacity} onChange={setNewCapacity} />
-          </div>
-          <div style={{ flex: '1 1 160px' }}>
-            <label style={fieldLabel}>Notes (optional)</label>
-            <input placeholder="e.g. shared with the town" value={newNotes} onChange={(e) => setNewNotes(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLocation()} style={S.input} />
-          </div>
-          <button className="press-97" onClick={addLocation} disabled={adding || !newName.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
-        </div>
-      </div>
+      {tab === 'map' && (
+        <DndContext sensors={mapSensors} onDragStart={handleMapDragStart} onDragMove={handleMapDragMove} onDragEnd={handleMapDragEnd} onDragCancel={handleMapDragCancel}>
+          <input
+            ref={mapFileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            style={{ display: 'none' }}
+            onChange={handleMapFileSelected}
+          />
+          {mapError && <div style={S.errorBanner}>{mapError}</div>}
+          {!mapRow?.image_data ? (
+            <MapEmptyState role={role} onUploadClick={triggerMapUpload} busy={mapBusy} />
+          ) : (
+            <>
+              {role === 'admin' && (
+                <div style={mapToolbarStyles.wrap}>
+                  <button className="press-97" onClick={triggerMapUpload} disabled={mapBusy} style={S.btnSecondary}>
+                    {mapBusy ? 'Preparing…' : 'Replace image'}
+                  </button>
+                  <button className="press-97" onClick={() => setPendingRemoveMap(true)} disabled={mapBusy} style={S.btnDanger}>Remove image</button>
+                </div>
+              )}
+              <MapCanvas mapRow={mapRow} locations={locations} dragFsm={dragFsm} containerRef={mapContainerRef} />
+              {locations.some((l) => !l.map_geometry) && (
+                <UnplacedTray items={locations.filter((l) => !l.map_geometry)} />
+              )}
+            </>
+          )}
+        </DndContext>
+      )}
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <button className="press-97" onClick={() => onNavigate('activities')} style={S.authLinkBtn}>← Back to Activities</button>
         <button className="press-97" onClick={() => onNavigate('anchors')} style={S.btnPrimary}>Next: Fixed Events →</button>
       </div>
+
+      {pendingRemoveMap && (
+        <ConfirmDangerDialog
+          title="Remove the map image?"
+          recovery="This can't be undone from Trash — you'll need to upload it again. Every place keeps its position."
+          confirmLabel="Remove Map Image"
+          busy={removingMap}
+          onConfirm={confirmRemoveMap}
+          onCancel={() => setPendingRemoveMap(false)}
+        />
+      )}
 
       {pendingDelete && (
         <DeleteRecordDialog
@@ -900,4 +1292,67 @@ const stripStyles = {
   body: { flex: 1, fontSize: 13, lineHeight: 1.5 },
   ctl: { display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 },
   lookOk: { padding: '6px 12px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7, fontSize: 12, fontWeight: 600, color: 'var(--text)', cursor: 'pointer' },
+}
+
+// M6 Designer spec Part 3 — location markers. Computed geometry (left/top/
+// width/height) is set inline at the call site (ADR D9); these are the
+// non-computed, static-per-render style pieces (the chip/dot/handle visual
+// treatment), which is exactly the same split scheduleGrid.css draws.
+const markerStyles = {
+  chip: (color) => ({
+    position: 'absolute',
+    top: -1,
+    left: -1,
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 5,
+    padding: '3px 7px',
+    background: 'color-mix(in srgb, var(--surface-elevated) 90%, transparent)',
+    border: `1px solid ${color}`,
+    borderRadius: 5,
+    fontSize: 11.5,
+    fontWeight: 600,
+    color: 'var(--text)',
+    whiteSpace: 'nowrap',
+    maxWidth: '22ch',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    boxShadow: '0 1px 4px color-mix(in srgb, var(--text) 18%, transparent)',
+    zIndex: 2,
+  }),
+  dot: (color) => ({
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    background: color,
+    flexShrink: 0,
+  }),
+}
+
+const trayStyles = {
+  wrap: {
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 12,
+    padding: '14px 16px',
+    marginTop: 16,
+  },
+  head: { display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 10 },
+  title: { fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, textTransform: 'uppercase', letterSpacing: '0.05em' },
+  count: { color: 'var(--text-secondary)', fontSize: 12, marginLeft: 'auto' },
+  row: { display: 'flex', flexWrap: 'wrap', gap: 8 },
+  chip: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 7,
+    padding: '7px 11px',
+    background: 'var(--surface)',
+    border: '1.5px solid var(--border)',
+    borderRadius: 8,
+    fontSize: 13,
+  },
+}
+
+const mapToolbarStyles = {
+  wrap: { display: 'flex', gap: 8, marginBottom: 12 },
 }

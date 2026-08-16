@@ -604,6 +604,29 @@ CREATE TABLE IF NOT EXISTS week_location_exclusions (
   location_id TEXT NOT NULL
 );
 
+-- Camp map background image (schema v33, M6,
+-- docs/adr/2026-08-16-locations-optional-map.md D1). ONE row per camp, id =
+-- camp_id (not a minted uuid) — the map is a singleton the same way `camps`
+-- itself is, so there is nothing for two devices to disagree about the
+-- identity of. Isolated from `camps` deliberately: `camps` is read on nearly
+-- every screen (CLAUDE.md's single-camp-lookup pattern); a background image
+-- large enough to matter must not ride along with that read. image_data is
+-- ALWAYS re-encoded JPEG (never the uploaded file's original bytes — see D5),
+-- capped at ~1MB of base64 text by BOTH the client uploader and appendOp
+-- (D2, MAX_FIELD_VALUE_LENGTH in electron/ops/operations.js). NULL image_data
+-- is the normal, fully-supported "no map" state — nothing in the app treats
+-- it as incomplete. The DDL text below is duplicated verbatim in localDb.js's
+-- v33 block (CAMP_MAPS_DDL); the two copies are asserted byte-identical by
+-- campMaps.migration.test.js.
+CREATE TABLE IF NOT EXISTS camp_maps (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL UNIQUE REFERENCES camps(id),
+  image_data TEXT,
+  image_mime TEXT,
+  image_width INTEGER,
+  image_height INTEGER
+);
+
 -- C4 (scope-filtered IPC reads): indexes for the three template-scoped
 -- tables listByScope queries by template_id. Safe to declare here (unlike
 -- the schedule_templates.kind index above) because template_id is NOT NULL

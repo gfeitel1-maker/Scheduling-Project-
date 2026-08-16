@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 32
+export const CURRENT_SCHEMA_VERSION = 33
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1476,6 +1476,23 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v33 — the optional camp map (M6, docs/adr/2026-08-16-locations-optional-map.md
+  // D1). One new table, no backfill: camp_maps starts empty on every existing
+  // camp (image_data NULL), and a row is created lazily by PROJECTIONS.camp_maps'
+  // ensureExists on first write, exactly like locations' own blank-row seeding.
+  // No column-order trap: every column is present in CAMP_MAPS_DDL from the
+  // start (no later ALTER-added column), so fresh and migrated installs are
+  // identical by construction — no index needed either.
+  if (getSchemaVersion(db) >= 32 && getSchemaVersion(db) < 33) {
+    db.transaction(() => {
+      db.exec(CAMP_MAPS_DDL)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (33, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct
@@ -1622,6 +1639,19 @@ export const WEEK_LOCATION_EXCLUSIONS_DDL = `CREATE TABLE IF NOT EXISTS week_loc
 
 export const WEEK_LOCATION_EXCLUSIONS_INDEX_DDL =
   'CREATE UNIQUE INDEX IF NOT EXISTS idx_week_location_exclusions_week_location ON week_location_exclusions(week_id, location_id)'
+
+// Byte-identical duplicate of the camp_maps block in schema.sql (schema v33,
+// docs/adr/2026-08-16-locations-optional-map.md D1). Kept as a constant so the
+// v33 migration cannot drift from it by a stray space — same discipline as
+// LOCATIONS_DDL above.
+export const CAMP_MAPS_DDL = `CREATE TABLE IF NOT EXISTS camp_maps (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL UNIQUE REFERENCES camps(id),
+  image_data TEXT,
+  image_mime TEXT,
+  image_width INTEGER,
+  image_height INTEGER
+)`
 
 // Director-facing, and it appears in Versions beside weeks they saved
 // themselves — months later, with no memory of saving it. It has to explain

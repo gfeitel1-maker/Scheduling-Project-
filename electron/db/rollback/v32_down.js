@@ -16,6 +16,29 @@
 // migration, stated rather than discovered): per-location capacity, geometry,
 // week exclusions, and any merge decisions. Names survive; structure does not.
 //
+// M6 (schema v33, docs/adr/2026-08-16-locations-optional-map.md) added a
+// migration LAYERED ON TOP of v32's version number, even though camp_maps
+// itself has no structural dependency on locations (it FKs to camps only).
+// The migration system is strictly sequential/gated (`>= N && < N+1`), so
+// leaving v33's schema_migrations row in place while removing v32's would
+// create a version "hole" (31 and 33 present, 32 absent) that permanently
+// wedges initSchema: v32's gate (`< 32`) would never re-fire because
+// getSchemaVersion() (MAX(version)) reads 33, not 31. Deleting every version
+// `>= 32`, not just `= 32`, keeps the state a future initSchema() can always
+// recover from cleanly — v32 re-runs (recreating locations/week_location_
+// exclusions/location_id), then v33 re-runs (CREATE TABLE IF NOT EXISTS on
+// camp_maps, a no-op since this script never drops that table — camp_maps'
+// own data is untouched by a locations-only rollback).
+//
+// BLAST-RADIUS WARNING for the next migration author: `>= 32` grows with
+// every future migration layered on top, not just v33. If a future v34
+// (independent of locations, e.g. some unrelated table) lands, THIS script
+// would delete v34's schema_migrations row too and silently re-run it on next
+// launch — harmless only if v34 is itself idempotent, which is not guaranteed
+// by construction. When v34 lands, either confirm it's idempotent under a
+// re-run, or rename this file (and the `>= 32` bound) to make the widened
+// scope explicit, e.g. `v32_and_later_down.js`.
+//
 // Usage:  node electron/db/rollback/v32_down.js <path-to-shoresh.sqlite>
 
 export function rollbackV32(db) {
@@ -55,7 +78,7 @@ export function rollbackV32(db) {
     db.exec('DROP TABLE IF EXISTS location_migration_reviews')
     if (hasLocationId) db.exec('ALTER TABLE activities DROP COLUMN location_id')
 
-    db.prepare('DELETE FROM schema_migrations WHERE version = 32').run()
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 32').run()
   })()
 
   return { discardedLocations, discardedExclusions }

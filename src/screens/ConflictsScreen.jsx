@@ -21,11 +21,16 @@ const FIELD_LABELS = {
   'template_slots.activity_id': "Which activity is in a cell",
   'template_slots.group_id': "Which group a cell belongs to",
   'template_slots.locked': "Whether a cell was held in place",
+  // M6 (D3, docs/adr/2026-08-16-locations-optional-map.md): the generic
+  // String(side.value) branch below would dump ~700KB of unreadable base64
+  // text for this field — same sentinel shape as '__PIN__', a signal to
+  // ChoiceBox to render something else, never literal display text.
+  'camp_maps.image_data': '__IMAGE__',
 }
 
 function describeConflict(entity, field) {
   const key = `${entity}.${field}`
-  if (FIELD_LABELS[key] === '__PIN__') return null
+  if (FIELD_LABELS[key] === '__PIN__' || FIELD_LABELS[key] === '__IMAGE__') return null
   return FIELD_LABELS[key] || 'A change to this record'
 }
 
@@ -42,7 +47,7 @@ function relativeTime(timestamp) {
   return `${day} day${day !== 1 ? 's' : ''} ago`
 }
 
-function ChoiceBox({ side, label, isPin, disabled, onKeep }) {
+function ChoiceBox({ side, label, isPin, isImage, disabled, onKeep }) {
   const [hover, setHover] = useState(false)
   return (
     <div
@@ -61,6 +66,12 @@ function ChoiceBox({ side, label, isPin, disabled, onKeep }) {
           </svg>
           <div>PIN was changed</div>
         </div>
+      ) : isImage ? (
+        <img
+          src={`data:image/jpeg;base64,${side.value}`}
+          alt=""
+          style={{ width: '100%', borderRadius: 6, border: '1px solid var(--border)', margin: '10px 0', display: 'block' }}
+        />
       ) : (
         <div style={{ fontSize: 13.5, color: 'var(--text)', lineHeight: 1.5, margin: '10px 0' }}>
           {String(side.value)}
@@ -109,7 +120,9 @@ function ConflictCard({ conflict, resolved, resolveAuthorLabel, onResolve }) {
   const resolvingRef = useRef(false)
 
   const description = describeConflict(conflict.entity, conflict.field)
-  const isPin = conflict.isPin || description === null
+  const sentinel = FIELD_LABELS[`${conflict.entity}.${conflict.field}`]
+  const isPin = conflict.isPin || sentinel === '__PIN__'
+  const isImage = sentinel === '__IMAGE__'
 
   const latestTimestamp = [conflict.sideA.timestamp, conflict.sideB.timestamp]
     .filter(Boolean)
@@ -195,7 +208,7 @@ function ConflictCard({ conflict, resolved, resolveAuthorLabel, onResolve }) {
         <>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 12 }}>
             <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 15, color: 'var(--text)' }}>
-              {isPin ? 'A PIN was changed on two devices' : description}
+              {isPin ? 'A PIN was changed on two devices' : isImage ? 'The camp map image' : description}
             </div>
             <div style={S.mergeMeta}>{relativeTime(latestTimestamp)}</div>
           </div>
@@ -205,8 +218,8 @@ function ConflictCard({ conflict, resolved, resolveAuthorLabel, onResolve }) {
             </div>
           )}
           <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-            <ChoiceBox side={conflict.sideA} label={labelA} isPin={isPin} disabled={resolving} onKeep={() => keep('A')} />
-            <ChoiceBox side={conflict.sideB} label={labelB} isPin={isPin} disabled={resolving} onKeep={() => keep('B')} />
+            <ChoiceBox side={conflict.sideA} label={labelA} isPin={isPin} isImage={isImage} disabled={resolving} onKeep={() => keep('A')} />
+            <ChoiceBox side={conflict.sideB} label={labelB} isPin={isPin} isImage={isImage} disabled={resolving} onKeep={() => keep('B')} />
           </div>
         </>
       )}

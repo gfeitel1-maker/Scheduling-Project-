@@ -1,0 +1,20 @@
+{
+  "task_id": "2026-08-16-locations-m6-map",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": 5,
+    "red_hat": 5,
+    "tester": 5,
+    "code_reviewer": 5
+  },
+  "overall_score": 5,
+  "lowest_dimension": 5,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": []
+}

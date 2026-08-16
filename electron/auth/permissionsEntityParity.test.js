@@ -32,14 +32,25 @@ import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from '../ops/campScopedE
 // is NOT a place to silence this test for an accidental omission. If you are
 // adding an entity here, an ADR should say why.
 //
-// Currently EMPTY: every camp-scoped entity is staff read/write, matching
 // main.js's "everything else -> '<entity>.write', staff+admin per the matrix"
 // (electron/main.js, the generic write handler). Ordinary camp field writes
 // are the shared staff+admin path; only delete/bulk_replace/rename/restore are
 // admin-only, and those derive from admin:['*'] via action VERB, never by
 // omitting an ENTITY here.
+//
+// camp_maps (M6, D6, docs/adr/2026-08-16-locations-optional-map.md) is the
+// first genuine exception: staff need READ (Q7 — the map must be visible on
+// staff tablets) but NOT write (replacing the whole camp's background image
+// is a different blast radius than editing one place). ENTITIES derives
+// read+write TOGETHER via staffReadWrite, so the only way to give staff read
+// without write is to keep camp_maps out of ENTITIES entirely and grant
+// 'camp_maps.read' explicitly in the staff array (permissions.js) — the same
+// explicit-grant shape trash.read/conflicts.read already use.
 const PERMISSIONS_ADMIN_ONLY_EXCEPTIONS = {
-  // e.g. some_entity: { reason: 'why staff must never read/write this' },
+  camp_maps: {
+    reason:
+      'M6 D6: staff hold camp_maps.read explicitly (permissions.js) but never camp_maps.write — replacing the whole camp background image is admin-only, unlike locations.write (which staff keep, including map_geometry).',
+  },
 }
 
 const registryUnion = [

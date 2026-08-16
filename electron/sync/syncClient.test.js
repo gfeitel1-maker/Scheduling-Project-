@@ -64,6 +64,7 @@ const EMPTY_DOMAIN_SNAPSHOT_TABLES = {
   time_blocks: [],
   activities: [],
   locations: [],
+  camp_maps: [],
   anchor_activities: [],
   schedule_templates: [],
   day_override_templates: [],
