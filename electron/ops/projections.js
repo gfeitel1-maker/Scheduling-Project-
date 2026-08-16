@@ -236,6 +236,22 @@ export const PROJECTIONS = {
     fields: ['week_id', 'location_id'],
     ensureExists: ensureWeekJoinRow('week_location_exclusions', 'location_id'),
   },
+  // Camp map background image (M6, schema v33,
+  // docs/adr/2026-08-16-locations-optional-map.md D1). A camp-scoped
+  // singleton — id = camp_id, not a minted uuid — so ensureExists always
+  // targets the one row a camp can ever have. image_data is size-capped by
+  // MAX_FIELD_VALUE_LENGTH in operations.js (D2), enforced in appendOp
+  // itself, before this projection ever runs.
+  camp_maps: {
+    table: 'camp_maps',
+    key: 'id',
+    fields: ['camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'],
+    ensureExists: (db, id) => {
+      // Same zero-camps caveat as cohorts/groups/etc.ensureExists above.
+      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+      getStmt(db, 'INSERT OR IGNORE INTO camp_maps (id, camp_id) VALUES (?, ?)').run(id, camp?.id ?? null)
+    },
+  },
   anchor_activities: {
     table: 'anchor_activities',
     key: 'id',

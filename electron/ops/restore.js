@@ -29,6 +29,7 @@ export const RESTORE_DECISIONS = Object.freeze({
 
   users: 'refused: a restore would re-emit pin_hash and pin_salt as replicating ops',
   camps: 'refused: singleton identity row, created only by bootstrapCamp',
+  camp_maps: 'refused: singleton camp-scoped row, no independent delete UI — clearing the image is an ordinary field write of image_data to NULL, not a row delete',
   devices: 'refused: device trust is granted by pairing, never rebuilt from a log',
   schedule_templates: 'refused: a route, not a record — recreated by opening the route',
   schedule_weeks: 'refused: weeks are archived (reversible), never trashed, in this slice — a later delete slice decides restorability',

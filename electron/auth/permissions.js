@@ -84,6 +84,16 @@ export const PERMISSIONS = {
     // as consequential as the delete it undoes, and must never derive to
     // '<entity>.write', which staff hold.
     'trash.read',
+    // M6 (D6, docs/adr/2026-08-16-locations-optional-map.md): staff can READ
+    // the camp map (Q7's whole point — it must be visible on staff tablets)
+    // but NOT write it. `camp_maps` is deliberately absent from ENTITIES
+    // (see PERMISSIONS_ADMIN_ONLY_EXCEPTIONS in permissionsEntityParity.test.js)
+    // so staffReadWrite never derives `camp_maps.write` for staff — this is
+    // the ONLY way to grant read without write, since ENTITIES derives both
+    // together. Replacing the whole camp's background image is a different
+    // blast radius than editing one place (locations.write, which staff keep
+    // unchanged, including map_geometry — only the shared image is narrowed).
+    'camp_maps.read',
   ],
   // devices.approve and devices.revoke are admin-only (via admin: ['*'])
   // devices.dev_authorize has been removed — superseded by devices.approve

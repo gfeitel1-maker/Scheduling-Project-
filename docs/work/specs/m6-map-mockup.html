@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Shoresh — M6 Camp Map (design prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Real Shoresh tokens — copied from src/index.css so this looks like the app. */
+  :root{
+    --bg:#F4F3EF; --surface:#FCFBF8; --surface-elevated:#FFFFFF;
+    --primary:#173B63; --primary-dark:#0F2A47; --secondary:#2F6B58;
+    --accent:#B8833A; --success:#4C8A63; --danger:#B44E48; --anchor:#5C6B7A;
+    --text:#1E2A34; --text-secondary:#5C6670; --border:#D8DBD9;
+    --font-sans:'Inter',system-ui,sans-serif;
+    --font-condensed:'IBM Plex Sans',system-ui,sans-serif;
+    --font-mono:'IBM Plex Mono',ui-monospace,monospace;
+    --motion-fast:140ms; --motion-base:220ms; --motion-settle:340ms;
+    --ease-out:cubic-bezier(0.22,1,0.36,1);
+    /* activity palette — DESIGN_STANDARD §3, reused verbatim for place identity */
+    --loc-0:#305C7B; --loc-1:#3D7D84; --loc-2:#4B8C60; --loc-3:#B6A050; --loc-4:#B68B6B; --loc-5:#BE6BC7;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;background:var(--bg);color:var(--text);font-family:var(--font-sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;}
+  button{cursor:pointer;font-family:inherit;}
+  input,select,textarea{font-family:inherit;}
+
+  /* ---- design-board chrome (NOT part of the app; frames each state) ---- */
+  .board{max-width:1080px;margin:0 auto;padding:32px 24px 120px;}
+  .board-head{margin-bottom:36px;}
+  .kicker{font-family:var(--font-mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-secondary);}
+  .board-head h1{font-family:var(--font-condensed);font-weight:700;font-size:26px;letter-spacing:-.4px;margin:6px 0 8px;}
+  .board-head p{color:var(--text-secondary);max-width:72ch;margin:0;font-size:13.5px;}
+  .section{margin-top:44px;}
+  .section > .cap{display:flex;align-items:baseline;gap:10px;margin-bottom:14px;}
+  .section > .cap .n{font-family:var(--font-mono);font-size:12px;color:#fff;background:var(--primary);border-radius:5px;padding:2px 7px;font-weight:600;}
+  .section > .cap h2{font-family:var(--font-condensed);font-weight:600;font-size:16px;margin:0;}
+  .section > .cap .tag{margin-left:auto;font-size:11px;font-family:var(--font-mono);color:var(--text-secondary);border:1px solid var(--border);border-radius:99px;padding:2px 10px;}
+  .note{font-size:12.5px;color:var(--text-secondary);margin:8px 2px 0;max-width:80ch;}
+  .note b{color:var(--text);font-weight:600;}
+  .pane{background:var(--bg);border:1px solid var(--border);border-radius:14px;padding:26px 28px;box-shadow:0 2px 24px color-mix(in srgb,var(--text) 5%,transparent);position:relative;overflow:hidden;}
+  .pane + .pane{margin-top:16px;}
+  .flabel{position:absolute;top:0;right:0;font-family:var(--font-mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-secondary);background:var(--surface);border-left:1px solid var(--border);border-bottom:1px solid var(--border);border-radius:0 13px 0 8px;padding:5px 12px;}
+  .two{display:grid;grid-template-columns:1fr 1fr;gap:16px;}
+  @media(max-width:800px){.two{grid-template-columns:1fr;}}
+
+  /* ---- real app primitives (mirror src/styles/shared.js S.*) ---- */
+  .intro{font-size:13px;line-height:1.6;color:var(--text-secondary);max-width:64ch;margin:0 0 18px;}
+  .btnP{padding:7px 14px;background:var(--primary);color:#fff;border:none;border-radius:7px;font-weight:600;font-size:13px;}
+  .btnS{padding:7px 14px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:7px;font-weight:600;font-size:13px;}
+  .btnD{padding:7px 14px;background:none;color:var(--danger);border:1px solid var(--danger);border-radius:7px;font-weight:600;font-size:13px;}
+  .btnGhost{background:none;border:none;color:var(--text-secondary);font-size:12px;text-decoration:underline;padding:0;}
+
+  /* ---- List | Map segmented toggle (mirrors ScheduleScreen's View toggle, :861-865) ---- */
+  .segwrap{display:inline-flex;gap:2px;background:var(--border);border-radius:8px;padding:3px;}
+  .segbtn{padding:6px 14px;border-radius:6px;border:none;border-bottom:2px solid transparent;cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-sans);background:none;color:var(--text-secondary);transition:color var(--motion-fast) var(--ease-out),background var(--motion-fast) var(--ease-out);}
+  .segbtn.active{border-bottom-color:var(--primary);font-weight:700;background:var(--surface);color:var(--primary);box-shadow:0 1px 4px rgba(0,0,0,0.12);}
+
+  /* ---- empty state (DESIGN_STANDARD §5a) ---- */
+  .empty{padding:60px 16px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:6px;}
+  .empty svg{color:var(--text-secondary);}
+  .empty h3{font-family:var(--font-condensed);font-weight:600;font-size:15px;color:var(--text);margin:8px 0 0;}
+  .empty p{font-size:13px;color:var(--text-secondary);max-width:56ch;margin:0;}
+  .empty .btnP{margin-top:14px;}
+
+  /* ---- map canvas ---- */
+  .map-toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+  .map-toolbar .actions{display:flex;gap:8px;}
+  .map-canvas{position:relative;width:100%;aspect-ratio:16/10;border-radius:10px;overflow:visible;border:1px solid var(--border);background:var(--bg);}
+  .map-image-wrap{position:absolute;inset:0;border-radius:10px;overflow:hidden;}
+  .map-image-wrap svg{width:100%;height:100%;display:block;}
+
+  .map-location{position:absolute;border-radius:6px;cursor:grab;box-sizing:border-box;}
+  .map-location:focus-visible{outline:2px solid var(--primary);outline-offset:-2px;}
+  .map-location[data-selected]{box-shadow:0 0 0 2px color-mix(in srgb, var(--primary) 40%, transparent);}
+  .map-location[data-dragging]{outline:2px solid var(--primary);outline-offset:1px;box-shadow:0 4px 14px color-mix(in srgb,var(--text) 22%,transparent);cursor:grabbing;z-index:5;}
+  .map-chip{position:absolute;top:-1px;left:-1px;display:inline-flex;align-items:center;gap:5px;padding:3px 7px;background:color-mix(in srgb,var(--surface-elevated) 90%,transparent);border-radius:5px;font-size:11.5px;font-weight:600;color:var(--text);white-space:nowrap;box-shadow:0 1px 4px color-mix(in srgb,var(--text) 18%,transparent);z-index:2;pointer-events:none;}
+  .map-chip .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+  .map-handle{position:absolute;bottom:-6px;right:-6px;width:14px;height:14px;background:var(--accent);border:2px solid var(--surface-elevated);border-radius:3px;cursor:nwse-resize;opacity:0;transition:opacity var(--motion-fast) var(--ease-out);touch-action:none;}
+  .map-location:hover .map-handle,
+  .map-location[data-dragging] .map-handle{opacity:1;}
+
+  .map-hint{position:absolute;bottom:10px;left:10px;font-family:var(--font-mono);font-size:10.5px;color:var(--text-secondary);background:color-mix(in srgb,var(--surface-elevated) 85%,transparent);padding:4px 8px;border-radius:5px;pointer-events:none;}
+
+  /* ---- unplaced tray ---- */
+  .tray{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-top:16px;}
+  .tray h3{font-family:var(--font-condensed);font-weight:700;font-size:13px;margin:0 0 10px;display:flex;align-items:center;gap:8px;}
+  .tray h3 .cnt{font-family:var(--font-mono);font-weight:500;color:var(--text-secondary);}
+  .traychips{display:flex;gap:8px;flex-wrap:wrap;}
+  .traychip{display:inline-flex;align-items:center;gap:7px;padding:7px 11px;background:var(--surface);border:1.5px solid var(--border);border-radius:8px;cursor:grab;font-size:13px;}
+  .traychip .grip{color:var(--text-secondary);font-size:12px;letter-spacing:-1px;line-height:1;}
+  .traychip .nm{font-weight:500;}
+  .traychip .cap{font-family:var(--font-mono);font-size:11px;color:var(--text-secondary);}
+
+  /* ---- conflict thumbnails (ConflictsScreen ChoiceBox, extended) ---- */
+  .mergecard{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px;}
+  .mergehead{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px;}
+  .mergehead .t{font-family:var(--font-condensed);font-weight:700;font-size:15px;color:var(--text);}
+  .mergehead .m{font-size:11.5px;font-family:var(--font-mono);color:var(--text-secondary);}
+  .mergerow{display:flex;gap:14px;flex-wrap:wrap;}
+  .choicebox{flex:1;min-width:220px;background:var(--bg);border:1.5px solid var(--border);border-radius:9px;padding:14px;transition:border-color var(--motion-fast) var(--ease-out);}
+  .choicebox:hover{border-color:var(--primary);}
+  .choicebox .lbl{font-weight:600;font-size:13px;margin-bottom:3px;color:var(--text);}
+  .choicebox .meta{font-size:11.5px;font-family:var(--font-mono);color:var(--text-secondary);}
+  .choicebox img{width:100%;border-radius:6px;border:1px solid var(--border);margin:10px 0;display:block;}
+  .choicebox .keepbtn{padding:7px 14px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:7px;font-weight:600;font-size:13px;width:100%;margin-top:2px;}
+
+  /* ---- error banner (§5c) ---- */
+  .errbanner{background:color-mix(in srgb,var(--danger) 8%,var(--surface));border:1px solid color-mix(in srgb,var(--danger) 35%,var(--border));border-radius:6px;padding:10px 14px;font-size:13px;color:var(--danger);margin-bottom:14px;}
+
+  /* ---- remove-image confirm dialog (ConfirmDangerDialog) ---- */
+  .scrim{position:absolute;inset:0;background:rgba(0,0,0,0.45);display:flex;align-items:center;justify-content:center;z-index:50;border-radius:14px;padding:16px;}
+  .confirmcard{background:var(--surface-elevated);border-radius:12px;padding:28px;max-width:380px;width:100%;}
+  .confirmcard h2{font-family:var(--font-condensed);font-weight:700;font-size:17px;margin:0 0 8px;}
+  .confirmcard p{font-size:13px;color:var(--text-secondary);line-height:1.55;margin:0 0 20px;}
+  .confirmcard .row{display:flex;gap:10px;justify-content:flex-end;}
+
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}
+  .fade-lift{animation:fl var(--motion-base) var(--ease-out);}
+  @keyframes fl{from{opacity:0;transform:translateY(8px);}to{opacity:1;transform:none;}}
+</style>
+</head>
+<body>
+<div class="board">
+  <div class="board-head">
+    <div class="kicker">Shoresh · M6 · Design prototype (not the real app yet)</div>
+    <h1>Camp Map — the optional visual layer over Locations</h1>
+    <p>A List | Map toggle on the existing Locations screen. Uploading an image is admin-only; every device
+      (including staff tablets) can see the map and reposition places. Real Shoresh colors, type, and motion.
+      The placed rectangle below is <b>live</b> — drag its body to move it, or its bottom-right handle to
+      resize it.</p>
+  </div>
+
+  <!-- ============================ 1. THE TOGGLE ============================ -->
+  <div class="section">
+    <div class="cap"><span class="n">1</span><h2>List | Map toggle</h2><span class="tag">persistent, live — click to switch</span></div>
+    <div class="pane">
+      <span class="flabel">segmented control, mirrors ScheduleScreen's View toggle</span>
+      <p class="intro">Places at your camp and how many groups fit in each — the Pool, the Gym, the Beit Midrash.</p>
+      <div class="segwrap" id="toggle">
+        <button class="segbtn active" data-tab="list">List</button>
+        <button class="segbtn" data-tab="map">Map</button>
+      </div>
+      <div id="tabpanel" style="margin-top:18px;">
+        <div id="panel-list" style="padding:22px 0;color:var(--text-secondary);font-size:13px;border:1px dashed var(--border);border-radius:10px;text-align:center;">
+          The existing M3 List view — table of places, Add Place card, unchanged. (Not re-rendered here; see the M3 mockup.)
+        </div>
+        <div id="panel-map" style="display:none;">
+          <div style="padding:22px 0;color:var(--text-secondary);font-size:13px;border:1px dashed var(--border);border-radius:10px;text-align:center;">
+            ↓ The Map view — see sections 2–4 below, built full-size so each state is easy to inspect.
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note"><b>Why this idiom, not the ADR's cited lines:</b> ScheduleScreen's Manual/Generated "cards" (:736/:783) are a one-time disambiguation screen, not a persistent switch — the code's own comment there says route selection lives in the sidebar. The actual persistent segmented control already shipping is the Group/Day/Activity View toggle (:861-865); that's what this mirrors. Flagged in the design spec.</p>
+  </div>
+
+  <!-- ============================ 2. EMPTY STATE ============================ -->
+  <div class="section">
+    <div class="cap"><span class="n">2</span><h2>Map view · no image yet</h2><span class="tag">admin vs. staff, side by side</span></div>
+    <div class="two">
+      <div class="pane">
+        <span class="flabel">admin</span>
+        <div class="empty fade-lift">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 15l-5-5-4 4-3-3-6 6"/></svg>
+          <h3>No map yet</h3>
+          <p>Add a photo or drawing of your camp grounds, then drag each place onto it. Optional — the schedule works fine without a map.</p>
+          <button class="btnP">Upload a map image</button>
+        </div>
+      </div>
+      <div class="pane">
+        <span class="flabel">staff — never disabled-heavy</span>
+        <div class="empty fade-lift">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.5" cy="10" r="1.5"/><path d="M21 15l-5-5-4 4-3-3-6 6"/></svg>
+          <h3>No map yet</h3>
+          <p>Your director hasn't added a camp map yet. Places still work everywhere else in Shoresh — check back later.</p>
+        </div>
+      </div>
+    </div>
+    <p class="note"><b>Same icon, same calm layout, both roles.</b> Staff simply has no CTA — not a greyed-out button, not a disabled control with a tooltip. This must read as a complete, legitimate view, not a degraded admin experience.</p>
+  </div>
+
+  <!-- ============================ 3. POPULATED MAP (LIVE) ============================ -->
+  <div class="section">
+    <div class="cap"><span class="n">3</span><h2>Map view · populated (live drag + resize)</h2><span class="tag">admin toolbar shown</span></div>
+    <div class="pane" id="mappane">
+      <span class="flabel">try dragging the navy box, or its corner handle</span>
+      <p class="intro">Drag the Amphitheater box below to reposition it — release anywhere. Drag its bottom-right corner handle (appears on hover) to resize. Movement is 1:1 with the pointer, no animation, per the canvas ADR's static-drop-feedback rule.</p>
+      <div class="map-toolbar">
+        <div style="font-family:var(--font-condensed);font-weight:700;font-size:13px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.05em;">3 placed · 2 not yet placed</div>
+        <div class="actions">
+          <button class="btnS" id="replaceBtn">Replace image</button>
+          <button class="btnD" id="removeBtn">Remove image</button>
+        </div>
+      </div>
+      <div class="map-canvas" id="canvas">
+        <div class="map-image-wrap">
+          <!-- Placeholder "camp grounds" illustration — stands in for an uploaded photo. Muted, non-brand colors so it reads as external content, not app chrome. -->
+          <svg viewBox="0 0 800 500" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+            <rect width="800" height="500" fill="#DCE4D3"/>
+            <path d="M0 380 Q 200 340 400 370 T 800 350 L800 500 L0 500 Z" fill="#CBD8BE"/>
+            <ellipse cx="560" cy="150" rx="150" ry="90" fill="#8FB6C9"/>
+            <ellipse cx="560" cy="150" rx="150" ry="90" fill="none" stroke="#6F98AC" stroke-width="3"/>
+            <path d="M120 90 Q 260 220 180 420" stroke="#C9BFA0" stroke-width="26" fill="none" stroke-linecap="round"/>
+            <rect x="60" y="60" width="140" height="90" rx="4" fill="#B98F6A"/>
+            <polygon points="55,60 130,20 205,60" fill="#8C6748"/>
+            <g fill="#7FA06B">
+              <circle cx="640" cy="330" r="16"/><circle cx="670" cy="350" r="13"/><circle cx="700" cy="325" r="18"/>
+              <circle cx="90" cy="300" r="14"/><circle cx="115" cy="270" r="11"/>
+            </g>
+          </svg>
+        </div>
+
+        <!-- Placed location 1 (static example) -->
+        <div class="map-location" style="left:5%; top:10%; width:16%; height:22%; border:2px solid var(--loc-4); background:color-mix(in srgb, var(--loc-4) 10%, transparent);" tabindex="0">
+          <span class="map-chip"><span class="dot" style="background:var(--loc-4);"></span>Beit Midrash</span>
+          <span class="map-handle" data-resize-handle title="Resize"></span>
+        </div>
+
+        <!-- Placed location 2 (static example, over the pool) -->
+        <div class="map-location" style="left:58%; top:18%; width:24%; height:28%; border:2px solid var(--loc-0); background:color-mix(in srgb, var(--loc-0) 10%, transparent);" tabindex="0">
+          <span class="map-chip"><span class="dot" style="background:var(--loc-0);"></span>Pool</span>
+          <span class="map-handle" data-resize-handle title="Resize"></span>
+        </div>
+
+        <!-- Placed location 3 — LIVE drag + resize demo -->
+        <div class="map-location" id="liveLoc" style="left:38%; top:60%; width:14%; height:14%; border:2px solid var(--loc-2); background:color-mix(in srgb, var(--loc-2) 10%, transparent);" tabindex="0">
+          <span class="map-chip"><span class="dot" style="background:var(--loc-2);"></span>Amphitheater</span>
+          <span class="map-handle" id="liveHandle" data-resize-handle title="Resize"></span>
+        </div>
+
+        <div class="map-hint">x/y/w/h fractions write to <code>locations.map_geometry</code> on release</div>
+      </div>
+
+      <div class="tray">
+        <h3>Not yet placed <span class="cnt">(2)</span></h3>
+        <div class="traychips">
+          <div class="traychip"><span class="grip">⠿</span><span class="nm">Waterfront</span><span class="cap">1 group</span></div>
+          <div class="traychip"><span class="grip">⠿</span><span class="nm">The Gym</span><span class="cap">2 groups</span></div>
+        </div>
+      </div>
+
+      <!-- Remove-image confirm (launchable) -->
+      <div class="scrim" id="removeScrim" style="display:none;">
+        <div class="confirmcard fade-lift">
+          <h2>Remove the map image?</h2>
+          <p>This can't be undone from Trash — you'll need to upload it again. Every place keeps its position.</p>
+          <div class="row">
+            <button class="btnS" onclick="document.getElementById('removeScrim').style.display='none'">Cancel</button>
+            <button class="btnD" style="background:var(--danger);color:#fff;" onclick="document.getElementById('removeScrim').style.display='none'">Remove Map Image</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note"><b>Identity color, not a fill.</b> Each place gets a 2px border + a ~10% wash from the six-color ACTIVITY_COLORS palette (cycled by sort order) — the same palette the schedule grid already uses as an identity dot, applied here as a border so the photo underneath stays visible. The label is a solid-ish chip (not a text-shadow halo) so it reads over any photo. Resize handle only appears on hover/drag (bronze, matches the schedule grid's own fill-handle convention); dragging either kind turns the outline navy — a universal "this is moving" signal, independent of the place's own identity color.</p>
+  </div>
+
+  <!-- ============================ 4. UPLOAD REJECTED ============================ -->
+  <div class="section">
+    <div class="cap"><span class="n">4</span><h2>Upload rejected</h2><span class="tag">recoverable inline error, §5c</span></div>
+    <div class="pane">
+      <span class="flabel">example: SVG selected</span>
+      <div class="errbanner">That file isn't a photo Shoresh can use. Choose a JPG, PNG, or WEBP image.</div>
+      <div class="errbanner" style="margin-bottom:0;">That image is too large for Shoresh to process. Try a smaller photo, or a screenshot instead of the original file.</div>
+    </div>
+    <p class="note">The previous map image (if any) is left untouched by a failed upload. No retry button needed — the file picker is still right there.</p>
+  </div>
+
+  <!-- ============================ 5. CONFLICT THUMBNAILS ============================ -->
+  <div class="section">
+    <div class="cap"><span class="n">5</span><h2>Conflict resolution — two thumbnails, never raw base64</h2><span class="tag">ADR D3 — extends the existing ConflictsScreen</span></div>
+    <div class="pane">
+      <span class="flabel">ConflictCard, one new field branch</span>
+      <div class="mergecard">
+        <div class="mergehead"><span class="t">The camp map image</span><span class="m">2 minutes ago</span></div>
+        <div class="mergerow">
+          <div class="choicebox">
+            <div class="lbl">This device</div>
+            <div class="meta">Uploaded 2 minutes ago</div>
+            <svg width="100%" height="110" viewBox="0 0 300 110" style="border-radius:6px;border:1px solid var(--border);margin:10px 0;display:block;"><rect width="300" height="110" fill="#DCE4D3"/><ellipse cx="210" cy="55" rx="60" ry="34" fill="#8FB6C9"/><rect x="30" y="25" width="60" height="40" fill="#B98F6A"/></svg>
+            <button class="keepbtn">Keep this version</button>
+          </div>
+          <div class="choicebox">
+            <div class="lbl">Front Desk iPad</div>
+            <div class="meta">Uploaded 4 minutes ago</div>
+            <svg width="100%" height="110" viewBox="0 0 300 110" style="border-radius:6px;border:1px solid var(--border);margin:10px 0;display:block;"><rect width="300" height="110" fill="#E8DFC7"/><ellipse cx="90" cy="60" rx="50" ry="30" fill="#8FB6C9"/><polygon points="220,20 260,90 180,90" fill="#8C6748"/></svg>
+            <button class="keepbtn">Keep this version</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="note"><b>Smallest possible diff to a shipped surface.</b> Same <span class="mono" style="font-family:var(--font-mono);">ChoiceBox</span> layout ConflictsScreen already uses for every other field — one new sentinel in <span class="mono" style="font-family:var(--font-mono);">FIELD_LABELS</span> (<span class="mono" style="font-family:var(--font-mono);">'camp_maps.image_data': '__IMAGE__'</span>) and one new conditional branch rendering an <span class="mono" style="font-family:var(--font-mono);">&lt;img&gt;</span> instead of <span class="mono" style="font-family:var(--font-mono);">String(side.value)</span>. No new component.</p>
+  </div>
+
+</div>
+
+<script>
+  // Wire the launchable remove-image dialog.
+  document.getElementById('removeBtn').addEventListener('click', () => {
+    document.getElementById('removeScrim').style.display = 'flex';
+  });
+  document.getElementById('replaceBtn').addEventListener('click', () => {
+    const b = document.getElementById('replaceBtn');
+    const old = b.textContent;
+    b.textContent = 'Preparing…';
+    b.disabled = true;
+    setTimeout(() => { b.textContent = old; b.disabled = false; }, 900);
+  });
+
+  // List | Map toggle
+  document.querySelectorAll('#toggle .segbtn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('#toggle .segbtn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const tab = btn.dataset.tab;
+      document.getElementById('panel-list').style.display = tab === 'list' ? 'block' : 'none';
+      document.getElementById('panel-map').style.display = tab === 'map' ? 'block' : 'none';
+    });
+  });
+
+  // Live drag + resize demo — vanilla pointer events, percentage coordinates,
+  // clamped to the canvas, zero transition on position/size (static per the
+  // canvas ADR's "no ghost tween" rule). This is the ONE piece of real
+  // interaction in this mockup; every other state is annotated-static.
+  (function () {
+    const canvas = document.getElementById('canvas');
+    const loc = document.getElementById('liveLoc');
+    const handle = document.getElementById('liveHandle');
+
+    function pct(px, total) { return Math.max(0, Math.min(100, (px / total) * 100)); }
+
+    function startDrag(e, kind) {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = canvas.getBoundingClientRect();
+      const startLoc = {
+        left: parseFloat(loc.style.left),
+        top: parseFloat(loc.style.top),
+        width: parseFloat(loc.style.width),
+        height: parseFloat(loc.style.height),
+      };
+      const startPt = { x: e.clientX, y: e.clientY };
+      loc.setAttribute('data-dragging', '');
+      loc.setAttribute('data-drag-kind', kind);
+      loc.style.cursor = 'grabbing';
+
+      function onMove(ev) {
+        const dxPct = pct(ev.clientX - startPt.x, rect.width);
+        const dyPct = pct(ev.clientY - startPt.y, rect.height);
+        if (kind === 'move') {
+          const newLeft = Math.max(0, Math.min(100 - startLoc.width, startLoc.left + dxPct));
+          const newTop = Math.max(0, Math.min(100 - startLoc.height, startLoc.top + dyPct));
+          loc.style.left = newLeft + '%';
+          loc.style.top = newTop + '%';
+        } else {
+          const newW = Math.max(4, Math.min(100 - startLoc.left, startLoc.width + dxPct));
+          const newH = Math.max(4, Math.min(100 - startLoc.top, startLoc.height + dyPct));
+          loc.style.width = newW + '%';
+          loc.style.height = newH + '%';
+        }
+      }
+      function onUp() {
+        loc.removeAttribute('data-dragging');
+        loc.removeAttribute('data-drag-kind');
+        loc.style.cursor = 'grab';
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+      }
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    }
+
+    loc.addEventListener('pointerdown', (e) => {
+      if (e.target === handle) return; // handle owns its own listener
+      startDrag(e, 'move');
+    });
+    handle.addEventListener('pointerdown', (e) => startDrag(e, 'resize'));
+  })();
+</script>
+</body>
+</html>

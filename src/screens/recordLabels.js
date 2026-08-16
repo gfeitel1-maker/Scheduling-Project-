@@ -17,6 +17,7 @@ export const ENTITY_LABEL = {
   // "Place", not "Location" — the director's word, per the M3 design spec
   // (docs/work/specs/2026-08-15-m3-locations-design.md Part 1 Copy).
   locations: 'Place',
+  camp_maps: 'Camp map',
 }
 
 export function entityLabel(entity) {
