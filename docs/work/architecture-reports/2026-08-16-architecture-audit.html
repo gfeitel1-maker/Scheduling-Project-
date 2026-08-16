@@ -1,0 +1,337 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Architecture Audit — Shoresh — 2026-08-16</title>
+<style>
+  :root {
+    --bg: #fafafa;
+    --surface: #fff;
+    --border: #e2e5e9;
+    --text: #1a1c1e;
+    --text-secondary: #6b7280;
+    --primary: #2563eb;
+    --danger: #dc2626;
+    --caution: #d97706;
+    --success: #16a34a;
+    --info: #6b7280;
+    --accent: #7c3aed;
+    --code-bg: #f3f4f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111214;
+      --surface: #1c1f23;
+      --border: #2d3139;
+      --text: #e8eaed;
+      --text-secondary: #9ba3af;
+      --primary: #60a5fa;
+      --danger: #f87171;
+      --caution: #fbbf24;
+      --success: #4ade80;
+      --accent: #a78bfa;
+      --code-bg: #252830;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+    padding: 40px 24px;
+    max-width: 960px;
+    margin: 0 auto;
+  }
+  h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  h2 { font-size: 16px; font-weight: 700; margin-top: 40px; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h3 { font-size: 14px; font-weight: 700; margin-top: 24px; margin-bottom: 8px; }
+  p { margin-bottom: 10px; color: var(--text); }
+  code { font-family: 'Menlo', 'Consolas', monospace; font-size: 12px; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+  pre { background: var(--code-bg); border-radius: 6px; padding: 14px 16px; font-family: 'Menlo', 'Consolas', monospace; font-size: 12px; overflow-x: auto; margin-bottom: 12px; line-height: 1.5; }
+  .meta { font-size: 12px; color: var(--text-secondary); margin-bottom: 28px; }
+  .candidate { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); margin-bottom: 20px; overflow: hidden; }
+  .candidate-header { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+  .rank { font-family: monospace; font-size: 11px; font-weight: 700; background: var(--code-bg); border-radius: 4px; padding: 2px 8px; color: var(--text-secondary); flex-shrink: 0; }
+  .candidate-title { font-weight: 700; font-size: 14px; }
+  .candidate-body { padding: 14px 18px; }
+  .severity { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .sev-high { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); color: var(--danger); }
+  .sev-medium { background: color-mix(in srgb, var(--caution) 12%, var(--surface)); color: var(--caution); }
+  .sev-low { background: color-mix(in srgb, var(--success) 12%, var(--surface)); color: var(--success); }
+  .sev-info { background: var(--code-bg); color: var(--text-secondary); }
+  .label { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--code-bg); color: var(--text-secondary); margin-right: 4px; }
+  .label-god { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); color: var(--danger); }
+  .label-seam { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
+  .label-shallow { background: color-mix(in srgb, var(--caution) 10%, var(--surface)); color: var(--caution); }
+  .label-correctness { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); color: var(--danger); }
+  .label-locality { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
+  .fields { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .evidence { background: var(--code-bg); border-left: 3px solid var(--border); border-radius: 0 4px 4px 0; padding: 10px 14px; margin: 10px 0; font-size: 12px; color: var(--text-secondary); }
+  .evidence strong { color: var(--text); }
+  .benchmark { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 16px 18px; margin-bottom: 20px; }
+  .benchmark-title { font-weight: 700; font-size: 13px; margin-bottom: 8px; color: var(--success); }
+  ul { padding-left: 20px; margin-bottom: 10px; }
+  li { margin-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }
+  th { text-align: left; padding: 8px 12px; border-bottom: 2px solid var(--border); font-weight: 600; }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+  .score { font-weight: 700; }
+  .score-low { color: var(--danger); }
+  .score-med { color: var(--caution); }
+  .score-high { color: var(--success); }
+  .verdict { font-weight: 700; font-family: monospace; font-size: 11px; padding: 2px 8px; border-radius: 4px; }
+  .v-done { background: color-mix(in srgb, var(--success) 14%, var(--surface)); color: var(--success); }
+  .v-stale { background: var(--code-bg); color: var(--text-secondary); }
+  .v-live { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); color: var(--danger); }
+  .toc { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px 20px; margin-bottom: 32px; }
+  .toc ul { list-style: none; padding: 0; }
+  .toc li { margin-bottom: 4px; }
+  .toc a { color: var(--primary); text-decoration: none; font-size: 13px; }
+  .toc a:hover { text-decoration: underline; }
+  a { color: var(--primary); }
+</style>
+</head>
+<body>
+
+<h1>Architecture Audit — Shoresh</h1>
+<div class="meta">
+  Date: 2026-08-16 &nbsp;·&nbsp; Branch: <code>claude/codebase-architecture-strategy-0856d0</code> &nbsp;·&nbsp; Auditor: architecture-auditor agent &nbsp;·&nbsp; Prior audit: 2026-08-03 (341 commits ago) &nbsp;·&nbsp; Post-feature: locations M0–M4, setup CRUD shared hook, DnD write-queue serialization
+</div>
+
+<div class="toc">
+  <strong style="font-size: 13px;">Contents</strong>
+  <ul>
+    <li><a href="#scope">Scope and method</a></li>
+    <li><a href="#reconciliation">Reconciliation of the 2026-08-03 audit (C1–C5)</a></li>
+    <li><a href="#benchmark">Depth benchmark: the pure engine</a></li>
+    <li><a href="#candidates">Fresh deepening candidates</a>
+      <ul style="padding-left: 16px; margin-top: 4px;">
+        <li><a href="#f1">F1 · Extract the optimistic-write + undo/redo envelope in <code>useSlotMutations</code></a></li>
+        <li><a href="#f2">F2 · Lift the duplicated eligibility predicate to one shared rule</a></li>
+        <li><a href="#f3">F3 · Extract findings-rail derivation out of <code>ScheduleScreen</code></a></li>
+        <li><a href="#f4">F4 · Re-audit the grown sync layer as its own pass</a></li>
+      </ul>
+    </li>
+    <li><a href="#clean">What is clean</a></li>
+    <li><a href="#not-flagged">What was not flagged</a></li>
+  </ul>
+</div>
+
+<h2 id="scope">Scope and method</h2>
+<p>This audit reads the schedule screen, its extracted hooks, the renderer data adapter, the op-log primitives/projections/week mutations, and the schedule component and engine layers, applying <strong>codebase-design vocabulary</strong> (depth, seam, leverage, locality, deletion test). It is read-only; it produces deepening candidates, not code.</p>
+<p><strong>Methodology:</strong> apply the deletion test to every candidate. If deleting the module moves complexity to callers, it earned its keep; if complexity vanishes or redistributes into fewer seams, the module is a shallow pass-through or misplaced responsibility. Flag god components, shallow pass-throughs, seam misplacement, missing internal seams, locality failures, and premature seams. Report only what is confirmed from reading the actual files.</p>
+
+<h2 id="reconciliation">Reconciliation of the 2026-08-03 audit (C1–C5)</h2>
+<p>The prior audit listed five candidates. Verified against current code (341 commits later): <strong>all five are DONE.</strong> The intervening ScheduleScreen decoupling program (memory: <code>useScheduleData</code>, shared drag handlers, <code>setRouteData</code>) landed the extractions the prior audit proposed almost verbatim.</p>
+
+<table>
+  <thead>
+    <tr><th>ID</th><th>Prior candidate</th><th>Verdict</th><th>Evidence in current code</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>C1</code></td>
+      <td>Extract <code>loadAll</code> into <code>useScheduleData</code></td>
+      <td><span class="verdict v-done">DONE</span></td>
+      <td>The 150-line inline <code>loadAll</code> is gone. <code>src/screens/schedule/useScheduleData.js</code> (293 lines) now owns setup-catalog, weeks/weekId resolution, exclusions, and per-route template data with one load lifecycle. Consumed at <code>ScheduleScreen.jsx</code> lines 99–103; the hook has its own test (<code>useScheduleData.test.js</code>, 256 lines) that runs with no screen render.</td>
+    </tr>
+    <tr>
+      <td><code>C2</code></td>
+      <td>Merge <code>handleGroupDragEnd</code> / <code>handleDayDragEnd</code></td>
+      <td><span class="verdict v-done">DONE</span></td>
+      <td>Both DnD contexts now build from the same factory: <code>makeDragHandlers(dragDeps)</code> at <code>ScheduleScreen.jsx</code> lines 586–588. The duplicated 90-line handlers are replaced by <code>src/screens/schedule/dragHandlers.js</code> (tested, <code>dragHandlers.test.js</code>). Expand-drag/palette-drop/replace live in one place.</td>
+    </tr>
+    <tr>
+      <td><code>C3</code></td>
+      <td>Add <code>is_locked</code> to <code>PROJECTIONS.activities.fields</code></td>
+      <td><span class="verdict v-done">DONE</span></td>
+      <td>Confirmed present at <code>electron/ops/projections.js:130</code> (<code>'is_locked'</code> in the activities field allowlist). The stale Supabase-era exclusion comment is gone. Lock Activity's write path (<code>lockActivity</code> → <code>writeActivityFields</code> → <code>appendOp</code>) no longer throws <em>"field not allowed for entity"</em>.</td>
+    </tr>
+    <tr>
+      <td><code>C4</code></td>
+      <td>Add scope-filtered reads to the IPC layer</td>
+      <td><span class="verdict v-done">DONE</span></td>
+      <td>A <code>listByScope</code> primitive now backs the reads. <code>scheduleRepository.reloadSlots</code> (line 108) and <code>reloadOverlays</code> (line 112) call <code>localClient.listByScope('template_slots', templateId)</code>; <code>loadWeekExclusions</code> (lines 125–126) uses it for both exclusion tables. The renderer-side <code>list().filter()</code> pattern the prior audit flagged is removed from the hot path.</td>
+    </tr>
+    <tr>
+      <td><code>C5</code></td>
+      <td>Deepen <code>useRouteState</code> with a <code>setRouteData</code> bulk-update</td>
+      <td><span class="verdict v-done">DONE</span></td>
+      <td><code>setRouteData(r, payload)</code> exists at <code>useRouteState.js:98–117</code> with required-key enforcement (throws on a partial call) and replace semantics; the load effect drives it once per route at <code>ScheduleScreen.jsx:353–362</code>. The six scattered <code>set*ByRoute</code> calls per route are collapsed into one atomic call.</td>
+    </tr>
+  </tbody>
+</table>
+<p>No C1–C5 candidate is STALE or STILL-LIVE. The prior audit's low-severity C6 (raw-SQL pre-insert in <code>duplicateWeek.js</code>) was a "document and contain" item; the current file carries an explicit multi-point safety comment at lines 69–74 naming it a deliberate invariant deviation — the recommendation was taken. Nothing carries forward into the fresh ranking below.</p>
+
+<h2 id="benchmark">Depth benchmark: the pure engine</h2>
+<div class="benchmark">
+  <div class="benchmark-title">Deep module reference — src/engine/buildSchedule.js</div>
+  <p>Unchanged as the depth standard: one function, one object argument, one return value; no React, no IPC, no side effects. Every unit of interface purchases the entire three-pass scheduler. Locality is perfect — all schedule-build bugs live here. Every other module is scored against this.</p>
+</div>
+
+<h2 id="candidates">Fresh deepening candidates</h2>
+<p>Ranked by <strong>leverage</strong>: how much caller-side complexity, or how much duplicated invariant, disappears per unit of work at the seam. The schedule data/route/IPC seams the prior audit targeted are now clean; the remaining depth debt has moved <em>inside</em> the mutation hook and the residual screen derivations.</p>
+
+<!-- F1 -->
+<div class="candidate" id="f1">
+  <div class="candidate-header">
+    <span class="rank">#1</span>
+    <div>
+      <div class="fields">
+        <span class="severity sev-high">High leverage</span>
+        <span class="label label-locality">Locality failure</span>
+        <span class="label">Missing internal seam</span>
+      </div>
+      <div class="candidate-title">Extract the optimistic-write + undo/redo envelope in <code>useSlotMutations</code></div>
+    </div>
+  </div>
+  <div class="candidate-body">
+    <h3>What the code does now</h3>
+    <p><code>useSlotMutations.js</code> has grown from 507 to 844 lines. The growth is the per-cell write-serialization queue (<code>cellQueueRef</code> + <code>claimAndRun</code>, lines 120–171) added for the live write-ordering race (memory: PR #54). The queue itself is a genuine deep primitive. The problem is how it is <em>consumed</em>: four mutation handlers — <code>replaceSlot</code> (219–308), <code>placeActivityManual</code> (490–548), <code>expandSlot</code> (588–666), and <code>splitSlot</code> (697–782) — each hand-repeat the same five-step envelope:</p>
+    <pre>const outcome = await claimAndRun(keys, claimId, async () => { /* repo writes */ })
+if (outcome.dropped) return                 // superseded before dispatch
+setSlots(prev => prev.map(/* optimistic patch */))
+pushUndo({
+  undo: async () => { const o = await claimAndRun(keys, crypto.randomUUID(), ...); if (o.dropped) return; setSlots(...) },
+  redo: async () => { const o = await claimAndRun(keys, crypto.randomUUID(), ...); if (o.dropped) return; setSlots(...) },
+})</pre>
+    <p>The invariant this envelope encodes — <em>every write, including undo and redo, must go through <code>claimAndRun</code> with a fresh claim id, and must no-op silently when dropped</em> — is not expressed once. It is re-typed in each handler and again inside each handler's undo and redo closures. That is roughly a dozen open-coded copies of the same queue-participation contract.</p>
+
+    <h3>Deletion test</h3>
+    <p>There is no seam to delete — the contract has no name. A reader who wants to know "does undo also respect the write queue?" must read all four handlers and confirm each closure independently. Memory records this exact failure mode already occurred: the first queue implementation "missed <code>placeActivityManual</code>", reopening the race. A hand-repeated invariant with a history of being missed in one copy is the definition of a locality failure.</p>
+
+    <h3>Proposed seam</h3>
+    <p>A single higher-order helper inside the hook — <code>runMutation({ keys, apply, invert, describe })</code> — that owns the claim/dispatch, the dropped-return, the optimistic <code>setSlots</code>, and the construction of the <code>pushUndo({ undo, redo })</code> pair (each branch re-entering <code>runMutation</code> with a fresh claim). Each handler then declares only <em>what</em> changes (the forward patch and its inverse), never <em>how</em> the queue and undo stack are wired. The queue-participation contract lives in exactly one place and is tested once.</p>
+
+    <h3>Leverage</h3>
+    <p>Highest remaining in the schedule layer. It removes ~4× duplication of the most safety-critical invariant in the mutation path (the one that guards UI/DB convergence under concurrent drags), and it makes the contract testable at a single seam rather than by asserting queue behavior separately for every handler.</p>
+
+    <div class="evidence">
+      <strong>Evidence:</strong> <code>src/screens/schedule/useSlotMutations.js</code> — envelope repeated at lines 219–308, 490–548, 588–666, 697–782; each with matching <code>claimAndRun</code>-wrapped undo/redo at (263/286), (521/536), (624/645), (734/755). Queue primitive at 120–171. Memory note "DnD FSM / write serialization": queue v2 originally missed <code>placeActivityManual</code>.
+    </div>
+  </div>
+</div>
+
+<!-- F2 -->
+<div class="candidate" id="f2">
+  <div class="candidate-header">
+    <span class="rank">#2</span>
+    <div>
+      <div class="fields">
+        <span class="severity sev-medium">Medium-high leverage</span>
+        <span class="label label-locality">Locality failure</span>
+        <span class="label label-correctness">Divergence risk</span>
+      </div>
+      <div class="candidate-title">Lift the duplicated eligibility predicate to one shared rule</div>
+    </div>
+  </div>
+  <div class="candidate-body">
+    <h3>What the code does now</h3>
+    <p>"Which activities may a group do" is computed by the same tier/group-id rule in two places:</p>
+    <ul>
+      <li><code>ScheduleScreen.jsx:220–231</code> — <code>eligibleActivitiesFor(groupId)</code>, passed down to <code>ManualBuildView</code>, <code>ScheduleGroupView</code>, and <code>ScheduleDayView</code> for the inline typeahead.</li>
+      <li><code>useSlotMutations.js:414–417</code> — the identical predicate inside <code>placeActivityManual</code>, deciding whether a placed slot earns an <code>UNFILLABLE</code> flag.</li>
+    </ul>
+    <p>The comment at <code>ScheduleScreen.jsx:215–216</code> asserts the rule was "lifted so both the drag path and the typeahead read one definition." It was not lifted into a shared module — the hook keeps its own copy. The comment describes an intent the code does not honor, which is worse than silence: a future maintainer trusts a single source of truth that does not exist.</p>
+
+    <h3>Deletion test</h3>
+    <p>Delete either copy and the other does not cover it — the typeahead and the flag logic would silently disagree about eligibility. The two copies pass the "earns its keep" test individually but fail locality: the same rule, two homes, one misleading comment claiming otherwise.</p>
+
+    <h3>Proposed seam</h3>
+    <p>A pure predicate — <code>isActivityEligible(activity, group)</code> (and a thin <code>eligibleActivitiesFor(activities, group)</code> over it) — in a React-free module alongside the engine's own eligibility notion. Both the screen and the hook import it; the misleading comment is deleted because it becomes true. Bonus: this is the same concept <code>buildSchedule</code> resolves in its eligibility pass, so the shared predicate is a candidate to align the manual-route flag logic with the engine's own rule rather than a parallel restatement of it.</p>
+
+    <h3>Leverage</h3>
+    <p>Medium-high. Small extraction, but it removes a correctness-divergence seam on a rule that decides both what the director is offered and whether a placement is flagged — the two must never disagree.</p>
+
+    <div class="evidence">
+      <strong>Evidence:</strong> <code>src/screens/ScheduleScreen.jsx</code> lines 215–231 (predicate + false "one definition" comment). <code>src/screens/schedule/useSlotMutations.js</code> lines 414–417 (second copy). Consumers: <code>ManualBuildView.jsx:177</code>, <code>ScheduleGroupView.jsx:235</code>, <code>ScheduleDayView.jsx:202</code>.
+    </div>
+  </div>
+</div>
+
+<!-- F3 -->
+<div class="candidate" id="f3">
+  <div class="candidate-header">
+    <span class="rank">#3</span>
+    <div>
+      <div class="fields">
+        <span class="severity sev-medium">Medium leverage</span>
+        <span class="label label-god">God component (residual)</span>
+        <span class="label">Missing internal seam</span>
+      </div>
+      <div class="candidate-title">Extract findings-rail derivation out of <code>ScheduleScreen</code></div>
+    </div>
+  </div>
+  <div class="candidate-body">
+    <h3>What the code does now</h3>
+    <p>After the C1/C2/C5 extractions the screen is 1,281 lines with 19 <code>useState</code> calls. Data-fetch, route state, mutations, snapshots, weeks, and generation are all out. What remains largest and least UI-shaped is the <strong>findings-rail derivation</strong>: roughly <code>ScheduleScreen.jsx:448–559</code> computes <code>unfillableSlots</code>, <code>overlapSlots</code>, <code>activeFindings</code>, then builds and sorts <code>findingsRows</code> (with per-route copy in <code>findingReason</code>/<code>slotLocator</code>), and derives <code>highlightMap</code>, <code>highlightedKind</code>, <code>railRows</code>, and the off-view visible-count. This is ~110 lines of pure, route-aware transformation from (slots, findings, dismissed, view, selection) to (rows, highlight map, counts) — no JSX, no state ownership, threaded through the render only.</p>
+
+    <h3>Deletion test</h3>
+    <p>This block is a pure function trapped inside a component. To test "the rail shows 3 of 8 lit here" or "manual route rewrites UNDERSERVED copy" you must mount the whole screen with DnD context and mocked IPC. Delete the screen and the logic does not vanish — it is self-contained; it simply has no seam of its own.</p>
+
+    <h3>Proposed seam</h3>
+    <p>A pure module <code>deriveFindingsRows({ slots, findings, dismissed, route, groups, activities, days, timeBlocks })</code> returning <code>{ rows, highlightMap, highlightedKind, highlightColor, railRows, counts }</code>, mirroring how <code>gridGeometry.js</code> and <code>findingHighlight.js</code> already sit beside the screen as pure helpers. The screen keeps only <code>railView</code> (UI toggle state) and renders the returned rows. This is the same move that made C1 pay off, applied to the last large inline concern.</p>
+
+    <h3>Leverage</h3>
+    <p>Medium. Lower than F1/F2 because the block is correct and already fairly localized; the payoff is testability of the route-divergent findings vocabulary (UNFILLABLE vs OVERLAP, manual copy rewrites) without a render, and shrinking the god component's last big non-JSX region.</p>
+
+    <div class="evidence">
+      <strong>Evidence:</strong> <code>src/screens/ScheduleScreen.jsx</code> lines 448–559 (<code>findingsRows</code> build at 489–516; <code>highlightMap</code>/<code>highlightedKind</code> at 522–545; off-view count at 538–545). Precedent pure helpers: <code>src/screens/schedule/gridGeometry.js</code>, <code>findingHighlight.js</code>.
+    </div>
+  </div>
+</div>
+
+<!-- F4 -->
+<div class="candidate" id="f4">
+  <div class="candidate-header">
+    <span class="rank">#4</span>
+    <div>
+      <div class="fields">
+        <span class="severity sev-info">Scoping / next audit</span>
+        <span class="label label-seam">Growth signal</span>
+      </div>
+      <div class="candidate-title">Re-audit the grown sync layer as its own pass</div>
+    </div>
+  </div>
+  <div class="candidate-body">
+    <h3>What changed since the prior audit</h3>
+    <p>The 2026-08-03 audit read <code>syncClient.js</code>/<code>syncServer.js</code> only in part (">80 read") and passed them as deep with a clean IPC seam. They have since grown substantially: <code>syncClient.js</code> is now 1,435 lines and <code>syncServer.js</code> is 1,139 lines (their test files are 2,197 and 1,785 lines respectively). That is a large enough surface that a partial read cannot honestly certify depth.</p>
+
+    <h3>Why this is a scoping note, not a candidate</h3>
+    <p>Per the agent's discipline — report only what is confirmed from reading the actual files, no speculative flags — this audit did not fully read the two sync modules, so it makes <em>no</em> depth claim about them in either direction. The honest output is a flag that the sync layer now warrants a dedicated deep-read pass, ideally paired with Security given it owns the LAN protocol, auth on the WS seam, and op broadcast. It is listed at #4 as a pointer for the next audit, not as an actionable deepening with an identified seam.</p>
+
+    <div class="evidence">
+      <strong>Evidence:</strong> line counts — <code>electron/sync/syncClient.js</code> 1,435, <code>electron/sync/syncServer.js</code> 1,139. Prior audit's own note: both read only partially in 2026-08-03.
+    </div>
+  </div>
+</div>
+
+<h2 id="clean">What is clean</h2>
+<ul>
+  <li><strong>The prior audit's five targets</strong> — C1–C5 all landed; the schedule data/route/IPC seams are now the clean parts of the codebase (see reconciliation).</li>
+  <li><strong><code>scheduleRepository.js</code></strong> (247 lines) — the <code>listByScope</code>-backed reads, the single <code>mapSlotToRow</code> with its <code>{ spanHead }</code> discriminator, and the <code>writeFields</code> first-failure surfacing are all locally correct. Injection of <code>localClient</code>/<code>getToken</code> keeps the seam as the test surface.</li>
+  <li><strong><code>useRouteState.setRouteData</code></strong> — required-key enforcement (throws on partial) and replace-not-merge semantics make partial route updates impossible; the raw by-route setters stay exported for the deliberate reason that generation must write a non-current route explicitly.</li>
+  <li><strong><code>claimAndRun</code> (the queue primitive itself)</strong> — genuinely deep; the finding in F1 is about its <em>consumption</em>, not the primitive.</li>
+  <li><strong><code>duplicateWeek.js</code></strong> — the raw-SQL pre-insert now carries the explicit invariant-deviation safety comment the prior audit's C6 asked for.</li>
+  <li><strong>Component layer</strong> — <code>ManualBuildView</code>, <code>ScheduleGroupView</code>, <code>ScheduleDayView</code>, <code>SlotCell</code> accept computed geometry and eligibility via props and do not reach back into screen state; wide but earned.</li>
+</ul>
+
+<h2 id="not-flagged">What was not flagged</h2>
+<ul>
+  <li>Style, naming, or formatting differences.</li>
+  <li>Missing test coverage (Tester's domain). Note only: F1 and F3 are motivated by <em>testability at a seam</em>, an architecture property, not by a coverage gap.</li>
+  <li>Performance without a measured baseline.</li>
+  <li><code>legacy/supabase/</code> — historical, not active.</li>
+  <li>Files under <code>docs/</code> or <code>electron/db/schema.sql</code>.</li>
+  <li><code>electron/ops/ingest.js</code> (1,521 lines) — large, but the active Ingestion Reconciliation initiative owns its architecture; deferring to that program rather than duplicating its scope here.</li>
+  <li>The sync layer's <em>internals</em> — see F4: not read in full this pass, so no depth claim is made.</li>
+</ul>
+
+<hr style="margin: 40px 0; border: none; border-top: 1px solid var(--border);">
+<p style="font-size: 12px; color: var(--text-secondary);">Generated by the Shoresh architecture-auditor agent · 2026-08-16</p>
+
+</body>
+</html>
