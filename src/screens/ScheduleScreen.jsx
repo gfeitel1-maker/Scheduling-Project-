@@ -19,6 +19,7 @@ import { snapshotMatchesSchedule } from './snapshotMatchesSchedule'
 import FieldTripDrawer from '../components/schedule/FieldTripDrawer'
 import { exportToExcel } from '../utils/exportSchedule'
 import { withOverlapFlags } from '../utils/computeOverlaps'
+import { withWeekClosureFlags } from '../utils/computeWeekClosures'
 import { deriveScheduleTemplateId } from '../../electron/ops/scheduleTemplateId'
 import { resolveSelection } from './resolveSelection'
 import { getSlot, makeGridGeometry } from './schedule/gridGeometry'
@@ -130,12 +131,24 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     setStats, setFindings, setDismissedFindingKeys,
     collapsedBlockIds, toggleBlockCollapsed,
   } = routeState
-  // OVERLAP is derived, never persisted — so it clears from every participating
-  // cell the moment any one of them moves, and only on the manual route, where
-  // a clashing placement is accepted rather than refused.
+  // OVERLAP and WEEK_CLOSED are both derived, never persisted — so they clear
+  // from every participating cell the moment the underlying condition changes,
+  // and only on the manual route, where a clashing / closed-week placement is
+  // accepted rather than refused. WEEK_CLOSED honours this week's activity and
+  // group exclusions (see src/utils/computeWeekClosures.js); location is a
+  // fast-follow once slice M5 lands its producer + generate-route enforcement.
   const slots = useMemo(
-    () => (route === 'manual' ? withOverlapFlags(rawSlots, activities, locations) : rawSlots),
-    [route, rawSlots, activities, locations]
+    () =>
+      route === 'manual'
+        ? withWeekClosureFlags(withOverlapFlags(rawSlots, activities, locations), {
+            activities,
+            groups,
+            activityExclusions,
+            groupExclusions,
+            weekId,
+          })
+        : rawSlots,
+    [route, rawSlots, activities, locations, groups, activityExclusions, groupExclusions, weekId]
   )
   // The generated "track changes" review (docs/work/specs/2026-08-01-generated-
   // flag-review.md). One piece of state is the single source of truth for both
@@ -459,6 +472,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     ? []
     : flagSlots.filter(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed)
   const overlapSlots = isManual ? flagSlots.filter(s => s.flags?.OVERLAP) : []
+  const weekClosedSlots = isManual ? flagSlots.filter(s => s.flags?.WEEK_CLOSED) : []
   const activeFindings = findings.filter(f => !dismissedFindingKeys.has(`${f.groupId}|${f.activityId}|${f.kind}`))
   const SEVERITY_ORDER = { danger: 0, caution: 1, info: 2 }
 
@@ -504,6 +518,14 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       locator: slotLocator(s),
       groupId: s.group_id,
     })),
+    ...weekClosedSlots.map(s => ({
+      key: `week-closed-${s.id}`,
+      kind: 'WEEK_CLOSED',
+      severity: FLAG_SEVERITY.WEEK_CLOSED,
+      reason: s.flags?.WEEK_CLOSED_reason || 'Marked not to run this week',
+      locator: slotLocator(s),
+      groupId: s.group_id,
+    })),
     ...activeFindings.map(f => ({
       key: `${f.groupId}|${f.activityId}|${f.kind}`,
       kind: f.kind,
@@ -546,10 +568,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
 
   function dismissFindingsRow(row) {
     if (row.kind === 'UNFILLABLE') dismissFlag(row.slotIds, 'UNFILLABLE')
-    // OVERLAP is derived from the week on screen, so there is nothing to
-    // dismiss — it clears when the director moves one of the clashing
-    // placements, which is the only honest way for it to go away.
-    else if (row.kind !== 'OVERLAP') dismissFinding(row.groupId, row.activityId, row.kind)
+    // OVERLAP and WEEK_CLOSED are derived from the week on screen, so there is
+    // nothing to dismiss — they clear when the director moves the clashing /
+    // closed-week placement or lifts the exclusion, which is the only honest
+    // way for them to go away.
+    else if (row.kind !== 'OVERLAP' && row.kind !== 'WEEK_CLOSED') dismissFinding(row.groupId, row.activityId, row.kind)
   }
 
   function locateFindingsRow(row) {

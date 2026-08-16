@@ -43,6 +43,44 @@ describe('shared cell components render placed gridcells (T56)', () => {
     expect(container.querySelectorAll('[rowspan]').length).toBe(0)
   })
 
+  it('renders the WEEK_CLOSED marker with its reason as the title, and none when unflagged', () => {
+    const withFlag = render(
+      <DndContext>
+        <SlotCell
+          slot={{ ...slot, flags: { WEEK_CLOSED: true, WEEK_CLOSED_reason: 'Swim is marked closed this week' } }}
+          activity={{ id: 'a1', name: 'Swim' }}
+          actColorIdx={0}
+          onEdit={() => {}}
+          gridRow="1 / span 1"
+          gridColumn="2 / span 1"
+          ariaColIndex={2}
+          cellKey="g1|d1|b1"
+        />
+      </DndContext>
+    )
+    const marker = withFlag.container.querySelector('.flag--week-closed')
+    expect(marker).not.toBeNull()
+    expect(marker.getAttribute('title')).toBe('Swim is marked closed this week')
+    // The activity name is preserved — the marker never replaces its identity.
+    expect(withFlag.container.textContent).toContain('Swim')
+
+    const noFlag = render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Swim' }}
+          actColorIdx={0}
+          onEdit={() => {}}
+          gridRow="1 / span 1"
+          gridColumn="2 / span 1"
+          ariaColIndex={2}
+          cellKey="g1|d2|b1"
+        />
+      </DndContext>
+    )
+    expect(noFlag.container.querySelector('.flag--week-closed')).toBeNull()
+  })
+
   it('OverlayCell renders a placed gridcell and no table markup', () => {
     const { container } = render(
       <OverlayCell

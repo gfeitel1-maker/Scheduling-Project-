@@ -259,6 +259,18 @@
   box-shadow: 0 0 0 1.5px var(--surface);
 }
 
+/* Top-LEFT corner, clear of the top-right cluster (overlap/unfillable/outdoor):
+   WEEK_CLOSED can co-occur with OVERLAP on the manual route, so it must not
+   share a corner. Slate dot vs OVERLAP's bronze keeps them apart by hue too. */
+.flag--week-closed {
+  top: 6px;
+  left: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--surface);
+}
+
 .flag--unfillable {
   top: 4px;
   right: 4px;

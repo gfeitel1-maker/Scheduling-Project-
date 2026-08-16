@@ -24,6 +24,19 @@ describe('rowFlagKind', () => {
     expect(rowFlagKind(g, acrossDays, 'b1')).toBe('advisory')
   })
 
+  it('reports a WEEK_CLOSED anywhere in the row as advisory', () => {
+    const g = geometryOf([{ group_id: 'g1', day_id: 'd2', time_block_id: 'b1', flags: { WEEK_CLOSED: true } }])
+    expect(rowFlagKind(g, acrossDays, 'b1')).toBe('advisory')
+  })
+
+  it('lets UNFILLABLE outrank a WEEK_CLOSED advisory — one dot, never two', () => {
+    const g = geometryOf([
+      { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', flags: { WEEK_CLOSED: true } },
+      { group_id: 'g1', day_id: 'd2', time_block_id: 'b1', flags: { UNFILLABLE: true } },
+    ])
+    expect(rowFlagKind(g, acrossDays, 'b1')).toBe('unfillable')
+  })
+
   it('lets UNFILLABLE outrank OVERLAP — one dot, never two', () => {
     const g = geometryOf([
       { group_id: 'g1', day_id: 'd1', time_block_id: 'b1', flags: { OVERLAP: true } },
