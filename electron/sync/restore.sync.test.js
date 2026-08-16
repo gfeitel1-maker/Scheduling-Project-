@@ -18,8 +18,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID, randomBytes } from 'node:crypto'
+import WebSocket from 'ws'
 import { openLocalDb } from '../db/localDb.js'
-import { issueCampToken, ensureHostSigningKey } from '../auth/localAuth.js'
+import { issueCampToken, issueLocalToken, ensureHostSigningKey } from '../auth/localAuth.js'
 import { appendOp, DELETE_FIELD } from '../ops/operations.js'
 import { startSyncServer } from './syncServer.js'
 import { createSyncClient } from './syncClient.js'
@@ -236,6 +237,79 @@ describe('restore requested on a Client executes on the Host and replicates back
     expect(result.existing).toMatchObject({ name: 'Pool' })
     expect(hostDb.prepare('SELECT COUNT(*) c FROM operations').get().c).toBe(opsBefore)
     expect(hostDb.prepare('SELECT * FROM locations WHERE id = ?').get('loc-deleted')).toBeUndefined()
+  })
+})
+
+// Security round-2 finding: merge_location_request had no direct WS authZ
+// coverage — the delete/restore paths did (above), the merge path didn't.
+// Mirrors the staff-forbidden shape at line 183 and the local-token-rejected
+// shape from syncServer.test.js's "device self-registration" describe block.
+// docs/adr/2026-08-15-locations-merge-and-delete-rehome.md (M3c)
+describe('merge_location_request WS authZ', () => {
+  function seedLocationsOnHost() {
+    hostWrite('locations', 'loc-Pool', 'camp_id', campId)
+    hostWrite('locations', 'loc-Pool', 'name', 'Pool')
+    hostWrite('locations', 'loc-Pool', 'capacity', '3')
+    hostWrite('locations', 'loc-pool', 'camp_id', campId)
+    hostWrite('locations', 'loc-pool', 'name', 'pool')
+    hostWrite('locations', 'loc-pool', 'capacity', '1')
+  }
+
+  it('refuses a staff caller merging locations, and writes nothing — the same gate deleteRecord uses', async () => {
+    seedLocationsOnHost()
+    const opsBefore = hostDb.prepare('SELECT COUNT(*) c FROM operations').get().c
+
+    client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: staffId,
+      serverUrl: `ws://127.0.0.1:${PORT}`,
+      token: staffToken,
+      submitTimeoutMs: 1500,
+    })
+    await client.waitUntilConnected()
+
+    const result = await client.requestMerge({
+      loser_id: 'loc-pool',
+      winner_id: 'loc-Pool',
+      winner_capacity: 3,
+      expected_ref_count: 0,
+    })
+
+    expect(result.error).toBe('forbidden')
+    expect(hostDb.prepare('SELECT COUNT(*) c FROM operations').get().c).toBe(opsBefore)
+    expect(hostDb.prepare('SELECT 1 FROM locations WHERE id = ?').get('loc-pool')).toBeTruthy()
+  })
+
+  // A 'local' token is rejected at authenticate — before ANY message type is
+  // ever routed (syncServer.js handleAuthenticate) — so a merge attempted
+  // over a local-token connection can never reach handleMergeLocationRequest.
+  // Waiting for the connection to actually close (rather than racing a send
+  // against the Host's rejection) is what makes this deterministic.
+  it('a local token never reaches the merge path — the connection is rejected before any message routing', async () => {
+    seedLocationsOnHost()
+    const opsBefore = hostDb.prepare('SELECT COUNT(*) c FROM operations').get().c
+    const localToken = issueLocalToken(hostDb, adminId, deviceId)
+
+    client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: adminId,
+      serverUrl: `ws://127.0.0.1:${PORT}`,
+      token: localToken,
+      submitTimeoutMs: 1500,
+    })
+    await client.waitUntilConnected()
+    expect(await waitFor(() => client.__getWs()?.readyState === WebSocket.CLOSED)).toBe(true)
+
+    const result = await client.requestMerge({
+      loser_id: 'loc-pool',
+      winner_id: 'loc-Pool',
+      winner_capacity: 3,
+      expected_ref_count: 0,
+    })
+
+    expect(result).toEqual({ error: 'host-unreachable' })
+    expect(hostDb.prepare('SELECT COUNT(*) c FROM operations').get().c).toBe(opsBefore)
+    expect(hostDb.prepare('SELECT 1 FROM locations WHERE id = ?').get('loc-pool')).toBeTruthy()
   })
 })
 

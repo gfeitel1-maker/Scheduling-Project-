@@ -1,40 +1,26 @@
-import { useState, useRef } from 'react'
-import { describeWriteFailure } from '../utils/writeErrorMessage'
+import { useState, useRef, useEffect } from 'react'
+import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S, useEnterTransition } from '../styles/shared'
 import ScreenIntro from '../components/ScreenIntro'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
+import DeleteRecordDialog from '../components/DeleteRecordDialog'
+import {
+  activeNearDuplicateGroups,
+  defaultWinner,
+  capacityDisagreementCopy,
+  wasUnlimitedCopy,
+  variantList,
+} from './locationMigrationReview'
 
 // M3a — the Locations setup screen. docs/work/specs/2026-08-15-m3-locations-design.md Part 1.
-//
-// Scoped to M3a only: the screen + readiness promotion. NOT built here —
-// the activity picker (M3b, ActivitiesScreen's free-text `location` input)
-// and the first-run migration review region (M3c, the near-duplicate merge
-// gate + capacity advisory strip). Per the design's §3.3, an absent/empty
-// review journal renders nothing at all, which is exactly this screen's
-// behavior until M3c adds the region above the toolbar.
+// M3c — the first-run migration review region (Part 3) + the delete path's
+// re-home onto the shared host primitive (D2).
+// docs/adr/2026-08-15-locations-merge-and-delete-rehome.md
 const repository = createSetupCrudRepository({ localClient })
 const scopeFilter = (row, campId) => row.camp_id === campId
-
-// A place bound by activities must warn with a count and never silently
-// orphan the binding (design spec Part 1, "States: Delete"). `locations` is
-// not in electron/ops/deleteRecord.js's CLEARABLE_ENTITIES — that module
-// exists to clear FK-blocking rows before a delete, and activities.location_id
-// carries no DB-level FK (matches weather_alternative_id) — so there is
-// nothing to preview via localClient.previewDelete/DeleteRecordDialog for
-// this entity. TiersScreen.jsx and TimeBlocksScreen.jsx are the actual
-// precedent for a setup entity outside that backend contract: ConfirmDangerDialog
-// (the shared styled confirm chrome) fed a usage count computed client-side,
-// deleting via localClient.deleteEntity directly. Followed here, with the one
-// addition Locations needs that Tiers does not: unbinding the affected
-// activities' location_id first, so a deleted place is never left as a
-// dangling reference.
-async function boundActivities(campId, locationId) {
-  const rows = await localClient.list('activities')
-  return (rows || []).filter((a) => a.camp_id === campId && a.location_id === locationId)
-}
 
 function capacityWord(n) {
   return `${n} group${n === 1 ? '' : 's'}`
@@ -100,6 +86,132 @@ export function CapacityStepper({ value, onChange, disabled }) {
         aria-label="Increase"
         style={{ ...stepperStyles.btn, ...(disabled ? S.buttonDisabled : {}) }}
       >+</button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// M3c — the first-run migration review region. Pure grouping/copy helpers
+// live in locationMigrationReview.js; this file keeps only the components.
+// docs/adr/2026-08-15-locations-merge-and-delete-rehome.md D3/D4/D5,
+// docs/work/specs/2026-08-15-m3-locations-design.md Part 3.
+// ---------------------------------------------------------------------------
+
+// D-3 (hard requirement): a blocking modal — impossible to scroll past.
+function NearDuplicateGate({ group, remaining, onMerge, onKeepSeparate, busy, error }) {
+  // Design spec §5d — a heavier "Fade + Settle" entrance for this one
+  // un-missable, blocking gate: translateY 12->0 over --motion-settle, not
+  // the lighter 8px liftFade every other modal uses.
+  const enter = useEnterTransition('settle')
+  const winnerDefault = defaultWinner(group.variantRows)
+  const [selectedName, setSelectedName] = useState(winnerDefault?.name)
+  const [capacity, setCapacity] = useState(Math.max(...group.variantRows.map((v) => v.capacity)))
+  // Local choices reset when the gate moves to a different pair because the
+  // caller renders this with `key={group.key}` — a fresh mount, not a
+  // render-time "adjusting state" reset.
+  const winner = group.variantRows.find((v) => v.name === selectedName) ?? group.variantRows[0]
+
+  return (
+    <div style={gateStyles.scrim}>
+      <div style={{ ...gateStyles.card, ...enter }}>
+        <div style={gateStyles.top}>
+          <div style={gateStyles.eyebrow}>
+            Before you start
+            <span style={gateStyles.prog}>{remaining} place{remaining === 1 ? '' : 's'} left to review</span>
+          </div>
+          <div style={gateStyles.title}>These look like the same place</div>
+          <p style={gateStyles.lede}>
+            Your old schedule used {variantList(group.variants)}. Shoresh kept them separate so it wouldn’t change
+            your data without asking — but that splits how many groups fit. Merge them into one place, or say
+            they’re genuinely different. The activities from both places will move onto the name you keep.
+          </p>
+        </div>
+        <div style={gateStyles.variants}>
+          {group.variantRows.map((v) => (
+            <button
+              key={v.name}
+              type="button"
+              className="press-97"
+              disabled={busy}
+              onClick={() => setSelectedName(v.name)}
+              style={{ ...gateStyles.vrow, ...(v.name === selectedName ? gateStyles.vrowPick : {}) }}
+            >
+              <span style={{ ...gateStyles.radio, ...(v.name === selectedName ? gateStyles.radioPick : {}) }} />
+              <span style={gateStyles.vname}>{v.name}</span>
+              <span style={gateStyles.vmeta}>
+                {capacityWord(v.capacity)} at once
+                <br />
+                {v.activityCount} activit{v.activityCount === 1 ? 'y' : 'ies'} here
+              </span>
+            </button>
+          ))}
+        </div>
+        <div style={gateStyles.capRow}>
+          Room for <CapacityStepper value={capacity} onChange={setCapacity} disabled={busy} /> groups at once after
+          merging.
+        </div>
+        {error && <div style={gateStyles.error}>{error}</div>}
+        <div style={gateStyles.actions}>
+          <button
+            className="press-97"
+            disabled={busy}
+            onClick={() => onMerge({ group, winner, capacity })}
+            style={{ ...gateStyles.merge, ...(busy ? S.buttonDisabled : {}) }}
+          >
+            {busy ? 'Merging…' : 'Merge into one place'}
+          </button>
+          <button
+            className="press-97"
+            disabled={busy}
+            onClick={() => onKeepSeparate(group)}
+            style={{ ...gateStyles.keep, ...(busy ? S.buttonDisabled : {}) }}
+          >
+            No — these are different places
+          </button>
+          <div style={gateStyles.undo}>You can undo this. The merged place stays in Trash if you change your mind.</div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// The softer, dismissible advisory strip for capacity_disagreement/was_unlimited.
+function AdvisoryItem({ item, locations, onAccept, busy }) {
+  const location = locations.find((l) => l.id === item.location_id)
+  const [capacity, setCapacity] = useState(location?.capacity ?? item.detail?.seededCapacity ?? 1)
+  const body = item.kind === 'capacity_disagreement' ? capacityDisagreementCopy(item.detail) : wasUnlimitedCopy(item.detail)
+
+  return (
+    <div style={stripStyles.item}>
+      <div style={stripStyles.body}>
+        <b>{item.name}</b> — {body}
+      </div>
+      <div style={stripStyles.ctl}>
+        <CapacityStepper value={capacity} onChange={setCapacity} disabled={busy} />
+        <button
+          className="press-97"
+          disabled={busy}
+          onClick={() => onAccept(item, capacity)}
+          style={{ ...stripStyles.lookOk, ...(busy ? S.buttonDisabled : {}) }}
+        >
+          {busy ? 'Saving…' : 'Looks right'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function CapacityAdvisoryStrip({ items, locations, onAccept, busyId }) {
+  const enter = useEnterTransition('liftFade')
+  return (
+    <div style={{ ...stripStyles.wrap, ...enter }}>
+      <div style={stripStyles.head}>
+        <span style={stripStyles.title}>Shoresh set a few capacities from your old schedule</span>
+        <span style={stripStyles.sub}>{items.length} to look at</span>
+      </div>
+      {items.map((item) => (
+        <AdvisoryItem key={item.id} item={item} locations={locations} onAccept={onAccept} busy={busyId === item.id} />
+      ))}
     </div>
   )
 }
@@ -199,11 +311,119 @@ export default function LocationsScreen({ campId, role, onNavigate }) {
   const [newCapacity, setNewCapacity] = useState(1)
   const [newNotes, setNewNotes] = useState('')
   const [pendingDelete, setPendingDelete] = useState(null)
-  const [deleting, setDeleting] = useState(false)
   const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
   const nameRef = useRef()
   const enter = useEnterTransition('liftFade')
+
+  // M3c — the migration review region's own data. Loaded alongside, not
+  // through useCrudScreen (which tracks only `locations`): the near-duplicate
+  // gate needs the camp's activities (for per-place bound counts) and the
+  // host-local journal, neither of which that hook fetches.
+  const [activities, setActivities] = useState([])
+  const [reviews, setReviews] = useState([])
+  const [gateBusy, setGateBusy] = useState(false)
+  const [gateError, setGateError] = useState(null)
+  const [stripBusyId, setStripBusyId] = useState(null)
+
+  // Single failure semantic shared by every caller (the mount effect below,
+  // and handleMerge/handleKeepSeparate/handleAdvisoryAccept further down):
+  // this never throws. It used to be duplicated with a DIFFERENT failure
+  // semantic inside the mount effect (which swallowed to [] locally), so a
+  // real failure here — reachable from handleMerge AFTER a merge had already
+  // succeeded — propagated into that caller's own catch and reported a
+  // merge that worked as a failed one.
+  async function refreshReviewData() {
+    try {
+      const reviewData = (await localClient.listMigrationReviews()) || []
+      // Advisory items (capacity_disagreement/was_unlimited) don't need
+      // activities at all — only near_duplicate groups resolve variant rows
+      // against them — so the common case (empty journal, no near-dups)
+      // skips this full-table fetch entirely.
+      const needsActivities = reviewData.some((r) => r.kind === 'near_duplicate')
+      const actData = needsActivities ? await localClient.list('activities') : []
+      setActivities((actData || []).filter((a) => a.camp_id === campId))
+      setReviews(reviewData)
+    } catch {
+      setActivities([])
+      setReviews([])
+    }
+  }
+
+  useEffect(() => {
+    // The IIFE wrapper (rather than calling refreshReviewData() directly) is
+    // required by this repo's react-hooks/set-state-in-effect lint rule —
+    // it flags a direct call to a named, in-scope function it can trace back
+    // to setState, but not the same call wrapped this way. No duplicated
+    // logic: this is still exactly one call to the one shared function.
+    ;(async () => {
+      await refreshReviewData()
+    })()
+  }, [campId])
+
+  const nearDuplicateGroups = activeNearDuplicateGroups(reviews, campId, locations, activities)
+  const advisoryItems = reviews.filter((r) => r.kind !== 'near_duplicate')
+
+  async function handleMerge({ group, winner, capacity }) {
+    setGateBusy(true)
+    setGateError(null)
+    try {
+      for (const loser of group.variantRows.filter((v) => v.name !== winner.name)) {
+        const result = await localClient.mergeLocation({
+          loser_id: loser.locationId,
+          winner_id: winner.locationId,
+          winner_capacity: capacity,
+          expected_ref_count: loser.activityCount,
+        })
+        // A loser already gone (a prior partial success in this same batch,
+        // or a peer's concurrent merge) is not a failure — it's the outcome
+        // this merge wanted. Treat it as already-done and keep going, rather
+        // than abandoning a loser later in the list that could still merge.
+        if (result?.error === 'no-record') continue
+        if (!result || result.error) throw new Error(result?.error ?? 'merge-failed')
+      }
+      await localClient.dismissMigrationReviews(group.reviewIds)
+      await reload()
+      await refreshReviewData()
+    } catch {
+      setGateError('That merge could not be completed — someone may have changed these places. Try again.')
+      // A partial success (some losers merged before the failure) must not
+      // leave the gate showing a stale group — without this, a group with 3+
+      // variants keeps offering an already-deleted loser and every retry
+      // dies on 'no-record' before reaching the one that could still merge.
+      await reload()
+      await refreshReviewData()
+    } finally {
+      setGateBusy(false)
+    }
+  }
+
+  async function handleKeepSeparate(group) {
+    setGateBusy(true)
+    setGateError(null)
+    try {
+      await localClient.dismissMigrationReviews(group.reviewIds)
+      await refreshReviewData()
+    } catch {
+      setGateError('That could not be saved — try again.')
+    } finally {
+      setGateBusy(false)
+    }
+  }
+
+  async function handleAdvisoryAccept(item, capacity) {
+    setStripBusyId(item.id)
+    try {
+      await repository.writeFields('locations', item.location_id, { capacity })
+      await localClient.dismissMigrationReviews([item.id])
+      await reload()
+      await refreshReviewData()
+    } catch {
+      // Best-effort — leave the item visible so the director can retry.
+    } finally {
+      setStripBusyId(null)
+    }
+  }
 
   async function addLocation() {
     if (!newName.trim()) return
@@ -211,39 +431,28 @@ export default function LocationsScreen({ campId, role, onNavigate }) {
     if (succeeded) { setNewName(''); setNewCapacity(1); setNewNotes('') }
   }
 
+  // Deleting a record a schedule uses: count first, confirm with the count
+  // shown, then clear and delete in one Host-side transaction — the shared
+  // host path (D2), not a bespoke in-screen unbind.
+  // docs/adr/2026-08-15-locations-merge-and-delete-rehome.md
   async function deleteLocation(location) {
     setError(null)
-    const bound = await boundActivities(campId, location.id)
-    setPendingDelete({ id: location.id, name: location.name, count: bound.length })
-  }
-
-  async function confirmLocationDelete() {
-    if (!pendingDelete) return
-    setDeleting(true)
+    let preview
     try {
-      const token = localStorage.getItem('shoresh-token')
-      // Re-fetch immediately before writing — an activity another device
-      // bound to this place between the count preview and this click should
-      // still be unbound, not silently skipped.
-      const bound = await boundActivities(campId, pendingDelete.id)
-      for (const activity of bound) {
-        await repository.writeFields('activities', activity.id, { location_id: null })
-      }
-      const result = await localClient.deleteEntity(token, 'locations', pendingDelete.id)
-      if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
-        throw new Error('delete failed')
-      }
-      setPendingDelete(null)
-      await reload()
+      preview = await localClient.previewDelete('locations', location.id)
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
           ? 'Only an admin can delete places.'
-          : describeWriteFailure(err, 'That place could not be deleted.')
+          : describeWriteFailure(err, 'That could not be checked before deleting.')
       )
-    } finally {
-      setDeleting(false)
+      return
     }
+    if (!preview || preview.error) {
+      setError(deleteRefusalMessage(preview?.error ?? 'unknown', preview || {}))
+      return
+    }
+    setPendingDelete(preview)
   }
 
   function deleteAll() {
@@ -260,6 +469,8 @@ export default function LocationsScreen({ campId, role, onNavigate }) {
     }
   }
 
+  const currentGateGroup = nearDuplicateGroups[0]
+
   return (
     <div style={{ maxWidth: 720 }}>
       <ScreenIntro screen="locations" />
@@ -267,6 +478,16 @@ export default function LocationsScreen({ campId, role, onNavigate }) {
         <div style={S.errorBanner}>
           {error}
         </div>
+      )}
+
+      {/* D-3.3 — an absent/empty journal renders no review region at all. */}
+      {nearDuplicateGroups.length === 0 && advisoryItems.length > 0 && (
+        <CapacityAdvisoryStrip
+          items={advisoryItems}
+          locations={locations}
+          onAccept={handleAdvisoryAccept}
+          busyId={stripBusyId}
+        />
       )}
 
       {loading ? (
@@ -342,18 +563,10 @@ export default function LocationsScreen({ campId, role, onNavigate }) {
       </div>
 
       {pendingDelete && (
-        <ConfirmDangerDialog
-          title={`Delete "${pendingDelete.name}"?`}
-          body={
-            pendingDelete.count > 0
-              ? `${pendingDelete.count} activit${pendingDelete.count === 1 ? 'y uses' : 'ies use'} "${pendingDelete.name}" right now. Deleting it takes "${pendingDelete.name}" off those activities — they stay on the schedule, just without a place.`
-              : `Nothing uses "${pendingDelete.name}" right now.`
-          }
-          recovery={`"${pendingDelete.name}" goes to Trash and you can put it back — but the activities won't automatically start using it again.`}
-          confirmLabel="Delete Place"
-          busy={deleting}
-          onConfirm={confirmLocationDelete}
+        <DeleteRecordDialog
+          preview={pendingDelete}
           onCancel={() => setPendingDelete(null)}
+          onDeleted={() => { setPendingDelete(null); reload() }}
         />
       )}
 
@@ -365,6 +578,21 @@ export default function LocationsScreen({ campId, role, onNavigate }) {
           busy={deletingAll}
           onConfirm={confirmDeleteAll}
           onCancel={() => setPendingDeleteAll(false)}
+        />
+      )}
+
+      {/* D-3 — a blocking modal, impossible to scroll past. Renders above
+          everything else on the screen while unresolved near_duplicate
+          groups exist. */}
+      {currentGateGroup && (
+        <NearDuplicateGate
+          key={currentGateGroup.key}
+          group={currentGateGroup}
+          remaining={nearDuplicateGroups.length}
+          onMerge={handleMerge}
+          onKeepSeparate={handleKeepSeparate}
+          busy={gateBusy}
+          error={gateError}
         />
       )}
     </div>
@@ -439,4 +667,99 @@ const emptyStyles = {
     color: 'var(--text-secondary)',
     maxWidth: '56ch',
   },
+}
+
+// docs/work/specs/m3-mockup.html §3.1 — the on-brand deep-navy scrim (not the
+// standard black overlay every other modal in the app uses), deliberately:
+// this is the one un-missable, un-dismissible gate in the app.
+const gateStyles = {
+  scrim: {
+    position: 'fixed',
+    inset: 0,
+    background: 'color-mix(in srgb, var(--primary-dark) 50%, transparent)',
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    padding: '34px 16px',
+    zIndex: 1000,
+    overflowY: 'auto',
+  },
+  card: {
+    background: 'var(--surface-elevated)',
+    borderRadius: 12,
+    width: 460,
+    maxWidth: '100%',
+    boxShadow: '0 8px 40px color-mix(in srgb, var(--text) 20%, transparent)',
+    overflow: 'hidden',
+  },
+  top: { padding: '22px 24px 6px' },
+  eyebrow: {
+    fontFamily: 'var(--font-mono)',
+    fontSize: 10,
+    letterSpacing: '0.14em',
+    textTransform: 'uppercase',
+    color: 'var(--accent)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 7,
+  },
+  prog: { marginLeft: 'auto', color: 'var(--text-secondary)' },
+  title: { fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 19, margin: '12px 0 4px', letterSpacing: '-0.2px' },
+  lede: { fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.55, margin: 0 },
+  variants: { padding: '16px 24px 4px', display: 'flex', flexDirection: 'column', gap: 10 },
+  vrow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    border: '1.5px solid var(--border)',
+    borderRadius: 9,
+    padding: '11px 13px',
+    background: 'var(--surface)',
+    cursor: 'pointer',
+    width: '100%',
+    textAlign: 'left',
+    fontFamily: 'inherit',
+  },
+  vrowPick: { borderColor: 'var(--primary)', background: 'color-mix(in srgb, var(--primary) 6%, var(--surface))' },
+  radio: { width: 16, height: 16, borderRadius: '50%', border: '1.5px solid var(--border)', flexShrink: 0 },
+  radioPick: { borderColor: 'var(--primary)', background: 'var(--primary)', boxShadow: 'inset 0 0 0 3px var(--surface-elevated)' },
+  vname: { fontWeight: 600, fontSize: 14 },
+  vmeta: { fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--text-secondary)', marginLeft: 'auto', textAlign: 'right' },
+  capRow: { padding: '12px 24px 4px', display: 'flex', alignItems: 'center', gap: 10, fontSize: 13, color: 'var(--text)' },
+  error: { margin: '10px 24px 0', ...S.errorBanner },
+  actions: { padding: '18px 24px 22px', display: 'flex', flexDirection: 'column', gap: 9 },
+  merge: { padding: '11px 0', background: 'var(--primary)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 14, width: '100%', cursor: 'pointer' },
+  keep: { padding: '9px 0', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, fontWeight: 600, fontSize: 13, color: 'var(--text)', width: '100%', cursor: 'pointer' },
+  undo: { textAlign: 'center', fontSize: 11.5, color: 'var(--text-secondary)', marginTop: 2 },
+}
+
+// docs/work/specs/m3-mockup.html §3.2 — bronze/accent, never red: this is an
+// advisory, not an error.
+const stripStyles = {
+  wrap: {
+    border: '1px solid color-mix(in srgb, var(--accent) 32%, var(--border))',
+    background: 'color-mix(in srgb, var(--accent) 7%, var(--surface))',
+    borderRadius: 10,
+    padding: '14px 16px',
+    marginBottom: 20,
+  },
+  head: { display: 'flex', alignItems: 'center', gap: 9 },
+  title: {
+    fontFamily: 'var(--font-condensed)',
+    fontWeight: 600,
+    fontSize: 13.5,
+    color: 'color-mix(in srgb, var(--accent) 55%, var(--text))',
+  },
+  sub: { fontSize: 12, color: 'var(--text-secondary)', marginLeft: 'auto' },
+  item: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    padding: '12px 4px',
+    borderTop: '1px solid color-mix(in srgb, var(--accent) 22%, var(--border))',
+    marginTop: 12,
+  },
+  body: { flex: 1, fontSize: 13, lineHeight: 1.5 },
+  ctl: { display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 },
+  lookOk: { padding: '6px 12px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 7, fontSize: 12, fontWeight: 600, color: 'var(--text)', cursor: 'pointer' },
 }

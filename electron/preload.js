@@ -51,6 +51,10 @@ contextBridge.exposeInMainWorld('shoresh', {
   restoreEntity: (args) => ipcRenderer.invoke('shoresh:restore-entity', args),
   previewDelete: (args) => ipcRenderer.invoke('shoresh:preview-delete', args),
   deleteRecord: (args) => ipcRenderer.invoke('shoresh:delete-record', args),
+  // docs/adr/2026-08-15-locations-merge-and-delete-rehome.md (M3c)
+  mergeLocation: (args) => ipcRenderer.invoke('shoresh:merge-location', args),
+  listMigrationReviews: (token) => ipcRenderer.invoke('shoresh:list-migration-reviews', { token }),
+  dismissMigrationReviews: (args) => ipcRenderer.invoke('shoresh:dismiss-migration-reviews', args),
   getDevicePairingStatus: () => ipcRenderer.invoke('shoresh:get-device-pairing-status'),
   listPendingPairingRequests: (token) => ipcRenderer.invoke('shoresh:list-pending-pairing-requests', { token }),
   approveDevice: (args) => ipcRenderer.invoke('shoresh:approve-device', args),

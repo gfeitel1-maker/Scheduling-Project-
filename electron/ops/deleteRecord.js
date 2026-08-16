@@ -33,7 +33,19 @@ import { nameFieldFor } from './restore.js'
 
 // Which entities this module deletes. Every other entity keeps the ordinary
 // localClient.deleteEntity path; nothing else has slots pointing at it.
-export const CLEARABLE_ENTITIES = Object.freeze(new Set(['groups', 'activities', 'days_of_operation']))
+//
+// `locations` (M3c, docs/adr/2026-08-15-locations-merge-and-delete-rehome.md
+// D1/D2) is clearable for a DIFFERENT reason than the other three: it has no
+// template_slots FK to unblock. activities.location_id and
+// week_location_exclusions.location_id are no-FK convention references
+// (matching weather_alternative_id) — a location DELETE never fails on
+// SQLite. It is clearable so those references are never left dangling, and
+// so the same primitive can also MERGE (re-point to a winner instead of
+// clearing to null) rather than re-implementing a second, non-atomic path in
+// the renderer (the M3a commitment this ADR discharges). See
+// deleteOrMergeLocation below — it is a wholly separate, non-destructive
+// branch that never touches SLOT_QUERY/DESTRUCTIVE/writeRouteSnapshot.
+export const CLEARABLE_ENTITIES = Object.freeze(new Set(['groups', 'activities', 'days_of_operation', 'locations']))
 
 // Deleting a GROUP or a DAY removes rows that are somebody's week — a group's
 // column, or a day's column across every group. Deleting an ACTIVITY only
@@ -54,6 +66,7 @@ const NAME_QUERY = Object.freeze({
   groups: 'SELECT name FROM groups WHERE id = ?',
   activities: 'SELECT name FROM activities WHERE id = ?',
   days_of_operation: 'SELECT label FROM days_of_operation WHERE id = ?',
+  locations: 'SELECT name FROM locations WHERE id = ?',
 })
 
 function slotRows(db, entity, entity_id) {
@@ -101,11 +114,42 @@ function weatherDependents(db, activity_id) {
   return db.prepare('SELECT id FROM activities WHERE weather_alternative_id = ?').all(activity_id)
 }
 
+// Locations have no template_slots row to count — their references are
+// activities.location_id and week_location_exclusions.location_id, both
+// no-FK convention references (docs/adr/2026-08-15-locations-merge-and-
+// delete-rehome.md D1). Shared by previewDelete and deleteOrMergeLocation so
+// the count shown and the rows re-pointed/cleared cannot drift apart, same
+// discipline as SLOT_QUERY above.
+function locationReferenceRows(db, location_id) {
+  return {
+    activities: db
+      .prepare('SELECT id, name, max_groups_per_slot FROM activities WHERE location_id = ?')
+      .all(location_id),
+    exclusions: db.prepare('SELECT id FROM week_location_exclusions WHERE location_id = ?').all(location_id),
+  }
+}
+
 // What the confirmation is built from. Read-only, but gated by the caller with
 // the SAME permission as the delete — a preview enumerates schedule shape.
 export function previewDelete(db, { entity, entity_id }) {
   if (!CLEARABLE_ENTITIES.has(entity)) return { error: 'not-clearable' }
   if (typeof entity_id !== 'string' || entity_id.length === 0) return { error: 'no-record' }
+
+  if (entity === 'locations') {
+    const row = db.prepare('SELECT name FROM locations WHERE id = ?').get(entity_id)
+    if (!row) return { error: 'no-record' }
+    const { activities } = locationReferenceRows(db, entity_id)
+    // D2/D5: bound-activity count + rows only — never routes/slot_count/
+    // unprotected_count, which are schedule-specific and meaningless here.
+    return {
+      ok: true,
+      entity,
+      entity_id,
+      name: row.name,
+      ref_count: activities.length,
+      activities,
+    }
+  }
 
   const name = recordName(db, entity, entity_id)
   if (name === null && !db.prepare(`SELECT 1 FROM ${entity} WHERE id = ?`).get(entity_id)) {
@@ -243,6 +287,103 @@ function removeDayFromWeek(db, { day_id, slots, author_user_id, device_id }) {
   return ops
 }
 
+// Locations' own branch of deleteRecord (docs/adr/2026-08-15-locations-
+// merge-and-delete-rehome.md D1). ONE primitive serves both consumers:
+//   reassign_to absent  -> plain delete: clear references to null.
+//   reassign_to present -> merge: re-point references to the winner, then
+//                          optionally write the winner's capacity.
+// Never calls slotRows/routesFor/writeRouteSnapshot — locations carry no
+// route/snapshot concept and must never reach that machinery.
+//
+// Order inside the one transaction is fixed and load-bearing, mirroring the
+// existing contract below: re-count references (abort on drift) -> re-point/
+// clear activities.location_id -> re-point/clear week_location_exclusions
+// -> [merge only] winner capacity -> delete the loser LAST (highest seq,
+// broadcast last, so a peer has already moved every reference off it).
+//
+// week_location_exclusions.location_id is NOT NULL (schema.sql), unlike
+// activities.location_id — so a plain delete DELETEs those rows rather than
+// nulling a column that cannot hold null; a merge re-points them like
+// activities. A re-point that lands on an exclusion the winner already has is
+// harmless (the engine reads presence, not count) — no dedup needed.
+function deleteOrMergeLocation(db, { entity_id, expected_ref_count, reassign_to, winner_capacity, author_user_id, device_id }) {
+  if (reassign_to != null) {
+    if (typeof reassign_to !== 'string' || reassign_to.length === 0 || reassign_to === entity_id) {
+      return { error: 'invalid-winner' }
+    }
+    if (!db.prepare('SELECT 1 FROM locations WHERE id = ?').get(reassign_to)) {
+      return { error: 'no-winner' }
+    }
+  }
+
+  const name = recordName(db, 'locations', entity_id)
+
+  return db.transaction(() => {
+    const { activities, exclusions } = locationReferenceRows(db, entity_id)
+
+    if (Number.isInteger(expected_ref_count) && activities.length !== expected_ref_count) {
+      return { error: 'count-changed', ref_count: activities.length }
+    }
+
+    const ops = []
+    const push = (entity, entity_id, field, value) =>
+      ops.push(appendOp(db, { entity, entity_id, field, value, author_user_id, device_id }))
+
+    for (const activity of activities) {
+      push('activities', activity.id, 'location_id', reassign_to ?? null)
+    }
+
+    for (const exclusion of exclusions) {
+      if (reassign_to) {
+        push('week_location_exclusions', exclusion.id, 'location_id', reassign_to)
+      } else {
+        push('week_location_exclusions', exclusion.id, DELETE_FIELD, 1)
+      }
+    }
+
+    // Floored at 1, mirroring the v32 backfill's own Math.max(1, ...)
+    // discipline (localDb.js) — this is the trust boundary: the UI's
+    // CapacityStepper floors at 1 too, but that is a renderer-side courtesy,
+    // not a guarantee. A capacity <= 0 written here corrupts M2's occupancy
+    // math on every device it replicates to.
+    if (reassign_to && winner_capacity != null) {
+      push('locations', reassign_to, 'capacity', Math.max(1, winner_capacity))
+    }
+
+    push('locations', entity_id, DELETE_FIELD, 1)
+
+    return {
+      ok: true,
+      entity: 'locations',
+      entity_id,
+      name,
+      cleared: activities.length,
+      reassigned_activity_ids: reassign_to ? activities.map((a) => a.id) : [],
+      ops,
+    }
+  })()
+}
+
+// Merge two locations: re-point every activity on the LOSER to the WINNER,
+// set the winner's capacity, delete the loser — one host-atomic transaction,
+// through the exact same primitive a plain location delete uses.
+// docs/adr/2026-08-15-locations-merge-and-delete-rehome.md D1 (Open Q1: a
+// dedicated mergeLocation entry point, not a second deleteRecord-shaped
+// module — see electron/main.js's mergeLocationHandler and
+// electron/sync/syncServer.js's handleMergeLocationRequest).
+export function mergeLocation(db, { loser_id, winner_id, winner_capacity, expected_ref_count, author_user_id, device_id }) {
+  if (typeof loser_id !== 'string' || loser_id.length === 0) return { error: 'no-record' }
+  if (!db.prepare('SELECT 1 FROM locations WHERE id = ?').get(loser_id)) return { error: 'no-record' }
+  return deleteOrMergeLocation(db, {
+    entity_id: loser_id,
+    expected_ref_count,
+    reassign_to: winner_id,
+    winner_capacity,
+    author_user_id,
+    device_id,
+  })
+}
+
 // Delete a record a schedule uses, clearing what blocks it first.
 //
 // `expected_slot_count` is the number the director was shown. It is re-counted
@@ -260,10 +401,25 @@ function removeDayFromWeek(db, { day_id, slots, author_user_id, device_id }) {
 //
 // Returns { ok, ... } or { error }. The ops are returned rather than broadcast
 // so the caller can broadcast after the transaction commits.
+//
+// Locations-only merging goes through the dedicated mergeLocation() entry
+// point above, not through here — this signature carries no
+// reassign_to/winner_capacity (Open Q1, docs/adr/2026-08-15-locations-merge-
+// and-delete-rehome.md D1). A `locations` entity_id here is always a plain
+// delete: deleteOrMergeLocation's reassign_to stays unset.
 export function deleteRecord(db, { entity, entity_id, expected_slot_count, author_user_id, device_id }) {
   if (!CLEARABLE_ENTITIES.has(entity)) return { error: 'not-clearable' }
   if (typeof entity_id !== 'string' || entity_id.length === 0) return { error: 'no-record' }
   if (!db.prepare(`SELECT 1 FROM ${entity} WHERE id = ?`).get(entity_id)) return { error: 'no-record' }
+
+  if (entity === 'locations') {
+    return deleteOrMergeLocation(db, {
+      entity_id,
+      expected_ref_count: expected_slot_count,
+      author_user_id,
+      device_id,
+    })
+  }
 
   const name = recordName(db, entity, entity_id)
   const destructive = DESTRUCTIVE.has(entity)

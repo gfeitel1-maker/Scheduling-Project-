@@ -299,6 +299,12 @@ export function createSyncClient(
   const restoreResolvers = new Map()
   // Same keyed-by-request_id reasoning as restoreResolvers above.
   const deleteResolvers = new Map()
+  // Same keyed-by-request_id reasoning as restoreResolvers above (M3c merge).
+  const mergeResolvers = new Map()
+  // Single registry settlePendingOnDisconnect iterates over so a new keyed
+  // resolver map (restore/delete/merge, or a future 4th) can never be added
+  // to the code above without also being drained on disconnect below.
+  const keyedResolverMaps = [restoreResolvers, deleteResolvers, mergeResolvers]
   // Holds the in-flight drain rather than a bare boolean, so a second caller
   // awaits the pass already running instead of returning as if the queue had
   // been dealt with. The reconnect trigger and an explicit call routinely
@@ -625,6 +631,15 @@ export function createSyncClient(
           return
         }
 
+        if (msg.type === 'merge_location_result') {
+          const resolve = mergeResolvers.get(msg.request_id)
+          if (resolve) {
+            mergeResolvers.delete(msg.request_id)
+            resolve(msg)
+          }
+          return
+        }
+
         if (msg.type === 'lock_result') {
           const resolve = lockResolvers.shift()
           if (resolve) resolve(msg)
@@ -743,13 +758,11 @@ export function createSyncClient(
         const resolve = loginResolvers.shift()
         if (resolve) resolve({ status: 'disconnected' })
       }
-      for (const [requestId, resolve] of [...restoreResolvers]) {
-        restoreResolvers.delete(requestId)
-        resolve({ status: 'disconnected' })
-      }
-      for (const [requestId, resolve] of [...deleteResolvers]) {
-        deleteResolvers.delete(requestId)
-        resolve({ status: 'disconnected' })
+      for (const resolverMap of keyedResolverMaps) {
+        for (const [requestId, resolve] of [...resolverMap]) {
+          resolverMap.delete(requestId)
+          resolve({ status: 'disconnected' })
+        }
       }
     }
 
@@ -935,8 +948,15 @@ export function createSyncClient(
   // from a slow link, so it is treated as not-yet-delivered: the request stays
   // queued. Nothing was performed, so that is safe, and it matches the ADR's
   // "delayed is the worst case".
-  function sendRestoreRequest({ entity, entity_id }) {
-    const request_id = randomUUID()
+  //
+  // Shared by restore/delete/merge — all three are the same shape: a single
+  // request keyed by its own request_id (unlike lock/submit/login, which are
+  // FIFO), because replies for these are independent Host-side reads that can
+  // arrive out of order. Draining on disconnect is handled uniformly for
+  // whichever map is passed in, via `keyedResolverMaps` in
+  // settlePendingOnDisconnect above — a new caller of this helper only needs
+  // to add its map to that array to be covered.
+  function withKeyedResolverTimeout(resolverMap, request_id, timeoutMs, sendFn) {
     return new Promise((resolve) => {
       let settled = false
       let timer = null
@@ -944,40 +964,51 @@ export function createSyncClient(
         if (settled) return
         settled = true
         if (timer) clearTimeout(timer)
-        restoreResolvers.delete(request_id)
+        resolverMap.delete(request_id)
         resolve(result)
       }
-      timer = setTimeout(() => wrapped({ status: 'timeout' }), submitTimeoutMs)
-      restoreResolvers.set(request_id, wrapped)
+      timer = setTimeout(() => wrapped({ status: 'timeout' }), timeoutMs)
+      resolverMap.set(request_id, wrapped)
       try {
-        ws.send(JSON.stringify({ type: 'restore_request', request_id, entity, entity_id }))
+        sendFn()
       } catch {
         wrapped({ status: 'disconnected' })
       }
     })
   }
 
+  function sendRestoreRequest({ entity, entity_id }) {
+    const request_id = randomUUID()
+    return withKeyedResolverTimeout(restoreResolvers, request_id, submitTimeoutMs, () => {
+      ws.send(JSON.stringify({ type: 'restore_request', request_id, entity, entity_id }))
+    })
+  }
+
   function sendDeleteRecordRequest({ entity, entity_id, expected_slot_count }) {
     const request_id = randomUUID()
-    return new Promise((resolve) => {
-      let settled = false
-      let timer = null
-      const wrapped = (result) => {
-        if (settled) return
-        settled = true
-        if (timer) clearTimeout(timer)
-        deleteResolvers.delete(request_id)
-        resolve(result)
-      }
-      timer = setTimeout(() => wrapped({ status: 'timeout' }), submitTimeoutMs)
-      deleteResolvers.set(request_id, wrapped)
-      try {
-        ws.send(
-          JSON.stringify({ type: 'delete_record_request', request_id, entity, entity_id, expected_slot_count })
-        )
-      } catch {
-        wrapped({ status: 'disconnected' })
-      }
+    return withKeyedResolverTimeout(deleteResolvers, request_id, submitTimeoutMs, () => {
+      ws.send(
+        JSON.stringify({ type: 'delete_record_request', request_id, entity, entity_id, expected_slot_count })
+      )
+    })
+  }
+
+  // M3c merge: mirrors sendDeleteRecordRequest exactly — same never-queued,
+  // resolver-keyed-by-request_id shape. docs/adr/2026-08-15-locations-merge-
+  // and-delete-rehome.md D1 Open Q1.
+  function sendMergeLocationRequest({ loser_id, winner_id, winner_capacity, expected_ref_count }) {
+    const request_id = randomUUID()
+    return withKeyedResolverTimeout(mergeResolvers, request_id, submitTimeoutMs, () => {
+      ws.send(
+        JSON.stringify({
+          type: 'merge_location_request',
+          request_id,
+          loser_id,
+          winner_id,
+          winner_capacity,
+          expected_ref_count,
+        })
+      )
     })
   }
 
@@ -1196,6 +1227,24 @@ export function createSyncClient(
       if (reply.error) return reply
       // timeout / disconnected: undelivered. Say so rather than implying the
       // delete happened, and never retry it silently against a stale count.
+      return { error: 'host-unreachable' }
+    },
+    // Ask the Host to merge two locations. DELIBERATELY NOT QUEUED, same
+    // reasoning as requestDelete: the director agreed to a specific
+    // ref_count, and a merge executed later would run against a different
+    // one. docs/adr/2026-08-15-locations-merge-and-delete-rehome.md D1.
+    async requestMerge({ loser_id, winner_id, winner_capacity, expected_ref_count }) {
+      if (!authenticated || !ws || ws.readyState !== WebSocket.OPEN) {
+        return { error: 'host-unreachable' }
+      }
+      const reply = await sendMergeLocationRequest({ loser_id, winner_id, winner_capacity, expected_ref_count })
+      if (reply.ok) {
+        const { type: _type, request_id: _request_id, ...result } = reply
+        return result
+      }
+      if (reply.error) return reply
+      // timeout / disconnected: undelivered. Say so rather than implying the
+      // merge happened, and never retry it silently against a stale count.
       return { error: 'host-unreachable' }
     },
     getPendingRestores() {

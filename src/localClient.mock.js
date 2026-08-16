@@ -1079,6 +1079,12 @@ export const mockShoresh = {
   // would make the dialog look verified when it is not. Persistence checks for
   // this belong under electron:dev.
   async previewDelete({ entity, entity_id }) {
+    // M3c: locations get their own shape (ref_count + activities), never
+    // the schedule-shaped slot_count/routes/unprotected_count fields — see
+    // electron/ops/deleteRecord.js's previewDelete.
+    if (entity === 'locations') {
+      return { ok: true, entity, entity_id, name: null, ref_count: 0, activities: [] }
+    }
     return {
       ok: true,
       entity,
@@ -1095,6 +1101,22 @@ export const mockShoresh = {
   },
   async deleteRecord() {
     return { error: 'no-record' }
+  },
+  // M3c — the mock has no schedule/op-log, so there is nothing real to merge;
+  // matching deleteRecord's own mock above.
+  // docs/adr/2026-08-15-locations-merge-and-delete-rehome.md
+  async mergeLocation() {
+    return { error: 'no-record' }
+  },
+  // The mock has no migration journal (it never ran the v32 migration) — a
+  // real empty result, not an invented fixture, so the review region
+  // correctly renders nothing at :5200. Persistence checks for this belong
+  // under electron:dev.
+  async listMigrationReviews() {
+    return []
+  },
+  async dismissMigrationReviews() {
+    return { ok: true, dismissed: 0 }
   },
 
   // Duplicate a week in mock state, mirroring duplicateWeek.js's contract:

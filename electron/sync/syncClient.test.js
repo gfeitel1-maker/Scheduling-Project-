@@ -1036,6 +1036,46 @@ describe('remote client mode', () => {
     client.close()
   })
 
+  it('resolves an in-flight merge request with { status: "disconnected" } immediately when the connection drops, not after the full submit timeout', async () => {
+    const dropPort = 8244
+    const dropServer = startSyncServer(hostDb, { port: dropPort })
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${dropPort}`,
+      token,
+      submitTimeoutMs: 5000,
+    })
+    await client.waitUntilConnected()
+
+    // Kick off a merge request, but drop the connection before the server can
+    // ever reply: settlePendingOnDisconnect must drain mergeResolvers the same
+    // way it already drains restoreResolvers/deleteResolvers, or this hangs
+    // for the full submitTimeoutMs instead of resolving right away.
+    const mergePromise = client.requestMerge({
+      loser_id: 'loc-a',
+      winner_id: 'loc-b',
+      winner_capacity: 10,
+      expected_ref_count: 0,
+    })
+
+    client.__getWs().terminate()
+
+    const start = Date.now()
+    const result = await mergePromise
+    const elapsedMs = Date.now() - start
+
+    // requestMerge() reports any undelivered outcome as { error:
+    // 'host-unreachable' } (same translation timeout and disconnected both
+    // get) — what this test pins is not that string, but that it arrives
+    // right away instead of only after the full submitTimeoutMs.
+    expect(result.error).toBe('host-unreachable')
+    expect(elapsedMs).toBeLessThan(1000)
+
+    dropServer.close()
+    client.close()
+  })
+
   it('resolves write with { status: "timeout" } when nothing drains the submit resolver (structural safety net)', async () => {
     const client = createSyncClient(clientDb, {
       device_id: deviceId,

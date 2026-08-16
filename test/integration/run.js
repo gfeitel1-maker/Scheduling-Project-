@@ -28,6 +28,7 @@ import { run as scenario18 } from './scenarios/18-restore-queue.js'
 import { run as scenario19 } from './scenarios/19-retire-orphan-slots.js'
 import { run as scenario20 } from './scenarios/20-delete-used-record.js'
 import { run as scenario21 } from './scenarios/21-ingest-prior-year.js'
+import { run as scenario22 } from './scenarios/22-location-merge.js'
 
 const SCENARIOS = [
   { name: '01 bootstrap + first sync', fn: scenario01 },
@@ -51,6 +52,7 @@ const SCENARIOS = [
   { name: '19 orphaned slots retired as a recoverable Version', fn: scenario19 },
   { name: '20 deleting a record a schedule uses', fn: scenario20 },
   { name: '21 ingesting a prior year schedule', fn: scenario21 },
+  { name: '22 merging two near-duplicate locations', fn: scenario22 },
 ]
 
 const PASS = '\x1b[32mPASS\x1b[0m'

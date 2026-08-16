@@ -15,6 +15,7 @@ export function prefersReducedMotion() {
  * variant:
  *   'slideFade' — translateY(-4px)->0 + opacity 0->1, --motion-base   (§5c error banners)
  *   'liftFade'  — translateY(8px)->0  + opacity 0->1, --motion-base   (modals)
+ *   'settle'    — translateY(12px)->0 + opacity 0->1, --motion-settle (blocking gates, m3-locations §5d)
  *   'popFade'   — scale(0.97)->1      + opacity 0->1, 180ms           (anchored popovers)
  *
  * Under prefers-reduced-motion the transform is dropped entirely and only
@@ -31,9 +32,10 @@ export function useEnterTransition(variant, { transformOrigin } = {}) {
   const FROM = {
     slideFade: 'translateY(-4px)',
     liftFade: 'translateY(8px)',
+    settle: 'translateY(12px)',
     popFade: 'scale(0.97)',
   }
-  const DURATION = variant === 'popFade' ? '180ms' : 'var(--motion-base)'
+  const DURATION = variant === 'popFade' ? '180ms' : variant === 'settle' ? 'var(--motion-settle)' : 'var(--motion-base)'
 
   if (reduced) {
     return {
