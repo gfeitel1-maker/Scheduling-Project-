@@ -324,6 +324,129 @@ describe('applyProjection for template_slots', () => {
   })
 })
 
+// Regression suite for the "turning a week exclusion ON never persists a row"
+// bug. week_activity_exclusions / week_group_exclusions each have TWO NOT NULL
+// columns — week_id plus a real FK (activity_id / group_id). ensureExists used
+// to seed only week_id, so the INSERT OR IGNORE tripped the second column's NOT
+// NULL constraint and was silently dropped (SQLite's IGNORE covers NOT NULL,
+// not just UNIQUE/PK). The row was never created; both subsequent field UPDATEs
+// matched zero rows. The whole path (toggleActivityExclusion(true) etc.) looked
+// like it worked while persisting nothing.
+//
+// These exercise the REAL appendOp op-log path — two field ops in the exact
+// order the write path emits them (week_id first, then the FK) — which is the
+// only layer where the bug is visible: the fake-client repository tests and the
+// mocked-localClient screen tests never touch SQLite.
+describe('applyProjection for week_activity_exclusions / week_group_exclusions', () => {
+  beforeEach(() => {
+    // operations.device_id is NOT NULL REFERENCES devices(id); the exclusion
+    // tables' week_id/activity_id/group_id are real FKs — with foreign_keys = ON
+    // every referenced row must exist or the failure is an FK error, not the
+    // behavior under test.
+    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('device-1', 'Device One')
+    db.prepare('INSERT INTO schedule_weeks (id, camp_id, name) VALUES (?, ?, ?)').run(
+      'week-1',
+      'camp-1',
+      'Week 1'
+    )
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(
+      'act-swim',
+      'camp-1',
+      'swim'
+    )
+    db.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(
+      'grp-3',
+      'camp-1',
+      'Group 3'
+    )
+  })
+
+  it('registers both exclusion tables with the expected fields allowlist', () => {
+    expect(PROJECTIONS.week_activity_exclusions.fields).toEqual(['week_id', 'activity_id'])
+    expect(PROJECTIONS.week_group_exclusions.fields).toEqual(['week_id', 'group_id'])
+  })
+
+  // The headline regression, via the real op-log path: excluding an activity in
+  // a week writes week_id then activity_id as two appendOp calls. Before the
+  // fix, no row existed afterwards.
+  it('persists a week_activity_exclusions row after the week_id + activity_id write sequence', () => {
+    appendOp(db, {
+      entity: 'week_activity_exclusions', entity_id: 'wae-1',
+      field: 'week_id', value: 'week-1',
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+    appendOp(db, {
+      entity: 'week_activity_exclusions', entity_id: 'wae-1',
+      field: 'activity_id', value: 'act-swim',
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+
+    const row = db.prepare('SELECT * FROM week_activity_exclusions WHERE id = ?').get('wae-1')
+    expect(row).toBeTruthy()
+    expect(row.week_id).toBe('week-1')
+    expect(row.activity_id).toBe('act-swim')
+  })
+
+  it('persists a week_group_exclusions row after the week_id + group_id write sequence', () => {
+    appendOp(db, {
+      entity: 'week_group_exclusions', entity_id: 'wge-1',
+      field: 'week_id', value: 'week-1',
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+    appendOp(db, {
+      entity: 'week_group_exclusions', entity_id: 'wge-1',
+      field: 'group_id', value: 'grp-3',
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+
+    const row = db.prepare('SELECT * FROM week_group_exclusions WHERE id = ?').get('wge-1')
+    expect(row).toBeTruthy()
+    expect(row.week_id).toBe('week-1')
+    expect(row.group_id).toBe('grp-3')
+  })
+
+  // Order-independence: the fix reconstructs the sibling field from the op-log
+  // regardless of which field's op arrives first, so a reversed write sequence
+  // (FK before week_id) must still land exactly one complete row.
+  it('persists the row even if the FK field is written before week_id', () => {
+    appendOp(db, {
+      entity: 'week_activity_exclusions', entity_id: 'wae-rev',
+      field: 'activity_id', value: 'act-swim',
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+    // After only the activity_id op, the row cannot exist yet (week_id, a NOT
+    // NULL FK, is still unknown).
+    expect(db.prepare('SELECT * FROM week_activity_exclusions WHERE id = ?').get('wae-rev')).toBeUndefined()
+
+    appendOp(db, {
+      entity: 'week_activity_exclusions', entity_id: 'wae-rev',
+      field: 'week_id', value: 'week-1',
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+
+    const row = db.prepare('SELECT * FROM week_activity_exclusions WHERE id = ?').get('wae-rev')
+    expect(row).toBeTruthy()
+    expect(row.week_id).toBe('week-1')
+    expect(row.activity_id).toBe('act-swim')
+  })
+
+  // The op-log half never broke — only the projection did — so the durable log
+  // is not what this guards; the materialized row is.
+  it('after the week_id-only op alone, no row exists yet (both NOT NULL FKs unmet)', () => {
+    appendOp(db, {
+      entity: 'week_activity_exclusions', entity_id: 'wae-partial',
+      field: 'week_id', value: 'week-1',
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+    expect(db.prepare('SELECT * FROM week_activity_exclusions WHERE id = ?').get('wae-partial')).toBeUndefined()
+    // ...but the op is still durably logged.
+    const loggedOp = db
+      .prepare('SELECT * FROM operations WHERE entity = ? AND entity_id = ? AND field = ?')
+      .get('week_activity_exclusions', 'wae-partial', 'week_id')
+    expect(loggedOp).toBeTruthy()
+  })
+})
+
 describe('applyProjection camp_id guard', () => {
   it('applies a camp_id write on users that matches the device camp id', () => {
     applyProjection(db, { entity: 'users', entity_id: 'user-1', field: 'camp_id', value: 'camp-1' })

@@ -1,5 +1,54 @@
 import { getStmt } from './stmtCache.js'
 
+// Shared ensureExists for the week_*_exclusions join tables. Each is
+// (id, week_id, <second>) where BOTH week_id AND the second column are NOT NULL
+// with no default (schema.sql). week_activity_exclusions.activity_id and
+// week_group_exclusions.group_id are additionally real FKs.
+//
+// The op-log is field-level: appendOp carries ONE field per op, so ensureExists
+// only ever sees a single field/value. Seeding just week_id (the old behavior)
+// left the second NOT NULL column unset, so the INSERT OR IGNORE tripped its
+// constraint and was SILENTLY dropped — SQLite's IGNORE resolution absorbs a
+// NOT NULL violation exactly like a UNIQUE/PK one. The row was never created,
+// and the following field UPDATE matched zero rows. Net effect: toggling a week
+// exclusion ON persisted nothing, invisibly (see projections.test.js).
+//
+// A placeholder can't rescue this the way it does for a single-NOT-NULL parent
+// table (day_override_template_slots etc.): the FK columns point at real tables,
+// so '' or NULL both violate the constraint. Instead, reconstruct BOTH values
+// and insert the complete row only once both are known. The current op supplies
+// one field directly; the sibling is read back from the operations log, where
+// appendOp has already durably inserted it — appendOp writes the op row BEFORE
+// calling applyProjection, and replay (syncClient.applyRemoteOp) does the same
+// in seq order, so the earlier field's op is always present by the time the
+// later field's op projects, on both the writing device and every replica.
+// Whichever field arrives SECOND creates the row; the first is a deliberate
+// no-op. Order-independent and replay-safe, with no new IPC/op primitive.
+//
+// (week_location_exclusions, the third instance of this pattern, is inert until
+// slice M5 — no writer exists yet — so it is intentionally left on the old body
+// and owned by that slice; it should adopt this helper when it goes live.)
+function ensureWeekJoinRow(table, secondColumn) {
+  return (db, id, field, value) => {
+    const readField = (wanted) => {
+      if (field === wanted) return value
+      const prior = getStmt(
+        db,
+        'SELECT value FROM operations WHERE entity = ? AND entity_id = ? AND field = ? ORDER BY seq DESC LIMIT 1'
+      ).get(table, id, wanted)
+      return prior ? prior.value : null
+    }
+    const weekId = readField('week_id')
+    const secondValue = readField(secondColumn)
+    // Both NOT NULL columns must be present; until then the row cannot exist.
+    if (weekId == null || secondValue == null) return
+    getStmt(
+      db,
+      `INSERT OR IGNORE INTO ${table} (id, week_id, ${secondColumn}) VALUES (?, ?, ?)`
+    ).run(id, weekId, secondValue)
+  }
+}
+
 export const PROJECTIONS = {
   camps: {
     table: 'camps',
@@ -236,31 +285,21 @@ export const PROJECTIONS = {
       ).run(id, value)
     },
   },
-  // Parent-scoped via week_id, same pattern as day_override_template_slots.
-  // ensureExists is gated on field === 'week_id' arriving first: these rows have
-  // no other NOT NULL column to seed, and creating the row before week_id is
-  // known would land an orphan with a NULL FK.
+  // Join tables with TWO NOT NULL columns (week_id + a real FK). ensureExists
+  // reconstructs both fields from the op-log and inserts the complete row once
+  // both are known — see ensureWeekJoinRow above for why a week_id-only seed
+  // silently dropped every ON toggle before this fix.
   week_activity_exclusions: {
     table: 'week_activity_exclusions',
     key: 'id',
     fields: ['week_id', 'activity_id'],
-    ensureExists: (db, id, field, value) => {
-      if (field !== 'week_id') return
-      getStmt(db,
-        'INSERT OR IGNORE INTO week_activity_exclusions (id, week_id) VALUES (?, ?)'
-      ).run(id, value)
-    },
+    ensureExists: ensureWeekJoinRow('week_activity_exclusions', 'activity_id'),
   },
   week_group_exclusions: {
     table: 'week_group_exclusions',
     key: 'id',
     fields: ['week_id', 'group_id'],
-    ensureExists: (db, id, field, value) => {
-      if (field !== 'week_id') return
-      getStmt(db,
-        'INSERT OR IGNORE INTO week_group_exclusions (id, week_id) VALUES (?, ?)'
-      ).run(id, value)
-    },
+    ensureExists: ensureWeekJoinRow('week_group_exclusions', 'group_id'),
   },
   // A week is director-named text ("Week 1"), direct-camp-scoped exactly like
   // groups/tiers — it is not reached through a parent, so it belongs in
