@@ -615,8 +615,12 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   // Contextual create from the LocationPicker's "create new" row (design spec
   // Part 2) — the director never leaves the activity modal. Capacity defaults
   // to 1, notes null, matching the Locations screen's own Add Place default.
-  // Case-insensitive dedupe guards a picker session that raced the Locations
-  // screen (or another device) creating the same name in between.
+  // Case-insensitive dedupe (matching the picker's own case-insensitive
+  // create-row gate, ~line 143) guards a picker session that raced the
+  // Locations screen (or another device) creating the same name in between.
+  // Kept case-insensitive on purpose — see confirmImport for the full
+  // rationale (a case-sensitive resolve would mint unreviewable capacity-
+  // fragmenting duplicates the M3c gate never sees).
   async function createLocation(name) {
     const trimmedName = String(name ?? '').trim()
     if (!trimmedName) return null
@@ -797,6 +801,12 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       const tierMap = Object.fromEntries(tiers.map(t => [t.name.toLowerCase(), t.id]))
       const actMap = Object.fromEntries(activities.map(a => [a.name.toLowerCase(), a.id]))
       const dowMap = Object.fromEntries(DOW.map((d, i) => [d.toLowerCase(), i]))
+      // Existing places keyed the SAME (case-insensitive) way confirmImport
+      // resolves them, mapping to the canonical stored spelling — so the
+      // preview can tell the director, before they commit, whether a row will
+      // reuse an existing place (and surface a case-variant fold like
+      // "pool" → "Pool") or mint a brand-new one.
+      const locNameByLower = new Map(locations.map(l => [String(l.name ?? '').trim().toLowerCase(), String(l.name ?? '').trim()]))
 
       const parsed = rows.map(r => {
         const name = String(r.name || '').trim()
@@ -820,9 +830,19 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         const preferDayStr = String(r.prefer_before_day || '').trim()
         const prefer_before_day = preferDayStr ? (dowMap[preferDayStr.toLowerCase()] ?? null) : null
 
+        const locationName = String(r.location || '').trim() || null
+        // 'reuse' → an existing place (matchedLocationName is its canonical
+        // spelling, shown only when the casing differs so a fold is visible);
+        // 'new' → confirmImport will create it. Camp places only — a name new
+        // to the camp but repeated within this same import still reads 'new'.
+        const matchedLocationName = locationName ? (locNameByLower.get(locationName.toLowerCase()) ?? null) : null
+        const locationResolution = locationName ? (matchedLocationName ? 'reuse' : 'new') : null
+
         return {
           name,
-          location: String(r.location || '').trim() || null,
+          location: locationName,
+          locationResolution,
+          matchedLocationName,
           is_outdoor: String(r.is_outdoor || '').toUpperCase() === 'TRUE',
           max_groups_per_slot: Number(r.max_groups_per_slot) || 1,
           min_per_week: Number(r.min_per_week) || 0,
@@ -859,6 +879,24 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       // This is ActivitiesScreen's own template importer, NOT the
       // electron/ops/ingest.js / src/ingest/* legacy-spreadsheet ingest path
       // (M4 territory, left writing free-text `location` on purpose).
+      //
+      // Resolve CASE-INSENSITIVELY on purpose — do NOT "fix" this to a
+      // case-sensitive exact match to mirror locations.UNIQUE(camp_id, name).
+      // Reusing the existing "Pool" for an imported "pool" is deliberate
+      // duplicate-PREVENTION at the point of entry, and it is consistent with
+      // the LocationPicker, whose own create-row gate is case-insensitive
+      // (`exactMatch`, ~line 143). A case-sensitive resolve here would instead
+      // MINT a distinct capacity-1 "pool" row that fragments the engine's
+      // per-location_id capacity (buildSchedule.js keys capacity by
+      // location_id) so one physical room can be double-booked — and nothing
+      // would ever surface it: the M3c near-duplicate merge gate is fed ONLY
+      // by the one-time v32 migration journal (location_migration_reviews,
+      // written solely in backfillLocations), never by post-migration creates,
+      // so an import-made case variant is permanently unreviewable. Confirmed
+      // by Red Hat, 2026-08-16. (Cross-device same-name forks are already
+      // closed by the write-time collision guard, detectUniqueFieldCollision —
+      // random UUIDs here are correct; deterministic ids were ADR-rejected,
+      // docs/adr/2026-08-15-locations-concurrent-create-collision.md option d.)
       const locationIdByName = new Map(locations.map(l => [String(l.name ?? '').toLowerCase(), l.id]))
       let added = 0, skipped = 0
       for (const row of importRows) {
@@ -1084,7 +1122,15 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                     {importRows.map((r, i) => (
                       <tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}>
                         <td style={S.td}>{r.name || '—'}</td>
-                        <td style={S.td}>{r.location || '—'}</td>
+                        <td style={S.td}>
+                          {r.location || '—'}
+                          {r.locationResolution === 'new' && (
+                            <span style={importAnnotation.newPlace}>+ new place</span>
+                          )}
+                          {r.locationResolution === 'reuse' && r.matchedLocationName !== r.location && (
+                            <span style={importAnnotation.reuse}>reuses “{r.matchedLocationName}”</span>
+                          )}
+                        </td>
                         <td style={S.td}>{r.priority}</td>
                         <td style={{ ...S.td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td>
                       </tr>
@@ -1230,4 +1276,12 @@ const pickerStyles = {
   emptyHint: { fontSize: 11, color: 'var(--text-secondary)', marginTop: 5 },
   // C5: a location_id bound to a place that no longer exists.
   danglingWarning: { fontSize: 11, color: 'var(--warning)', marginBottom: 5 },
+}
+
+// Import-preview per-row location annotations: make new-vs-reused resolution
+// visible before commit (a case-variant fold is shown, not silent).
+const importAnnotationBase = { marginLeft: 6, fontFamily: 'var(--font-mono)', fontSize: 10, whiteSpace: 'nowrap' }
+const importAnnotation = {
+  newPlace: { ...importAnnotationBase, color: 'var(--secondary)' },
+  reuse: { ...importAnnotationBase, color: 'var(--text-secondary)' },
 }
