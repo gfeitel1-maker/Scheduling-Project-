@@ -1,8 +1,10 @@
 ---
 title: T84-architecture-audit-event-trigger
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-16
+completed: 2026-08-16
+completed_note: "Implemented in the external morning routine (~/.claude/projects/…/\_consolidation/integration.sh), NOT in this repo. Report-only audit-staleness block; dry-run verified on both the DUE (34 ADRs vs a stale base) and fresh (origin/main base, drift 5, no new ADR/surface) paths. Reads report list from origin/main so a stale worktree can't false-DUE."
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/GOVERNANCE_INDEX.md]
 related_tickets: [docs/work/tickets/T82-mutation-envelope-and-eligibility-predicate.md]
 related_adrs: []

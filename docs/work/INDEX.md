@@ -30,6 +30,7 @@ Regenerate with `npm run index:work`.
 | [T51-mcp-cli-ingestion](../../docs/work/tickets/T51-mcp-cli-ingestion.md) | open | — |
 | [T52-activity-colors-tokenization](../../docs/work/tickets/T52-activity-colors-tokenization.md) | open | [T50-schedule-canvas-rebuild](../../docs/work/tickets/T50-schedule-canvas-rebuild.md) |
 | [T81-activities-template-importer-deterministic-location-ids](../../docs/work/tickets/T81-activities-template-importer-deterministic-location-ids.md) | open | — |
+| [T83-unify-engine-eligibility-copies](../../docs/work/tickets/T83-unify-engine-eligibility-copies.md) | open | — |
 
 ## Decisions
 

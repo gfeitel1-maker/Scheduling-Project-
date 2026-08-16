@@ -1,4 +1,5 @@
 import { assertIdListShape } from './assertIdListShape.js'
+import { isActivityEligibleForGroup } from './eligibility.js'
 
 // Pure function — zero React dependencies, zero Supabase calls.
 //
@@ -91,19 +92,9 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     // Callers normalize — this engine does not deserialize; see
     // src/utils/normalizeActivityEligibility.js.
     if (import.meta.env.DEV) assertIdListShape(act.eligible_group_ids, 'eligible_group_ids', act.id)
-    const tierIds = act.eligible_tier_ids || []
-    const groupIds = act.eligible_group_ids || []
-    let eligible = new Set()
-    if (tierIds.length === 0 && groupIds.length === 0) {
-      for (const g of groups) eligible.add(g.id)
-    } else {
-      if (tierIds.length > 0) {
-        const tierSet = new Set(tierIds)
-        for (const g of groups) {
-          if (tierSet.has(g.tier_id)) eligible.add(g.id)
-        }
-      }
-      for (const gid of groupIds) eligible.add(gid)
+    const eligible = new Set()
+    for (const g of groups) {
+      if (isActivityEligibleForGroup(act, g)) eligible.add(g.id)
     }
     eligibility.set(act.id, eligible)
   }
@@ -465,19 +456,9 @@ export function computeFindings({ slots, groups, activities, days }) {
     // Callers normalize — this engine does not deserialize; see
     // src/utils/normalizeActivityEligibility.js.
     if (import.meta.env.DEV) assertIdListShape(act.eligible_group_ids, 'eligible_group_ids', act.id)
-    const tierIds = act.eligible_tier_ids || []
-    const groupIds = act.eligible_group_ids || []
     const eligible = new Set()
-    if (tierIds.length === 0 && groupIds.length === 0) {
-      for (const g of groups) eligible.add(g.id)
-    } else {
-      if (tierIds.length > 0) {
-        const tierSet = new Set(tierIds)
-        for (const g of groups) {
-          if (tierSet.has(g.tier_id)) eligible.add(g.id)
-        }
-      }
-      for (const gid of groupIds) eligible.add(gid)
+    for (const g of groups) {
+      if (isActivityEligibleForGroup(act, g)) eligible.add(g.id)
     }
     eligibility.set(act.id, eligible)
   }
