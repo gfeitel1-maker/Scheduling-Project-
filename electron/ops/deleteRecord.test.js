@@ -405,7 +405,7 @@ describe('boundaries', () => {
     expect(deleteRecord(db, { entity: 'groups', entity_id: 'nope', ...session }).error).toBe('no-record')
   })
 
-  it('owns exactly the three entities the ADR names', () => {
-    expect([...CLEARABLE_ENTITIES].sort()).toEqual(['activities', 'days_of_operation', 'groups'])
+  it('owns exactly the four entities the ADRs name (M3c adds locations)', () => {
+    expect([...CLEARABLE_ENTITIES].sort()).toEqual(['activities', 'days_of_operation', 'groups', 'locations'])
   })
 })

@@ -20,7 +20,8 @@ import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from './ops/campScopedEn
 import { IPC_PIN_FIELDS } from './ops/pinFields.js'
 import { listDeleted, getEntityHistory } from './ops/trash.js'
 import { RESTORABLE_ENTITIES, restoreEntity } from './ops/restore.js'
-import { CLEARABLE_ENTITIES, previewDelete, deleteRecord } from './ops/deleteRecord.js'
+import { CLEARABLE_ENTITIES, previewDelete, deleteRecord, mergeLocation } from './ops/deleteRecord.js'
+import { listMigrationReviews, dismissMigrationReviews } from './ops/migrationReviews.js'
 import { commitIngest } from './ops/ingest.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
@@ -1021,6 +1022,73 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ...reportable, ops_written: ops.length }
   }
 
+  // --- Locations: merge two near-duplicate places, and the migration review
+  // journal (M3c) ----------------------------------------------------------
+  // docs/adr/2026-08-15-locations-merge-and-delete-rehome.md
+
+  // Dedicated entry point (Open Q1 (a)) delegating to the shared deleteRecord
+  // atomic core (D1) — a mergeLocation-shaped op, not a second delete-shaped
+  // module. Same posture as deleteRecordHandler: HOST ONLY, never queued on a
+  // Client (a merge executed later against a stale ref_count is not the merge
+  // the director agreed to), same gate ('locations.delete' — merging DELETES
+  // the loser, which is exactly what that gate already protects).
+  async function mergeLocationHandler({ token, loser_id, winner_id, winner_capacity, expected_ref_count } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'locations.delete' })
+    if (!isNonEmptyString(loser_id)) throw new Error('loser_id is required')
+    if (!isNonEmptyString(winner_id)) throw new Error('winner_id is required')
+    // Same shape the WS path's validateMergeLocationRequestMsg enforces
+    // (syncServer.js) — the IPC caller is the trusted renderer, so this is
+    // not a security boundary, but the two entry points must not be able to
+    // drift on what they accept.
+    if (winner_capacity !== undefined && winner_capacity !== null && !Number.isInteger(winner_capacity)) {
+      throw new Error('Invalid winner_capacity')
+    }
+    if (expected_ref_count !== undefined && expected_ref_count !== null && !Number.isInteger(expected_ref_count)) {
+      throw new Error('Invalid expected_ref_count')
+    }
+
+    if (mode === 'client') {
+      if (!syncClient) throw new Error('sync not initialized — choose a mode first')
+      return syncClient.requestMerge({ loser_id, winner_id, winner_capacity, expected_ref_count })
+    }
+
+    const result = mergeLocation(db, {
+      loser_id,
+      winner_id,
+      winner_capacity,
+      expected_ref_count,
+      author_user_id: userId,
+      device_id: deviceId,
+    })
+    if (result.error) return result
+    // Ops are not broadcast here, matching deleteRecordHandler — peers pick
+    // them up via sendMissedOps on their next authenticate.
+    const { ops, ...reportable } = result
+    return { ...reportable, ops_written: ops.length }
+  }
+
+  // The v32 migration's first-run review journal. HOST-LOCAL-SAFE reads the
+  // calling device's own DB directly, regardless of mode — it never routes to
+  // the Host like previewDelete/deleteRecord/restoreEntity above, because the
+  // journal is per-device and never replicated (D3). Same posture as
+  // listPendingConflictsHandler above.
+  function listMigrationReviewsHandler(token) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'locations.read' })
+    return listMigrationReviews(db)
+  }
+
+  // Dismiss = delete the local journal row(s) — a LOCAL WRITE, never an op,
+  // never routed to the Host or broadcast (D4). Gated '.write' (not '.delete')
+  // — dismissing a review changes no replicated location data, it only
+  // resolves this device's own advisory.
+  function dismissMigrationReviewsHandler({ token, ids } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'locations.write' })
+    return dismissMigrationReviews(db, ids)
+  }
+
   function duplicateWeekHandler({ token, sourceWeekId } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const { userId } = requireAuthorized(db, { token, action: 'schedule_weeks.write' })
@@ -1071,6 +1139,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     discoverHosts: discoverHostsHandler,
     previewDelete: previewDeleteHandler,
     deleteRecord: deleteRecordHandler,
+    mergeLocation: mergeLocationHandler,
+    listMigrationReviews: listMigrationReviewsHandler,
+    dismissMigrationReviews: dismissMigrationReviewsHandler,
     duplicateWeek: duplicateWeekHandler,
     deleteWeek: deleteWeekHandler,
     listDeleted: listDeletedHandler,
@@ -1188,6 +1259,9 @@ if (isElectronEntryPoint()) {
     'shoresh:restore-entity',
     'shoresh:preview-delete',
     'shoresh:delete-record',
+    'shoresh:merge-location',
+    'shoresh:list-migration-reviews',
+    'shoresh:dismiss-migration-reviews',
     'shoresh:get-device-pairing-status',
     'shoresh:list-pending-pairing-requests',
     'shoresh:list-devices',
@@ -1237,6 +1311,9 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:restore-entity', (_event, args) => handlers.restoreEntity(args))
     ipcMain.handle('shoresh:preview-delete', (_event, args) => handlers.previewDelete(args))
     ipcMain.handle('shoresh:delete-record', (_event, args) => handlers.deleteRecord(args))
+    ipcMain.handle('shoresh:merge-location', (_event, args) => handlers.mergeLocation(args))
+    ipcMain.handle('shoresh:list-migration-reviews', (_event, args) => handlers.listMigrationReviews(args && args.token))
+    ipcMain.handle('shoresh:dismiss-migration-reviews', (_event, args) => handlers.dismissMigrationReviews(args))
     ipcMain.handle('shoresh:get-device-pairing-status', () => handlers.getDevicePairingStatus())
     ipcMain.handle('shoresh:list-pending-pairing-requests', (_event, args) => handlers.listPendingPairingRequests(args))
     ipcMain.handle('shoresh:list-devices', (_event, args) => handlers.listDevices(args))

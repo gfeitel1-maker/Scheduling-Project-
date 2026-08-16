@@ -87,6 +87,12 @@ export const localClient = {
     shoresh.previewDelete({ token: currentToken(), entity, entity_id }),
   deleteRecord: (entity, entity_id, expected_slot_count) =>
     shoresh.deleteRecord({ token: currentToken(), entity, entity_id, expected_slot_count }),
+  // M3c — the near-duplicate merge gate and the migration review journal.
+  // docs/adr/2026-08-15-locations-merge-and-delete-rehome.md
+  mergeLocation: ({ loser_id, winner_id, winner_capacity, expected_ref_count }) =>
+    shoresh.mergeLocation({ token: currentToken(), loser_id, winner_id, winner_capacity, expected_ref_count }),
+  listMigrationReviews: () => shoresh.listMigrationReviews(currentToken()),
+  dismissMigrationReviews: (ids) => shoresh.dismissMigrationReviews({ token: currentToken(), ids }),
   getDevicePairingStatus: () => shoresh.getDevicePairingStatus(),
   listPendingPairingRequests: () => shoresh.listPendingPairingRequests(currentToken()),
   approveDevice: (deviceId) => shoresh.approveDevice({ token: currentToken(), deviceId }),

@@ -17,7 +17,7 @@ import { deriveWriteAction, deriveBulkReplaceAction } from '../auth/deriveWriteA
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from '../ops/campScopedEntities.js'
 import { restoreEntity } from '../ops/restore.js'
-import { CLEARABLE_ENTITIES, deleteRecord } from '../ops/deleteRecord.js'
+import { CLEARABLE_ENTITIES, deleteRecord, mergeLocation } from '../ops/deleteRecord.js'
 import { shouldThrottle, LOGIN_MIN_INTERVAL_MS, PAIRING_RATE_MS } from './rateLimit.js'
 
 // The parent-scoped entities shipped in the first-pairing domain snapshot —
@@ -743,6 +743,26 @@ function validateRestoreRequestMsg(msg) {
   )
 }
 
+// Shared by restore/delete/merge — each commits a multi-op host-atomic
+// transaction and then broadcasts every resulting op to every OTHER
+// connected, authenticated client. This nested loop used to be hand-copied
+// 3x (M3c's merge handler was the 5th near-identical copy in this file
+// counting the two single-op broadcasts elsewhere); collapsed here so a
+// future 6th caller can't reintroduce the deviceId/readyState guard
+// incorrectly.
+function broadcastOps(wss, ops) {
+  for (const op of ops) {
+    for (const client of wss.clients) {
+      if (!client.deviceId) continue
+      try {
+        if (client.readyState === client.OPEN) send(client, { type: 'op_applied', op })
+      } catch {
+        // never let one dead client stop the broadcast to others
+      }
+    }
+  }
+}
+
 // Host-side handling of a Client's restore request
 // (docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md §5).
 //
@@ -794,16 +814,7 @@ function handleRestoreRequest(db, wss, ws, msg) {
     return
   }
 
-  for (const op of result.ops) {
-    for (const client of wss.clients) {
-      if (!client.deviceId) continue
-      try {
-        if (client.readyState === client.OPEN) send(client, { type: 'op_applied', op })
-      } catch {
-        // never let one dead client stop the broadcast to others
-      }
-    }
-  }
+  broadcastOps(wss, result.ops)
 
   send(ws, {
     type: 'restore_result',
@@ -821,6 +832,58 @@ function validateDeleteRecordRequestMsg(msg) {
     isNonEmptyString(msg.entity_id) &&
     (msg.expected_slot_count === undefined || Number.isInteger(msg.expected_slot_count))
   )
+}
+
+function validateMergeLocationRequestMsg(msg) {
+  return (
+    isNonEmptyString(msg.request_id) &&
+    isNonEmptyString(msg.loser_id) &&
+    isNonEmptyString(msg.winner_id) &&
+    (msg.winner_capacity === undefined || msg.winner_capacity === null || Number.isInteger(msg.winner_capacity)) &&
+    (msg.expected_ref_count === undefined || Number.isInteger(msg.expected_ref_count))
+  )
+}
+
+// Host-side handling of a Client's location merge (M3c, docs/adr/2026-08-15-
+// locations-merge-and-delete-rehome.md D1 Open Q1). Mirrors
+// handleDeleteRecordRequest exactly — same reasoning: one transaction over
+// many ops, which submit_op cannot express, and never queued (a merge
+// executed later against a stale ref_count is not the merge the director
+// agreed to). Gated 'locations.delete' — merging DELETES the loser, the same
+// action deriveWriteAction derives for a DELETE_FIELD write on locations.
+function handleMergeLocationRequest(db, wss, ws, msg) {
+  const { request_id, loser_id, winner_id, winner_capacity, expected_ref_count } = msg
+
+  if (!authorizeWs(db, ws, 'locations.delete').allowed) {
+    send(ws, { type: 'merge_location_result', request_id, error: 'forbidden' })
+    return
+  }
+
+  let result
+  try {
+    result = mergeLocation(db, {
+      loser_id,
+      winner_id,
+      winner_capacity,
+      expected_ref_count,
+      author_user_id: ws.userId,
+      device_id: ws.deviceId,
+    })
+  } catch {
+    send(ws, { type: 'merge_location_result', request_id, error: 'merge-failed' })
+    return
+  }
+
+  if (result.error) {
+    send(ws, { type: 'merge_location_result', request_id, ...result })
+    return
+  }
+
+  // Broadcast AFTER the transaction committed, never from inside it.
+  broadcastOps(wss, result.ops)
+
+  const { ops, ...reportable } = result
+  send(ws, { type: 'merge_location_result', request_id, ...reportable, ops_written: ops.length })
 }
 
 // Host-side handling of a Client's delete of a record a schedule uses
@@ -866,16 +929,7 @@ function handleDeleteRecordRequest(db, wss, ws, msg) {
   }
 
   // Broadcast AFTER the transaction committed, never from inside it.
-  for (const op of result.ops) {
-    for (const client of wss.clients) {
-      if (!client.deviceId) continue
-      try {
-        if (client.readyState === client.OPEN) send(client, { type: 'op_applied', op })
-      } catch {
-        // never let one dead client stop the broadcast to others
-      }
-    }
-  }
+  broadcastOps(wss, result.ops)
 
   const { ops, ...reportable } = result
   send(ws, { type: 'delete_record_result', request_id, ...reportable, ops_written: ops.length })
@@ -1027,6 +1081,12 @@ export function startSyncServer(db, { port, onPairingRequest, now = Date.now } =
             return
           }
           handleDeleteRecordRequest(db, wss, ws, msg)
+        } else if (msg.type === 'merge_location_request') {
+          if (!validateMergeLocationRequestMsg(msg)) {
+            sendError(ws)
+            return
+          }
+          handleMergeLocationRequest(db, wss, ws, msg)
         } else if (msg.type === 'submit_bulk_replace_op') {
           if (!validateSubmitBulkReplaceMsg(msg)) {
             sendError(ws)

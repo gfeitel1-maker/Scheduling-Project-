@@ -55,11 +55,15 @@ export function writeErrorMessage(err, { forbidden, whatFailed }) {
 
 // The typed refusals deleteRecord returns, in a director's words.
 // docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md
-export function deleteRefusalMessage(error, { name, slot_count, unprotected_count } = {}) {
+export function deleteRefusalMessage(error, { name, slot_count, ref_count, unprotected_count } = {}) {
   const subject = name ? `“${name}”` : 'That record'
+  // Locations report a count-changed drift with ref_count, never slot_count
+  // (electron/ops/deleteRecord.js's locations branch) — fall back so this one
+  // shared message still names a real number instead of "undefined".
+  const count = slot_count ?? ref_count
   switch (error) {
     case 'count-changed':
-      return `${subject} is now used in ${slot_count} places, not the number shown a moment ago — someone else changed the schedule. Nothing was deleted. Try again to see the new count.`
+      return `${subject} is now used in ${count} places, not the number shown a moment ago — someone else changed the schedule. Nothing was deleted. Try again to see the new count.`
     case 'snapshot-failed':
       return `The schedule could not be saved first, so nothing was deleted. ${subject} is still here, and so is its week.`
     case 'unprotected-slots':

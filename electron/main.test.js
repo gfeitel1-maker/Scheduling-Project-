@@ -1808,3 +1808,147 @@ describe('the generic write() path refuses source_aliases (S1b)', () => {
     expect(db.prepare('SELECT COUNT(*) c FROM source_aliases').get().c).toBe(0)
   })
 })
+
+// docs/adr/2026-08-15-locations-merge-and-delete-rehome.md (M3c)
+describe('mergeLocation handler (locations.delete, admin-only)', () => {
+  async function staffToken(handlers) {
+    await seedCampAndUser({ name: 'StaffMerge', pin: '1234', role: 'staff' })
+    const { token } = await handlers.login({ name: 'StaffMerge', pin: '1234' })
+    return token
+  }
+  async function adminToken(handlers) {
+    await seedCampAndUser({ name: 'AdminMerge', pin: '4321', role: 'admin' })
+    const { token } = await handlers.login({ name: 'AdminMerge', pin: '4321' })
+    return token
+  }
+
+  it('rejects with no token', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await expect(handlers.mergeLocation({ loser_id: 'a', winner_id: 'b' })).rejects.toThrow('token is required')
+  })
+
+  it('refuses a staff token — merging deletes the loser, same gate deleteRecord uses', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7401 })
+    const token = await staffToken(handlers)
+
+    await expect(handlers.mergeLocation({ token, loser_id: 'loc-a', winner_id: 'loc-b' })).rejects.toThrow(
+      /admin role required/i
+    )
+  })
+
+  it('lets an admin on the Host merge two locations, re-pointing activities and deleting the loser', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7402 })
+    const token = await adminToken(handlers)
+    const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    const winnerId = randomUUID()
+    const loserId = randomUUID()
+    db.prepare('INSERT INTO locations (id, camp_id, name, capacity) VALUES (?, ?, ?, ?)').run(winnerId, campIdHere, 'Pool', 3)
+    db.prepare('INSERT INTO locations (id, camp_id, name, capacity) VALUES (?, ?, ?, ?)').run(loserId, campIdHere, 'pool', 1)
+    const activityId = randomUUID()
+    db.prepare('INSERT INTO activities (id, camp_id, name, location_id) VALUES (?, ?, ?, ?)').run(
+      activityId,
+      campIdHere,
+      'Swim',
+      loserId
+    )
+
+    const result = await handlers.mergeLocation({
+      token,
+      loser_id: loserId,
+      winner_id: winnerId,
+      winner_capacity: 3,
+      expected_ref_count: 1,
+    })
+
+    expect(result.ok).toBe(true)
+    expect(result.reassigned_activity_ids).toEqual([activityId])
+    expect(db.prepare('SELECT location_id FROM activities WHERE id = ?').get(activityId).location_id).toBe(winnerId)
+    expect(db.prepare('SELECT 1 FROM locations WHERE id = ?').get(loserId)).toBeFalsy()
+  })
+
+  // Security finding (round 2): the WS path's validateMergeLocationRequestMsg
+  // type-checks winner_capacity/expected_ref_count (Number.isInteger or
+  // null/undefined); the IPC path did not, so the two entry points could
+  // drift on what shape they accept. Not exploitable today (the IPC caller
+  // is the trusted renderer), but closing the asymmetry keeps a future bug
+  // in one surface from silently not existing on the other.
+  it('rejects a non-integer winner_capacity, mirroring the WS validator', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7403 })
+    const token = await adminToken(handlers)
+
+    await expect(
+      handlers.mergeLocation({ token, loser_id: 'loc-a', winner_id: 'loc-b', winner_capacity: 'three' })
+    ).rejects.toThrow(/winner_capacity/i)
+  })
+
+  it('rejects a non-integer expected_ref_count, mirroring the WS validator', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7404 })
+    const token = await adminToken(handlers)
+
+    await expect(
+      handlers.mergeLocation({ token, loser_id: 'loc-a', winner_id: 'loc-b', expected_ref_count: 'two' })
+    ).rejects.toThrow(/expected_ref_count/i)
+  })
+})
+
+// docs/adr/2026-08-15-locations-merge-and-delete-rehome.md D3/D4 (M3c) —
+// these two are LOCAL-ONLY: gated like every other IPC, but never routed to
+// the Host and never emit an op, regardless of device mode.
+describe('listMigrationReviews / dismissMigrationReviews handlers — local-only, never reach the Host', () => {
+  it('listMigrationReviews rejects with no token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.listMigrationReviews(undefined)).toThrow('token is required')
+  })
+
+  it('dismissMigrationReviews rejects with no token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.dismissMigrationReviews({ ids: ['r1'] })).toThrow('token is required')
+  })
+
+  it('allows a staff session to read the journal (locations.read)', async () => {
+    await seedCampAndUser({ name: 'StaffJournal', pin: '1234', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = await handlers.login({ name: 'StaffJournal', pin: '1234' })
+    expect(() => handlers.listMigrationReviews(token)).not.toThrow()
+  })
+
+  it('allows a staff session to dismiss a review (locations.write)', async () => {
+    await seedCampAndUser({ name: 'StaffDismiss', pin: '1234', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = await handlers.login({ name: 'StaffDismiss', pin: '1234' })
+    expect(() => handlers.dismissMigrationReviews({ token, ids: ['r1'] })).not.toThrow()
+  })
+
+  it('reads and dismisses even in Client mode, synchronously — never a WS round trip, never an op', async () => {
+    await seedCampAndUser({ name: 'ClientJournal', pin: '1234', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = await handlers.login({ name: 'ClientJournal', pin: '1234' })
+    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+
+    const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    const locationId = randomUUID()
+    db.prepare('INSERT INTO locations (id, camp_id, name, capacity) VALUES (?, ?, ?, ?)').run(locationId, campIdHere, 'Gym', 1)
+    db.prepare(
+      `INSERT INTO location_migration_reviews (id, camp_id, location_id, name, kind, detail, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run('review-1', campIdHere, locationId, 'Gym', 'was_unlimited', JSON.stringify({ seededCapacity: 1 }), new Date().toISOString())
+
+    // Both handlers are plain synchronous functions (unlike previewDelete/
+    // deleteRecord's client branch, which awaits a WS round trip) — calling
+    // them with no `await` and getting the real, immediate answer back is
+    // itself the proof they never reached out to the Host.
+    const rows = handlers.listMigrationReviews(token)
+    expect(rows).toHaveLength(1)
+    expect(rows[0].id).toBe('review-1')
+
+    const beforeOps = db.prepare('SELECT COUNT(*) n FROM operations').get().n
+    const dismissed = handlers.dismissMigrationReviews({ token, ids: ['review-1'] })
+    expect(dismissed).toEqual({ ok: true, dismissed: 1 })
+    expect(db.prepare('SELECT COUNT(*) n FROM operations').get().n).toBe(beforeOps)
+    expect(db.prepare('SELECT 1 FROM location_migration_reviews WHERE id = ?').get('review-1')).toBeFalsy()
+  })
+})

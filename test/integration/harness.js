@@ -338,6 +338,10 @@ export class Client {
    *  docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md. */
   requestDelete(args) { return this.syncClient.requestDelete(args) }
 
+  /** Ask the Host to merge two locations. Never queued — see
+   *  docs/adr/2026-08-15-locations-merge-and-delete-rehome.md. */
+  requestMerge(args) { return this.syncClient.requestMerge(args) }
+
   /** Restore requests recorded on this device but not yet delivered. */
   getPendingRestores() { return listPendingRestores(this.db) }
 

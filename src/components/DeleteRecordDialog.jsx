@@ -17,17 +17,31 @@ const LABEL = {
   groups: { one: 'group', the: 'group' },
   activities: { one: 'activity', the: 'activity' },
   days_of_operation: { one: 'day', the: 'day' },
+  // M3c — locations join the shared delete path (D2), but are never
+  // schedule-shaped: they have no "place in a schedule", so this file's own
+  // "places" plural for a schedule cell would collide confusingly with the
+  // entity's own name. LABEL is still needed for the confirmLabel fallback.
+  locations: { one: 'place', the: 'place' },
 }
 
 function places(n) {
   return `${n} place${n === 1 ? '' : 's'}`
 }
 
+function activityCount(n) {
+  return `${n} activit${n === 1 ? 'y' : 'ies'}`
+}
+
 // One concept, one name, across both routes: a director sees "your schedules",
 // never "templates" or "routes".
 function whatChanges(preview) {
-  const { entity, name, slot_count, anchor_count, overlay_count } = preview
+  const { entity, name, slot_count, ref_count, anchor_count, overlay_count } = preview
   const who = name || `this ${LABEL[entity].the}`
+
+  if (entity === 'locations') {
+    if (ref_count === 0) return `Nothing uses ${who} right now.`
+    return `${activityCount(ref_count)} use ${who} right now. Deleting it takes ${who} off those activities — they stay on the schedule, just without a place.`
+  }
 
   if (entity === 'activities') {
     if (slot_count === 0) return `Nothing in your schedules uses ${who}.`
@@ -52,6 +66,10 @@ function howItComesBack(preview) {
   const { entity, name, slot_count } = preview
   const who = name || 'It'
 
+  if (entity === 'locations') {
+    return `${who} goes to Trash, and you can put it back from there — but the activities won’t automatically start using it again.`
+  }
+
   if (entity === 'activities') {
     if (slot_count === 0) return `${who} goes to Trash, and you can put it back from there.`
     return `${who} goes to Trash, and you can put it back from there — but the cells it was in stay empty. Putting it back does not put it back on the schedule.`
@@ -66,12 +84,20 @@ export default function DeleteRecordDialog({ preview, onCancel, onDeleted }) {
   const [error, setError] = useState(null)
   const enterStyle = useEnterTransition('liftFade')
 
+  // Locations preview with `ref_count` (bound activities), never `slot_count`
+  // (a schedule-grid concept locations don't have) — exactly one of the two
+  // is ever present on a given preview, so a plain `??` picks it without
+  // needing to branch on `entity` (mirrors writeErrorMessage.js's own
+  // slot_count ?? ref_count convention). deleteRecord's own count-drift
+  // guard is entity-agnostic about which of the two arrives.
+  const expectedCount = preview.slot_count ?? preview.ref_count
+
   async function confirm() {
     setWorking(true)
     setError(null)
     let result
     try {
-      result = await localClient.deleteRecord(preview.entity, preview.entity_id, preview.slot_count)
+      result = await localClient.deleteRecord(preview.entity, preview.entity_id, expectedCount)
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
@@ -91,9 +117,13 @@ export default function DeleteRecordDialog({ preview, onCancel, onDeleted }) {
 
   const destructive = preview.destructive && preview.slot_count > 0
   const confirmLabel =
-    preview.slot_count > 0
-      ? `Delete and clear ${places(preview.slot_count)}`
-      : `Delete ${LABEL[preview.entity].the}`
+    preview.entity === 'locations'
+      ? preview.ref_count > 0
+        ? `Delete and clear ${activityCount(preview.ref_count)}`
+        : `Delete ${LABEL[preview.entity].the}`
+      : preview.slot_count > 0
+        ? `Delete and clear ${places(preview.slot_count)}`
+        : `Delete ${LABEL[preview.entity].the}`
 
   return (
     <div style={{ ...overlay, ...enterStyle }}>
