@@ -17,7 +17,7 @@ export const INT_FIELDS = new Set(['min_per_week', 'max_per_week', 'sort_order']
 // A record field name that maps to a DIFFERENT stored column: the source speaks
 // FK LABELS (`eligible_groups`, `unit`); the columns are `eligible_group_ids` /
 // `tier_id`. Provenance (Policy A) and the write both target the stored column.
-export const DB_FIELD = Object.freeze({ eligible_groups: 'eligible_group_ids', unit: 'tier_id' })
+export const DB_FIELD = Object.freeze({ eligible_groups: 'eligible_group_ids', unit: 'tier_id', location: 'location_id' })
 export const dbFieldFor = (field) => DB_FIELD[field] ?? field
 
 /**
@@ -84,16 +84,19 @@ export function foldApprovedToRecords(approved, activityRules, links, clears) {
  * S2c §3. Enrich a snapshot row IN PLACE with the FK LABEL forms buildPlan
  * compares against (it holds no DB handle and cannot resolve ids): activities'
  * `eligible_group_ids` (JSON id array) -> `eligible_group_names` (set of live
- * group names); groups' `tier_id` -> `unit_name` (the live unit name). The
- * caller supplies id->name maps built its own way (SQL vs localStorage).
+ * group names); groups' `tier_id` -> `unit_name` (the live unit name);
+ * activities' `location_id` -> `location_name` (M4 §D4, mirroring `unit_name`
+ * exactly). The caller supplies id->name maps built its own way (SQL vs
+ * localStorage).
  */
-export function enrichSnapshotRow(entity, row, groupNameById, tierNameById) {
+export function enrichSnapshotRow(entity, row, groupNameById, tierNameById, locationNameById) {
   if (entity === 'activities') {
     let ids = []
     try { ids = JSON.parse(row.eligible_group_ids ?? '[]') } catch { ids = [] }
     row.eligible_group_names = (Array.isArray(ids) ? ids : [])
       .map((id) => groupNameById.get(id))
       .filter((n) => n != null)
+    row.location_name = row.location_id != null ? (locationNameById?.get(row.location_id) ?? null) : null
   }
   if (entity === 'groups') {
     row.unit_name = row.tier_id != null ? (tierNameById.get(row.tier_id) ?? null) : null
@@ -109,9 +112,11 @@ export function enrichSnapshotRow(entity, row, groupNameById, tierNameById) {
  * where `reason` is one of 'validation' | 'eligibility_unresolved' |
  * 'unit_unresolved'. The caller wraps a failure into its own conflict object.
  * `maps` carries the pre-built `groupIdByName` / `tierIdByName` (normalized-name
- * keys for groups; lower-cased trimmed keys for tiers, matching seedNameMaps).
+ * keys for groups; lower-cased trimmed keys for tiers, matching seedNameMaps) /
+ * `locationIdByName` (M4 §D1b — TRIM-only, case-sensitive keys, matching
+ * deriveLocationId's own normalization contract, NOT normalizeName).
  */
-export function resolveFieldWrite(field, rawTo, { groupIdByName, tierIdByName }) {
+export function resolveFieldWrite(field, rawTo, { groupIdByName, tierIdByName, locationIdByName }) {
   if (INT_FIELDS.has(field)) {
     const n = Number(String(rawTo).trim())
     if (!Number.isInteger(n) || n < 1) {
@@ -146,7 +151,20 @@ export function resolveFieldWrite(field, rawTo, { groupIdByName, tierIdByName })
     if (!id) return { ok: false, reason: 'unit_unresolved', detail: { unresolved: [rawTo] } }
     return { ok: true, field: 'tier_id', value: id }
   }
-  // Free-text / other fields (location, day_of_week, availability, times, name)
+  // M4 §D1b: a LOOKUP ONLY — this function is pure and cannot mint a row. Not
+  // found holds as 'location_unresolved', exactly like 'unit'. The common path
+  // is not a gap: locations precedes activities in INGESTIBLE_ENTITIES order,
+  // so any location the director approved as a create THIS import is already
+  // live (and in locationIdByName) by the time this runs — see ingest.js
+  // commitCreate's D1c resolveOrCreateLocationId for the one call site that
+  // genuinely needs resolve-OR-create (a brand-new activity's location never
+  // separately proposed as its own create).
+  if (field === 'location') {
+    const id = locationIdByName.get(String(rawTo).trim())
+    if (!id) return { ok: false, reason: 'location_unresolved', detail: { unresolved: [rawTo] } }
+    return { ok: true, field: 'location_id', value: id }
+  }
+  // Free-text / other fields (day_of_week, availability, times, name)
   // write as-is, exactly as the pre-S2c update path did.
   return { ok: true, field, value: rawTo }
 }

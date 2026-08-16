@@ -34,14 +34,17 @@ function fixture() {
       { id: 'tb-1', name: 'First Period', start_time: '08:40:00', end_time: '09:30:00', sort_order: 1 },
       { id: 'tb-2', name: 'Second Period', start_time: '09:40', end_time: '10:30', sort_order: 2 },
     ],
+    // M4: locations is an extra input, resolved into the activities sheet's
+    // `location` column (not a sheet of its own — see SHEET_LAYOUT).
+    locations: [{ id: 'loc-pool', name: 'Pool' }],
     activities: [
       {
         id: 'act-1', name: 'Swim', priority: 'high', min_per_week: 1, max_per_week: 3,
-        eligible_group_ids: JSON.stringify(['grp-1', 'grp-2']), location: 'Pool', source: 'human',
+        eligible_group_ids: JSON.stringify(['grp-1', 'grp-2']), location_id: 'loc-pool', source: 'human',
       },
       {
         id: 'act-2', name: 'Archery', priority: 'low', min_per_week: null, max_per_week: 2,
-        eligible_group_ids: '[]', location: '', source: 'import',
+        eligible_group_ids: '[]', location_id: null, source: 'import',
       },
     ],
   }

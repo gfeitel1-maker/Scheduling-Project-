@@ -19,8 +19,14 @@ import { isDayName } from './textGrid.js'
 // the placements are sitting right there in the parsed grid, and a whitelist is
 // the difference between reopening that decision deliberately and doing it by
 // accident on a Tuesday afternoon.
+// M4 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D2): 'locations'
+// sits immediately after 'time_blocks' and before 'activities' — the order
+// commitPlan's create loop follows, so a location this same import proposes is
+// already a live row (and in locationIdByName) by the time any activity's
+// location field resolves. Order is normative here, not just set membership —
+// ingest.test.js's set-equality check pairs with this array's own order.
 export const INGESTIBLE_ENTITIES = Object.freeze([
-  'cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'activities',
+  'cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'locations', 'activities',
 ])
 
 const DAY_ORDER = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']
@@ -183,6 +189,28 @@ function tally(values) {
   return [...seen.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
 }
 
+// Locations' candidate tally, same shape as tally() above but keyed
+// TRIM-only/case-sensitive rather than case-folded — this has to match
+// recognitionKey('locations', name) (preview.js), which is the ONE entity
+// where "pool" and "Pool" are two legitimate rows, not one entity two
+// spellings of (§D3). Folding case here, like every other entity's tally(),
+// silently collapsed both spellings into a single candidate while the
+// per-activity pairing below stays keyed by exact text — an activity paired
+// with the spelling that lost the fold then matched no ticked candidate and
+// its location was silently omitted. See docs/adr/2026-08-15-locations-
+// import-export-roundtrip.md §D3, §D5.
+function tallyExact(values) {
+  const seen = new Map()
+  for (const raw of values) {
+    const text = String(raw ?? '').trim()
+    if (!text) continue
+    const found = seen.get(text)
+    if (found) found.count += 1
+    else seen.set(text, { name: text, count: 1 })
+  }
+  return [...seen.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+}
+
 // Groups, days and periods keep the order they appear in the document — a week
 // reads Monday to Friday, not most-frequent first. Only activities are ranked
 // by how often they were seen, because only they benefit from it.
@@ -243,6 +271,13 @@ export function extractEntities(parsed) {
   const days = []
   const timeBlocks = []
   const activities = []
+  // Q8 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D5): candidate
+  // place names captured from textGrid.js's parallel `row.locations[]` (a room
+  // line the parser used to silently discard). Tallied like every other
+  // proposed entity; the per-activity pairing below is a majority vote, same
+  // convention groupUnits already uses for "one value per name".
+  const locations = []
+  const activityLocationVotes = new Map() // normalized activity key -> Map(locationText -> count)
 
   for (const page of pages) {
     const title = cleanTitle(page.title)
@@ -312,13 +347,30 @@ export function extractEntities(parsed) {
         timeBlocks.push(row.label.trim())
       }
       row.cells.forEach((cell, cellIndex) => {
-        for (const value of activityNamesFromCell(cell)) {
+        const names = activityNamesFromCell(cell)
+        for (const value of names) {
           activities.push(value)
           const cellKey = pageKey ?? page.columns[cellIndex] ?? null
           if (cellKey) {
             const key = value.toLowerCase().replace(/\s+/g, ' ')
             if (!activityPages.has(key)) activityPages.set(key, new Set())
             activityPages.get(key).add(cellKey)
+          }
+        }
+        // Q8: textGrid.js only captures a location line on `!labeled` pages, so
+        // `row.locations` is undefined on the two labelled camp families —
+        // this whole block is then a no-op, zero regression to their behavior.
+        const locText = String(row.locations?.[cellIndex] ?? '').trim()
+        if (locText && names.length > 0) {
+          locations.push(locText)
+          for (const value of names) {
+            // `value` is already trimmed (activityNamesFromCell's own .trim(),
+            // line 122) — this key and activityLocations' below rely on that,
+            // not on re-trimming here.
+            const key = value.toLowerCase().replace(/\s+/g, ' ')
+            if (!activityLocationVotes.has(key)) activityLocationVotes.set(key, new Map())
+            const votes = activityLocationVotes.get(key)
+            votes.set(locText, (votes.get(locText) ?? 0) + 1)
           }
         }
       })
@@ -342,6 +394,10 @@ export function extractEntities(parsed) {
     groups: dedupe(groupNames),
     days_of_operation: dedupe(days),
     time_blocks: dedupe(timeBlocks),
+    // Q8: ranked by how often seen, same treatment activities gets — a place
+    // printed once is more likely a misread than a real room. tallyExact, not
+    // tally — see its comment above.
+    locations: tallyExact(locations).map((v) => v.name),
     activities: tally(activities).map((v) => v.name),
     tiers: dedupe(units),
     // Programs really are absent from both layouts — nothing in a weekly grid
@@ -406,12 +462,25 @@ export function extractEntities(parsed) {
     activityPagesOut[key] = [...pageTitles].map((title) => groupNameByTitleMap.get(title) ?? title)
   }
 
+  // Q8: normalized(activity name) -> the single place name it was most often
+  // captured next to, mirroring groupUnits' "one value per name" convention.
+  // A presentation simplification (§D5) — not a claim an activity can only
+  // ever have one place — for a future slice to revisit if a real camp needs it.
+  const activityLocations = {}
+  for (const [key, votes] of activityLocationVotes) {
+    let best = null
+    let bestCount = 0
+    for (const [loc, n] of votes) if (n > bestCount) { best = loc; bestCount = n }
+    if (best) activityLocations[key] = best
+  }
+
   return {
     orientation,
     entities,
     groupUnits: Object.fromEntries(groupUnits),
     groupNameByTitle: Object.fromEntries(groupNameByTitleMap),
     activityPages: activityPagesOut,
+    activityLocations,
     seenCounts,
     counts: Object.fromEntries(Object.entries(entities).map(([k, v]) => [k, v.length])),
   }

@@ -109,6 +109,33 @@ describe('mock ingestCommit — hand-edit protection + stale resolution (S2b/T73
   })
 })
 
+describe('mock ingestCommit — location capacity mock parity (M4)', () => {
+  // buildPlan never sets `capacity` for a locations create (left to the
+  // schema's own DEFAULT 1) — the mock has no SQL default to fall back on,
+  // so an ingest-created location previously read back `capacity: undefined`
+  // and LocationsScreen rendered "undefined groups at once" at :5200. The
+  // real DB is unaffected (SQL DEFAULT 1); this pins the mock to the same
+  // observable value.
+  it('a location created via approved.locations reads back capacity: 1', async () => {
+    await bootstrap()
+    await mockShoresh.ingestCommit({ approved: { locations: ['Pool'] } })
+    const pool = (await mockShoresh.list(null, 'locations')).find((l) => l.name === 'Pool')
+    expect(pool.capacity).toBe(1)
+  })
+
+  it('a location minted inline via an activity rule (resolveOrCreateLocationId, §D1c) reads back capacity: 1', async () => {
+    await bootstrap()
+    // No separate `locations` create item — the S4 workbook path's real shape,
+    // where a location is only ever named through the activity's own field.
+    await mockShoresh.ingestCommit({
+      approved: { activities: ['Swim'] },
+      activityRules: { Swim: { location: 'Pool' } },
+    })
+    const pool = (await mockShoresh.list(null, 'locations')).find((l) => l.name === 'Pool')
+    expect(pool.capacity).toBe(1)
+  })
+})
+
 describe('mock ingestCommit — ambiguous identity (S1a §3 / T73)', () => {
   async function seedTwoColliding() {
     await bootstrap()

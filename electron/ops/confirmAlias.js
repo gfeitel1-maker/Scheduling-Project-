@@ -24,6 +24,7 @@ const ALIAS_ENTITY_TABLE = Object.freeze({
   groups: 'groups',
   days_of_operation: 'days_of_operation',
   time_blocks: 'time_blocks',
+  locations: 'locations',
   activities: 'activities',
 })
 

@@ -151,9 +151,15 @@ describe('ScheduleActivityView — place resolution via location_id (round-2 A1)
     expect(cardFor(container, 'Swim').querySelectorAll(':scope > div').length).toBe(4)
   })
 
-  it('card grid falls back to the legacy free-text location only when location_id is null', () => {
+  // M4 §D7: the legacy free-text fallback is REMOVED. A location that is
+  // later deleted clears location_id to null but never touches the frozen
+  // `location` string, so keeping the fallback would show a deleted place's
+  // stale name as if still assigned — a correctness fix, not just cleanup.
+  it('card grid shows no place line when location_id is null, even with a legacy location string', () => {
     const container = renderView({ activities: withLocations, selectedActivity: null, locations })
-    expect(container.textContent).toContain('Old Field')
+    expect(container.textContent).not.toContain('Old Field')
+    // No place div rendered: name + badges wrap + stats = 3 direct children.
+    expect(cardFor(container, 'Soccer').querySelectorAll(':scope > div').length).toBe(3)
   })
 
   it('card grid renders no place line for a dangling location_id (unconstrained, not a stale id leak)', () => {
@@ -174,9 +180,10 @@ describe('ScheduleActivityView — place resolution via location_id (round-2 A1)
     expect(container.textContent).toContain('Pool')
   })
 
-  it('drilldown header falls back to the legacy free-text location when location_id is null', () => {
+  // M4 §D7: same fallback removal, drilldown header this time.
+  it('drilldown header shows no place when location_id is null, even with a legacy location string', () => {
     const container = renderView({ activities: withLocations, selectedActivity: 'a2', locations })
-    expect(container.textContent).toContain('Old Field')
+    expect(container.textContent).not.toContain('Old Field')
   })
 })
 

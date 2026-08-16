@@ -19,7 +19,13 @@ const COHORT_SCOPED = new Set(['tiers', 'time_blocks'])
 // so normalizeName sees it. Mirror that here.
 const NAME_COLUMN = { days_of_operation: 'label' }
 
-export async function buildExistingSnapshot(list, cohortId) {
+// M4 §D2 mirror (electron/ops/ingest.js's ALWAYS_SCANNED_ENTITIES): locations
+// is durable camp infrastructure, scanned live in every mode, unlike the six
+// schedule-content entities the previous `mode === 'replace' ? null : ...`
+// ternary skipped entirely in replace mode — see the call site's own comment.
+const ALWAYS_SCANNED_ENTITIES = ['locations']
+
+export async function buildExistingSnapshot(list, cohortId, mode = 'add') {
   const safeList = async (entity) => {
     try { return (await list(entity)) ?? [] } catch { return [] }
   }
@@ -30,15 +36,22 @@ export async function buildExistingSnapshot(list, cohortId) {
   for (const r of await safeList('groups')) groupNameById.set(r.id, r.name)
   const tierNameById = new Map()
   for (const r of await safeList('tiers')) tierNameById.set(r.id, r.name)
+  // M4 §D4: locations' own id->name map, mirroring tierNameById/groupNameById
+  // — without it every activity's location_name would read null here, and
+  // buildPlan would diff a re-import's proposal as an "update" even when the
+  // location is unchanged.
+  const locationNameById = new Map()
+  for (const r of await safeList('locations')) locationNameById.set(r.id, r.name)
 
+  const entitiesToScan = mode === 'replace' ? ALWAYS_SCANNED_ENTITIES : INGESTIBLE_ENTITIES
   const existing = {}
-  for (const entity of INGESTIBLE_ENTITIES) {
+  for (const entity of entitiesToScan) {
     const nameCol = NAME_COLUMN[entity] ?? 'name'
     const rows = (await safeList(entity)).map((r) => ({ ...r, name: r[nameCol] }))
     const scoped = COHORT_SCOPED.has(entity) && cohortId
       ? rows.filter((r) => r.cohort_id === cohortId)
       : rows
-    for (const row of scoped) enrichSnapshotRow(entity, row, groupNameById, tierNameById)
+    for (const row of scoped) enrichSnapshotRow(entity, row, groupNameById, tierNameById, locationNameById)
     existing[entity] = scoped
   }
   return existing
