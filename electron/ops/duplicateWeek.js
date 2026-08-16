@@ -188,6 +188,25 @@ export function duplicateWeek(db, { sourceWeekId, campId }, { author_user_id, de
       }))
     })
 
+    const locExclusions = db
+      .prepare('SELECT * FROM week_location_exclusions WHERE week_id = ?')
+      .all(sourceWeekId)
+    locExclusions.forEach((e, n) => {
+      const newId = randomUUID()
+      ops.push(appendOp(db, {
+        entity: 'week_location_exclusions', entity_id: newId,
+        field: 'week_id', value: newWeekId,
+        author_user_id, device_id,
+        client_write_id: cwid('week_location_exclusions.week_id', n),
+      }))
+      ops.push(appendOp(db, {
+        entity: 'week_location_exclusions', entity_id: newId,
+        field: 'location_id', value: e.location_id,
+        author_user_id, device_id,
+        client_write_id: cwid('week_location_exclusions.location_id', n),
+      }))
+    })
+
     // Append the new schedule_weeks row LAST (§3.4) so a partially-replayed
     // sync does not surface a selectable-but-hollow week.
     ops.push(appendOp(db, {

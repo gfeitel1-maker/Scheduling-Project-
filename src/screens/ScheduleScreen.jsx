@@ -103,7 +103,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     templateData, loading, loadError, templateError, reload,
   } = useScheduleData({ campId, weekId: preferredWeekId, repo, routes: ROUTES })
   const { groups, days, timeBlocks, activities, anchors, tiers, cohorts, locations } = setupLists
-  const { activityExclusions, groupExclusions } = exclusions
+  const { activityExclusions, groupExclusions, locationExclusions } = exclusions
 
   // Keep `preferredWeekId` converged with the resolved week so the NEXT load
   // (e.g. a reload from onOpApplied, or simply campId changing) starts from
@@ -151,15 +151,17 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       const withClosures = withWeekClosureFlags(rawSlots, {
         activities,
         groups,
+        locations,
         activityExclusions,
         groupExclusions,
+        locationExclusions,
         weekId,
       })
       return route === 'manual'
         ? withOverlapFlags(withClosures, activities, locations)
         : withClosures
     },
-    [route, rawSlots, activities, locations, groups, activityExclusions, groupExclusions, weekId]
+    [route, rawSlots, activities, locations, groups, activityExclusions, groupExclusions, locationExclusions, weekId]
   )
   // The generated "track changes" review (docs/work/specs/2026-08-01-generated-
   // flag-review.md). One piece of state is the single source of truth for both
@@ -318,7 +320,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     resetUndoRedo, saveSnapshot, ensureTemplateRow,
     setConfirmRegen, setSelectedGroup, statsFor: recalcStatsPure,
     groups, tiers, days, timeBlocks, activities, anchors, locations,
-    weekId, activityExclusions, groupExclusions,
+    weekId, activityExclusions, groupExclusions, locationExclusions,
   })
   // Generation reloads slots wholesale — bump the flag-ack resync so the
   // post-generation diff reads as a reload, never the quiet edit-ack, even when

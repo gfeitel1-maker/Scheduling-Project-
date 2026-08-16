@@ -6,6 +6,7 @@ import { deriveLocationId } from '../../electron/ops/locationId'
 vi.mock('../localClient', () => ({
   localClient: {
     list: vi.fn(),
+    listByScope: vi.fn(),
     write: vi.fn(),
     deleteEntity: vi.fn(),
     previewDelete: vi.fn(),
@@ -64,6 +65,7 @@ beforeEach(() => {
     if (entity === 'activities') return Promise.resolve([])
     return Promise.resolve([])
   })
+  localClient.listByScope.mockReset().mockResolvedValue([])
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.previewDelete.mockReset().mockResolvedValue({
@@ -662,5 +664,94 @@ describe('LocationsScreen: migration review region', () => {
     await waitFor(() => expect(localClient.mergeLocation).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(localClient.dismissMigrationReviews).toHaveBeenCalledWith(['r-Pool', 'r-POOL', 'r-pool']))
     expect(screen.queryByText(/That merge could not be completed/)).toBeNull()
+  })
+})
+
+// M5 — per-week location availability, mirroring ActivitiesScreen/GroupsScreen's
+// week-exclusion toggle exactly: a WeekToggle column when weekId is present,
+// toggle-off writes week_id then location_id, toggle-on deletes the row, and
+// closing a place with placed slots requires confirmation first.
+describe('LocationsScreen — week availability (M5)', () => {
+  const WEEK_ID = 'week-1'
+  const weeks = [{ id: WEEK_ID, camp_id: CAMP_ID, name: 'Week 1', sort_order: 0, is_archived: 0 }]
+
+  it('shows a week column with a WeekToggle per place when weekId is set', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'locations') return Promise.resolve([location({ id: 'loc-1', name: 'Pool' })])
+      return Promise.resolve([])
+    })
+
+    render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={WEEK_ID} weeks={weeks} onSelectWeek={() => {}} />)
+
+    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    expect(screen.getByRole('switch')).toBeTruthy()
+    expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('true')
+  })
+
+  it('closing a place with no placed slots writes the exclusion immediately, no confirm', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'locations') return Promise.resolve([location({ id: 'loc-1', name: 'Pool' })])
+      return Promise.resolve([])
+    })
+
+    render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={WEEK_ID} weeks={weeks} onSelectWeek={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+
+    fireEvent.click(screen.getByRole('switch'))
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+    expect(localClient.write.mock.calls[0][1]).toBe('week_location_exclusions')
+    expect(localClient.write.mock.calls[0][3]).toBe('week_id')
+    expect(localClient.write.mock.calls[0][4]).toBe(WEEK_ID)
+    expect(localClient.write.mock.calls[1][3]).toBe('location_id')
+    expect(localClient.write.mock.calls[1][4]).toBe('loc-1')
+    expect(screen.queryByText(/Turn off/)).toBeNull()
+  })
+
+  it('closing a place with placed slots shows a confirm dialog with the slot count first', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'locations') return Promise.resolve([location({ id: 'loc-1', name: 'Pool' })])
+      if (entity === 'activities') return Promise.resolve([activity({ id: 'act-1', location_id: 'loc-1' })])
+      if (entity === 'schedule_templates') return Promise.resolve([{ id: 'tmpl-1', week_id: WEEK_ID, kind: 'generated' }])
+      if (entity === 'template_slots') return Promise.resolve([
+        { id: 's1', template_id: 'tmpl-1', activity_id: 'act-1' },
+        { id: 's2', template_id: 'tmpl-1', activity_id: 'act-1' },
+      ])
+      return Promise.resolve([])
+    })
+
+    render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={WEEK_ID} weeks={weeks} onSelectWeek={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+
+    fireEvent.click(screen.getByRole('switch'))
+
+    await waitFor(() => expect(screen.queryByText(/Turn off "Pool"/)).not.toBeNull())
+    expect(localClient.write).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText('Turn off anyway'))
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+    expect(localClient.write.mock.calls[1][3]).toBe('location_id')
+    expect(localClient.write.mock.calls[1][4]).toBe('loc-1')
+  })
+
+  it('reopening an excluded place deletes the exclusion row, no confirm', async () => {
+    const exclusionRow = { id: 'excl-1', week_id: WEEK_ID, location_id: 'loc-1' }
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'locations') return Promise.resolve([location({ id: 'loc-1', name: 'Pool' })])
+      if (entity === 'week_location_exclusions') return Promise.resolve([exclusionRow])
+      return Promise.resolve([])
+    })
+    localClient.listByScope.mockImplementation((entity, scopeId) => {
+      if (entity === 'week_location_exclusions' && scopeId === WEEK_ID) return Promise.resolve([exclusionRow])
+      return Promise.resolve([])
+    })
+
+    render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={WEEK_ID} weeks={weeks} onSelectWeek={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
+    await waitFor(() => expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('false'))
+
+    fireEvent.click(screen.getByRole('switch'))
+
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'week_location_exclusions', 'excl-1'))
   })
 })

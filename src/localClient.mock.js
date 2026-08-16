@@ -265,6 +265,7 @@ export const MOCK_SCOPE_KEYS = {
   schedule_snapshots: 'template_id',
   week_activity_exclusions: 'week_id',
   week_group_exclusions: 'week_id',
+  week_location_exclusions: 'week_id',
 }
 
 export const MOCK_WRITE_ALLOWLIST = {
@@ -518,7 +519,7 @@ export const mockShoresh = {
       const entityTables = ['activities', 'groups', 'time_blocks', 'days_of_operation', 'tiers']
       const dependentTables = [
         'template_slots', 'template_overlays', 'week_activity_exclusions',
-        'week_group_exclusions', 'day_override_template_slots', 'anchor_activities',
+        'week_group_exclusions', 'week_location_exclusions', 'day_override_template_slots', 'anchor_activities',
       ]
       replaced = { entities: {}, dependents: {} }
       for (const table of dependentTables) {
@@ -1240,12 +1241,16 @@ export const mockShoresh = {
 
     if (!Array.isArray(state.week_activity_exclusions)) state.week_activity_exclusions = []
     if (!Array.isArray(state.week_group_exclusions)) state.week_group_exclusions = []
+    if (!Array.isArray(state.week_location_exclusions)) state.week_location_exclusions = []
 
     for (const e of state.week_activity_exclusions.filter((e) => e.week_id === sourceWeekId)) {
       state.week_activity_exclusions.push({ id: randomId(), week_id: newWeekId, activity_id: e.activity_id })
     }
     for (const e of state.week_group_exclusions.filter((e) => e.week_id === sourceWeekId)) {
       state.week_group_exclusions.push({ id: randomId(), week_id: newWeekId, group_id: e.group_id })
+    }
+    for (const e of state.week_location_exclusions.filter((e) => e.week_id === sourceWeekId)) {
+      state.week_location_exclusions.push({ id: randomId(), week_id: newWeekId, location_id: e.location_id })
     }
 
     state.schedule_weeks.push({
@@ -1280,6 +1285,7 @@ export const mockShoresh = {
     state.template_slots = (state.template_slots || []).filter(s => !templateIds.has(s.template_id))
     state.week_activity_exclusions = (state.week_activity_exclusions || []).filter(e => e.week_id !== weekId)
     state.week_group_exclusions = (state.week_group_exclusions || []).filter(e => e.week_id !== weekId)
+    state.week_location_exclusions = (state.week_location_exclusions || []).filter(e => e.week_id !== weekId)
     state.schedule_templates = (state.schedule_templates || []).filter(t => t.week_id !== weekId)
     state.schedule_weeks = allWeeks.filter(w => w.id !== weekId)
 

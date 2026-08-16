@@ -14,9 +14,11 @@ import { appendOp, DELETE_FIELD } from './operations.js'
 //   3. template_slots          (no FK — orphans must be cleaned explicitly)
 //   4. week_activity_exclusions
 //   5. week_group_exclusions
-//   6. conflicts               (unresolved rows pointing at entities deleted above)
-//   7. schedule_templates      (real FK ← schedule_weeks via week_id)
-//   8. schedule_weeks          (the week row itself, last)
+//   6. week_location_exclusions (no FK on location_id — see M1's deliberate
+//      no-FK convention, deleteRecord.js:40; week_id itself IS a real FK)
+//   7. conflicts               (unresolved rows pointing at entities deleted above)
+//   8. schedule_templates      (real FK ← schedule_weeks via week_id)
+//   9. schedule_weeks          (the week row itself, last)
 //
 // Explicitly NOT cascaded (not an omission):
 //   - day_override_templates / day_override_template_slots — camp-scoped via
@@ -98,9 +100,18 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
       deletedEntityIds.add(e.id)
     }
 
-    // S3-3: Step 6 — conflict closure.
+    // Step 6: week_location_exclusions
+    const locExclusions = db
+      .prepare('SELECT id FROM week_location_exclusions WHERE week_id = ?')
+      .all(weekId)
+    for (const e of locExclusions) {
+      ops.push(del('week_location_exclusions', e.id))
+      deletedEntityIds.add(e.id)
+    }
+
+    // S3-3: Step 7 — conflict closure.
     // Close any unresolved conflicts rows whose entity_id is one of the rows
-    // deleted in steps 1–5. Closing means a delete op, not raw SQL, so it
+    // deleted in steps 1–6. Closing means a delete op, not raw SQL, so it
     // replicates and appears in history.
     if (deletedEntityIds.size > 0) {
       const pendingConflicts = db
@@ -113,12 +124,12 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
       }
     }
 
-    // Step 7: schedule_templates (both manual + generated)
+    // Step 8: schedule_templates (both manual + generated)
     for (const tmpl of templates) {
       ops.push(del('schedule_templates', tmpl.id))
     }
 
-    // Step 8: schedule_weeks — the week row itself, last
+    // Step 9: schedule_weeks — the week row itself, last
     ops.push(del('schedule_weeks', weekId))
 
     return { ok: true, ops }

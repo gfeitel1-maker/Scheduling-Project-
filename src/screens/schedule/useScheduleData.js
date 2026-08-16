@@ -56,7 +56,7 @@ export function recalcFindings(slotList, ctx) {
 }
 
 const EMPTY_SETUP_LISTS = { groups: [], days: [], timeBlocks: [], activities: [], anchors: [], tiers: [], cohorts: [], locations: [] }
-const EMPTY_EXCLUSIONS = { activityExclusions: [], groupExclusions: [] }
+const EMPTY_EXCLUSIONS = { activityExclusions: [], groupExclusions: [], locationExclusions: [] }
 const EMPTY_TEMPLATE_DATA = {
   existingTemplates: {}, templateIdByRoute: {},
   slotsByRoute: {}, overlaysByRoute: {}, snapshotsByRoute: {}, statsByRoute: {}, findingsByRoute: {},
@@ -193,9 +193,9 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes 
     }
     if (!liveWeekId) { if (gen === generationRef.current) setLoading(false); return }
     try {
-      const { activityExclusions: ae, groupExclusions: ge } = await repo.loadWeekExclusions(liveWeekId)
+      const { activityExclusions: ae, groupExclusions: ge, locationExclusions: le } = await repo.loadWeekExclusions(liveWeekId)
       if (gen !== generationRef.current) return
-      setExclusions({ activityExclusions: ae || [], groupExclusions: ge || [] })
+      setExclusions({ activityExclusions: ae || [], groupExclusions: ge || [], locationExclusions: le || [] })
     } catch {
       if (gen !== generationRef.current) return
       setExclusions(EMPTY_EXCLUSIONS)

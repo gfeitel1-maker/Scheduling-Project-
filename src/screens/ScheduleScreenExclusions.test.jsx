@@ -36,7 +36,10 @@ function getSlotsBulkReplaceArgs() {
   return localClient.bulkReplace.mock.calls.find(([, entity]) => entity === 'template_slots')
 }
 
-function makeBase({ withArcheryExclusion = false, anchorGroupIds = null, excludedGroupIds = [] } = {}) {
+const POOL_ID = 'loc-pool'
+const FIELD_ID = 'loc-field'
+
+function makeBase({ withArcheryExclusion = false, anchorGroupIds = null, excludedGroupIds = [], excludedLocationIds = [] } = {}) {
   return {
     groups: [
       { id: 'g1', camp_id: CAMP_ID, name: 'Bunk A', tier_id: 't1', availability: 'all' },
@@ -52,8 +55,8 @@ function makeBase({ withArcheryExclusion = false, anchorGroupIds = null, exclude
       { id: 'b2', camp_id: CAMP_ID, name: 'Afternoon', sort_order: 2, start_time: '10:00:00', end_time: '11:00:00' },
     ],
     activities: [
-      { id: SWIM_ID, camp_id: CAMP_ID, name: 'Swim', min_per_week: 0, max_per_week: 5, priority: 'low', eligible_tier_ids: '[]', eligible_group_ids: '[]' },
-      { id: ARCHERY_ID, camp_id: CAMP_ID, name: 'Archery', min_per_week: 0, max_per_week: 5, priority: 'low', eligible_tier_ids: '[]', eligible_group_ids: '[]' },
+      { id: SWIM_ID, camp_id: CAMP_ID, name: 'Swim', min_per_week: 0, max_per_week: 5, priority: 'low', eligible_tier_ids: '[]', eligible_group_ids: '[]', location_id: POOL_ID },
+      { id: ARCHERY_ID, camp_id: CAMP_ID, name: 'Archery', min_per_week: 0, max_per_week: 5, priority: 'low', eligible_tier_ids: '[]', eligible_group_ids: '[]', location_id: FIELD_ID },
     ],
     tiers: [{ id: 't1', camp_id: CAMP_ID, name: 'Tier 1', sort_order: 1 }],
     cohorts: [{ id: 'coh-1', camp_id: CAMP_ID, name: 'Main' }],
@@ -79,6 +82,9 @@ function makeBase({ withArcheryExclusion = false, anchorGroupIds = null, exclude
       : [],
     week_group_exclusions: excludedGroupIds.map((gid, i) => ({
       id: `gex-${i}`, week_id: WEEK_ID, group_id: gid,
+    })),
+    week_location_exclusions: excludedLocationIds.map((lid, i) => ({
+      id: `lex-${i}`, week_id: WEEK_ID, location_id: lid,
     })),
     schedule_templates: [
       { id: TEMPLATE_ID, camp_id: CAMP_ID, name: 'Generated', kind: 'generated', week_id: WEEK_ID },
@@ -111,7 +117,7 @@ describe('S2-9: generated rebuild respects week exclusions', () => {
     const base = makeBase({ withArcheryExclusion: true })
     localClient.list.mockImplementation((entity) => Promise.resolve(base[entity] ?? []))
     localClient.listByScope.mockImplementation((entity, scopeId) => {
-      const key = entity === 'week_activity_exclusions' || entity === 'week_group_exclusions' ? 'week_id' : 'template_id'
+      const key = ['week_activity_exclusions', 'week_group_exclusions', 'week_location_exclusions'].includes(entity) ? 'week_id' : 'template_id'
       return Promise.resolve((base[entity] ?? []).filter((row) => row[key] === scopeId))
     })
 
@@ -133,7 +139,7 @@ describe('S2-9: generated rebuild respects week exclusions', () => {
     const base = makeBase({ withArcheryExclusion: false })
     localClient.list.mockImplementation((entity) => Promise.resolve(base[entity] ?? []))
     localClient.listByScope.mockImplementation((entity, scopeId) => {
-      const key = entity === 'week_activity_exclusions' || entity === 'week_group_exclusions' ? 'week_id' : 'template_id'
+      const key = ['week_activity_exclusions', 'week_group_exclusions', 'week_location_exclusions'].includes(entity) ? 'week_id' : 'template_id'
       return Promise.resolve((base[entity] ?? []).filter((row) => row[key] === scopeId))
     })
 
@@ -158,7 +164,7 @@ describe('S2-9: generated rebuild respects week exclusions', () => {
     const base = makeBase({ withArcheryExclusion: true })
     localClient.list.mockImplementation((entity) => Promise.resolve(base[entity] ?? []))
     localClient.listByScope.mockImplementation((entity, scopeId) => {
-      const key = entity === 'week_activity_exclusions' || entity === 'week_group_exclusions' ? 'week_id' : 'template_id'
+      const key = ['week_activity_exclusions', 'week_group_exclusions', 'week_location_exclusions'].includes(entity) ? 'week_id' : 'template_id'
       return Promise.resolve((base[entity] ?? []).filter((row) => row[key] === scopeId))
     })
 
@@ -283,6 +289,74 @@ describe('generated route also surfaces week exclusions as a WEEK_CLOSED marker'
   })
 })
 
+// M5 — generated rebuild respects week location exclusions. Mirrors the S2-9
+// activity-exclusion block above: Swim is bound to the pool (POOL_ID), Archery
+// to the field (FIELD_ID). Closing the pool must remove Swim from every
+// generated slot via the location→activity hop in resolveWeekCatalog.
+describe('M5: generated rebuild respects week location exclusions', () => {
+  it('Week 2 generate: Swim (its location closed) does not appear in any generated slot', async () => {
+    const base = makeBase({ excludedLocationIds: [POOL_ID] })
+    localClient.list.mockImplementation((entity) => Promise.resolve(base[entity] ?? []))
+    localClient.listByScope.mockImplementation((entity, scopeId) => {
+      const key = ['week_activity_exclusions', 'week_group_exclusions', 'week_location_exclusions'].includes(entity) ? 'week_id' : 'template_id'
+      return Promise.resolve((base[entity] ?? []).filter((row) => row[key] === scopeId))
+    })
+
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="generated" />)
+
+    await waitFor(() => expect(screen.getByText('Generate a schedule')).toBeTruthy())
+    fireEvent.click(screen.getByText('Generate a schedule'))
+
+    await waitFor(() => expect(getSlotsBulkReplaceArgs()).toBeDefined())
+
+    const [, , , generatedSlots] = getSlotsBulkReplaceArgs()
+    const swimSlots = generatedSlots.filter(s => s.activity_id === SWIM_ID)
+    expect(swimSlots).toHaveLength(0)
+  })
+
+  it('without a location exclusion, Swim appears in generated slots (control)', async () => {
+    const base = makeBase({ excludedLocationIds: [] })
+    localClient.list.mockImplementation((entity) => Promise.resolve(base[entity] ?? []))
+    localClient.listByScope.mockImplementation((entity, scopeId) => {
+      const key = ['week_activity_exclusions', 'week_group_exclusions', 'week_location_exclusions'].includes(entity) ? 'week_id' : 'template_id'
+      return Promise.resolve((base[entity] ?? []).filter((row) => row[key] === scopeId))
+    })
+
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="generated" />)
+
+    await waitFor(() => expect(screen.getByText('Generate a schedule')).toBeTruthy())
+    fireEvent.click(screen.getByText('Generate a schedule'))
+
+    await waitFor(() => expect(getSlotsBulkReplaceArgs()).toBeDefined())
+
+    const [, , , generatedSlots] = getSlotsBulkReplaceArgs()
+    const placed = generatedSlots.filter(s => s.activity_id != null)
+    expect(placed.length).toBeGreaterThan(0)
+  })
+
+  it('Week 2 generate excludes Swim, and the location exclusion row is still there afterward for a later rebuild', async () => {
+    const base = makeBase({ excludedLocationIds: [POOL_ID] })
+    localClient.list.mockImplementation((entity) => Promise.resolve(base[entity] ?? []))
+    localClient.listByScope.mockImplementation((entity, scopeId) => {
+      const key = ['week_activity_exclusions', 'week_group_exclusions', 'week_location_exclusions'].includes(entity) ? 'week_id' : 'template_id'
+      return Promise.resolve((base[entity] ?? []).filter((row) => row[key] === scopeId))
+    })
+
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="generated" />)
+
+    await waitFor(() => expect(screen.getByText('Generate a schedule')).toBeTruthy())
+    fireEvent.click(screen.getByText('Generate a schedule'))
+
+    await waitFor(() => expect(getSlotsBulkReplaceArgs()).toBeDefined())
+
+    const firstSlots = getSlotsBulkReplaceArgs()[3]
+    expect(firstSlots.filter(s => s.activity_id === SWIM_ID)).toHaveLength(0)
+
+    const postGenerateExclusions = await localClient.list('week_location_exclusions')
+    expect(postGenerateExclusions.some(e => e.location_id === POOL_ID && e.week_id === WEEK_ID)).toBe(true)
+  })
+})
+
 // T69 — the normalizer → resolveWeekCatalog seam.
 //
 // useScheduleData.test.js pins that the hook turns anchor_activities.group_ids
@@ -303,7 +377,7 @@ describe('T69: anchor group_ids crosses the IPC → engine boundary as an array'
   function mount(base) {
     localClient.list.mockImplementation((entity) => Promise.resolve(base[entity] ?? []))
     localClient.listByScope.mockImplementation((entity, scopeId) => {
-      const key = entity === 'week_activity_exclusions' || entity === 'week_group_exclusions' ? 'week_id' : 'template_id'
+      const key = ['week_activity_exclusions', 'week_group_exclusions', 'week_location_exclusions'].includes(entity) ? 'week_id' : 'template_id'
       return Promise.resolve((base[entity] ?? []).filter((row) => row[key] === scopeId))
     })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="generated" />)

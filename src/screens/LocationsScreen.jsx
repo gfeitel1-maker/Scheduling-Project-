@@ -2,11 +2,14 @@ import { useState, useRef, useEffect } from 'react'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
+import { createScheduleRepository } from '../data/scheduleRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
-import { S, useEnterTransition } from '../styles/shared'
+import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
 import ScreenIntro from '../components/ScreenIntro'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
+import WeekContextBar from '../components/schedule/WeekContextBar'
+import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import {
   activeNearDuplicateGroups,
   defaultWinner,
@@ -19,7 +22,10 @@ import {
 // M3c — the first-run migration review region (Part 3) + the delete path's
 // re-home onto the shared host primitive (D2).
 // docs/adr/2026-08-15-locations-merge-and-delete-rehome.md
+// M5 — per-week location availability (the toggle column), mirroring
+// ActivitiesScreen/GroupsScreen's week-exclusion pattern exactly.
 const repository = createSetupCrudRepository({ localClient })
+const repo = createScheduleRepository({ localClient })
 const scopeFilter = (row, campId) => row.camp_id === campId
 
 function capacityWord(n) {
@@ -216,7 +222,7 @@ function CapacityAdvisoryStrip({ items, locations, onAccept, busyId }) {
   )
 }
 
-function LocationRow({ location, role, onSave, onDelete }) {
+function LocationRow({ location, role, onSave, onDelete, weekToggle }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(location.name)
   const [capacity, setCapacity] = useState(location.capacity)
@@ -262,7 +268,8 @@ function LocationRow({ location, role, onSave, onDelete }) {
       <td style={{ ...S.td, fontWeight: 500 }}>{location.name}</td>
       <td style={{ ...S.td, fontVariantNumeric: 'tabular-nums' }}>{capacityWord(location.capacity)}</td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{location.notes || '—'}</td>
-      <td style={{ ...S.td, textAlign: 'right' }}>
+      {weekToggle}
+      <td style={{ ...S.td, textAlign: 'right', borderLeft: weekToggle ? '1px solid var(--border)' : undefined }}>
         <button className="press-97" onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
         <button
           onClick={() => onDelete(location)}
@@ -275,7 +282,7 @@ function LocationRow({ location, role, onSave, onDelete }) {
   )
 }
 
-export default function LocationsScreen({ campId, role, onNavigate }) {
+export default function LocationsScreen({ campId, role, onNavigate, weekId, weeks = [], onSelectWeek }) {
   const { rows: unsortedLocations, loading, error, setError, adding, add, save, deleteAll: deleteAllRecords, reload } =
     useCrudScreen({
       entity: 'locations',
@@ -313,8 +320,61 @@ export default function LocationsScreen({ campId, role, onNavigate }) {
   const [pendingDelete, setPendingDelete] = useState(null)
   const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
+  const [excludedLocationIds, setExcludedLocationIds] = useState(new Set())
+  const [pendingExclusion, setPendingExclusion] = useState(null) // { location, slotCount }
   const nameRef = useRef()
   const enter = useEnterTransition('liftFade')
+
+  async function loadExclusions() {
+    if (!weekId) { setExcludedLocationIds(new Set()); return }
+    try {
+      const { locationExclusions } = await repo.loadWeekExclusions(weekId)
+      setExcludedLocationIds(new Set(locationExclusions.map(e => e.location_id)))
+    } catch {
+      setExcludedLocationIds(new Set())
+    }
+  }
+
+  // The IIFE wrapper is required by this repo's react-hooks/set-state-in-effect
+  // lint rule — same reason as refreshReviewData's mount effect below: it
+  // flags a direct call to a named, in-scope function it can trace back to
+  // setState, but not the same call wrapped this way.
+  useEffect(() => { (async () => { await loadExclusions() })() }, [weekId])
+
+  async function handleToggleExclusion(location, currentlyExcluded) {
+    if (!weekId) return
+    if (currentlyExcluded) {
+      // Turning ON — no confirmation needed
+      await repo.toggleLocationExclusion(weekId, location.id, false)
+      setExcludedLocationIds(prev => { const next = new Set(prev); next.delete(location.id); return next })
+      return
+    }
+    // Turning OFF — count placed slots bound to this place (via its activities) first
+    const [allSlots, templates, allActivities] = await Promise.all([
+      localClient.list('template_slots'),
+      localClient.list('schedule_templates'),
+      localClient.list('activities'),
+    ])
+    const weekTemplateIds = new Set((templates || []).filter(t => t.week_id === weekId).map(t => t.id))
+    const boundActivityIds = new Set((allActivities || []).filter(a => a.location_id === location.id).map(a => a.id))
+    const slotCount = (allSlots || [])
+      .filter(s => weekTemplateIds.has(s.template_id) && boundActivityIds.has(s.activity_id))
+      .length
+    if (slotCount === 0) {
+      await repo.toggleLocationExclusion(weekId, location.id, true)
+      setExcludedLocationIds(prev => new Set([...prev, location.id]))
+    } else {
+      setPendingExclusion({ location, slotCount })
+    }
+  }
+
+  async function confirmExclusion() {
+    if (!pendingExclusion || !weekId) return
+    const { location } = pendingExclusion
+    await repo.toggleLocationExclusion(weekId, location.id, true)
+    setExcludedLocationIds(prev => new Set([...prev, location.id]))
+    setPendingExclusion(null)
+  }
 
   // M3c — the migration review region's own data. Loaded alongside, not
   // through useCrudScreen (which tracks only `locations`): the near-duplicate
@@ -470,10 +530,21 @@ export default function LocationsScreen({ campId, role, onNavigate }) {
   }
 
   const currentGateGroup = nearDuplicateGroups[0]
+  const currentWeek = weeks.find(w => w.id === weekId)
 
   return (
     <div style={{ maxWidth: 720 }}>
       <ScreenIntro screen="locations" />
+      {weeks.length > 0 && (
+        <WeekContextBar
+          weekId={weekId}
+          weeks={weeks}
+          onSelectWeek={onSelectWeek}
+          exclusionCount={excludedLocationIds.size}
+          totalCount={locations.length}
+          entityLabel="places"
+        />
+      )}
       {error && (
         <div style={S.errorBanner}>
           {error}
@@ -525,12 +596,30 @@ export default function LocationsScreen({ campId, role, onNavigate }) {
                   <th style={S.th}>Name</th>
                   <th style={S.th}>Groups at once</th>
                   <th style={S.th}>Notes</th>
+                  {weekId && <th style={{ ...S.th, textAlign: 'center' }}>{currentWeek?.name ?? 'Week'}</th>}
                   <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {locations.map((location) => (
-                  <LocationRow key={location.id} location={location} role={role} onSave={save} onDelete={deleteLocation} />
+                  <LocationRow
+                    key={location.id}
+                    location={location}
+                    role={role}
+                    onSave={save}
+                    onDelete={deleteLocation}
+                    weekToggle={weekId ? (
+                      <td style={{ ...S.td, textAlign: 'center' }}>
+                        <WeekToggle
+                          on={!excludedLocationIds.has(location.id)}
+                          label={excludedLocationIds.has(location.id)
+                            ? `Off in ${currentWeek?.name ?? 'this week'}`
+                            : `Open in ${currentWeek?.name ?? 'this week'}`}
+                          onToggle={() => handleToggleExclusion(location, excludedLocationIds.has(location.id))}
+                        />
+                      </td>
+                    ) : null}
+                  />
                 ))}
               </tbody>
             </table>
@@ -581,6 +670,16 @@ export default function LocationsScreen({ campId, role, onNavigate }) {
         />
       )}
 
+      {pendingExclusion && (
+        <ExclusionConfirmDialog
+          entityName={pendingExclusion.location.name}
+          weekName={currentWeek?.name ?? 'this week'}
+          slotCount={pendingExclusion.slotCount}
+          onCancel={() => setPendingExclusion(null)}
+          onConfirm={confirmExclusion}
+        />
+      )}
+
       {/* D-3 — a blocking modal, impossible to scroll past. Renders above
           everything else on the screen while unresolved near_duplicate
           groups exist. */}
@@ -596,6 +695,45 @@ export default function LocationsScreen({ campId, role, onNavigate }) {
         />
       )}
     </div>
+  )
+}
+
+function WeekToggle({ on, label, onToggle }) {
+  const reduced = prefersReducedMotion()
+  const W = 32, H = 18, PAD = 2, KNOB = H - PAD * 2
+  const knobLeft = on ? W - KNOB - PAD : PAD
+  return (
+    <button
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={onToggle}
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        width: W,
+        height: H,
+        borderRadius: H / 2,
+        background: on ? 'var(--primary)' : 'var(--border)',
+        border: 'none',
+        padding: 0,
+        cursor: 'pointer',
+        position: 'relative',
+        transition: reduced ? 'none' : 'background-color 120ms ease',
+        flexShrink: 0,
+      }}
+    >
+      <span style={{
+        position: 'absolute',
+        left: knobLeft,
+        top: PAD,
+        width: KNOB,
+        height: KNOB,
+        borderRadius: '50%',
+        background: '#fff',
+        transition: reduced ? 'none' : 'left 120ms ease',
+      }} />
+    </button>
   )
 }
 

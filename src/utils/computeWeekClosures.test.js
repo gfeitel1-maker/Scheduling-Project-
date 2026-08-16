@@ -49,6 +49,34 @@ describe('computeWeekClosures', () => {
     expect(m.get('s1')).toBe('Red Bunk is marked closed this week')
   })
 
+  it('flags a slot whose activity sits on a place marked closed this week (M5 location arm)', () => {
+    const m = computeWeekClosures({
+      slots: [slot({ id: 's1', activity_id: 'a-swim' })],
+      activities: [{ id: 'a-swim', name: 'Swim', location_id: 'loc-pool' }],
+      groups,
+      locations: [{ id: 'loc-pool', name: 'Pool' }],
+      activityExclusions: [],
+      groupExclusions: [],
+      locationExclusions: [{ week_id: WK, location_id: 'loc-pool' }],
+      weekId: WK,
+    })
+    expect(m.get('s1')).toBe('Pool is marked closed this week')
+  })
+
+  it('does not flag a slot whose activity is on an open place (location control)', () => {
+    const m = computeWeekClosures({
+      slots: [slot({ id: 's1', activity_id: 'a-swim' })],
+      activities: [{ id: 'a-swim', name: 'Swim', location_id: 'loc-pool' }],
+      groups,
+      locations: [{ id: 'loc-pool', name: 'Pool' }, { id: 'loc-field', name: 'Field' }],
+      activityExclusions: [],
+      groupExclusions: [],
+      locationExclusions: [{ week_id: WK, location_id: 'loc-field' }],
+      weekId: WK,
+    })
+    expect(m.get('s1')).toBeUndefined()
+  })
+
   it('joins both reasons when a slot trips activity AND group closure', () => {
     const m = computeWeekClosures({
       slots: [slot({ id: 's1', group_id: 'g-red', activity_id: 'a-swim' })],

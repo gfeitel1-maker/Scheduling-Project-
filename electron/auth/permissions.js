@@ -72,6 +72,10 @@ export const PERMISSIONS = {
     // ("lets staff DELETE week-exclusion rows").
     'week_activity_exclusions.delete',
     'week_group_exclusions.delete',
+    // week_location_exclusions.delete: the same deliberate exception, added
+    // in M5 — without it, staff could CLOSE a place for a week but never
+    // REOPEN it (toggle-off is a row delete, same as its two siblings above).
+    'week_location_exclusions.delete',
     // Trash and per-record history are read-only and available to every
     // authenticated role: hiding "who changed this" from staff serves nobody
     // (docs/adr/2026-07-30-restore-deleted-records-from-the-op-log.md §6).

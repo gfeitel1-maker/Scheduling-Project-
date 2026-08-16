@@ -13,14 +13,19 @@
 // MOCK_WRITE_ALLOWLIST, and ENTITY_LABEL.
 import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PROJECTIONS } from './projections.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 import { RESTORE_DECISIONS } from './restore.js'
-import { ENTITIES } from '../auth/permissions.js'
-import { MOCK_WRITE_ALLOWLIST } from '../../src/localClient.mock.js'
+import { PERMISSIONS, ENTITIES } from '../auth/permissions.js'
+import { MOCK_WRITE_ALLOWLIST, MOCK_SCOPE_KEYS } from '../../src/localClient.mock.js'
 import { ENTITY_LABEL } from '../../src/screens/recordLabels.js'
+import { openLocalDb } from '../db/localDb.js'
+import { duplicateWeek } from './duplicateWeek.js'
+import { deleteWeek } from './deleteWeek.js'
+import { deriveScheduleTemplateId } from './scheduleTemplateId.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -96,6 +101,91 @@ describe('RESTORE_DECISIONS covers every projected entity (restore.test.js guard
   it('has an entry for both new entities so the build does not fail on an unlisted projection', () => {
     for (const entity of Object.keys(PROJECTIONS)) {
       expect(RESTORE_DECISIONS[entity], `missing RESTORE_DECISIONS for ${entity}`).toBeDefined()
+    }
+  })
+})
+
+// M5 — the five hand-enumerated week-lifecycle surfaces M1 deliberately left
+// unwired (docs/work/runs/2026-08-16-locations-m5-week-availability.md §3).
+// Every one of these would pass CI today with week_location_exclusions
+// silently unwired — that is exactly the blind spot this describe block
+// closes: it fails loudly if any of the five regresses.
+describe('v32 registry coverage — the five week-lifecycle surfaces (M5)', () => {
+  it('staff hold week_location_exclusions.delete, the toggle-off exception', () => {
+    expect(PERMISSIONS.staff).toContain('week_location_exclusions.delete')
+  })
+
+  it('main.js SCOPED_LIST_ENTITIES accepts week_location_exclusions (listByScope)', () => {
+    const src = fs.readFileSync(path.join(__dirname, '../main.js'), 'utf8')
+    expect(src).toMatch(/SCOPED_LIST_ENTITIES\s*=\s*new Set\(\[[\s\S]*?'week_location_exclusions'[\s\S]*?\]\)/)
+  })
+
+  it('src/localClient.mock.js MOCK_SCOPE_KEYS matches the real parentKey (week_id)', () => {
+    expect(MOCK_SCOPE_KEYS.week_location_exclusions).toBe('week_id')
+  })
+
+  it('ingest.js PARENT_SCOPED_DEPENDENTS clears week_location_exclusions on a Replace import', () => {
+    const src = fs.readFileSync(path.join(__dirname, 'ingest.js'), 'utf8')
+    expect(src).toMatch(/PARENT_SCOPED_DEPENDENTS\s*=\s*Object\.freeze\(\[[\s\S]*?'week_location_exclusions'[\s\S]*?\]\)/)
+  })
+
+  it('src/localClient.mock.js dependentTables clears week_location_exclusions on a Replace import', () => {
+    const src = fs.readFileSync(path.join(__dirname, '../../src/localClient.mock.js'), 'utf8')
+    expect(src).toMatch(/dependentTables\s*=\s*\[[\s\S]*?'week_location_exclusions'[\s\S]*?\]/)
+  })
+
+  it('duplicateWeek copies week_location_exclusions rows to the new week', () => {
+    const file = path.join(os.tmpdir(), `shoresh-locregistries-dup-${Date.now()}-${Math.random()}.sqlite`)
+    const db = openLocalDb(file)
+    try {
+      db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
+      db.prepare(
+        "INSERT OR IGNORE INTO devices (id, name, pairing_status, authorized_at) VALUES ('dev1', 'Dev', 'authorized', ?)"
+      ).run(new Date().toISOString())
+      db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, ?, 0, 0)')
+        .run('week-1', 'camp1', 'Week 1')
+      db.prepare('INSERT INTO week_location_exclusions (id, week_id, location_id) VALUES (?, ?, ?)')
+        .run('wlx-1', 'week-1', 'loc-pool')
+
+      const result = duplicateWeek(db, { sourceWeekId: 'week-1', campId: 'camp1' }, { author_user_id: null, device_id: 'dev1' })
+      expect(result.ok).toBe(true)
+      const copied = db.prepare('SELECT * FROM week_location_exclusions WHERE week_id = ?').all(result.newWeekId)
+      expect(copied).toHaveLength(1)
+      expect(copied[0].location_id).toBe('loc-pool')
+    } finally {
+      db.close()
+      for (const suffix of ['', '-wal', '-shm']) {
+        if (fs.existsSync(file + suffix)) fs.unlinkSync(file + suffix)
+      }
+    }
+  })
+
+  it('deleteWeek removes week_location_exclusions rows, leaving no orphans', () => {
+    const file = path.join(os.tmpdir(), `shoresh-locregistries-del-${Date.now()}-${Math.random()}.sqlite`)
+    const db = openLocalDb(file)
+    try {
+      db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
+      db.prepare(
+        "INSERT OR IGNORE INTO devices (id, name, pairing_status, authorized_at) VALUES ('dev1', 'Dev', 'authorized', ?)"
+      ).run(new Date().toISOString())
+      db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, ?, 0, 0)')
+        .run('week-1', 'camp1', 'Week 1')
+      db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, ?, 1, 0)')
+        .run('week-2', 'camp1', 'Week 2')
+      const templateId = deriveScheduleTemplateId('week-1', 'generated')
+      db.prepare('INSERT INTO schedule_templates (id, camp_id, week_id, name, kind) VALUES (?, ?, ?, ?, ?)')
+        .run(templateId, 'camp1', 'week-1', 'Generated', 'generated')
+      db.prepare('INSERT INTO week_location_exclusions (id, week_id, location_id) VALUES (?, ?, ?)')
+        .run('wlx-1', 'week-1', 'loc-pool')
+
+      const result = deleteWeek(db, { weekId: 'week-1', campId: 'camp1' }, { author_user_id: null, device_id: 'dev1' })
+      expect(result.ok).toBe(true)
+      expect(db.prepare('SELECT COUNT(*) as c FROM week_location_exclusions WHERE week_id = ?').get('week-1').c).toBe(0)
+    } finally {
+      db.close()
+      for (const suffix of ['', '-wal', '-shm']) {
+        if (fs.existsSync(file + suffix)) fs.unlinkSync(file + suffix)
+      }
     }
   })
 })

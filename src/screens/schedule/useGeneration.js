@@ -39,6 +39,7 @@ export function useGeneration({
   weekId,
   activityExclusions,
   groupExclusions,
+  locationExclusions,
 }) {
   const {
     slotsByRoute,
@@ -70,6 +71,7 @@ export function useGeneration({
       weekId,
       activityExclusions: activityExclusions || [],
       groupExclusions: groupExclusions || [],
+      locationExclusions: locationExclusions || [],
     })
 
     const lockedActIds = new Set(effActivities.filter(a => a.is_locked).map(a => a.id))
@@ -157,6 +159,7 @@ export function useGeneration({
       weekId,
       activityExclusions: activityExclusions || [],
       groupExclusions: groupExclusions || [],
+      locationExclusions: locationExclusions || [],
     })
 
     const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), anchors: effAnchors, campId, locations, anchorsOnly: true })
