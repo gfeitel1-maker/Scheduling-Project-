@@ -1,8 +1,10 @@
 ---
 title: T82-mutation-envelope-and-eligibility-predicate
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-16
+completed: 2026-08-16
+completed_by: PR #77 (merge 49648f9)
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/GOVERNANCE_INDEX.md]
 related_tickets: []
 related_adrs: []
