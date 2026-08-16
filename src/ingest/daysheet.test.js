@@ -87,6 +87,40 @@ describe('location sub-lines are stripped, real events are kept', () => {
   })
 })
 
+// M4/Q8 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D5): the
+// dropped location line is now CAPTURED, not discarded — this is the real
+// unlabeled-family fixture Red Hat's list asks to confirm against (strip ->
+// capture, correctly paired to the activity/column it sits under).
+describe('Q8 — the stripped location line is captured, not discarded', () => {
+  const { pages } = parseTextGrid(campC)
+  const { entities, activityLocations } = extractEntities({ pages })
+
+  it('pairs each captured location with its activity by column, row by row', () => {
+    const row = pages[0].rows.find((r) => r.cells[0] === 'Archery')
+    expect(row.locations).toEqual(['Barn', 'Loft', 'Lake', 'Barn', '301'])
+  })
+
+  it('captures room text into entities.locations, ranked by how often seen', () => {
+    for (const loc of ['Barn', 'Loft', 'Lake', 'Meadow', '301', '302', '303']) {
+      expect(entities.locations).toContain(loc)
+    }
+  })
+
+  it('pairs an activity name to the place it was most often seen at (majority vote)', () => {
+    // "Sign In" appears on every page's opening line with no location line
+    // beneath it (a fixed banner-style row) — no pairing, never invented.
+    expect(activityLocations[normalizeKey('Sign In')]).toBeUndefined()
+    // "Archery"/"Barn" and "Pottery"/"Loft" are each other's majority pairing
+    // across the whole fixture (verified against the file's own content).
+    expect(activityLocations[normalizeKey('Archery')]).toBe('Barn')
+    expect(activityLocations[normalizeKey('Pottery')]).toBe('Loft')
+  })
+
+  function normalizeKey(name) {
+    return name.toLowerCase().replace(/\s+/g, ' ')
+  }
+})
+
 describe('positional codes yield units and group->unit links', () => {
   const result = extractEntities(parseTextGrid(campC))
 

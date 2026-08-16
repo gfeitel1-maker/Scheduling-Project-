@@ -19,14 +19,18 @@ import { randomUUID } from 'node:crypto'
 import { appendOp, DELETE_FIELD, latestOp } from './operations.js'
 import { latestOpForEntity, lastKnownFields, lastKnownFieldSources } from './restore.js'
 import { PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
-import { normalizeName } from '../../src/ingest/preview.js'
+import { normalizeName, recognitionKey } from '../../src/ingest/preview.js'
 import { buildPlan, CLEAR } from '../../src/ingest/buildPlan.js'
 import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor } from '../../src/ingest/fieldUpdate.js'
+import { deriveLocationId } from './locationId.js'
 
 // ADR §2. Kept here rather than imported from the renderer so the guarantee
 // lives with the code that writes; ingest.test.js asserts the two agree.
+// M4 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D2): 'locations'
+// sits immediately after 'time_blocks', before 'activities' — order is
+// normative (commitPlan's create loop follows it), not just set membership.
 export const INGESTIBLE_ENTITIES = Object.freeze([
-  'cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'activities',
+  'cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'locations', 'activities',
 ])
 
 // What a Replace clears: everything an import can create except Programs.
@@ -177,7 +181,13 @@ const COMPARABLE_COLUMNS = Object.freeze({
   groups: ['availability', 'tier_id'],
   days_of_operation: ['day_of_week', 'sort_order'],
   time_blocks: ['start_time', 'end_time', 'sort_order'],
-  activities: ['priority', 'min_per_week', 'max_per_week', 'location', 'eligible_group_ids'],
+  // M4 §D4: 'location' -> 'location_id'. The frozen `activities.location`
+  // string (D5 of the parent ADR) is never written after v32 and stays out of
+  // this diff — comparing against it would only ever be stale.
+  activities: ['priority', 'min_per_week', 'max_per_week', 'location_id', 'eligible_group_ids'],
+  // No comparable fields — a locations plan item is only ever create/unchanged
+  // (§D3: exact-match recognition means it can never surface an update either).
+  locations: [],
 })
 
 /**
@@ -202,6 +212,7 @@ const ALIAS_ENTITY_TABLE = Object.freeze({
   groups: 'groups',
   days_of_operation: 'days_of_operation',
   time_blocks: 'time_blocks',
+  locations: 'locations',
   activities: 'activities',
 })
 
@@ -377,7 +388,15 @@ export function buildFieldProvenanceMap(db, planItems) {
   return map
 }
 
-function buildExistingSnapshot(db, camp_id, cohort_id) {
+// M4 §D2: 'locations' is durable camp infrastructure — it is excluded from
+// REPLACEABLE_ENTITIES (below) and, unlike the six schedule-content entities,
+// is recognized in EVERY mode, not just 'add'. A blind-create against a
+// still-live location in replace mode would land on `deriveLocationId`'s own
+// PRIMARY KEY, no-op the INSERT OR IGNORE, and silently let the field UPDATEs
+// overwrite the existing row — the exact hazard this carve-out exists to avoid.
+const ALWAYS_SCANNED_ENTITIES = Object.freeze(['locations'])
+
+function buildExistingSnapshot(db, camp_id, cohort_id, mode) {
   // S2c §3: live id->name maps so the snapshot can carry FK fields in the LABEL
   // form buildPlan compares against (it holds no DB handle and cannot resolve).
   const groupNameById = new Map()
@@ -388,9 +407,22 @@ function buildExistingSnapshot(db, camp_id, cohort_id) {
   for (const r of db.prepare('SELECT id, name FROM tiers WHERE camp_id = ?').all(camp_id)) {
     tierNameById.set(r.id, r.name)
   }
+  // M4 §D4: locations' own id->name map, so an activity's location_id can be
+  // enriched to location_name (mirrors tierNameById/groupNameById exactly).
+  const locationNameById = new Map()
+  for (const r of db.prepare('SELECT id, name FROM locations WHERE camp_id = ?').all(camp_id)) {
+    locationNameById.set(r.id, r.name)
+  }
+
+  // M4 §D2: in replace mode, only the always-scanned entities (locations) are
+  // read live; the six schedule-content entities scan nothing — their
+  // pre-teardown rows are about to be deleted, and recognizing them here would
+  // falsely hold every item once teardown removes what the `unchanged` items
+  // point at (the ORIGINAL S1a rationale, now scoped instead of blanket-null).
+  const entitiesToScan = mode === 'replace' ? ALWAYS_SCANNED_ENTITIES : INGESTIBLE_ENTITIES
 
   const existing = {}
-  for (const entity of INGESTIBLE_ENTITIES) {
+  for (const entity of entitiesToScan) {
     const scoped = COHORT_SCOPED.has(entity)
     const cols = [
       'id',
@@ -402,14 +434,16 @@ function buildExistingSnapshot(db, camp_id, cohort_id) {
     const scopedRows = scoped && cohort_id ? rows.filter((r) => r.cohort_id === cohort_id) : rows
     // S2c §3: resolve the FK columns to the LABEL forms buildPlan compares
     // against (shared with the mock so the two snapshots cannot diverge).
-    for (const row of scopedRows) enrichSnapshotRow(entity, row, groupNameById, tierNameById)
+    for (const row of scopedRows) enrichSnapshotRow(entity, row, groupNameById, tierNameById, locationNameById)
     existing[entity] = scopedRows
   }
   // S1b §4: the confirmed-alias tier reads this out of the snapshot, exactly
   // as buildPlan reads the recognition rows above — buildPlan stays pure (no
   // DB), this host-local read happens once, here, inside the same host-only
-  // ingest code path that builds the rest of the snapshot.
-  existing.aliases = listAliasMap(db, camp_id, cohort_id)
+  // ingest code path that builds the rest of the snapshot. Replace mode skips
+  // it too (mirrors the pre-M4 `mode === 'replace' ? null : ...` behavior for
+  // the six schedule-content entities — aliases target those, not locations).
+  existing.aliases = mode === 'replace' ? {} : listAliasMap(db, camp_id, cohort_id)
   return existing
 }
 
@@ -467,11 +501,13 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
   // blind create de-duped downstream. tiers/time_blocks are scoped to the active
   // Program exactly as ImportScreen.jsx ~150–153; everything else is camp-wide.
   // Replace mode intentionally wipes the camp's setup and recreates it, so
-  // recognition does not apply — a null snapshot keeps the blind-create path and
-  // its byte-identical op sequence. The pre-teardown rows the snapshot would see
-  // are about to be deleted anyway; recognizing them here would falsely hold
-  // every item once teardown removed the rows the `unchanged` items point at.
-  const existing = mode === 'replace' ? null : buildExistingSnapshot(db, camp_id, cohort_id)
+  // recognition does not apply to the six schedule-content entities — their
+  // pre-teardown rows are about to be deleted anyway; recognizing them here
+  // would falsely hold every item once teardown removed the rows the
+  // `unchanged` items point at. M4 §D2: 'locations' is the one exception —
+  // it is durable, never torn down by replace mode, so buildExistingSnapshot
+  // now takes `mode` itself and scans locations live in every mode.
+  const existing = buildExistingSnapshot(db, camp_id, cohort_id, mode)
   // S2c §1: fold the rule/unit side-channels into per-row records at THIS
   // boundary; buildPlan sees only records. `links`/`activityRules` are still
   // passed for the create path's back-compat fallback (a bare-string caller).
@@ -538,18 +574,19 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   const cohort_id = plan.cohort_id ?? null
   const mode = plan.mode ?? 'add'
 
-  // T73: a director's per-conflict decisions, indexed by entity|normalizeName(name)
-  // |field?, using the SAME normalizeName the rest of the path uses so the key
-  // cannot disagree about "the same name" (ADR §2). buildPlan already consumed the
-  // ambiguous_identity picks (pinning identity / forcing create); commitPlan honors
-  // the ambiguous 'create' pick's collision bypass here, and the stale picks below.
+  // T73: a director's per-conflict decisions, indexed by entity|recognitionKey(name)
+  // |field?, using the SAME recognitionKey the rest of the path uses so the key
+  // cannot disagree about "the same name" (ADR §2; M4 §D3 extends this to be
+  // entity-aware). buildPlan already consumed the ambiguous_identity picks
+  // (pinning identity / forcing create); commitPlan honors the ambiguous
+  // 'create' pick's collision bypass here, and the stale picks below.
   const resIndex = new Map()
   for (const r of Array.isArray(resolutions) ? resolutions : []) {
     if (!r || !r.entity) continue
-    resIndex.set(`${r.entity}|${normalizeName(r.name)}|${r.field ?? ''}`, r)
+    resIndex.set(`${r.entity}|${recognitionKey(r.entity, r.name)}|${r.field ?? ''}`, r)
   }
   const resolutionFor = (entity, name, field = '') =>
-    resIndex.get(`${entity}|${normalizeName(name)}|${field ?? ''}`)
+    resIndex.get(`${entity}|${recognitionKey(entity, name)}|${field ?? ''}`)
 
   // S2a: every field-value op this committer writes is import-authored. Set once
   // here and threaded into EVERY appendOp commitPlan makes — commitCreate's
@@ -575,6 +612,10 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   const blockIdByName = new Map()
   const dayIdByName = new Map()
   const groupIdByName = new Map()
+  // M4 §D1b/§13: TRIM-only, case-sensitive keys — NOT normalizeName — matching
+  // deriveLocationId's own normalization contract exactly, so a lookup here
+  // agrees with the id a create/mint would derive for the same name.
+  const locationIdByName = new Map()
 
   // Populated INSIDE the transaction, after any teardown (ADR §4): in replace
   // mode the rows these maps would name are about to be destroyed, and seeding
@@ -594,6 +635,9 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     }
     for (const row of db.prepare('SELECT id, name FROM groups WHERE camp_id = ?').all(camp_id)) {
       if (row.name) groupIdByName.set(normalizeName(row.name), row.id)
+    }
+    for (const row of db.prepare('SELECT id, name FROM locations WHERE camp_id = ?').all(camp_id)) {
+      if (row.name) locationIdByName.set(String(row.name).trim(), row.id)
     }
   }
 
@@ -617,7 +661,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         : `id, ${nameColumnFor(entity)} AS name`
       for (const row of db.prepare(`SELECT ${cols} FROM ${entity} WHERE camp_id = ?`).all(camp_id)) {
         if (scoped && cohort_id && row.cohort_id !== cohort_id) continue
-        add(entity, normalizeName(row.name), row.id)
+        add(entity, recognitionKey(entity, row.name), row.id)
       }
     }
     return maps
@@ -810,13 +854,41 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   }
   let replaced = null
 
+  // M4 §D1c. The ONE place an activity's location genuinely needs resolve-OR-
+  // create: a brand-new activity, created via commitCreate, whose location
+  // value was never separately proposed as its own `locations` entity item —
+  // the S4 enrichment-workbook path's real shape (a director types a room name
+  // directly into an editable cell, no corresponding "Locations" review row).
+  // The common path (Q8's own gated flow, or an ordinary new-camp import) never
+  // reaches the mint branch here: locations precedes activities in
+  // INGESTIBLE_ENTITIES order (§D2), so a location approved as a create THIS
+  // import is already live — and in locationIdByName — by the time this runs;
+  // this is then a cache hit, not an actual create. Cross-device deterministic
+  // (INV-1): the id is a pure function of (camp_id, trimmedName), same as D1a.
+  const resolveOrCreateLocationId = (db, { camp_id, name, locationIdByName, author_user_id, device_id }) => {
+    const trimmed = String(name ?? '').trim()
+    if (!trimmed) return null
+    const cached = locationIdByName.get(trimmed)
+    if (cached) return cached
+    const id = deriveLocationId(camp_id, trimmed)
+    if (!db.prepare('SELECT 1 FROM locations WHERE id = ?').get(id)) {
+      appendOp(db, { entity: 'locations', entity_id: id, field: 'camp_id', value: camp_id, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
+      appendOp(db, { entity: 'locations', entity_id: id, field: 'name', value: trimmed, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
+    }
+    locationIdByName.set(trimmed, id)
+    return id
+  }
+
   // The write of one PlanItem: mint the row id, extract each FieldDelta's `to`
   // in order, resolve the commit-time reference fields (tier_id / activity
   // rules) against the live name maps, then emit one appendOp per non-null
   // field. This is the pre-S0 inner loop, now driven by the plan (ADR §2).
   const commitCreate = (item) => {
     const { entity, _name: name } = item
-    const entityId = randomUUID()
+    // M4 §D1a: the ONE line that differs from every other entity's create —
+    // deriveLocationId, never randomUUID, so the id is a pure function of
+    // (camp_id, trimmedName) and identical across devices (INV-1).
+    const entityId = entity === 'locations' ? deriveLocationId(camp_id, name) : randomUUID()
     const fields = {}
     for (const [field, delta] of Object.entries(item.fields)) fields[field] = delta.to
 
@@ -824,6 +896,11 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     if (entity === 'time_blocks') blockIdByName.set(normalizeName(name), entityId)
     if (entity === 'days_of_operation') dayIdByName.set(normalizeName(name), entityId)
     if (entity === 'groups') groupIdByName.set(normalizeName(name), entityId)
+    // M4 §D1a/§D2: registered BEFORE any activities create runs, in the same
+    // toCreate loop — INGESTIBLE_ENTITIES order places locations before
+    // activities, so this is always populated by the time an activity's
+    // location resolves (§D1c below reads this map).
+    if (entity === 'locations') locationIdByName.set(String(name).trim(), entityId)
     if (entity === 'groups') {
       // The file said which unit this bunk is in; file it there rather than
       // leaving the director to assign 33 bunks by hand.
@@ -856,6 +933,27 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // zero times — correct and silently useless. Floored on both paths.
         if (groupIds.length > 0 && !(Number.isInteger(fields.min_per_week) && fields.min_per_week >= 1)) {
           fields.min_per_week = 1
+        }
+      }
+      // M4 §D1c: a brand-new activity's location, resolved (or minted if truly
+      // absent) inline — the ONE call site that genuinely needs resolve-OR-
+      // create (see resolveOrCreateLocationId's own doc comment for why: a
+      // director-typed room name with no separate `locations` create/review
+      // item to have resolved it first, the S4 workbook path's real shape).
+      if (rule?.location != null && rule.location !== '') {
+        const locationId = resolveOrCreateLocationId(db, {
+          camp_id, name: rule.location, locationIdByName, author_user_id, device_id,
+        })
+        if (locationId) {
+          fields.location_id = locationId
+          // Registry row 24 (Governor: ship in M4) — the captured/typed text
+          // this activity's place came from, so a future "why?" panel can
+          // answer it the same way eligible_group_names/min_per_week already can.
+          writeEvidence(db, {
+            camp_id, entity_type: 'activities', entity_id: entityId, field: 'location',
+            tag: 'observed', confidence: 'high', support: { location: rule.location },
+            import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
+          })
         }
       }
       // B4: evidence for the observation this rule came from, keyed to the
@@ -994,7 +1092,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       // a name-matched row re-holds as ambiguous, carrying any competing row.
       if (!idExists(item.entity, item.entity_id)) {
         if (item.evidence?.tier === 'uuid') { conflicts.push(makeMissingTarget(item)); return }
-        const ids = recognition[item.entity].get(normalizeName(item._name))
+        const ids = recognition[item.entity].get(recognitionKey(item.entity, item._name))
         conflicts.push(makeConflict(item, ids ? [...ids] : []))
         return
       }
@@ -1022,9 +1120,21 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // a value is validated/resolved, a failure holds the field.
         const enqueue = (parent_op_id) => {
           if (isClear) { toUpdate.push({ item, field: dbField, value: null, parent_op_id }); return }
-          const resolved = resolveFieldWrite(field, delta.to, { groupIdByName, tierIdByName })
+          const resolved = resolveFieldWrite(field, delta.to, { groupIdByName, tierIdByName, locationIdByName })
           if (!resolved.ok) conflicts.push(makeFieldConflict(item, resolved.reason, field, delta, resolved.detail))
-          else toUpdate.push({ item, field: resolved.field, value: resolved.value, parent_op_id })
+          else {
+            toUpdate.push({ item, field: resolved.field, value: resolved.value, parent_op_id })
+            // Registry row 24 — the re-import's own observation of this
+            // (already-recognized) activity's place, same channel as the
+            // create-path evidence write above.
+            if (field === 'location') {
+              writeEvidence(db, {
+                camp_id, entity_type: 'activities', entity_id: item.entity_id, field: 'location',
+                tag: 'observed', confidence: 'high', support: { location: delta.to },
+                import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
+              })
+            }
+          }
         }
         if (isProtected || staleByClock) {
           // T73: 'accept' bypasses the gate (stamps source:'import', parents on the
@@ -1041,7 +1151,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     for (const item of plan.items) {
       switch (item.op) {
         case 'create': {
-          const ids = recognition[item.entity].get(normalizeName(item._name))
+          const ids = recognition[item.entity].get(recognitionKey(item.entity, item._name))
           if (ids && ids.size >= 1) {
             // T73: a director who resolved an ambiguity to "create new" pinned
             // this create; honor it by bypassing the normalize-collision→conflict
@@ -1074,7 +1184,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           // carrying any now-competing same-name row as a candidate.
           if (!idExists(item.entity, item.entity_id)) {
             if (item.evidence?.tier === 'uuid') { conflicts.push(makeMissingTarget(item)); break }
-            const ids = recognition[item.entity].get(normalizeName(item._name))
+            const ids = recognition[item.entity].get(recognitionKey(item.entity, item._name))
             conflicts.push(makeConflict(item, ids ? [...ids] : []))
           }
           break
@@ -1095,7 +1205,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           // match B now exists), NOT the cross-device divergence the
           // superseded S1b ADRs solved for (there is no second writer). Same
           // held-not-thrown treatment as every other conflict reason here.
-          if (['ambiguous_identity', 'stale', 'validation', 'eligibility_unresolved', 'unit_unresolved', 'missing_target', 'duplicate_id', 'possible_lost_id', 'alias_divergence'].includes(item.reason)) conflicts.push(item)
+          if (['ambiguous_identity', 'stale', 'validation', 'eligibility_unresolved', 'unit_unresolved', 'location_unresolved', 'missing_target', 'duplicate_id', 'possible_lost_id', 'alias_divergence'].includes(item.reason)) conflicts.push(item)
           else throw new Error(`commitPlan: conflict reason "${item.reason}" is not implemented at S1a`)
           break
         default:

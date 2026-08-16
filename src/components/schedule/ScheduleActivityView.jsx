@@ -8,17 +8,19 @@ import './scheduleGrid.css'
 
 const NO_COLLAPSE = new Set()
 
-// M3b round-2 fix (A1): M3b stopped populating the free-text activities.location
-// column for anything bound via the picker, so reading act.location here went
-// blank for any activity with a location_id. Resolve the place through
-// location_id first; only an activity whose location_id is null but whose
-// legacy location string is still set (migrated-but-untouched) falls back to
-// it. A location_id that doesn't resolve to a real location (dangling) shows
-// nothing here — same unconstrained-not-stale treatment as the other
+// M4 §D7: the M3b interim `act.location` fallback is removed. By this point
+// every activity's location_id is either correctly bound (M1's migration
+// backfill re-pointed every pre-v32 activity; every post-v32 create/update
+// goes through location_id exclusively — ingest is the last writer of the
+// frozen `location` string, and this ADR closes it) or genuinely unset. The
+// fallback was not merely dead — it was actively misleading for a DELETED
+// place: a delete clears location_id to null but never touches the frozen
+// `location` string, so the fallback would show a deleted place's stale name
+// as if still assigned. A location_id that doesn't resolve (dangling) shows
+// nothing — same unconstrained-not-stale treatment as the other
 // place-capacity consumers, not the display-affordance C5 gives the edit modal.
 function placeNameFor(act, locMap) {
-  if (act?.location_id) return locMap.get(act.location_id)?.name || null
-  return act?.location || null
+  return act?.location_id ? (locMap.get(act.location_id)?.name || null) : null
 }
 
 export default function ScheduleActivityView({

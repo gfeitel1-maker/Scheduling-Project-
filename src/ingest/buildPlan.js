@@ -13,7 +13,7 @@
 // arms are typed-only and rejected at commit until their later slices.
 
 import { INGESTIBLE_ENTITIES } from './extractEntities.js'
-import { normalizeName } from './preview.js'
+import { normalizeName, recognitionKey } from './preview.js'
 import { dbFieldFor } from './fieldUpdate.js'
 
 // The tri-state CLEAR sentinel (type doc §3): a field present in the map with
@@ -34,6 +34,7 @@ const DAY_INDEX = {
 const SNAPSHOT_KEY = Object.freeze({
   eligible_groups: 'eligible_group_names',
   unit: 'unit_name',
+  location: 'location_name',
 })
 
 // S2c §3. eligible_groups diffs as an order-independent, normalized-name SET:
@@ -89,6 +90,13 @@ export function fieldsFor(entity, name, campId, index, cohortId) {
     }
     case 'activities':
       return { camp_id: campId, name }
+    // M4 §D1a: capacity/notes/sort_order/map_geometry are left to the schema's
+    // own defaults, matching every other bare-minimum entity create (cohorts).
+    // The id itself is NOT derived here — buildPlan is pure/DB-agnostic and
+    // deriveLocationId lives in electron/ops/locationId.js; commitCreate mints
+    // it at commit time (§D1a).
+    case 'locations':
+      return { camp_id: campId, name }
     default:
       throw new Error(`ingest: ${entity} is not an ingestible entity`)
   }
@@ -139,13 +147,17 @@ export function buildPlan(source, existing = null, resolutions = []) {
   const humanFieldsFor = (entity, name) =>
     (humanEditedFields?.[entity]?.[name] ?? []).map((f) => dbFieldFor(f))
 
-  // T73: index the ambiguous-identity resolutions by entity|normalizeName(name).
+  // T73: index the ambiguous-identity resolutions by entity|recognitionKey(name).
+  // M4 §D3: keyed by recognitionKey (entity-aware), not bare normalizeName — a
+  // no-op for every entity but locations, where ambiguous_identity is
+  // structurally unreachable anyway (UNIQUE(camp_id, name) exact-match), kept
+  // consistent for the same reason every other recognition-map site is.
   const ambiguousRes = new Map()
   for (const r of Array.isArray(resolutions) ? resolutions : []) {
     if (!r || r.reason !== 'ambiguous_identity') continue
-    ambiguousRes.set(`${r.entity}|${normalizeName(r.name)}`, r)
+    ambiguousRes.set(`${r.entity}|${recognitionKey(r.entity, r.name)}`, r)
   }
-  const resolutionFor = (entity, name) => ambiguousRes.get(`${entity}|${normalizeName(name)}`)
+  const resolutionFor = (entity, name) => ambiguousRes.get(`${entity}|${recognitionKey(entity, name)}`)
 
   const items = []
 
@@ -166,7 +178,7 @@ export function buildPlan(source, existing = null, resolutions = []) {
       if (!r) continue
       if (r.id != null) byId.set(String(r.id), r)
       if (!r.name) continue
-      const key = normalizeName(r.name)
+      const key = recognitionKey(entity, r.name)
       if (!already.has(key)) already.set(key, [])
       already.get(key).push(r)
     }
@@ -221,9 +233,12 @@ export function buildPlan(source, existing = null, resolutions = []) {
           } else if (field === 'unit') {
             same = normalizeName(String(live ?? '')) === normalizeName(String(proposed))
           } else if (field === nameCol) {
-            // The identity matched via normalizeName, so a raw-form difference
-            // ('art ' vs 'Art') is the SAME entity, not an update.
-            same = normalizeName(String(live)) === normalizeName(String(proposed))
+            // The identity matched via recognitionKey, so a raw-form difference
+            // ('art ' vs 'Art') is the SAME entity, not an update — UNLESS the
+            // entity is locations, where recognitionKey is itself exact/
+            // case-sensitive, so this degrades to a plain string compare there
+            // (a genuine rename, not a spelling variant, is still an update).
+            same = recognitionKey(entity, live) === recognitionKey(entity, proposed)
           } else {
             same = live === proposed
           }
@@ -331,12 +346,19 @@ export function buildPlan(source, existing = null, resolutions = []) {
         }
         if (entity === 'activities') {
           if ('min_per_week' in recFields || 'max_per_week' in recFields
-              || 'priority' in recFields || 'eligible_groups' in recFields) {
+              || 'priority' in recFields || 'eligible_groups' in recFields
+              // M4 §D1c: a create's location, like unit on a group, travels via
+              // the _rule side-channel (never `fields` directly) — foldApprovedToRecords
+              // already merges activityRules[name].location into recFields.location
+              // when the source didn't carry its own; the S4 workbook path sets
+              // recFields.location directly. Either way it lands here.
+              || 'location' in recFields) {
             item._rule = {
               min_per_week: recFields.min_per_week,
               max_per_week: recFields.max_per_week,
               priority: recFields.priority,
               eligible_group_names: recFields.eligible_groups,
+              location: recFields.location,
               // B4: the side-channel's own support/eligibility-known survive
               // the fold too (evidence-only — nothing above this key changes).
               eligibility_known: activityRules?.[name]?.eligibility_known,
@@ -403,7 +425,7 @@ export function buildPlan(source, existing = null, resolutions = []) {
         // resolve; a stale/foreign id (defense-in-depth) simply falls through
         // to the ordinary name hierarchy below.
         if (aliasMatch) {
-          const exactMatches = already.get(normalizeName(name)) ?? []
+          const exactMatches = already.get(recognitionKey(entity, name)) ?? []
           if (exactMatches.length === 0) {
             emitRecognized(aliasMatch, 'confirmed_alias')
             return
@@ -436,7 +458,7 @@ export function buildPlan(source, existing = null, resolutions = []) {
         }
       }
 
-      const matches = already.get(normalizeName(name)) ?? []
+      const matches = already.get(recognitionKey(entity, name)) ?? []
       if (matches.length > 1) {
         // One incoming label, more than one live row normalize-matching it.
         // T73: if the director already resolved this ambiguity, honor the pick

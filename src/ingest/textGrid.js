@@ -363,6 +363,13 @@ export function parseTextGrid(text) {
       // drop the second on a future unlabeled camp. Every current-corpus period
       // is one activity + one location per blank-delimited block, so it does not
       // fire today. Tracked, not pre-solved — see [T36].
+      // Q8 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D5): a
+      // line that WOULD be stripped as a location is captured instead of
+      // discarded, parallel to `valueRows` by index (the row it sits under —
+      // the value row most recently pushed when the location line is seen).
+      // `locationLineGroups[i]` may be sparse/absent; a row with no captured
+      // location line simply carries no `locations` field downstream.
+      const locationLineGroups = []
       let prevHadData = false
       for (const tokens of block) {
         const dataTokens = []
@@ -375,7 +382,14 @@ export function parseTextGrid(text) {
           continue
         }
         if (stripLocations) {
-          if (prevHadData && (isValueRow(tokens) || isBareNumbers(dataTokens))) continue
+          if (prevHadData && (isValueRow(tokens) || isBareNumbers(dataTokens))) {
+            if (valueRows.length > 0) {
+              const idx = valueRows.length - 1
+              if (!locationLineGroups[idx]) locationLineGroups[idx] = []
+              locationLineGroups[idx].push(dataTokens)
+            }
+            continue
+          }
           prevHadData = true
         }
         if (isValueRow(tokens)) {
@@ -398,7 +412,7 @@ export function parseTextGrid(text) {
         return
       }
 
-      for (const lineGroup of valueRows) {
+      valueRows.forEach((lineGroup, rowIndex) => {
         const cells = Array(columns.length).fill('')
         for (const tokens of lineGroup) {
           for (const token of tokens) {
@@ -407,8 +421,20 @@ export function parseTextGrid(text) {
             cells[index] = cells[index] ? `${cells[index]} ${token.text}` : token.text
           }
         }
-        rows.push({ label: periodLabel, cells })
-      }
+        const capturedTokens = locationLineGroups[rowIndex]
+        let locations
+        if (capturedTokens && capturedTokens.length > 0) {
+          locations = Array(columns.length).fill('')
+          for (const tokens of capturedTokens) {
+            for (const token of tokens) {
+              const index = columnFor(token, columns)
+              if (index < 0) continue
+              locations[index] = locations[index] ? `${locations[index]} ${token.text}` : token.text
+            }
+          }
+        }
+        rows.push(locations ? { label: periodLabel, cells, locations } : { label: periodLabel, cells })
+      })
     }
 
     for (let i = headerIndex + 1; i < endIndex; i++) {

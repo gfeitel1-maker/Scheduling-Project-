@@ -32,6 +32,12 @@ function makeActivity(name = 'Swim', isLocked = 0) {
   return id
 }
 
+function makeLocation(name = 'Pool') {
+  const id = randomUUID()
+  db.prepare('INSERT INTO locations (id, camp_id, name, capacity) VALUES (?, ?, ?, 1)').run(id, campId, name)
+  return id
+}
+
 describe('confirmAlias — single-writer transactional write', () => {
   it('produces exactly one active row for a fresh confirm', () => {
     const groupId = makeGroup()
@@ -127,5 +133,31 @@ describe('confirmAlias — validation and refusal (§3, §6)', () => {
       camp_id: campId, entity_type: 'activities', source_label: 'Swimming', entity_id: activityId,
     })).toThrow(/target_locked/)
     expect(db.prepare('SELECT COUNT(*) c FROM source_aliases').get().c).toBe(0)
+  })
+})
+
+// M4 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D5, registry
+// row 2): 'locations' joins ALIAS_ENTITY_TABLE — this file's own copy, kept
+// deliberately separate from ingest.js's per the header comment. Without both
+// copies updated, `entity_type: 'locations'` would pass the INGESTIBLE_ENTITIES
+// check but then resolve `table = undefined` and throw a raw SQL error instead
+// of a clean ConfirmAliasError — the exact drift this second test guards.
+describe('confirmAlias — locations (M4)', () => {
+  it('confirms a location alias (e.g. "Pool Deck" -> the existing "Pool" row)', () => {
+    const locationId = makeLocation('Pool')
+    const result = confirmAlias(db, {
+      camp_id: campId, entity_type: 'locations', source_label: 'Pool Deck', entity_id: locationId,
+    })
+    expect(result.superseded).toBeNull()
+    const row = db.prepare("SELECT * FROM source_aliases WHERE camp_id = ? AND status = 'active'").get(campId)
+    expect(row.entity_type).toBe('locations')
+    expect(row.entity_id).toBe(locationId)
+    expect(row.cohort_id).toBeNull() // locations are camp-wide, never cohort-scoped
+  })
+
+  it('refuses a nonexistent location target the same way every other entity does', () => {
+    expect(() => confirmAlias(db, {
+      camp_id: campId, entity_type: 'locations', source_label: 'Pool Deck', entity_id: 'not-a-real-id',
+    })).toThrow(/target_not_live/)
   })
 })

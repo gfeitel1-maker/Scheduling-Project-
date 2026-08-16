@@ -11,9 +11,11 @@ const campA = parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campA-bunk-sched
 const campB = parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campB-achva-by-day.txt'), 'utf8'))
 
 describe('the entities-only boundary (ADR §2)', () => {
-  it('can only ever propose the six setup entities', () => {
+  // M4 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D2):
+  // 'locations' joins as a genuine 7th ingestible entity.
+  it('can only ever propose the seven setup entities', () => {
     expect([...INGESTIBLE_ENTITIES].sort()).toEqual(
-      ['activities', 'cohorts', 'days_of_operation', 'groups', 'tiers', 'time_blocks'].sort()
+      ['activities', 'cohorts', 'days_of_operation', 'groups', 'locations', 'tiers', 'time_blocks'].sort()
     )
   })
 

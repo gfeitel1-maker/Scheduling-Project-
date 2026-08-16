@@ -46,6 +46,7 @@ const LABEL = {
   groups: 'Groups',
   days_of_operation: 'Days',
   time_blocks: 'Time Blocks',
+  locations: 'Places',
   activities: 'Activities',
 }
 
@@ -139,6 +140,10 @@ export default function ImportScreen({ campId, onNavigate }) {
   const [preview, setPreview] = useState(null)
   // D2 round 2 — see the comment at its assignment in readFiles.
   const fileGroupUnitsRef = useRef({})
+  // Q8 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D5) — same
+  // "survives staging" reasoning as fileGroupUnitsRef: normalized(activity
+  // name) -> the one place name it was captured next to.
+  const fileActivityLocationsRef = useRef({})
   const [chosen, setChosen] = useState({})
   // Proposed recurring fixed events (T34), and which the director has ticked.
   // High-confidence events start ticked; low-confidence start unticked, mirroring
@@ -316,6 +321,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       // A ref survives that null without re-rendering or needing its own reset
       // bookkeeping — a fresh upload simply overwrites it.
       fileGroupUnitsRef.current = next.groupUnits ?? {}
+      fileActivityLocationsRef.current = proposal.activityLocations ?? {}
 
       // Recurring fixed events implied by the grid (T34). High-confidence ones
       // (holding on every operating day) start ticked; low-confidence ones (a
@@ -347,9 +353,13 @@ export default function ImportScreen({ campId, onNavigate }) {
       for (const entity of INGESTIBLE_ENTITIES) {
         const { create, lowConfidence = [] } = next.perEntity[entity]
         const low = new Set(lowConfidence)
-        initial[entity] = new Set(
-          create.filter((n) => !low.has(n) && !(entity === 'activities' && pinOnlySet.has(n)))
-        )
+        // Q8 (§D5): a location create candidate defaults UNTICKED — the one
+        // deviation from every other entity's create-defaults-ticked-unless-
+        // low-confidence rule, mirroring the fixed-event pin-only precedent.
+        // Nothing is ever minted or bound without the director's explicit tick.
+        initial[entity] = entity === 'locations'
+          ? new Set()
+          : new Set(create.filter((n) => !low.has(n) && !(entity === 'activities' && pinOnlySet.has(n))))
       }
       setChosen(initial)
 
@@ -564,6 +574,15 @@ export default function ImportScreen({ campId, onNavigate }) {
         max_per_week: rule.max_per_week,
         priority: rule.priority,
       }
+      // Q8 (§D5): gate the paired location on the director's own tick — a
+      // captured location that is not ticked is simply omitted, never sent,
+      // the same "preserve" semantics buildPlan already gives any absent
+      // field. This is what keeps Q8 genuinely propose-only: no location row
+      // is ever minted, and no activity is ever bound to one, without it.
+      const pairedLocation = fileActivityLocationsRef.current[normalizeName(name)]
+      if (pairedLocation && chosen.locations?.has(pairedLocation)) {
+        outgoingRules[name].location = pairedLocation
+      }
       const edited = Array.isArray(rule._editedFields) ? rule._editedFields : []
       if (edited.length > 0) activityHumanFields[name] = edited
     }
@@ -640,9 +659,10 @@ export default function ImportScreen({ campId, onNavigate }) {
   // its own live snapshot (Article V), so the two agree. Replace mode passes a null
   // snapshot exactly as the committer does, keeping the blind-create path.
   async function stageLedger(inputs, fileName, origin = 'schedule') {
-    const existing = inputs.mode === 'replace'
-      ? null
-      : await buildExistingSnapshot(localClient.list, inputs.cohort_id)
+    // M4 §D2: locations is scanned live in every mode (buildExistingSnapshot
+    // is now mode-aware itself) — the six schedule-content entities keep the
+    // pre-M4 replace-mode skip.
+    const existing = await buildExistingSnapshot(localClient.list, inputs.cohort_id, inputs.mode)
     const recordApproved = foldApprovedToRecords(inputs.approved, inputs.activityRules, inputs.links, inputs.clears)
     const plan = buildPlan(
       { ...inputs, approved: recordApproved, camp_id: campId },
@@ -1077,6 +1097,7 @@ export default function ImportScreen({ campId, onNavigate }) {
                     const seen = preview.perEntity[entity].counts?.[name]
                     const isPinOnly = entity === 'activities' && pinOnlyActivityNames.has(name)
                     const isDualUse = entity === 'activities' && dualUseActivityNames.has(name)
+                    const isLocationCandidate = entity === 'locations'
                     return (
                       <button
                         key={name}
@@ -1107,6 +1128,14 @@ export default function ImportScreen({ campId, onNavigate }) {
                         {isDualUse && (
                           <div style={{ fontSize: 10, marginTop: 2, fontWeight: 400, textDecoration: 'none', opacity: 0.8 }}>
                             Also appears as a fixed event.
+                          </div>
+                        )}
+                        {/* Q8 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D5) —
+                            a place is propose-only: nothing is created and no
+                            activity is bound to it until the director ticks it. */}
+                        {isLocationCandidate && (
+                          <div style={{ fontSize: 10, marginTop: 2, fontWeight: 400, textDecoration: 'none', opacity: 0.8 }}>
+                            Seen in this file as a room. Tick to add it as a place and put these activities on it.
                           </div>
                         )}
                       </button>

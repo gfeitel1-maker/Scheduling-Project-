@@ -15,6 +15,7 @@ import * as XLSX from 'xlsx'
 import { openLocalDb } from '../db/localDb.js'
 import { appendOp, latestOp, latestOpSeq } from './operations.js'
 import { commitIngest } from './ingest.js'
+import { deriveLocationId } from './locationId.js'
 import { exportWorkbook } from '../../src/utils/exportWorkbook.js'
 import { workbookToSource, CLEAR_TOKEN } from '../../src/ingest/workbookToSource.js'
 
@@ -51,8 +52,13 @@ function seed() {
 function listShape() {
   const tiers = db.prepare('SELECT id, name, sort_order FROM tiers WHERE camp_id = ?').all(campId)
   const groups = db.prepare('SELECT id, name, tier_id, availability FROM groups WHERE camp_id = ?').all(campId)
-  const activities = db.prepare('SELECT id, name, priority, min_per_week, max_per_week, eligible_group_ids, location FROM activities WHERE camp_id = ?').all(campId)
-  return { tiers, groups, activities, cohorts: [], days_of_operation: [], time_blocks: [] }
+  const activities = db.prepare('SELECT id, name, priority, min_per_week, max_per_week, eligible_group_ids, location_id FROM activities WHERE camp_id = ?').all(campId)
+  // M4 §D6: exportWorkbook resolves an activity's location_id to a NAME through
+  // this array — omitted here in every other describe block because none of
+  // them bind a real location, but the round-trip below does, and needs the
+  // real resolution exercised rather than always reading an empty map.
+  const locations = db.prepare('SELECT id, name FROM locations WHERE camp_id = ?').all(campId)
+  return { tiers, groups, activities, locations, cohorts: [], days_of_operation: [], time_blocks: [] }
 }
 function makeWorkbook(base_generation) {
   return exportWorkbook({ ...listShape(), camp_id: campId, cohort_id: null, base_generation })
@@ -113,12 +119,14 @@ describe('idempotency + baseline diff (RISK D)', () => {
     seed()
     const id = actId('Swim')
     const wb = makeWorkbook(latestOpSeq(db))
-    // A peer changes priority live AFTER the export — but the director never
-    // touched the priority cell, so the baseline-diff omits it: no delta, no hold.
-    appendOp(db, { entity: 'activities', entity_id: id, field: 'location', value: 'Lake', device_id: deviceId, source: 'import' })
+    // A peer changes location_id live AFTER the export — but the director
+    // never touched the location cell, so the baseline-diff omits it: no
+    // delta, no hold. M4: location_id is the comparable column now (location
+    // is frozen, never diffed).
+    appendOp(db, { entity: 'activities', entity_id: id, field: 'location_id', value: deriveLocationId(campId, 'Lake'), device_id: deviceId, source: 'import' })
     const before = opCount()
     const res = reimport(wb)
-    // location was drifted live but untouched in the sheet → baseline-diff drops it.
+    // location_id was drifted live but untouched in the sheet → baseline-diff drops it.
     expect(res.held).toBe(false)
     expect(res.updated).toBe(0)
     expect(opCount()).toBe(before)
@@ -178,22 +186,26 @@ describe('the live <clear> arm (RISK I)', () => {
   it('<clear> on an import-owned field writes a field-null op', () => {
     seed()
     const id = actId('Swim')
-    expect(actField(id, 'location')).toBeNull() // never set; set one now (import)
-    appendOp(db, { entity: 'activities', entity_id: id, field: 'location', value: 'Pool', device_id: deviceId, source: 'import' })
-    expect(actField(id, 'location')).toBe('Pool')
+    expect(actField(id, 'location_id')).toBeNull() // never set; set one now (import)
+    const poolId = deriveLocationId(campId, 'Pool')
+    appendOp(db, { entity: 'activities', entity_id: id, field: 'location_id', value: poolId, device_id: deviceId, source: 'import' })
+    expect(actField(id, 'location_id')).toBe(poolId)
     const wb = makeWorkbook(latestOpSeq(db))
     editCell(wb, 'Activities', 'Swim', 'location', CLEAR_TOKEN)
     const res = reimport(wb)
     expect(res.held).toBe(false)
-    expect(actField(id, 'location')).toBeNull()
-    // The write is a real null op (never a Symbol).
-    expect(latestOp(db, 'activities', id, 'location').value).toBeNull()
+    expect(actField(id, 'location_id')).toBeNull()
+    // The write is a real null op (never a Symbol), on location_id — the
+    // frozen `location` column is never touched (M4 §D4).
+    expect(latestOp(db, 'activities', id, 'location_id').value).toBeNull()
+    expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE entity='activities' AND field='location'").get().c).toBe(0)
   })
 
   it('<clear> on a HUMAN-authored field is held (gated ≥ update)', () => {
     seed()
     const id = actId('Swim')
-    appendOp(db, { entity: 'activities', entity_id: id, field: 'location', value: 'Pool', device_id: deviceId, source: 'human' })
+    const poolId = deriveLocationId(campId, 'Pool')
+    appendOp(db, { entity: 'activities', entity_id: id, field: 'location_id', value: poolId, device_id: deviceId, source: 'human' })
     const wb = makeWorkbook(latestOpSeq(db))
     editCell(wb, 'Activities', 'Swim', 'location', CLEAR_TOKEN)
     const before = opCount()
@@ -201,13 +213,13 @@ describe('the live <clear> arm (RISK I)', () => {
     expect(res.held).toBe(true)
     expect(res.conflicts.some((c) => c.reason === 'stale')).toBe(true)
     expect(opCount()).toBe(before)
-    expect(actField(id, 'location')).toBe('Pool')  // untouched
+    expect(actField(id, 'location_id')).toBe(poolId)  // untouched
   })
 
   it('<clear> on a never-set field is a NO-OP (no spurious null op)', () => {
     seed()
     const id = actId('Swim')
-    expect(actField(id, 'location')).toBeNull()
+    expect(actField(id, 'location_id')).toBeNull()
     const wb = makeWorkbook(latestOpSeq(db))
     editCell(wb, 'Activities', 'Swim', 'location', CLEAR_TOKEN)
     const before = opCount()
@@ -215,6 +227,63 @@ describe('the live <clear> arm (RISK I)', () => {
     expect(res.held).toBe(false)
     expect(res.updated).toBe(0)
     expect(opCount()).toBe(before)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// A real place NAME survives export -> edit -> re-import (M4 §D6). Every
+// other describe block above binds `location_id` directly via appendOp and
+// never passes `locations` into listShape/makeWorkbook, so exportWorkbook's
+// id->name resolution (locationNameById) was never actually exercised — the
+// exported `location` cell always read back as '' regardless of the real
+// location_id, and nothing caught it. This proves the whole loop: a bound
+// place's NAME is what lands in the sheet, and workbookToSource resolves a
+// name back to the SAME (or a newly chosen) real location_id, not a fresh row.
+// ---------------------------------------------------------------------------
+describe('location NAME round trip (M4 §D6)', () => {
+  function cellValue(wb, sheet, name, header) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheet], { header: 1 })
+    const hdr = rows[0]
+    const r = rows.findIndex((row, i) => i > 0 && row[hdr.indexOf('name')] === name)
+    return rows[r]?.[hdr.indexOf(header)]
+  }
+  function seedWithLocation() {
+    seed()
+    commit({ approved: { locations: ['Pool', 'Lake'] } })
+    const poolId = db.prepare('SELECT id FROM locations WHERE camp_id = ? AND name = ?').get(campId, 'Pool').id
+    const lakeId = db.prepare('SELECT id FROM locations WHERE camp_id = ? AND name = ?').get(campId, 'Lake').id
+    const id = actId('Swim')
+    appendOp(db, { entity: 'activities', entity_id: id, field: 'location_id', value: poolId, device_id: deviceId, source: 'import' })
+    return { id, poolId, lakeId }
+  }
+  const locationCount = () => db.prepare('SELECT COUNT(*) c FROM locations WHERE camp_id = ?').get(campId).c
+
+  it('exportWorkbook emits the place NAME, not a blank cell, for a bound activity', () => {
+    seedWithLocation()
+    const wb = makeWorkbook(latestOpSeq(db))
+    expect(cellValue(wb, 'Activities', 'Swim', 'location')).toBe('Pool')
+  })
+
+  it('an unedited re-import preserves the SAME binding — not cleared, not a spurious second row', () => {
+    const { id, poolId } = seedWithLocation()
+    const wb = makeWorkbook(latestOpSeq(db))
+    const before = opCount()
+    const res = reimport(wb)
+    expect(res.held).toBe(false)
+    expect(res.updated).toBe(0)
+    expect(opCount()).toBe(before)
+    expect(actField(id, 'location_id')).toBe(poolId)
+    expect(locationCount()).toBe(2)   // still exactly Pool + Lake
+  })
+
+  it('editing the cell to a different existing place\'s name rebinds to that place\'s real id, not a new row', () => {
+    const { id, lakeId } = seedWithLocation()
+    const wb = makeWorkbook(latestOpSeq(db))
+    editCell(wb, 'Activities', 'Swim', 'location', 'Lake')
+    const res = reimport(wb)
+    expect(res.held).toBe(false)
+    expect(actField(id, 'location_id')).toBe(lakeId)
+    expect(locationCount()).toBe(2)   // resolved to the existing Lake row, minted nothing
   })
 })
 

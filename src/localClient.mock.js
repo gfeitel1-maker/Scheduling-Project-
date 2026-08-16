@@ -9,10 +9,14 @@
 // same side as this mock, so importing it crosses no boundary.
 import { buildPlan, CLEAR } from './ingest/buildPlan.js'
 import { INGESTIBLE_ENTITIES } from './ingest/extractEntities.js'
-import { normalizeName } from './ingest/preview.js'
+import { normalizeName, recognitionKey } from './ingest/preview.js'
 // S2c: the SAME pure field-update helpers the real committer uses, so the mock's
 // fold/snapshot/validation cannot drift from electron/ops/ingest.js.
 import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor } from './ingest/fieldUpdate.js'
+// M4: same src/-may-import-electron/ops/locationId.js exception
+// src/screens/locationMigrationReview.js already established — pure id
+// derivation, no electron-only dependency.
+import { deriveLocationId } from '../electron/ops/locationId.js'
 
 const STORE_KEY = 'shoresh-mock-state'
 
@@ -34,7 +38,9 @@ const MOCK_COMPARABLE_COLUMNS = {
   groups: ['availability', 'tier_id'],
   days_of_operation: ['day_of_week', 'sort_order'],
   time_blocks: ['start_time', 'end_time', 'sort_order'],
-  activities: ['priority', 'min_per_week', 'max_per_week', 'location', 'eligible_group_ids'],
+  // M4: 'location' -> 'location_id' (mirrors electron's COMPARABLE_COLUMNS).
+  activities: ['priority', 'min_per_week', 'max_per_week', 'location_id', 'eligible_group_ids'],
+  locations: [],
 }
 
 // Per-field provenance marker, the mock's stand-in for the op-log `source`
@@ -536,21 +542,29 @@ export const mockShoresh = {
     for (const g of state.groups ?? []) groupNameById.set(g.id, g.name)
     const tierNameById = new Map()
     for (const t of state.tiers ?? []) tierNameById.set(t.id, t.name)
+    // M4 §D4: locations' own id->name map, mirroring tierNameById/groupNameById.
+    const locationNameById = new Map()
+    for (const l of state.locations ?? []) locationNameById.set(l.id, l.name)
+    // M4 §D2: locations is durable camp infrastructure — always scanned live,
+    // never blind-created in replace mode (mirrors electron's
+    // ALWAYS_SCANNED_ENTITIES carve-out). The six schedule-content entities
+    // keep the pre-M4 behavior: skipped entirely in replace mode.
+    const entitiesToScan = mode === 'replace' ? ['locations'] : INGESTIBLE_ENTITIES
     const buildSnapshot = () => {
       const existing = {}
-      for (const entity of INGESTIBLE_ENTITIES) {
+      for (const entity of entitiesToScan) {
         const scoped = MOCK_COHORT_SCOPED.has(entity)
         const rows = (state[entity] ?? []).map((r) => {
           const row = { id: r.id, name: r[mockNameColumnFor(entity)] }
           if (scoped) row.cohort_id = r.cohort_id ?? null
           for (const c of MOCK_COMPARABLE_COLUMNS[entity]) row[c] = r[c]
-          return enrichSnapshotRow(entity, row, groupNameById, tierNameById)
+          return enrichSnapshotRow(entity, row, groupNameById, tierNameById, locationNameById)
         })
         existing[entity] = scoped && cohortId ? rows.filter((r) => r.cohort_id === cohortId) : rows
       }
       return existing
     }
-    const existing = mode === 'replace' ? null : buildSnapshot()
+    const existing = buildSnapshot()
 
     // S2c §1: fold the rule/unit side-channels into per-row records at this
     // boundary (shared with electron), so buildPlan sees only records. `links`/
@@ -572,9 +586,9 @@ export const mockShoresh = {
     const resIndex = new Map()
     for (const r of Array.isArray(resolutions) ? resolutions : []) {
       if (!r || !r.entity) continue
-      resIndex.set(`${r.entity}|${normalizeName(r.name)}|${r.field ?? ''}`, r)
+      resIndex.set(`${r.entity}|${recognitionKey(r.entity, r.name)}|${r.field ?? ''}`, r)
     }
-    const resolutionFor = (entity, name, field = '') => resIndex.get(`${entity}|${normalizeName(name)}|${field ?? ''}`)
+    const resolutionFor = (entity, name, field = '') => resIndex.get(`${entity}|${recognitionKey(entity, name)}|${field ?? ''}`)
 
     // Live-store re-resolution helpers, mirroring commitPlan.
     const liveName = (entity, id) => {
@@ -622,16 +636,23 @@ export const mockShoresh = {
     for (const t of state.tiers ?? []) if (t.name && (t.cohort_id ?? null) === cohortId) tierIdByName.set(String(t.name).trim().toLowerCase(), t.id)
     const groupIdByNameRun = new Map()
     for (const g of state.groups ?? []) if (g.name) groupIdByNameRun.set(normalizeName(g.name), g.id)
+    // M4 §D1b/§13: TRIM-only, case-sensitive keys — NOT normalizeName — matching
+    // deriveLocationId's own normalization contract, mirroring electron's
+    // seedNameMaps locationIdByName exactly.
+    const locationIdByNameRun = new Map()
+    for (const l of state.locations ?? []) if (l.name) locationIdByNameRun.set(String(l.name).trim(), l.id)
 
     // Recognition maps for commit-time re-resolution (normalized-name → set of
     // live ids), cohort-scoped for tiers/time_blocks exactly as the snapshot.
+    // M4 §D3: recognitionKey, not bare normalizeName — case-sensitive/exact
+    // for locations, mirroring electron's seedRecognitionMaps.
     const recognition = {}
     for (const entity of INGESTIBLE_ENTITIES) {
       recognition[entity] = new Map()
       const scoped = MOCK_COHORT_SCOPED.has(entity)
       for (const r of state[entity] ?? []) {
         if (scoped && cohortId && (r.cohort_id ?? null) !== cohortId) continue
-        const key = normalizeName(r[mockNameColumnFor(entity)])
+        const key = recognitionKey(entity, r[mockNameColumnFor(entity)])
         if (!key) continue
         if (!recognition[entity].has(key)) recognition[entity].set(key, new Set())
         recognition[entity].get(key).add(r.id)
@@ -650,7 +671,7 @@ export const mockShoresh = {
     for (const item of plan.items) {
       switch (item.op) {
         case 'create': {
-          const ids = recognition[item.entity].get(normalizeName(item._name))
+          const ids = recognition[item.entity].get(recognitionKey(item.entity, item._name))
           if (ids && ids.size >= 1) {
             const res = resolutionFor(item.entity, item._name)
             const pinnedCreate = res?.reason === 'ambiguous_identity' && res.choice === 'create'
@@ -664,7 +685,7 @@ export const mockShoresh = {
         }
         case 'unchanged': {
           if (!idExists(item.entity, item.entity_id)) {
-            const ids = recognition[item.entity].get(normalizeName(item._name))
+            const ids = recognition[item.entity].get(recognitionKey(item.entity, item._name))
             conflicts.push(makeConflict(item, ids ? [...ids] : []))
           }
           break
@@ -676,7 +697,7 @@ export const mockShoresh = {
               conflicts.push({ op: 'conflict', entity: item.entity, entity_id: item.entity_id ?? null, reason: 'missing_target', fields: {}, evidence: { tier: 'uuid' }, _name: item._name })
               break
             }
-            const ids = recognition[item.entity].get(normalizeName(item._name))
+            const ids = recognition[item.entity].get(recognitionKey(item.entity, item._name))
             conflicts.push(makeConflict(item, ids ? [...ids] : []))
             break
           }
@@ -698,7 +719,7 @@ export const mockShoresh = {
             const res = resolutionFor(item.entity, item._name, field)
             const enqueue = () => {
               if (isClear) { toUpdate.push({ item, field: dbField, value: null }); return }
-              const resolved = resolveFieldWrite(field, delta.to, { groupIdByName: groupIdByNameRun, tierIdByName })
+              const resolved = resolveFieldWrite(field, delta.to, { groupIdByName: groupIdByNameRun, tierIdByName, locationIdByName: locationIdByNameRun })
               if (!resolved.ok) conflicts.push(makeFieldConflict(item, resolved.reason, field, delta, resolved.detail))
               else toUpdate.push({ item, field: resolved.field, value: resolved.value })
             }
@@ -713,7 +734,7 @@ export const mockShoresh = {
           break
         }
         case 'conflict':
-          if (['ambiguous_identity', 'stale', 'validation', 'eligibility_unresolved', 'unit_unresolved', 'missing_target', 'duplicate_id', 'possible_lost_id'].includes(item.reason)) conflicts.push(item)
+          if (['ambiguous_identity', 'stale', 'validation', 'eligibility_unresolved', 'unit_unresolved', 'location_unresolved', 'missing_target', 'duplicate_id', 'possible_lost_id'].includes(item.reason)) conflicts.push(item)
           else throw new Error(`mock ingestCommit: conflict reason "${item.reason}" is not implemented`)
           break
         default:
@@ -733,13 +754,43 @@ export const mockShoresh = {
     // extended here as tiers/groups are created, so a group created this run files
     // under a unit created moments earlier — commitPlan's seedNameMaps discipline.
 
+    // M4 §D1c mirror. Resolve-OR-create a location inline for a brand-new
+    // activity whose location was never separately proposed as its own
+    // `locations` create item (the S4 workbook path's real shape). Mirrors
+    // electron/ops/ingest.js's resolveOrCreateLocationId: a cache hit on the
+    // common path (locations precedes activities in INGESTIBLE_ENTITIES
+    // order, so a same-import location create already ran), a genuine mint
+    // only when truly absent.
+    const resolveOrCreateLocationId = (name) => {
+      const trimmed = String(name ?? '').trim()
+      if (!trimmed) return null
+      const cached = locationIdByNameRun.get(trimmed)
+      if (cached) return cached
+      const locId = deriveLocationId(campId, trimmed)
+      if (!Array.isArray(state.locations)) state.locations = []
+      if (!state.locations.some((l) => l.id === locId)) {
+        // capacity: 1 mirrors the schema's own DEFAULT 1 (buildPlan never sets
+        // it for a create, real ingest.js leaves it to SQL) — the mock has no
+        // SQL default to fall back on, so it must set the same value inline
+        // or LocationsScreen reads back `undefined` at :5200.
+        state.locations.push({ id: locId, camp_id: campId, name: trimmed, capacity: 1 })
+        markSource(state, 'locations', locId, 'camp_id', 'import')
+        markSource(state, 'locations', locId, 'name', 'import')
+      }
+      locationIdByNameRun.set(trimmed, locId)
+      return locId
+    }
+
     // commitCreate mirror: extract each FieldDelta's `to`, resolve group tier_id
     // and activity rules against the live/run name maps, insert the row, and mark
     // every written field 'import' provenance.
     const commitCreate = (item) => {
       const entity = item.entity
       const name = item._name
-      const id = randomId()
+      // M4 §D1a mirror: deriveLocationId, never randomId, so the mock's
+      // location ids agree with the real ingest path's (a director might
+      // move between :5200 and electron:dev, or diff their outputs).
+      const id = entity === 'locations' ? deriveLocationId(campId, name) : randomId()
       const fields = {}
       for (const [field, delta] of Object.entries(item.fields)) fields[field] = delta.to
       if (entity === 'tiers') tierIdByName.set(name.toLowerCase(), id)
@@ -749,6 +800,8 @@ export const mockShoresh = {
         const tierId = unit ? tierIdByName.get(String(unit).trim().toLowerCase()) : null
         if (tierId) fields.tier_id = tierId
       }
+      // M4 §D1a/§D2 mirror: registered before any activities create runs.
+      if (entity === 'locations') locationIdByNameRun.set(String(name).trim(), id)
       if (entity === 'activities') {
         // T35 — inferred/edited rules, with the same round-2 validation the real
         // write boundary applies (priority exactly 'high'/'low'; min/max positive
@@ -765,6 +818,11 @@ export const mockShoresh = {
           // T61 — an eligible activity runs at least once a week or the engine
           // places it zero times. Floored on both paths, matching commitCreate.
           if (groupIds.length > 0 && !(Number.isInteger(fields.min_per_week) && fields.min_per_week >= 1)) fields.min_per_week = 1
+          // M4 §D1c mirror.
+          if (rule.location != null && rule.location !== '') {
+            const locationId = resolveOrCreateLocationId(rule.location)
+            if (locationId) fields.location_id = locationId
+          }
         }
       }
       const row = { id }
@@ -778,6 +836,14 @@ export const mockShoresh = {
         row[field] = value
         markSource(state, entity, id, field, humanFields.has(field) ? 'human' : 'import')
       }
+      // M4 §D1a mirror: buildPlan never sets capacity for a locations create
+      // (left to the schema's own DEFAULT 1, real ingest.js never emits a
+      // capacity op either); the mock has no SQL default to fall back on, so
+      // it must set the same value inline or a location created straight from
+      // a `locations` create item (not the resolve-or-create branch above)
+      // reads back `capacity: undefined` at :5200. Left untracked in
+      // __fieldSource, same as the real path leaves it untracked in the op log.
+      if (entity === 'locations' && row.capacity === undefined) row.capacity = 1
       state[entity].push(row)
       created[entity] += 1
       total += 1

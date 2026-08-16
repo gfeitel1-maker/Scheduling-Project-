@@ -52,7 +52,7 @@ export const SHEET_LAYOUT = Object.freeze([
     entity: 'activities', sheet: 'Activities', nameKey: 'name',
     columns: [
       { key: 'name' }, { key: 'priority' }, { key: 'min_per_week' }, { key: 'max_per_week' },
-      { key: 'eligible_groups', labelList: true }, { key: 'location' },
+      { key: 'eligible_groups', labelList: true }, { key: 'location', label: true },
     ],
   },
 ])
@@ -100,6 +100,11 @@ function cellValueFor(col, row, maps) {
   if (col.label && col.key === 'unit') {
     return row.tier_id != null ? (maps.tierNameById.get(row.tier_id) ?? '') : ''
   }
+  // M4 §D6, mirroring `unit` exactly: the sheet shows the resolved place NAME,
+  // never the raw location_id.
+  if (col.label && col.key === 'location') {
+    return row.location_id != null ? (maps.locationNameById.get(row.location_id) ?? '') : ''
+  }
   if (col.labelList && col.key === 'eligible_groups') {
     return eligibleGroupLabels(row, maps.groupNameById)
   }
@@ -121,13 +126,17 @@ function cellValueFor(col, row, maps) {
  *                  as-is; sourcing a real value is the trigger's job.
  */
 export function exportWorkbook({
-  cohorts = [], tiers = [], groups = [], days_of_operation = [], time_blocks = [], activities = [],
+  cohorts = [], tiers = [], groups = [], days_of_operation = [], time_blocks = [], locations = [], activities = [],
   camp_id = null, cohort_id = null, base_generation = null,
 } = {}) {
+  // M4 §D6: 'locations' is an extra input used only to resolve the activities
+  // sheet's `location` column — NOT a sheet of its own. SHEET_LAYOUT stays six
+  // entries; the place catalog lives on LocationsScreen, not the workbook.
   const entities = { cohorts, tiers, groups, days_of_operation, time_blocks, activities }
   const maps = {
     tierNameById: new Map(tiers.map((t) => [t.id, t.name])),
     groupNameById: new Map(groups.map((g) => [g.id, g.name])),
+    locationNameById: new Map(locations.map((l) => [l.id, l.name])),
   }
 
   const wb = XLSX.utils.book_new()
