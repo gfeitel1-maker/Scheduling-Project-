@@ -83,6 +83,14 @@ describe('route-aware legend', () => {
     expect(labels).not.toContain('Overlapping')
   })
 
+  it('documents "Closed this week" on BOTH routes (WEEK_CLOSED is route-agnostic)', () => {
+    // A closed-week placement is equally wrong on either route, so the marker —
+    // and its legend entry — appears on both, unlike the route-specific
+    // Unfillable / Overlapping pair.
+    expect(legendEntriesFor('manual').map(e => e.label)).toContain('Closed this week')
+    expect(legendEntriesFor('generated').map(e => e.label)).toContain('Closed this week')
+  })
+
   it('documents every structural treatment on both routes', () => {
     for (const route of ['manual', 'generated']) {
       const labels = legendEntriesFor(route).map(e => e.label)

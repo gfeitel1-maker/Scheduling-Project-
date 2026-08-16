@@ -37,14 +37,18 @@ This spec closes that gap for the two exclusion types that are **live on
    Inventing manual-route location semantics before M5 finalizes the generate
    semantics would fork/duplicate M5's work. This design is **structured so the
    location branch is a small addition** once M5 merges (§6).
-2. **Generated-route post-generation edits.** Generation itself already honors
-   exclusions (`resolveWeekCatalog`). A director dragging an excluded activity
-   onto the *generated* candidate after it is built is a separate, smaller gap
-   and is not fixed here. The flag decorator is applied on the **manual route
-   only**, matching how `withOverlapFlags` is applied.
-3. **Anchors.** Anchor cells (meals, tefillah, fixed events) are skipped, exactly
-   as `computeOverlaps` skips `s.is_anchor`. `placeAnchors` building on the raw
-   catalog is a known adjacent gap, not fixed here.
+2. ~~Generated-route post-generation edits.~~ **Now handled.** `WEEK_CLOSED`
+   derives on **both** routes — a closed-week placement is equally wrong on
+   either, and the generated candidate can acquire one after generation (a drag
+   edit, or an activity/group marked closed after the week was built) that
+   `resolveWeekCatalog` cannot catch up front. See §Approach. (`OVERLAP` stays
+   manual-only — that is a genuine product stance about clashes, not an
+   oversight.)
+3. **Per-slot anchor flagging.** Anchor *cells* are skipped by the derived flag,
+   exactly as `computeOverlaps` skips `s.is_anchor`. Instead, `placeAnchors` now
+   runs the same `resolveWeekCatalog` pre-pass as `generate()`, so an excluded
+   activity's anchor (or a fully-excluded group's) is never laid down in the
+   first place — the consistent place to enforce it for structural cells.
 4. **No schema change.** The exclusion tables already exist.
 5. **No change to the write path.** `useSlotMutations.js` is not touched.
 
@@ -53,9 +57,13 @@ This spec closes that gap for the two exclusion types that are **live on
 A week-closure violation is surfaced as a new derived per-slot flag,
 `WEEK_CLOSED`, with the **same lifecycle as `OVERLAP`**:
 
-- **Derived at render time**, never persisted. It is a pure function of
-  (slots on screen + this week's exclusion rows), so it can never go stale and
-  clears the instant the director moves the placement or re-opens the week.
+- **Derived at render time**, never persisted, on **both routes**. It is a pure
+  function of (slots on screen + this week's exclusion rows), so it can never go
+  stale and clears the instant the director moves the placement or re-opens the
+  week. Because it is derived rather than stamped at write time, it covers every
+  placement path — drag, click, paste, inline-create — with no change to the
+  write handlers, and catches placements that predate the exclusion (an activity
+  marked closed after the week was built).
 - **Soft, never blocks.** The placement succeeds and is marked. A director
   building their own week is never blocked and never has a placement silently
   corrected (CONSTITUTION Art. V; the same posture `placeActivityManual` already
@@ -107,24 +115,34 @@ Rules (mirroring `computeOverlaps`):
 
 ### 2. `src/screens/ScheduleScreen.jsx`
 
-- Chain the new decorator alongside `withOverlapFlags` on the **manual route
-  only**, in the same `useMemo` that builds `flagSlots`:
+- Apply the new decorator to `rawSlots` on **both routes**, then layer the
+  manual-only `withOverlapFlags` on top for the manual route, in the same
+  `useMemo` that builds `flagSlots`:
   ```js
-  route === 'manual'
-    ? withWeekClosureFlags(
-        withOverlapFlags(rawSlots, activities, locations),
-        { activities, groups, activityExclusions, groupExclusions, weekId },
-      )
-    : rawSlots
+  const withClosures = withWeekClosureFlags(rawSlots,
+    { activities, groups, activityExclusions, groupExclusions, weekId })
+  return route === 'manual'
+    ? withOverlapFlags(withClosures, activities, locations)
+    : withClosures
   ```
   (`activityExclusions`, `groupExclusions`, `weekId`, `groups` are all already
   in scope.) Add them to the `useMemo` dependency array.
-- Add `WEEK_CLOSED` rows to `findingsRows`, mirroring `overlapSlots`:
-  `weekClosedSlots = isManual ? flagSlots.filter(s => s.flags?.WEEK_CLOSED) : []`,
+- Add `WEEK_CLOSED` rows to `findingsRows`, mirroring `overlapSlots`, but NOT
+  gated to the manual route (the flag derives on both):
+  `weekClosedSlots = flagSlots.filter(s => s.flags?.WEEK_CLOSED)`,
   mapped to `{ kind: 'WEEK_CLOSED', severity: FLAG_SEVERITY.WEEK_CLOSED,
   reason: s.flags?.WEEK_CLOSED_reason, ... }`.
 - `dismissFindingsRow`: `WEEK_CLOSED` is non-dismissible — extend the OVERLAP
   guard so `WEEK_CLOSED` also falls through without calling `dismissFinding`.
+- `legendEntriesFor`: `WEEK_CLOSED` stays in BOTH routes' legends (only
+  `UNFILLABLE`/`OVERLAP` are route-specific).
+
+### 2b. `src/screens/schedule/useGeneration.js` (`placeAnchors`)
+
+Run the same `resolveWeekCatalog` pre-pass `generate()` runs, and pass the
+week-effective `groups`/`activities`/`anchors` to `buildSchedule` (and to the
+post-load `computeFindings`), so the manual blank week never lays down an anchor
+for a closed activity or a fully-excluded group.
 
 ### 3. `src/components/schedule/slotCellConstants.js`
 
@@ -170,16 +188,21 @@ derives from a placement".
    joined reason; a row for a different `week_id` is ignored; anchor slots are
    skipped; empty slots are skipped; no-exclusions returns an empty Map;
    reason text carries the entity name.
-2. **Manual-grid component test** (mirroring `ManualBuildView.test.jsx`'s
-   OVERLAP coverage): placing an excluded activity renders the `WEEK_CLOSED`
-   marker on the cell and a `WEEK_CLOSED` row in the findings rail; it is not
-   dismissible; it disappears when the placement is removed.
+2. **Grid integration tests** (real `ScheduleScreen` mount, both routes): a
+   placed excluded activity renders the `WEEK_CLOSED` marker and keeps the
+   placement — on the manual route AND the generated route; a control without
+   the exclusion shows no marker. Plus `normalizeSlots` strips a persisted
+   `WEEK_CLOSED`, `rowFlags` treats it as advisory, and `SlotCell` renders it.
+3. **`placeAnchors` pre-pass** (`useGeneration.test.js`, real
+   `resolveWeekCatalog`): a closed activity's anchor is suppressed from the
+   inputs handed to `buildSchedule`; a no-exclusion control leaves them intact.
 
 ## 8. Success predicate
 
-On the manual route, for the current week's activity and group exclusions:
-every filled non-anchor slot whose activity or group is marked closed this week
-shows a soft `WEEK_CLOSED` marker and a findings-rail row; the marker clears when
-the placement is moved off or the exclusion is lifted; placement is never
-blocked. Generate route, write path, and schema are unchanged. `npm run verify`
-passes.
+On **both** routes, for the current week's activity and group exclusions: every
+filled non-anchor slot whose activity or group is marked closed this week shows a
+soft `WEEK_CLOSED` marker and a findings-rail row; the marker clears when the
+placement is moved off or the exclusion is lifted; placement is never blocked.
+The manual blank week (`placeAnchors`) suppresses closed-activity / closed-group
+anchors up front, matching `generate()`. The write path and schema are
+unchanged. `npm run verify` passes.

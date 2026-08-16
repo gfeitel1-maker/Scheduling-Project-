@@ -132,22 +132,33 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     collapsedBlockIds, toggleBlockCollapsed,
   } = routeState
   // OVERLAP and WEEK_CLOSED are both derived, never persisted — so they clear
-  // from every participating cell the moment the underlying condition changes,
-  // and only on the manual route, where a clashing / closed-week placement is
-  // accepted rather than refused. WEEK_CLOSED honours this week's activity and
-  // group exclusions (see src/utils/computeWeekClosures.js); location is a
-  // fast-follow once slice M5 lands its producer + generate-route enforcement.
+  // from every participating cell the moment the underlying condition changes.
+  //
+  // WEEK_CLOSED derives on BOTH routes: a placement of something marked not to
+  // run this week (see src/utils/computeWeekClosures.js) is equally wrong on
+  // either route, and the generated route can acquire one two ways generation's
+  // resolveWeekCatalog pre-pass can't catch — a post-generation drag edit, or an
+  // activity/group marked closed AFTER the week was generated. Because it is
+  // derived from the rendered slots (not stamped at write time), it covers every
+  // placement path — drag, click, paste, inline-create — on both routes.
+  // (location exclusions are a fast-follow once slice M5 lands their producer.)
+  //
+  // OVERLAP stays manual-only: the generated route surfaces capacity as a
+  // persisted UNFILLABLE at write time, not a derived clash marker — a genuine
+  // product stance (the engine refuses clashes rather than making them).
   const slots = useMemo(
-    () =>
-      route === 'manual'
-        ? withWeekClosureFlags(withOverlapFlags(rawSlots, activities, locations), {
-            activities,
-            groups,
-            activityExclusions,
-            groupExclusions,
-            weekId,
-          })
-        : rawSlots,
+    () => {
+      const withClosures = withWeekClosureFlags(rawSlots, {
+        activities,
+        groups,
+        activityExclusions,
+        groupExclusions,
+        weekId,
+      })
+      return route === 'manual'
+        ? withOverlapFlags(withClosures, activities, locations)
+        : withClosures
+    },
     [route, rawSlots, activities, locations, groups, activityExclusions, groupExclusions, weekId]
   )
   // The generated "track changes" review (docs/work/specs/2026-08-01-generated-
@@ -472,7 +483,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     ? []
     : flagSlots.filter(s => s.flags?.UNFILLABLE && !s.flags?.UNFILLABLE_dismissed)
   const overlapSlots = isManual ? flagSlots.filter(s => s.flags?.OVERLAP) : []
-  const weekClosedSlots = isManual ? flagSlots.filter(s => s.flags?.WEEK_CLOSED) : []
+  // WEEK_CLOSED is derived on both routes (see the `slots` memo), so its rail
+  // rows and cell markers are not gated to the manual route.
+  const weekClosedSlots = flagSlots.filter(s => s.flags?.WEEK_CLOSED)
   const activeFindings = findings.filter(f => !dismissedFindingKeys.has(`${f.groupId}|${f.activityId}|${f.kind}`))
   const SEVERITY_ORDER = { danger: 0, caution: 1, info: 2 }
 
@@ -1248,12 +1261,16 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         />
       )}
 
-      {/* Grid legend — only on the manual route now. The generated grid is
-          calm (no identity dots, no per-cell flag marks — concerns are reviewed
-          from the boxes above), so there is nothing left for a legend to
-          document there. Manual still carries dots (identity + overlap), so it
-          keeps its key. docs/work/specs/2026-08-01-generated-flag-review.md */}
-      {hasSchedule && isManual && (
+      {/* Grid legend — always on the manual route (identity + overlap dots),
+          and on the generated route ONLY when it actually carries a per-cell
+          mark to explain: a WEEK_CLOSED dot. The generated grid is otherwise
+          kept calm (no identity dots, concerns reviewed from the boxes above —
+          docs/work/specs/2026-08-01-generated-flag-review.md), but a closed-week
+          placement can reach it (a post-generation edit, or an activity marked
+          closed after the week was built), and a mark on the grid must never go
+          undocumented (legend.test.js). When shown there, legendEntriesFor
+          documents every mark the generated grid can carry. */}
+      {hasSchedule && (isManual || weekClosedSlots.length > 0) && (
         <div style={{ display: 'flex', gap: 16, marginTop: 16, flexWrap: 'wrap', fontSize: 11, color: 'var(--text-secondary)' }}>
           {legendEntriesFor(route).map(entry => (
             <span key={entry.label} title={entry.description} style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'default' }}>

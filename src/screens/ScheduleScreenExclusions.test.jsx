@@ -236,6 +236,53 @@ describe('manual route surfaces week exclusions as a soft WEEK_CLOSED marker', (
   })
 })
 
+// Gap 1: WEEK_CLOSED is route-agnostic. Generation drops excluded entities up
+// front, but the generated candidate can still ACQUIRE a closed placement — a
+// post-generation drag edit, or an activity marked closed AFTER the week was
+// built. So the derived marker must appear on the generated route too.
+describe('generated route also surfaces week exclusions as a WEEK_CLOSED marker', () => {
+  function mount(base) {
+    localClient.list.mockImplementation((entity) => Promise.resolve(base[entity] ?? []))
+    localClient.listByScope.mockImplementation((entity, scopeId) => {
+      const key = entity === 'week_activity_exclusions' || entity === 'week_group_exclusions' ? 'week_id' : 'template_id'
+      return Promise.resolve((base[entity] ?? []).filter((row) => row[key] === scopeId))
+    })
+    return render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} initialRoute="generated" />)
+  }
+
+  it('marks a placed excluded activity on the generated candidate', async () => {
+    const base = makeBase({ withArcheryExclusion: true })
+    // A generated schedule that already holds an Archery placement (as if placed
+    // before the exclusion, or dragged in after generation).
+    base.template_slots = [
+      { id: 'gslot-arch', template_id: TEMPLATE_ID, group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: ARCHERY_ID, is_anchor: 0 },
+    ]
+    const { container } = mount(base)
+
+    await waitFor(() => expect(container.querySelector('.flag--week-closed')).toBeTruthy())
+    expect(container.querySelector('.flag--week-closed').getAttribute('title'))
+      .toBe('Archery is marked closed this week')
+    // Still present — never blocked or removed.
+    expect(container.querySelector('[data-cell-key="g1|d1|b1"]').textContent).toContain('Archery')
+    // The generated grid is normally legend-free (kept calm), but once it
+    // carries a WEEK_CLOSED mark the legend must appear to document it —
+    // a mark on the grid is never left unexplained.
+    expect(container.textContent).toContain('Closed this week')
+  })
+
+  it('leaves the generated grid legend-free when nothing is closed (control)', async () => {
+    const base = makeBase({ withArcheryExclusion: false })
+    base.template_slots = [
+      { id: 'gslot-arch', template_id: TEMPLATE_ID, group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: ARCHERY_ID, is_anchor: 0 },
+    ]
+    const { container } = mount(base)
+
+    await waitFor(() => expect(container.querySelector('[data-cell-key="g1|d1|b1"]')?.textContent).toContain('Archery'))
+    expect(container.querySelector('.flag--week-closed')).toBeNull()
+    expect(container.textContent).not.toContain('Closed this week')
+  })
+})
+
 // T69 — the normalizer → resolveWeekCatalog seam.
 //
 // useScheduleData.test.js pins that the hook turns anchor_activities.group_ids

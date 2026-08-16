@@ -223,8 +223,9 @@ export function activityColor(activityId) {
 // and 'Overlapping' does not exist on the generated route, where the engine
 // refuses a clashing placement rather than making one.
 export function legendEntriesFor(route) {
-  // WEEK_CLOSED, like OVERLAP, is a manual-route-only marker; both are omitted
-  // from the generated route's legend.
-  const omit = route === 'manual' ? ['UNFILLABLE'] : ['OVERLAP', 'WEEK_CLOSED']
+  // WEEK_CLOSED derives on BOTH routes (a closed-week placement is equally wrong
+  // on either), so it stays in both legends. Only UNFILLABLE (generated) and
+  // OVERLAP (manual) are route-specific.
+  const omit = route === 'manual' ? ['UNFILLABLE'] : ['OVERLAP']
   return LEGEND_ENTRIES.filter(e => !omit.includes(e.flagKey))
 }
