@@ -65,6 +65,17 @@ function seedGroup(db, campId, n) {
   db.prepare("INSERT OR IGNORE INTO groups (id, camp_id, name) VALUES (?, ?, ?)").run(`grp-${n}`, campId, `Group ${n}`)
 }
 
+// Seed source exclusion rows directly (bypassing the op-log — this is starting
+// state, not the behavior under test). Both tables carry two NOT NULL FKs, so
+// the referenced week/activity/group must already exist.
+function seedActivityExclusion(db, weekId, activityId, id) {
+  db.prepare('INSERT INTO week_activity_exclusions (id, week_id, activity_id) VALUES (?, ?, ?)').run(id, weekId, activityId)
+}
+
+function seedGroupExclusion(db, weekId, groupId, id) {
+  db.prepare('INSERT INTO week_group_exclusions (id, week_id, group_id) VALUES (?, ?, ?)').run(id, weekId, groupId)
+}
+
 const DEVICE = 'test-device'
 const CTX = { author_user_id: null, device_id: DEVICE }
 
@@ -181,6 +192,47 @@ describe('duplicateWeek', () => {
     const newTemplates = db.prepare('SELECT kind FROM schedule_templates WHERE week_id = ?').all(result.newWeekId)
     expect(newTemplates.map((t) => t.kind)).toContain('generated')
     expect(newTemplates.map((t) => t.kind)).not.toContain('manual')
+
+    db.close()
+  })
+
+  // duplicateWeek copies exclusion rows via the same two-op appendOp sequence
+  // (week_id then the FK) that the toggle path uses, so it inherited the same
+  // projection defect: before the ensureWeekJoinRow fix these copies silently
+  // vanished — the new week came back with zero exclusions and no error. This
+  // exercises that path end-to-end through the real op-log.
+  it('copies activity and group exclusions to the duplicated week (fresh ids, source intact)', () => {
+    const db = makeDb()
+    const campId = seedCamp(db)
+    seedDevice(db)
+    seedWeek(db, 'week-1', campId)
+    seedTemplate(db, 'week-1', 'generated', campId)
+    seedActivity(db, campId, 1)
+    seedGroup(db, campId, 1)
+    seedActivityExclusion(db, 'week-1', 'act-1', 'src-wae-1')
+    seedGroupExclusion(db, 'week-1', 'grp-1', 'src-wge-1')
+
+    const result = duplicateWeek(db, { sourceWeekId: 'week-1', campId }, CTX)
+    expect(result.ok).toBe(true)
+
+    const newActExclusions = db
+      .prepare('SELECT * FROM week_activity_exclusions WHERE week_id = ?')
+      .all(result.newWeekId)
+    expect(newActExclusions).toHaveLength(1)
+    expect(newActExclusions[0].activity_id).toBe('act-1')
+    // Deep copy — a fresh row id, never the source row's id.
+    expect(newActExclusions[0].id).not.toBe('src-wae-1')
+
+    const newGrpExclusions = db
+      .prepare('SELECT * FROM week_group_exclusions WHERE week_id = ?')
+      .all(result.newWeekId)
+    expect(newGrpExclusions).toHaveLength(1)
+    expect(newGrpExclusions[0].group_id).toBe('grp-1')
+    expect(newGrpExclusions[0].id).not.toBe('src-wge-1')
+
+    // Source week's exclusions are untouched by the duplication.
+    expect(db.prepare('SELECT COUNT(*) c FROM week_activity_exclusions WHERE week_id = ?').get('week-1').c).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) c FROM week_group_exclusions WHERE week_id = ?').get('week-1').c).toBe(1)
 
     db.close()
   })
