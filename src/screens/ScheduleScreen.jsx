@@ -41,6 +41,7 @@ import ScheduleDayView from '../components/schedule/ScheduleDayView'
 import ScheduleActivityView from '../components/schedule/ScheduleActivityView'
 import ManualBuildView from '../components/schedule/ManualBuildView'
 import ActivityPalette from '../components/schedule/ActivityPalette'
+import { isActivityEligibleForGroup } from '../engine/eligibility'
 
 // dnd-kit's own announcer describes droppable IDs, which after T58 are one
 // container rather than 480 cells — it would say "over droppable
@@ -212,22 +213,16 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   } = slotMutations
 
   // Inline-write cell editor (replaces the removed EditModal picklist,
-  // 2026-08-09): eligibleActivitiesFor is the same eligibility rule
-  // placeActivityManual already applies, lifted so both the drag path and the
-  // typeahead read one definition. handleCellPlace mirrors dragHandlers'
-  // palette-drop branching (replace if occupied, place if empty) because
-  // Enter-to-place is semantically a drop, just typed instead of dragged.
+  // 2026-08-09): eligibleActivitiesFor consumes the same isActivityEligibleForGroup
+  // predicate placeActivityManual's UNFILLABLE check uses (src/engine/eligibility.js,
+  // T82), so the drag path and the typeahead can never diverge.
+  // handleCellPlace mirrors dragHandlers' palette-drop branching (replace if
+  // occupied, place if empty) because Enter-to-place is semantically a drop,
+  // just typed instead of dragged.
   function eligibleActivitiesFor(groupId) {
     const g = groups.find(g => g.id === groupId)
     if (!g) return []
-    return activities.filter(a => {
-      const tierIds = a.eligible_tier_ids || []
-      const groupIds = a.eligible_group_ids || []
-      if (tierIds.length === 0 && groupIds.length === 0) return true
-      if (tierIds.includes(g.tier_id)) return true
-      if (groupIds.includes(g.id)) return true
-      return false
-    })
+    return activities.filter(a => isActivityEligibleForGroup(a, g))
   }
 
   function handleCellPlace(slot, activityId) {

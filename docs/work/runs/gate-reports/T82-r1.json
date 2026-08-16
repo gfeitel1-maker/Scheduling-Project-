@@ -1,0 +1,29 @@
+{
+  "task_id": "T82",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": null,
+    "red_hat": 5,
+    "tester": null,
+    "code_reviewer": 4
+  },
+  "overall_score": 4.5,
+  "lowest_dimension": 4,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": [
+    {
+      "gate_name": "security",
+      "na_reason": "No security-sensitive surface changed; write-queue refactor is behavior-preserving and touches only local optimistic-write envelope and eligibility predicate logic."
+    },
+    {
+      "gate_name": "tester",
+      "na_reason": "User-observable behavior unchanged; characterization tests verify behavior-preservation per success predicate §1."
+    }
+  ]
+}
