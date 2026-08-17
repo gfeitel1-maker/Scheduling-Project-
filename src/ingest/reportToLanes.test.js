@@ -124,9 +124,53 @@ describe('reportToLanes', () => {
       { key: 'anchors', label: 'Anchors', screen: 'anchors', kind: 'optional', state: 'optional' },
     ]
     const lanes = reportToLanes(r)
-    expect(lanes.hold).toEqual([])
+    expect(lanes.hold).toEqual([{
+      id: 'readiness:groups',
+      kind: 'required_gap',
+      entity: null,
+      entityId: null,
+      entityName: null,
+      field: null,
+      confidence: 'required',
+      proposedValue: null,
+      label: 'Groups',
+      message: null,
+      screen: 'groups',
+      evidence: null,
+    }])
     expect(lanes.standard).toEqual([])
     expect(lanes.readinessGreen).toBe(false)
+  })
+
+  it('a required readiness row with state "missing" produces a required_gap decision prepended to hold, ahead of other hold cards', () => {
+    const r = report([d({ id: 'c1', kind: 'resolve_conflict', confidence: 'conflict', entityId: null })], { needsAttention: 1 })
+    r.readiness = [
+      { key: 'tiers', label: 'Units', screen: 'tiers', kind: 'required', state: 'missing', message: 'Add your age divisions.' },
+    ]
+    const lanes = reportToLanes(r)
+    expect(lanes.hold).toHaveLength(2)
+    expect(lanes.hold[0]).toMatchObject({ id: 'readiness:tiers', kind: 'required_gap', label: 'Units', message: 'Add your age divisions.', screen: 'tiers' })
+    expect(lanes.hold[1].kind).toBe('resolve_conflict')
+  })
+
+  it('a required readiness row with state "ready" produces no required_gap decision', () => {
+    const r = report([], { understood: 5 })
+    r.readiness = [
+      { key: 'tiers', label: 'Units', screen: 'tiers', kind: 'required', state: 'ready' },
+    ]
+    const lanes = reportToLanes(r)
+    expect(lanes.hold).toEqual([])
+  })
+
+  it('an optional-kind readiness row never produces a required_gap decision, regardless of state', () => {
+    const r = report([], { understood: 5, notInSource: 1 })
+    r.readiness = [
+      { key: 'anchors', label: 'Fixed Events', screen: 'anchors', kind: 'optional', state: 'optional' },
+    ]
+    const lanes = reportToLanes(r)
+    expect(lanes.hold).toEqual([])
+    expect(lanes.standard).toEqual([])
+    expect(lanes.express).toEqual([])
   })
 
   it('readinessGreen is FALSE when a required readiness area needs attention, even with zero pending decisions', () => {

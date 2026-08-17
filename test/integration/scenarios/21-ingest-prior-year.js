@@ -31,7 +31,13 @@ import { commitIngest } from '../../../electron/ops/ingest.js'
 import { parseTextGrid } from '../../../src/ingest/textGrid.js'
 import { extractEntities } from '../../../src/ingest/extractEntities.js'
 import { inferFixedEvents } from '../../../src/ingest/fixedEvents.js'
-import { buildPreview } from '../../../src/ingest/preview.js'
+
+// ADR 2026-08-17-onescreen-reconciliation-merge.md §2 retired buildPreview —
+// recognition-against-existing now lives INSIDE buildPlan/commitIngest
+// (buildExistingSnapshot queries the live db), not a separate renderer-side
+// preview pass. This scenario drives the same real path ImportScreen.jsx's
+// buildCommitInputs() does: every name extractEntities offers is "approved"
+// unconditionally, and commitIngest itself recognizes what already exists.
 
 const SAMPLES = path.join(process.cwd(), 'docs/work/specs/samples')
 
@@ -69,17 +75,20 @@ export async function run() {
     )
 
     // ---- b. only what was approved is written -------------------------------
-    const preview = buildPreview(campB, {})
-    assert.ok(preview.createTotal > 0, 'the preview has something to add')
+    // The full set of names campB's file offers — buildCommitInputs() sends
+    // every proposed name unconditionally; recognition-against-existing now
+    // happens inside commitIngest, not a separate preview pass.
+    const fullApproved = {
+      groups: campB.entities.groups,
+      days_of_operation: campB.entities.days_of_operation,
+      activities: campB.entities.activities,
+      time_blocks: campB.entities.time_blocks,
+    }
+    assert.ok(fullApproved.groups.length > 0, 'the file has something to add')
 
     // The director removes one group from the proposal.
-    const rejected = preview.perEntity.groups.create[0]
-    const approved = {
-      groups: preview.perEntity.groups.create.filter((n) => n !== rejected),
-      days_of_operation: preview.perEntity.days_of_operation.create,
-      activities: preview.perEntity.activities.create,
-      time_blocks: preview.perEntity.time_blocks.create,
-    }
+    const rejected = fullApproved.groups[0]
+    const approved = { ...fullApproved, groups: fullApproved.groups.filter((n) => n !== rejected) }
 
     const result = commitIngest(db, { approved, camp_id: campId, author_user_id: userId, device_id: deviceId })
     assert.ok(result.total > 0, 'records were created')
@@ -146,33 +155,37 @@ export async function run() {
     db.prepare('DELETE FROM activities WHERE camp_id = ? AND name = ?').run(campId, `${collide} `)
 
     // ---- e. importing the same file twice adds nothing -----------------------
-    const existing = {}
-    for (const [key, table] of Object.entries({
-      groups: 'groups', activities: 'activities', time_blocks: 'time_blocks',
-    })) {
-      existing[key] = db.prepare(`SELECT id, name FROM ${table}`).all()
-    }
-    existing.days_of_operation = db.prepare('SELECT id, label AS name FROM days_of_operation').all()
+    // Re-import the FULL proposal — this is the definitive re-import
+    // recognize-existing oracle (see the fix-round brief): if recognition is
+    // broken, this either re-creates duplicate rows or throws a UNIQUE
+    // constraint violation on the second commit.
+    const activitiesBeforeSecond = countOf('activities')
+    const timeBlocksBeforeSecond = countOf('time_blocks')
+    const daysBeforeSecond = countOf('days_of_operation')
+    const groupsBeforeSecond = countOf('groups')
 
-    const second = buildPreview(campB, existing)
-    assert.equal(
-      second.perEntity.activities.create.length, 0,
-      'no activity is proposed a second time'
-    )
-    assert.ok(second.perEntity.activities.skip.length > 0, 'the skipped rows are named')
-    assert.ok(
-      second.perEntity.activities.skip.every((s) => s.matched),
-      'every skipped row says what it matched'
-    )
-    // The one rejected group is still missing, so it is the only thing left.
-    assert.deepEqual(second.perEntity.groups.create, [rejected], 'only the rejected group remains to add')
+    const second = commitIngest(db, { approved: fullApproved, camp_id: campId, author_user_id: userId, device_id: deviceId })
+
+    assert.equal(second.held, false, 'a full re-import of an already-imported file does not hold')
+    assert.equal(second.created.activities, 0, 'no activity is proposed a second time')
+    assert.equal(second.created.time_blocks, 0, 'no time block is proposed a second time')
+    assert.equal(second.created.days_of_operation, 0, 'no day is proposed a second time')
+    // The one rejected group is still missing from the camp, so it is the
+    // only thing left for the second import to create.
+    assert.equal(second.created.groups, 1, 'only the previously-rejected group is created')
+
+    assert.equal(countOf('activities'), activitiesBeforeSecond, 'activity count is unchanged by the re-import')
+    assert.equal(countOf('time_blocks'), timeBlocksBeforeSecond, 'time block count is unchanged by the re-import')
+    assert.equal(countOf('days_of_operation'), daysBeforeSecond, 'day count is unchanged by the re-import')
+    assert.equal(countOf('groups'), groupsBeforeSecond + 1, 'group count grows by exactly the rejected group')
+    assert.ok(listNames('groups').includes(rejected), 'the previously-rejected group now exists')
 
     // ---- f. units are read from the bunk names and linked ------------------
     // "Adom 4's - Matzo Balls" names both the unit and the bunk. 29 of Camp A's
     // 33 titles do; the other four are bunks with no unit, which is a real
     // shape rather than a parse failure.
-    const aPreview = buildPreview(campA, {})
-    assert.ok(aPreview.perEntity.tiers.create.length >= 10, 'Camp A proposes its units')
+    const aPreview = campA
+    assert.ok(aPreview.entities.tiers.length >= 10, 'Camp A proposes its units')
 
     const dir2 = makeTmpDir()
     dirs.push(dir2)
@@ -183,8 +196,8 @@ export async function run() {
     db2.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(dev2, 'Host')
 
     const aApproved = {
-      tiers: aPreview.perEntity.tiers.create,
-      groups: aPreview.perEntity.groups.create,
+      tiers: aPreview.entities.tiers,
+      groups: aPreview.entities.groups,
     }
     const aLinks = { groups: {} }
     for (const name of aApproved.groups) {
@@ -219,7 +232,7 @@ export async function run() {
     db3.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run(coMain, camp3, 'Main')
 
     commitIngest(db3, {
-      approved: { tiers: aApproved.tiers, groups: aApproved.groups, time_blocks: aPreview.perEntity.time_blocks.create },
+      approved: { tiers: aApproved.tiers, groups: aApproved.groups, time_blocks: aPreview.entities.time_blocks },
       links: aLinks, camp_id: camp3, cohort_id: coMain, device_id: dev3,
     })
 
@@ -252,7 +265,6 @@ export async function run() {
     db4.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run(dev4, 'Host')
     db4.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run(coMain4, camp4, 'Main')
 
-    const bPreview = buildPreview(campB, {})
     const { fixedEvents } = inferFixedEvents(
       parseTextGrid(fs.readFileSync(path.join(SAMPLES, 'campB-achva-by-day.txt'), 'utf8')),
       campB
@@ -260,12 +272,7 @@ export async function run() {
     assert.ok(fixedEvents.length > 0, 'Camp B implies at least one fixed event')
 
     const result4 = commitIngest(db4, {
-      approved: {
-        groups: bPreview.perEntity.groups.create,
-        days_of_operation: bPreview.perEntity.days_of_operation.create,
-        time_blocks: bPreview.perEntity.time_blocks.create,
-        activities: bPreview.perEntity.activities.create,
-      },
+      approved: fullApproved,
       fixedEvents,
       camp_id: camp4, cohort_id: coMain4, device_id: dev4,
     })

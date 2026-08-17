@@ -1,0 +1,38 @@
+{
+  "task_id": "reconciliation-onescreen-merge",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": null,
+    "red_hat": 4,
+    "tester": null,
+    "code_reviewer": 5
+  },
+  "overall_score": 4.5,
+  "lowest_dimension": 4,
+  "blocking_findings": [],
+  "incomplete": true,
+  "gap": [
+    {
+      "gate_name": "tester",
+      "reason": "missing"
+    }
+  ],
+  "cross_gate_flags": [
+    {
+      "ref": "docs/adr/2026-08-17-onescreen-reconciliation-merge.md",
+      "gate_names": [
+        "code_reviewer",
+        "red_hat"
+      ]
+    }
+  ],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": [
+    {
+      "gate_name": "security",
+      "na_reason": "Changes are renderer + report-layer composition with data-processing guard additions (reconciliationResolutions.js whitelist exclusion, ingestReconcile substitution, ingest.js fixed-event threading). No new auth/PIN/secret/LAN-protocol/IPC-method/packaging changes. Whitelist guard-logic change was Red-Hat-verified safe and is a data-filter gate, not a security surface. Scope: data processing, not auth/access-control/cryptography."
+    }
+  ]
+}

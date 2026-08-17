@@ -83,6 +83,21 @@ async function uploadFile() {
   await waitFor(() => expect(screen.getAllByText(/Swim/).length).toBeGreaterThan(0))
 }
 
+// baseProposal has no tiers/groups/time_blocks set up yet, so
+// ReconciliationScreen's readiness gate (F3, docs/adr/2026-08-17-onescreen-
+// reconciliation-merge.md §5) surfaces required_gap cards that must be
+// dismissed (Skip for now) before "Use this setup" enables. Unrelated to what
+// these tests guard (T35 rule inference / commit payload shape), so dismiss
+// whatever appears rather than special-casing every fixture.
+async function goToCommit() {
+  await userEvent.click(screen.getByText(/Add \d+ record/))
+  await waitFor(() => expect(screen.getByText(/Use this setup/)).toBeTruthy())
+  for (const btn of screen.queryAllByText(/^Skip .* for now/)) {
+    await userEvent.click(btn)
+  }
+  await userEvent.click(await screen.findByText('Use this setup'))
+}
+
 describe('ImportScreen — inferred activity rules (T35)', () => {
   it('renders a rule summary for a proposed activity, collapsed by default with the full editor behind Adjust', async () => {
     await uploadFile()
@@ -124,8 +139,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
 
   it('sends resolved rules only for approved activities on commit', async () => {
     await uploadFile()
-    await userEvent.click(screen.getByText(/Add \d+ record/))
-    await userEvent.click(await screen.findByText('Use this setup'))
+    await goToCommit()
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
     const [{ activityRules }] = localClient.ingestCommit.mock.calls[0]
     expect(activityRules.Swim).toMatchObject({ min_per_week: 2, max_per_week: 3 })
@@ -148,8 +162,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     const minInput = screen.getAllByRole('spinbutton')[0]
     fireEvent.change(minInput, { target: { value: '5' } })
 
-    await userEvent.click(screen.getByText(/Add \d+ record/))
-    await userEvent.click(await screen.findByText('Use this setup'))
+    await goToCommit()
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
 
     const [{ humanEditedFields, activityRules }] = localClient.ingestCommit.mock.calls[0]
@@ -164,8 +177,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
   // later re-import can still update them — the fix adds no friction.
   it('sends no humanEditedFields.activities entry for an untouched, inferred rule', async () => {
     await uploadFile()
-    await userEvent.click(screen.getByText(/Add \d+ record/))
-    await userEvent.click(await screen.findByText('Use this setup'))
+    await goToCommit()
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
 
     const [{ humanEditedFields }] = localClient.ingestCommit.mock.calls[0]
@@ -176,8 +188,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
   // no longer delete anything itself; it says which mode and awaits once.
   it('commits in add mode without deleting a single row itself', async () => {
     await uploadFile()
-    await userEvent.click(screen.getByText(/Add \d+ record/))
-    await userEvent.click(await screen.findByText('Use this setup'))
+    await goToCommit()
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
     expect(localClient.ingestCommit.mock.calls[0][0].mode).toBe('add')
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
@@ -188,8 +199,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     // "not something the app recognised" fallback would bury that.
     localClient.ingestCommit.mockRejectedValue(new Error('Import can only be run on the main computer.'))
     await uploadFile()
-    await userEvent.click(screen.getByText(/Add \d+ record/))
-    await userEvent.click(await screen.findByText('Use this setup'))
+    await goToCommit()
     await waitFor(() => expect(screen.getByText(/main computer/)).toBeTruthy())
     expect(screen.getByText(/Nothing was imported/)).toBeTruthy()
   })

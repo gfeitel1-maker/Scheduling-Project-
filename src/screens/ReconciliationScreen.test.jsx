@@ -59,9 +59,15 @@ function ambiguousIdentityHeld() {
   }
 }
 
+// F3 changes what an empty `list()` means for readiness: every required area
+// (tiers/groups/days/timeblocks/activities) reads as `missing`, which now
+// surfaces as a `required_gap` hold-lane card (docs/adr/2026-08-17-onescreen-
+// reconciliation-merge.md §5). Tests that aren't exercising readiness need a
+// "ready" camp by default so their pre-existing spine-count assertions still
+// hold; only the F3-specific tests below opt into an unready camp.
 beforeEach(() => {
   vi.clearAllMocks()
-  localClient.list.mockResolvedValue([])
+  localClient.list.mockResolvedValue([{ id: 'x' }])
   localClient.confirmAlias.mockResolvedValue({ id: 'alias-1', superseded: null })
 })
 
@@ -287,12 +293,112 @@ describe('held-identity: remember this alias (confirmAlias)', () => {
 describe('done state', () => {
   it('a genuinely empty report (nothing understood, nothing to decide, nothing left out) shows the end state without requiring an apply click', async () => {
     localClient.ingestReconcile.mockResolvedValue({ planItems: [], fixedEventsReport: {}, legacyPriorityActivities: [], fieldProvenance: {}, evidenceSupport: {} })
+    localClient.list.mockResolvedValue([])
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
     // readinessGreen depends on getReadiness(collections) — localClient.list
-    // returns [] for everything, so required areas are NOT ready and the end
-    // state must NOT show (there is nothing understood either, so nothing is
-    // pending, but readiness itself is red) — asserts the tray still renders
-    // rather than a false "done".
-    await waitFor(() => expect(screen.getByText(/of 0 done/)).toBeTruthy())
+    // returns [] for everything, so every required area is NOT ready and the
+    // end state must NOT show. Post-F3, those gaps render as required_gap
+    // hold-lane cards, so the spine denominator is no longer 0 — the "0 of 0"
+    // contradiction this finding fixes.
+    await waitFor(() => expect(screen.getByText(/0 of 5 done/)).toBeTruthy())
+    expect(screen.queryByText('Nothing left to reconcile.')).toBeNull()
+  })
+})
+
+describe('F3 — required readiness gap card', () => {
+  it('renders a required_gap hold-lane card, sorted first, when a required readiness area is missing', async () => {
+    localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
+    localClient.list.mockImplementation((table) => Promise.resolve(table === 'tiers' ? [] : [{ id: 'x' }]))
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+
+    await waitFor(() => expect(screen.getByText(/0 of 1 done/)).toBeTruthy())
+    expect(screen.getByText('READY TO BUILD?')).toBeTruthy()
+    expect(screen.getByText(/Units aren't set up yet/)).toBeTruthy()
+    expect(screen.getByText('Set up Units')).toBeTruthy()
+  })
+
+  it('"Skip for now" dismisses the card locally without staging an answer or touching the commit payload', async () => {
+    localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
+    localClient.ingestCommit.mockResolvedValue({ total: 1 })
+    localClient.list.mockImplementation((table) => Promise.resolve(table === 'tiers' ? [] : [{ id: 'x' }]))
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText(/0 of 1 done/)).toBeTruthy())
+
+    await userEvent.click(screen.getByText(/Skip Units for now/))
+
+    await waitFor(() => expect(screen.getByText(/1 of 1 done/)).toBeTruthy())
+    expect(screen.getByText(/Skipped — Units still isn't set up\./)).toBeTruthy()
+
+    await userEvent.click(screen.getByText('Use this setup'))
+    await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
+    const inputs = localClient.ingestCommit.mock.calls[0][0]
+    expect(JSON.stringify(inputs)).not.toMatch(/readiness:|required_gap/)
+  })
+
+  it('clicking "Set up Units" navigates to the readiness row\'s screen', async () => {
+    localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
+    localClient.list.mockImplementation((table) => Promise.resolve(table === 'tiers' ? [] : [{ id: 'x' }]))
+    const onNavigate = vi.fn()
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={onNavigate} />)
+    await waitFor(() => expect(screen.getByText('Set up Units')).toBeTruthy())
+
+    await userEvent.click(screen.getByText('Set up Units'))
+    expect(onNavigate).toHaveBeenCalledWith('tiers')
+  })
+})
+
+// §22 compression — Tester's finding: 5+ stacked required_gap cards read as
+// a "setup gauntlet." 2+ required_gap decisions now fold into ONE summary
+// card; the fold is rendering-only — each gap stays individually
+// dismissible and doneCount still counts them individually.
+describe('required-gap summary card (§22 compression)', () => {
+  function missingAreas(...tables) {
+    return (table) => Promise.resolve(tables.includes(table) ? [] : [{ id: 'x' }])
+  }
+
+  it('renders ONE summary card listing all required areas when 2+ are missing, not one card per area', async () => {
+    localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
+    localClient.list.mockImplementation(missingAreas('tiers', 'groups', 'days_of_operation'))
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+
+    await waitFor(() => expect(screen.getByText(/0 of 3 done/)).toBeTruthy())
+    expect(screen.getAllByText('READY TO BUILD?')).toHaveLength(1)
+    expect(screen.getByText(/Units, Groups, Days/)).toBeTruthy()
+    expect(screen.getByText('Set up Units')).toBeTruthy()
+    expect(screen.getByText('Set up Groups')).toBeTruthy()
+    expect(screen.getByText('Set up Days')).toBeTruthy()
+  })
+
+  it('keeps the single-card treatment when exactly 1 required area is missing', async () => {
+    localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
+    localClient.list.mockImplementation(missingAreas('tiers'))
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+
+    await waitFor(() => expect(screen.getByText(/0 of 1 done/)).toBeTruthy())
+    expect(screen.getAllByText('READY TO BUILD?')).toHaveLength(1)
+    expect(screen.getByText(/Units aren't set up yet/)).toBeTruthy()
+  })
+
+  it('dismissing one item inside the summary card updates dismissedGaps and the spine doneCount, leaving the others open', async () => {
+    localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
+    localClient.list.mockImplementation(missingAreas('tiers', 'groups'))
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText(/0 of 2 done/)).toBeTruthy())
+
+    await userEvent.click(screen.getByText(/Skip Units for now/))
+
+    await waitFor(() => expect(screen.getByText(/1 of 2 done/)).toBeTruthy())
+    expect(screen.getByText('Set up Groups')).toBeTruthy()
+  })
+
+  it('clicking "Set up Groups" inside the summary card navigates to that row\'s screen', async () => {
+    localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
+    localClient.list.mockImplementation(missingAreas('tiers', 'groups'))
+    const onNavigate = vi.fn()
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={onNavigate} />)
+    await waitFor(() => expect(screen.getByText('Set up Groups')).toBeTruthy())
+
+    await userEvent.click(screen.getByText('Set up Groups'))
+    expect(onNavigate).toHaveBeenCalledWith('groups')
   })
 })

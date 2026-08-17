@@ -2,9 +2,20 @@
 //
 // ADR 2026-08-09 Decision 1 — a fixed-event name pinned to a period must not
 // also silently create a free-choice catalog activity, unless it's genuinely
-// dual-use — in which case it's a reviewable exception, not a silent drop.
-// dualUseNames from inferFixedEvents is a SEED for this screen's tick-seeding
-// only; buildPlan never sees it.
+// dual-use — in which case it needs a director's confirmation, not a silent
+// drop. dualUseNames from inferFixedEvents is a SEED for pinOnlyActivityNames
+// only; buildPlan never sees dualUseNames itself.
+//
+// Fix round 2026-08-17 — REWRITTEN, not obsolete-deleted: ADR
+// 2026-08-17-onescreen-reconciliation-merge.md §2 removed ImportScreen's
+// per-activity tick UI entirely ("Nothing is ticked here anymore" —
+// ImportScreen.jsx ~404). Every proposed name, pin-only or not, now ships
+// unconditionally in `approved.activities` — the old assertions on a
+// clickable "Lunch"/"Ceramics" button with a ✓ and inline dual-use/pin-only
+// copy test UI that no longer exists. What still must hold, and is the real
+// guarantee this file protects, is `pinOnlyActivityNames`: a pin-only
+// fixed-event name is still marked so buildPlan can force its create tier to
+// 'low' (never a silent mint) while a genuinely dual-use name is not.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -44,9 +55,15 @@ vi.mock('../ingest/fixedEvents', () => ({
   }),
 }))
 vi.mock('../hooks/useCohorts', () => ({ useCohorts: () => ({ activeCohort: { id: 'cohort-1' } }) }))
+
+// Readiness (getReadiness, real function) gates ReconciliationScreen's "Use
+// this setup" button on the 5 required areas being 'ready' — entity-aware so
+// tiers/groups/days_of_operation/time_blocks/activities each report one
+// existing row, same as ImportScreen.unitColumn.test.jsx's fix.
+const READY_ENTITIES = new Set(['tiers', 'groups', 'days_of_operation', 'time_blocks', 'activities'])
 vi.mock('../localClient', () => ({
   localClient: {
-    list: vi.fn().mockResolvedValue([]),
+    list: vi.fn((entity) => Promise.resolve(READY_ENTITIES.has(entity) ? [{ id: `${entity}-1` }] : [])),
     // useSetupCounts calls getCamp() in a mount effect on every ImportScreen
     // render, so the mock must implement it or every test throws in that effect.
     getCamp: vi.fn().mockResolvedValue({ id: 'camp-1', name: 'Camp' }),
@@ -61,7 +78,7 @@ import { localClient } from '../localClient'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  localClient.list.mockResolvedValue([])
+  localClient.list.mockImplementation((entity) => Promise.resolve(READY_ENTITIES.has(entity) ? [{ id: `${entity}-1` }] : []))
   localClient.ingestCommit.mockResolvedValue({ total: 3, fixedEvents: { created: 0, skipped: [], partial: [] } })
 })
 
@@ -73,43 +90,37 @@ async function uploadFile() {
   await waitFor(() => expect(screen.getAllByText(/Ceramics/).length).toBeGreaterThan(0))
 }
 
-describe('ImportScreen — fixed-event routing default (ADR 2026-08-09 Decision 1)', () => {
-  it('defaults a pin-only name unticked with the fixed-event note', async () => {
+async function commit() {
+  await userEvent.click(screen.getByText(/Add \d+ record/))
+  await userEvent.click(await screen.findByText('Use this setup'))
+  await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
+  return localClient.ingestCommit.mock.calls[0][0]
+}
+
+describe('ImportScreen — fixed-event routing (ADR 2026-08-09 Decision 1)', () => {
+  it('shows both fixed events as chips, and both proposed activity names, unconditionally (no tick UI)', async () => {
     await uploadFile()
-    const lunchButton = screen.getByText('Lunch').closest('button')
-    expect(lunchButton.textContent).not.toContain('✓')
-    expect(screen.getByText(/Scheduled as a fixed event — not added to the activity catalog\./)).toBeTruthy()
+    expect(screen.getAllByText('Lunch').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Ceramics/).length).toBeGreaterThan(0)
   })
 
-  it('defaults a dual-use name ticked with the dual-use note', async () => {
+  it('a pin-only name (not dual-use) is marked in pinOnlyActivityNames and still ships in approved.activities', async () => {
     await uploadFile()
-    const ceramicsButton = screen.getAllByText(/Ceramics/)
-      .map((el) => el.closest('button'))
-      .find((btn) => btn)
-    expect(ceramicsButton.textContent).toContain('✓')
-    expect(screen.getByText(/Also appears as a fixed event\./)).toBeTruthy()
+    const inputs = await commit()
+    expect(inputs.pinOnlyActivityNames).toContain('Lunch')
+    expect(inputs.approved.activities).toContain('Lunch')
   })
 
-  it('ticking the pin-only row overrides the default and includes it in the commit', async () => {
+  it('a genuinely dual-use name is NOT marked pin-only, and still ships in approved.activities', async () => {
     await uploadFile()
-    const lunchButton = screen.getByText('Lunch').closest('button')
-    await userEvent.click(lunchButton)
-    expect(lunchButton.textContent).toContain('✓')
-
-    await userEvent.click(screen.getByText(/Add \d+ record/))
-    await userEvent.click(await screen.findByText('Use this setup'))
-    await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
-    const [{ approved }] = localClient.ingestCommit.mock.calls[0]
-    expect(approved.activities).toContain('Lunch')
+    const inputs = await commit()
+    expect(inputs.pinOnlyActivityNames).not.toContain('Ceramics')
+    expect(inputs.approved.activities).toContain('Ceramics')
   })
 
-  it('leaving the pin-only row unticked excludes it from the commit', async () => {
+  it('every inferred fixed event ships unconditionally in the commit inputs', async () => {
     await uploadFile()
-    await userEvent.click(screen.getByText(/Add \d+ record/))
-    await userEvent.click(await screen.findByText('Use this setup'))
-    await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
-    const [{ approved }] = localClient.ingestCommit.mock.calls[0]
-    expect(approved.activities).not.toContain('Lunch')
-    expect(approved.activities).toContain('Ceramics')
+    const inputs = await commit()
+    expect(inputs.fixedEvents.map((fe) => fe.name).sort()).toEqual(['Ceramics', 'Lunch'])
   })
 })

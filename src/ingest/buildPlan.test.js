@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildPlan } from './buildPlan.js'
+import { buildPlan, looksLikeAMerge, createConfidenceTier } from './buildPlan.js'
 
 // S1a — buildPlan RECOGNITION + AMBIGUITY (ADR 2026-08-08-s1a §1, §3).
 //
@@ -142,5 +142,128 @@ describe('buildPlan preserves a human-set priority across re-import (B2)', () =>
     })
     expect(plan.items[0].op).toBe('unchanged')
     expect(plan.items[0].fields).toEqual({})
+  })
+})
+
+// ADR 2026-08-17-onescreen-reconciliation-merge.md §1 — moved from
+// preview.test.js along with looksLikeAMerge itself (A2: relocate coverage,
+// don't leave a gap).
+describe('looksLikeAMerge — telling a compound name from two welded cells', () => {
+  // Camp A's densest pages read two adjacent cells as one. Frequency alone
+  // does not catch it: the same two cells are adjacent on many pages, so the
+  // artifact recurs. What distinguishes it is that it is far rarer than each
+  // of its own parts.
+  it('flags a pair that is far rarer than both its parts', () => {
+    const counts = { 'Opening Drama': 2, Opening: 21, Drama: 36 }
+    expect(looksLikeAMerge('Opening Drama', counts)).toBe(true)
+  })
+
+  it('keeps a genuine compound name whose parts are no more common', () => {
+    // "Instructional Swim" is the real activity. Without the frequency guard
+    // this rule would reject it alongside the artifacts, because
+    // "Instructional" and "Swim" are both proposed too.
+    const counts = { 'Instructional Swim': 77, Instructional: 34, Swim: 75 }
+    expect(looksLikeAMerge('Instructional Swim', counts)).toBe(false)
+  })
+
+  it('leaves a name alone when its parts were never proposed', () => {
+    // "Snack and PJ Library" only splits into things nobody proposed, so there
+    // is no evidence it is a merge.
+    expect(looksLikeAMerge('Snack and PJ Library', { 'Snack and PJ Library': 3 })).toBe(false)
+  })
+
+  it('never flags a single word', () => {
+    expect(looksLikeAMerge('Drama', { Drama: 36 })).toBe(false)
+  })
+
+  it('is safe on values it has no count for', () => {
+    expect(looksLikeAMerge('Anything At All', {})).toBe(false)
+  })
+})
+
+// §1 — buildPlan's real create confidence. Table-driven over the exact
+// fixtures preview.test.js's "what starts ticked" describe used to cover.
+describe('buildPlan create confidence (§1)', () => {
+  const seenCounts = (activities, activityUnitShare = {}) => ({ activities, activityUnitShare })
+
+  it('stamps tier new for a confident candidate (seen enough, not a merge)', () => {
+    expect(createConfidenceTier('activities', 'Drama', seenCounts({ Drama: 36 }))).toBe('new')
+  })
+
+  it('stamps tier low for a seen-once candidate', () => {
+    expect(createConfidenceTier('activities', 'One Off', seenCounts({ 'One Off': 1 }))).toBe('low')
+  })
+
+  it('stamps tier low for a name that looks like a welded merge', () => {
+    const counts = { 'Opening Drama': 2, Opening: 21, Drama: 36 }
+    expect(createConfidenceTier('activities', 'Opening Drama', seenCounts(counts))).toBe('low')
+  })
+
+  it('trusts a rare-camp-wide activity that is universal within its own unit (activityUnitShare)', () => {
+    expect(createConfidenceTier(
+      'activities', 'Service Project',
+      seenCounts({ 'Service Project': 1 }, { 'service project': 1 }),
+    )).toBe('new')
+  })
+
+  it('stamps tier low unconditionally for locations, regardless of frequency', () => {
+    expect(createConfidenceTier('locations', 'Pool', seenCounts({}))).toBe('low')
+    // Even a high-frequency name (as if it were an activity) stays low.
+    expect(createConfidenceTier('locations', 'Pool', { locations: { Pool: 50 }, activityUnitShare: {} })).toBe('low')
+  })
+
+  it('additive-degradation: seenCounts omitted -> every create stays tier new (today\'s behavior)', () => {
+    expect(createConfidenceTier('activities', 'One Off', null)).toBe('new')
+    expect(createConfidenceTier('activities', 'One Off', undefined)).toBe('new')
+  })
+
+  it('a low-confidence create candidate reaches buildPlan as evidence.tier low', () => {
+    const plan = buildPlan(
+      { approved: { activities: ['One Off'] }, camp_id: camp, seenCounts: seenCounts({ 'One Off': 1 }) },
+      null,
+    )
+    expect(plan.items[0].op).toBe('create')
+    expect(plan.items[0].evidence.tier).toBe('low')
+  })
+
+  it('a confident create candidate reaches buildPlan as evidence.tier new', () => {
+    const plan = buildPlan(
+      { approved: { activities: ['Drama'] }, camp_id: camp, seenCounts: seenCounts({ Drama: 36 }) },
+      null,
+    )
+    expect(plan.items[0].evidence.tier).toBe('new')
+  })
+
+  // A5 (Red Hat, LOW) — Risk 5 holds AS LONG AS the frequency check is added
+  // ONLY inside emitCreate. A name that is BOTH a create-candidate elsewhere
+  // in the batch AND resolves to an existing row (unchanged) must keep its
+  // exact_name/HIGH identity tier regardless of what seenCounts says about
+  // frequency — the create-confidence check must never leak into the
+  // recognized (update/unchanged) arm.
+  it('a name that resolves unchanged stays tier exact_name/HIGH even when seenCounts marks it low-confidence', () => {
+    const plan = buildPlan(
+      { approved: { activities: ['One Off'] }, camp_id: camp, seenCounts: seenCounts({ 'One Off': 1 }) },
+      { activities: [{ id: 'a-live', name: 'One Off' }] },
+    )
+    expect(plan.items).toHaveLength(1)
+    expect(plan.items[0].op).toBe('unchanged')
+    expect(plan.items[0].evidence.tier).toBe('exact_name')
+  })
+
+  // A3 (Red Hat, HARD BLOCKER) — the pin-only fixed-event-name guard survives
+  // as a buildPlan-side rule: a name ticked as a fixed event that is NOT
+  // dual-use must never reach tier:'new', even if it would otherwise pass the
+  // frequency test.
+  it('forces tier low on a pin-only activity name, even when frequency alone would pass it', () => {
+    const plan = buildPlan(
+      {
+        approved: { activities: ['Mifkad'] },
+        camp_id: camp,
+        seenCounts: seenCounts({ Mifkad: 40 }),
+        pinOnlyActivityNames: ['Mifkad'],
+      },
+      null,
+    )
+    expect(plan.items[0].evidence.tier).toBe('low')
   })
 })

@@ -313,8 +313,15 @@ describe('fixed events land as anchor_activities (T34)', () => {
       camp_id: campId, cohort_id: coMain, device_id: deviceId,
     })
 
-    // Per-day fan-out: two days -> two rows.
-    expect(result.fixedEvents).toEqual({ created: 2, unchanged: 0, skipped: [], partial: [], rejected: [], moved: [], scopeChanged: [] })
+    // Per-day fan-out: two days -> two rows. createdEntries/unchangedEntries
+    // (fix round 2026-08-17, FIX 1) are the additive per-event detail channel
+    // buildReconciliationReport consumes — asserted by name/count via
+    // objectContaining rather than repeating their full shape here.
+    expect(result.fixedEvents).toEqual(expect.objectContaining({
+      created: 2, unchanged: 0, skipped: [], partial: [], rejected: [], moved: [], scopeChanged: [],
+    }))
+    expect(result.fixedEvents.createdEntries).toHaveLength(2)
+    expect(result.fixedEvents.createdEntries.every((e) => e.name === 'Mifkad')).toBe(true)
     expect(count('anchor_activities')).toBe(2)
 
     const tbId = db.prepare('SELECT id FROM time_blocks').get().id

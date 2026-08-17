@@ -170,6 +170,14 @@ describe('isDecisionResolvedFor', () => {
     expect(isDecisionResolvedFor(d, { d1: {} })).toBe(false)
     expect(isDecisionResolvedFor(d, { d1: { resolved: true } })).toBe(true)
   })
+
+  it('required_gap resolves only via dismissedGaps, never via answers', () => {
+    const d = { id: 'readiness:tiers', kind: 'required_gap' }
+    expect(isDecisionResolvedFor(d, {})).toBe(false)
+    expect(isDecisionResolvedFor(d, {}, new Set())).toBe(false)
+    expect(isDecisionResolvedFor(d, { 'readiness:tiers': { action: 'looks_right' } })).toBe(false)
+    expect(isDecisionResolvedFor(d, {}, new Set(['readiness:tiers']))).toBe(true)
+  })
 })
 
 describe('mapCommitError', () => {

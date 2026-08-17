@@ -36,9 +36,18 @@ vi.mock('../ingest/extractEntities', async () => {
 })
 vi.mock('../ingest/fixedEvents', () => ({ inferFixedEvents: () => ({ fixedEvents: [], dualUseNames: [] }) }))
 vi.mock('../hooks/useCohorts', () => ({ useCohorts: () => ({ activeCohort: { id: 'cohort-1' } }) }))
+// Fix round 2026-08-17 — ReconciliationScreen's "Use this setup" button
+// (the new one-screen flow's commit trigger) is gated on readiness's 5
+// required areas being 'ready' (getReadiness, src/engine/readiness.js), NOT
+// just on this file's own decisions. An all-[] `list` mock left every
+// required area at 'needs-attention', so the button stayed disabled forever
+// and localClient.ingestCommit was never called — entity-aware so tiers/
+// groups/days_of_operation/time_blocks/activities each report one existing
+// row (readiness green) while every other table stays empty, same as before.
+const READY_ENTITIES = new Set(['tiers', 'groups', 'days_of_operation', 'time_blocks', 'activities'])
 vi.mock('../localClient', () => ({
   localClient: {
-    list: vi.fn().mockResolvedValue([]),
+    list: vi.fn((entity) => Promise.resolve(READY_ENTITIES.has(entity) ? [{ id: `${entity}-1` }] : [])),
     // useSetupCounts calls getCamp() in a mount effect on every ImportScreen
     // render, so the mock must implement it or every test throws in that effect.
     getCamp: vi.fn().mockResolvedValue({ id: 'camp-1', name: 'Camp' }),
@@ -53,7 +62,7 @@ import { localClient } from '../localClient'
 
 beforeEach(() => {
   vi.clearAllMocks()
-  localClient.list.mockResolvedValue([])
+  localClient.list.mockImplementation((entity) => Promise.resolve(READY_ENTITIES.has(entity) ? [{ id: `${entity}-1` }] : []))
   localClient.ingestCommit.mockResolvedValue({ total: 1, fixedEvents: { created: 0, skipped: [], partial: [] } })
 })
 

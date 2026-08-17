@@ -106,7 +106,14 @@ describe('C1b — anchor slot-identity drift MOVED signal', () => {
     const second = commit({ ...BASE, fixedEvents: [MIFKAD_MON_9] })
     expect(second.fixedEvents.created).toBe(0)
     expect(second.fixedEvents.moved).toEqual([
-      { name: 'Mifkad', reason: 'moved from Monday/09:00-09:40 to Monday/10:00-10:40' },
+      {
+        name: 'Mifkad',
+        reason: 'moved from Monday/09:00-09:40 to Monday/10:00-10:40',
+        time_block: '09:00-09:40',
+        days: ['Monday'],
+        from: { day: 'Monday', timeBlock: '09:00-09:40' },
+        to: { day: 'Monday', timeBlock: '10:00-10:40' },
+      },
     ])
     expect(anchorCount()).toBe(1) // NO duplicate at the old slot
   })
@@ -120,7 +127,14 @@ describe('C1b — anchor slot-identity drift MOVED signal', () => {
     const second = commit({ ...BASE, fixedEvents: [MIFKAD_MON_9] })
     expect(second.fixedEvents.created).toBe(0)
     expect(second.fixedEvents.moved).toEqual([
-      { name: 'Mifkad', reason: 'moved from Monday/09:00-09:40 to Tuesday/09:00-09:40' },
+      {
+        name: 'Mifkad',
+        reason: 'moved from Monday/09:00-09:40 to Tuesday/09:00-09:40',
+        time_block: '09:00-09:40',
+        days: ['Monday'],
+        from: { day: 'Monday', timeBlock: '09:00-09:40' },
+        to: { day: 'Tuesday', timeBlock: '09:00-09:40' },
+      },
     ])
     expect(anchorCount()).toBe(1)
   })
@@ -148,7 +162,14 @@ describe('C1b — anchor slot-identity drift MOVED signal', () => {
     expect(second.fixedEvents.created).toBe(0)
     expect(second.fixedEvents.unchanged).toBe(1) // Tuesday untouched
     expect(second.fixedEvents.moved).toEqual([
-      { name: 'Mifkad', reason: 'moved from Monday/09:00-09:40 to Wednesday/09:00-09:40' },
+      {
+        name: 'Mifkad',
+        reason: 'moved from Monday/09:00-09:40 to Wednesday/09:00-09:40',
+        time_block: '09:00-09:40',
+        days: ['Monday', 'Tuesday'],
+        from: { day: 'Monday', timeBlock: '09:00-09:40' },
+        to: { day: 'Wednesday', timeBlock: '09:00-09:40' },
+      },
     ])
     expect(anchorCount()).toBe(2)
   })
@@ -245,7 +266,14 @@ describe('C1b — anchor slot-identity drift MOVED signal', () => {
     expect(run2.fixedEvents.created).toBe(0)
     expect(run1.fixedEvents.moved).toEqual(run2.fixedEvents.moved)
     expect(run1.fixedEvents.moved).toEqual([
-      { name: 'Mifkad', reason: 'moved from Monday/09:00-09:40 to Tuesday/09:00-09:40' },
+      {
+        name: 'Mifkad',
+        reason: 'moved from Monday/09:00-09:40 to Tuesday/09:00-09:40',
+        time_block: '09:00-09:40',
+        days: ['Monday'],
+        from: { day: 'Monday', timeBlock: '09:00-09:40' },
+        to: { day: 'Tuesday', timeBlock: '09:00-09:40' },
+      },
     ])
     expect(anchorCount()).toBe(1)
   })
@@ -292,7 +320,14 @@ describe('C1b — anchor slot-identity drift MOVED signal', () => {
     }
     const second = commit({ ...BASE, fixedEvents: [scopedMifkad] })
     expect(second.fixedEvents.moved).toEqual([
-      { name: 'Mifkad', reason: 'moved from Monday/09:00-09:40 to Tuesday/09:00-09:40' },
+      {
+        name: 'Mifkad',
+        reason: 'moved from Monday/09:00-09:40 to Tuesday/09:00-09:40',
+        time_block: '09:00-09:40',
+        days: ['Monday'],
+        from: { day: 'Monday', timeBlock: '09:00-09:40' },
+        to: { day: 'Tuesday', timeBlock: '09:00-09:40' },
+      },
     ])
     expect(second.fixedEvents.created).toBe(0)
     expect(anchorCount()).toBe(1)

@@ -8,7 +8,7 @@ import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '..
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { inferFixedEvents } from '../ingest/fixedEvents'
 import { inferActivityRules } from '../ingest/activityRules'
-import { buildPreview, describePreview, normalizeName } from '../ingest/preview'
+import { normalizeName } from '../ingest/preview'
 import { autoAccepts } from '../ingest/confidence'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../utils/exportSanitize.js'
@@ -40,9 +40,6 @@ const LABEL = {
   locations: 'Places',
   activities: 'Activities',
 }
-
-// Identifies a proposed fixed event for tick toggling (spec §4.1).
-const fixedEventKey = (fe) => `${fe.name} ${fe.time_block} ${fe.days.join(',')}`
 
 // Maps a rule-state field name (what updateActivityRule patches) to the SOURCE
 // field name the commit's `humanEditedFields` speaks (what foldApprovedToRecords /
@@ -94,25 +91,32 @@ export default function ImportScreen({ campId, onNavigate }) {
   // op-log apply without any extra plumbing here.
   const { counts } = useSetupCounts(campId)
   const [fileNames, setFileNames] = useState([])
-  const [preview, setPreview] = useState(null)
+  // ADR 2026-08-17-onescreen-reconciliation-merge.md §2 — replaces the old
+  // `preview` (buildPreview's create/skip/lowConfidence shape, now deleted).
+  // `proposal` is extractEntities' own output: every name the file offered,
+  // deduped, with no existing-camp filtering (that is buildPlan's job at
+  // dry-run/commit time, via ReconciliationScreen).
+  const [proposal, setProposal] = useState(null)
   // D2 round 2 — see the comment at its assignment in readFiles.
   const fileGroupUnitsRef = useRef({})
   // Q8 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D5) — same
   // "survives staging" reasoning as fileGroupUnitsRef: normalized(activity
   // name) -> the one place name it was captured next to.
   const fileActivityLocationsRef = useRef({})
-  const [chosen, setChosen] = useState({})
-  // Proposed recurring fixed events (T34), and which the director has ticked.
-  // High-confidence events start ticked; low-confidence start unticked, mirroring
-  // the rare-entity treatment. operatingDayCount is only for the "every day" hint.
+  // Proposed recurring fixed events (T34). Every inferred fixed event is sent
+  // unconditionally at commit (sub-slice 4, §3/A1) — there is no local tick
+  // to gate it. A low-confidence one that the director hasn't reconciled is
+  // held back downstream by reconciliationResolutions.js's fixed-event
+  // hold-back, keyed on ReconciliationScreen, not here.
+  // operatingDayCount is only for the "every day" hint.
   const [fixedEvents, setFixedEvents] = useState([])
-  const [chosenFixedEvents, setChosenFixedEvents] = useState(new Set())
   const [operatingDayCount, setOperatingDayCount] = useState(0)
-  // ADR 2026-08-09 Decision 1 — dualUseNames is a SEED for the activities-list
-  // tick-seeding below, not a routing verdict; pinOnlyNames is everything ticked
-  // as a fixed event that ISN'T dual-use. Both are display-name sets, used only
-  // to default the tick state and render a note — buildPlan never sees them.
-  const [dualUseActivityNames, setDualUseActivityNames] = useState(new Set())
+  // ADR 2026-08-09 Decision 1 / A3 (Red Hat, 2026-08-17-onescreen-
+  // reconciliation-merge.md) — pinOnlyActivityNames is every auto-accepted
+  // (high-confidence) fixed-event name that ISN'T also a free activity
+  // choice (dual-use). It travels to buildPlan (buildCommitInputs, below) as
+  // the guard that forces tier:'low' on that name, so it can never silently
+  // mint into the catalog.
   const [pinOnlyActivityNames, setPinOnlyActivityNames] = useState(new Set())
   // ADR 2026-08-09 Decision 2 — the reviewable unit column's per-group state:
   // { [groupName]: unitName } (set) | { [groupName]: { clear: true } } (cleared)
@@ -172,8 +176,8 @@ export default function ImportScreen({ campId, onNavigate }) {
     setError(null)
     setResult(null)
     setLedger(null)
+    setProposal(null)
     setFixedEvents([])
-    setChosenFixedEvents(new Set())
     setActivityRules({})
     setGroupUnitOverrides({})
     const files = [...(fileList ?? [])]
@@ -219,24 +223,15 @@ export default function ImportScreen({ campId, onNavigate }) {
       }
 
       if (pages.length === 0) {
-        setPreview(null)
+        setProposal(null)
         setError('No schedule could be read out of that. It may be a scan rather than a document with text in it.')
         return
       }
 
       const proposal = extractEntities({ pages })
-      const existing = {}
       const existingAll = {}
       for (const entity of INGESTIBLE_ENTITIES) {
-        const rows = await localClient.list(entity).catch(() => [])
-        existingAll[entity] = rows
-        // Duplicate-detection for the Program-scoped entities is scoped to the
-        // active Program, or a re-import into a different Program would skip a
-        // unit/time-block that only exists in another one (T33). This is
-        // deliberately narrower than existingAll above — see existingCountAll.
-        existing[entity] = (entity === 'tiers' || entity === 'time_blocks') && activeCohort
-          ? rows.filter((r) => r.cohort_id === activeCohort.id)
-          : rows
+        existingAll[entity] = await localClient.list(entity).catch(() => [])
       }
       setExistingRecordsAll(existingAll)
       setSnapshotCount((await localClient.list('schedule_snapshots').catch(() => [])).length)
@@ -244,55 +239,39 @@ export default function ImportScreen({ campId, onNavigate }) {
       setSlotCount((await localClient.list('template_slots').catch(() => [])).length)
       setAnchorCount((await localClient.list('anchor_activities').catch(() => [])).length)
       setImportMode('add')
-      const next = buildPreview(proposal, existing)
-      setPreview(next)
+      // ADR 2026-08-17-onescreen-reconciliation-merge.md §2 — no more local
+      // create/skip/lowConfidence computation (buildPreview deleted): every
+      // name the file offers is a candidate, existing-camp matching and
+      // create-confidence both now live downstream in buildPlan, surfaced as
+      // real decisions on ReconciliationScreen.
+      setProposal(proposal)
       // D2 round 2 — buildCommitInputs() needs this file-inferred groupUnits
-      // map even after staging nulls `preview` out (commitInputsWithResolutions
+      // map even after staging nulls `proposal` out (commitInputsWithResolutions
       // calls buildCommitInputs() again live, to pick up post-staging edits).
       // A ref survives that null without re-rendering or needing its own reset
       // bookkeeping — a fresh upload simply overwrites it.
-      fileGroupUnitsRef.current = next.groupUnits ?? {}
+      fileGroupUnitsRef.current = proposal.groupUnits ?? {}
       fileActivityLocationsRef.current = proposal.activityLocations ?? {}
 
-      // Recurring fixed events implied by the grid (T34). High-confidence ones
-      // (holding on every operating day) start ticked; low-confidence ones (a
-      // majority but not all) start unticked — the same treatment rare entities
-      // get. All are shown; ticking is the director's act.
+      // Recurring fixed events implied by the grid (T34). Every inferred event
+      // is shown and ships unconditionally at commit (sub-slice 4) — a
+      // low-confidence one the director hasn't reconciled is held back
+      // downstream (ReconciliationScreen), not here.
       const { fixedEvents: inferred, dualUseNames = [] } = inferFixedEvents({ pages }, proposal)
       setFixedEvents(inferred)
-      const initialTickedFixedEvents = new Set(inferred.filter((fe) => autoAccepts(fe.confidence)).map(fixedEventKey))
-      setChosenFixedEvents(initialTickedFixedEvents)
       setOperatingDayCount(proposal.entities.days_of_operation.length)
 
-      // ADR 2026-08-09 Decision 1 — a ticked fixed-event name that is NOT
-      // dual-use defaults OUT of the activities catalog (it is never a free
-      // choice in the source file); ticking its row is the one-click override.
+      // ADR 2026-08-09 Decision 1 / A3 (Red Hat) — an auto-accepted
+      // (high-confidence) fixed-event name that is NOT dual-use is never a
+      // free activity-catalog choice. This set travels to buildPlan as
+      // `pinOnlyActivityNames` (buildCommitInputs, below), which forces
+      // tier:'low' on that name so it can never silently mint.
       const dualUseSet = new Set(dualUseNames)
       const initialTickedFixedEventNames = new Set(
         inferred.filter((fe) => autoAccepts(fe.confidence)).map((fe) => fe.name)
       )
       const pinOnlySet = new Set([...initialTickedFixedEventNames].filter((n) => !dualUseSet.has(n)))
-      setDualUseActivityNames(dualUseSet)
       setPinOnlyActivityNames(pinOnlySet)
-
-      // Everything starts approved except values the file gives no reason to
-      // trust — seen once across the camp AND not universal in any one unit,
-      // or a name that is two other proposed names welded together — OR a
-      // pin-only fixed-event name (Decision 1, above). Nothing is hidden
-      // either way; the unticked rows are right there with their note or count.
-      const initial = {}
-      for (const entity of INGESTIBLE_ENTITIES) {
-        const { create, lowConfidence = [] } = next.perEntity[entity]
-        const low = new Set(lowConfidence)
-        // Q8 (§D5): a location create candidate defaults UNTICKED — the one
-        // deviation from every other entity's create-defaults-ticked-unless-
-        // low-confidence rule, mirroring the fixed-event pin-only precedent.
-        // Nothing is ever minted or bound without the director's explicit tick.
-        initial[entity] = entity === 'locations'
-          ? new Set()
-          : new Set(create.filter((n) => !low.has(n) && !(entity === 'activities' && pinOnlySet.has(n))))
-      }
-      setChosen(initial)
 
       // Rule inference (T35) — same "propose, director confirms" shape as the
       // entities and fixed events above.
@@ -305,7 +284,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       )
       setActivityRules(Object.fromEntries(rules))
     } catch (err) {
-      setPreview(null)
+      setProposal(null)
       setError(describeWriteFailure(err, 'That file could not be read.'))
     }
   }
@@ -325,7 +304,7 @@ export default function ImportScreen({ campId, onNavigate }) {
     } catch (err) {
       // A fail-closed reject (missing/edited metadata, camp/cohort mismatch) is a
       // clear user-facing message, not a crash — nothing was imported.
-      setPreview(null)
+      setProposal(null)
       setError(err?.message ?? 'That worksheet could not be read.')
       return
     }
@@ -379,24 +358,6 @@ export default function ImportScreen({ campId, onNavigate }) {
     }
   }
 
-  function toggle(entity, name) {
-    setChosen(prev => {
-      const set = new Set(prev[entity])
-      if (set.has(name)) set.delete(name)
-      else set.add(name)
-      return { ...prev, [entity]: set }
-    })
-  }
-
-  function toggleFixedEvent(key) {
-    setChosenFixedEvents(prev => {
-      const set = new Set(prev)
-      if (set.has(key)) set.delete(key)
-      else set.add(key)
-      return set
-    })
-  }
-
   // Editing a field clears `_inferred` for that activity's whole rule, so the
   // styling reflects it is now the director's value rather than a proposal. It
   // ALSO records WHICH fields the director touched (as SOURCE field names) in
@@ -438,16 +399,21 @@ export default function ImportScreen({ campId, onNavigate }) {
     setActivityRules({})
   }
 
-  const approvedCount = Object.values(chosen).reduce((n, set) => n + set.size, 0)
+  // ADR 2026-08-17-onescreen-reconciliation-merge.md §2 — every name the file
+  // offered, unconditionally (proposal.entities is already deduped, per
+  // entity, by extractEntities). Nothing is ticked here anymore; a low-
+  // confidence create or a genuine ambiguity now becomes a real decision on
+  // ReconciliationScreen instead of being silently unticked upstream.
+  const approvedCount = proposal
+    ? INGESTIBLE_ENTITIES.reduce((n, e) => n + (proposal.entities[e]?.length ?? 0), 0)
+    : 0
 
   // The exact inputs a commit sends — built once here so a held re-commit (T73)
   // re-sends the SAME inputs plus the director's resolutions (ADR §1).
   function buildCommitInputs() {
     const approved = {}
-    for (const entity of INGESTIBLE_ENTITIES) approved[entity] = [...(chosen[entity] ?? [])]
+    for (const entity of INGESTIBLE_ENTITIES) approved[entity] = [...(proposal?.entities[entity] ?? [])]
     // ADR 2026-08-09 Decision 2 — three explicit per-group unit review states.
-    // Only groups actually being created are considered, so a bunk the
-    // director unticked cannot drag a unit (or a clear) in behind it.
     const groupUnits = {}
     const groupClears = {}
     const groupHumanFields = {}
@@ -480,8 +446,9 @@ export default function ImportScreen({ campId, onNavigate }) {
         groupUnits[name] = fileGroupUnitsRef.current[name]
       }
     }
-    // Only the fixed events the director ticked; unticked ones are not sent.
-    const tickedFixedEvents = fixedEvents.filter((fe) => chosenFixedEvents.has(fixedEventKey(fe)))
+    // Every inferred fixed event ships unconditionally (sub-slice 4, §3/A1)
+    // — the hold-back for an unresolved one lives on ReconciliationScreen
+    // (reconciliationResolutions.js's fixed-event hold-back), not here.
     // Only rules for activities the director actually approved — an
     // activity they unticked must not carry a rule into commitIngest, same
     // principle as groupUnits above. priority passes through as-is: post-B2
@@ -505,13 +472,15 @@ export default function ImportScreen({ campId, onNavigate }) {
         max_per_week: rule.max_per_week,
         priority: rule.priority,
       }
-      // Q8 (§D5): gate the paired location on the director's own tick — a
-      // captured location that is not ticked is simply omitted, never sent,
-      // the same "preserve" semantics buildPlan already gives any absent
-      // field. This is what keeps Q8 genuinely propose-only: no location row
-      // is ever minted, and no activity is ever bound to one, without it.
+      // Q8 (§D5) folded into buildPlan (ADR 2026-08-17-onescreen-reconciliation-
+      // merge.md §2): the paired location is now sent unconditionally — it is
+      // no longer gated on a local tick. What keeps Q8 genuinely propose-only
+      // is buildPlan's own create-confidence rule (createConfidenceTier):
+      // every location create is tier:'low' regardless of frequency, so it
+      // always requires an explicit director resolution on
+      // ReconciliationScreen before it is minted or bound to.
       const pairedLocation = fileActivityLocationsRef.current[normalizeName(name)]
-      if (pairedLocation && chosen.locations?.has(pairedLocation)) {
+      if (pairedLocation) {
         outgoingRules[name].location = pairedLocation
       }
       const edited = Array.isArray(rule._editedFields) ? rule._editedFields : []
@@ -523,9 +492,12 @@ export default function ImportScreen({ campId, onNavigate }) {
       clears: { groups: groupClears },
       humanEditedFields: { groups: groupHumanFields, activities: activityHumanFields },
       cohort_id: activeCohort?.id ?? null,
-      fixedEvents: tickedFixedEvents,
+      fixedEvents,
       activityRules: outgoingRules,
       mode: importMode === 'replace' ? 'replace' : 'add',
+      // §1 — real create confidence input, and A3's pin-only carry-over.
+      seenCounts: proposal?.seenCounts ?? null,
+      pinOnlyActivityNames: [...pinOnlyActivityNames],
     }
   }
 
@@ -536,12 +508,12 @@ export default function ImportScreen({ campId, onNavigate }) {
   // once the director confirms the file preview — no renderer-side buildPlan,
   // no separate held/queue surfaces to keep in sync.
   function stageLedger(inputs, fileName, origin = 'schedule') {
-    setPreview(null)
+    setProposal(null)
     setLedger({ context: inputs, fileName, origin })
   }
 
   function commit() {
-    // S5b — the tick-preview no longer commits directly; it stages the base
+    // S5b — the antechamber no longer commits directly; it stages the base
     // commit inputs and hands off to ReconciliationScreen, which owns the
     // whole triage/dry-run/apply loop from here (R2'b cutover).
     stageLedger(buildCommitInputs(), fileNames.join(', '), 'schedule')
@@ -554,7 +526,6 @@ export default function ImportScreen({ campId, onNavigate }) {
     setLedger(null)
     setFileNames([])
     setFixedEvents([])
-    setChosenFixedEvents(new Set())
     setActivityRules({})
     setGroupUnitOverrides({})
   }
@@ -563,7 +534,6 @@ export default function ImportScreen({ campId, onNavigate }) {
     setLedger(null)
     setFileNames([])
     setFixedEvents([])
-    setChosenFixedEvents(new Set())
     setActivityRules({})
     setGroupUnitOverrides({})
   }
@@ -678,29 +648,30 @@ export default function ImportScreen({ campId, onNavigate }) {
         </div>
       </div>
 
-      {preview && (
+      {proposal && (
         <>
           <div style={{
             background: 'var(--surface)', border: '1px solid var(--border)',
-            borderLeft: `3px solid var(--${preview.isNoOp ? 'accent' : 'primary'})`,
+            borderLeft: '3px solid var(--primary)',
             borderRadius: 8, padding: '12px 14px', marginBottom: 8, fontSize: 13, lineHeight: 1.6,
           }}>
-            {describePreview(preview)}
+            Everything below is what Shoresh found in the file. Nothing is added yet — the next
+            step shows exactly what would change and lets you review anything worth a second look.
           </div>
 
           {/* The orientation was detected, not known. Saying so lets a director
               catch a misread before it becomes their data (ADR §7). */}
-          {preview.orientation && (
+          {proposal.orientation && (
             <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 18, lineHeight: 1.6 }}>
-              {preview.orientation.confident
-                ? `Read as one page per ${preview.orientation.pages === 'groups' ? 'group, with the days across the top' : 'day, with the groups across the top'}.`
+              {proposal.orientation.confident
+                ? `Read as one page per ${proposal.orientation.pages === 'groups' ? 'group, with the days across the top' : 'day, with the groups across the top'}.`
                 : 'Could not tell how this file is laid out, so some of the list below may be wrong. Worth checking closely.'}
             </div>
           )}
 
           {INGESTIBLE_ENTITIES.map(entity => {
-            const { create, skip, lowConfidence = [] } = preview.perEntity[entity]
-            if (create.length === 0 && skip.length === 0) return null
+            const names = proposal.entities[entity] ?? []
+            if (names.length === 0) return null
             return (
               <div key={entity} style={{ marginBottom: 20 }}>
                 <div style={{
@@ -711,90 +682,41 @@ export default function ImportScreen({ campId, onNavigate }) {
                   {LABEL[entity]}
                 </div>
 
-                {lowConfidence.length > 0 && (
-                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
-                    {lowConfidence.length} of these appeared only once in the file, so they are more
-                    likely to be a misread than something your camp does. They are left unticked —
-                    tick any that are real.
-                  </div>
-                )}
+                {/* ADR 2026-08-17-onescreen-reconciliation-merge.md §2 — read-
+                    only now: there is no tick step here anymore. A low-
+                    confidence create, an ambiguity, or an already-in-camp
+                    match is a real decision on the next screen, not a local
+                    checkbox default. */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                  {create.map(name => {
-                    const on = chosen[entity]?.has(name)
-                    const seen = preview.perEntity[entity].counts?.[name]
-                    const isPinOnly = entity === 'activities' && pinOnlyActivityNames.has(name)
-                    const isDualUse = entity === 'activities' && dualUseActivityNames.has(name)
-                    const isLocationCandidate = entity === 'locations'
-                    return (
-                      <button
-                        key={name}
-                        title={seen ? `Found ${seen} ${seen === 1 ? 'time' : 'times'} in the file` : undefined}
-                        onClick={() => toggle(entity, name)}
-                        style={{
-                          fontSize: 12, padding: '5px 10px', borderRadius: 6, cursor: 'pointer',
-                          fontFamily: 'inherit',
-                          background: on ? 'color-mix(in srgb, var(--success) 12%, var(--surface))' : 'var(--bg)',
-                          border: `1px solid ${on ? 'var(--success)' : 'var(--border)'}`,
-                          color: on ? 'var(--text)' : 'var(--text-secondary)',
-                          textDecoration: on ? 'none' : 'line-through',
-                        }}
-                      >
-                        {on ? '✓ ' : ''}{name}
-                        {seen > 1 && (
-                          <span style={{ marginLeft: 6, opacity: 0.55, fontFamily: 'var(--font-mono)', fontSize: 10 }}>
-                            ×{seen}
-                          </span>
-                        )}
-                        {/* ADR 2026-08-09 Decision 1 — the routing default must be
-                            visible and reversible before commit, not silent. */}
-                        {isPinOnly && (
-                          <div style={{ fontSize: 10, marginTop: 2, fontWeight: 400, textDecoration: 'none', opacity: 0.8 }}>
-                            Scheduled as a fixed event — not added to the activity catalog.
-                          </div>
-                        )}
-                        {isDualUse && (
-                          <div style={{ fontSize: 10, marginTop: 2, fontWeight: 400, textDecoration: 'none', opacity: 0.8 }}>
-                            Also appears as a fixed event.
-                          </div>
-                        )}
-                        {/* Q8 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D5) —
-                            a place is propose-only: nothing is created and no
-                            activity is bound to it until the director ticks it. */}
-                        {isLocationCandidate && (
-                          <div style={{ fontSize: 10, marginTop: 2, fontWeight: 400, textDecoration: 'none', opacity: 0.8 }}>
-                            Seen in this file as a room. Tick to add it as a place and put these activities on it.
-                          </div>
-                        )}
-                      </button>
-                    )
-                  })}
+                  {names.map(name => (
+                    <span
+                      key={name}
+                      style={{
+                        fontSize: 12, padding: '5px 10px', borderRadius: 6,
+                        fontFamily: 'inherit', background: 'var(--bg)',
+                        border: '1px solid var(--border)', color: 'var(--text-secondary)',
+                      }}
+                    >
+                      {name}
+                    </span>
+                  ))}
                 </div>
 
-                {/* ADR §5 — a skip is silently partial unless it is named
-                    before the confirm, with what it matched. */}
-                {skip.length > 0 && (
-                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.7 }}>
-                    Already in your camp, so they will be left alone:{' '}
-                    {skip.map(s => s.name).join(', ')}.
-                  </div>
-                )}
-
                 {/* ADR 2026-08-09 Decision 2 — the reviewable unit column, one
-                    per ticked group: unset (file inference), a picked/typed
-                    unit, or an explicit clear. Only groups actually being
-                    created are shown, same gating as the activity rules below. */}
-                {entity === 'groups' && create.some((n) => chosen.groups?.has(n)) && (
+                    per group. Unset (file inference), a picked/typed unit, or
+                    an explicit clear. */}
+                {entity === 'groups' && names.length > 0 && (
                   <div style={{ marginTop: 12 }}>
                     <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
                       Which unit each group belongs to. Left as-is uses what the file itself says.
                     </div>
-                    {create.filter((n) => chosen.groups?.has(n)).map((name) => {
+                    {names.map((name) => {
                       const override = groupUnitOverrides[name]
                       const isClear = !!(override && typeof override === 'object' && override.clear)
                       const isEditing = !!(override && typeof override === 'object' && override.editing)
                       const selectValue = isClear ? '__clear__' : isEditing ? '__new__' : (typeof override === 'string' ? override : '')
                       const tierNames = [...new Set([
-                        ...(preview.perEntity.tiers?.create ?? []),
+                        ...(proposal.entities.tiers ?? []),
                         ...(existingRecordsAll.tiers ?? [])
                           .filter((t) => !activeCohort || t.cohort_id === activeCohort.id)
                           .map((t) => t.name),
@@ -817,7 +739,7 @@ export default function ImportScreen({ campId, onNavigate }) {
                             }}
                             style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}
                           >
-                            <option value="">{preview.groupUnits?.[name] ? `From file: ${preview.groupUnits[name]}` : 'No unit (from file)'}</option>
+                            <option value="">{proposal.groupUnits?.[name] ? `From file: ${proposal.groupUnits[name]}` : 'No unit (from file)'}</option>
                             {tierNames.map((t) => (
                               <option key={t} value={t}>{t}</option>
                             ))}
@@ -842,11 +764,9 @@ export default function ImportScreen({ campId, onNavigate }) {
                   </div>
                 )}
 
-                {/* Inferred scheduling rules (T35) — only for activities the
-                    director has ticked, since an unticked activity is not
-                    being created and a rule for it would have nothing to
-                    attach to. */}
-                {entity === 'activities' && create.some((n) => chosen.activities?.has(n)) && (
+                {/* Inferred scheduling rules (T35) — for every proposed
+                    activity now (§2: nothing is ticked here anymore). */}
+                {entity === 'activities' && names.length > 0 && (
                   <div style={{ marginTop: 12 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
                       <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
@@ -856,14 +776,14 @@ export default function ImportScreen({ campId, onNavigate }) {
                         Clear inferred rules
                       </button>
                     </div>
-                    {create.filter((n) => chosen.activities?.has(n)).map((name) => (
+                    {names.map((name) => (
                       <ActivityRuleRow
                         key={name}
                         name={name}
                         rule={activityRules[name]}
-                        allGroups={preview.perEntity.groups?.create ?? []}
+                        allGroups={proposal.entities.groups ?? []}
                         onChange={(patch) => updateActivityRule(name, patch)}
-                        onToggleGroup={(g) => toggleRuleGroup(name, g, preview.perEntity.groups?.create ?? [])}
+                        onToggleGroup={(g) => toggleRuleGroup(name, g, proposal.entities.groups ?? [])}
                       />
                     ))}
                   </div>
@@ -873,9 +793,12 @@ export default function ImportScreen({ campId, onNavigate }) {
           })}
 
           {/* Fixed Events (T34). Activities pinned to the same period across a
-              group's days — Mifkad, Lunch, Swim. Tick-only, like the entity
-              sections: an imported fixed event is an ordinary anchor, so its full
-              editor already exists on the Fixed Events screen (spec §4.2). */}
+              group's days — Mifkad, Lunch, Swim. Sub-slice 4: no local tick —
+              every inferred event is shown and ships to ReconciliationScreen,
+              which is where a low-confidence one gets reconciled (or held
+              back if left unresolved). An imported fixed event is an ordinary
+              anchor, so its full editor already exists on the Fixed Events
+              screen (spec §4.2). */}
           {fixedEvents.length > 0 && (
             <div style={{ marginBottom: 20 }}>
               <div style={{
@@ -887,40 +810,37 @@ export default function ImportScreen({ campId, onNavigate }) {
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
                 These activities sat at the same time across a group’s days, so they look fixed rather
-                than scheduled fresh each day. Ticked ones are added as fixed events you can edit later.
+                than scheduled fresh each day. They’re added as fixed events you can edit later.
               </div>
               {fixedEvents.some((fe) => fe.confidence === 'low') && (
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
-                  Some appeared on a majority of a group’s days but not all, so they are left unticked —
-                  tick any that really are fixed.
+                  Some appeared on a majority of a group’s days but not all — you’ll be asked to confirm
+                  those on the next step.
                 </div>
               )}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                 {fixedEvents.map((fe) => {
-                  const key = fixedEventKey(fe)
-                  const on = chosenFixedEvents.has(key)
+                  const key = `${fe.name} ${fe.time_block} ${fe.days.join(',')}`
                   const scope = fe.scope.is_all_groups ? 'every group' : fe.scope.groups.join(', ')
                   const daysLabel = operatingDayCount > 0 && fe.days.length >= operatingDayCount
                     ? 'every day'
                     : fe.days.join(', ')
                   return (
-                    <button
+                    <div
                       key={key}
-                      onClick={() => toggleFixedEvent(key)}
                       style={{
-                        fontSize: 12, padding: '5px 10px', borderRadius: 6, cursor: 'pointer',
+                        fontSize: 12, padding: '5px 10px', borderRadius: 6,
                         fontFamily: 'inherit', textAlign: 'left',
-                        background: on ? 'color-mix(in srgb, var(--success) 12%, var(--surface))' : 'var(--bg)',
-                        border: `1px solid ${on ? 'var(--success)' : 'var(--border)'}`,
-                        color: on ? 'var(--text)' : 'var(--text-secondary)',
-                        textDecoration: on ? 'none' : 'line-through',
+                        background: 'color-mix(in srgb, var(--success) 12%, var(--surface))',
+                        border: '1px solid var(--success)',
+                        color: 'var(--text)',
                       }}
                     >
-                      {on ? '✓ ' : ''}{fe.name}
+                      {fe.name}
                       <span style={{ marginLeft: 6, opacity: 0.6, fontSize: 11 }}>
                         · {fe.time_block} · {scope} · {daysLabel}
                       </span>
-                    </button>
+                    </div>
                   )
                 })}
               </div>
@@ -1062,7 +982,7 @@ export default function ImportScreen({ campId, onNavigate }) {
                 ? `Replace with ${approvedCount} ${approvedCount === 1 ? 'record' : 'records'}`
                 : `Add ${approvedCount} ${approvedCount === 1 ? 'record' : 'records'}`}
             </button>
-            <button className="press-97" onClick={() => { setPreview(null); setFileNames([]) }} style={S.btnSecondary}>
+            <button className="press-97" onClick={() => { setProposal(null); setFileNames([]) }} style={S.btnSecondary}>
               Cancel
             </button>
           </div>

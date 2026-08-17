@@ -201,23 +201,33 @@ function classifyItem(item, fieldProvenance, activityEvidence) {
 // C2a: moved/partial entries carry a name+reason, no entity_id — same
 // dedup-by-root-cause key shape as create/conflict above, qualified by kind
 // so a confirm_change and a confirm_value sharing (reason, name) never merge.
-function fixedEventDecisionId(kind, reason, name) {
-  // Full key shape is `entity:entityId:kind:reason:name` where entity is the
-  // literal 'anchor_activities' and entityId is the literal null (fixed-event
-  // decisions carry no entity_id). Both reason and name are `?? ''`-guarded so
-  // a missing segment collapses to empty rather than interpolating 'undefined'.
-  return `anchor_activities:null:${kind}:${reason ?? ''}:${name ?? ''}`
+function fixedEventDecisionId(kind, reason, name, timeBlock, days) {
+  // Full key shape is `entity:entityId:kind:reason:name:timeBlock:days` where
+  // entity is the literal 'anchor_activities' and entityId is the literal
+  // null (fixed-event decisions carry no entity_id). reason/name/timeBlock
+  // are `?? ''`-guarded so a missing segment collapses to empty rather than
+  // interpolating 'undefined'. The timeBlock/days discriminator (A1, Red Hat
+  // 2026-08-17) mirrors ImportScreen.jsx's fixedEventKey — without it, two
+  // same-named anchors on different days/time-blocks collapse into one
+  // decision and the second's identity is silently discarded.
+  const daysKey = Array.isArray(days) ? days.join(',') : (days ?? '')
+  return `anchor_activities:null:${kind}:${reason ?? ''}:${name ?? ''}:${timeBlock ?? ''}:${daysKey}`
 }
 
 // D3: fixed-event decisions carry no entity_id (see fixedEventDecisionId) —
 // their join handle is the event's own name. fixedEventEvidence defaults to
 // {} at the call site, so an omitted evidenceSupport degrades to null here
 // too.
-function addFixedEventDecision(decisionsByKey, { kind, confidence, name, reason }, fixedEventEvidence) {
-  const id = fixedEventDecisionId(kind, reason, name)
+function addFixedEventDecision(
+  decisionsByKey,
+  { kind, confidence, name, reason, timeBlock, days, from, to },
+  fixedEventEvidence,
+) {
+  const id = fixedEventDecisionId(kind, reason, name, timeBlock, days)
   // `decisionsByKey.has(id)` above already dedups multiple fixedEventsReport
-  // entries sharing (kind, reason, name) down to ONE decision (round-2
-  // fix's dedup-by-root-cause) — this early return means only the FIRST
+  // entries sharing (kind, reason, name, timeBlock, days) down to ONE
+  // decision (round-2 fix's dedup-by-root-cause, extended by A1's
+  // day/time-block discriminator) — this early return means only the FIRST
   // entry's lookup runs, so evidence granularity intentionally matches that
   // same name-level dedup: one decision, one evidence lookup by name, not a
   // per-entry one. Not a bug if a later entry's support differs; it never
@@ -235,6 +245,18 @@ function addFixedEventDecision(decisionsByKey, { kind, confidence, name, reason 
     unknowns: [],
     evidence: fixedEventEvidence?.[name] ?? null,
     reason: reason ?? null,
+    // A1 / sub-slice 4 — carried onto the decision itself (not just baked
+    // into `id`) so a consumer (reconciliationResolutions.js's fixed-event
+    // hold-back) can match a decision back to its source fixedEvents[] entry
+    // by (name, timeBlock, days) without parsing the id string.
+    timeBlock: timeBlock ?? null,
+    days: Array.isArray(days) ? days : [],
+    // F2 (ADR §4): optional structured from/to, additive — a caller that
+    // doesn't supply them (every non-moved/scopeChanged kind, or a fixture
+    // written before this change) gets undefined, which the UI must render
+    // as "no structured from/to", never a stringified null/undefined.
+    from,
+    to,
   })
 }
 
@@ -393,6 +415,10 @@ export function buildReconciliationReport(input) {
       confidence: 'changed',
       name: entry.name,
       reason: entry.reason,
+      timeBlock: entry.time_block,
+      days: entry.days,
+      from: entry.from,
+      to: entry.to,
     }, fixedEventEvidence)
   }
 
@@ -412,6 +438,10 @@ export function buildReconciliationReport(input) {
       confidence: 'changed',
       name: entry.name,
       reason: entry.reason,
+      timeBlock: entry.time_block,
+      days: entry.days,
+      from: entry.from,
+      to: entry.to,
     }, fixedEventEvidence)
   }
 
@@ -424,6 +454,8 @@ export function buildReconciliationReport(input) {
       confidence: 'low',
       name: entry.name,
       reason: entry.reason,
+      timeBlock: entry.time_block,
+      days: entry.days,
     }, fixedEventEvidence)
   }
 
@@ -434,7 +466,33 @@ export function buildReconciliationReport(input) {
   void skipped
   void rejected
 
-  buckets.understood += asArray(created).length + asArray(unchanged).length
+  // FIX 1 (2026-08-17 fix round, Red Hat RISK 1): a FULLY-RESOLVED fixed
+  // event (no shortfall — it never touched the `partial` branch above) can
+  // still be sub-majority evidence (fe.confidence === 'low', e.g. 1 of
+  // several eligible groups actually observed it). Before this fix that
+  // wrote silently — `created` only ever counted toward `understood`, with
+  // no confidence gate, unlike every other create path in this module. Route
+  // a low-confidence created entry through the SAME confirm_value +
+  // addFixedEventDecision path `partial` uses, so §3's hold-back (keyed by
+  // name/timeBlock/days) gates it exactly like a partial one. A high-
+  // confidence entry (or one with no confidence info at all — pre-existing
+  // fixtures/callers) ships unconditionally, unchanged from before.
+  for (const entry of asArray(created)) {
+    if (entry?.confidence === 'low') {
+      buckets.needsAttention += 1
+      addFixedEventDecision(decisionsByKey, {
+        kind: 'confirm_value',
+        confidence: 'low',
+        name: entry.name,
+        reason: entry.reason ?? 'Only some groups showed this pattern in the file — confirm before creating it.',
+        timeBlock: entry.time_block,
+        days: entry.days,
+      }, fixedEventEvidence)
+    } else {
+      buckets.understood += 1
+    }
+  }
+  buckets.understood += asArray(unchanged).length
 
   // C2b, rule 7. Owner-resolved OQ3 (ADR "Resolved 2026-08-11"): BATCH — one
   // consolidated "N priorities need review" decision, never one-per-activity.
