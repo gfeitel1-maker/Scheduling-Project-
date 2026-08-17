@@ -17,7 +17,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PROJECTIONS } from './projections.js'
-import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
+import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES, DOMAIN_SNAPSHOT_ORDER } from './campScopedEntities.js'
 import { RESTORE_DECISIONS } from './restore.js'
 import { PERMISSIONS, ENTITIES } from '../auth/permissions.js'
 import { MOCK_WRITE_ALLOWLIST, MOCK_SCOPE_KEYS } from '../../src/localClient.mock.js'
@@ -43,8 +43,10 @@ describe('v32 registry coverage — locations', () => {
 
   it('is in the client first-pairing snapshot (DOMAIN_SNAPSHOT_TABLES + columns)', () => {
     const src = fs.readFileSync(path.join(__dirname, '../sync/syncClient.js'), 'utf8')
-    // Present in the ordered snapshot-table list...
-    expect(src).toMatch(/DOMAIN_SNAPSHOT_TABLES\s*=\s*\[[\s\S]*?'locations'[\s\S]*?\]/)
+    // Present in the single-sourced snapshot order (syncClient.js's
+    // DOMAIN_SNAPSHOT_TABLES = DOMAIN_SNAPSHOT_ORDER, imported from
+    // campScopedEntities.js as of T88 — no more literal array to regex).
+    expect(DOMAIN_SNAPSHOT_ORDER).toContain('locations')
     // ...and has a column list (so applyFullSync knows what to insert).
     expect(src).toMatch(/locations:\s*\['id', 'camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry'\]/)
     // activities.location_id must also travel in the snapshot (migration side effect, no op).
@@ -92,8 +94,11 @@ describe('v32 registry coverage — week_location_exclusions', () => {
   })
 
   it('is shipped by the server first-pairing snapshot, like its v28 siblings', () => {
-    const src = fs.readFileSync(path.join(__dirname, '../sync/syncServer.js'), 'utf8')
-    expect(src).toMatch(/DOMAIN_PARENT_SCOPED_ENTITIES[\s\S]*?week_location_exclusions/)
+    // syncServer.js imports DOMAIN_PARENT_SCOPED_ENTITIES from
+    // campScopedEntities.js (T88 single-sourcing) rather than declaring its
+    // own literal array — assert against the single source it consumes.
+    expect(DOMAIN_SNAPSHOT_ORDER).toContain('week_location_exclusions')
+    expect(PARENT_SCOPED_ENTITIES.week_location_exclusions).toBeTruthy()
   })
 })
 

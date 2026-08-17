@@ -1,8 +1,9 @@
 ---
 title: T89-live-op-week-parent-seed
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-16
+completed: 2026-08-17
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/GOVERNANCE_INDEX.md]
 related_tickets: [docs/work/tickets/T88-single-source-full-sync-manifest.md]
 related_adrs: []

@@ -533,7 +533,22 @@ export function createSyncClient(
         // it into the projected template_slots table.
         applyBulkReplaceProjection(db, op)
       } else {
-        applyProjection(db, op)
+        // T89 follow-up (Red Hat): applyProjection can issue MULTIPLE inserts
+        // for a single op — e.g. ensureWeekJoinRow's schedule_weeks stub-seed
+        // followed by the week_*_exclusions row insert. On the appendOp path
+        // those share appendOp's own transaction, but here the op-log insert
+        // transaction already closed at line ~518 (deliberately, so op
+        // durability doesn't depend on projection success) and applyProjection
+        // runs un-transacted. Without this wrapper, a projection that fails on
+        // its SECOND insert (e.g. the exclusion row's OTHER FK, activity_id/
+        // group_id, also unseen) leaves the FIRST insert's effect committed —
+        // a permanent phantom schedule_weeks stub with no exclusion to show
+        // for it, worse than the pre-fix silent no-op. Wrapping only this
+        // branch in its own (non-nested) transaction makes the whole
+        // projection atomic: any throw rolls back every partial insert, and
+        // still propagates to the catch below exactly as before.
+        const projectOnce = db.transaction(() => applyProjection(db, op))
+        projectOnce()
       }
     } catch (err) {
       // A failed DELETE is the one swallow that leaves this device visibly

@@ -41,6 +41,21 @@ function ensureWeekJoinRow(table, secondColumn) {
     const secondValue = readField(secondColumn)
     // Both NOT NULL columns must be present; until then the row cannot exist.
     if (weekId == null || secondValue == null) return
+    // T89: week_id is a real FK to schedule_weeks(id). Under an out-of-order
+    // replay (this exclusion op outrunning the week-level op that would have
+    // created schedule_weeks locally), that parent row may not exist yet —
+    // the INSERT below would throw SQLITE_CONSTRAINT_FOREIGNKEY, which the
+    // generic catch in syncClient.js swallows, leaving the op marked applied
+    // while the exclusion silently never materializes. Stub-seed the parent
+    // first, mirroring T85's devices-row seeding: minimal valid shape
+    // (matches PROJECTIONS.schedule_weeks.ensureExists exactly), INSERT OR
+    // IGNORE so a real row already present (or arriving later) is never
+    // overwritten. A later real schedule_weeks op fills in the real fields.
+    const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+    getStmt(
+      db,
+      "INSERT OR IGNORE INTO schedule_weeks (id, camp_id, name, sort_order, is_archived) VALUES (?, ?, '', 0, 0)"
+    ).run(weekId, camp?.id ?? null)
     getStmt(
       db,
       `INSERT OR IGNORE INTO ${table} (id, week_id, ${secondColumn}) VALUES (?, ?, ?)`

@@ -34,7 +34,6 @@ Regenerate with `npm run index:work`.
 | [T86-device-management-handlers-not-host-gated-on-client](../../docs/work/tickets/T86-device-management-handlers-not-host-gated-on-client.md) | open | [2026-08-16-device-fk-seeding-and-delivery-watermark](../../docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md) · [T85-devices-table-never-synced-cross-device-op-drop](../../docs/work/tickets/T85-devices-table-never-synced-cross-device-op-drop.md) |
 | [T87-returning-client-never-reauthenticates-after-restart](../../docs/work/tickets/T87-returning-client-never-reauthenticates-after-restart.md) | open | [2026-08-16-device-fk-seeding-and-delivery-watermark](../../docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md) · [T85-devices-table-never-synced-cross-device-op-drop](../../docs/work/tickets/T85-devices-table-never-synced-cross-device-op-drop.md) · [T86-device-management-handlers-not-host-gated-on-client](../../docs/work/tickets/T86-device-management-handlers-not-host-gated-on-client.md) |
 | [T88-single-source-full-sync-manifest](../../docs/work/tickets/T88-single-source-full-sync-manifest.md) | open | [T89-live-op-week-parent-seed](../../docs/work/tickets/T89-live-op-week-parent-seed.md) |
-| [T89-live-op-week-parent-seed](../../docs/work/tickets/T89-live-op-week-parent-seed.md) | open | — |
 
 ## Decisions
 

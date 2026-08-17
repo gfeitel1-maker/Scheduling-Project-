@@ -18,7 +18,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PROJECTIONS } from './projections.js'
-import { DIRECT_CAMP_ENTITIES } from './campScopedEntities.js'
+import { DIRECT_CAMP_ENTITIES, DOMAIN_SNAPSHOT_ORDER } from './campScopedEntities.js'
 import { RESTORE_DECISIONS } from './restore.js'
 import { MAX_FIELD_VALUE_LENGTH } from './operations.js'
 import { PERMISSIONS, ENTITIES } from '../auth/permissions.js'
@@ -41,8 +41,18 @@ describe('v33 registry coverage — camp_maps', () => {
   })
 
   it('is in the client first-pairing snapshot, ordered after the unconditional camps insert (row 3)', () => {
+    // syncClient.js single-sources DOMAIN_SNAPSHOT_TABLES = DOMAIN_SNAPSHOT_ORDER
+    // (imported from campScopedEntities.js, T88) — no more literal array to
+    // regex. Assert membership against the single source, and preserve the
+    // ordering intent: applyFullSyncSnapshot (syncClient.js) always inserts
+    // `camps` in its own unconditional loop BEFORE iterating
+    // DOMAIN_SNAPSHOT_TABLES, so any position of 'camp_maps' within that
+    // array is necessarily after the camps insert. The real ordering
+    // constraint that matters within the array itself is the FK-safety
+    // comment on DOMAIN_SNAPSHOT_ORDER — camp_maps only depends on camps.id,
+    // so it may appear anywhere in the array, but it must still be present.
+    expect(DOMAIN_SNAPSHOT_ORDER).toContain('camp_maps')
     const src = fs.readFileSync(path.join(__dirname, '../sync/syncClient.js'), 'utf8')
-    expect(src).toMatch(/DOMAIN_SNAPSHOT_TABLES\s*=\s*\[[\s\S]*?'camp_maps'[\s\S]*?\]/)
     expect(src).toMatch(
       /camp_maps:\s*\['id', 'camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'\]/
     )
