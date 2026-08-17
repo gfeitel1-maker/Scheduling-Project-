@@ -1142,3 +1142,58 @@ describe('buildReconciliationReport — C3 follow-up: defensive edge cases', () 
     expect(report.decisions).toHaveLength(0)
   })
 })
+
+describe('buildReconciliationReport — blastRadiusIndex (R2\'a additive input)', () => {
+  const planItems = [
+    {
+      op: 'update', entity: 'activities', entity_id: 'a3',
+      fields: { min_per_week: { from: 1, to: 3, source: 'import' } },
+      evidence: { tier: 'medium', matched_name: 'Kayak' }, _name: 'Kayak',
+    },
+    {
+      op: 'clear', entity: 'activities', entity_id: 'a4',
+      fields: { location: { from: 'Dock', to: Symbol('clear'), source: 'import' } },
+      evidence: { tier: 'low', matched_name: 'Sail' }, _name: 'Sail',
+    },
+  ]
+
+  it('omitting blastRadiusIndex is byte-identical to before this input existed — every decision.blastRadius is 0', () => {
+    const withoutInput = buildReconciliationReport({ planItems, readiness: [] })
+    const withEmptyMap = buildReconciliationReport({ planItems, readiness: [], blastRadiusIndex: new Map() })
+
+    for (const d of withoutInput.decisions) expect(d.blastRadius).toBe(0)
+    expect(withoutInput).toEqual(withEmptyMap)
+  })
+
+  it('an existing caller that never knew about blastRadiusIndex sees identical buckets/decisions apart from the new field', () => {
+    const before = buildReconciliationReport({ planItems, readiness: [] })
+    const beforeSansBlastRadius = before.decisions.map(({ blastRadius: _blastRadius, ...rest }) => rest)
+
+    // Same shape a pre-R2'a caller would have asserted against.
+    expect(beforeSansBlastRadius).toEqual([
+      expect.objectContaining({ entityId: 'a3', kind: 'confirm_value', confidence: 'medium' }),
+      expect.objectContaining({ entityId: 'a4', kind: 'confirm_value', confidence: 'low' }),
+    ])
+  })
+
+  it('surfaces decision.blastRadius from a real blastRadiusIndex, keyed by entity:entityId', () => {
+    const blastRadiusIndex = new Map([['activities:a3', 4], ['activities:a4', 0]])
+    const report = buildReconciliationReport({ planItems, readiness: [], blastRadiusIndex })
+
+    const kayak = report.decisions.find((d) => d.entityId === 'a3')
+    const sail = report.decisions.find((d) => d.entityId === 'a4')
+    expect(kayak.blastRadius).toBe(4)
+    expect(sail.blastRadius).toBe(0)
+  })
+
+  it('a decision with no entityId (conflict) keys by entity:name:normalizedName', () => {
+    const conflictItems = [{
+      op: 'conflict', entity: 'activities', entity_id: null,
+      reason: 'ambiguous_identity', fields: {},
+      evidence: { tier: 'exact_name', candidates: [] }, _name: 'Art',
+    }]
+    const blastRadiusIndex = new Map([['activities:name:art', 2]])
+    const report = buildReconciliationReport({ planItems: conflictItems, readiness: [], blastRadiusIndex })
+    expect(report.decisions[0].blastRadius).toBe(2)
+  })
+})

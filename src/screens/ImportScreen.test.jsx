@@ -48,6 +48,7 @@ vi.mock('../localClient', () => ({
     // was never reached, not because this screen may call it.
     deleteEntity: vi.fn(),
     ingestCommit: vi.fn().mockResolvedValue({ total: 3, fixedEvents: { created: 0, skipped: [], partial: [] } }),
+    ingestReconcile: vi.fn().mockResolvedValue({ planItems: [], fixedEventsReport: {}, legacyPriorityActivities: [], fieldProvenance: {}, evidenceSupport: {} }),
   },
 }))
 
@@ -124,7 +125,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
   it('sends resolved rules only for approved activities on commit', async () => {
     await uploadFile()
     await userEvent.click(screen.getByText(/Add \d+ record/))
-    await userEvent.click(await screen.findByText(/Commit \d+ record/))
+    await userEvent.click(await screen.findByText('Use this setup'))
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
     const [{ activityRules }] = localClient.ingestCommit.mock.calls[0]
     expect(activityRules.Swim).toMatchObject({ min_per_week: 2, max_per_week: 3 })
@@ -148,7 +149,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     fireEvent.change(minInput, { target: { value: '5' } })
 
     await userEvent.click(screen.getByText(/Add \d+ record/))
-    await userEvent.click(await screen.findByText(/Commit \d+ record/))
+    await userEvent.click(await screen.findByText('Use this setup'))
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
 
     const [{ humanEditedFields, activityRules }] = localClient.ingestCommit.mock.calls[0]
@@ -164,7 +165,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
   it('sends no humanEditedFields.activities entry for an untouched, inferred rule', async () => {
     await uploadFile()
     await userEvent.click(screen.getByText(/Add \d+ record/))
-    await userEvent.click(await screen.findByText(/Commit \d+ record/))
+    await userEvent.click(await screen.findByText('Use this setup'))
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
 
     const [{ humanEditedFields }] = localClient.ingestCommit.mock.calls[0]
@@ -176,7 +177,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
   it('commits in add mode without deleting a single row itself', async () => {
     await uploadFile()
     await userEvent.click(screen.getByText(/Add \d+ record/))
-    await userEvent.click(await screen.findByText(/Commit \d+ record/))
+    await userEvent.click(await screen.findByText('Use this setup'))
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
     expect(localClient.ingestCommit.mock.calls[0][0].mode).toBe('add')
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
@@ -188,7 +189,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     localClient.ingestCommit.mockRejectedValue(new Error('Import can only be run on the main computer.'))
     await uploadFile()
     await userEvent.click(screen.getByText(/Add \d+ record/))
-    await userEvent.click(await screen.findByText(/Commit \d+ record/))
+    await userEvent.click(await screen.findByText('Use this setup'))
     await waitFor(() => expect(screen.getByText(/main computer/)).toBeTruthy())
     expect(screen.getByText(/Nothing was imported/)).toBeTruthy()
   })

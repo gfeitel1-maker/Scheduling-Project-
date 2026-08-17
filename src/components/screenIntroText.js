@@ -20,4 +20,5 @@ export const SCREEN_INTRO = {
   locations: 'Places at your camp and how many groups fit in each — the Pool, the Gym, the Beit Midrash. Optional: add them only if you want the schedule to keep two groups out of the same room.',
   anchors: 'Events that happen at the same time every day — Aruchat Boker, Tefillah, Flagpole.',
   dayoverrides: 'Days that do not run normally — a trip day, Color War, a Shabbaton.',
+  reconciliation: 'What this file changes about your camp setup — review it, then bring it in.',
 }

@@ -76,14 +76,18 @@ beforeEach(() => {
   })
 })
 
+// R2'b cutover — the ledger/"Nothing is saved yet" step is gone;
+// ReconciliationScreen takes over once the director confirms the tick
+// preview, running its own dry run and offering "Use this setup" as the
+// first real (dryRun:false) commit.
 async function importAndCommit() {
   render(<ImportScreen campId="camp-1" onNavigate={onNavigate} />)
   const input = document.querySelector('input[type="file"]')
   await userEvent.upload(input, new File(['x'], 'schedule.txt', { type: 'text/plain' }))
   await waitFor(() => expect(screen.getAllByText(/Archery/).length).toBeGreaterThan(0))
   await userEvent.click(screen.getByText(/Add \d+ record/))
-  await screen.findByText(/Nothing is saved yet/)
-  await userEvent.click(screen.getByText(/Commit \d+ record/))
+  const useThisSetup = await screen.findByText('Use this setup')
+  await userEvent.click(useThisSetup)
   await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalledTimes(1))
 }
 

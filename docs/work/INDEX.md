@@ -93,6 +93,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: Locations near-duplicate merge + re-homed delete primitive + migration-journal read path (M3c)](../../docs/adr/2026-08-15-locations-merge-and-delete-rehome.md) | accepted | implemented | [2026-08-15-locations-import-export-roundtrip](../../docs/adr/2026-08-15-locations-import-export-roundtrip.md) |
 | [ADR: Device-authored ops must never FK-drop, and the delivery watermark must reflect receiver-applied truth, not sender-sent belief](../../docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md) | accepted | completed | [T85-devices-table-never-synced-cross-device-op-drop](../../docs/work/tickets/T85-devices-table-never-synced-cross-device-op-drop.md) · [T86-device-management-handlers-not-host-gated-on-client](../../docs/work/tickets/T86-device-management-handlers-not-host-gated-on-client.md) · [T87-returning-client-never-reauthenticates-after-restart](../../docs/work/tickets/T87-returning-client-never-reauthenticates-after-restart.md) |
 | [ADR: The optional camp map (M6) — synced background image + free-position geometry](../../docs/adr/2026-08-16-locations-optional-map.md) | accepted | implemented | [2026-08-16-m6-map-design](../../docs/work/specs/2026-08-16-m6-map-design.md) · [T85-devices-table-never-synced-cross-device-op-drop](../../docs/work/tickets/T85-devices-table-never-synced-cross-device-op-drop.md) |
+| [ADR: One-Screen Reconciliation — Projection/Adapter Seam](../../docs/adr/2026-08-17-onescreen-reconciliation-projection.md) | proposed | not_started | [2026-08-17-reconciliation-r2b-onescreen](../../docs/work/runs/2026-08-17-reconciliation-r2b-onescreen.md) |
 
 ## Runs
 
@@ -101,6 +102,7 @@ They are different facts and a run can carry a bad one of each.
 
 | Date | Run | Class | Status | Verdict |
 |---|---|---|---|---|
+| 2026-08-17 | [R2′b — one-screen ReconciliationScreen (compose single surface + staged-tray-as-dry-run wiring + cutover/deletions + PLATFORM_STATE refresh)](../../docs/work/runs/2026-08-17-reconciliation-r2b-onescreen.md) | ui-ux-design | pass | pass |
 | 2026-08-16 | [M5 — week-scoped location availability (week_location_exclusions enforcement + UI + lifecycle wiring)](../../docs/work/runs/2026-08-16-locations-m5-week-availability.md) | database-sync | pass | pass |
 | 2026-08-16 | [M6 — optional camp map (background image + drag-to-position geometry)](../../docs/work/runs/2026-08-16-locations-m6-map.md) | database-sync | pass | pass |
 | 2026-08-15 | [M0 — camp location / spatial model architecture assessment](../../docs/work/runs/2026-08-15-camp-spatial-model-m0-architecture.md) | architecture | escalated | _no verdict yet_ |
@@ -134,6 +136,8 @@ either the document is stranded or an edge was never declared.
 - [docs/work/handoffs/2026-08-09-graph-engineering-exploration-brief.md](../../docs/work/handoffs/2026-08-09-graph-engineering-exploration-brief.md)
 - [docs/work/handoffs/slices-2-3-handoff.md](../../docs/work/handoffs/slices-2-3-handoff.md)
 - [docs/work/handoffs/T50-schedule-canvas-handoff.md](../../docs/work/handoffs/T50-schedule-canvas-handoff.md)
+- [docs/work/runs/2026-08-17-reconciliation-r1-gate-outcome.md](../../docs/work/runs/2026-08-17-reconciliation-r1-gate-outcome.md)
+- [docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md](../../docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md)
 
 ## Dangling references
 

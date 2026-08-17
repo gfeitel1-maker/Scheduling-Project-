@@ -52,6 +52,7 @@ vi.mock('../localClient', () => ({
     getCamp: vi.fn().mockResolvedValue({ id: 'camp-1', name: 'Camp' }),
     deleteEntity: vi.fn(),
     ingestCommit: vi.fn().mockResolvedValue({ total: 3, fixedEvents: { created: 0, skipped: [], partial: [] } }),
+    ingestReconcile: vi.fn().mockResolvedValue({ planItems: [], fixedEventsReport: {}, legacyPriorityActivities: [], fieldProvenance: {}, evidenceSupport: {} }),
   },
 }))
 
@@ -96,7 +97,7 @@ describe('ImportScreen — fixed-event routing default (ADR 2026-08-09 Decision 
     expect(lunchButton.textContent).toContain('✓')
 
     await userEvent.click(screen.getByText(/Add \d+ record/))
-    await userEvent.click(await screen.findByText(/Commit \d+ record/))
+    await userEvent.click(await screen.findByText('Use this setup'))
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
     const [{ approved }] = localClient.ingestCommit.mock.calls[0]
     expect(approved.activities).toContain('Lunch')
@@ -105,7 +106,7 @@ describe('ImportScreen — fixed-event routing default (ADR 2026-08-09 Decision 
   it('leaving the pin-only row unticked excludes it from the commit', async () => {
     await uploadFile()
     await userEvent.click(screen.getByText(/Add \d+ record/))
-    await userEvent.click(await screen.findByText(/Commit \d+ record/))
+    await userEvent.click(await screen.findByText('Use this setup'))
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
     const [{ approved }] = localClient.ingestCommit.mock.calls[0]
     expect(approved.activities).not.toContain('Lunch')
