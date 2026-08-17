@@ -9,7 +9,7 @@ import { openLocalDb } from '../db/localDb.js'
 import { createUser, issueCampToken, issueLocalToken, ensureHostSigningKey } from '../auth/localAuth.js'
 import { appendOp, DELETE_FIELD } from '../ops/operations.js'
 import { startSyncServer } from './syncServer.js'
-import { sendMissedOps } from './catchup.js'
+import { sendMissedOps, resolveApplyAck, waitForApplyAck } from './catchup.js'
 import { sendWithAck } from './opDelivery.js'
 import { ENTITIES } from '../auth/permissions.js'
 import { LOGIN_MIN_INTERVAL_MS } from './rateLimit.js'
@@ -828,7 +828,7 @@ describe('T85 Risk 1: re-authenticate on the SAME already-authenticated socket (
   // Red Hat's finding: the existing "does not send full_sync again on a
   // second authenticate" test above uses a NEW ws for its second
   // authenticate — that never touches the bug, since a fresh ws has no
-  // ws.pendingCatchupAckResolve to clobber. loginRemote (syncClient.js)
+  // pending ack registry entry to clobber. loginRemote (syncClient.js)
   // sends its post-login `authenticate` on the SAME, never-closed ws on
   // every successful login (shift change: same device, new user) — this
   // reproduces exactly that shape.
@@ -950,7 +950,7 @@ describe('Task 10 round-5 Fix 4: sendMissedOps watermark stops at the last succe
         // waitForApplyAck's timeout.
         if (parsed.type === 'op_applied') {
           setImmediate(() => {
-            if (ws.pendingCatchupAckOpId === parsed.op.id) ws.pendingCatchupAckResolve?.(parsed.op.id)
+            resolveApplyAck(ws, parsed.op.id)
           })
         }
       },
@@ -1055,10 +1055,10 @@ describe('Task 10 round-6: sendMissedOps gates watermark on genuine async delive
           // own) so it runs only after the microtask chain resuming
           // sendMissedOps's `await sendWithAck(...)` has had a turn to run
           // and register waitForApplyAck's resolver — otherwise
-          // ws.pendingCatchupAckOpId is still unset when this fires.
+          // the pending ack registry entry is still unset when this fires.
           if (parsed.type === 'op_applied') {
             setImmediate(() => {
-              if (ws.pendingCatchupAckOpId === parsed.op.id) ws.pendingCatchupAckResolve?.(parsed.op.id)
+              resolveApplyAck(ws, parsed.op.id)
             })
           }
         }
@@ -1139,7 +1139,7 @@ describe('Task 10 round-6: sendMissedOps gates watermark on genuine async delive
         // not via this ack ever being withheld.
         if (parsed.type === 'op_applied') {
           setImmediate(() => {
-            if (ws.pendingCatchupAckOpId === parsed.op.id) ws.pendingCatchupAckResolve?.(parsed.op.id)
+            resolveApplyAck(ws, parsed.op.id)
           })
         }
       },
@@ -1188,7 +1188,7 @@ describe('T85 Part 2: sendMissedOps gates watermark on a genuine receiver op_app
           // only after the microtask chain resuming sendMissedOps's `await
           // sendWithAck(...)` has registered waitForApplyAck's resolver.
           setImmediate(() => {
-            if (ws.pendingCatchupAckOpId === parsed.op.id) ws.pendingCatchupAckResolve?.(parsed.op.id)
+            resolveApplyAck(ws, parsed.op.id)
           })
         }
       },
@@ -1236,6 +1236,133 @@ describe('T85 Part 2: sendMissedOps gates watermark on a genuine receiver op_app
     expect(ws.__sent.map((m) => m.op.entity_id)).toEqual(['ack-ok-a', 'ack-ok-b'])
     const row = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
     expect(row.last_synced_seq).toBe(opB.seq)
+  })
+})
+
+// ADR docs/adr/2026-08-17-sync-auth-layer-deepening.md, Slice 2 (C4): the
+// pre-C4 mechanism stashed a single ack resolver directly on `ws`
+// (ws.pendingCatchupAckOpId/ws.pendingCatchupAckResolve) — a second
+// concurrent waitForApplyAck on the SAME ws overwrote the first's resolver,
+// so the first invocation's real ack would resolve the wrong (or no) waiter.
+// This is the direct, load-bearing proof that the keyed
+// `ws.pendingApplyAcks` Map (catchup.js) fixes that: two DIFFERENT op_ids
+// genuinely pending at once on the same connection now coexist in the Map
+// and each resolves only via its own resolveApplyAck(ws, opId) call.
+describe('C4: keyed apply-ack registry — different op_ids pending concurrently on the same ws do not clobber', () => {
+  it('two overlapping sendMissedOps runs on the same ws each resolve their own op_id without cross-resolving the other', async () => {
+    const baseline = db.prepare('SELECT MAX(seq) as maxSeq FROM operations').get().maxSeq || 0
+    db.prepare('UPDATE devices SET last_synced_seq = ? WHERE id = ?').run(baseline, deviceId)
+
+    const opA = appendOp(db, { entity: 'template_slots', entity_id: 'keyed-a', field: 'activity_id', value: '1', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+    const opB = appendOp(db, { entity: 'template_slots', entity_id: 'keyed-b', field: 'activity_id', value: '2', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+
+    // Transport always succeeds; application-level acks are driven entirely
+    // by the test via resolveApplyAck, so the exact interleaving that
+    // produces two different op_ids pending at once is fully controlled
+    // rather than raced against real timers.
+    const ws = {
+      deviceId,
+      readyState: 1,
+      OPEN: 1,
+      send(data, callback) {
+        if (callback) setImmediate(() => callback())
+      },
+    }
+
+    // Run 1: sends opA, gets acked, moves on to opB and is left pending there.
+    const run1 = sendMissedOps(db, ws, baseline, 5000)
+    await waitFor(() => ws.pendingApplyAcks?.has(opA.id))
+    resolveApplyAck(ws, opA.id)
+    await waitFor(() => ws.pendingApplyAcks?.has(opB.id))
+
+    // Run 2 starts on the SAME ws/device while run1 is still pending on
+    // opB — the double-fired-handleAuthenticate shape the ADR describes.
+    // It independently re-reads the same watermark (run1 hasn't advanced it
+    // yet) and starts its own replay from opA.
+    const run2 = sendMissedOps(db, ws, baseline, 5000)
+    await waitFor(() => ws.pendingApplyAcks?.has(opA.id))
+
+    // Load-bearing assertion: both op_ids are genuinely pending at once, in
+    // the SAME registry — the exact shape that clobbered under the old
+    // single-slot fields.
+    expect(ws.pendingApplyAcks.size).toBe(2)
+
+    // Resolve run1's key (opB) first. This must NOT disturb run2's still-
+    // pending opA entry — proving the two keys are independent.
+    resolveApplyAck(ws, opB.id)
+    expect(ws.pendingApplyAcks.has(opA.id)).toBe(true)
+    expect(ws.pendingApplyAcks.has(opB.id)).toBe(false)
+
+    // Now resolve run2's opA wait; run2 moves on to its own opB attempt.
+    resolveApplyAck(ws, opA.id)
+    await waitFor(() => ws.pendingApplyAcks?.has(opB.id))
+    resolveApplyAck(ws, opB.id)
+
+    await Promise.all([run1, run2])
+
+    // Neither run timed out or stalled on the other's key — both replayed
+    // through to opB, so the final watermark reflects a full, successful
+    // catch-up regardless of which run's UPDATE lands last.
+    const row = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
+    expect(row.last_synced_seq).toBe(opB.seq)
+  })
+
+  it('a timeout still resolves false and cleans up its own Map entry', async () => {
+    const baseline = db.prepare('SELECT MAX(seq) as maxSeq FROM operations').get().maxSeq || 0
+    db.prepare('UPDATE devices SET last_synced_seq = ? WHERE id = ?').run(baseline, deviceId)
+
+    const opA = appendOp(db, { entity: 'template_slots', entity_id: 'keyed-timeout-a', field: 'activity_id', value: '1', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+
+    const ws = {
+      deviceId,
+      readyState: 1,
+      OPEN: 1,
+      send(data, callback) {
+        // Transport succeeds; the application-level ack simply never arrives.
+        if (callback) setImmediate(() => callback())
+      },
+    }
+
+    await sendMissedOps(db, ws, baseline, 30)
+
+    // The loop broke on the never-acked op, so the watermark must not have
+    // advanced past it, and the Map entry it registered must be gone —
+    // not leaked past the timeout.
+    const row = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
+    expect(row.last_synced_seq).toBe(baseline)
+    expect(ws.pendingApplyAcks.has(opA.id)).toBe(false)
+  })
+})
+
+// ADR docs/adr/2026-08-17-sync-auth-layer-deepening.md, Slice 2 (C4),
+// round-2 review finding (Red Hat): the keyed `ws.pendingApplyAcks` Map
+// fixes the clobber ONLY for two DIFFERENT op_ids pending on the same ws
+// (proved above). It does NOT fix two waiters registered for the SAME
+// op_id — the second registration overwrites the first at that one Map
+// key, exactly like the pre-C4 single-slot field. This is inert in
+// production today because isReauthenticate (syncServer.js) is the sole
+// thing preventing two overlapping sendMissedOps runs on one ws, and any
+// such overlap would collide on the SAME op_id (both runs read the same
+// end-of-run watermark and so both start replay from the identical first
+// op). This test pins the current, known-limitation behavior so a future
+// change that weakens isReauthenticate, or a naive edit to the Map
+// mechanism, cannot silently regress it without a red test.
+describe('C4 known limitation: two waiters for the SAME op_id on one ws still clobber', () => {
+  it('the second-registered waiter resolves true; the first-registered waiter times out false', async () => {
+    const ws = {}
+    const opId = 'same-op-id-both-waiters'
+
+    // Mirrors the shape two overlapping sendMissedOps runs would produce if
+    // isReauthenticate ever failed to prevent the overlap: both wait on the
+    // identical op_id on the same ws. The first waiter gets a short timeout
+    // so the test doesn't wait out a production-length one to prove it lost.
+    const firstWaiterTimesOut = waitForApplyAck(ws, opId, 50)
+    const secondWaiterWins = waitForApplyAck(ws, opId, 5000)
+
+    resolveApplyAck(ws, opId)
+
+    await expect(secondWaiterWins).resolves.toBe(true)
+    await expect(firstWaiterTimesOut).resolves.toBe(false)
   })
 })
 

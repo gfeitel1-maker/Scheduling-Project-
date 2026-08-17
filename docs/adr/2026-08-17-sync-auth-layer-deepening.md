@@ -248,10 +248,22 @@ if (msg.type === 'op_applied_ack') {
 }
 ```
 
-Two *different* op ids waited on concurrently on the same `ws` (e.g. two overlapping `sendMissedOps` runs
-from a double-fired `handleAuthenticate`, which should not happen post-`isReauthenticate` but is now safe
-even if it did) no longer clobber each other's resolver — each is keyed by its own `op_id`. This is a
-real, verifiable improvement over the single-slot field.
+Two *different* op ids waited on concurrently on the same `ws` no longer clobber each other's resolver —
+each is keyed by its own `op_id`. This is a real, verifiable improvement over the single-slot field.
+
+**Scope of that improvement — read this before relaxing `isReauthenticate` (Red Hat, Slice 2 review).**
+The keyed Map fixes the clobber *only for different op_ids*. It does **not** make two overlapping
+`sendMissedOps` runs on one `ws` safe, because those two runs do **not** wait on different op_ids: each
+run reads the same `last_synced_seq` (the watermark is written once at the *end* of a run, never per-op),
+so both start at the *identical* first op, both call `waitForApplyAck(ws, sameOpId, …)`, and the second
+`set(opId, …)` overwrites the first's resolver *at that key* — the same clobber the single-slot field
+had, just scoped to one key instead of the whole connection. That case is inert today only because
+`sendMissedOps` has exactly one call site, gated by the unmodified `isReauthenticate`, which is what
+prevents a second overlapping run from ever starting. So the keyed Map is a genuine improvement for the
+different-op_id case, **not** a reason `isReauthenticate` can be retired — the same-op_id clobber and the
+full-sync-ack single-slot below are both still live and both still need the guard. A known-limitation
+regression test (`syncServer.test.js`, `C4 known limitation: …`) pins the same-op_id clobber so a future
+change that makes overlap reachable trips a red instead of silently corrupting a watermark.
 
 **Full-sync-ack — wrapped behind the same clean function interface, but internally still single-slot,
 by necessity, not by half-finished effort:**
