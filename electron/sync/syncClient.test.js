@@ -8,6 +8,7 @@ import WebSocket from 'ws'
 import { openLocalDb } from '../db/localDb.js'
 import { waitFor, sleepBecauseTimeIsUnderTest } from '../../test/helpers/waitFor.js'
 import { createUser, issueCampToken, verifySessionToken, ensureHostSigningKey } from '../auth/localAuth.js'
+import { DOMAIN_SNAPSHOT_ORDER } from '../ops/campScopedEntities.js'
 
 // Authorized-by-default devices row for the hostDb side of a test — see
 // docs/adr/2026-07-25-device-trust-revocation.md. Most tests in this file
@@ -56,22 +57,15 @@ import { createSyncClient } from './syncClient.js'
 // hand-construct a full_sync message to exercise camps/users validation
 // specifically must still include these (empty is fine) or they'd
 // accidentally be testing "malformed batch missing domain tables" instead.
-const EMPTY_DOMAIN_SNAPSHOT_TABLES = {
-  cohorts: [],
-  days_of_operation: [],
-  groups: [],
-  tiers: [],
-  time_blocks: [],
-  activities: [],
-  locations: [],
-  camp_maps: [],
-  anchor_activities: [],
-  schedule_templates: [],
-  day_override_templates: [],
-  template_slots: [],
-  template_overlays: [],
-  day_override_template_slots: [],
-}
+// Derived from the single-sourced DOMAIN_SNAPSHOT_ORDER (electron/ops/campScopedEntities.js)
+// rather than hand-listed: applyFullSync validates the ENTIRE domain-table batch up front
+// (isValidDomainSnapshotBatch), so a fixture missing any table this manifest requires makes
+// hand-built full_sync messages throw as a "malformed batch" instead of exercising the intended
+// camps/users validation. T88 (#85) added schedule_weeks + the three week_*_exclusions to the
+// manifest; deriving here means this fixture can never drift out of the manifest again.
+const EMPTY_DOMAIN_SNAPSHOT_TABLES = Object.fromEntries(
+  DOMAIN_SNAPSHOT_ORDER.map((table) => [table, []])
+)
 
 const PORT = 8237
 const FLUSH_PORT = 8238
@@ -2335,6 +2329,148 @@ describe('T85 Part 1: applyRemoteOp stub-seeds a devices row for the op author',
     expect(row.pairing_status).toBe('authorized')
     expect(row.authorized_at).toBe(authorizedAt)
     expect(row.device_secret_identifier).toBe('real-secret')
+
+    client.close()
+  })
+})
+
+// T89 follow-up (Red Hat, confirmed HIGH): ensureWeekJoinRow's schedule_weeks
+// stub-seed (projections.js) is safe under appendOp's own transaction, but
+// applyRemoteOp calls applyProjection AFTER the op-log insert transaction has
+// already closed (see the comment above applyRemoteOp) — so on this path a
+// projection with MULTIPLE inserts is not atomic. If the exclusion row's
+// OTHER FK (activity_id/group_id) is ALSO unseen, the schedule_weeks stub
+// insert commits, then the exclusion insert throws on the second FK and is
+// caught/logged — leaving a permanent name='' phantom schedule_weeks row with
+// no exclusion to show for it. The fix wraps the applyProjection branch of
+// applyRemoteOp in its own transaction so the whole projection is atomic.
+describe('T89 follow-up: applyRemoteOp does not leave a phantom schedule_weeks stub on partial projection failure', () => {
+  it('rolls back the schedule_weeks stub when the exclusion insert itself fails on its other FK (both week_id and group_id unseen)', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const unseenWeekId = randomUUID()
+    const unseenGroupId = randomUUID()
+    expect(clientDb.prepare('SELECT 1 FROM schedule_weeks WHERE id = ?').get(unseenWeekId)).toBeUndefined()
+    expect(clientDb.prepare('SELECT 1 FROM groups WHERE id = ?').get(unseenGroupId)).toBeUndefined()
+
+    const ws = client.__getWs()
+    const entityId = randomUUID()
+
+    // First op: week_id, for a schedule_weeks row this device has never seen.
+    ws.emit('message', Buffer.from(JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: randomUUID(),
+        seq: 1,
+        entity: 'week_group_exclusions',
+        entity_id: entityId,
+        field: 'week_id',
+        value: unseenWeekId,
+        device_id: deviceId,
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })))
+
+    // Second op: group_id, for a groups row ALSO never seen — this is what
+    // makes the exclusion INSERT itself throw (a real FK), AFTER the first
+    // op's projection already stub-seeded schedule_weeks.
+    expect(() => ws.emit('message', Buffer.from(JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: randomUUID(),
+        seq: 2,
+        entity: 'week_group_exclusions',
+        entity_id: entityId,
+        field: 'group_id',
+        value: unseenGroupId,
+        device_id: deviceId,
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })))).not.toThrow()
+
+    // The exclusion never materializes (acceptable — the FK genuinely can't
+    // be satisfied without a real groups row) ...
+    expect(
+      clientDb.prepare('SELECT * FROM week_group_exclusions WHERE id = ?').get(entityId)
+    ).toBeUndefined()
+
+    // ... and critically, no phantom schedule_weeks stub survives either —
+    // the failed second op's transaction must have rolled back the first
+    // op's stub-seed along with the exclusion insert that never landed.
+    expect(clientDb.prepare('SELECT COUNT(*) AS n FROM schedule_weeks WHERE id = ?').get(unseenWeekId).n).toBe(0)
+
+    // Both ops stay durable in the op-log regardless of projection outcome.
+    expect(
+      clientDb.prepare('SELECT * FROM operations WHERE entity_id = ? AND field = ?').get(entityId, 'week_id')
+    ).toBeTruthy()
+    expect(
+      clientDb.prepare('SELECT * FROM operations WHERE entity_id = ? AND field = ?').get(entityId, 'group_id')
+    ).toBeTruthy()
+
+    client.close()
+  })
+
+  it('happy path unaffected: seeds the stub and materializes the exclusion when only week_id is unseen', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const unseenWeekId = randomUUID()
+    const groupId = randomUUID()
+    clientDb.prepare('INSERT INTO groups (id, camp_id, name) VALUES (?, ?, ?)').run(groupId, campId, 'Group Real')
+
+    const ws = client.__getWs()
+    const entityId = randomUUID()
+
+    ws.emit('message', Buffer.from(JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: randomUUID(),
+        seq: 1,
+        entity: 'week_group_exclusions',
+        entity_id: entityId,
+        field: 'week_id',
+        value: unseenWeekId,
+        device_id: deviceId,
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })))
+    ws.emit('message', Buffer.from(JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: randomUUID(),
+        seq: 2,
+        entity: 'week_group_exclusions',
+        entity_id: entityId,
+        field: 'group_id',
+        value: groupId,
+        device_id: deviceId,
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })))
+
+    const row = clientDb.prepare('SELECT * FROM week_group_exclusions WHERE id = ?').get(entityId)
+    expect(row).toBeTruthy()
+    expect(row.week_id).toBe(unseenWeekId)
+    expect(row.group_id).toBe(groupId)
+
+    const stubWeek = clientDb.prepare('SELECT * FROM schedule_weeks WHERE id = ?').get(unseenWeekId)
+    expect(stubWeek).toBeTruthy()
+    expect(stubWeek.camp_id).toBe(campId)
 
     client.close()
   })

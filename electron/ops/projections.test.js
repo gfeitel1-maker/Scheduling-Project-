@@ -445,6 +445,40 @@ describe('applyProjection for week_activity_exclusions / week_group_exclusions',
       .get('week_activity_exclusions', 'wae-partial', 'week_id')
     expect(loggedOp).toBeTruthy()
   })
+
+  // T89: schedule_weeks is the odd one out among ensureWeekJoinRow's FK
+  // parents — it is never stub-seeded, so a week_*_exclusions op that
+  // outraces the week-level op (any device that hasn't yet seen this
+  // schedule_weeks row) throws SQLITE_CONSTRAINT_FOREIGNKEY on the exclusion
+  // INSERT. That throw is caught by the generic handler in syncClient.js and
+  // logged, but the op is still marked applied — the exclusion silently never
+  // materializes. Mirrors T85's devices-row stub-seed for the same class of
+  // out-of-order FK failure. Deliberately does NOT pre-insert schedule_weeks
+  // in this block's beforeEach — 'week-never-seen' must be genuinely absent
+  // going into applyProjection.
+  it('stub-seeds the schedule_weeks parent when a week_activity_exclusions op arrives for a week never seen locally', () => {
+    expect(db.prepare('SELECT * FROM schedule_weeks WHERE id = ?').get('week-never-seen')).toBeUndefined()
+
+    appendOp(db, {
+      entity: 'week_activity_exclusions', entity_id: 'wae-orphan',
+      field: 'week_id', value: 'week-never-seen',
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+    appendOp(db, {
+      entity: 'week_activity_exclusions', entity_id: 'wae-orphan',
+      field: 'activity_id', value: 'act-swim',
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+
+    const row = db.prepare('SELECT * FROM week_activity_exclusions WHERE id = ?').get('wae-orphan')
+    expect(row).toBeTruthy()
+    expect(row.week_id).toBe('week-never-seen')
+    expect(row.activity_id).toBe('act-swim')
+
+    const stubWeek = db.prepare('SELECT * FROM schedule_weeks WHERE id = ?').get('week-never-seen')
+    expect(stubWeek).toBeTruthy()
+    expect(stubWeek.camp_id).toBe('camp-1')
+  })
 })
 
 describe('applyProjection camp_id guard', () => {
