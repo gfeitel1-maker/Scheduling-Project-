@@ -31,6 +31,7 @@ import { run as scenario21 } from './scenarios/21-ingest-prior-year.js'
 import { run as scenario22 } from './scenarios/22-location-merge.js'
 import { run as scenario23 } from './scenarios/23-camp-map-sync.js'
 import { run as scenario24 } from './scenarios/24-device-fk-seeding-and-watermark.js'
+import { run as scenario25 } from './scenarios/25-full-sync-manifest-week-location-exclusions.js'
 
 const SCENARIOS = [
   { name: '01 bootstrap + first sync', fn: scenario01 },
@@ -57,6 +58,7 @@ const SCENARIOS = [
   { name: '22 merging two near-duplicate locations', fn: scenario22 },
   { name: '23 camp map image sync (first-pairing + live + D6 perms)', fn: scenario23 },
   { name: '24 device FK seeding + delivery watermark + host-local broadcast (T85)', fn: scenario24 },
+  { name: '25 full_sync manifest ships week_location_exclusions (T88)', fn: scenario25 },
 ]
 
 const PASS = '\x1b[32mPASS\x1b[0m'

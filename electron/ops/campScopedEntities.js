@@ -65,3 +65,89 @@ export const PARENT_SCOPED_ENTITIES = {
     parentKey: 'week_id',
   },
 }
+
+// T88 (C2, sync/auth audit): the camp-scoped entity set + FK-safe apply
+// order for the first-pairing full_sync SNAPSHOT, single-sourced here so
+// electron/sync/syncServer.js (send side) and electron/sync/syncClient.js
+// (apply side) cannot drift the way they did before this ticket — the Host
+// shipped week_location_exclusions rows (via DOMAIN_PARENT_SCOPED_ENTITIES)
+// that a fresh Client silently dropped (its own hand-maintained
+// DOMAIN_SNAPSHOT_TABLES never listed the table). Both files now import this
+// array instead of re-declaring their own.
+//
+// Deliberately narrower than DIRECT_CAMP_ENTITIES ∪ PARENT_SCOPED_ENTITIES:
+// `schedule_snapshots` is excluded (design doc Consequences: unbounded
+// historical growth over a season).
+//
+// `schedule_weeks` WAS missing from an earlier draft of this list (it ships
+// in the live full_sync message via DIRECT_CAMP_ENTITIES, but the Client's
+// old hand-maintained manifest never applied it) — that turned out not to be
+// a separate, ignorable gap: week_activity_exclusions/week_group_exclusions/
+// week_location_exclusions all carry a NOT NULL FK to schedule_weeks.id, so
+// under foreign_keys=ON a first-pairing Client cannot insert any of the three
+// week_*_exclusions tables without schedule_weeks existing first. It is
+// included here for exactly that reason, positioned before every table that
+// references it.
+//
+// `foreign_keys = ON` (openLocalDb) makes this order load-bearing: a table
+// must appear after every other table whose id it references.
+export const DOMAIN_SNAPSHOT_ORDER = [
+  'cohorts',
+  'days_of_operation',
+  'groups',
+  'tiers', // references cohorts.id, nullable
+  'time_blocks', // references cohorts.id, nullable
+  'activities',
+  'locations', // v32; references camps.id only. activities.location_id has NO DB-level FK, so order relative to activities is unconstrained.
+  'camp_maps', // v33 (M6); references camps.id only, applied separately (unconditional) from this loop on the Client.
+  'anchor_activities', // references cohorts.id/days_of_operation.id, both nullable
+  'schedule_weeks', // references camps.id only; must precede schedule_templates and every week_*_exclusions table below, all of which reference it
+  'schedule_templates', // references schedule_weeks.id, nullable
+  'day_override_templates', // references cohorts.id, nullable
+  'template_slots', // references groups.id/activities.id, both nullable — no declared FK to schedule_templates.id (schema.sql)
+  'template_overlays', // references schedule_templates.id NOT NULL, days_of_operation.id nullable
+  'day_override_template_slots', // references day_override_templates.id NOT NULL
+  'week_activity_exclusions', // references schedule_weeks.id and activities.id, both NOT NULL
+  'week_group_exclusions', // references schedule_weeks.id and groups.id, both NOT NULL
+  'week_location_exclusions', // T88: references schedule_weeks.id (NOT NULL, no DB-level FK on this side); location_id has no declared FK
+]
+
+// The subset of DOMAIN_SNAPSHOT_ORDER that is parent-scoped (joined through
+// PARENT_SCOPED_ENTITIES rather than a direct camp_id column), in the same
+// order — what syncServer.js iterates to build the send-side payload.
+export const DOMAIN_PARENT_SCOPED_ENTITIES = DOMAIN_SNAPSHOT_ORDER.filter(
+  (entity) => entity in PARENT_SCOPED_ENTITIES
+)
+
+// T88 review follow-up (Code Reviewer MEDIUM): syncServer.js's send side
+// still iterates DIRECT_CAMP_ENTITIES directly for the non-parent-scoped
+// half of full_sync, while DOMAIN_SNAPSHOT_ORDER re-types that same set as
+// plain array entries so it can carry FK-order comments. Nothing previously
+// enforced the two stayed equal — a table added to one and not the other
+// would silently drift exactly like the bug this ticket fixes. This
+// assertion (exported so campScopedEntities.test.js can exercise the throw
+// path directly with synthetic input) makes that drift fail loudly at
+// import time, in every environment that loads this module, instead of
+// silently, the same way exclusionTables.migration.test.js et al. catch
+// schema drift at migration time rather than at runtime.
+export function assertDirectEntityParity(directEntities, snapshotOrder, parentScopedEntities) {
+  const snapshotDirectEntities = new Set(
+    snapshotOrder.filter((entity) => !(entity in parentScopedEntities))
+  )
+  for (const entity of directEntities) {
+    if (!snapshotDirectEntities.has(entity)) {
+      throw new Error(
+        `campScopedEntities: DIRECT_CAMP_ENTITIES has '${entity}' but DOMAIN_SNAPSHOT_ORDER is missing it — a first-pairing Client would silently drop this table.`
+      )
+    }
+  }
+  for (const entity of snapshotDirectEntities) {
+    if (!directEntities.has(entity)) {
+      throw new Error(
+        `campScopedEntities: DOMAIN_SNAPSHOT_ORDER lists '${entity}' as a direct (non-parent-scoped) entity, but it is not in DIRECT_CAMP_ENTITIES — the send side (syncServer.js) would never ship it.`
+      )
+    }
+  }
+}
+
+assertDirectEntityParity(DIRECT_CAMP_ENTITIES, DOMAIN_SNAPSHOT_ORDER, PARENT_SCOPED_ENTITIES)

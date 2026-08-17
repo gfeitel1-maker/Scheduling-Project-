@@ -22,31 +22,17 @@ import {
   recordRestoreError,
 } from './pendingRestores.js'
 import { RESTORABLE_ENTITIES } from '../ops/restore.js'
+import { DOMAIN_SNAPSHOT_ORDER } from '../ops/campScopedEntities.js'
 
 const DEFAULT_RESOLVER_TIMEOUT_MS = 10000
 
-// T7 fix: every camp-scoped domain table shipped in the extended full_sync
-// snapshot (design doc §2.1/§2.2), in FK-respecting apply order.
-// `schedule_snapshots` is deliberately excluded (see design doc
-// Consequences: unbounded historical growth, out of scope for this ticket).
-// `foreign_keys = ON` (openLocalDb) makes this order load-bearing: a table
-// must appear after every other table whose id it references.
-const DOMAIN_SNAPSHOT_TABLES = [
-  'cohorts',
-  'days_of_operation',
-  'groups',
-  'tiers', // references cohorts.id, nullable
-  'time_blocks', // references cohorts.id, nullable
-  'activities',
-  'locations', // v32; references camps.id only (applied above via the `camps` key). activities.location_id has NO DB-level FK, so order relative to activities is unconstrained. The migration backfills locations rows with NO op, so a first-pairing Client — which receives materialized rows, not op history — can only get them here.
-  'camp_maps', // v33 (M6, docs/adr/2026-08-16-locations-optional-map.md D4); references camps.id only. Applied AFTER the top-level `camps` insert block above (unconditional, not part of this loop), so the FK is always satisfied regardless of this array's own ordering. A first-pairing Client receives the (already-capped, ≤~1MB) image exactly once, as part of this one-time snapshot.
-  'anchor_activities', // references cohorts.id/days_of_operation.id, both nullable
-  'schedule_templates',
-  'day_override_templates', // references cohorts.id, nullable
-  'template_slots', // references groups.id/activities.id, both nullable — no declared FK to schedule_templates.id (schema.sql)
-  'template_overlays', // references schedule_templates.id NOT NULL, days_of_operation.id nullable
-  'day_override_template_slots', // references day_override_templates.id NOT NULL
-]
+// T88: the camp-scoped entity set + FK-safe apply order for the extended
+// full_sync snapshot (design doc §2.1/§2.2) is single-sourced in
+// electron/ops/campScopedEntities.js and imported here, so this file cannot
+// silently omit a table electron/sync/syncServer.js's send side ships (the
+// week_location_exclusions drift T88 fixes). See that module for the FK
+// reasoning per table and what is deliberately excluded.
+const DOMAIN_SNAPSHOT_TABLES = DOMAIN_SNAPSHOT_ORDER
 
 // Full column list per table, matching schema.sql's authoritative column set
 // (including columns added later via localDb.js's guarded ALTER TABLE
@@ -68,12 +54,37 @@ const DOMAIN_TABLE_COLUMNS = {
   anchor_activities: ['id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks', 'is_all_groups', 'group_ids', 'notes'],
   locations: ['id', 'camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry'],
   camp_maps: ['id', 'camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'],
-  schedule_templates: ['id', 'camp_id', 'name', 'kind'],
+  schedule_weeks: ['id', 'camp_id', 'name', 'sort_order', 'is_archived'], // T88 — required so week_*_exclusions' NOT NULL FK to schedule_weeks.id can be satisfied
+  schedule_templates: ['id', 'camp_id', 'name', 'kind', 'week_id'],
   day_override_templates: ['id', 'camp_id', 'cohort_id', 'name', 'frequency_mode'],
   template_slots: ['id', 'template_id', 'group_id', 'activity_id', 'day_id', 'time_block_id', 'flags', 'is_released', 'is_span_head', 'anchor_id', 'is_anchor'],
   template_overlays: ['id', 'template_id', 'unit_id', 'day_id', 'from_block_order', 'to_block_order', 'label'],
   day_override_template_slots: ['id', 'day_override_template_id', 'time_block_id', 'activity_id'],
+  week_activity_exclusions: ['id', 'week_id', 'activity_id'],
+  week_group_exclusions: ['id', 'week_id', 'group_id'],
+  week_location_exclusions: ['id', 'week_id', 'location_id'], // T88 — closes the manifest drift (see DOMAIN_SNAPSHOT_ORDER)
 }
+
+// T88 review follow-up (Code Reviewer LOW-MED): DOMAIN_TABLE_COLUMNS is a
+// third hand-maintained map alongside DOMAIN_SNAPSHOT_ORDER. A table added to
+// the shared order without a matching entry here would make
+// insertSnapshotRows's `columns.map(...)` throw a cryptic "cannot read
+// properties of undefined" mid-apply-transaction the next time a first-pairing
+// Client connects, instead of failing loudly at import time. Assert the
+// parity up front (exported so campScopedEntities/syncClient tests can
+// exercise the throw path directly with synthetic input) so the failure is
+// immediate and names the offending table.
+export function assertColumnCoverage(snapshotOrder, tableColumns) {
+  for (const table of snapshotOrder) {
+    if (!tableColumns[table]) {
+      throw new Error(
+        `syncClient: DOMAIN_TABLE_COLUMNS is missing an entry for '${table}' (listed in DOMAIN_SNAPSHOT_ORDER) — insertSnapshotRows would fail applying it.`
+      )
+    }
+  }
+}
+
+assertColumnCoverage(DOMAIN_SNAPSHOT_TABLES, DOMAIN_TABLE_COLUMNS)
 
 // Loose, intentionally-not-a-full-schema-check row validator (design doc
 // §2.3): these rows come from a real `SELECT *` on the Host (already-
