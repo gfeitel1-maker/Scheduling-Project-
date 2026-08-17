@@ -3,7 +3,7 @@ title: "ADR: Deepen the sync/auth layer — extract the reliable-delivery+catchu
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: not-started
+implementation_state: implemented
 date: 2026-08-17
 deciders: [product-owner]
 task_class: security-auth
