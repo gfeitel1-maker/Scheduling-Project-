@@ -26,7 +26,7 @@ npm run lint            # ESLint
 npm run test             # Run all Vitest tests
 npm test -- src/path/to/file.test.js  # Run a single test file
 npm run test:integration # Run the LAN-sync/ingest integration scenarios (test/integration/run.js)
-npm run verify           # lint && test && test:integration && check:governance — the full gate
+npm run verify           # lint + test + test:integration + check:governance — the full gate (scripts/verify.js; prints a final ✅/❌ verdict line so the result survives `| tail` and can't false-green)
 ```
 
 **`electron:dev:fresh` uses `pkill -x Electron`, which kills every Electron process owned by the
