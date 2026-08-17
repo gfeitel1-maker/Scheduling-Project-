@@ -246,6 +246,14 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         if (w) w.webContents.send('shoresh:token-renewed', { token: newToken })
       })
     }
+    // T87 Part 3 — mirrors onPairingDenied's forwarding exactly. Carries only
+    // the numeric close code, never the rejected token.
+    if (typeof syncClient.onAuthRejected === 'function') {
+      syncClient.onAuthRejected((code) => {
+        const w = getMainWindow ? getMainWindow() : null
+        if (w) w.webContents.send('shoresh:auth-rejected', { code })
+      })
+    }
   }
 
   // Deliberately NOT wrapped in authorize(). `args` here is
@@ -410,7 +418,14 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     if (!modeChosen) return { mode: null, connected: false, state: 'standalone' }
     if (mode === 'host') return { mode: 'host', connected: true, state: 'host' }
     const connected = typeof syncClient?.isConnected === 'function' ? syncClient.isConnected() : false
-    return { mode: 'client', connected, state: connected ? 'client-connected' : 'client-disconnected' }
+    // T87 Part 4 (docs/adr/2026-08-16-client-reauth-on-restart.md): a socket
+    // can be open without being authenticated (fresh connect, or a rejected
+    // token mid-reconnect) — 'client-connected' now means transport-open
+    // AND authenticated, not merely transport-open, so the sidebar's "linked"
+    // copy stops overclaiming.
+    const authed = typeof syncClient?.isAuthenticated === 'function' ? syncClient.isAuthenticated() : false
+    const state = !connected ? 'client-disconnected' : (authed ? 'client-connected' : 'client-connecting')
+    return { mode: 'client', connected, authenticated: authed, state }
   }
 
   // T27 — push the status when it changes, rather than leaving the renderer to
@@ -425,7 +440,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
   // guessing.
   function chooseMode(args) {
-    const { mode: requestedMode, campName, port } = args || {}
+    const { mode: requestedMode, campName, port, token } = args || {}
     if (requestedMode !== 'host' && requestedMode !== 'client') {
       throw new Error('mode must be "host" or "client"')
     }
@@ -469,6 +484,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         author_user_id: null,
         serverUrl: pendingServerUrl,
         device_name: deviceNameForPairing,
+        // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 2): a
+        // returning Client's locally-verified token, so connect()'s existing
+        // `if (token) → authenticate` branch (syncClient.js) actually fires
+        // on startup instead of always falling back to pairing_request.
+        token,
       })
       wireOpApplied()
       wirePairingCallbacks()

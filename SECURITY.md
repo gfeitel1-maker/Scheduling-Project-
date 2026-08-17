@@ -119,6 +119,18 @@ prevents future re-authentication but does not immediately invalidate the local 
 Client's own process. Work queued offline during this window is submitted to the Host when
 connectivity is restored — the Host's `authorize()` call on the WS path will then reject it.
 
+A Client's `camp` token (issued when it logs in over the network, distinct from the
+device-only `local` token above) is now re-presented to the Host on every process restart —
+not only right after a fresh PIN entry — per
+[docs/adr/2026-08-16-client-reauth-on-restart.md](docs/adr/2026-08-16-client-reauth-on-restart.md).
+A revoked device therefore discovers the rejection (WS close 4401-4404) the next time it
+restarts or reconnects — the Client clears the stale token and returns to the login screen —
+instead of only ever finding out when the stored token's 24-hour window naturally expires.
+This strengthens, but does not remove, the tradeoff above: a `local` token is still never
+valid over the network by design (rejected outright with 4402, revoked or not), and a Client
+that never reconnects to the Host still has no way to learn of a remote revocation until it
+does.
+
 ### Pre-revocation offline writes queue locally
 
 If a revoked Client reconnects, its pending offline write queue is submitted to the Host and

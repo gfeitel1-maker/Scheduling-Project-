@@ -47,6 +47,12 @@ vi.mock('./sync/syncClient.js', () => ({
     let connected = true
     let resolveConnected = null
     let connectedPromise = Promise.resolve()
+    // T87 Part 4: distinct from `connected` — mirrors the real syncClient's
+    // own connected/authenticated distinction (see its `authenticated`
+    // comment). Defaults to true so every EXISTING test in this file (none
+    // of which cares about the connecting-vs-authenticated distinction)
+    // keeps seeing 'client-connected', not a new default of 'client-connecting'.
+    let authenticated = true
     const client = {
       opts,
       // Mirrors real local-mode syncClient behavior (appendOp + projection) so
@@ -80,6 +86,11 @@ vi.mock('./sync/syncClient.js', () => ({
       onOpApplied: vi.fn(),
       onOpConflict: vi.fn(),
       onOpRejected: vi.fn(),
+      onPairingApproved: vi.fn(),
+      onPairingDenied: vi.fn(),
+      onTokenRenewed: vi.fn(),
+      // T87 Part 3
+      onAuthRejected: vi.fn(),
       loginRemote: vi.fn(async ({ name, pin }) => {
         if (!connected) return { status: 'disconnected' }
         const result = attemptLoginRef({ name, pin, deviceId: opts.device_id })
@@ -95,6 +106,7 @@ vi.mock('./sync/syncClient.js', () => ({
       // connected mirrors a real handshake finishing after login() was called.
       __setConnected(value) {
         connected = value
+        if (!value) authenticated = false
         if (value && resolveConnected) {
           resolveConnected()
           resolveConnected = null
@@ -104,6 +116,10 @@ vi.mock('./sync/syncClient.js', () => ({
           })
         }
       },
+      isConnected: vi.fn(() => connected),
+      // T87 Part 4
+      isAuthenticated: vi.fn(() => authenticated),
+      __setAuthenticated(value) { authenticated = value },
     }
     lastCreatedSyncClient = client
     return client
@@ -245,6 +261,22 @@ describe('chooseMode: client path', () => {
     expect(lastCreatedSyncClient.onOpApplied).toHaveBeenCalled()
   })
 
+  // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 2): a
+  // returning Client's locally-verified token must reach the transport
+  // layer, so connect()'s existing `if (token) → authenticate` branch
+  // actually fires on startup instead of always falling back to
+  // pairing_request.
+  it('forwards a provided token straight through to createSyncClient (T87 Part 2)', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100, token: 'a-verified-token' })
+
+    expect(createSyncClient).toHaveBeenCalledWith(db, expect.objectContaining({
+      device_id: deviceId,
+      serverUrl: 'ws://192.168.1.5:7100',
+      token: 'a-verified-token',
+    }))
+  })
+
   it('accepts a pre-validated hostAddress string directly and creates a syncClient without a token', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
@@ -314,6 +346,69 @@ describe('chooseMode: client path', () => {
   it('rejects an unrecognized mode', () => {
     const handlers = makeHandlers(db, deviceId, {})
     expect(() => handlers.chooseMode({ mode: 'bogus' })).toThrow()
+  })
+})
+
+// T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 4): a socket
+// can be open without being authenticated — 'client-connected' now means
+// transport-open AND authenticated, so the in-between window gets its own
+// distinct 'client-connecting' state instead of overclaiming "linked".
+describe('getSyncStatus: client tri-state (Part 4)', () => {
+  it('reports standalone before any mode is chosen', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(handlers.getSyncStatus()).toEqual({ mode: null, connected: false, state: 'standalone' })
+  })
+
+  it('reports host unconditionally once host mode is chosen', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7199 })
+    expect(handlers.getSyncStatus()).toEqual({ mode: 'host', connected: true, state: 'host' })
+  })
+
+  it('reports client-disconnected when the transport is not open', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })
+    lastCreatedSyncClient.__setConnected(false)
+
+    expect(handlers.getSyncStatus()).toEqual({
+      mode: 'client', connected: false, authenticated: false, state: 'client-disconnected',
+    })
+  })
+
+  it('reports client-connecting when the transport is open but not yet authenticated', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })
+    lastCreatedSyncClient.__setConnected(true)
+    lastCreatedSyncClient.__setAuthenticated(false)
+
+    expect(handlers.getSyncStatus()).toEqual({
+      mode: 'client', connected: true, authenticated: false, state: 'client-connecting',
+    })
+  })
+
+  it('reports client-connected only once BOTH connected and authenticated are true', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })
+    lastCreatedSyncClient.__setConnected(true)
+    lastCreatedSyncClient.__setAuthenticated(true)
+
+    expect(handlers.getSyncStatus()).toEqual({
+      mode: 'client', connected: true, authenticated: true, state: 'client-connected',
+    })
+  })
+
+  it('falls back to unauthenticated (never throws) when isAuthenticated is not a function', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7100 })
+    lastCreatedSyncClient.__setConnected(true)
+    // Simulate a stale/old syncClient shape (Migration guard) — must degrade
+    // to 'client-connecting', never throw.
+    delete lastCreatedSyncClient.isAuthenticated
+
+    expect(() => handlers.getSyncStatus()).not.toThrow()
+    expect(handlers.getSyncStatus()).toEqual({
+      mode: 'client', connected: true, authenticated: false, state: 'client-connecting',
+    })
   })
 })
 
@@ -1025,6 +1120,28 @@ describe('wireOpApplied: op-applied forwarding to renderer (Round 3 Fix 1)', () 
 
     const sentOp = sendSpy.mock.calls.find((c) => c[0] === 'shoresh:op-applied')[1]
     expect(sentOp.value).toBe('Alice')
+  })
+})
+
+// T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 3): mirrors the
+// onPairingDenied forwarding shape exactly.
+describe('wirePairingCallbacks: auth-rejected forwarding to renderer (T87 Part 3)', () => {
+  it('sends the close code to the renderer, and nothing else', async () => {
+    const sendSpy = vi.fn()
+    const fakeWindow = { webContents: { send: sendSpy } }
+    const handlers = makeHandlers(db, deviceId, { getMainWindow: () => fakeWindow })
+    await handlers.chooseMode({ mode: 'client', host: '192.168.1.5', port: 7163 })
+
+    expect(lastCreatedSyncClient.onAuthRejected).toHaveBeenCalled()
+    const registeredCallback = lastCreatedSyncClient.onAuthRejected.mock.calls[0][0]
+
+    registeredCallback(4404)
+
+    expect(sendSpy).toHaveBeenCalledWith('shoresh:auth-rejected', { code: 4404 })
+    // Negative security (Test strategy item 4): the payload carries only the
+    // numeric code — no token, no device_id, nothing else.
+    const payload = sendSpy.mock.calls.find((c) => c[0] === 'shoresh:auth-rejected')[1]
+    expect(Object.keys(payload)).toEqual(['code'])
   })
 })
 

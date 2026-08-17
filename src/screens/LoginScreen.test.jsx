@@ -42,3 +42,32 @@ describe('LoginScreen submit rejection recovery', () => {
     expect(screen.getByPlaceholderText('••••').value).toBe('1234')
   })
 })
+
+describe('LoginScreen notice banner (T87 fix round — director-facing session-ended explanation)', () => {
+  it('renders the notice text when a notice is passed, and the form is still usable', async () => {
+    const onSubmit = vi.fn().mockResolvedValue({ token: 't', role: 'staff' })
+    render(
+      <LoginScreen
+        campName="Camp Test"
+        onSubmit={onSubmit}
+        notice="This device's access was removed. Ask your director to re-approve it, then sign in."
+      />
+    )
+
+    expect(screen.getByText(/This device's access was removed/)).toBeTruthy()
+
+    fireEvent.change(screen.getByPlaceholderText('e.g. Sarah Cohen'), { target: { value: 'Sarah' } })
+    fireEvent.change(screen.getByPlaceholderText('••••'), { target: { value: '1234' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith('Sarah', '1234'))
+  })
+
+  it('renders no banner when notice is absent', () => {
+    const onSubmit = vi.fn()
+    render(<LoginScreen campName="Camp Test" onSubmit={onSubmit} notice={null} />)
+
+    expect(screen.queryByText(/access was removed/)).toBeNull()
+    expect(screen.queryByText(/sign in again/i)).toBeNull()
+  })
+})

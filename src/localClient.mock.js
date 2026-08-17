@@ -239,6 +239,8 @@ let pairingRequestListeners = []
 let pairingApprovedListeners = []
 let pairingDeniedListeners = []
 let tokenRenewedListeners = []
+// docs/adr/2026-08-16-client-reauth-on-restart.md (T87 Part 3)
+let authRejectedListeners = []
 let opConflictListeners = []
 let opRejectedListeners = []
 
@@ -1114,10 +1116,13 @@ export const mockShoresh = {
   onPairingApproved(cb) { pairingApprovedListeners.push(cb); return () => { pairingApprovedListeners = pairingApprovedListeners.filter((f) => f !== cb) } },
   onPairingDenied(cb) { pairingDeniedListeners.push(cb); return () => { pairingDeniedListeners = pairingDeniedListeners.filter((f) => f !== cb) } },
   onTokenRenewed(cb) { tokenRenewedListeners.push(cb); return () => { tokenRenewedListeners = tokenRenewedListeners.filter((f) => f !== cb) } },
+  // docs/adr/2026-08-16-client-reauth-on-restart.md (T87 Part 3)
+  onAuthRejected(cb) { authRejectedListeners.push(cb); return () => { authRejectedListeners = authRejectedListeners.filter((f) => f !== cb) } },
   _triggerPairingRequest(payload) { pairingRequestListeners.forEach((cb) => cb(payload)) },
   _triggerPairingApproved(payload) { pairingApprovedListeners.forEach((cb) => cb(payload)) },
   _triggerPairingDenied(payload) { pairingDeniedListeners.forEach((cb) => cb(payload)) },
   _triggerTokenRenewed(payload) { tokenRenewedListeners.forEach((cb) => cb(payload)) },
+  _triggerAuthRejected(payload) { authRejectedListeners.forEach((cb) => cb(payload)) },
 
   // Rehydration query stand-in (Fix 3): returns the conflicts persisted in
   // mock state, mirroring the real listPendingConflicts() IPC handler so the

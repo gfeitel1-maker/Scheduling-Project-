@@ -366,10 +366,10 @@ function handleAuthenticate(db, ws, msg) {
   if (!verified || verified.deviceId !== msg.device_id) {
     // 4401: custom app-level close code (WS custom range is 4000-4999) so a
     // client-side close handler CAN distinguish this from an ordinary
-    // network drop if it ever wants to (Red Hat: today's syncClient.js does
-    // not branch on this yet — closing the observability gap is left to
-    // whichever sub-task next touches the client reconnect UX, but the
-    // signal is now actually present on the wire rather than absent).
+    // network drop. T87 (docs/adr/2026-08-16-client-reauth-on-restart.md) is
+    // that client-side work — syncClient.js's close handler now branches on
+    // this and the other app-level codes (4402/4403/4404) and surfaces them
+    // to the renderer via onAuthRejected.
     ws.close(4401, 'invalid_token')
     return
   }
