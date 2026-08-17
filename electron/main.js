@@ -457,7 +457,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       db.prepare(
         "UPDATE devices SET authorized_at = COALESCE(authorized_at, ?), pairing_status = 'authorized' WHERE id = ?"
       ).run(new Date().toISOString(), deviceId)
-      syncClient = createSyncClient(db, { device_id: deviceId, author_user_id: null })
+      syncClient = createSyncClient(db, { device_id: deviceId, author_user_id: null, wss: syncServer.wss })
       wireOpApplied()
       wireSyncStatus()
     } else {
@@ -642,7 +642,17 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   function listDevices({ token } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'devices.read' })
-    return db.prepare('SELECT id, name, pairing_status, authorized_at, revoked_at, last_synced_at FROM devices').all()
+    // T85 Risk 3a (docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md):
+    // the op-log FK stub-seed (handleAuthenticate's self-registration path
+    // plus the op-apply FK backfill) creates real `devices` rows with
+    // pairing_status='unknown' for every peer a device merely HEARS an op
+    // from — never a device that actually paired with this one. These rows
+    // are inert (never authorized, already excluded from
+    // listPendingPairingRequests above) but would otherwise surface in the
+    // Device Manager list as phantom "Device xxxxxxxx / Not set up yet"
+    // rows on every multi-device camp. Excluded here, not at the schema
+    // level, so this stays scoped to the management-list read.
+    return db.prepare("SELECT id, name, pairing_status, authorized_at, revoked_at, last_synced_at FROM devices WHERE pairing_status IS NOT 'unknown'").all()
   }
 
   function approveDevice({ token, deviceId: targetDeviceId } = {}) {

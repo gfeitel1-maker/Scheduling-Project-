@@ -13,6 +13,7 @@ import {
   DELETE_FIELD,
 } from '../ops/operations.js'
 import { PROJECTIONS, applyProjection } from '../ops/projections.js'
+import { broadcastOps } from './syncServer.js'
 import { insertPendingWrite, deletePendingWrite, listPendingWrites } from './pendingWrites.js'
 import {
   insertPendingRestore,
@@ -119,7 +120,20 @@ function insertSnapshotRows(db, table, columns, rows) {
 
 export function createSyncClient(
   db,
-  { device_id, author_user_id, serverUrl, token: initialToken, device_name, lockTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS, submitTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS }
+  {
+    device_id,
+    author_user_id,
+    serverUrl,
+    token: initialToken,
+    device_name,
+    lockTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS,
+    submitTimeoutMs = DEFAULT_RESOLVER_TIMEOUT_MS,
+    // T85 Part 3: only ever passed by the Host's own no-serverUrl client
+    // (main.js), so its interactive local writes reach connected Clients
+    // live instead of only at next full_sync. Never read outside the
+    // no-serverUrl branch below.
+    wss = null,
+  }
 ) {
   const opAppliedListeners = []
   const opConflictListeners = []
@@ -204,6 +218,12 @@ export function createSyncClient(
           source,
         })
         notifyOpApplied(op)
+        // T85 Part 3: the Host's own interactive edit, broadcast to every
+        // connected Client exactly like a submit_op from a peer would be —
+        // this no-serverUrl write() otherwise never touches wss.clients at
+        // all, so a Host-authored edit previously reached Clients only at
+        // their next full_sync.
+        if (wss) broadcastOps(wss, [op])
         return { status: 'applied', op }
       },
       // Same omission as write() above, same consequence.
@@ -217,6 +237,8 @@ export function createSyncClient(
           client_write_id: randomUUID(),
         })
         notifyOpApplied(op)
+        // T85 Part 3: same reasoning as write() above.
+        if (wss) broadcastOps(wss, [op])
         return { status: 'applied', op }
       },
       onOpApplied(callback) {
@@ -451,6 +473,25 @@ export function createSyncClient(
     // genuinely new op should be projected, otherwise a replay with a mutated
     // field/value could overwrite the projected table with spoofed values.
     const insert = db.transaction(() => {
+      // T85 Part 1 (docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md):
+      // `devices` is never replicated between peers, but operations.device_id
+      // is a NOT NULL FK to it with foreign_keys=ON — so an op authored by a
+      // device this receiver has never seen would otherwise throw
+      // SQLITE_CONSTRAINT_FOREIGNKEY on the INSERT below and silently vanish
+      // (the throw is caught and swallowed by the op_applied handler further
+      // down this file). Seed a minimal, secret-free stub row from the op's
+      // own device_id, in the SAME transaction, before the op-log insert, so
+      // the FK is always satisfiable regardless of message arrival order.
+      // 'unknown' is a deliberate FIFTH pairing_status value, outside the
+      // four real ones ('pending'|'authorized'|'denied'|'revoked'), chosen so
+      // this row can never be mistaken for a real, awaiting-review pairing
+      // candidate anywhere pairing_status is read. INSERT OR IGNORE: a
+      // real row (this device's own self-registration, or a later real
+      // pairing) is never overwritten by a stub.
+      db.prepare(
+        "INSERT OR IGNORE INTO devices (id, name, pairing_status) VALUES (?, ?, 'unknown')"
+      ).run(op.device_id, `Device ${op.device_id.slice(0, 8)}`)
+
       const result = db
         .prepare(
           `INSERT INTO operations (id, entity, entity_id, field, value, author_user_id, device_id, timestamp, parent_op_id, client_write_id, host_seq, source)
@@ -694,6 +735,17 @@ export function createSyncClient(
               const resolve = submitResolvers.shift()
               if (resolve) resolve(opError ? { status: 'error', op: msg.op, error: opError } : msg)
             }
+          }
+          // T85 Part 2: ack genuine receiver-apply, not transport delivery,
+          // so the Host's reconnect-catch-up watermark (sendMissedOps) can
+          // gate on receiver truth. opError is non-null ONLY when
+          // applyRemoteOp's own op-log INSERT threw — a projection failure
+          // does not set it (applyRemoteOp's own internal catch already
+          // swallows and logs those). "Applied" therefore means "the op-log
+          // row durably exists on this device", which is true for both a
+          // genuinely-new insert and a deduplicated replay (changes === 0).
+          if (!opError && ws && ws.readyState === ws.OPEN) {
+            ws.send(JSON.stringify({ type: 'op_applied_ack', op_id: msg.op.id }))
           }
           return
         }

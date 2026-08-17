@@ -57,7 +57,10 @@ export async function run() {
     client = new Client(`${tmpDir}/client.db`)
     client.open()
     await pairAndLogin(host, client)
-    client.registerDevice(host.deviceId, 'Host')
+    // Pre-T85 this required manually registering the host's device row on
+    // the client (docs/adr/2026-08-16-device-fk-seeding-and-delivery-
+    // watermark.md) — applyRemoteOp now stub-seeds the author's devices row
+    // itself.
 
     await waitFor(() => client.db.prepare('SELECT COUNT(*) n FROM locations').get().n === 2, 8000)
     if (!client.db.prepare('SELECT 1 FROM locations WHERE id = ?').get('loc-pool')) {

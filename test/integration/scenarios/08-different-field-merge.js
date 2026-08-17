@@ -29,11 +29,10 @@ export async function run() {
     clientB.open()
     await pairAndLogin(host, clientB)
 
-    // Register both devices on each other so FK constraint on device_id passes
-    // when op_applied broadcasts arrive.
-    clientA.registerDevice(clientB.deviceId, 'ClientB')
-    clientB.registerDevice(clientA.deviceId, 'ClientA')
-
+    // Pre-T85 this required manually registering each side's device row so
+    // the FK on device_id would pass when op_applied broadcasts arrived
+    // (docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md) —
+    // applyRemoteOp now stub-seeds the author's devices row itself.
     const entityId = randomUUID()
 
     // Client A writes to 'name' field.

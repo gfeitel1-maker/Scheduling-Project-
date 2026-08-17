@@ -42,14 +42,12 @@ export async function run() {
     clientB.open()
     await pairAndLogin(host, clientB)
 
-    // Each client's operations table has device_id REFERENCES devices(id) with
-    // FK enforcement ON.  When client A broadcasts op0, client B's applyRemoteOp
-    // will INSERT a row with device_id = clientA.deviceId.  That insert fails
-    // silently (caught by the outer try/catch) unless clientA.deviceId is in
-    // clientB's devices table.  Register both sides before any writes.
-    clientB.registerDevice(clientA.deviceId, 'ClientA')
-    clientA.registerDevice(clientB.deviceId, 'ClientB')
-
+    // Each client's operations table has device_id REFERENCES devices(id)
+    // with FK enforcement ON. Pre-T85 this required manually registering
+    // each side's device row (docs/adr/2026-08-16-device-fk-seeding-and-
+    // delivery-watermark.md) — applyRemoteOp now stub-seeds the author's
+    // devices row itself, in the same transaction as the op-log insert, so
+    // no test-only registration is needed here anymore.
     const entityId = randomUUID()
 
     // Step 1: Client A writes parent op (op0).

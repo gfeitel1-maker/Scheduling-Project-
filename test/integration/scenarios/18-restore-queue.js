@@ -38,7 +38,10 @@ export async function run() {
     client = new Client(`${tmpDir}/client.db`)
     client.open()
     await pairAndLogin(host, client)
-    client.registerDevice(host.deviceId, 'Host')
+    // Pre-T85 this required manually registering the host's device row on
+    // the client (docs/adr/2026-08-16-device-fk-seeding-and-delivery-
+    // watermark.md) — applyRemoteOp now stub-seeds the author's devices row
+    // itself, in the same transaction as the op-log insert.
 
     // --- a. the Host creates a group, then deletes it -----------------------
     const groupId = 'group-restore-18'

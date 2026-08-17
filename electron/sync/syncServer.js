@@ -258,6 +258,35 @@ function currentMaxOpSeq(db) {
   return row && Number.isInteger(row.maxSeq) ? row.maxSeq : 0
 }
 
+// T85 Part 2 (docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md):
+// a transport-confirmed send (sendWithAck) proves the OS handed the frame to
+// the kernel — nothing more. It has no idea whether the receiving Client's
+// applyRemoteOp actually ran, so a dropped op (e.g. Failure 1's FK throw, now
+// fixed by Part 1, or any other cause) used to be marked "delivered" and was
+// never retried. This waits for the Client's own op_applied_ack — sent only
+// after applyRemoteOp durably logs the op (syncClient.js's op_applied
+// handler) — before sendMissedOps is allowed to advance the watermark past
+// it. Modeled exactly on waitForFullSyncAck above and on syncClient.js's own
+// withResolverTimeout/withKeyedResolverTimeout idiom: a resolver registered
+// on the connection, a bounded timeout fallback, first-to-fire wins.
+function waitForApplyAck(ws, opId, timeoutMs) {
+  return new Promise((resolve) => {
+    let settled = false
+    const finish = (result) => {
+      if (settled) return
+      settled = true
+      if (ws.pendingCatchupAckOpId === opId) {
+        ws.pendingCatchupAckResolve = null
+        ws.pendingCatchupAckOpId = null
+      }
+      resolve(result)
+    }
+    ws.pendingCatchupAckOpId = opId
+    ws.pendingCatchupAckResolve = (matchedOpId) => { if (matchedOpId === opId) finish(true) }
+    setTimeout(() => finish(false), timeoutMs)
+  })
+}
+
 // Exported for direct unit testing (Task 10 round-5 Fix 4): a real,
 // deterministic mid-replay socket failure is impractical to force reliably
 // over an actual network socket in a test, so the partial-send-failure path
@@ -309,14 +338,38 @@ export async function sendMissedOps(db, ws, asOfSeq, ackTimeoutMs = SEND_ACK_TIM
   // socket closed/errored between one op's callback confirming success and
   // the next op's send being attempted, sendWithAck fails fast without
   // calling ws.send() again on a now-dead socket, and the loop stops there.
+  // T85 Part 2: a second, sequential gate after the transport check above —
+  // sendWithAck confirms the frame left the Host; waitForApplyAck confirms
+  // the Client's applyRemoteOp actually ran. The loop is strictly sequential
+  // and breaks on the first `false` from EITHER check, so within one
+  // catch-up pass a gap below the watermark cannot occur by construction: op
+  // N+1's catch-up message is never sent until op N's apply-ack has been
+  // received. sendWithAck is kept as a fast-fail pre-check (an obviously-dead
+  // socket fails in well under ackTimeoutMs, not the full apply-ack wait) —
+  // not required for correctness once the apply-ack gate exists, but free to
+  // leave in place.
   let lastSuccessSeq = since
   for (const op of rows) {
-    const ok = await sendWithAck(ws, { type: 'op_applied', op }, ackTimeoutMs)
-    if (!ok) break
+    const sent = await sendWithAck(ws, { type: 'op_applied', op }, ackTimeoutMs)
+    if (!sent) break
+    const applied = await waitForApplyAck(ws, op.id, ackTimeoutMs)
+    if (!applied) break
     if (op.seq > lastSuccessSeq) lastSuccessSeq = op.seq
   }
   if (lastSuccessSeq !== since) {
-    db.prepare('UPDATE devices SET last_synced_seq = ? WHERE id = ?').run(lastSuccessSeq, ws.deviceId)
+    try {
+      db.prepare('UPDATE devices SET last_synced_seq = ? WHERE id = ?').run(lastSuccessSeq, ws.deviceId)
+    } catch {
+      // T85 Part 2 follow-up: waitForApplyAck's timeout can resolve up to
+      // ackTimeoutMs after this function started (same reasoning as
+      // waitForFullSyncAck's own try/catch above, which this now mirrors) —
+      // long enough that the Host's own db/process may already be shutting
+      // down by the time the loop above finishes (test teardown, or a
+      // genuine host restart). A closed-db error here must not become an
+      // unhandled rejection; harmless either way, since the next reconnect's
+      // sendMissedOps simply re-reads whatever last_synced_seq is still on
+      // disk and retries from there.
+    }
   }
 }
 
@@ -390,7 +443,31 @@ function handleAuthenticate(db, ws, msg) {
     return
   }
 
+  // T85 Risk 1 fix (docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md):
+  // a re-authenticate on an ALREADY-authenticated socket (shift change —
+  // loginRemote sends a fresh `authenticate` on the existing, never-closed
+  // ws on every successful login, syncClient.js's loginRemote) must not
+  // re-fire sendFullSyncIfFirstPairing/sendMissedOps. Both functions stash
+  // their own resolver on `ws` (ws.pendingFullSyncAckResolve,
+  // ws.pendingCatchupAckResolve/ws.pendingCatchupAckOpId) — a second
+  // concurrent run for the same ws clobbers whichever resolver the first
+  // run is still waiting on, so the first run's real ack resolves the wrong
+  // (or no) waiter, stalls to its full timeout, and its watermark UPDATE
+  // races the second run's UPDATE on the same devices row. The device-scoped
+  // catch-up already ran (or is in flight) for this continuously-open
+  // connection, and live broadcast keeps it current from there, so a second
+  // catch-up is both unnecessary and the sole source of the clobber. The
+  // token/device match is already validated above (verified.deviceId !==
+  // msg.device_id closes the connection), so an already-set ws.deviceId is
+  // guaranteed to be this same physical device re-authenticating, never a
+  // different one.
+  const isReauthenticate = !!ws.deviceId
+
   ws.deviceId = verified.deviceId
+  // userId/token DO get refreshed on a re-authenticate — a shift change is
+  // the same device, new user, and later authorize() calls on this
+  // connection (acquire_lock, submit_op, submit_bulk_replace_op) must use
+  // the CURRENT signed-in user's session, not the shift's outgoing one.
   ws.userId = verified.userId
   // Stored so later authorize() calls on this connection (acquire_lock,
   // submit_op, submit_bulk_replace_op) can re-verify via the SAME
@@ -399,6 +476,8 @@ function handleAuthenticate(db, ws, msg) {
   // verifySessionToken" guarantee (electron/auth/authorize.js) requires a
   // real token, not just the derived userId/deviceId already set above.
   ws.token = msg.token
+
+  if (isReauthenticate) return
 
   // Computed once, synchronously, here — before either call below, and
   // before either has a chance to await anything. Both
@@ -750,7 +829,7 @@ function validateRestoreRequestMsg(msg) {
 // counting the two single-op broadcasts elsewhere); collapsed here so a
 // future 6th caller can't reintroduce the deviceId/readyState guard
 // incorrectly.
-function broadcastOps(wss, ops) {
+export function broadcastOps(wss, ops) {
   for (const op of ops) {
     for (const client of wss.clients) {
       if (!client.deviceId) continue
@@ -1035,6 +1114,15 @@ export function startSyncServer(db, { port, onPairingRequest, now = Date.now } =
         // the other authenticated-only branches below.
         if (msg.type === 'full_sync_applied') {
           if (ws.pendingFullSyncAckResolve) ws.pendingFullSyncAckResolve(true)
+          return
+        }
+
+        // T85 Part 2: Client -> Host ack that a specific op genuinely landed
+        // in the Client's own op-log (syncClient.js's op_applied handler,
+        // sent only when applyRemoteOp did not throw). Mirrors
+        // full_sync_applied's single-resolver-on-`ws` pattern exactly.
+        if (msg.type === 'op_applied_ack') {
+          if (ws.pendingCatchupAckResolve) ws.pendingCatchupAckResolve(msg.op_id)
           return
         }
 

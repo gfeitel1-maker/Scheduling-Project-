@@ -68,9 +68,11 @@ export async function run() {
     }
     localWriter.close()
 
-    // The ops were written by the host device — register it on the client so
-    // applyRemoteOp can insert them (FK on device_id).
-    client.registerDevice(host.deviceId, 'Host')
+    // The ops were written by the host device. Pre-T85 this required
+    // manually registering it on the client so applyRemoteOp could insert
+    // them (FK on device_id) — applyRemoteOp now stub-seeds the author's
+    // devices row itself (docs/adr/2026-08-16-device-fk-seeding-and-
+    // delivery-watermark.md).
 
     // Step 4: Client reconnects — host starts sendMissedOps.
     await client.reconnect()
