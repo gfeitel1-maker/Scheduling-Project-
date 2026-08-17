@@ -4,11 +4,11 @@ document_type: ticket
 status: open
 created: 2026-08-16
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/GOVERNANCE_INDEX.md, SECURITY.md]
-related_tickets: []
-related_adrs: [docs/adr/2026-07-25-device-trust-revocation.md]
+related_tickets: [docs/work/tickets/T85-devices-table-never-synced-cross-device-op-drop.md, docs/work/tickets/T87-returning-client-never-reauthenticates-after-restart.md]
+related_adrs: [docs/adr/2026-07-25-device-trust-revocation.md, docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md]
 related_specs: []
 related_reports: []
-archive_when: "the four mutating device handlers (approveDevice/denyDevice/revokeDevice, and the reads if the product decision includes them) refuse to run in client mode the way ingestCommit/confirmAliasHandler already do, a Client-mode admin can no longer reach a device-management surface that writes to the local devices table, a test pins the client-mode refusal, and this ticket is merged with owner sign-off"
+archive_when: "the three mutating device handlers (approveDevice/denyDevice/revokeDevice) refuse to run in client mode the way ingestCommit/confirmAliasHandler already do, a Client-mode admin can see the read-only device list but reaches no write control, a test pins the client-mode write-refusal, and this ticket is merged with owner sign-off"
 ---
 
 # T86 — Device-management IPC handlers are not Host-gated; a Client admin writes to the local, never-synced `devices` table
