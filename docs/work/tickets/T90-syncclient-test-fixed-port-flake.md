@@ -1,7 +1,7 @@
 ---
 title: T90-syncclient-test-fixed-port-flake
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-17
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/GOVERNANCE_INDEX.md]
 related_tickets: [docs/work/tickets/T87-returning-client-never-reauthenticates-after-restart.md]
