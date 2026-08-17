@@ -822,6 +822,96 @@ describe('full_sync on first pairing', () => {
   })
 })
 
+describe('T85 Risk 1: re-authenticate on the SAME already-authenticated socket (shift change)', () => {
+  // Red Hat's finding: the existing "does not send full_sync again on a
+  // second authenticate" test above uses a NEW ws for its second
+  // authenticate — that never touches the bug, since a fresh ws has no
+  // ws.pendingCatchupAckResolve to clobber. loginRemote (syncClient.js)
+  // sends its post-login `authenticate` on the SAME, never-closed ws on
+  // every successful login (shift change: same device, new user) — this
+  // reproduces exactly that shape.
+  it('does not run a second catch-up pass, refreshes ws.userId/ws.token, and leaves the watermark untouched', async () => {
+    // deviceId/token/userId (Alice, admin) are already authorized+established
+    // in the top-level beforeEach, on an already-synced device (no full_sync
+    // path involved here — this is purely about the sendMissedOps catch-up).
+    const staffUser = await createUser(
+      db,
+      { camp_id: campId, name: 'Bob', pin: '5678', role: 'staff' },
+      async ({ entity, entity_id, field, value }) => {
+        const op = appendOp(db, {
+          entity,
+          entity_id,
+          field,
+          value,
+          author_user_id: null,
+          device_id: deviceId,
+          parent_op_id: null,
+        })
+        return { status: 'applied', op }
+      }
+    )
+    const bobToken = issueCampToken(db, staffUser.id, deviceId)
+
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+    // Let the first authenticate's sendMissedOps establish its baseline
+    // (first-time branch: silently sets last_synced_seq, sends nothing).
+    await sleepBecauseTimeIsUnderTest(50) // time-under-test: crossing-interval
+
+    const baselineSeq = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId).last_synced_seq
+    expect(baselineSeq).not.toBeNull()
+
+    // Append a genuine op AFTER the baseline was established — under the
+    // pre-fix bug, a second sendMissedOps run on re-authenticate would pick
+    // this up as a "missed op" and push it down this same ws as an
+    // op_applied catch-up message.
+    appendOp(db, {
+      entity: 'template_slots',
+      entity_id: 'shift-change-missed-op',
+      field: 'activity_id',
+      value: 'swim',
+      author_user_id: null,
+      device_id: deviceId,
+      parent_op_id: null,
+    })
+
+    let sawOpApplied = false
+    const opAppliedListener = (data) => {
+      const parsed = JSON.parse(data.toString())
+      if (parsed.type === 'op_applied') sawOpApplied = true
+    }
+    ws.on('message', opAppliedListener)
+
+    // Re-authenticate on the SAME ws, as a different user — the shift-change
+    // shape loginRemote produces.
+    ws.send(JSON.stringify({ type: 'authenticate', token: bobToken, device_id: deviceId }))
+
+    // Give a re-fired sendMissedOps every chance to have delivered the
+    // missed op by now (it sends synchronously off the message handler, no
+    // ack round-trip required to enqueue the send).
+    await sleepBecauseTimeIsUnderTest(150) // time-under-test: proving-absence
+
+    ws.off('message', opAppliedListener)
+    expect(sawOpApplied).toBe(false)
+
+    // The watermark must not have moved — no second sendMissedOps ran to
+    // advance it, so it must still read exactly what the first run set.
+    const afterSeq = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId).last_synced_seq
+    expect(afterSeq).toBe(baselineSeq)
+
+    // ws.userId/ws.token WERE refreshed to Bob (staff): a restore request
+    // (admin-only for every entity, regardless of role-specific write
+    // grants) must now be refused, which it would only be if authorize() is
+    // consulting Bob's current token/role rather than Alice's stale admin one.
+    ws.send(JSON.stringify({ type: 'restore_request', request_id: 'r1', entity: 'groups', entity_id: 'does-not-exist' }))
+    const restoreReply = await onceMessageOfType(ws, 'restore_result')
+    expect(restoreReply).toEqual({ type: 'restore_result', request_id: 'r1', error: 'forbidden' })
+
+    ws.close()
+  })
+})
+
 describe('Task 10 round-5 Fix 4: sendMissedOps watermark stops at the last successfully-sent op', () => {
   // A real, deterministic mid-replay socket failure is impractical to force
   // reliably over an actual network socket (by the time a real ws is torn
@@ -834,7 +924,7 @@ describe('Task 10 round-5 Fix 4: sendMissedOps watermark stops at the last succe
   // among all candidate rows.
   function fakeWs(deviceId, failOnEntityId) {
     const sent = []
-    return {
+    const ws = {
       deviceId,
       readyState: 1,
       OPEN: 1,
@@ -851,9 +941,20 @@ describe('Task 10 round-5 Fix 4: sendMissedOps watermark stops at the last succe
         }
         sent.push(parsed)
         if (callback) setImmediate(() => callback())
+        // T85 Part 2: this describe block is about TRANSPORT send failure,
+        // not receiver-apply failure — a real Client that received the op
+        // genuinely applies it and acks. Simulate that immediately so these
+        // pre-existing transport-level assertions aren't gated on
+        // waitForApplyAck's timeout.
+        if (parsed.type === 'op_applied') {
+          setImmediate(() => {
+            if (ws.pendingCatchupAckOpId === parsed.op.id) ws.pendingCatchupAckResolve?.(parsed.op.id)
+          })
+        }
       },
       __sent: sent,
     }
+    return ws
   }
 
   it('stops the watermark at the last op that genuinely sent when a later send fails, so failed-and-later ops are re-sent next reconnect', async () => {
@@ -931,7 +1032,7 @@ describe('Task 10 round-6: sendMissedOps gates watermark on genuine async delive
   // an Error — simulating the real async-failure path this fix targets.
   function fakeAsyncFailWs(deviceId, failOnEntityId) {
     const sent = []
-    return {
+    const ws = {
       deviceId,
       readyState: 1,
       OPEN: 1,
@@ -945,10 +1046,24 @@ describe('Task 10 round-6: sendMissedOps gates watermark on genuine async delive
           setImmediate(() => callback(new Error('simulated async write failure')))
         } else {
           setImmediate(() => callback())
+          // T85 Part 2: this describe block is about TRANSPORT-level async
+          // failure, not receiver-apply failure — a real Client whose
+          // send() genuinely confirms also applies and acks. Simulate that
+          // via a SIBLING setImmediate (not nested inside the callback's
+          // own) so it runs only after the microtask chain resuming
+          // sendMissedOps's `await sendWithAck(...)` has had a turn to run
+          // and register waitForApplyAck's resolver — otherwise
+          // ws.pendingCatchupAckOpId is still unset when this fires.
+          if (parsed.type === 'op_applied') {
+            setImmediate(() => {
+              if (ws.pendingCatchupAckOpId === parsed.op.id) ws.pendingCatchupAckResolve?.(parsed.op.id)
+            })
+          }
         }
       },
       __sent: sent,
     }
+    return ws
   }
 
   it('stops the watermark at the last op whose callback genuinely confirmed success, when a later op fails asynchronously without throwing and without flipping readyState', async () => {
@@ -1012,6 +1127,19 @@ describe('Task 10 round-6: sendMissedOps gates watermark on genuine async delive
           ws.readyState = 3 // CLOSED
           callback()
         })
+        // T85 Part 2: op A's transport send DID genuinely confirm before the
+        // socket died, and a real Client that received it applies and acks
+        // it — simulate that via a SIBLING setImmediate (see the identical
+        // reasoning in fakeAsyncFailWs above) so the watermark assertion
+        // below isn't gated on waitForApplyAck's timeout. The socket already
+        // reads CLOSED by the time this fires, which is exactly what proves
+        // op B is never attempted via sendWithAck's own readyState guard,
+        // not via this ack ever being withheld.
+        if (parsed.type === 'op_applied') {
+          setImmediate(() => {
+            if (ws.pendingCatchupAckOpId === parsed.op.id) ws.pendingCatchupAckResolve?.(parsed.op.id)
+          })
+        }
       },
     }
 
@@ -1024,6 +1152,88 @@ describe('Task 10 round-6: sendMissedOps gates watermark on genuine async delive
 
     const row = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
     expect(row.last_synced_seq).toBe(opA.seq)
+  })
+})
+
+// docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md — T85 Part 2.
+// Distinct from the round-5/round-6 describe blocks above: those simulate a
+// TRANSPORT-level failure (sendWithAck resolves false). This simulates the
+// opposite — transport genuinely succeeds for every op (sendWithAck resolves
+// true every time) — and isolates the NEW gate this ADR adds: the receiver
+// never sends op_applied_ack for one specific op, as if it applied it
+// (the real Client's applyRemoteOp threw) or an old, pre-fix Client that
+// doesn't send the ack message at all.
+describe('T85 Part 2: sendMissedOps gates watermark on a genuine receiver op_applied_ack, not transport delivery alone', () => {
+  // ackEntityIds: the set of ops this fake Client genuinely "applies" and
+  // acks (mirrors syncClient.js's real op_applied handler sending
+  // op_applied_ack only once applyRemoteOp did not throw). Any op NOT in
+  // this set has its transport send succeed but is never acked — modeling
+  // both a receiver-apply failure and an old Client that never sends this
+  // message type at all.
+  function fakeWsSelectiveAck(deviceId, ackEntityIds) {
+    const sent = []
+    const ws = {
+      deviceId,
+      readyState: 1,
+      OPEN: 1,
+      send(data, callback) {
+        const parsed = JSON.parse(data)
+        sent.push(parsed)
+        if (callback) setImmediate(() => callback())
+        if (parsed.op && ackEntityIds.has(parsed.op.entity_id)) {
+          // Sibling setImmediate, not nested in the callback's own — see the
+          // identical ordering note on fakeAsyncFailWs above: this must run
+          // only after the microtask chain resuming sendMissedOps's `await
+          // sendWithAck(...)` has registered waitForApplyAck's resolver.
+          setImmediate(() => {
+            if (ws.pendingCatchupAckOpId === parsed.op.id) ws.pendingCatchupAckResolve?.(parsed.op.id)
+          })
+        }
+      },
+      __sent: sent,
+    }
+    return ws
+  }
+
+  it('stops the watermark at op N-1 when op N transport-sends successfully but its op_applied_ack never arrives, and never attempts ops after N', async () => {
+    const baseline = db.prepare('SELECT MAX(seq) as maxSeq FROM operations').get().maxSeq || 0
+    db.prepare('UPDATE devices SET last_synced_seq = ? WHERE id = ?').run(baseline, deviceId)
+
+    const opA = appendOp(db, { entity: 'template_slots', entity_id: 'ack-a', field: 'activity_id', value: '1', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+    appendOp(db, { entity: 'template_slots', entity_id: 'ack-b', field: 'activity_id', value: '2', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+    appendOp(db, { entity: 'template_slots', entity_id: 'ack-c', field: 'activity_id', value: '3', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+
+    // Only op A is genuinely acked. Op B's transport send succeeds (it IS
+    // attempted) but never gets an op_applied_ack — a short ackTimeoutMs
+    // keeps this test fast instead of waiting out the 8s production default.
+    const ws = fakeWsSelectiveAck(deviceId, new Set(['ack-a']))
+    await sendMissedOps(db, ws, baseline, 30)
+
+    // Both A and B's transport sends were attempted...
+    expect(ws.__sent.map((m) => m.op.entity_id)).toEqual(['ack-a', 'ack-b'])
+    // ...but C is never even attempted, since the loop breaks once B's
+    // apply-ack times out.
+    expect(ws.__sent.some((m) => m.op.entity_id === 'ack-c')).toBe(false)
+
+    // The watermark advances only through A (N-1), never to B (N) or beyond
+    // — transport delivery alone must never be mistaken for receiver truth.
+    const row = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
+    expect(row.last_synced_seq).toBe(opA.seq)
+  })
+
+  it('a genuinely-acked op DOES advance the watermark past it (no regression on the happy path)', async () => {
+    const baseline = db.prepare('SELECT MAX(seq) as maxSeq FROM operations').get().maxSeq || 0
+    db.prepare('UPDATE devices SET last_synced_seq = ? WHERE id = ?').run(baseline, deviceId)
+
+    appendOp(db, { entity: 'template_slots', entity_id: 'ack-ok-a', field: 'activity_id', value: '1', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+    const opB = appendOp(db, { entity: 'template_slots', entity_id: 'ack-ok-b', field: 'activity_id', value: '2', author_user_id: userId, device_id: deviceId, parent_op_id: null })
+
+    const ws = fakeWsSelectiveAck(deviceId, new Set(['ack-ok-a', 'ack-ok-b']))
+    await sendMissedOps(db, ws, baseline, 30)
+
+    expect(ws.__sent.map((m) => m.op.entity_id)).toEqual(['ack-ok-a', 'ack-ok-b'])
+    const row = db.prepare('SELECT last_synced_seq FROM devices WHERE id = ?').get(deviceId)
+    expect(row.last_synced_seq).toBe(opB.seq)
   })
 })
 

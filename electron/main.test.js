@@ -206,9 +206,14 @@ describe('chooseMode: host path', () => {
 
     expect(startSyncServer).toHaveBeenCalledWith(db, expect.objectContaining({ port: 7100 }))
     expect(advertiseHost).toHaveBeenCalledWith({ campName: 'Camp Test', port: 7100 })
+    // T85 Part 3 (docs/adr/2026-08-16-device-fk-seeding-and-delivery-
+    // watermark.md): the Host's own no-serverUrl client is now constructed
+    // with `wss` so its interactive local writes broadcast to connected
+    // Clients — startSyncServer's own wss instance must be threaded through.
     expect(createSyncClient).toHaveBeenCalledWith(db, {
       device_id: deviceId,
       author_user_id: null,
+      wss: fakeSyncServer.wss,
     })
     expect(lastCreatedSyncClient.onOpApplied).toHaveBeenCalled()
   })
@@ -1492,6 +1497,22 @@ describe('listDevices handler (devices.read, staff+admin)', () => {
     expect(result.find((d) => d.id === 'ld-pending')).toBeTruthy()
     // The host device itself (deviceId) should also appear
     expect(result.find((d) => d.id === deviceId)).toBeTruthy()
+  })
+
+  it('omits pairing_status=\'unknown\' stub rows (T85 Risk 3a: op-log FK-seed phantoms) while keeping real paired devices', async () => {
+    await seedCampAndUser({ name: 'DeviceLister2', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7403 })
+    const { token: adminToken } = await handlers.login({ name: 'DeviceLister2', pin: '1234' })
+
+    db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('ld-real-paired', 'Real Laptop', new Date().toISOString())
+    // Same shape the op-log FK stub-seed leaves behind for a device this one
+    // has only ever HEARD an op from — never paired with it directly.
+    db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'unknown')").run('ld-stub-unknown', 'Device ld-stub-')
+
+    const result = handlers.listDevices({ token: adminToken })
+    expect(result.find((d) => d.id === 'ld-real-paired')).toBeTruthy()
+    expect(result.find((d) => d.id === 'ld-stub-unknown')).toBeUndefined()
   })
 })
 

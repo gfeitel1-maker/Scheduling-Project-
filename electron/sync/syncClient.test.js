@@ -2196,3 +2196,195 @@ describe('T22: the author the caller supplies is the author recorded', () => {
     expect(db.prepare("SELECT author_user_id FROM operations WHERE entity_id='act-2'").get().author_user_id).toBe(null)
   })
 })
+
+// docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md — T85 Part 1.
+// `devices` is never replicated between peers, but operations.device_id is a
+// NOT NULL FK to it with foreign_keys=ON, so an op authored by a device this
+// receiver has never seen used to throw SQLITE_CONSTRAINT_FOREIGNKEY inside
+// applyRemoteOp's own transaction — caught and swallowed by this handler's
+// try/catch, so the op silently vanished. These tests exercise applyRemoteOp
+// the same way the rest of this file already does: emit a synthetic
+// op_applied message on a real, connected client's own ws and inspect the
+// resulting rows — applyRemoteOp itself is a closure, not exported.
+describe('T85 Part 1: applyRemoteOp stub-seeds a devices row for the op author', () => {
+  it('applies an op from a never-before-seen device_id without throwing, and seeds a secret-free stub devices row', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const unknownDeviceId = randomUUID()
+    expect(clientDb.prepare('SELECT 1 FROM devices WHERE id = ?').get(unknownDeviceId)).toBeUndefined()
+
+    const ws = client.__getWs()
+    const opId = randomUUID()
+    const msg = JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: opId,
+        seq: 1,
+        entity: 'activities',
+        entity_id: randomUUID(),
+        field: 'name',
+        value: 'Archery',
+        device_id: unknownDeviceId,
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })
+
+    // Pre-fix this threw SQLITE_CONSTRAINT_FOREIGNKEY inside applyRemoteOp's
+    // own transaction; the op never landed anywhere. Must not throw now.
+    expect(() => ws.emit('message', Buffer.from(msg))).not.toThrow()
+
+    // ws.emit('message', ...) dispatches synchronously into the handler and
+    // applyRemoteOp is a synchronous better-sqlite3 write (see this file's
+    // op-id-replay test above for the same reasoning) — both rows are
+    // already settled by the time emit() returns.
+    const opRow = clientDb.prepare('SELECT * FROM operations WHERE id = ?').get(opId)
+    expect(opRow).toBeTruthy()
+    expect(opRow.device_id).toBe(unknownDeviceId)
+
+    const deviceRow = clientDb.prepare('SELECT * FROM devices WHERE id = ?').get(unknownDeviceId)
+    expect(deviceRow).toBeTruthy()
+    expect(deviceRow.pairing_status).toBe('unknown')
+    expect(deviceRow.name).toBe(`Device ${unknownDeviceId.slice(0, 8)}`)
+    expect(deviceRow.authorized_at).toBeNull()
+    expect(deviceRow.revoked_at).toBeNull()
+    expect(deviceRow.device_secret_identifier).toBeNull()
+
+    client.close()
+  })
+
+  it('a second op from the same never-before-seen device does not duplicate or overwrite the stub row (INSERT OR IGNORE idempotency)', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const unknownDeviceId = randomUUID()
+    const ws = client.__getWs()
+    const sendOp = (opId, entityId) => {
+      ws.emit('message', Buffer.from(JSON.stringify({
+        type: 'op_applied',
+        op: {
+          id: opId,
+          seq: 1,
+          entity: 'activities',
+          entity_id: entityId,
+          field: 'name',
+          value: 'v',
+          device_id: unknownDeviceId,
+          timestamp: new Date().toISOString(),
+          parent_op_id: null,
+        },
+      })))
+    }
+
+    sendOp(randomUUID(), randomUUID())
+    const firstRow = clientDb.prepare('SELECT * FROM devices WHERE id = ?').get(unknownDeviceId)
+    expect(firstRow).toBeTruthy()
+
+    sendOp(randomUUID(), randomUUID())
+    const rows = clientDb.prepare('SELECT * FROM devices WHERE id = ?').all(unknownDeviceId)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toEqual(firstRow)
+
+    client.close()
+  })
+
+  it("an op from an already-known device does not touch that device's existing row", async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const peerDeviceId = randomUUID()
+    const authorizedAt = new Date().toISOString()
+    clientDb.prepare(
+      "INSERT INTO devices (id, name, pairing_status, authorized_at, device_secret_identifier) VALUES (?, ?, 'authorized', ?, ?)"
+    ).run(peerDeviceId, 'ClientB', authorizedAt, 'real-secret')
+
+    const ws = client.__getWs()
+    ws.emit('message', Buffer.from(JSON.stringify({
+      type: 'op_applied',
+      op: {
+        id: randomUUID(),
+        seq: 1,
+        entity: 'activities',
+        entity_id: randomUUID(),
+        field: 'name',
+        value: 'v',
+        device_id: peerDeviceId,
+        timestamp: new Date().toISOString(),
+        parent_op_id: null,
+      },
+    })))
+
+    const row = clientDb.prepare('SELECT * FROM devices WHERE id = ?').get(peerDeviceId)
+    expect(row.name).toBe('ClientB')
+    expect(row.pairing_status).toBe('authorized')
+    expect(row.authorized_at).toBe(authorizedAt)
+    expect(row.device_secret_identifier).toBe('real-secret')
+
+    client.close()
+  })
+})
+
+// docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md — T85 Part 3.
+// The Host's own no-serverUrl write()/writeBulkReplace() previously only
+// called notifyOpApplied(op) (a renderer-only push) and never touched
+// wss.clients at all, so a Host-authored edit reached Clients only at their
+// next full_sync. These unit tests pin the syncClient-local wiring — the
+// live end-to-end delivery to a real connected Client is covered by the
+// integration suite's Host-local-broadcast scenario.
+describe('T85 Part 3: a Host-local (no-serverUrl) write broadcasts to connected Clients', () => {
+  function fakeConnectedClient(clientDeviceId) {
+    const sent = []
+    return {
+      deviceId: clientDeviceId,
+      OPEN: 1,
+      readyState: 1,
+      send: (data) => sent.push(JSON.parse(data)),
+      __sent: sent,
+    }
+  }
+
+  it('write() broadcasts the op to every connected client on wss.clients when a wss is supplied', async () => {
+    const peer = fakeConnectedClient(randomUUID())
+    const fakeWss = { clients: new Set([peer]) }
+    const client = createSyncClient(hostDb, { device_id: deviceId, author_user_id: userId, wss: fakeWss })
+
+    const result = await client.write({ entity: 'template_slots', entity_id: 'bcast-1', field: 'activity_id', value: 'archery' })
+    expect(result.status).toBe('applied')
+
+    expect(peer.__sent).toHaveLength(1)
+    expect(peer.__sent[0]).toEqual({ type: 'op_applied', op: result.op })
+  })
+
+  it('writeBulkReplace() broadcasts too', async () => {
+    const peer = fakeConnectedClient(randomUUID())
+    const fakeWss = { clients: new Set([peer]) }
+    const client = createSyncClient(hostDb, { device_id: deviceId, author_user_id: userId, wss: fakeWss })
+
+    const result = await client.writeBulkReplace({ entity: 'template_slots', scope_id: 'tpl-bcast', rows: [] })
+    expect(result.status).toBe('applied')
+    expect(peer.__sent).toHaveLength(1)
+    expect(peer.__sent[0].type).toBe('op_applied')
+  })
+
+  it('does nothing extra when no wss is supplied (no regression on the ordinary host-local path)', async () => {
+    const client = createSyncClient(hostDb, { device_id: deviceId, author_user_id: userId })
+    const result = await client.write({ entity: 'template_slots', entity_id: 'bcast-3', field: 'activity_id', value: 'kayak' })
+    expect(result.status).toBe('applied')
+  })
+})

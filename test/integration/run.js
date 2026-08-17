@@ -30,6 +30,7 @@ import { run as scenario20 } from './scenarios/20-delete-used-record.js'
 import { run as scenario21 } from './scenarios/21-ingest-prior-year.js'
 import { run as scenario22 } from './scenarios/22-location-merge.js'
 import { run as scenario23 } from './scenarios/23-camp-map-sync.js'
+import { run as scenario24 } from './scenarios/24-device-fk-seeding-and-watermark.js'
 
 const SCENARIOS = [
   { name: '01 bootstrap + first sync', fn: scenario01 },
@@ -55,6 +56,7 @@ const SCENARIOS = [
   { name: '21 ingesting a prior year schedule', fn: scenario21 },
   { name: '22 merging two near-duplicate locations', fn: scenario22 },
   { name: '23 camp map image sync (first-pairing + live + D6 perms)', fn: scenario23 },
+  { name: '24 device FK seeding + delivery watermark + host-local broadcast (T85)', fn: scenario24 },
 ]
 
 const PASS = '\x1b[32mPASS\x1b[0m'

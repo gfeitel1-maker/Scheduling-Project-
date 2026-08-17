@@ -59,12 +59,12 @@ export async function run() {
     ).get().n
     if (hostOps < N) throw new Error(`Expected >= ${N} ops on host, found ${hostOps}`)
 
-    // The ops were written by the host device (host.deviceId).  The client's
-    // operations table has device_id REFERENCES devices(id) with FK ON, so
-    // receiving an op authored by a device that isn't in the local devices
-    // table will fail silently.  Register the host device row on the client
-    // before reconnecting so applyRemoteOp can insert the missed ops.
-    client.registerDevice(host.deviceId, 'Host')
+    // The ops were written by the host device (host.deviceId). Pre-T85 this
+    // required manually registering the host's device row on the client
+    // (docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md) —
+    // applyRemoteOp now stub-seeds the author's devices row itself, in the
+    // same transaction as the op-log insert, so catch-up delivery no longer
+    // needs a test-only workaround.
 
     // Reconnect client.
     await client.reconnect()

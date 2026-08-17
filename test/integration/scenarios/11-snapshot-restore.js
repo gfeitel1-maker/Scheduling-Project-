@@ -32,9 +32,9 @@ export async function run() {
     clientB.open()
     await pairAndLogin(host, clientB)
 
-    clientB.registerDevice(clientA.deviceId, 'ClientA')
-    clientA.registerDevice(clientB.deviceId, 'ClientB')
-
+    // Pre-T85 this required manually registering each side's device row
+    // (docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md) —
+    // applyRemoteOp now stub-seeds the author's devices row itself.
     const entityId = randomUUID()
 
     // Step 1: Client A writes parent op (op0).

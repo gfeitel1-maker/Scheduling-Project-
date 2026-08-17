@@ -1,16 +1,30 @@
 ---
 title: T85-devices-table-never-synced-cross-device-op-drop
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-16
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/GOVERNANCE_INDEX.md]
-related_tickets: []
-related_adrs: [docs/adr/2026-08-16-locations-optional-map.md]
+related_tickets: [docs/work/tickets/T86-device-management-handlers-not-host-gated-on-client.md, docs/work/tickets/T87-returning-client-never-reauthenticates-after-restart.md]
+related_adrs: [docs/adr/2026-08-16-locations-optional-map.md, docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md]
 related_runs: [docs/work/runs/2026-08-16-locations-m6-map.md]
 archive_when: "a device reliably receives and APPLIES ops authored by any other paired device (live over broadcast AND on reconnect catch-up), proven by a multi-device integration test that does NOT use the test-only registerDevice() workaround; and the fix is merged with owner sign-off"
 ---
 
 # T85 — The `devices` table is never synced between peers → cross-device ops silently dropped
+
+> **RESOLVED 2026-08-16 — fixed via [docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md](../../adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md), merged with owner sign-off.**
+> `applyRemoteOp` now stub-seeds a secret-free `devices` row from the op's own `device_id` (FK always
+> satisfiable), a new `op_applied_ack` gates the `sendMissedOps` watermark on genuine receiver-apply (a
+> dropped op can no longer be marked delivered), and the Host's own local writes now broadcast to connected
+> Clients. All six `archive_when` conditions proven by integration **scenario 24**
+> (`test/integration/scenarios/24-device-fk-seeding-and-watermark.js`) — live broadcast, reconnect catch-up
+> with a mid-batch apply failure, Host-local broadcast, and a wire-capture negative security check — all
+> through the real pairing flow, and the 8 scenarios that relied on the test-only `registerDevice()`
+> workaround now pair for real. Adversarial panel (Security 5/5, Red Hat, Code Reviewer) + Grader (PASS).
+> Red Hat's Risk 1 (re-auth concurrency) and Risk 3a (phantom stub rows in the device list) were fixed in
+> the same change; **T87** (returning Client may not re-authenticate after restart — different subsystem) and
+> **T86** (device-management handlers not Host-gated on a Client — the FK-stub seeding *arms* it; already
+> merged) were owner-deferred as separate tickets.
 
 **Severity: HIGH — platform-level, pre-existing, app-wide (affects ALL synced data, not just the map).**
 **NOT caused by M6.** Surfaced by Red Hat while adversarially reviewing M6 (the optional map), whose Q7
