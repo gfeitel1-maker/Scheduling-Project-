@@ -134,13 +134,14 @@ Every one of the ten appears here.
 |---|---|---|
 | ADR written | done | `docs/adr/2026-08-17-sync-auth-layer-deepening.md`, status `accepted` |
 | ADR acceptance | done | Owner accepted 2026-08-17 with one directed change to C3: harmonize the device-trust reason precedence (revoked wins) instead of preserving the divergence. See ADR acceptance note + Approach §C3. |
-| Slice 1 (C1) implementation | not started | |
+| Slice 1 (C1) implementation | done | commit `155cb13` — verbatim move to `opDelivery.js` + `catchup.js`; `syncServer.js` 1215→891 lines |
 | Slice 2 (C4) implementation | not started | |
 | Slice 3 (C3) implementation | not started | |
-| test / lint / build / integration, per slice | not started | |
-| Security review (Slice 3) | not started | |
-| Red Hat review (Slices 1–2) | not started | |
-| Code Reviewer, per slice | not started | |
+| Slice 1 — test / lint / integration | pass | `syncServer.test.js` 58/58, integration 25/25, lint 0 errors, governance clean (full-suite re-run in progress at review time) |
+| Slice 1 — Security review | pass | 5/5 — byte-verbatim confirmed line-by-line; `handleAuthenticate`/auth/trust unchanged; no secret crosses the new module boundary |
+| Slice 1 — Red Hat review | pass | Resilience 5/5 — cross-module `ws`-state correlation, module-scope captures, watermark math, T85/T87 guards all verified intact; no scope creep |
+| Slice 1 — Code Reviewer | pass | Ready — faithful verbatim move, only the two ADR-specified exports added, no cycle, no dead imports |
+| Slices 2–3 gates (test/lint/integration, Security on S3, Red Hat on S2, Code Reviewer) | not started | |
 
 ## Verifier verdict
 

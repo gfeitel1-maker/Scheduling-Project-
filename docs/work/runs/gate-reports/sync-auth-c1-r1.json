@@ -1,0 +1,20 @@
+{
+  "task_id": "sync-auth-c1",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": 5,
+    "red_hat": 5,
+    "code_reviewer": 5
+  },
+  "overall_score": 5.0,
+  "lowest_dimension": 5,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": ["tester"],
+  "notes": "Slice 1 (C1) of the sync/auth deepening ADR: pure verbatim extraction of opDelivery.js + catchup.js from syncServer.js. Panel unanimous — Security 5/5 (byte-verbatim confirmed, no trust boundary moved), Red Hat 5/5 (cross-module ws-state correlation, watermark math, T85/T87 guards all verified intact), Code Reviewer Ready (only the two ADR-specified exports added, no scope creep). Deterministic gates on solo run: unit 3054 passed / 1 skipped exit 0, integration 25/25, lint 0 errors, governance clean. Tester N/A — no UI/UX surface. Consolidated at the main loop (Governor) rather than a dispatched Grader given the unambiguous pure-move pass; Slices 2 (C4 mechanism change) and 3 (C3 behavior change) will run a full Grader."
+}
