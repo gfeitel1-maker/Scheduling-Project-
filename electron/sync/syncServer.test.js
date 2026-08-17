@@ -14,10 +14,9 @@ import { sendWithAck } from './opDelivery.js'
 import { ENTITIES } from '../auth/permissions.js'
 import { LOGIN_MIN_INTERVAL_MS } from './rateLimit.js'
 import { waitFor, sleepBecauseTimeIsUnderTest } from '../../test/helpers/waitFor.js'
+import { getFreePort } from '../../test/integration/harness.js'
 
-const PORT = 8137
-const THROTTLE_PORT = PORT + 20
-
+let PORT
 let db, tmpFile, server, campId, userId, deviceId, token
 
 function connect() {
@@ -118,6 +117,7 @@ beforeEach(async () => {
 
   token = issueCampToken(db, userId, deviceId)
 
+  PORT = await getFreePort()
   server = startSyncServer(db, { port: PORT })
 })
 
@@ -1677,6 +1677,7 @@ describe('unauthenticated login message', () => {
     // 20 calls means all 20 have been processed. That is a real signal, not a
     // guess at a duration.
     let nowCalls = 0
+    const THROTTLE_PORT = await getFreePort()
     const throttleServer = startSyncServer(db, {
       port: THROTTLE_PORT,
       now: () => { nowCalls += 1; return fakeNow },
@@ -2101,12 +2102,13 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
 describe('pairing_request WS message (sub-task 2)', () => {
   // Use a dedicated server port for these tests to avoid port-reuse conflicts
   // with the outer beforeEach/afterEach server on PORT.
-  const PAIR_PORT = PORT + 10
+  let PAIR_PORT
   let pairServer
   let onPairingRequestCb
 
   beforeEach(async () => {
     onPairingRequestCb = null
+    PAIR_PORT = await getFreePort()
     pairServer = startSyncServer(db, {
       port: PAIR_PORT,
       onPairingRequest: (id, name) => { if (onPairingRequestCb) onPairingRequestCb(id, name) },
