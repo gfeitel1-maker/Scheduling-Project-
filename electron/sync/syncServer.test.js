@@ -807,7 +807,23 @@ describe('C3 fail-first characterization: device-trust reason harmonization at t
     const ws = connect()
     await onceOpen(ws)
     ws.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
-    await new Promise((r) => setTimeout(r, 100))
+    // An authenticated-only probe (acquire_lock), sent right after
+    // authenticate and awaited before the DB mutation below, is the
+    // deterministic sync point: handleAuthenticate is not itself awaited by
+    // its caller, so a fixed sleep can't prove it actually ran — but
+    // acquire_lock is gated on `ws.deviceId` (handleAuthenticate sets it
+    // synchronously, see syncServer.js), so a `lock_result` reply is only
+    // possible once authenticate has genuinely completed. Without this gate,
+    // the DB mutation (pure in-process JS) can race ahead of the real
+    // network round-trip authenticate needs, land BEFORE the server even
+    // processes `authenticate`, and make handleAuthenticate itself see the
+    // device as already-revoked and close 4404 there — never reaching
+    // renew_token's own revoked-wins check, which is what this test means to
+    // exercise.
+    ws.send(
+      JSON.stringify({ type: 'acquire_lock', entity: 'template_slots', entity_id: 'renew-token-sync-probe', field: 'activity_id' })
+    )
+    await onceMessageOfType(ws, 'lock_result')
 
     // Flip the already-authenticated device to never-authorized-but-revoked
     // mid-session, matching the existing "revoke mid-session" test's shape.
@@ -2286,7 +2302,23 @@ describe('renew_token WS message (sub-task 3)', () => {
     const ws = connect()
     await onceOpen(ws)
     ws.send(JSON.stringify({ type: 'authenticate', token: targetToken, device_id: targetDeviceId }))
-    await new Promise((r) => setTimeout(r, 100))
+    // An authenticated-only probe (acquire_lock), sent right after
+    // authenticate and awaited before the DB mutation below, is the
+    // deterministic sync point: handleAuthenticate is not itself awaited by
+    // its caller, so a fixed sleep can't prove it actually ran — but
+    // acquire_lock is gated on `ws.deviceId` (handleAuthenticate sets it
+    // synchronously, see syncServer.js), so a `lock_result` reply is only
+    // possible once authenticate has genuinely completed. Without this gate,
+    // the DB mutation (pure in-process JS) can race ahead of the real
+    // network round-trip authenticate needs and delete the devices row
+    // BEFORE the server even processes `authenticate` — making
+    // handleAuthenticate's own self-registration re-create it (INSERT OR
+    // IGNORE), which defeats the "row genuinely doesn't exist" scenario this
+    // test means to exercise at renew_token.
+    ws.send(
+      JSON.stringify({ type: 'acquire_lock', entity: 'template_slots', entity_id: 'renew-token-sync-probe', field: 'activity_id' })
+    )
+    await onceMessageOfType(ws, 'lock_result')
 
     // Legal only because targetDeviceId has never authored an operation —
     // no operations row's FK references it.
