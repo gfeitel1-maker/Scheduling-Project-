@@ -107,9 +107,9 @@ a code dependency.)
    clear refusal ("… can only be done on the main computer"), and **no row in the local `devices`
    table is mutated** — verifiable by asserting the table is unchanged after the call, mirroring the
    `ingestCommit` client-mode test.
-2. An admin in client mode does **not** land on a device-management surface that appears to let them
-   approve/deny/revoke — either the nav item is hidden in client mode, or the screen renders a
-   read-only "manage devices on the main computer" state (product decision, below).
+2. An admin in client mode can **see** the device/pairing list as a **read-only status view** (reads
+   are not refused — see the resolved decision below), but is **not** presented any
+   approve/deny/revoke control on a Client.
 3. Host-mode behavior is **byte-for-byte unchanged** — existing DeviceManagerScreen and pairing tests
    still pass.
 4. A test pins the client-mode refusal at the handler layer (defense in depth: gate at the IPC handler,
@@ -123,13 +123,16 @@ management:
 - **Handler layer (required):** add `if (mode === 'client') throw new Error(...)` to `approveDevice`,
   `denyDevice`, and `revokeDevice`, with a director-legible message. This is the load-bearing fix and
   is defense-in-depth even if the UI is also gated.
-- **UI layer (required):** hide the `devices` nav item in client mode, or route it to a read-only
-  affordance — so a Client admin never reaches write controls.
-- **Reads (open product question — for the spec):** decide whether `listDevices` /
-  `listPendingPairingRequests` should also refuse in client mode, or remain visible **read-only** as a
-  status view. The hazard with keeping them is exactly the misleading partial roster above; the
-  argument for keeping them is a director wanting to *see* sync/pairing status from any device. This is
-  the one genuinely open decision and should be resolved with the owner before code.
+- **UI layer (required):** on a Client, keep the `devices` screen reachable but render it **read-only**
+  — the approve/deny/revoke controls are hidden, so a Client admin never reaches write controls while
+  still seeing device/pairing status (per the resolved reads decision above).
+- **Reads (RESOLVED — owner decision 2026-08-16):** `listDevices` /
+  `listPendingPairingRequests` **stay visible on a Client, read-only** — a director may *see* the
+  device/pairing status from any device; only the write actions are host-gated. The misleading
+  partial-roster hazard is addressed on the T85 side: T85's Risk-3a filter excludes
+  `pairing_status='unknown'` FK-stub rows from `listDevices`, so a Client's read-only view shows real
+  devices without phantom stubs. The spec must therefore keep the reads working in client mode and
+  gate only the writes (below).
 
 Rationale for **not** doing op-log routing (a Client→Host "request approve"): device management is
 already described as happening "on the Host" in
