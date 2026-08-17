@@ -25,6 +25,7 @@ export const DIRECT_CAMP_ENTITIES = new Set([
   'day_override_templates',
   'schedule_weeks',
   'locations',
+  'camp_maps',
 ])
 
 export const PARENT_SCOPED_ENTITIES = {

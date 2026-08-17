@@ -38,6 +38,7 @@ const DOMAIN_SNAPSHOT_TABLES = [
   'time_blocks', // references cohorts.id, nullable
   'activities',
   'locations', // v32; references camps.id only (applied above via the `camps` key). activities.location_id has NO DB-level FK, so order relative to activities is unconstrained. The migration backfills locations rows with NO op, so a first-pairing Client — which receives materialized rows, not op history — can only get them here.
+  'camp_maps', // v33 (M6, docs/adr/2026-08-16-locations-optional-map.md D4); references camps.id only. Applied AFTER the top-level `camps` insert block above (unconditional, not part of this loop), so the FK is always satisfied regardless of this array's own ordering. A first-pairing Client receives the (already-capped, ≤~1MB) image exactly once, as part of this one-time snapshot.
   'anchor_activities', // references cohorts.id/days_of_operation.id, both nullable
   'schedule_templates',
   'day_override_templates', // references cohorts.id, nullable
@@ -65,6 +66,7 @@ const DOMAIN_TABLE_COLUMNS = {
   ],
   anchor_activities: ['id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks', 'is_all_groups', 'group_ids', 'notes'],
   locations: ['id', 'camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry'],
+  camp_maps: ['id', 'camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'],
   schedule_templates: ['id', 'camp_id', 'name', 'kind'],
   day_override_templates: ['id', 'camp_id', 'cohort_id', 'name', 'frequency_mode'],
   template_slots: ['id', 'template_id', 'group_id', 'activity_id', 'day_id', 'time_block_id', 'flags', 'is_released', 'is_span_head', 'anchor_id', 'is_anchor'],

@@ -88,6 +88,22 @@ export function coerceOpValue(value) {
 // unregistered), so the boundary is a clear error, and this covers BOTH
 // write() (the no-serverUrl client above) and the Host's WS submit_op path
 // (syncServer.js's handleSubmitOp), which both call appendOp.
+// Per-field byte-length cap on operations.value (M6, D2,
+// docs/adr/2026-08-16-locations-optional-map.md). `operations.value` has no
+// application-level size limit anywhere else in this codebase — this is the
+// first one, scoped to exactly the one field that needs it (a camp map's
+// re-encoded JPEG, base64-capped client-side to ~1MB as the happy path). This
+// is the AUTHORITATIVE gate, not a convenience check: it runs in appendOp
+// itself, the single choke point both the local write() path and the Host's
+// handleSubmitOp (a remote Client's WS submission) go through, so a
+// compromised or buggy paired device cannot bypass it by skipping the
+// renderer-side downscale. Same shape as MAX_BULK_REPLACE_ROWS above — a
+// registry of hard caps, not a generic limit applied to every field (every
+// other field this codebase writes is small by construction).
+export const MAX_FIELD_VALUE_LENGTH = {
+  camp_maps: { image_data: 1_400_000 }, // chars; ~1MB base64 + slack, never truncated, hard reject
+}
+
 export function appendOp(db, { entity, entity_id, field, value, author_user_id, device_id, parent_op_id, client_write_id, source = null }) {
   if (entity === 'source_aliases') {
     throw new Error('source_aliases cannot be written through the generic op-log path — use confirmAlias')
@@ -97,9 +113,14 @@ export function appendOp(db, { entity, entity_id, field, value, author_user_id, 
     throw new Error('field not allowed for entity')
   }
 
+  const storedValue = coerceOpValue(value)
+  const maxLength = MAX_FIELD_VALUE_LENGTH[entity]?.[field]
+  if (maxLength && typeof storedValue === 'string' && storedValue.length > maxLength) {
+    throw new Error('value exceeds MAX_FIELD_VALUE_LENGTH for entity/field')
+  }
+
   const id = randomUUID()
   const timestamp = new Date().toISOString()
-  const storedValue = coerceOpValue(value)
 
   const run = db.transaction(() => {
     const result = getStmt(
