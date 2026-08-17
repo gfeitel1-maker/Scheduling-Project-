@@ -19,7 +19,7 @@ import { restoreEntity } from '../ops/restore.js'
 import { CLEARABLE_ENTITIES, deleteRecord, mergeLocation } from '../ops/deleteRecord.js'
 import { shouldThrottle, LOGIN_MIN_INTERVAL_MS, PAIRING_RATE_MS } from './rateLimit.js'
 import { send } from './opDelivery.js'
-import { currentMaxOpSeq, sendFullSyncIfFirstPairing, sendMissedOps } from './catchup.js'
+import { currentMaxOpSeq, sendFullSyncIfFirstPairing, sendMissedOps, resolveApplyAck, resolveFullSyncAck } from './catchup.js'
 
 function sendError(ws) {
   if (ws.deviceId) {
@@ -112,19 +112,25 @@ function handleAuthenticate(db, ws, msg) {
   // loginRemote sends a fresh `authenticate` on the existing, never-closed
   // ws on every successful login, syncClient.js's loginRemote) must not
   // re-fire sendFullSyncIfFirstPairing/sendMissedOps. Both functions stash
-  // their own resolver on `ws` (ws.pendingFullSyncAckResolve,
-  // ws.pendingCatchupAckResolve/ws.pendingCatchupAckOpId) — a second
-  // concurrent run for the same ws clobbers whichever resolver the first
-  // run is still waiting on, so the first run's real ack resolves the wrong
-  // (or no) waiter, stalls to its full timeout, and its watermark UPDATE
-  // races the second run's UPDATE on the same devices row. The device-scoped
-  // catch-up already ran (or is in flight) for this continuously-open
-  // connection, and live broadcast keeps it current from there, so a second
-  // catch-up is both unnecessary and the sole source of the clobber. The
-  // token/device match is already validated above (verified.deviceId !==
-  // msg.device_id closes the connection), so an already-set ws.deviceId is
-  // guaranteed to be this same physical device re-authenticating, never a
-  // different one.
+  // pending-ack state on `ws` (ws.pendingFullSyncAckResolve — single slot;
+  // ws.pendingApplyAcks — a per-connection Map keyed by op_id, C4) — a
+  // second concurrent run for the same ws still clobbers the first run's
+  // waiter: the full-sync-ack slot is single-valued regardless, and the
+  // apply-ack Map is keyed by op_id but both runs read the same
+  // end-of-run watermark and so both wait on the identical first op_id,
+  // colliding at that one Map key. Either way the first run's real ack
+  // resolves the wrong (or no) waiter, stalls to its full timeout, and its
+  // watermark UPDATE races the second run's UPDATE on the same devices row.
+  // C4's keyed Map removes the clobber only between DIFFERENT op_ids on one
+  // ws — it does not make overlapping sendMissedOps runs safe, so
+  // isReauthenticate below remains the sole guard against this ever
+  // happening; it is not vestigial. The device-scoped catch-up already ran
+  // (or is in flight) for this continuously-open connection, and live
+  // broadcast keeps it current from there, so a second catch-up is both
+  // unnecessary and the sole source of the clobber. The token/device match
+  // is already validated above (verified.deviceId !== msg.device_id closes
+  // the connection), so an already-set ws.deviceId is guaranteed to be this
+  // same physical device re-authenticating, never a different one.
   const isReauthenticate = !!ws.deviceId
 
   ws.deviceId = verified.deviceId
@@ -777,16 +783,18 @@ export function startSyncServer(db, { port, onPairingRequest, now = Date.now } =
         // `authenticate` has already set ws.deviceId, so this sits alongside
         // the other authenticated-only branches below.
         if (msg.type === 'full_sync_applied') {
-          if (ws.pendingFullSyncAckResolve) ws.pendingFullSyncAckResolve(true)
+          resolveFullSyncAck(ws, true)
           return
         }
 
         // T85 Part 2: Client -> Host ack that a specific op genuinely landed
         // in the Client's own op-log (syncClient.js's op_applied handler,
-        // sent only when applyRemoteOp did not throw). Mirrors
-        // full_sync_applied's single-resolver-on-`ws` pattern exactly.
+        // sent only when applyRemoteOp did not throw). Unlike
+        // full_sync_applied, this carries a real correlator (op_id), so
+        // catchup.js resolves it against a per-connection keyed registry
+        // rather than a single resolver slot (C4).
         if (msg.type === 'op_applied_ack') {
-          if (ws.pendingCatchupAckResolve) ws.pendingCatchupAckResolve(msg.op_id)
+          resolveApplyAck(ws, msg.op_id)
           return
         }
 

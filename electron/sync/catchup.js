@@ -35,6 +35,19 @@ function waitForFullSyncAck(ws, timeoutMs = FULL_SYNC_ACK_TIMEOUT_MS) {
   })
 }
 
+// C4 (docs/adr/2026-08-17-sync-auth-layer-deepening.md): full_sync_applied
+// carries no wire correlator (`{ type: 'full_sync_applied' }`), so unlike
+// apply-ack below, there is nothing to key a Map by — a Map here would only
+// add indirection over the same single-slot clobber hazard. This wraps the
+// existing single-resolver-on-`ws` field behind a function interface so its
+// existence becomes an internal detail of this module, invisible to
+// syncServer.js. It does not, and cannot without a protocol change, make
+// concurrent full-sync-acks on one socket safe — isReauthenticate is what
+// prevents that, unchanged by this slice.
+export function resolveFullSyncAck(ws, result) {
+  if (ws.pendingFullSyncAckResolve) ws.pendingFullSyncAckResolve(result)
+}
+
 // asOfSeq is not read by this function's own body — it is accepted purely so
 // the caller (handleAuthenticate) can pass the SAME single, synchronously-
 // computed value into both this function and sendMissedOps, per the design
@@ -152,22 +165,46 @@ export function currentMaxOpSeq(db) {
 // it. Modeled exactly on waitForFullSyncAck above and on syncClient.js's own
 // withResolverTimeout/withKeyedResolverTimeout idiom: a resolver registered
 // on the connection, a bounded timeout fallback, first-to-fire wins.
-function waitForApplyAck(ws, opId, timeoutMs) {
+// C4: unlike full-sync-ack above, op_applied_ack's wire message already
+// carries a real correlator (`{ type: 'op_applied_ack', op_id }`), so this
+// is genuinely keyed — a per-connection Map, not a single field. This fixes
+// the clobber ONLY for two DIFFERENT op_ids waited on concurrently on the
+// same `ws`. It does NOT fix the same-op_id case: two overlapping
+// sendMissedOps runs both read the same end-of-run watermark
+// (last_synced_seq is written once at the end of a run, never per-op), so
+// both start from the identical first op_id and both register a waiter at
+// that same Map key — the second registration still overwrites the first's
+// resolver, exactly like the old single-slot field. isReauthenticate is the
+// sole thing preventing overlapping sendMissedOps runs (and therefore this
+// same-op_id collision) from ever occurring; this slice does not touch or
+// retire that guard. Mirrors syncClient.js's own keyedResolverMaps pattern
+// (restoreResolvers/deleteResolvers/mergeResolvers, keyed by request_id),
+// with the same same-key caveat.
+function pendingApplyAcks(ws) {
+  if (!ws.pendingApplyAcks) ws.pendingApplyAcks = new Map()
+  return ws.pendingApplyAcks
+}
+
+// Exported so syncServer.test.js can register concurrent waiters directly
+// (the C4 same-op_id known-limitation test) rather than reconstructing this
+// registration logic in the test file.
+export function waitForApplyAck(ws, opId, timeoutMs) {
   return new Promise((resolve) => {
     let settled = false
     const finish = (result) => {
       if (settled) return
       settled = true
-      if (ws.pendingCatchupAckOpId === opId) {
-        ws.pendingCatchupAckResolve = null
-        ws.pendingCatchupAckOpId = null
-      }
+      pendingApplyAcks(ws).delete(opId)
       resolve(result)
     }
-    ws.pendingCatchupAckOpId = opId
-    ws.pendingCatchupAckResolve = (matchedOpId) => { if (matchedOpId === opId) finish(true) }
+    pendingApplyAcks(ws).set(opId, (matchedOpId) => { if (matchedOpId === opId) finish(true) })
     setTimeout(() => finish(false), timeoutMs)
   })
+}
+
+export function resolveApplyAck(ws, opId) {
+  const resolve = ws.pendingApplyAcks?.get(opId)
+  if (resolve) resolve(opId)
 }
 
 // Exported for direct unit testing (Task 10 round-5 Fix 4): a real,
