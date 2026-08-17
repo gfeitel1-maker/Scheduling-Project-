@@ -15,7 +15,26 @@ archive_when: "the camp-scoped entity set + FK order used to build the full_sync
 
 **Source:** F4 sync/auth audit (2026-08-16), candidate C2 — verified by hand, not just reported.
 
-## The bug (latent today, arms on M5)
+## The bug (LIVE — M5 has landed)
+
+> **Update 2026-08-16:** M5 shipped. `week_location_exclusions` is now a real projection entity
+> (`electron/ops/projections.js:233`), a registered camp-scoped entity (`campScopedEntities.js:62`),
+> carries write/delete permissions, and is handled by `duplicateWeek`/`ingest`/`restore`. Rows can
+> exist NOW, so this is a **live data-loss bug** — first-pairing Clients silently drop real location
+> exclusions — not the pre-M5 guard the original draft described. The `syncServer.js:32` comment
+> claiming "no rows exist until slice M5" is now FALSE and must be removed as part of the fix.
+> Severity: elevated. The test seeds a row directly, which now reflects real behavior.
+>
+> **Update 2 (Red Hat, 2026-08-16) — TRUE SCOPE was four omissions, not one.** Code archaeology
+> against `origin/main` showed the client apply-manifest was missing **all** of: `schedule_weeks`
+> (the weeks themselves), `schedule_templates.week_id` (every template arrived week-unscoped,
+> `week_id=NULL`), `week_activity_exclusions`, and `week_group_exclusions` — not just
+> `week_location_exclusions`. First-pairing devices were dropping multi-week data wholesale; it only
+> avoided visible breakage because the live-op path stub-seeds `schedule_weeks` on any later edit
+> (masking, not fixing, the gap). The single-sourced `DOMAIN_SNAPSHOT_ORDER` closes all four at once.
+> A SEPARATE pre-existing live-op edge (a late exclusion op can orphan on a missing week → swallowed
+> `console.error`, projection never materialized, no retry) is NOT repaired here — tracked as
+> [[T89-live-op-week-parent-seed]].
 
 The set of camp-scoped tables (and their FK-safe order) that make up a first-pairing `full_sync`
 snapshot is **hand-maintained in two places** and has **already drifted**:
