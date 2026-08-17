@@ -274,7 +274,7 @@ export default function App() {
   }
 
   if (device.phase === 'login') {
-    return <LoginScreen campName={device.camp?.name} onSubmit={device.login} />
+    return <LoginScreen campName={device.camp?.name} onSubmit={device.login} notice={device.sessionEndedReason} />
   }
 
   return <AppShell campId={device.camp?.id} role={device.role} onLogout={device.logout} />

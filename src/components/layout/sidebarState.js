@@ -118,6 +118,11 @@ export function loadSidebarState(storage) {
 const SYNC_STATUS_COPY = {
   host: { text: 'main', tone: 'success', title: 'This computer is the main one. The others follow what is on it.' },
   'client-connected': { text: 'linked', tone: 'success', title: 'Connected to the main computer.' },
+  // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 4): the window
+  // between the socket opening and the Host confirming (or rejecting) this
+  // device's session — 'client-connected' now means authenticated, not just
+  // transport-open, so this in-between moment needs its own honest state.
+  'client-connecting': { text: 'connecting', tone: 'secondary', title: 'Talking to the main computer — not yet confirmed.' },
   'client-disconnected': { text: 'alone', tone: 'danger', title: 'Cannot reach the main computer right now. Your changes are saved here and will reach it when it is back.' },
   standalone: { text: 'on its own', tone: 'secondary', title: 'This computer is not sharing with any other yet.' },
 }

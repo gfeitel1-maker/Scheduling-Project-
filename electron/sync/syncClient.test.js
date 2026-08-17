@@ -7,7 +7,7 @@ import { randomUUID, randomBytes } from 'node:crypto'
 import WebSocket from 'ws'
 import { openLocalDb } from '../db/localDb.js'
 import { waitFor, sleepBecauseTimeIsUnderTest } from '../../test/helpers/waitFor.js'
-import { createUser, issueCampToken, verifySessionToken, ensureHostSigningKey } from '../auth/localAuth.js'
+import { createUser, issueCampToken, issueLocalToken, verifySessionToken, ensureHostSigningKey } from '../auth/localAuth.js'
 import { DOMAIN_SNAPSHOT_ORDER } from '../ops/campScopedEntities.js'
 
 // Authorized-by-default devices row for the hostDb side of a test — see
@@ -2077,6 +2077,116 @@ describe('pairing_approved / pairing_denied handling (sub-tasks 2 & 3)', () => {
     await waitFor(() => deniedCalled, { message: 'onPairingDenied never fired' })
 
     client.close()
+  })
+})
+
+// T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 3): the Host's
+// 4401-4404 close on `authenticate` must be treated as authoritative — the
+// rejected token is cleared so the auto-reconnect loop falls back to
+// pairing_request instead of resending a token the Host will only reject
+// again, forever.
+describe('T87: rejected-token cleanup on 4401-4404 (Part 3)', () => {
+  // Captures every outbound wire message from EVERY WebSocket for the
+  // duration of one assertion, so the test can see what the auto-reconnect
+  // sends WITHOUT reaching into syncClient's private `ws` variable (not
+  // exposed for this purpose — __getWs() only returns the CURRENT one, which
+  // is replaced on reconnect).
+  async function expectRejectedTokenCleanup({ clientDeviceId, badToken, expectedCode }) {
+    const sentMessages = []
+    const originalSend = WebSocket.prototype.send
+    WebSocket.prototype.send = function (data, ...args) {
+      try { sentMessages.push(JSON.parse(data.toString())) } catch { /* not JSON, ignore */ }
+      return originalSend.call(this, data, ...args)
+    }
+
+    let rejectedCode = null
+    const client = createSyncClient(clientDb, {
+      device_id: clientDeviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token: badToken,
+      device_name: 'RejectedTokenTestDevice',
+    })
+
+    try {
+      client.onAuthRejected((code) => { rejectedCode = code })
+
+      await waitFor(() => rejectedCode !== null, {
+        message: `onAuthRejected never fired for expected close code ${expectedCode}`,
+      })
+      // Negative security (Test strategy item 4): the payload is the bare
+      // numeric code, never the rejected token or any other value.
+      expect(rejectedCode).toBe(expectedCode)
+      expect(typeof rejectedCode).toBe('number')
+
+      const beforeReconnectCount = sentMessages.length
+      // RECONNECT_DELAY_MS (syncClient.js) is 1500ms; give it real headroom.
+      await waitFor(() => sentMessages.length > beforeReconnectCount, {
+        timeout: 4000,
+        message: 'no message was sent on the next auto-reconnect attempt',
+      })
+      const postRejectionMessages = sentMessages.slice(beforeReconnectCount)
+
+      // THE assertion: the cleared token must never be resent as another
+      // `authenticate` — the next outbound message must be `pairing_request`.
+      expect(postRejectionMessages.some((m) => m.type === 'authenticate')).toBe(false)
+      expect(postRejectionMessages.some((m) => m.type === 'pairing_request')).toBe(true)
+
+      // Every captured message (both the rejected authenticate and the
+      // fallback pairing_request) must never carry the token's raw string
+      // value anywhere outside the one legitimate `authenticate` frame that
+      // sent it in the first place.
+      for (const msg of sentMessages) {
+        if (msg.type === 'authenticate') continue
+        expect(JSON.stringify(msg)).not.toContain(badToken)
+      }
+    } finally {
+      client.close()
+      WebSocket.prototype.send = originalSend
+    }
+  }
+
+  it('clears the token on 4401 invalid_token', async () => {
+    await expectRejectedTokenCleanup({
+      clientDeviceId: deviceId,
+      badToken: 'not-a-real-token-at-all',
+      expectedCode: 4401,
+    })
+  })
+
+  it('clears the token on 4402 local_token_not_valid_for_network', async () => {
+    // insertAuthorizedHostDevice (beforeEach) already stamped a
+    // device_secret_identifier for `deviceId`, which issueLocalToken requires.
+    const localToken = issueLocalToken(hostDb, userId, deviceId)
+    await expectRejectedTokenCleanup({
+      clientDeviceId: deviceId,
+      badToken: localToken,
+      expectedCode: 4402,
+    })
+  })
+
+  it('clears the token on 4403 device_not_authorized', async () => {
+    const unauthorizedDeviceId = randomUUID()
+    // No authorized_at — a real, validly-signed camp token for a device the
+    // Host has never authorized (e.g. a pairing request denied, or simply
+    // never approved).
+    hostDb.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')")
+      .run(unauthorizedDeviceId, 'Unauthorized device')
+    const unauthorizedToken = issueCampToken(hostDb, userId, unauthorizedDeviceId)
+    await expectRejectedTokenCleanup({
+      clientDeviceId: unauthorizedDeviceId,
+      badToken: unauthorizedToken,
+      expectedCode: 4403,
+    })
+  })
+
+  it('clears the token on 4404 device_revoked', async () => {
+    hostDb.prepare("UPDATE devices SET revoked_at = ? WHERE id = ?").run(new Date().toISOString(), deviceId)
+    await expectRejectedTokenCleanup({
+      clientDeviceId: deviceId,
+      badToken: token,
+      expectedCode: 4404,
+    })
   })
 })
 

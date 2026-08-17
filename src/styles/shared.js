@@ -295,6 +295,22 @@ export const S = {
     gap: 8,
     alignItems: 'flex-start',
   },
+  // Informational, not a failure the user caused — a bounce back to login
+  // that the user didn't choose (session ended, or the Host revoked the
+  // device). Uses --accent (the caution hue) rather than --danger so it
+  // reads as "here's what happened," not an error the director triggered.
+  authNoticeBox: {
+    background: 'color-mix(in srgb, var(--accent) 7%, var(--surface))',
+    border: '1px solid color-mix(in srgb, var(--accent) 30%, var(--border))',
+    borderRadius: 7,
+    padding: '10px 12px',
+    fontSize: 12,
+    color: 'color-mix(in srgb, var(--accent) 60%, var(--text))',
+    marginBottom: 14,
+    display: 'flex',
+    gap: 8,
+    alignItems: 'flex-start',
+  },
   authChoiceCard: {
     display: 'flex',
     alignItems: 'flex-start',

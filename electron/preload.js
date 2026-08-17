@@ -65,6 +65,9 @@ contextBridge.exposeInMainWorld('shoresh', {
   onPairingApproved: (callback) => ipcRenderer.on('shoresh:pairing-approved', () => callback()),
   onPairingDenied: (callback) => ipcRenderer.on('shoresh:pairing-denied', () => callback()),
   onTokenRenewed: (callback) => ipcRenderer.on('shoresh:token-renewed', (_event, data) => callback(data.token)),
+  // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 3) — mirrors
+  // onTokenRenewed's payload-forwarding shape; carries only the numeric close code.
+  onAuthRejected: (callback) => ipcRenderer.on('shoresh:auth-rejected', (_event, data) => callback(data.code)),
   // §9 project-file lifecycle
   getCurrentProject: () => ipcRenderer.invoke('shoresh:get-current-project'),
   // T27 — read-only status, plus a push so it does not go stale. A value read

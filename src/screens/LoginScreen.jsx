@@ -8,7 +8,7 @@ function formatMMSS(ms) {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
-export default function LoginScreen({ campName, onSubmit }) {
+export default function LoginScreen({ campName, onSubmit, notice }) {
   const [name, setName] = useState('')
   const [pin, setPin] = useState('')
   const [status, setStatus] = useState('default') // default | submitting | error | locked | connection-error
@@ -78,6 +78,13 @@ export default function LoginScreen({ campName, onSubmit }) {
         </div>
 
         <div style={{ ...S.authTitle, fontSize: 19 }}>Sign in</div>
+
+        {notice && (
+          <div style={S.authNoticeBox}>
+            <span>ⓘ</span>
+            <span>{notice}</span>
+          </div>
+        )}
 
         {status === 'error' && (
           <div style={S.authErrorBox}>

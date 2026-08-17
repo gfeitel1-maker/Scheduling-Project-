@@ -158,6 +158,11 @@ export function createSyncClient(
   const pairingApprovedListeners = []
   const pairingDeniedListeners = []
   const tokenRenewedListeners = []
+  // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 3): fired when
+  // the Host authoritatively rejects a token this client just sent
+  // (`authenticate` closed with 4401-4404). Mirrors pairingDeniedListeners
+  // exactly.
+  const authRejectedListeners = []
   const fullSyncAppliedListeners = []
   const queue = []
   let token = initialToken
@@ -846,7 +851,7 @@ export function createSyncClient(
       }
     }
 
-    ws.on('close', () => {
+    ws.on('close', (code) => {
       connected = false
       authenticated = false
       announceConnection()
@@ -854,6 +859,17 @@ export function createSyncClient(
         connectedResolve = resolve
       })
       settlePendingOnDisconnect()
+      // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 3): the
+      // Host has authoritatively rejected this token (invalid, wrong type,
+      // device not authorized, or revoked — syncServer.js's
+      // handleAuthenticate). Clear it so the NEXT auto-reconnect below takes
+      // the `else if (device_name)` branch and sends pairing_request instead
+      // of silently re-sending a token the Host will only reject again,
+      // forever.
+      if (code === 4401 || code === 4402 || code === 4403 || code === 4404) {
+        token = null
+        for (const cb of authRejectedListeners) cb(code)
+      }
       // Auto-reconnect unless close() was called explicitly.
       //
       // On reconnect the existing open handler re-enters the correct state:
@@ -1246,6 +1262,12 @@ export function createSyncClient(
     isConnected() {
       return connected
     },
+    // T87 Part 4 — mirrors isConnected() exactly. Distinct from `connected`:
+    // see the `authenticated` variable's own comment above for why a socket
+    // can be open without being authenticated.
+    isAuthenticated() {
+      return authenticated
+    },
 
     onConnectionChange(callback) {
       connectionListeners.add(callback)
@@ -1498,6 +1520,10 @@ export function createSyncClient(
     },
     onTokenRenewed(callback) {
       tokenRenewedListeners.push(callback)
+    },
+    // T87 Part 3 — mirrors onPairingDenied exactly.
+    onAuthRejected(callback) {
+      authRejectedListeners.push(callback)
     },
     close() {
       // Signal the close handler that this is intentional so the reconnect

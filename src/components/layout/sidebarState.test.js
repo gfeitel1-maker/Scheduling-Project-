@@ -149,7 +149,7 @@ describe('syncStatusLabel (T27)', () => {
   })
 
   it('uses no developer vocabulary', () => {
-    for (const state of ['host', 'client-connected', 'client-disconnected', 'standalone']) {
+    for (const state of ['host', 'client-connected', 'client-connecting', 'client-disconnected', 'standalone']) {
       const label = syncStatusLabel({ state })
       expect(`${label.text} ${label.title}`).not.toMatch(/host|client|socket|mDNS|LAN|sync\b|peer/i)
     }
@@ -158,5 +158,46 @@ describe('syncStatusLabel (T27)', () => {
   it('falls back to standalone for an unknown or missing status', () => {
     expect(syncStatusLabel(null).text).toBe('on its own')
     expect(syncStatusLabel({ state: 'something-new' }).text).toBe('on its own')
+  })
+
+  // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 4): the window
+  // between the socket opening and the Host confirming (or rejecting) this
+  // device's session needs its own honest state — neither the reassuring
+  // "linked" nor the alarming "alone".
+  describe('client-connecting (T87)', () => {
+    it('is distinct from both client-connected and client-disconnected', () => {
+      const connecting = syncStatusLabel({ state: 'client-connecting' })
+      const connected = syncStatusLabel({ state: 'client-connected' })
+      const disconnected = syncStatusLabel({ state: 'client-disconnected' })
+      expect(connecting.text).not.toBe(connected.text)
+      expect(connecting.text).not.toBe(disconnected.text)
+    })
+
+    it('does not claim the connection is confirmed, and does not alarm', () => {
+      const connecting = syncStatusLabel({ state: 'client-connecting' })
+      expect(connecting.tone).not.toBe('success')
+      expect(connecting.tone).not.toBe('danger')
+    })
+
+    it('does not regress the existing three entries (host/client-connected/client-disconnected unchanged)', () => {
+      expect(syncStatusLabel({ state: 'host' })).toEqual({
+        text: 'main', tone: 'success', title: 'This computer is the main one. The others follow what is on it.',
+      })
+      expect(syncStatusLabel({ state: 'client-connected' })).toEqual({
+        text: 'linked', tone: 'success', title: 'Connected to the main computer.',
+      })
+      expect(syncStatusLabel({ state: 'client-disconnected' })).toEqual({
+        text: 'alone', tone: 'danger', title: 'Cannot reach the main computer right now. Your changes are saved here and will reach it when it is back.',
+      })
+    })
+  })
+
+  // Migration guard (ADR §Migration): an old main process's getSyncStatus()
+  // return shape has no `authenticated` field at all, and a stale cached
+  // status object could be missing it too — syncStatusLabel must never throw
+  // on either, and must fall back to a defined label.
+  it('never throws on a status object missing the authenticated field entirely', () => {
+    expect(() => syncStatusLabel({ mode: 'client', connected: true, state: 'client-connected' })).not.toThrow()
+    expect(syncStatusLabel({ mode: 'client', connected: true, state: 'client-connected' }).text).toBe('linked')
   })
 })

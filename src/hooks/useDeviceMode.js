@@ -16,6 +16,21 @@ function readJSON(key) {
   }
 }
 
+// T87 fix round: a director staring at a bounced-to-login screen with no
+// explanation can't tell "my token just expired" from "this tablet was
+// revoked and needs re-approval." 4403/4404 mean the Host actively decided
+// this device is no longer trusted — that needs an actionable, human
+// message. Every other code (4401, 4402, unknown) is treated as benign so
+// close-code numbers never leak into UI copy.
+const DEVICE_REVOKED_CODES = new Set([4403, 4404])
+const DEVICE_REVOKED_REASON =
+  "This device's access was removed. Ask your director or admin to re-approve it, then sign in again."
+const BENIGN_SESSION_ENDED_REASON = 'Your session ended. Please sign in again.'
+
+function reasonForAuthRejectedCode(code) {
+  return DEVICE_REVOKED_CODES.has(code) ? DEVICE_REVOKED_REASON : BENIGN_SESSION_ENDED_REASON
+}
+
 // Drives the App.jsx state machine: which top-level screen to show, given
 // what's been persisted on this device (mode, join target, session token)
 // and what the local backend currently reports (camp existence).
@@ -34,12 +49,28 @@ export function useDeviceMode() {
   const [error, setError] = useState(null)
   const [initNonce, setInitNonce] = useState(0)
   const [pairingStatus, setPairingStatus] = useState(null) // null | 'pending' | 'approved' | 'denied'
+  // Director-facing explanation for why they landed back on the login screen.
+  // null = ordinary (fresh device, deliberate logout, benign local-expiry).
+  // Set only by an authoritative Host rejection (onAuthRejected) — see
+  // reasonForAuthRejectedCode above.
+  const [sessionEndedReason, setSessionEndedReason] = useState(null)
   const pairingListenersRegistered = useRef(false)
 
   const refreshCamp = useCallback(async () => {
     const c = await localClient.getCamp()
     setCamp(c || null)
     return c || null
+  }, [])
+
+  // Shared by the locally-failed verifySession path and the onAuthRejected
+  // push-event path so the two cleanup blocks can't silently drift (Red Hat
+  // finding on the original T87 change).
+  const clearSessionState = useCallback((reason = null) => {
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem(ROLE_KEY)
+    setToken(null)
+    setRole(null)
+    setSessionEndedReason(reason)
   }, [])
 
   useEffect(() => {
@@ -49,31 +80,47 @@ export function useDeviceMode() {
         const c = await refreshCamp()
         if (!active) return
 
+        // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 1):
+        // verify the stored token BEFORE chooseMode, not after, so a
+        // locally-verified token can be handed to the client branch's
+        // chooseMode call below and the Client actually re-authenticates on
+        // startup instead of silently reconnecting unauthenticated.
+        let verifiedToken = null
+        const storedToken = localStorage.getItem(TOKEN_KEY)
+        if (storedToken) {
+          const result = await localClient.verifySession(storedToken)
+          if (!active) return
+          if (!result || !result.valid) {
+            // A locally-expired token is benign — no host actively rejected
+            // it, so no reason to alarm the director.
+            clearSessionState(null)
+          } else {
+            verifiedToken = storedToken
+            if (result.role) {
+              localStorage.setItem(ROLE_KEY, result.role)
+              setRole(result.role)
+            }
+          }
+        }
+
         if (mode === 'host' && c) {
           await localClient.chooseMode({ mode: 'host', campName: c.name, port: DEFAULT_HOST_PORT })
         } else if (mode === 'client' && joinHost) {
-          await localClient.chooseMode({ mode: 'client', host: joinHost.host, port: joinHost.port })
+          // Only a LOCALLY-VERIFIED token is handed to the transport layer —
+          // never the raw localStorage value — so a token this device's own
+          // signature/expiry check already knows is dead is never even
+          // attempted on the wire. The Host re-verifies independently
+          // regardless (defense-in-depth, not the sole gate).
+          await localClient.chooseMode({
+            mode: 'client', host: joinHost.host, port: joinHost.port,
+            token: verifiedToken || undefined,
+          })
           // Check if this device is already paired
           const pairingInfo = await localClient.getDevicePairingStatus()
           if (!pairingInfo.isPaired) {
             setPairingStatus('pending')
             if (active) setLoading(false)
             return
-          }
-        }
-
-        const storedToken = localStorage.getItem(TOKEN_KEY)
-        if (storedToken) {
-          const result = await localClient.verifySession(storedToken)
-          if (!active) return
-          if (!result || !result.valid) {
-            localStorage.removeItem(TOKEN_KEY)
-            localStorage.removeItem(ROLE_KEY)
-            setToken(null)
-            setRole(null)
-          } else if (result.role) {
-            localStorage.setItem(ROLE_KEY, result.role)
-            setRole(result.role)
           }
         }
 
@@ -115,7 +162,19 @@ export function useDeviceMode() {
         }
       })
     }
-  }, [])
+    // T87 Part 3: the Host has authoritatively rejected this device's token
+    // (revoked, tampered, mismatched device_id — see syncClient.js's
+    // onAuthRejected). Run the SAME cleanup as a locally-failed verifySession
+    // check above, so a rejected token can never leave the UI showing a
+    // stale 'session' phase — this forces phase back to 'login', the honest
+    // not-yet-authenticated state. Also derive a director-facing reason so
+    // the login screen isn't a silent, unexplained bounce.
+    if (localClient.onAuthRejected) {
+      localClient.onAuthRejected((code) => {
+        clearSessionState(reasonForAuthRejectedCode(code))
+      })
+    }
+  }, [clearSessionState])
 
   const retry = useCallback(() => {
     setError(null)
@@ -160,6 +219,9 @@ export function useDeviceMode() {
     if (result && result.token) {
       localStorage.setItem(TOKEN_KEY, result.token)
       setToken(result.token)
+      // A successful sign-in resolves whatever got them here — a stale
+      // rejection notice must not persist through a fresh session.
+      setSessionEndedReason(null)
     }
     if (result && result.role) {
       localStorage.setItem(ROLE_KEY, result.role)
@@ -169,11 +231,8 @@ export function useDeviceMode() {
   }, [])
 
   const logout = useCallback(() => {
-    localStorage.removeItem(TOKEN_KEY)
-    localStorage.removeItem(ROLE_KEY)
-    setToken(null)
-    setRole(null)
-  }, [])
+    clearSessionState(null)
+  }, [clearSessionState])
 
   const backToModeSelect = useCallback(() => {
     localStorage.removeItem(MODE_KEY)
@@ -200,6 +259,7 @@ export function useDeviceMode() {
     role,
     joinHost,
     pairingStatus,
+    sessionEndedReason,
     error,
     retry,
     chooseHost,
