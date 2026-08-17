@@ -1,0 +1,20 @@
+{
+  "task_id": "sync-auth-c4",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": 5,
+    "red_hat": 4,
+    "code_reviewer": 5
+  },
+  "overall_score": 4.6,
+  "lowest_dimension": 4,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": ["tester"],
+  "notes": "Slice 2 (C4) of the sync/auth deepening ADR: keyed Map<op_id, resolve> apply-ack registry in catchup.js; full-sync-ack kept single-slot behind resolveFullSyncAck; isReauthenticate/handleAuthenticate byte-unchanged. Panel: Security 5/5 (per-ws isolation, no unbounded growth, threat-model-neutral), Code Reviewer Ready (matches ADR sketch, load-bearing concurrency test), Red Hat 4/5 (found the keyed Map fixes clobber only for DIFFERENT op_ids; SAME-op_id case from overlapping sendMissedOps runs sharing one watermark still clobbers, inert today because isReauthenticate-gated). Fix round (no mechanism change) made catchup.js/syncServer.js comments + the ADR honest about that scope and added a known-limitation test pinning the same-op_id clobber. Deterministic gates on solo run: unit 3081 passed / 1 skipped exit 0, integration 25/25, lint 0 errors, governance clean. Tester N/A (no UI). Grader PASS, overall 4.6, lowest dim 4."
+}

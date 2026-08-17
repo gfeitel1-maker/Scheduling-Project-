@@ -135,13 +135,17 @@ Every one of the ten appears here.
 | ADR written | done | `docs/adr/2026-08-17-sync-auth-layer-deepening.md`, status `accepted` |
 | ADR acceptance | done | Owner accepted 2026-08-17 with one directed change to C3: harmonize the device-trust reason precedence (revoked wins) instead of preserving the divergence. See ADR acceptance note + Approach §C3. |
 | Slice 1 (C1) implementation | done | commit `155cb13` — verbatim move to `opDelivery.js` + `catchup.js`; `syncServer.js` 1215→891 lines |
-| Slice 2 (C4) implementation | not started | |
+| Slice 2 (C4) implementation | done | commit `2f993e9` — keyed `Map<op_id,resolve>` apply-ack registry in `catchup.js`; full-sync-ack single-slot behind `resolveFullSyncAck`; `isReauthenticate` byte-unchanged |
 | Slice 3 (C3) implementation | not started | |
-| Slice 1 — test / lint / integration | pass | `syncServer.test.js` 58/58, integration 25/25, lint 0 errors, governance clean (full-suite re-run in progress at review time) |
+| Slice 1 — test / lint / integration | pass | `syncServer.test.js` 58/58, integration 25/25, lint 0 errors, governance clean; solo full suite 3054 pass. Landed PR #91 (`647ce36`), gate report `sync-auth-c1-r1.json` |
 | Slice 1 — Security review | pass | 5/5 — byte-verbatim confirmed line-by-line; `handleAuthenticate`/auth/trust unchanged; no secret crosses the new module boundary |
 | Slice 1 — Red Hat review | pass | Resilience 5/5 — cross-module `ws`-state correlation, module-scope captures, watermark math, T85/T87 guards all verified intact; no scope creep |
 | Slice 1 — Code Reviewer | pass | Ready — faithful verbatim move, only the two ADR-specified exports added, no cycle, no dead imports |
-| Slices 2–3 gates (test/lint/integration, Security on S3, Red Hat on S2, Code Reviewer) | not started | |
+| Slice 2 — test / lint / integration | pass | `syncServer.test.js` 61/61, solo full suite 3081 pass, integration 25/25, lint 0 errors, governance clean. Gate report `sync-auth-c4-r1.json` (Grader PASS 4.6) |
+| Slice 2 — Security review | pass | 5/5 — per-`ws` registry isolation, no unbounded Map growth (client can't drive registration; entries self-delete on timeout), no auth boundary touched |
+| Slice 2 — Red Hat review | pass | Resilience 4/5 — keyed Map fixes clobber only for DIFFERENT op_ids; same-op_id case (overlapping runs share one watermark) still clobbers but is inert (isReauthenticate-gated). Fix round: honest comments + ADR scoping + known-limitation test |
+| Slice 2 — Code Reviewer | pass | Ready — matches ADR sketch; concurrency test load-bearing; asymmetry (full-sync-ack single-slot) intentional; no scope creep |
+| Slice 3 gates (test/lint/integration, Security sign-off, Red Hat, Code Reviewer) | not started | |
 
 ## Verifier verdict
 
