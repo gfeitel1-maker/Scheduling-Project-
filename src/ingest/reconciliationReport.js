@@ -13,6 +13,7 @@
 // director-confirmed field is CHANGED regardless of tier.
 
 import { CONFIDENCE } from './confidence.js'
+import { normalizeName } from './preview.js'
 
 // C1 has no numeric "strength" to classify (identity tiers are categorical,
 // not scored), so this maps buildPlan's evidence.tier vocabulary onto
@@ -301,6 +302,21 @@ function mergeDecisions(existing, incoming) {
   return { ...winner, field: mergedField, proposedValue: mergedProposedValue }
 }
 
+// R2'a additive input (docs/adr/2026-08-17-onescreen-reconciliation-projection.md,
+// Seam 2 gap fix / Consequences). Same key scheme buildBlastRadiusIndex
+// (src/ingest/blastRadius.js) produces: a real entity_id keys as
+// `entity:entityId`; a decision with no entity_id (create/conflict/batch)
+// keys as `entity:name:normalizedName`, matching the synthetic create key
+// blastRadiusIndex uses for a not-yet-committed row. blastRadiusIndex
+// defaults to an empty Map, so every lookup misses and decision.blastRadius
+// is 0 for every decision — the same additive-degradation contract
+// fieldProvenance/evidenceSupport already use.
+function blastRadiusKeyFor(entity, entityId, entityName) {
+  return entityId != null
+    ? `${entity}:${entityId}`
+    : `${entity}:name:${normalizeName(String(entityName ?? ''))}`
+}
+
 export function buildReconciliationReport(input) {
   const {
     planItems = [], readiness = [], now = null, fixedEventsReport = {},
@@ -312,6 +328,7 @@ export function buildReconciliationReport(input) {
     // matching entry) leaves decision.evidence at its honest null default —
     // this is the same additive-degradation contract fieldProvenance uses.
     evidenceSupport = {},
+    blastRadiusIndex = new Map(),
   } = input ?? {}
   const { activities: activityEvidence = {}, fixedEvents: fixedEventEvidence = {} } = evidenceSupport ?? {}
 
@@ -451,9 +468,24 @@ export function buildReconciliationReport(input) {
     })
   }
 
+  const decisions = [...decisionsByKey.values()].map((decision) => ({
+    ...decision,
+    blastRadius: blastRadiusIndex.get(
+      blastRadiusKeyFor(decision.entity, decision.entityId, decision.entityName),
+    ) ?? 0,
+  }))
+
   return {
     buckets,
-    decisions: [...decisionsByKey.values()],
+    decisions,
+    // R2'a fix: additively expose the raw readiness rows (see readiness.js's
+    // `{ key, label, screen, kind, state, message? }` shape) so a consumer
+    // like reportToLanes can compute a real "required area unsatisfied" gate
+    // instead of only inferring it from lane emptiness. Safe default ([])
+    // when the caller omits readiness — same additive-degradation contract
+    // fieldProvenance/evidenceSupport/blastRadiusIndex already use; existing
+    // callers that ignore this field see byte-identical buckets/decisions.
+    readiness,
     meta: { generatedAt: now, planItemCount: planItems.length },
   }
 }

@@ -44,6 +44,7 @@ vi.mock('../localClient', () => ({
     getCamp: vi.fn().mockResolvedValue({ id: 'camp-1', name: 'Camp' }),
     deleteEntity: vi.fn(),
     ingestCommit: vi.fn().mockResolvedValue({ total: 1, fixedEvents: { created: 0, skipped: [], partial: [] } }),
+    ingestReconcile: vi.fn().mockResolvedValue({ planItems: [], fixedEventsReport: {}, legacyPriorityActivities: [], fieldProvenance: {}, evidenceSupport: {} }),
   },
 }))
 
@@ -66,7 +67,7 @@ async function uploadFile() {
 
 async function commit() {
   await userEvent.click(screen.getByText(/Add \d+ record/))
-  await userEvent.click(await screen.findByText(/Commit \d+ record/))
+  await userEvent.click(await screen.findByText('Use this setup'))
   await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
   return localClient.ingestCommit.mock.calls[0][0]
 }

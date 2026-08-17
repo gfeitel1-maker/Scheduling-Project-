@@ -1,0 +1,496 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Reconciliation — one-screen mockup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #F4F3EF;
+    --surface: #FCFBF8;
+    --surface-elevated: #FFFFFF;
+    --primary: #173B63;
+    --primary-dark: #0F2A47;
+    --secondary: #2F6B58;
+    --accent: #B8833A;
+    --success: #4C8A63;
+    --danger: #B44E48;
+    --anchor: #5C6B7A;
+    --text: #1E2A34;
+    --text-secondary: #5C6670;
+    --border: #D8DBD9;
+    --font-sans: 'Inter', system-ui, sans-serif;
+    --font-condensed: 'IBM Plex Sans', system-ui, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --motion-fast: 140ms;
+    --motion-base: 220ms;
+    --motion-settle: 340ms;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.4;
+  }
+  .devbar {
+    position: sticky; top: 0; z-index: 50;
+    background: var(--primary-dark); color: #fff;
+    font-size: 12px; padding: 8px 20px; display: flex; gap: 16px; align-items: center;
+    font-family: var(--font-mono);
+  }
+  .devbar button {
+    font-family: var(--font-sans); font-size: 12px; font-weight: 600;
+    padding: 4px 10px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.08); color: #fff; cursor: pointer;
+  }
+  .devbar button.active { background: #fff; color: var(--primary-dark); }
+  .devbar label { display: flex; align-items: center; gap: 6px; }
+
+  .pageShell { max-width: 920px; margin: 0 auto; padding: 0 20px 100px; }
+
+  .screenIntro { padding: 24px 0 8px; }
+  .screenIntro h1 { font-family: var(--font-condensed); font-weight: 700; font-size: 20px; margin: 0 0 4px; }
+  .screenIntro p { font-size: 13px; color: var(--text-secondary); margin: 0; max-width: 62ch; }
+
+  /* Header strip / spine */
+  .headerStrip {
+    position: sticky; top: 0; z-index: 5;
+    background: var(--bg);
+    padding: 16px 0 12px;
+    border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: flex-end;
+  }
+  .headerStrip .title { font-family: var(--font-condensed); font-weight: 600; font-size: 16px; }
+  .headerStrip .spineWrap { text-align: right; }
+  .headerStrip .spineText { font-size: 13px; color: var(--text-secondary); font-variant-numeric: tabular-nums; margin-bottom: 6px; }
+  .spineTrack { height: 3px; width: 160px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .spineFill { height: 100%; background: var(--secondary); transition: width var(--motion-base) var(--ease-out); }
+
+  /* Understood receipt */
+  .understoodReceipt {
+    padding: 10px 4px; color: var(--text-secondary); font-size: 13px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .understoodReceipt svg { flex-shrink: 0; }
+  .disclosureLink {
+    background: none; border: none; color: var(--primary); font-size: 13px; font-family: var(--font-sans);
+    cursor: pointer; padding: 0; text-decoration: underline; margin-left: 4px;
+  }
+  .understoodDetail {
+    overflow: hidden; max-height: 0; transition: max-height var(--motion-base) var(--ease-out);
+    font-size: 12px; color: var(--text-secondary); padding-left: 22px;
+  }
+  .understoodDetail.open { max-height: 200px; }
+  .understoodDetail ul { margin: 4px 0 12px; padding-left: 16px; }
+  .understoodDetail li { margin-bottom: 2px; }
+
+  /* Filter chips */
+  .chipRow { display: flex; gap: 8px; padding: 10px 0 18px; flex-wrap: wrap; }
+  .chip {
+    padding: 5px 12px; border: 1px solid var(--border); border-radius: 999px;
+    font-size: 13px; background: var(--surface); color: var(--text); cursor: pointer;
+    transition: background var(--motion-fast) var(--ease-out), color var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
+    font-family: var(--font-sans);
+  }
+  .chip.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .chip .count { opacity: 0.7; margin-left: 3px; }
+
+  /* Triage lane / roots spine */
+  .triageLane { position: relative; padding-left: 20px; }
+  .rootsSpine {
+    position: absolute; left: 0; top: 0; bottom: 0; width: 2px;
+    background: color-mix(in srgb, var(--secondary) 14%, transparent);
+  }
+  .triageLane.noSpine { padding-left: 0; }
+  .triageLane.noSpine .rootsSpine { display: none; }
+  .rootNode {
+    position: absolute; left: -3px; width: 8px; height: 8px; border-radius: 50%;
+    background: color-mix(in srgb, var(--secondary) 40%, transparent);
+  }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    border-left: 4px solid var(--border);
+    transition: border-color var(--motion-fast) var(--ease-out);
+  }
+  .card:hover, .card:focus-within { border-color: color-mix(in srgb, var(--primary) 30%, var(--border)); }
+  .card.hold { border-left-color: var(--accent); padding: 16px; margin-bottom: 12px; }
+  .card.standard { padding: 12px; margin-bottom: 6px; }
+  .card.resolved { opacity: 0.6; }
+
+  .cardQuestion { font-family: var(--font-condensed); font-weight: 600; margin: 0 0 6px; }
+  .card.hold .cardQuestion { font-size: 14px; }
+  .card.standard .cardQuestion { font-size: 13px; font-weight: 500; }
+
+  .cardMeta { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+  .domainTag {
+    font-size: 11px; padding: 1px 6px; border-radius: 4px; background: color-mix(in srgb, var(--text) 6%, var(--surface));
+    color: var(--text-secondary); font-family: var(--font-mono);
+  }
+
+  .evidenceLine { font-size: 13px; color: var(--text-secondary); margin-bottom: 6px; }
+  .whyToggle {
+    background: none; border: none; color: var(--primary); font-size: 12px; cursor: pointer; padding: 0;
+    text-decoration: underline; font-family: var(--font-sans);
+  }
+  .evidencePanel {
+    overflow: hidden; max-height: 0; transition: max-height var(--motion-base) var(--ease-out);
+  }
+  .evidencePanel.open { max-height: 120px; margin-top: 8px; }
+  .evidenceGrid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 12px;
+    background: color-mix(in srgb, var(--text) 3%, var(--surface)); border-radius: 6px; padding: 10px 12px;
+  }
+  .evidenceGrid .col-h { color: var(--text-secondary); font-weight: 600; margin-bottom: 4px; }
+  .evidenceGrid .val { color: var(--text); font-weight: 500; margin-bottom: 2px; }
+  .evidenceGrid .meta { color: var(--text-secondary); }
+
+  .resolutionRow { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+  .btnPrimarySm, .btnSecondarySm {
+    padding: 5px 12px; border-radius: 6px; font-size: 13px; cursor: pointer; font-family: var(--font-sans); font-weight: 600;
+  }
+  .btnPrimarySm { background: var(--primary); color: #fff; border: none; }
+  .btnSecondarySm { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+
+  .radioGroup { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  .radioOption {
+    display: flex; gap: 8px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
+    cursor: pointer; background: var(--surface);
+  }
+  .radioOption.selected { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 5%, var(--surface)); }
+  .radioOption input { margin-top: 2px; accent-color: var(--primary); }
+  .radioOption .optLabel { font-size: 13px; font-weight: 500; }
+  .radioOption .optDesc { font-size: 12px; color: var(--text-secondary); margin-top: 1px; }
+
+  .resolvedLine { font-size: 13px; color: var(--text-secondary); display: flex; justify-content: space-between; align-items: center; }
+  .resolvedLine .undoLink { background: none; border: none; color: var(--primary); font-size: 12px; cursor: pointer; text-decoration: underline; }
+
+  /* Not-in-source gap */
+  .notInSourceGap {
+    padding: 16px 4px; border-top: 1px dashed var(--border); margin-top: 20px;
+    display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--text-secondary);
+  }
+
+  /* Sticky tray */
+  .trayFooter {
+    position: sticky; bottom: 0; z-index: 10;
+    background: var(--surface-elevated); border-top: 1px solid var(--border);
+    padding: 14px 20px; margin: 0 -20px; box-shadow: 0 -2px 12px color-mix(in srgb, var(--text) 6%, transparent);
+    display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  .trayLeft { font-size: 13px; color: var(--text-secondary); transition: opacity var(--motion-fast) var(--ease-out); }
+  .trayRight { display: flex; gap: 10px; }
+  .btnTraySecondary, .btnTrayPrimary {
+    padding: 7px 14px; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; font-family: var(--font-sans);
+  }
+  .btnTraySecondary { background: var(--surface); color: var(--text); border: 1px solid var(--border); }
+  .btnTrayPrimary { background: var(--primary); color: #fff; border: none; }
+  .btnTrayPrimary:disabled, .btnTraySecondary:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  /* Receipt state */
+  .receiptPanel {
+    padding: 16px 4px; display: none;
+  }
+  .receiptPanel.shown {
+    display: block;
+    animation: settleIn var(--motion-settle) var(--ease-out);
+  }
+  @keyframes settleIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .receiptTop { display: flex; align-items: center; gap: 8px; font-size: 14px; margin-bottom: 8px; }
+  .undoRow { display: flex; align-items: center; gap: 10px; }
+  .undoBtn { background: none; border: none; color: var(--primary); font-size: 14px; font-weight: 600; text-decoration: underline; cursor: pointer; font-family: var(--font-sans); }
+  .undoTimer { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary); }
+
+  /* Empty end state */
+  .emptyEnd { display: none; text-align: center; padding: 60px 16px; }
+  .emptyEnd.shown { display: block; animation: liftIn var(--motion-base) var(--ease-out); }
+  @keyframes liftIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  .emptyEnd h2 { font-family: var(--font-condensed); font-weight: 600; font-size: 15px; margin: 12px 0 4px; }
+  .emptyEnd p { font-size: 13px; color: var(--text-secondary); margin: 0; }
+
+  svg.icon { display: inline-block; vertical-align: middle; }
+</style>
+</head>
+<body>
+
+<div class="devbar">
+  <span>DEV MOCKUP CONTROLS (not part of shipped UI)</span>
+  <button id="btnStateTriage" class="active" onclick="setScene('triage')">Triage lane</button>
+  <button id="btnStateReceipt" onclick="setScene('receipt')">Post-apply receipt</button>
+  <button id="btnStateEmpty" onclick="setScene('empty')">Empty end state</button>
+  <label><input type="checkbox" id="spineToggle" checked onchange="toggleSpine()"> Roots spine</label>
+  <label><input type="checkbox" id="greyscaleToggle" onchange="toggleGreyscale()"> Greyscale acceptance test</label>
+</div>
+
+<div class="pageShell" id="pageShell">
+
+  <div class="screenIntro">
+    <h1>Reconciliation</h1>
+    <p>Bring last week's spreadsheet into Camp Kinneret. Six things need your judgment — everything else has already been read.</p>
+  </div>
+
+  <div id="mainTriage">
+    <div class="headerStrip">
+      <div class="title">Reconciling kinneret_2026_import.xlsx</div>
+      <div class="spineWrap">
+        <div class="spineText" id="spineText">2 of 6 done</div>
+        <div class="spineTrack"><div class="spineFill" id="spineFill" style="width:33%"></div></div>
+      </div>
+    </div>
+
+    <div class="understoodReceipt">
+      <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4C8A63" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/></svg>
+      <span>482 rows read cleanly — nothing needed from you.</span>
+      <button class="disclosureLink" onclick="toggleDetail(this)">Show details</button>
+    </div>
+    <div class="understoodDetail" id="understoodDetail">
+      <ul>
+        <li>312 activity rows matched existing records exactly</li>
+        <li>96 group/tier assignments unchanged</li>
+        <li>58 time block entries unchanged</li>
+        <li>16 location rows matched existing places</li>
+      </ul>
+    </div>
+
+    <div class="chipRow">
+      <div class="chip active">All<span class="count">(6)</span></div>
+      <div class="chip">Structure<span class="count">(2)</span></div>
+      <div class="chip">Scheduling<span class="count">(2)</span></div>
+      <div class="chip">Time<span class="count">(1)</span></div>
+      <div class="chip">Facility<span class="count">(0)</span></div>
+    </div>
+
+    <div class="triageLane" id="triageLane">
+      <div class="rootsSpine" id="rootsSpine"></div>
+
+      <!-- HOLD card 1: CHANGED, protected field -->
+      <div class="card hold">
+        <div class="rootNode" style="top: 14px;"></div>
+        <div class="cardQuestion">Group 3B's name — keep "Chipmunks" or update to "Chipmunks (3B)" from the file?</div>
+        <div class="cardMeta">
+          <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></svg>
+          Group 3B <span class="domainTag">Structure</span>
+        </div>
+        <div class="evidenceLine">From this file · was "Chipmunks" last year <button class="whyToggle" onclick="toggleEvidence(this)">Why?</button></div>
+        <div class="evidencePanel">
+          <div class="evidenceGrid">
+            <div>
+              <div class="col-h">From this file</div>
+              <div class="val">"Chipmunks (3B)"</div>
+              <div class="meta">seen in row 14, Groups tab</div>
+            </div>
+            <div>
+              <div class="col-h">Current Shoresh record</div>
+              <div class="val">"Chipmunks"</div>
+              <div class="meta">set by hand 2026-06-02 (Dana)</div>
+            </div>
+          </div>
+        </div>
+        <div class="radioGroup">
+          <label class="radioOption">
+            <input type="radio" name="g3b" />
+            <div><div class="optLabel">Use the file's value — "Chipmunks (3B)"</div><div class="optDesc">Overwrites what's in Shoresh now.</div></div>
+          </label>
+          <label class="radioOption selected">
+            <input type="radio" name="g3b" checked />
+            <div><div class="optLabel">Keep the current value — "Chipmunks"</div><div class="optDesc">Ignores this file's value going forward for this field.</div></div>
+          </label>
+          <label class="radioOption">
+            <input type="radio" name="g3b" />
+            <div><div class="optLabel">Something else — type a value</div></div>
+          </label>
+        </div>
+      </div>
+
+      <!-- HOLD card 2: UNKNOWN -->
+      <div class="card hold">
+        <div class="rootNode" style="top: 14px;"></div>
+        <div class="cardQuestion">"Waterfront Swim" appears with two different tier requirements — which is correct?</div>
+        <div class="cardMeta">
+          <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="9"/><path d="M12 8v4l3 2"/></svg>
+          Waterfront Swim <span class="domainTag">Scheduling</span>
+        </div>
+        <div class="evidenceLine">A guess — worth a second look <button class="whyToggle" onclick="toggleEvidence(this)">Why?</button></div>
+        <div class="evidencePanel">
+          <div class="evidenceGrid">
+            <div>
+              <div class="col-h">From this file</div>
+              <div class="val">Tier: Intermediate</div>
+              <div class="meta">row 41, then again row 88 as "Advanced"</div>
+            </div>
+            <div>
+              <div class="col-h">Current Shoresh record</div>
+              <div class="val">no record yet</div>
+              <div class="meta">new activity this import</div>
+            </div>
+          </div>
+        </div>
+        <div class="radioGroup">
+          <label class="radioOption">
+            <input type="radio" name="waterfront" />
+            <div><div class="optLabel">Use the guessed value — "Intermediate"</div></div>
+          </label>
+          <label class="radioOption">
+            <input type="radio" name="waterfront" />
+            <div><div class="optLabel">Leave unset for now</div></div>
+          </label>
+          <label class="radioOption">
+            <input type="radio" name="waterfront" />
+            <div><div class="optLabel">Something else — type a value</div></div>
+          </label>
+        </div>
+      </div>
+
+      <!-- STANDARD cards (resolved + unresolved) -->
+      <div class="card standard resolved">
+        <div class="cardQuestion">Time block "Rest Hour" start time — file says 1:00 PM (was 1:15 PM)</div>
+        <div class="resolvedLine">
+          <span>✓ Will set to 1:00 PM</span>
+          <button class="undoLink">Undo</button>
+        </div>
+      </div>
+
+      <div class="card standard resolved">
+        <div class="cardQuestion">Activity "Archery" min sessions/week — file says 2 (was 1)</div>
+        <div class="resolvedLine">
+          <span>✓ Will set to 2</span>
+          <button class="undoLink">Undo</button>
+        </div>
+      </div>
+
+      <div class="card standard">
+        <div class="cardQuestion">Tier "Senior Unit" label — file says "Seniors" (was "Senior Unit")</div>
+        <div class="cardMeta">
+          <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="16" rx="2"/></svg>
+          Senior Unit <span class="domainTag">Structure</span>
+        </div>
+        <div class="evidenceLine">Clearly stated in the file</div>
+        <div class="resolutionRow">
+          <button class="btnSecondarySm">Keep current</button>
+          <button class="btnPrimarySm">Use this value</button>
+        </div>
+      </div>
+
+      <div class="card standard">
+        <div class="cardQuestion">Activity "Ropes Course" location — file says "High Ropes Field" (was unset)</div>
+        <div class="cardMeta">
+          <svg class="icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 21s7-6.5 7-12a7 7 0 10-14 0c0 5.5 7 12 7 12z"/></svg>
+          Ropes Course <span class="domainTag">Facility</span>
+        </div>
+        <div class="evidenceLine">Clearly stated in the file</div>
+        <div class="resolutionRow">
+          <button class="btnSecondarySm">Keep current</button>
+          <button class="btnPrimarySm">Use this value</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="notInSourceGap">
+      <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#5C6670" stroke-width="1.5" style="margin-top:1px;"><circle cx="12" cy="12" r="9" stroke-dasharray="3 3"/></svg>
+      <div>
+        11 items not mentioned in this file — left as-is, not a problem.
+        <button class="disclosureLink" onclick="toggleDetail(this)">Show them</button>
+        <div class="understoodDetail" style="padding-left:0;">
+          <ul>
+            <li>Cabin 7 (no cabin data in this source)</li>
+            <li>Evening Program block (not tracked in spreadsheets)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="trayFooter">
+      <div class="trayLeft" id="trayLeft">4 decisions staged</div>
+      <div class="trayRight">
+        <button class="btnTraySecondary">Apply confirmed changes and keep the rest for review</button>
+        <button class="btnTrayPrimary" disabled title="Resolve the 2 items marked for your attention first.">Use this setup</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Receipt scene -->
+  <div class="receiptPanel" id="receiptScene">
+    <div class="headerStrip" style="position:static;">
+      <div class="title">Reconciling kinneret_2026_import.xlsx</div>
+    </div>
+    <div style="padding: 20px 4px;">
+      <div class="receiptTop">
+        <svg class="icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4C8A63" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/></svg>
+        <span>Applied. 4 decisions recorded, 2 rows left for review.</span>
+      </div>
+      <div class="undoRow">
+        <button class="undoBtn">Undo this whole import</button>
+        <span class="undoTimer">available for 04:52</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Empty end state -->
+  <div class="emptyEnd" id="emptyScene">
+    <svg class="icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#4C8A63" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M8 12l3 3 5-6"/></svg>
+    <h2>Nothing left to reconcile.</h2>
+    <p>Your camp setup reflects this file. You're ready to build a schedule.</p>
+  </div>
+
+</div>
+
+<script>
+function toggleDetail(btn) {
+  const detail = btn.nextElementSibling || btn.parentElement.querySelector('.understoodDetail');
+  detail.classList.toggle('open');
+  btn.textContent = detail.classList.contains('open') ? 'Hide details' : 'Show details';
+}
+function toggleEvidence(btn) {
+  const panel = btn.parentElement.nextElementSibling;
+  panel.classList.toggle('open');
+}
+document.querySelectorAll('.radioOption').forEach(opt => {
+  opt.addEventListener('click', () => {
+    const group = opt.closest('.radioGroup');
+    group.querySelectorAll('.radioOption').forEach(o => o.classList.remove('selected'));
+    opt.classList.add('selected');
+    opt.querySelector('input').checked = true;
+  });
+});
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => {
+    if (chip.textContent.trim().startsWith('All')) {
+      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+    } else {
+      document.querySelector('.chip').classList.remove('active');
+      chip.classList.toggle('active');
+    }
+  });
+});
+
+function setScene(scene) {
+  document.getElementById('mainTriage').style.display = scene === 'triage' ? '' : 'none';
+  document.getElementById('receiptScene').classList.toggle('shown', scene === 'receipt');
+  document.getElementById('emptyScene').classList.toggle('shown', scene === 'empty');
+  ['btnStateTriage','btnStateReceipt','btnStateEmpty'].forEach(id => document.getElementById(id).classList.remove('active'));
+  document.getElementById('btnState' + scene.charAt(0).toUpperCase() + scene.slice(1)).classList.add('active');
+}
+
+function toggleSpine() {
+  const on = document.getElementById('spineToggle').checked;
+  const lane = document.getElementById('triageLane');
+  lane.classList.toggle('noSpine', !on);
+}
+
+function toggleGreyscale() {
+  const on = document.getElementById('greyscaleToggle').checked;
+  document.getElementById('pageShell').style.filter = on ? 'grayscale(1)' : 'none';
+}
+</script>
+
+</body>
+</html>

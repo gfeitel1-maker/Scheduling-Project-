@@ -1,0 +1,25 @@
+{
+  "task_id": "reconciliation-r2b-onescreen",
+  "round": 2,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": null,
+    "red_hat": 4,
+    "tester": 4,
+    "code_reviewer": 5
+  },
+  "overall_score": 4.333333333333333,
+  "lowest_dimension": 4,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": [
+    {
+      "gate_name": "security",
+      "na_reason": "Renderer-only composition over unchanged IPC contracts (ingestReconcile/ingestCommit/confirmAlias); no auth/PIN/LAN-protocol/packaging changes"
+    }
+  ]
+}
