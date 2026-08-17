@@ -1,7 +1,7 @@
 ---
 title: T87-returning-client-never-reauthenticates-after-restart
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-16
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/GOVERNANCE_INDEX.md]
 related_tickets: [docs/work/tickets/T85-devices-table-never-synced-cross-device-op-drop.md]

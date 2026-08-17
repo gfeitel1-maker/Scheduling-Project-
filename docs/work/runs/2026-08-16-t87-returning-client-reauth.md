@@ -2,8 +2,8 @@
 task: T87-returning-client-never-reauthenticates-after-restart
 document_type: run
 date: 2026-08-16
-round: 1
-status: in-progress
+round: 2
+status: pass
 task_class: security-auth
 governing_docs: [SECURITY.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/adr/2026-07-24-centralized-authorization-layer.md, docs/adr/2026-07-25-device-trust-revocation.md, docs/adr/2026-07-25-append-only-audit-event-log.md]
 related_tickets: [docs/work/tickets/T87-returning-client-never-reauthenticates-after-restart.md, docs/work/tickets/T85-devices-table-never-synced-cross-device-op-drop.md]
@@ -19,8 +19,12 @@ human_gates:
   - "Product decision: silent auto-reauth (Option A, recommended) vs. explicit re-login (Option B) — Article IV product-judgement gate, owner decides before Maker starts."
   - "ADR acceptance: docs/adr/2026-08-16-client-reauth-on-restart.md is PROPOSED, not accepted — Article IV 'architecture change without an accepted ADR' gate."
   - "Security/auth task class: this changes behavior around SECURITY.md's documented 'Offline local tokens cannot be remotely invalidated' tradeoff (a revoked device now surfaces the rejection as a forced logout on the next restart/reconnect, instead of silently sitting disconnected until the 24h token ceiling) — Security must confirm this is a strengthening, not a weakening, and update SECURITY.md's wording accordingly per the security-auth row's 'any change to an accepted tradeoff' gate."
-verdict: null
-completion_evidence: []
+verdict: PASS
+completion_evidence:
+  - "Grader round 2: PASS, overall 4.5, lowest dimension 4, verifier_pass true, decision_eligibility PASS_ELIGIBLE — docs/work/runs/gate-reports/T87-r2.json"
+  - "Deterministic gates on the rebased base (branch HEAD 998922d atop main f9879c4): unit suite 3054 passed / 1 skipped (198 files), exit 0; lint 0 errors; check:governance no findings; integration 25/25."
+  - "Real-path regression: electron/main.reauth.test.js drives makeHandlers → chooseMode → verifySession across a simulated Electron restart and proves a live Host op reaches the re-authenticated Client (ws.deviceId set) with no PIN re-entry."
+  - "Panel: Security 5/5, Code Reviewer Ready, Red Hat Resilience 4/5, Tester UX/Visual — no blocking findings. Two MEDIUMs (Tester revoked-device-context, Red Hat RISK 2 substance) addressed by the login-context fix round; residual RISK 2 optimistic-auth window and RISK 4 test-port flake disclosed (ADR post-implementation note; follow-up T90)."
 archive_when: "A Client device that was previously paired and holds a still-valid session token, after a full Electron process restart (app relaunch / tablet reboot / crash-recover), reliably reaches an AUTHENTICATED WebSocket state with the Host (ws.deviceId set, receiving live broadcastOps and sendMissedOps catch-up) WITHOUT the user being forced to re-enter their PIN — OR, if forcing re-login is the chosen product behavior, the UI honestly reflects the not-yet-authenticated state instead of showing a stale 'session' phase. Proven by a test exercising the real electron/main.js chooseMode client path (not the harness Client), and merged with owner sign-off."
 ---
 
@@ -109,22 +113,30 @@ Every one of the ten appears here.
 
 | Gate | Result | Evidence |
 |---|---|---|
-| ADR written | done | `docs/adr/2026-08-16-client-reauth-on-restart.md`, status `proposed` |
-| Owner product decision (Option A vs B) | pending | Governor asking now, in parallel with this document |
-| ADR acceptance | pending | blocked on the product decision above |
-| Maker implementation | not started | blocked on ADR acceptance |
-| test / lint / build / integration | not run | blocked on implementation |
-| Security review | not run | blocked on implementation; must also confirm/update `SECURITY.md`'s offline-token-revocation-latency section |
-| Red Hat review | not run | blocked on implementation |
+| ADR written | done | `docs/adr/2026-08-16-client-reauth-on-restart.md`, status `accepted` (+ post-implementation review note) |
+| Owner product decision (Option A vs B) | done | Option A (silent auto-reauth) chosen by owner |
+| ADR acceptance | done | accepted |
+| Maker implementation | done | Parts 1–4 + review-driven fix round (login-context reason, shared `clearSessionState`) |
+| test / lint / build / integration | pass | unit 3054 pass / 1 skip (198 files) exit 0 · lint 0 errors · integration 25/25 · governance clean |
+| Security review | pass | 5/5 — Host auth logic byte-identical; only locally-verified token to transport; token never logged; `SECURITY.md` tradeoff wording updated |
+| Red Hat review | pass | Resilience 4/5 — no blocking; RISK 2 (optimistic-auth window) disclosed, RISK 4 (test-port flake) → T90 |
+| Code Reviewer | pass | Ready — faithful, plan-aligned; run-doc + stale-comment items closed |
+| Tester | pass | Visual 5/5; UX MEDIUM (revoked device → login with no context) closed by the fix round |
 
 ## Verifier verdict
 
-UNVERIFIED — no code has been written yet; this run is at the design/ADR stage, gated on the owner's
-product decision before Maker starts.
+VERIFIED — all deterministic gates green on the rebased base (branch HEAD `998922d` atop main `f9879c4`):
+unit suite 3054 passed / 1 skipped, exit 0; lint 0 errors; `check:governance` no findings; integration
+25/25. The load-bearing evidence is `electron/main.reauth.test.js`, which exercises the real
+`electron/main.js` `chooseMode`/`verifySession` path (not the integration harness) across a simulated
+Electron restart and proves a live Host op reaches the re-authenticated Client.
 
 ## Grader score
 
-Not yet applicable — no implementation to grade.
+**PASS — overall 4.5** (lowest dimension 4; both thresholds met: ≥4.0 overall, no dim <3, verifier not
+FAIL). Per-dimension: Security 5, Code Reviewer 5, Red Hat/Resilience 4, Tester/UX 4. Consolidated via the
+GateReport reducer — `docs/work/runs/gate-reports/T87-r2.json` (`decision_eligibility: PASS_ELIGIBLE`, no
+blocking findings). All four `archive_when` conditions confirmed met.
 
 ## Findings carried forward
 
@@ -140,4 +152,9 @@ Not yet applicable — no implementation to grade.
 
 ## Decision
 
-Not yet reached — awaiting the owner's Option A/B decision and ADR acceptance before Maker is dispatched.
+**Shipped (Option A, silent auto-reauth).** Owner chose Option A; the ADR was accepted; Maker implemented
+Parts 1–4, the panel ran, and a review-driven fix round closed both MEDIUM findings (a revoked/rejected
+device now returns to login with a plain-language reason rather than a silent bounce; the two token-cleanup
+paths were unified into `clearSessionState`). Grader PASS 4.5, all `archive_when` conditions met. Landed on
+`main` via the branch rebased onto `f9879c4`. Deferred, ticketed follow-up: **T90** (migrate
+`syncClient.test.js` off its fixed port to eliminate the pre-existing concurrent-load flake).
