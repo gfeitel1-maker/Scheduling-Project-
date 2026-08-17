@@ -337,11 +337,14 @@ describe('authorize', () => {
   // device that was revoked WITHOUT ever having been authorized_at set —
   // reachable because revokeDevice (electron/main.js) only requires the
   // device to exist. Pre-C3, authorize.js checked !authorized_at BEFORE
-  // revoked_at, so this state reported 'device_not_authorized' — that was
-  // pinned by a fail-first version of this test (see git history) which
-  // passed against the pre-refactor code before this call site was updated
-  // to use deviceTrustReason. Post-C3 it reports 'device_revoked'. Allow/deny
-  // outcome (deny) is unchanged — only the reason label moves.
+  // revoked_at, so this state reported 'device_not_authorized'. This was
+  // verified fail-first during development — this assertion was written and
+  // run against the pre-refactor code, where it passed with
+  // 'device_not_authorized', before the call site was switched to
+  // deviceTrustReason and the expectation flipped to match; both steps landed
+  // together in this one C3 commit, so there is no separate fail-first commit
+  // to point to. Post-C3 it reports 'device_revoked'. Allow/deny outcome
+  // (deny) is unchanged — only the reason label moves.
   it('denies with device_revoked (not device_not_authorized) for a device revoked without ever having been authorized — C3 harmonization', () => {
     const userId = insertUser({ role: 'admin' })
     db.prepare(

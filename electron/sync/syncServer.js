@@ -91,6 +91,11 @@ function handleAuthenticate(db, ws, msg) {
       reason,
       metadata: verified.jti ? { jti: verified.jti } : null,
     })
+    // For the not-found case — unreachable here, since the synchronous
+    // INSERT OR IGNORE self-registration immediately above guarantees
+    // trust.found — this close reason TEXT is now 'device_not_found' (was
+    // hardcoded 'device_not_authorized' pre-C3). The close CODE is
+    // unaffected either way (4403).
     ws.close(reason === 'device_revoked' ? 4404 : 4403, reason)
     return
   }
@@ -796,6 +801,12 @@ export function startSyncServer(db, { port, onPairingRequest, now = Date.now } =
           const renewTrust = deviceTrustStatus(db, ws.deviceId)
           if (!renewTrust.found || !renewTrust.authorized || renewTrust.revoked) {
             const reason = deviceTrustReason(renewTrust)
+            // For the not-found case — practically unreachable, since
+            // operations.device_id's FK prevents deleting a devices row for
+            // any device that has synced, and the client discards
+            // token_renewal_failed.reason anyway — this reason is now
+            // 'device_not_found' (was the old ternary's 'device_not_authorized'
+            // fallback pre-C3). No close-code change.
             send(ws, { type: 'token_renewal_failed', reason })
             if (reason === 'device_revoked') ws.close(4404, 'device_revoked')
             return

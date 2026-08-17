@@ -358,6 +358,12 @@ function:
    message ("This device's access was removed. Ask your director or admin to re-approve it, then sign
    in again."). Moving this one reachable state from 4403 to 4404 changes zero rendered text and zero
    other observable client behavior — verified by reading `useDeviceMode.js` directly, not assumed.
+   *One label change on a dead branch (Red Hat, Slice 3 review):* the old code used a hardcoded
+   `'device_not_authorized'` for the combined `!deviceRow || !authorized_at` branch, so a *not-found*
+   row reported `'device_not_authorized'`; `deviceTrustReason` now reports `'device_not_found'` for it.
+   The close code is unchanged (4403 either way), and the branch is unreachable — the synchronous
+   `INSERT OR IGNORE` self-registration immediately above guarantees `trust.found` is true (the handler
+   is not `async`, so no interleaving). Documented in-code at the branch; no functional effect.
 3. **`syncServer.js` `handleLogin`, line 509** — replace the query with `deviceTrustStatus(db,
    msg.device_id)`, reading `trust.row.device_secret_identifier` for the subsequent
    `timingSafeEqual` check (unchanged). Deny condition unchanged: `if (!trust.found ||
@@ -370,10 +376,16 @@ function:
    ws.deviceId)`, then `const reason = deviceTrustReason(trust)`, replacing the inline
    `renewDeviceRow?.revoked_at ? 'device_revoked' : 'device_not_authorized'` ternary. Deny condition
    unchanged; close-code mapping unchanged (`reason === 'device_revoked'` → close 4404, matching the
-   existing `if (renewDeviceRow?.revoked_at) ws.close(4404, ...)` guard). **No behavior change** — this
-   site already implemented revoked-wins precedence before this ADR; it now sources that precedence
-   from the shared function instead of a local literal, with output identical for every input
-   combination.
+   existing `if (renewDeviceRow?.revoked_at) ws.close(4404, ...)` guard). **No behavior change for the
+   revoked-wins precedence** — this site already implemented that ordering before this ADR; it now
+   sources it from the shared function instead of a local literal. **One label change on a dead branch
+   (Red Hat, Slice 3 review):** the old two-way ternary returned `'device_not_authorized'` for a
+   *not-found* row (`undefined?.revoked_at` is falsy); the three-way `deviceTrustReason` returns
+   `'device_not_found'` for that case. This is inert — `renew_token` only fires on an already-
+   authenticated connection (`ws.deviceId` set), the `operations.device_id` FK prevents deleting a
+   `devices` row for any device that has synced, the client discards `token_renewal_failed.reason`
+   unread, and this branch never audits. No close-code change. Pinned by a `renew_token` not-found test.
+   The earlier "identical for every input combination" wording was an overclaim corrected here.
 
 **Invariant, true before and after this refactor, at all four sites:** the *allow/deny outcome* for
 every combination of `found`/`authorized`/`revoked` is unchanged. All four sites already deny in the
@@ -381,6 +393,15 @@ every combination of `found`/`authorized`/`revoked` is unchanged. All four sites
 harmonization moves only which *reason label* (and, at site 2 only, which *close code*) accompanies an
 already-denied request. No previously-allowed device becomes denied; no previously-denied device
 becomes allowed.
+
+*Exposure note (Red Hat, Slice 3 review — informational, does not change the decision):* the reachable
+`authorized_at: NULL, revoked_at: <set>` state that motivates this harmonization is reachable at the
+IPC/API layer (`revokeDevice` requires only that the device row exist, not that it was ever authorized),
+but is **not** triggerable through the shipped UI today — `DeviceManagerScreen.jsx` renders a Revoke
+button only for already-authorized devices; a never-authorized (pending) device offers "Deny"
+(`pairing_status='denied'`, which never sets `revoked_at`). So this slice hardens an API-layer
+consistency gap, not a currently UI-triggerable one. The defensive posture is still correct — the state
+is reachable by direct IPC — and nothing here depends on the UI gate staying as it is.
 
 No new column, no new table, no schema change. The single query selects a fixed superset
 (`device_secret_identifier`) that three of the four call sites already ignore today by not selecting

@@ -752,8 +752,12 @@ describe('C3 fail-first characterization: device-trust reason harmonization at t
   // ADR C3: handleAuthenticate now sources its reason from
   // deviceTrustReason's revoked-wins precedence. Pre-C3, handleAuthenticate
   // checked !authorized_at BEFORE revoked_at, so this state closed 4403
-  // ('device_not_authorized') — pinned by a fail-first version of this test
-  // (see git history) which passed against the pre-refactor code. Post-C3 it
+  // ('device_not_authorized'). This was verified fail-first during
+  // development — this assertion was written and run against the
+  // pre-refactor code, where it passed with 4403/'device_not_authorized',
+  // before the call site was switched to deviceTrustReason and the
+  // expectation flipped to match; both steps landed together in this one C3
+  // commit, so there is no separate fail-first commit to point to. Post-C3 it
   // closes 4404 ('device_revoked'). Confirmed UX-neutral: syncClient.js's
   // reasonForAuthRejectedCode maps both 4403 and 4404 to the identical
   // director-facing message.
@@ -2262,6 +2266,35 @@ describe('renew_token WS message (sub-task 3)', () => {
 
     // Server should proactively close the connection
     await onceClose(ws)
+
+    ws.close()
+  })
+
+  // C3 pins renew_token's not-found reason as 'device_not_found' (was the
+  // old ternary's 'device_not_authorized' fallback pre-C3 — see
+  // deviceTrust.js). The state is practically unreachable in production
+  // (operations.device_id's FK prevents deleting a devices row for any
+  // device that has synced, and this specific device has NOT synced any op,
+  // which is exactly what makes the deletion below legal here), and the
+  // client discards token_renewal_failed.reason anyway — but it is worth
+  // pinning so a future change to the label is visible in a test diff.
+  it('responds with token_renewal_failed reason device_not_found when the device row no longer exists (C3 label pin)', async () => {
+    const targetDeviceId = randomUUID()
+    insertAuthorizedDevice(db, targetDeviceId, 'Soon To Be Deleted')
+    const targetToken = issueCampToken(db, userId, targetDeviceId)
+
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token: targetToken, device_id: targetDeviceId }))
+    await new Promise((r) => setTimeout(r, 100))
+
+    // Legal only because targetDeviceId has never authored an operation —
+    // no operations row's FK references it.
+    db.prepare('DELETE FROM devices WHERE id = ?').run(targetDeviceId)
+
+    ws.send(JSON.stringify({ type: 'renew_token', token: targetToken }))
+    const reply = await onceMessageOfType(ws, 'token_renewal_failed')
+    expect(reply.reason).toBe('device_not_found')
 
     ws.close()
   })
