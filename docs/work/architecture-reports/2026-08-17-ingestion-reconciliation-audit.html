@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ingestion + Reconciliation Architecture Audit — Shoresh — 2026-08-17</title>
+<style>
+  :root {
+    --bg: #fafafa; --surface: #fff; --border: #e2e5e9; --text: #1a1c1e;
+    --text-secondary: #6b7280; --primary: #2563eb; --danger: #dc2626;
+    --caution: #d97706; --success: #16a34a; --info: #6b7280; --accent: #7c3aed;
+    --code-bg: #f3f4f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111214; --surface: #1c1f23; --border: #2d3139; --text: #e8eaed;
+      --text-secondary: #9ba3af; --primary: #60a5fa; --danger: #f87171;
+      --caution: #fbbf24; --success: #4ade80; --accent: #a78bfa; --code-bg: #252830;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif;
+    font-size: 14px; line-height: 1.6; padding: 40px 24px; max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  h2 { font-size: 16px; font-weight: 700; margin-top: 40px; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h3 { font-size: 14px; font-weight: 700; margin-top: 24px; margin-bottom: 8px; }
+  p { margin-bottom: 10px; color: var(--text); }
+  code { font-family: 'Menlo', 'Consolas', monospace; font-size: 12px; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+  .meta { font-size: 12px; color: var(--text-secondary); margin-bottom: 28px; }
+  .candidate { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); margin-bottom: 20px; overflow: hidden; }
+  .candidate-header { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .rank { font-family: monospace; font-size: 11px; font-weight: 700; background: var(--code-bg); border-radius: 4px; padding: 2px 8px; color: var(--text-secondary); flex-shrink: 0; }
+  .candidate-title { font-weight: 700; font-size: 14px; }
+  .candidate-body { padding: 14px 18px; }
+  .severity { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .sev-high { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); color: var(--danger); }
+  .sev-medium { background: color-mix(in srgb, var(--caution) 12%, var(--surface)); color: var(--caution); }
+  .sev-low { background: color-mix(in srgb, var(--success) 12%, var(--surface)); color: var(--success); }
+  .sev-info { background: var(--code-bg); color: var(--text-secondary); }
+  .label { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--code-bg); color: var(--text-secondary); margin-right: 4px; }
+  .label-god { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); color: var(--danger); }
+  .label-seam { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
+  .label-shallow { background: color-mix(in srgb, var(--caution) 10%, var(--surface)); color: var(--caution); }
+  .label-overlap { background: color-mix(in srgb, var(--primary) 14%, var(--surface)); color: var(--primary); font-weight: 700; }
+  .fields { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .evidence { background: var(--code-bg); border-left: 3px solid var(--border); border-radius: 0 4px 4px 0; padding: 10px 14px; margin: 10px 0; font-size: 12px; color: var(--text-secondary); }
+  .evidence strong { color: var(--text); }
+  .benchmark { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 16px 18px; margin-bottom: 20px; }
+  .benchmark-title { font-weight: 700; font-size: 13px; margin-bottom: 8px; color: var(--success); }
+  ul { padding-left: 20px; margin-bottom: 10px; }
+  li { margin-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }
+  th { text-align: left; padding: 8px 12px; border-bottom: 2px solid var(--border); font-weight: 600; }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+</style>
+</head>
+<body>
+<h1>Ingestion + Reconciliation Architecture Audit</h1>
+<p class="meta">Shoresh &middot; 2026-08-17 &middot; read-only, HEAD <code>d412fdb</code> &middot; scope: <code>electron/ops/ingest.js</code> + <code>src/ingest/*</code> + <code>src/screens/{ImportScreen,ReconciliationScreen,ReadinessHub}</code> and their models</p>
+
+<p>This is the first architecture pass over the ingestion/reconciliation subsystem — the largest recently-built area of the app, untouched by the 2026-08-03 (schedule) and 2026-08-16 (sync/auth) audits. The verdict up front: <strong>this subsystem is structurally healthy, and healthier than its accretion history would predict.</strong> It was built slice-by-slice across a dozen ADRs (S0 &rarr; S1a &rarr; S2a/b/c &rarr; S4b &rarr; T72/T73 &rarr; M4 &rarr; Phase C), and that history shows as accumulated commentary, but the seams landed in the right places. The pure decision/projection layer (<code>buildPlan</code>, <code>buildReconciliationReport</code>, <code>reportToLanes</code>, and the renderer triage models) is exemplary — pure, small-interfaced, exhaustively tested, and directly comparable to <code>buildSchedule.js</code>. The renderer never touches SQL and only ever crosses the IPC seam. The genuine debt is concentrated: <strong>one very large write function (<code>commitPlan</code>) with several un-extracted internal seams, and one god component (<code>ImportScreen.jsx</code>) whose parse-stage orchestration never got the model-extraction its reconciliation-stage sibling did.</strong></p>
+
+<div class="evidence">
+<strong>Active-work caveat.</strong> A concurrent initiative (worktree <code>claude/shoresh-ingestion-reconciliation-ad07ae</code>) is actively redesigning the reconciliation UI, governed by <code>docs/adr/2026-08-17-onescreen-reconciliation-projection.md</code> (landed today). Candidates that touch the import/reconciliation <em>screen surface</em> are tagged <span class="label label-overlap">MAY OVERLAP ACTIVE INITIATIVE</span> — verify before acting. The structural findings on the <em>write path</em> (<code>commitPlan</code>) are largely orthogonal to that UI redesign and are the more durable targets.</p>
+</div>
+
+<h2>Depth assessment at a glance</h2>
+<table>
+<tr><th>Module</th><th>Lines</th><th>Verdict</th><th>Note</th></tr>
+<tr><td><code>src/ingest/buildPlan.js</code></td><td>~640</td><td style="color:var(--success)">Deep</td><td>Pure decision layer, no DB handle. Small interface (<code>buildPlan(source, existing, resolutions)</code>), large hidden reconciliation logic. Benchmark-adjacent.</td></tr>
+<tr><td><code>src/ingest/reconciliationReport.js</code></td><td>~600</td><td style="color:var(--success)">Deep</td><td>One pure export (<code>buildReconciliationReport</code>) with real internal seams (<code>classifyItem</code>, <code>mergeDecisions</code>). Runs in the renderer but is React/IO-free.</td></tr>
+<tr><td><code>src/ingest/reportToLanes.js</code>, <code>salience.js</code>, <code>blastRadius.js</code></td><td>73 / ~60 / ~120</td><td style="color:var(--success)">Deep &mdash; benchmark</td><td>Small, pure, total/exhaustive switches that throw on unknown kinds. Correctly minimal.</td></tr>
+<tr><td><code>src/screens/reconciliation{Triage,Resolutions}.js</code>, <code>readinessHubModel.js</code>, <code>importOutcomeModel.js</code></td><td>147 / 118 / 116 / 35</td><td style="color:var(--success)">Deep</td><td>Presentation/decision-folding logic pulled out of the components into pure, React-free, directly-tested modules. The extraction the parse stage still lacks (C2).</td></tr>
+<tr><td><code>src/ingest/extractEntities.js</code>, <code>textGrid.js</code></td><td>~530 / ~560</td><td style="color:var(--success)">Deep</td><td>Pure parsing/inference. Large but single-purpose behind narrow entrypoints; not a component's concern.</td></tr>
+<tr><td><code>electron/ops/ingest.js</code> :: <code>commitPlan</code></td><td>~650 (fn)</td><td style="color:var(--caution)">Deep but internally tangled</td><td>Small external interface, heavily tested through it — but a dozen closures over shared mutable state and an inline fixed-event drift algorithm the tests cannot reach directly (C1, C3).</td></tr>
+<tr><td><code>src/screens/ImportScreen.jsx</code></td><td>1,263</td><td style="color:var(--danger)">God component</td><td>Parse orchestration + ~26 state atoms + export + commit-input assembly + full render, in one file. The reconciliation half was extracted; this half was not (C2).</td></tr>
+</table>
+
+<h2>The dry-run-as-preview seam is a positive example</h2>
+<p>Before the candidates, the boundary the brief asked about most directly — how observations/inferences/confirmations flow from ingest to the director's decisions — is <strong>coherent and worth protecting</strong>. The preview is not a parallel re-implementation of the commit; it <em>is</em> the commit, run with <code>dryRun:true</code>. <code>ingestReconcile</code> calls the same <code>commitIngest</code> &rarr; <code>commitPlan</code> transaction, computes the real plan / provenance / evidence, then rolls the transaction back and returns those artifacts (<code>ingest.js:541–547</code>). The renderer feeds them to the pure <code>buildReconciliationReport</code>, projects to lanes, and folds the director's triage answers back into the <em>same</em> payload shape the commit accepts (<code>reconciliationTriage.foldTriageInputs</code>). One decision engine, exercised twice. This is depth-positive: preview and commit cannot disagree by construction, and no SQL or IPC detail leaks into the renderer. No seam-misplacement finding exists here — that is a deliberately good result to record.</p>
+
+<h2>Ranked deepening candidates</h2>
+
+<div class="candidate">
+  <div class="candidate-header">
+    <span class="rank">C1</span>
+    <span class="candidate-title">Extract the fixed-event ingest (recognize / create / move-drift / scope-drift) out of commitPlan</span>
+    <span class="severity sev-high">High</span>
+  </div>
+  <div class="candidate-body">
+    <div class="fields">
+      <span class="label label-seam">missing internal seam</span>
+      <span class="label label-god">multi-responsibility function</span>
+    </div>
+    <p>Inside the ~650-line <code>commitPlan</code>, roughly <code>ingest.js:1247–1461</code> is one cohesive sub-algorithm with nothing to do with the generic per-entity create/update writer around it: anchor-slot recognition, the read-only <em>set-cardinality</em> move-drift pre-pass (<code>liveByGroup</code>/<code>fileByGroup</code>/<code>movedBySlot</code>), scope-drift detection, and the fixed-event write loop. It carries its own hard invariants (slot identity excludes scope; move-pairing is 1:1 per <code>(cohort, name)</code> group; the pre-pass appends no ops) that have already been re-derived across T72, C1a, C1b, and C3.</p>
+    <div class="evidence">
+      <strong>Deletion test:</strong> lifting this cluster into an <code>anchorReconcile.js</code> that takes the seeded name maps + live-anchor scan and returns <code>{ toWriteAnchors, moved, scopeChanged, ... }</code> does not push complexity onto callers — <code>commitPlan</code> is the sole caller and shrinks by a third. That is a real seam waiting to be named, not a pass-through.<br>
+      <strong>The test cannot reach it today:</strong> the move-cardinality logic is the most subtle code in the file, yet it is exercisable only by driving a whole workbook through <code>commitIngest</code>. A pure module would give the drift analysis a first-class, directly-testable surface — the same win <code>buildSchedule.js</code> gets from being pure.
+    </div>
+    <p>Highest-leverage of the write-path findings, and largely stable against the UI redesign (the fixed-event <em>report</em> shape is already an established contract consumed by <code>buildReconciliationReport</code>).</p>
+  </div>
+</div>
+
+<div class="candidate">
+  <div class="candidate-header">
+    <span class="rank">C2</span>
+    <span class="candidate-title">Extract an import-session model out of ImportScreen.jsx (the parse stage never got what the reconciliation stage did)</span>
+    <span class="severity sev-high">High</span>
+    <span class="label label-overlap">MAY OVERLAP ACTIVE INITIATIVE</span>
+  </div>
+  <div class="candidate-body">
+    <div class="fields">
+      <span class="label label-god">god component</span>
+      <span class="label label-seam">logic trapped in component</span>
+    </div>
+    <p><code>ImportScreen.jsx</code> (1,263 lines) holds ~26 <code>useState</code> atoms and at least four distinct responsibilities: (1) file reading + the parse/infer pipeline orchestration (<code>readFiles</code>, <code>ingest.js:171–319</code>, chaining <code>XLSX.read</code> &rarr; <code>extractEntities</code> &rarr; <code>buildPreview</code> &rarr; <code>inferFixedEvents</code> &rarr; <code>inferActivityRules</code>); (2) rule/fixed-event/unit editing (<code>updateActivityRule</code>, <code>toggleRuleGroup</code>, <code>groupUnitOverrides</code>&hellip;); (3) commit-input assembly (<code>buildCommitInputs</code>, <code>:445–537</code>); and (4) the full ~600-line render plus two nested sub-components. The pure pieces it <em>calls</em> are well-extracted; the <em>orchestration and session state</em> that wires them are not.</p>
+    <div class="evidence">
+      <strong>The asymmetry is the tell:</strong> the reconciliation half of the same flow was decomposed into <code>reconciliationTriage.js</code>, <code>reconciliationResolutions.js</code>, and <code>importOutcomeModel.js</code> — pure, React-free, directly tested. The parse half has no equivalent <code>useImportSession</code> / <code>importPlan.js</code> seam, so its multi-step state machine (which file, which preview, which chosen entities, which mode) is testable only by mounting the whole screen. This is exactly the decomposition <code>ScheduleScreen</code> received (useRouteState et al.).<br>
+      <strong>Deletion test:</strong> the extracted model earns its keep across the screen's many handlers and its re-import path (<code>handleWorkbookReimport</code>), and would make the parse-stage state independently testable — complexity concentrates, it does not spread.
+    </div>
+    <p>Tagged as overlapping because the active one-screen initiative is reworking this surface; the model extraction may be subsumed, superseded, or best done <em>as part of</em> that initiative rather than against it. Confirm scope with that branch before starting.</p>
+  </div>
+</div>
+
+<div class="candidate">
+  <div class="candidate-header">
+    <span class="rank">C3</span>
+    <span class="candidate-title">Name the per-item decision closures inside commitPlan as a testable decide-phase</span>
+    <span class="severity sev-medium">Medium</span>
+  </div>
+  <div class="candidate-body">
+    <div class="fields">
+      <span class="label label-seam">missing internal seam</span>
+      <span class="label label-god">multi-responsibility function</span>
+    </div>
+    <p>Beyond the fixed-event block (C1), <code>commitPlan</code> defines ~10 further closures over shared mutable state — <code>decideFieldItem</code>, <code>makeConflict</code>/<code>makeStaleConflict</code>/<code>makeFieldConflict</code>/<code>makeMissingTarget</code>, <code>commitCreate</code>, <code>commitUpdate</code>, <code>seedRecognitionMaps</code>, <code>resolveOrCreateLocationId</code> — each closing over <code>conflicts[]</code>, <code>created{}</code>, and the name maps. The Policy-A protection gate and the base-generation staleness clock (the subsystem's most security-relevant logic, deciding what a re-import may silently overwrite) live inside <code>decideFieldItem</code> (<code>:1090–1150</code>) and can only be tested through a full commit.</p>
+    <div class="evidence">
+      <strong>Depth is fine; navigability and test-reach are the cost.</strong> The external interface is genuinely small and the module is heavily tested (30+ ingest test files) — this is a deep module, not a shallow one. But the <em>decide phase</em> (walk plan &rarr; classify each item into <code>toCreate</code>/<code>toUpdate</code>/<code>conflicts</code>, no writes) is already conceptually separated from the <em>write phase</em>; making that split structural — a pure <code>decide(plan, recognition, live)</code> returning the three lists — would let the gate logic be unit-tested directly without a DB transaction.
+    </div>
+    <p>Lower leverage than C1 because it is refactor-for-testability of already-correct, already-tested code rather than closing a gap; sequence it after C1, with which it shares the file.</p>
+  </div>
+</div>
+
+<div class="candidate">
+  <div class="candidate-header">
+    <span class="rank">C4</span>
+    <span class="candidate-title">Single-source the recognition/scoping rule shared by buildExistingSnapshot and seedRecognitionMaps</span>
+    <span class="severity sev-medium">Medium</span>
+  </div>
+  <div class="candidate-body">
+    <div class="fields">
+      <span class="label label-shallow">duplicated cross-layer knowledge</span>
+      <span class="label label-seam">seam kept in sync by hand</span>
+    </div>
+    <p>"What counts as the same name, and how tiers/time_blocks are cohort-scoped" is a rule that <em>must</em> agree between the preview snapshot (<code>buildExistingSnapshot</code>, feeding pure <code>buildPlan</code>) and the commit-time re-resolution (<code>seedRecognitionMaps</code>, <code>ingest.js:650–669</code>). Today it is written in two places, each carrying a comment insisting it scope "EXACTLY as" the other so the two layers "cannot disagree" (<code>:646–649</code>). That is a hand-maintained coupling: correct now, drift-prone on the next entity or scoping change.</p>
+    <div class="evidence">
+      <strong>Deletion test:</strong> a shared <code>recognitionKey</code> already exists and is used on both sides — the gap is the <em>scoping/enumeration</em> around it. A single <code>buildRecognitionMaps(db, camp_id, cohort_id)</code> (or a shared scoped-entity descriptor) consumed by both the snapshot and the commit path makes the "cannot disagree" invariant true by construction instead of by comment. Complexity concentrates in one place.
+    </div>
+    <p>Medium because the two paths genuinely need different <em>outputs</em> (a snapshot vs. a name&rarr;id-set map), so the shared piece is the scoping rule, not the whole function — a smaller, well-bounded extraction.</p>
+  </div>
+</div>
+
+<h2>Explicitly not flagged</h2>
+<ul>
+<li><strong>The renderer computing <code>buildReconciliationReport</code>.</strong> It runs in the renderer but is pure and fed entirely by the IPC dry-run result — no SQL, no IPC detail, no React state crosses into it. This is correct placement, not seam-misplacement.</li>
+<li><strong>The dozen ADR-slice comments in <code>ingest.js</code>.</strong> Dense, but they are load-bearing rationale (why a gate is ordered as it is), not dead narration. Out of audit scope (style) and genuinely useful.</li>
+<li><strong><code>importAliasScope.js</code> (8 lines), <code>importOutcomeModel.js</code> (35 lines).</strong> Small pure constants/helpers, not shallow pass-throughs — deleting them scatters a shared constant across call sites.</li>
+<li><strong>Large pure parsers (<code>extractEntities</code>, <code>textGrid</code>, <code>buildPlan</code>).</strong> High line counts, but single-purpose behind narrow entrypoints and React/IO-free. Depth-as-leverage says leave them.</li>
+</ul>
+
+<h2>Bottom line</h2>
+<p>A large, recently-built subsystem that comes back with only two real structural targets — a decomposable write function and one un-modelled god component — is a strong signal of underlying health, stronger than a clean re-audit of a mature area would be. The pure decision/projection spine is a second benchmark alongside the schedule engine. The write path (C1, C3, C4) is the durable work and is orthogonal to the in-flight UI redesign; the component work (C2) should be reconciled with the active one-screen initiative before it is touched.</p>
+
+</body>
+</html>
