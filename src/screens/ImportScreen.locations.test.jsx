@@ -1,16 +1,23 @@
 // @vitest-environment jsdom
 //
 // Q8/M4 (docs/adr/2026-08-15-locations-import-export-roundtrip.md §D3, §D5).
-// Drives the REAL parse -> extractEntities -> buildPreview -> ImportScreen
-// tick/gate -> buildCommitInputs path (only parseTextGrid is mocked, to hand
-// in a hand-built grid) rather than stubbing extractEntities out, because the
-// bug this guards lives inside extractEntities' own candidate tally.
+// Drives the REAL parse -> extractEntities -> ImportScreen -> buildCommitInputs
+// path (only parseTextGrid is mocked, to hand in a hand-built grid) rather than
+// stubbing extractEntities out, because the bug this guards lives inside
+// extractEntities' own candidate tally.
 //
 // The fixture spells the same room two ways across two activities on one row
 // ("pool" under Swim, "Pool" under Art) — the exact shape of the reported
 // silent-drop: a case-folding candidate tally collapsed both spellings into
-// one candidate, so ticking it bound only the activity whose exact text
-// matched the surfaced spelling and left the other silently unbound.
+// one candidate.
+//
+// ADR 2026-08-17-onescreen-reconciliation-merge.md §2 — ImportScreen no longer
+// ticks locations; every candidate is sent unconditionally. Q8's "nothing is
+// ever minted or bound without an explicit director decision" now holds via
+// buildPlan's createConfidenceTier (locations always tier:'low'), exercised
+// separately in buildPlan.test.js. This file only proves ImportScreen sends
+// BOTH exact-case spellings through, unconditionally, with the correct
+// per-activity pairing — the case-consistency bug this file exists to guard.
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -62,56 +69,38 @@ async function uploadFile() {
   const input = document.querySelector('input[type="file"]')
   const file = new File(['irrelevant, parseTextGrid is mocked'], 'schedule.txt', { type: 'text/plain' })
   await userEvent.upload(input, file)
-  await waitFor(() => expect(screen.queryAllByText(/Seen in this file as a room\./).length).toBeGreaterThan(0))
-}
-
-// The candidate buttons render {name} as their own leading text node, so
-// distinguishing "pool" from "Pool" by exact case needs a case-sensitive
-// match on the button's own text rather than RTL's getByText (which would
-// see both as substring matches of one another).
-function locationButton(name) {
-  return screen.getAllByRole('button').find((b) => b.textContent.startsWith(name))
+  await waitFor(() => expect(screen.queryAllByText('pool').length).toBeGreaterThan(0))
 }
 
 async function commit() {
   await userEvent.click(screen.getByText(/Add \d+ record/))
+  // The fixture has no tiers/groups/time_blocks set up yet, so
+  // ReconciliationScreen's readiness gate (F3) surfaces required_gap cards
+  // that must be dismissed (Skip for now) before "Use this setup" enables —
+  // unrelated to what this test guards (Q8 case-consistency), so dismiss
+  // whatever appears rather than special-casing the fixture.
+  await waitFor(() => expect(screen.getByText(/Use this setup/)).toBeTruthy())
+  for (const btn of screen.queryAllByText(/^Skip .* for now/)) {
+    await userEvent.click(btn)
+  }
   await userEvent.click(await screen.findByText('Use this setup'))
   await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
   return localClient.ingestCommit.mock.calls[0][0]
 }
 
 describe('ImportScreen — location candidate case-consistency (Q8 §D3/§D5)', () => {
-  it('surfaces "pool" and "Pool" as two distinct, independently tickable candidates', async () => {
+  it('surfaces "pool" and "Pool" as two distinct candidates', async () => {
     await uploadFile()
-    expect(locationButton('pool')).toBeTruthy()
-    expect(locationButton('Pool')).toBeTruthy()
+    expect(screen.getByText('pool')).toBeTruthy()
+    expect(screen.getByText('Pool')).toBeTruthy()
   })
 
-  it('ticking both candidates binds every activity that named that room, in either spelling — no silent omission', async () => {
+  it('sends both spellings unconditionally, each bound to the activity that named it — no silent omission', async () => {
     await uploadFile()
-    await userEvent.click(locationButton('pool'))
-    await userEvent.click(locationButton('Pool'))
     const inputs = await commit()
     expect(inputs.approved.locations).toContain('pool')
     expect(inputs.approved.locations).toContain('Pool')
     expect(inputs.activityRules.Swim.location).toBe('pool')
     expect(inputs.activityRules.Art.location).toBe('Pool')
-  })
-
-  it('ticking only one spelling binds only the activity whose exact text matches it', async () => {
-    await uploadFile()
-    await userEvent.click(locationButton('pool'))
-    const inputs = await commit()
-    expect(inputs.activityRules.Swim.location).toBe('pool')
-    expect(inputs.activityRules.Art.location).toBeUndefined()
-  })
-
-  it('propose-only gate: a captured location left unticked creates no location row and binds no activity', async () => {
-    await uploadFile()
-    // Neither candidate ticked (default state).
-    const inputs = await commit()
-    expect(inputs.approved.locations).toEqual([])
-    expect(inputs.activityRules.Swim?.location).toBeUndefined()
-    expect(inputs.activityRules.Art?.location).toBeUndefined()
   })
 })

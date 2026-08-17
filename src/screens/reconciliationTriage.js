@@ -78,10 +78,14 @@ export function heldConflictsToDecisions(conflicts) {
 // HeldResolution used to build.
 export function foldTriageInputs(baseInputs, decisions, answers) {
   const nonConflict = decisions.filter((d) => d.kind !== 'resolve_conflict')
-  const { approved, resolutions } = applyResolutions({
+  const { approved, resolutions, fixedEvents } = applyResolutions({
     approved: baseInputs.approved,
     decisions: nonConflict,
     answers,
+    // Sub-slice 4 — every inferred fixed event ships unconditionally from
+    // ImportScreen now (no more chosenFixedEvents pre-filter); the hold-back
+    // here is what gates an unresolved one out of the outgoing commit.
+    fixedEvents: baseInputs.fixedEvents,
   })
 
   for (const d of decisions) {
@@ -100,7 +104,7 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
     }
   }
 
-  return { ...baseInputs, approved, resolutions: [...(baseInputs.resolutions ?? []), ...resolutions] }
+  return { ...baseInputs, approved, fixedEvents, resolutions: [...(baseInputs.resolutions ?? []), ...resolutions] }
 }
 
 // S1b's "Remember this" alias-confirmation, restored from ImportScreen's old
@@ -133,7 +137,14 @@ export function identityRememberCalls(decisions, answers, cohortId) {
   return calls
 }
 
-export function isDecisionResolvedFor(decision, answers) {
+// F3 — `required_gap` decisions resolve via `dismissedGaps`, a session-local
+// Set the caller owns (ReconciliationScreen), never via `answers`. This keeps
+// "a commit-affecting decision" and "a session dismissal of a readiness fact"
+// visibly distinct: `dismissedGaps` is never folded into `foldTriageInputs`
+// or sent to `commitIngest`. Default empty Set so existing callers that don't
+// pass one keep working for every other decision kind (additive-degradation).
+export function isDecisionResolvedFor(decision, answers, dismissedGaps = new Set()) {
+  if (decision.kind === 'required_gap') return dismissedGaps.has(decision.id)
   const a = answers[decision.id]
   if (!a) return false
   if (decision.kind === 'resolve_conflict') {

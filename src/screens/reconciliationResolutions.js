@@ -68,10 +68,23 @@ export function isDecisionResolved(decision, answer) {
   return false
 }
 
-export function applyResolutions({ approved, decisions, answers }) {
+// Sub-slice 4 (A1) — a fixed event's identity for hold-back matching is
+// (name, time_block, days), NOT name alone: two anchors sharing a name on
+// different days/time-blocks are held/written independently. Mirrors
+// ImportScreen.jsx's (now-removed) fixedEventKey and reconciliationReport.js's
+// fixedEventDecisionId discriminator.
+function fixedEventMatchKey(name, timeBlock, days) {
+  return `${name ?? ''}|${timeBlock ?? ''}|${(Array.isArray(days) ? days : []).join(',')}`
+}
+
+export function applyResolutions({ approved, decisions, answers, fixedEvents }) {
   const nextApproved = {}
   for (const [entity, names] of Object.entries(approved ?? {})) nextApproved[entity] = [...names]
   const resolutions = []
+  // Sub-slice 4 — every unresolved fixed-event confirm_value's match key,
+  // collected alongside the approved hold-back below so a single walk over
+  // decisions gates both outputs.
+  const heldFixedEventKeys = new Set()
 
   for (const decision of filterQueueDecisions(decisions)) {
     const answer = answers?.[decision.id]
@@ -86,14 +99,26 @@ export function applyResolutions({ approved, decisions, answers }) {
       // side-channel — activityRules/groupUnitOverrides — not a resolution).
       // Unresolved -> held back: remove from approved so it does not write
       // unconditionally (the silent-write risk this module exists to guard).
-      // NOTE: `approved` never gates the 'anchor_activities' entity (buildPlan/
-      // commit only whitelist INGESTIBLE_ENTITIES) — a fixed-event confirm_value
-      // (entity: 'anchor_activities') held back here writes a key nothing
-      // downstream ever reads. Harmless (proposedValue is null there too), left
-      // as-is rather than special-cased, but no future writable field on that
-      // entity should assume this hold-back actually gates anything.
-      if (!isDecisionResolved(decision, answer) && decision.entityName) {
-        nextApproved[decision.entity] = (nextApproved[decision.entity] ?? []).filter((n) => n !== decision.entityName)
+      if (!isDecisionResolved(decision, answer)) {
+        // Fix round 2026-08-17, FIX 1: 'anchor_activities' is never a key in
+        // `approved` (buildPlan/commitIngest gate it via the fixedEvents[]
+        // array, not the approved whitelist — see the comment below). Writing
+        // `nextApproved.anchor_activities = []` here manufactured a STRAY key
+        // that commitIngest's INGESTIBLE_ENTITIES whitelist then rejects
+        // outright ("anchor_activities cannot be created by an import"),
+        // turning a legitimate hold-back into a hard commit failure the
+        // moment a fixed-event confirm_value went unresolved end to end.
+        if (decision.entityName && decision.entity !== 'anchor_activities') {
+          nextApproved[decision.entity] = (nextApproved[decision.entity] ?? []).filter((n) => n !== decision.entityName)
+        }
+        // Sub-slice 4 — `approved` never gates 'anchor_activities' (buildPlan/
+        // commit only whitelist INGESTIBLE_ENTITIES), so a fixed-event
+        // confirm_value needs its OWN hold-back: its event is matched by
+        // (name, timeBlock, days) and removed from the outgoing fixedEvents[]
+        // below, symmetric to the approved-name removal above.
+        if (decision.entity === 'anchor_activities') {
+          heldFixedEventKeys.add(fixedEventMatchKey(decision.entityName, decision.timeBlock, decision.days))
+        }
       }
       continue
     }
@@ -114,5 +139,9 @@ export function applyResolutions({ approved, decisions, answers }) {
     }
   }
 
-  return { approved: nextApproved, resolutions }
+  const nextFixedEvents = (fixedEvents ?? []).filter(
+    (fe) => !heldFixedEventKeys.has(fixedEventMatchKey(fe.name, fe.time_block, fe.days))
+  )
+
+  return { approved: nextApproved, resolutions, fixedEvents: nextFixedEvents }
 }

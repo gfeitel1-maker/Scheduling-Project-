@@ -272,7 +272,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // device's sync mode — and the guard below reads it; a shadowing parameter
   // would silently turn the Host check into a comparison against the import
   // mode instead.
-  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation } = {}) {
+  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // Admin only. Staff may edit setup records one at a time; creating a
     // camp's whole structure in one action is a different kind of authority,
@@ -329,6 +329,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // commit can gate import-over-import staleness. Absent (0) for the raw
       // schedule/clipboard path, leaving the clock gate inert.
       base_generation: base_generation ?? 0,
+      // ADR 2026-08-17-onescreen-reconciliation-merge.md §1/A3 — real create
+      // confidence input and the pin-only guard. Absent for the S4b workbook
+      // path (no seenCounts there — Risk 2/A4), which keeps every non-location
+      // create tier:'new', unchanged.
+      seenCounts: seenCounts ?? null,
+      pinOnlyActivityNames: pinOnlyActivityNames ?? [],
     })
   }
 
@@ -337,7 +343,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // guard above — a dry run commits nothing anywhere, on any device, so there
   // is no fork-the-camp risk to guard against. Also does not push any
   // onOpApplied/sync broadcast: nothing was written for a peer to learn about.
-  function ingestReconcile({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation } = {}) {
+  function ingestReconcile({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'groups.import' })
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
@@ -356,6 +362,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       mode: ingestMode === 'replace' ? 'replace' : 'add',
       resolutions: resolutions ?? [],
       base_generation: base_generation ?? 0,
+      seenCounts: seenCounts ?? null,
+      pinOnlyActivityNames: pinOnlyActivityNames ?? [],
       dryRun: true,
     })
     return {
@@ -363,7 +371,15 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       held: outcome.held,
       conflicts: outcome.conflicts,
       planItems: outcome.planItems ?? [],
-      fixedEventsReport: outcome.fixedEvents,
+      // FIX 1 — the reconciliation report needs created/unchanged as entries
+      // (name/confidence/time_block/days), not the bare counts ImportScreen's
+      // post-commit banner reads; substitute the parallel detail channel here,
+      // additively, without changing outcome.fixedEvents' own shape.
+      fixedEventsReport: outcome.fixedEvents && {
+        ...outcome.fixedEvents,
+        created: outcome.fixedEvents.createdEntries ?? [],
+        unchanged: outcome.fixedEvents.unchangedEntries ?? [],
+      },
       fieldProvenance: outcome.fieldProvenance ?? {},
       legacyPriorityActivities: outcome.legacyPriorityActivities ?? [],
       evidenceSupport: outcome.evidenceSupport ?? {},

@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { commitIngest } from './ingest.js'
 import { deriveLocationId } from './locationId.js'
-import { buildPreview } from '../../src/ingest/preview.js'
+import { recognitionKey } from '../../src/ingest/preview.js'
 import { buildPlan, fieldsFor } from '../../src/ingest/buildPlan.js'
 import { DB_FIELD, resolveFieldWrite } from '../../src/ingest/fieldUpdate.js'
 
@@ -274,10 +274,10 @@ describe('Invariant 4 — recognition-key consistency (§D3): "Pool" vs "pool" a
     const existingRows = db.prepare('SELECT id, name FROM locations WHERE camp_id = ?').all(campId)
     const existing = { locations: existingRows }
 
-    // Layer 1: preview.js buildPreview.
-    const preview = buildPreview({ entities: { locations: ['Pool'] } }, existing)
-    expect(preview.perEntity.locations.create).toEqual([])
-    expect(preview.perEntity.locations.skip).toHaveLength(1)
+    // Layer 1: preview.js's recognitionKey — the primitive buildPlan's own
+    // matching (Layer 2) is built on. buildPreview itself is deleted (ADR
+    // 2026-08-17-onescreen-reconciliation-merge.md §2/A2).
+    expect(recognitionKey('locations', 'Pool')).toBe(recognitionKey('locations', existing.locations[0].name))
 
     // Layer 2: buildPlan.js plan-build recognition.
     const plan = buildPlan({ approved: { locations: ['Pool'] }, camp_id: campId, mode: 'add' }, existing)
@@ -295,10 +295,8 @@ describe('Invariant 4 — recognition-key consistency (§D3): "Pool" vs "pool" a
     const existingRows = db.prepare('SELECT id, name FROM locations WHERE camp_id = ?').all(campId)
     const existing = { locations: existingRows }
 
-    // Layer 1: preview.js buildPreview — 'pool' is NOT recognized against 'Pool'.
-    const preview = buildPreview({ entities: { locations: ['pool'] } }, existing)
-    expect(preview.perEntity.locations.create).toEqual(['pool'])
-    expect(preview.perEntity.locations.skip).toEqual([])
+    // Layer 1: preview.js's recognitionKey — 'pool' is NOT recognized against 'Pool'.
+    expect(recognitionKey('locations', 'pool')).not.toBe(recognitionKey('locations', existing.locations[0].name))
 
     // Layer 2: buildPlan.js — a genuine create, not an update against 'Pool'.
     const plan = buildPlan({ approved: { locations: ['pool'] }, camp_id: campId, mode: 'add' }, existing)

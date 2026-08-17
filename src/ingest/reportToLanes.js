@@ -36,10 +36,35 @@ function laneFor(decision) {
 
 const BUCKET_KEYS = ['understood', 'needsAttention', 'notInSource', 'changed']
 
+// F3, docs/adr/2026-08-17-onescreen-reconciliation-merge.md §5 — a required
+// readiness gap ("the camp itself isn't set up yet, independent of this
+// file") is a decision-shaped attention item too, not just the boolean
+// readinessGreen consumed below. Prepended ahead of every other hold-lane
+// card — a setup gap blocks everything else. Pure re-shape of
+// report.readiness; no second source of truth.
+function requiredGapDecisions(readinessRows) {
+  return readinessRows
+    .filter((row) => row.kind === 'required' && row.state !== 'ready')
+    .map((row) => ({
+      id: `readiness:${row.key}`,
+      kind: 'required_gap',
+      entity: null,
+      entityId: null,
+      entityName: null,
+      field: null,
+      confidence: 'required',
+      proposedValue: null,
+      label: row.label,
+      message: row.message ?? null,
+      screen: row.screen,
+      evidence: null,
+    }))
+}
+
 export function reportToLanes(report) {
   const express = []
   const standard = []
-  const hold = []
+  const hold = [...requiredGapDecisions(report.readiness ?? [])]
 
   for (const decision of report.decisions) {
     const lane = laneFor(decision)

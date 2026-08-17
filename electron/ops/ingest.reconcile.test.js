@@ -21,6 +21,9 @@ import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
 import { appendOp, latestOpSeq } from './operations.js'
 import { commitIngest, buildFieldProvenanceMap, listLegacyPriorityActivities } from './ingest.js'
+import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
+import { reportToLanes } from '../../src/ingest/reportToLanes.js'
+import { applyResolutions } from '../../src/screens/reconciliationResolutions.js'
 
 let db, tmpFile, campId
 const deviceId = 'device-1'
@@ -202,7 +205,14 @@ describe('D1 dryRun — truthfulness', () => {
 
     expect(dry.fixedEvents).toEqual(real.fixedEvents)
     expect(dry.fixedEvents.moved).toEqual([
-      { name: 'Mifkad', reason: 'moved from Monday/09:00-09:40 to Monday/10:00-10:40' },
+      {
+        name: 'Mifkad',
+        reason: 'moved from Monday/09:00-09:40 to Monday/10:00-10:40',
+        time_block: '09:00-09:40',
+        days: ['Monday'],
+        from: { day: 'Monday', timeBlock: '09:00-09:40' },
+        to: { day: 'Monday', timeBlock: '10:00-10:40' },
+      },
     ])
   })
 })
@@ -281,5 +291,171 @@ describe('D1 dryRun — evidenceSupport (D3)', () => {
 
     // Non-mutation still holds: nothing was written for this in-memory field to reflect.
     expect(db.prepare('SELECT COUNT(*) c FROM import_evidence').get().c).toBe(0)
+  })
+})
+
+// ADR 2026-08-17-onescreen-reconciliation-merge.md — STEP 2, the load-bearing
+// end-to-end hold-back test (§Test strategy): a low-confidence create must
+// become a real confirm_value decision, and an UNRESOLVED decision must hold
+// the candidate back from a real write — this is Invariant 4, proven through
+// the actual production pipeline (dry-run report -> lanes -> resolutions ->
+// real commit), not just a unit test of classifyItem/buildPlan in isolation.
+describe('STEP 2 — the seenCounts create-confidence hold-back, end to end', () => {
+  const seedMinimalCamp = () => {
+    db.prepare('INSERT INTO cohorts (id, camp_id, name) VALUES (?, ?, ?)').run('cohort-1', campId, 'Main')
+  }
+
+  // A function, not a module-level const: campId/deviceId are only assigned
+  // in beforeEach, so a const evaluated at describe-time would close over
+  // undefined.
+  const lowConfidenceSource = () => ({
+    approved: { activities: ['One Off'] },
+    seenCounts: { activities: { 'One Off': 1 }, activityUnitShare: {} },
+    camp_id: campId,
+    cohort_id: 'cohort-1',
+    author_user_id: 'u1',
+    device_id: deviceId,
+    mode: 'add',
+  })
+
+  it('(a)-(b): a low-confidence create appears as a confirm_value decision in the standard lane', () => {
+    seedMinimalCamp()
+    const dry = commit({ ...lowConfidenceSource(), dryRun: true })
+    expect(dry.held).toBe(false)
+    const item = dry.planItems.find((i) => i.entity === 'activities' && i._name === 'One Off')
+    expect(item.evidence.tier).toBe('low')
+
+    const report = buildReconciliationReport({ planItems: dry.planItems, readiness: [] })
+    const decision = report.decisions.find((d) => d.entity === 'activities' && d.entityName === 'One Off')
+    expect(decision).toBeTruthy()
+    expect(decision.kind).toBe('confirm_value')
+    expect(decision.confidence).toBe('low')
+
+    const lanes = reportToLanes(report)
+    expect(lanes.standard.some((d) => d.id === decision.id)).toBe(true)
+  })
+
+  it('(c): committing with the decision UNRESOLVED holds the candidate back — nothing is written', () => {
+    seedMinimalCamp()
+    const dry = commit({ ...lowConfidenceSource(), dryRun: true })
+    const report = buildReconciliationReport({ planItems: dry.planItems, readiness: [] })
+
+    // No answers at all — the decision is unresolved.
+    const { approved: heldApproved } = applyResolutions({ approved: lowConfidenceSource().approved, decisions: report.decisions, answers: {} })
+    expect(heldApproved.activities).toEqual([])
+
+    const outcome = commit({ ...lowConfidenceSource(), approved: heldApproved })
+    expect(outcome.created.activities).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM activities WHERE camp_id = ?').get(campId).c).toBe(0)
+  })
+
+  it('(d): resolving looks_right and re-committing writes the candidate', () => {
+    seedMinimalCamp()
+    const dry = commit({ ...lowConfidenceSource(), dryRun: true })
+    const report = buildReconciliationReport({ planItems: dry.planItems, readiness: [] })
+    const decision = report.decisions.find((d) => d.entity === 'activities' && d.entityName === 'One Off')
+
+    const { approved: resolvedApproved } = applyResolutions({
+      approved: lowConfidenceSource().approved,
+      decisions: report.decisions,
+      answers: { [decision.id]: { action: 'looks_right' } },
+    })
+    expect(resolvedApproved.activities).toEqual(['One Off'])
+
+    const outcome = commit({ ...lowConfidenceSource(), approved: resolvedApproved })
+    expect(outcome.created.activities).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) c FROM activities WHERE camp_id = ? AND name = ?').get(campId, 'One Off').c).toBe(1)
+  })
+})
+
+// Fix round 2026-08-17 — FIX 1 (Red Hat RISK 1): a FULLY-RESOLVED fixed event
+// (no dropped day/group, so it never touches the `partial` branch) with
+// fe.confidence === 'low' used to land in the `created` bucket with NO
+// decision and write silently. Mirrors STEP 2's end-to-end shape exactly,
+// swapped from a low-confidence activity create to a low-confidence fixed
+// event create, proven through the real production pipeline.
+describe('FIX 1 — low-confidence FULLY-RESOLVED fixed event creates a confirm_value hold-back', () => {
+  const seedBaseCamp = () => commit(BASE)
+
+  const lowConfidenceFixedEvent = {
+    name: 'Quiet Time', time_block: '09:00-09:40', days: ['Monday'],
+    scope: { is_all_groups: true, groups: [] }, confidence: 'low',
+  }
+
+  const fixedEventsReportFrom = (outcome) => ({
+    created: outcome.fixedEvents.createdEntries,
+    unchanged: outcome.fixedEvents.unchangedEntries,
+    moved: [], partial: [], skipped: [], rejected: [], scopeChanged: [],
+  })
+
+  it('(a)-(b): appears as a confirm_value decision, held back out of the `created` count', () => {
+    seedBaseCamp()
+    const dry = commit({ ...BASE, fixedEvents: [lowConfidenceFixedEvent], dryRun: true })
+    expect(dry.held).toBe(false)
+    expect(dry.fixedEvents.createdEntries).toEqual([
+      { anchorId: expect.any(String), name: 'Quiet Time', confidence: 'low', time_block: '09:00-09:40', days: ['Monday'] },
+    ])
+
+    const report = buildReconciliationReport({
+      planItems: dry.planItems, readiness: [], fixedEventsReport: fixedEventsReportFrom(dry),
+    })
+    const decision = report.decisions.find((d) => d.entity === 'anchor_activities' && d.entityName === 'Quiet Time')
+    expect(decision).toBeTruthy()
+    expect(decision.kind).toBe('confirm_value')
+    expect(decision.confidence).toBe('low')
+    // A confirm_value decision means this create must NOT have also counted
+    // toward understood silently — that's exactly the gap being closed.
+    expect(report.buckets.needsAttention).toBeGreaterThan(0)
+  })
+
+  it('(c): committing with the decision UNRESOLVED holds the anchor back — nothing is written', () => {
+    seedBaseCamp()
+    const dry = commit({ ...BASE, fixedEvents: [lowConfidenceFixedEvent], dryRun: true })
+    const report = buildReconciliationReport({
+      planItems: dry.planItems, readiness: [], fixedEventsReport: fixedEventsReportFrom(dry),
+    })
+
+    const { approved: heldApproved, fixedEvents: heldFixedEvents } = applyResolutions({
+      approved: BASE.approved, decisions: report.decisions, answers: {}, fixedEvents: [lowConfidenceFixedEvent],
+    })
+    expect(heldFixedEvents).toEqual([])
+
+    const outcome = commit({ ...BASE, approved: heldApproved, fixedEvents: heldFixedEvents })
+    expect(outcome.fixedEvents.created).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM anchor_activities WHERE camp_id = ? AND name = ?').get(campId, 'Quiet Time').c).toBe(0)
+  })
+
+  it('(d): resolving looks_right and re-committing writes the anchor', () => {
+    seedBaseCamp()
+    const dry = commit({ ...BASE, fixedEvents: [lowConfidenceFixedEvent], dryRun: true })
+    const report = buildReconciliationReport({
+      planItems: dry.planItems, readiness: [], fixedEventsReport: fixedEventsReportFrom(dry),
+    })
+    const decision = report.decisions.find((d) => d.entity === 'anchor_activities' && d.entityName === 'Quiet Time')
+
+    const { approved: resolvedApproved, fixedEvents: resolvedFixedEvents } = applyResolutions({
+      approved: BASE.approved, decisions: report.decisions,
+      answers: { [decision.id]: { action: 'looks_right' } }, fixedEvents: [lowConfidenceFixedEvent],
+    })
+    expect(resolvedFixedEvents).toEqual([lowConfidenceFixedEvent])
+
+    const outcome = commit({ ...BASE, approved: resolvedApproved, fixedEvents: resolvedFixedEvents })
+    expect(outcome.fixedEvents.created).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) c FROM anchor_activities WHERE camp_id = ? AND name = ?').get(campId, 'Quiet Time').c).toBe(1)
+  })
+
+  it('a HIGH-confidence fixed event with no shortfall ships unconditionally — never held', () => {
+    seedBaseCamp()
+    const highConfidenceFixedEvent = { ...lowConfidenceFixedEvent, name: 'Loud Time', confidence: 'high' }
+    const dry = commit({ ...BASE, fixedEvents: [highConfidenceFixedEvent], dryRun: true })
+    const report = buildReconciliationReport({
+      planItems: dry.planItems, readiness: [], fixedEventsReport: fixedEventsReportFrom(dry),
+    })
+    expect(report.decisions.find((d) => d.entityName === 'Loud Time')).toBeUndefined()
+    expect(report.buckets.understood).toBeGreaterThan(0)
+
+    const outcome = commit({ ...BASE, fixedEvents: [highConfidenceFixedEvent] })
+    expect(outcome.fixedEvents.created).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) c FROM anchor_activities WHERE camp_id = ? AND name = ?').get(campId, 'Loud Time').c).toBe(1)
   })
 })

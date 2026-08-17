@@ -288,3 +288,80 @@ describe('applyResolutions — a NOT-backed confirm_change (fixed-event drift) n
     }
   })
 })
+
+// Sub-slice 4 (docs/adr/2026-08-17-onescreen-reconciliation-merge.md §3, A1)
+// — the fixed-event hold-back, symmetric to the `approved` hold-back above:
+// an unresolved fixed-event confirm_value must not ship in the outgoing
+// fixedEvents[] commitIngest sees. Matched by (name, time_block, days) — the
+// A1 discriminator — never by name alone.
+function fixedEventValueDecision(overrides = {}) {
+  return {
+    id: 'anchor_activities:null:confirm_value:1 of 2 groups not imported:Free Swim:Afternoon:Monday',
+    kind: 'confirm_value', entity: 'anchor_activities', entityId: null,
+    entityName: 'Free Swim', field: null, confidence: 'low', proposedValue: null,
+    timeBlock: 'Afternoon', days: ['Monday'],
+    unknowns: [], evidence: null, reason: '1 of 2 groups not imported', ...overrides,
+  }
+}
+
+describe('applyResolutions — fixed-event hold-back (sub-slice 4)', () => {
+  it('an UNRESOLVED fixed-event confirm_value is held back: its event is removed from the outgoing fixedEvents[]', () => {
+    const decision = fixedEventValueDecision()
+    const fe = { name: 'Free Swim', time_block: 'Afternoon', days: ['Monday'], scope: { is_all_groups: true } }
+    const { fixedEvents } = applyResolutions({
+      approved: {},
+      decisions: [decision],
+      answers: {}, // unresolved
+      fixedEvents: [fe],
+    })
+    expect(fixedEvents).toEqual([])
+  })
+
+  it('a RESOLVED (looks_right) fixed-event confirm_value ships its event unchanged', () => {
+    const decision = fixedEventValueDecision()
+    const fe = { name: 'Free Swim', time_block: 'Afternoon', days: ['Monday'], scope: { is_all_groups: true } }
+    const { fixedEvents } = applyResolutions({
+      approved: {},
+      decisions: [decision],
+      answers: { [decision.id]: { action: 'looks_right' } },
+      fixedEvents: [fe],
+    })
+    expect(fixedEvents).toEqual([fe])
+  })
+
+  it('two same-named fixed events on different days: resolving one holds only the unresolved one — proves name-alone matching would be wrong', () => {
+    const decisionMonday = fixedEventValueDecision({
+      id: 'anchor_activities:null:confirm_value:r:Free Swim:Afternoon:Monday',
+      timeBlock: 'Afternoon', days: ['Monday'],
+    })
+    const decisionTuesday = fixedEventValueDecision({
+      id: 'anchor_activities:null:confirm_value:r:Free Swim:Afternoon:Tuesday',
+      timeBlock: 'Afternoon', days: ['Tuesday'],
+    })
+    const feMonday = { name: 'Free Swim', time_block: 'Afternoon', days: ['Monday'], scope: { is_all_groups: true } }
+    const feTuesday = { name: 'Free Swim', time_block: 'Afternoon', days: ['Tuesday'], scope: { is_all_groups: true } }
+    const { fixedEvents } = applyResolutions({
+      approved: {},
+      decisions: [decisionMonday, decisionTuesday],
+      answers: { [decisionMonday.id]: { action: 'looks_right' } }, // only Monday resolved
+      fixedEvents: [feMonday, feTuesday],
+    })
+    expect(fixedEvents).toEqual([feMonday])
+  })
+
+  it('an understood/HIGH fixed event with no decision at all always ships, unaffected', () => {
+    const fe = { name: 'Mifkad', time_block: 'Morning', days: ['Monday', 'Tuesday'], scope: { is_all_groups: true } }
+    const { fixedEvents } = applyResolutions({
+      approved: {},
+      decisions: [],
+      answers: {},
+      fixedEvents: [fe],
+    })
+    expect(fixedEvents).toEqual([fe])
+  })
+
+  it('an absent fixedEvents input degrades to an empty array, not a throw', () => {
+    const { fixedEvents } = applyResolutions({ approved: {}, decisions: [], answers: {} })
+    expect(fixedEvents).toEqual([])
+  })
+})

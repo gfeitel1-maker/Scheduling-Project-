@@ -33,6 +33,23 @@ const DOMAIN_OF = {
 }
 const DOMAINS = ['Structure', 'Scheduling', 'Time', 'Facility']
 
+// F3 — required_gap decisions carry no `entity` (DOMAIN_OF is keyed by
+// entity name); they carry `screen` instead (readiness.js's REQUIRED_AREAS
+// key). Same four-domain vocabulary, no second domain table.
+const REQUIRED_GAP_DOMAIN = {
+  tiers: 'Structure',
+  groups: 'Structure',
+  days: 'Time',
+  timeblocks: 'Time',
+  activities: 'Scheduling',
+}
+
+function domainOf(decision) {
+  return decision.kind === 'required_gap'
+    ? (REQUIRED_GAP_DOMAIN[decision.screen] ?? 'Structure')
+    : DOMAIN_OF[decision.entity]
+}
+
 const CONFIDENCE_COPY = {
   high: 'clearly stated in the file',
   medium: 'inferred from context',
@@ -165,6 +182,10 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
   const [showNotInSource, setShowNotInSource] = useState(false)
   const [applying, setApplying] = useState(false)
   const [rememberNotes, setRememberNotes] = useState([])
+  // F3 — session-local only. Never written to `answers`, never folded into
+  // foldTriageInputs, never sent to commitIngest (docs/adr/2026-08-17-
+  // onescreen-reconciliation-merge.md §5).
+  const [dismissedGaps, setDismissedGaps] = useState(new Set())
 
   const requestGenRef = useRef(0)
   const lastGoodReportRef = useRef(null)
@@ -314,19 +335,20 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
   const domainCounts = {}
   for (const domain of DOMAINS) {
     domainCounts[domain] = [...lanes.hold, ...lanes.standard].filter(
-      (d) => DOMAIN_OF[d.entity] === domain && !isDecisionResolvedFor(d, answers),
+      (d) => domainOf(d) === domain && !isDecisionResolvedFor(d, answers, dismissedGaps),
     ).length
   }
 
-  const visible = (d) => activeFilters.size === 0 || activeFilters.has(DOMAIN_OF[d.entity])
+  const visible = (d) => activeFilters.size === 0 || activeFilters.has(domainOf(d))
   const visibleHold = lanes.hold.filter(visible)
   const visibleStandard = lanes.standard.filter(visible)
+  const visibleHoldGaps = visibleHold.filter((d) => d.kind === 'required_gap')
 
   const totalCount = lanes.hold.length + lanes.standard.length
-  const doneCount = [...lanes.hold, ...lanes.standard].filter((d) => isDecisionResolvedFor(d, answers)).length
+  const doneCount = [...lanes.hold, ...lanes.standard].filter((d) => isDecisionResolvedFor(d, answers, dismissedGaps)).length
   const pct = totalCount === 0 ? 100 : Math.round((doneCount / totalCount) * 100)
   const confirmedCount = Object.keys(answers).filter((id) =>
-    [...lanes.hold, ...lanes.standard].some((d) => d.id === id && isDecisionResolvedFor(d, answers)),
+    [...lanes.hold, ...lanes.standard].some((d) => d.id === id && isDecisionResolvedFor(d, answers, dismissedGaps)),
   ).length
 
   const understoodCount = report?.buckets?.understood ?? 0
@@ -408,7 +430,27 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
       </div>
 
       <div>
-        {visibleHold.map((d) => (
+        {visibleHoldGaps.length >= 2 ? (
+          <RequiredGapSummaryCard
+            decisions={visibleHoldGaps}
+            dismissedGaps={dismissedGaps}
+            onDismiss={(id) => setDismissedGaps((prev) => new Set(prev).add(id))}
+            onUndismiss={(id) => setDismissedGaps((prev) => { const next = new Set(prev); next.delete(id); return next })}
+            onNavigate={onNavigate}
+          />
+        ) : (
+          visibleHoldGaps.map((d) => (
+            <RequiredGapCard
+              key={d.id}
+              decision={d}
+              dismissed={dismissedGaps.has(d.id)}
+              onDismiss={() => setDismissedGaps((prev) => new Set(prev).add(d.id))}
+              onUndismiss={() => setDismissedGaps((prev) => { const next = new Set(prev); next.delete(d.id); return next })}
+              onNavigate={onNavigate}
+            />
+          ))
+        )}
+        {visibleHold.filter((d) => d.kind !== 'required_gap').map((d) => (
           <DecisionCard
             key={d.id}
             decision={d}
@@ -518,10 +560,115 @@ function DecisionCard({ decision, rank, answer, onAnswer, expanded, onToggleEvid
             {' '}
             <button className="press-97" onClick={onToggleEvidence} style={styles.linkButton}>Why?</button>
           </div>
+          {decision.from && decision.to && (
+            // F2 — structured day/time-block relocation for a moved fixed
+            // event (ADR §4). Minimal inline rendering; a fuller from/to
+            // panel is Designer-scoped follow-up work, not this slice.
+            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+              {`${decision.from.day} · ${decision.from.timeBlock} → ${decision.to.day} · ${decision.to.timeBlock}`}
+            </div>
+          )}
           <EvidenceDetail decision={decision} expanded={expanded} />
           <ResolutionControls decision={decision} onAnswer={onAnswer} />
         </>
       )}
+      </div>
+    </div>
+  )
+}
+
+// F3 — a required setup gap ("can I build at all") rather than a
+// reconciliation choice ("which value is right"). Reuses the cardHold shell
+// verbatim; the one visual addition is the small mono-caps "READY TO BUILD?"
+// tab, the owner-approved exception to "no badge colour beyond the bronze
+// bar" (docs/work/specs/2026-08-17-reconciliation-r8-honesty-compression-design.md §F3).
+// Dismissal ("Skip for now") is local-only — it never calls stage()/onAnswer,
+// so it can never reach answers/foldTriageInputs/commitIngest.
+function RequiredGapCard({ decision, dismissed, onDismiss, onUndismiss, onNavigate }) {
+  const question = decision.message
+    ? `${decision.label} aren't set up yet — ${decision.message}`
+    : `${decision.label} is required before you can build a schedule.`
+
+  return (
+    <div style={{ ...styles.cardHold, position: 'relative', opacity: dismissed ? 0.6 : 1, transition: 'opacity var(--motion-fast) var(--ease-out)' }}>
+      <div style={styles.readyToBuildTab}>READY TO BUILD?</div>
+      <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>{question}</div>
+      <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
+        setup · {decision.label} · {REQUIRED_GAP_DOMAIN[decision.screen] ?? 'Structure'}
+      </div>
+
+      {dismissed ? (
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>
+          {`Skipped — ${decision.label} still isn't set up.`}
+          {' '}
+          <button className="press-97" onClick={onUndismiss} style={styles.linkButton}>Undo</button>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+          <button
+            className="press-97"
+            onClick={() => onNavigate?.(decision.screen)}
+            style={styles.btnCompactAccent}
+          >
+            {`Set up ${decision.label}`}
+          </button>
+          <button className="press-97" onClick={onDismiss} style={styles.btnCompactSecondary}>
+            {`Skip ${decision.label} for now — I'll add it later`}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// §22 compression — Tester's finding: 5+ stacked RequiredGapCards read as a
+// "setup gauntlet." When 2+ required_gap decisions are in the hold lane,
+// fold them into ONE card instead. Rendering-only fold: each gap stays
+// individually dismissible (onDismiss/onUndismiss per decision.id) and the
+// spine's doneCount still counts each dismissed gap separately, via the same
+// isDecisionResolvedFor(d, answers, dismissedGaps) per-decision check.
+function RequiredGapSummaryCard({ decisions, dismissedGaps, onDismiss, onUndismiss, onNavigate }) {
+  const labels = decisions.map((d) => d.label).join(', ')
+
+  return (
+    <div style={{ ...styles.cardHold, position: 'relative' }}>
+      <div style={styles.readyToBuildTab}>READY TO BUILD?</div>
+      <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--text)' }}>
+        {`Your camp still needs: ${labels}`}
+      </div>
+
+      <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {decisions.map((d) => {
+          const dismissed = dismissedGaps.has(d.id)
+          return (
+            <div key={d.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              {dismissed ? (
+                <>
+                  <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                    {`Skipped — ${d.label} still isn't set up.`}
+                  </span>
+                  <button className="press-97" onClick={() => onUndismiss(d.id)} style={styles.linkButton}>Undo</button>
+                </>
+              ) : (
+                <>
+                  <span style={{ fontSize: 13, color: 'var(--text)' }}>{d.label}</span>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      className="press-97"
+                      onClick={() => onNavigate?.(d.screen)}
+                      style={styles.btnCompactAccent}
+                    >
+                      {`Set up ${d.label}`}
+                    </button>
+                    <button className="press-97" onClick={() => onDismiss(d.id)} style={styles.btnCompactSecondary}>
+                      {`Skip ${d.label} for now — I'll add it later`}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
@@ -764,6 +911,29 @@ const styles = {
   btnCompactPrimary: {
     padding: '5px 12px',
     background: 'var(--primary)',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 7,
+    fontWeight: 600,
+    fontSize: 13,
+    cursor: 'pointer',
+    fontFamily: 'inherit',
+  },
+  readyToBuildTab: {
+    position: 'absolute',
+    top: -9,
+    left: 12,
+    background: 'var(--bg)',
+    color: 'var(--accent)',
+    fontFamily: 'var(--font-mono)',
+    fontSize: 10,
+    letterSpacing: '0.06em',
+    fontWeight: 600,
+    padding: '0 4px',
+  },
+  btnCompactAccent: {
+    padding: '5px 12px',
+    background: 'var(--accent)',
     color: '#fff',
     border: 'none',
     borderRadius: 7,

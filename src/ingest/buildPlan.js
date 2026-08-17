@@ -16,6 +16,66 @@ import { INGESTIBLE_ENTITIES } from './extractEntities.js'
 import { normalizeName, recognitionKey } from './preview.js'
 import { dbFieldFor } from './fieldUpdate.js'
 
+// ADR 2026-08-17-onescreen-reconciliation-merge.md §1 — moved here (not
+// duplicated) from preview.js, whose UI-only tick-state role is gone. This is
+// now the ONE place the seen-once judgment lives, feeding real create
+// confidence (see createConfidenceTier below) instead of a client-only tick
+// default nothing downstream ever saw.
+//
+// Is this name just two other proposed names stuck together?
+//
+// "Opening Drama" appears twice; "Opening" appears 21 times and "Drama" 36. A
+// name that is far rarer than every one of its own parts is where two adjacent
+// cells were read as one, not a compound the camp actually uses.
+//
+// The frequency guard is what keeps genuine compounds: "Instructional Swim"
+// (54) is not much rarer than "Instructional" (34) or "Swim" (68), so it
+// survives. Without the guard this would reject the real activity along with
+// the artifact.
+const MERGE_RARITY = 3
+
+export function looksLikeAMerge(name, counts) {
+  const words = String(name ?? '').trim().split(/\s+/)
+  if (words.length < 2) return false
+  const whole = counts[name] ?? 0
+  if (whole === 0) return false
+
+  for (let split = 1; split < words.length; split++) {
+    const left = words.slice(0, split).join(' ')
+    const right = words.slice(split).join(' ')
+    const leftCount = counts[left]
+    const rightCount = counts[right]
+    if (!leftCount || !rightCount) continue
+    if (leftCount >= whole * MERGE_RARITY && rightCount >= whole * MERGE_RARITY) return true
+  }
+  return false
+}
+
+// §1 — real confidence on a CREATE. `seenCounts` is the same shape
+// `proposal.seenCounts` already carries (extractEntities.js): `{ [entity]:
+// countsByName, activityUnitShare: shareByNormalizedName }`. Additive-
+// degradation: `seenCounts` omitted (any caller/fixture that predates this
+// change, including the S4b enrichment-workbook path — Red Hat Risk 2/A4)
+// degrades to today's behavior, every create tier 'new'.
+//
+// `locations` is the ONE unconditional exception (Q8 fold, A2/§2): it always
+// classifies 'low' regardless of frequency, whatever `seenCounts` says —
+// nothing is ever minted or bound to a place without an explicit
+// `looks_right` resolution.
+//
+// A5 (Red Hat) — this is called ONLY from emitCreate below. Do not lift this
+// into a helper emitRecognized also calls: an update/unchanged row must stay
+// governed by identity tiers alone, never by frequency.
+export function createConfidenceTier(entity, name, seenCounts) {
+  if (entity === 'locations') return 'low'
+  if (!seenCounts) return 'new'
+  const counts = seenCounts[entity] ?? {}
+  const shares = seenCounts.activityUnitShare ?? {}
+  const shareOf = shares[normalizeName(name)] ?? 0
+  const isHigh = !looksLikeAMerge(name, counts) && ((counts[name] ?? 2) >= 2 || shareOf >= 1)
+  return isHigh ? 'new' : 'low'
+}
+
 // The tri-state CLEAR sentinel (type doc §3): a field present in the map with
 // `to: CLEAR` means "remove", distinct from absent (leave untouched) and from
 // `to: null` (a genuine null value). Unused by S0's create/unchanged arms; kept
@@ -138,6 +198,20 @@ export function buildPlan(source, existing = null, resolutions = []) {
   const campId = source?.camp_id ?? null
   const cohortId = source?.cohort_id ?? null
   const have = existing ?? {}
+  // §1 — real create confidence input (OQ1: named seenCounts, reusing
+  // proposal.seenCounts's own shape verbatim rather than a separate
+  // pre-classified verdict).
+  const seenCounts = source?.seenCounts ?? null
+  // A3 (HARD BLOCKER, Red Hat) — the pin-only/dual-use guard's buildPlan-side
+  // carry. ImportScreen.jsx's dualUseActivityNames/pinOnlyActivityNames used
+  // to gate this at the deleted tick step (ADR 2026-08-09 Decision 1): a
+  // fixed-event name that is NOT also a free activity choice must never
+  // silently mint into the activity catalog. A name in this set forces
+  // tier:'low' regardless of frequency, so it always requires an explicit
+  // director resolution instead of reaching tier:'new'.
+  const pinOnlyActivityNames = new Set(
+    Array.isArray(source?.pinOnlyActivityNames) ? source.pinOnlyActivityNames.map((n) => normalizeName(n)) : []
+  )
   // ADR 2026-08-09 Decision 2 — which fields on which items are director-
   // authored (not the file's), so commitCreate/commitUpdate stamp
   // source:'human' instead of 'import' on just those. Normalized to STORED
@@ -321,12 +395,15 @@ export function buildPlan(source, existing = null, resolutions = []) {
         for (const [field, value] of Object.entries(raw)) {
           fields[field] = { from: null, to: value, source: 'import' }
         }
+        const tier = entity === 'activities' && pinOnlyActivityNames.has(normalizeName(name))
+          ? 'low'
+          : createConfidenceTier(entity, name, seenCounts)
         const item = {
           op: 'create',
           entity,
           entity_id: null,
           fields,
-          evidence: { tier: 'new' },
+          evidence: { tier },
           // Commit-resolution inputs — pure data the committer binds against the
           // live name->id maps (ADR §4). buildPlan cannot resolve them (no DB).
           _name: name,

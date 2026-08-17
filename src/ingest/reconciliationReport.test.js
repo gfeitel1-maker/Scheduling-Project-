@@ -481,6 +481,78 @@ describe('buildReconciliationReport — C3 (fixedEventsReport.scopeChanged)', ()
     expect(report.decisions).toHaveLength(1)
   })
 
+  // F2 — from/to passthrough (docs/adr/2026-08-17-onescreen-reconciliation-merge.md §4)
+  it('a moved entry with from/to attaches them onto the decision, unmodified', () => {
+    const from = { day: 'Monday', timeBlock: 'Morning' }
+    const to = { day: 'Tuesday', timeBlock: 'Morning' }
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: {
+        moved: [{ name: 'Campfire', reason: 'moved from Mon/Morning to Tue/Morning', time_block: 'Morning', days: ['Monday'], from, to }],
+      },
+    })
+    expect(report.decisions).toHaveLength(1)
+    expect(report.decisions[0].from).toEqual(from)
+    expect(report.decisions[0].to).toEqual(to)
+  })
+
+  it('a moved entry without from/to degrades to undefined, not a stringified null', () => {
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: {
+        moved: [{ name: 'Campfire', reason: 'moved from Mon/Morning to Tue/Morning' }],
+      },
+    })
+    expect(report.decisions).toHaveLength(1)
+    expect(report.decisions[0].from).toBeUndefined()
+    expect(report.decisions[0].to).toBeUndefined()
+  })
+
+  // A1 (Red Hat HIGH) — day/time-block discriminator, reconciliationReport.js:
+  // fixedEventDecisionId/addFixedEventDecision must not collapse two distinct
+  // anchors sharing a name but differing in day/time-block into one decision.
+  it('two partial fixed events sharing a name but differing in day surface as TWO distinct decisions', () => {
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: {
+        partial: [
+          { name: 'Free Swim', reason: '1 of 2 groups not imported', time_block: 'Afternoon', days: ['Monday'] },
+          { name: 'Free Swim', reason: '1 of 2 groups not imported', time_block: 'Afternoon', days: ['Tuesday'] },
+        ],
+      },
+    })
+    expect(report.decisions).toHaveLength(2)
+    const ids = report.decisions.map((d) => d.id)
+    expect(new Set(ids).size).toBe(2)
+  })
+
+  it('two moved fixed events sharing a name but differing in time-block surface as TWO distinct decisions', () => {
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: {
+        moved: [
+          { name: 'Free Swim', reason: 'moved from Mon/Morning to Tue/Morning', time_block: 'Morning', days: ['Monday'] },
+          { name: 'Free Swim', reason: 'moved from Mon/Morning to Tue/Morning', time_block: 'Afternoon', days: ['Monday'] },
+        ],
+      },
+    })
+    expect(report.decisions).toHaveLength(2)
+  })
+
+  it('two identical partial entries (same name, reason, time_block, days) still collapse to ONE decision', () => {
+    const entry = { name: 'Free Swim', reason: '1 of 2 groups not imported', time_block: 'Afternoon', days: ['Monday'] }
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      fixedEventsReport: { partial: [entry, { ...entry }] },
+    })
+    expect(report.decisions).toHaveLength(1)
+  })
+
   it('additive proof: an absent scopeChanged key equals passing scopeChanged: []', () => {
     const withMoved = { moved: [{ name: 'Campfire', reason: 'moved from Mon/Morning to Tue/Morning' }] }
     const withoutKey = buildReconciliationReport({

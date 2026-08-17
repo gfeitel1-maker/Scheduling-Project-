@@ -486,7 +486,7 @@ function buildExistingSnapshot(db, camp_id, cohort_id, mode) {
  * that DOES hold returns the normal `{ held: true, conflicts, ... }` shape,
  * with none of these three fields present — same as a real held commit.
  */
-export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false }) {
+export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [] }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -519,7 +519,11 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
     // schedule/clipboard path leaves the clock gate inert.
     // ADR 2026-08-09 Decision 2: humanEditedFields flows straight through as a
     // top-level source key — buildPlan attaches it per-item as _humanFields.
-    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode, base_generation, humanEditedFields },
+    // ADR 2026-08-17-onescreen-reconciliation-merge.md §1/A3: seenCounts (real
+    // create confidence) and pinOnlyActivityNames (the A3 guard) flow straight
+    // through the same way — additive, absent for any caller/fixture that
+    // predates this change (S4b workbook re-import included — Risk 2/A4).
+    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode, base_generation, humanEditedFields, seenCounts, pinOnlyActivityNames },
     existing,
     // T73: a director's per-conflict decisions from a prior held commit. buildPlan
     // consumes only the ambiguous_identity picks; stale picks flow to commitPlan.
@@ -1316,7 +1320,14 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       const name = fileMap.get(fileUnmatched[0])
       const reason = `moved from ${liveName('days_of_operation', fromDay)}/${liveName('time_blocks', fromTb)}`
         + ` to ${liveName('days_of_operation', toDay)}/${liveName('time_blocks', toTb)}`
-      movedBySlot.set(anchorSlotKey(cohort_id, fromDay, fromTb, name), { name, reason })
+      // F2 (ADR §4): keep the structured from/to alongside the prose reason
+      // instead of discarding it once the string is built.
+      movedBySlot.set(anchorSlotKey(cohort_id, fromDay, fromTb, name), {
+        name,
+        reason,
+        from: { day: liveName('days_of_operation', fromDay), timeBlock: liveName('time_blocks', fromTb) },
+        to: { day: liveName('days_of_operation', toDay), timeBlock: liveName('time_blocks', toTb) },
+      })
     }
 
     // Fixed events, after the entity loop and INSIDE the same transaction, so
@@ -1350,7 +1361,12 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         const bits = []
         if (droppedDays > 0) bits.push(`${droppedDays} of ${requestedDays} day${requestedDays === 1 ? '' : 's'}`)
         if (droppedGroups > 0) bits.push(`${droppedGroups} of ${requestedGroups} group${requestedGroups === 1 ? '' : 's'}`)
-        fixedPartial.push({ name: fe.name, reason: `${bits.join(' and ')} not imported` })
+        fixedPartial.push({
+          name: fe.name,
+          reason: `${bits.join(' and ')} not imported`,
+          time_block: fe.time_block,
+          days: fe.days,
+        })
       }
       // Per-day fan-out — one row per resolved day, each its own uuid. Matches
       // AnchorsScreen: is_all_groups 1|0, group_ids a JSON string.
@@ -1366,7 +1382,14 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // drift and suppress the create. No op is appended for either side.
         const moved = movedBySlot.get(slotKey)
         if (moved) {
-          fixedMoved.push({ name: moved.name, reason: moved.reason })
+          fixedMoved.push({
+            name: moved.name,
+            reason: moved.reason,
+            time_block: fe.time_block,
+            days: fe.days,
+            from: moved.from,
+            to: moved.to,
+          })
           continue
         }
         // Live wins over tombstone — load-bearing for the restore escape
@@ -1405,10 +1428,15 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
                 allGroups ? 'all groups' : ids.map((id) => liveName('groups', id)).join(', ')
               const from = describe(Boolean(liveScope.is_all_groups), liveGroupIds)
               const to = describe(Boolean(isAll), incomingGroupIds)
-              fixedScopeChanged.push({ name: fe.name, reason: `scope changed from ${from} to ${to}` })
+              fixedScopeChanged.push({
+                name: fe.name,
+                reason: `scope changed from ${from} to ${to}`,
+                time_block: fe.time_block,
+                days: fe.days,
+              })
             }
           }
-          fixedUnchanged.push({ name: fe.name })
+          fixedUnchanged.push({ name: fe.name, confidence: fe.confidence, time_block: fe.time_block, days: fe.days })
           continue
         }
         if (rejectedSlots.has(slotKey)) {
@@ -1458,7 +1486,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
             source: IMPORT_SOURCE,
           })
         }
-        fixedCreated.push(anchorId)
+        fixedCreated.push({ anchorId, name: fe.name, confidence: fe.confidence, time_block: fe.time_block, days: fe.days })
       }
     }
 
@@ -1493,7 +1521,10 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       created,
       total,
       updated: 0,
-      fixedEvents: { created: 0, unchanged: 0, skipped: [], partial: [], rejected: [], moved: [], scopeChanged: [] },
+      fixedEvents: {
+        created: 0, unchanged: 0, skipped: [], partial: [], rejected: [], moved: [], scopeChanged: [],
+        createdEntries: [], unchangedEntries: [],
+      },
     }
   }
 
@@ -1511,6 +1542,16 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       rejected: fixedRejected,
       moved: fixedMoved,
       scopeChanged: fixedScopeChanged,
+      // FIX 1 (2026-08-17 fix round, Red Hat RISK 1): the reconciliation dry-run
+      // report needs each created/unchanged fixed event's confidence + time_block/
+      // days to classify a sub-majority create as needsAttention rather than
+      // silently 'understood'. `created`/`unchanged` above stay counts — that's
+      // what ImportScreen's post-commit success banner reads — these entry
+      // arrays are the additive, parallel detail channel electron/main.js's
+      // ingestReconcile handler substitutes in as fixedEventsReport.created/
+      // .unchanged for buildReconciliationReport to consume.
+      createdEntries: fixedCreated,
+      unchangedEntries: fixedUnchanged,
     },
   }
   if (replaced) outcome.replaced = replaced

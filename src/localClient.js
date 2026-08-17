@@ -48,12 +48,12 @@ export const localClient = {
   // it must not be reachable by miscounting commas. Fields are enumerated
   // explicitly, never spread, so a caller-supplied token cannot override the
   // real one — same rule as deleteWeek below.
-  ingestCommit: ({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation } = {}) =>
-    shoresh.ingestCommit({ token: currentToken(), approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation }),
+  ingestCommit: ({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames } = {}) =>
+    shoresh.ingestCommit({ token: currentToken(), approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames }),
   // D1 — read-only dry run of the same commit pipeline, for the reconciliation
   // summary. Same argument shape as ingestCommit; never writes.
-  ingestReconcile: ({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation } = {}) =>
-    shoresh.ingestReconcile({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation }),
+  ingestReconcile: ({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames } = {}) =>
+    shoresh.ingestReconcile({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames }),
   // S1b — remember an import label -> existing entity mapping so the next
   // import recognizes it without re-asking. Host-only, admin-gated at the IPC
   // boundary (electron/main.js's confirmAliasHandler); best-effort by callers.

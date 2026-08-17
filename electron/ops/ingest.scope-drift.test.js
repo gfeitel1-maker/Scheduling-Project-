@@ -90,7 +90,7 @@ describe('C1a — anchor group-scope drift signal', () => {
     const opsBefore = opCount()
     const second = commit({ ...BASE, fixedEvents: [MIFKAD_BUNK1] })
     expect(second.fixedEvents.scopeChanged).toEqual([
-      { name: 'Mifkad', reason: 'scope changed from all groups to Bunk 1' },
+      { name: 'Mifkad', reason: 'scope changed from all groups to Bunk 1', time_block: '09:00-09:40', days: ['Monday'] },
     ])
     expect(second.fixedEvents.created).toBe(0)
     expect(second.fixedEvents.unchanged).toBe(1)
@@ -105,7 +105,7 @@ describe('C1a — anchor group-scope drift signal', () => {
     commit({ ...BASE, fixedEvents: [MIFKAD_BUNK1] })
     const second = commit({ ...BASE, fixedEvents: [MIFKAD_ALL] })
     expect(second.fixedEvents.scopeChanged).toEqual([
-      { name: 'Mifkad', reason: 'scope changed from Bunk 1 to all groups' },
+      { name: 'Mifkad', reason: 'scope changed from Bunk 1 to all groups', time_block: '09:00-09:40', days: ['Monday'] },
     ])
     expect(second.fixedEvents.created).toBe(0)
     expect(anchorCount()).toBe(1)
@@ -115,7 +115,7 @@ describe('C1a — anchor group-scope drift signal', () => {
     commit({ ...BASE, fixedEvents: [MIFKAD_BUNK1] })
     const second = commit({ ...BASE, fixedEvents: [MIFKAD_BUNK2] })
     expect(second.fixedEvents.scopeChanged).toEqual([
-      { name: 'Mifkad', reason: 'scope changed from Bunk 1 to Bunk 2' },
+      { name: 'Mifkad', reason: 'scope changed from Bunk 1 to Bunk 2', time_block: '09:00-09:40', days: ['Monday'] },
     ])
     expect(second.fixedEvents.created).toBe(0)
     expect(anchorCount()).toBe(1)
@@ -132,7 +132,14 @@ describe('C1a — anchor group-scope drift signal', () => {
     // moved branch continues before reaching the scope comparison.
     const second = commit({ ...BASE, fixedEvents: [MIFKAD_BUNK1] })
     expect(second.fixedEvents.moved).toEqual([
-      { name: 'Mifkad', reason: 'moved from Monday/09:00-09:40 to Tuesday/09:00-09:40' },
+      {
+        name: 'Mifkad',
+        reason: 'moved from Monday/09:00-09:40 to Tuesday/09:00-09:40',
+        time_block: '09:00-09:40',
+        days: ['Monday'],
+        from: { day: 'Monday', timeBlock: '09:00-09:40' },
+        to: { day: 'Tuesday', timeBlock: '09:00-09:40' },
+      },
     ])
     expect(second.fixedEvents.scopeChanged).toEqual([])
     expect(second.fixedEvents.created).toBe(0)
@@ -164,7 +171,7 @@ describe('C1a — anchor group-scope drift signal', () => {
       scope: { is_all_groups: false, groups: ['Bunk 1', 'Bunk Nonexistent'] },
     }
     const second = commit({ ...BASE, fixedEvents: [missingGroup] })
-    expect(second.fixedEvents.partial).toEqual([{ name: 'Mifkad', reason: '1 of 2 groups not imported' }])
+    expect(second.fixedEvents.partial).toEqual([{ name: 'Mifkad', reason: '1 of 2 groups not imported', time_block: '09:00-09:40', days: ['Monday'] }])
     expect(second.fixedEvents.scopeChanged).toEqual([])
     expect(second.fixedEvents.created).toBe(0)
     expect(anchorCount()).toBe(1)
