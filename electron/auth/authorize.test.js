@@ -330,4 +330,27 @@ describe('authorize', () => {
       reason: 'device_revoked',
     })
   })
+
+  // ADR docs/adr/2026-08-17-sync-auth-layer-deepening.md, C3 — owner-directed
+  // reason-label harmonization ("revoked wins" precedence), applied via
+  // deviceTrust.js's deviceTrustReason. The reachable state under test is a
+  // device that was revoked WITHOUT ever having been authorized_at set —
+  // reachable because revokeDevice (electron/main.js) only requires the
+  // device to exist. Pre-C3, authorize.js checked !authorized_at BEFORE
+  // revoked_at, so this state reported 'device_not_authorized' — that was
+  // pinned by a fail-first version of this test (see git history) which
+  // passed against the pre-refactor code before this call site was updated
+  // to use deviceTrustReason. Post-C3 it reports 'device_revoked'. Allow/deny
+  // outcome (deny) is unchanged — only the reason label moves.
+  it('denies with device_revoked (not device_not_authorized) for a device revoked without ever having been authorized — C3 harmonization', () => {
+    const userId = insertUser({ role: 'admin' })
+    db.prepare(
+      "INSERT INTO devices (id, name, revoked_at, revocation_reason, device_secret_identifier, pairing_status) VALUES (?, ?, ?, ?, ?, 'pending')"
+    ).run('device-revoked-never-authorized', 'Revoked Never Authorized', new Date().toISOString(), 'lost', randomBytes(32).toString('hex'))
+    const token = issueLocalToken(db, userId, 'device-revoked-never-authorized')
+
+    const result = authorize({ db, token, action: 'users.create' })
+
+    expect(result).toEqual({ allowed: false, reason: 'device_revoked' })
+  })
 })
