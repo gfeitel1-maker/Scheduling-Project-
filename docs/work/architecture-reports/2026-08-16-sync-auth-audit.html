@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sync + Auth Architecture Audit — Shoresh — 2026-08-16</title>
+<style>
+  :root {
+    --bg: #fafafa; --surface: #fff; --border: #e2e5e9; --text: #1a1c1e;
+    --text-secondary: #6b7280; --primary: #2563eb; --danger: #dc2626;
+    --caution: #d97706; --success: #16a34a; --info: #6b7280; --accent: #7c3aed;
+    --code-bg: #f3f4f6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111214; --surface: #1c1f23; --border: #2d3139; --text: #e8eaed;
+      --text-secondary: #9ba3af; --primary: #60a5fa; --danger: #f87171;
+      --caution: #fbbf24; --success: #4ade80; --accent: #a78bfa; --code-bg: #252830;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: system-ui, -apple-system, sans-serif;
+    font-size: 14px; line-height: 1.6; padding: 40px 24px; max-width: 960px; margin: 0 auto; }
+  h1 { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  h2 { font-size: 16px; font-weight: 700; margin-top: 40px; margin-bottom: 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  h3 { font-size: 14px; font-weight: 700; margin-top: 24px; margin-bottom: 8px; }
+  p { margin-bottom: 10px; color: var(--text); }
+  code { font-family: 'Menlo', 'Consolas', monospace; font-size: 12px; background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+  .meta { font-size: 12px; color: var(--text-secondary); margin-bottom: 28px; }
+  .candidate { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); margin-bottom: 20px; overflow: hidden; }
+  .candidate-header { display: flex; align-items: center; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  .rank { font-family: monospace; font-size: 11px; font-weight: 700; background: var(--code-bg); border-radius: 4px; padding: 2px 8px; color: var(--text-secondary); flex-shrink: 0; }
+  .candidate-title { font-weight: 700; font-size: 14px; }
+  .candidate-body { padding: 14px 18px; }
+  .severity { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .sev-high { background: color-mix(in srgb, var(--danger) 12%, var(--surface)); color: var(--danger); }
+  .sev-medium { background: color-mix(in srgb, var(--caution) 12%, var(--surface)); color: var(--caution); }
+  .sev-low { background: color-mix(in srgb, var(--success) 12%, var(--surface)); color: var(--success); }
+  .sev-info { background: var(--code-bg); color: var(--text-secondary); }
+  .label { display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--code-bg); color: var(--text-secondary); margin-right: 4px; }
+  .label-god { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); color: var(--danger); }
+  .label-seam { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
+  .label-shallow { background: color-mix(in srgb, var(--caution) 10%, var(--surface)); color: var(--caution); }
+  .label-t87 { background: color-mix(in srgb, var(--primary) 14%, var(--surface)); color: var(--primary); font-weight: 700; }
+  .fields { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .evidence { background: var(--code-bg); border-left: 3px solid var(--border); border-radius: 0 4px 4px 0; padding: 10px 14px; margin: 10px 0; font-size: 12px; color: var(--text-secondary); }
+  .evidence strong { color: var(--text); }
+  .benchmark { border: 1px solid var(--border); border-radius: 8px; background: var(--surface); padding: 16px 18px; margin-bottom: 20px; }
+  .benchmark-title { font-weight: 700; font-size: 13px; margin-bottom: 8px; color: var(--success); }
+  ul { padding-left: 20px; margin-bottom: 10px; }
+  li { margin-bottom: 4px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px; }
+  th { text-align: left; padding: 8px 12px; border-bottom: 2px solid var(--border); font-weight: 600; }
+  td { padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:last-child td { border-bottom: none; }
+</style>
+</head>
+<body>
+<h1>Sync + Auth Architecture Audit</h1>
+<p class="meta">Shoresh &middot; 2026-08-16 &middot; F4 follow-up from the 2026-08-16 audit &middot; read-only, HEAD <code>b693e98</code> &middot; scope: <code>electron/sync/*</code> + <code>electron/auth/*</code></p>
+
+<p>This is the dedicated deep-read pass F4 called for: <code>syncClient.js</code> (1,489 lines) and <code>syncServer.js</code> (1,227 lines) had only been partially read in prior audits. The verdict up front: <strong>the layer is structurally healthier than its line count suggests.</strong> The domain logic lives elsewhere (<code>electron/ops/*</code>), the renderer is fully insulated behind IPC (it never imports a sync module and only ever sees a <code>write</code>/<code>isConnected</code>/<code>onConnectionChange</code> surface), and the auth core is a clean single seam. The genuine debt is two un-extracted <em>internal</em> seams inside the two big files, plus a device-trust check duplicated across four call sites.</p>
+
+<div class="evidence">
+<strong>Active-work caveat.</strong> Branch <code>claude/t87-returning-client-reauth</code> is concurrently reworking returning-client reauth. Candidates C1, C3, and C4 below touch the reauth / re-authenticate / device-trust path and are tagged <span class="label label-t87">MAY OVERLAP T87</span> — verify against that branch before acting. The structural findings themselves (module depth, seam placement) are largely orthogonal to T87's logic fix, but the exact lines overlap.
+</div>
+
+<h2>Depth assessment at a glance</h2>
+<table>
+<tr><th>Module</th><th>Lines</th><th>Verdict</th><th>Note</th></tr>
+<tr><td><code>auth/authorize.js</code></td><td>94</td><td style="color:var(--success)">Deep — benchmark</td><td>One function, one job: re-derive "what may this caller do right now" from the DB every call. Narrow interface, deep guarantee.</td></tr>
+<tr><td><code>auth/localAuth.js</code></td><td>349</td><td style="color:var(--success)">Deep</td><td>Token mint/verify, PIN, lockout, signing-key lifecycle. Several concerns but each small and sharing one crypto/DB substrate; <code>issueTokenForThisDevice</code> re-derives host-ness rather than trusting a caller flag.</td></tr>
+<tr><td><code>sync/discovery.js</code></td><td>39</td><td style="color:var(--success)">Deep</td><td>Validates untrusted mDNS broadcasts at the boundary. Correctly minimal; no premature seam.</td></tr>
+<tr><td><code>sync/syncServer.js</code></td><td>1,227</td><td style="color:var(--caution)">Large, two extractable seams</td><td>Mostly a message router that delegates to <code>ops/*</code>, but a ~330-line delivery/catch-up sub-layer is tangled in (C1).</td></tr>
+<tr><td><code>sync/syncClient.js</code></td><td>1,489</td><td style="color:var(--caution)">Large, one extractable seam + a split identity</td><td>Snapshot-apply manifest duplicates server knowledge (C2); the no-<code>serverUrl</code> branch is effectively a second class behind one factory.</td></tr>
+</table>
+
+<h2>The auth ↔ sync token seam is coherent</h2>
+<p>Before the candidates, the one boundary the brief flagged as possibly "tangled": how camp vs. local tokens, signing keys, and device trust flow across the three files. It is <strong>not</strong> tangled. The rules are single-sourced and each side owns exactly what it should:</p>
+<ul>
+<li><strong>Minting authority is derived, never asserted.</strong> <code>issueTokenForThisDevice</code> (<code>localAuth.js:193</code>) picks camp vs. local token purely from the presence of <code>host_signing_key</code> on this device — a caller cannot mint the wrong kind.</li>
+<li><strong>The network rejects local tokens explicitly.</strong> <code>handleAuthenticate</code> closes with code <code>4402</code> on any non-<code>camp</code> token (<code>syncServer.js:396</code>) rather than relying on signature mismatch — a local token from the same device would otherwise verify.</li>
+<li><strong>Write-action derivation is single-sourced.</strong> Both the IPC path (<code>main.js</code>) and the WS path (<code>handleSubmitOp</code>/<code>handleAcquireLock</code>) call the same <code>deriveWriteAction</code>, so staff cannot do over WS what they cannot do over IPC.</li>
+<li><strong>Provenance is host-derived on the trust boundary.</strong> <code>handleSubmitOp</code> forces <code>source:'human'</code> and never copies <code>msg.op.source</code> (<code>syncServer.js:649</code>).</li>
+</ul>
+<p>This part of the layer is a positive example. The candidates below are about <em>size and internal seams</em>, not this boundary.</p>
+
+<h2>Ranked deepening candidates</h2>
+
+<div class="candidate">
+  <div class="candidate-header">
+    <span class="rank">C1</span>
+    <span class="candidate-title">Extract the reliable-delivery + catch-up watermark sub-module out of syncServer.js</span>
+    <span class="severity sev-high">High</span>
+  </div>
+  <div class="candidate-body">
+    <div class="fields">
+      <span class="label label-seam">missing internal seam</span>
+      <span class="label label-god">multi-responsibility file</span>
+      <span class="label label-t87">MAY OVERLAP T87</span>
+    </div>
+    <p>Roughly 330 lines of <code>syncServer.js</code> form one cohesive concern that has nothing to do with message routing: guaranteeing an op is genuinely delivered-and-applied before a device's watermark advances. It spans <code>send</code>, <code>sendWithAck</code>, <code>waitForFullSyncAck</code>, <code>waitForApplyAck</code>, <code>currentMaxOpSeq</code>, <code>sendFullSyncIfFirstPairing</code>, and <code>sendMissedOps</code> (<code>syncServer.js:40–374</code>). It carries its own hard invariant — <em>the watermark advances only to the seq of the last op whose apply-ack genuinely returned, in order, with no gaps</em> — a property that has already been re-derived across three rounds of fixes (Task 10 rounds 4/5/6, then T85 Part 2).</p>
+    <div class="evidence">
+      <strong>Deletion test:</strong> deleting this cluster would move a genuinely separate, invariant-bearing concern onto the message router's callers — it does not simplify. That is the signature of a real seam waiting to be named. <br>
+      <strong>Already straining to be a module:</strong> <code>sendMissedOps</code> and <code>sendWithAck</code> are <em>already</em> <code>export</code>ed solely for direct unit testing (comments at <code>:290</code> and <code>:71</code>). The test cannot reach the watermark logic except through the whole server today; a <code>opDelivery.js</code> / <code>catchup.js</code> module would give it a first-class seam.
+    </div>
+    <p><strong>The T87 overlap:</strong> the clobber hazard these ack-waiters create — each stashes a single resolver on the socket (<code>ws.pendingFullSyncAckResolve</code>, <code>ws.pendingCatchupAckResolve</code>/<code>OpId</code>) — is exactly what forced the <code>isReauthenticate</code> early-return guard (<code>:464–480</code>), and that reauth path is what T87 is reworking. Fold the fix (C4) in when extracting.</p>
+  </div>
+</div>
+
+<div class="candidate">
+  <div class="candidate-header">
+    <span class="rank">C2</span>
+    <span class="candidate-title">Single-source the full_sync snapshot manifest shared by server and client</span>
+    <span class="severity sev-high">High</span>
+  </div>
+  <div class="candidate-body">
+    <div class="fields">
+      <span class="label label-seam">seam misplacement</span>
+      <span class="label label-shallow">duplicated cross-file knowledge</span>
+    </div>
+    <p>The set of camp-scoped tables shipped in the first-pairing snapshot, and their FK-safe apply order, is knowledge that <em>must</em> agree between the two ends of one wire — yet it is written twice, in two shapes, in two files. The server enumerates it as <code>DIRECT_CAMP_ENTITIES</code> + <code>DOMAIN_PARENT_SCOPED_ENTITIES</code> and ships <code>SELECT *</code> (<code>syncServer.js:33, 184–195</code>); the client re-lists the identical tables plus an explicit per-column allowlist and ordering as <code>DOMAIN_SNAPSHOT_TABLES</code> + <code>DOMAIN_TABLE_COLUMNS</code> (<code>syncClient.js:34–76</code>).</p>
+    <div class="evidence">
+      <strong>The divergence is not hypothetical — it already exists.</strong> The server-side comment at <code>syncServer.js:26–32</code> states plainly that <code>week_location_exclusions</code> (and its two <code>week_*_exclusions</code> siblings) are in the server's snapshot list but <em>not</em> in the client's <code>DOMAIN_SNAPSHOT_TABLES</code>, so "a first-pairing Client currently drops these rows." Two hand-maintained lists that must match have already drifted. A shared <code>snapshotManifest.js</code> (tables, order, columns, validators) consumed by both ends makes the drift impossible by construction and is the natural home for closing that gap.
+    </div>
+    <p>Leverage is high because the two lists will keep drifting every time a camp-scoped table is added (the pattern has recurred at v28, v32, v33), and each drift silently drops rows on exactly the devices — brand-new Clients — least able to notice.</p>
+  </div>
+</div>
+
+<div class="candidate">
+  <div class="candidate-header">
+    <span class="rank">C3</span>
+    <span class="candidate-title">Collapse the device-trust gate into one predicate</span>
+    <span class="severity sev-medium">Medium</span>
+  </div>
+  <div class="candidate-body">
+    <div class="fields">
+      <span class="label label-shallow">shallow duplication</span>
+      <span class="label label-seam">seam misplacement</span>
+      <span class="label label-t87">MAY OVERLAP T87</span>
+    </div>
+    <p>The rule "is this device currently allowed to act" — <code>authorized_at</code> set, <code>revoked_at</code> null — is re-queried and re-checked by hand in at least four places: <code>authorize()</code> (<code>authorize.js:43–62</code>), <code>handleAuthenticate</code> (<code>syncServer.js:418–444</code>), <code>handleLogin</code> (<code>syncServer.js:521–525</code>), and the <code>renew_token</code> branch (<code>syncServer.js:1136–1142</code>). Each re-implements the same SELECT and the same two-branch check, differing only in the close code / reply shape it emits (<code>4403</code>/<code>4404</code>/<code>login_failed</code>/<code>token_renewal_failed</code>).</p>
+    <div class="evidence">
+      <strong>Deletion test:</strong> a single <code>deviceTrustStatus(db, deviceId) → 'ok' | 'not_authorized' | 'revoked' | 'unknown'</code> predicate would let each call site keep its own response mapping while removing four copies of the query-and-branch logic. The duplication is shallow (each copy is nearly its whole value), and a new device-state (e.g. the <code>'unknown'</code> stub row T85 introduced, <code>syncClient.js:492</code>) currently has to be reasoned about at every copy independently.
+    </div>
+    <p><strong>T87 overlap:</strong> returning-client reauth exercises exactly these <code>authenticate</code>/<code>authorize</code> device checks; land after T87 or coordinate.</p>
+  </div>
+</div>
+
+<div class="candidate">
+  <div class="candidate-header">
+    <span class="rank">C4</span>
+    <span class="candidate-title">Replace the ws-stashed single ack-resolvers with a keyed pending-ack registry</span>
+    <span class="severity sev-medium">Medium</span>
+  </div>
+  <div class="candidate-body">
+    <div class="fields">
+      <span class="label label-seam">missing internal seam</span>
+      <span class="label label-t87">MAY OVERLAP T87</span>
+    </div>
+    <p>On the server, each in-flight ack is a bare property on the socket object: <code>ws.pendingFullSyncAckResolve</code>, <code>ws.pendingCatchupAckResolve</code> + <code>ws.pendingCatchupAckOpId</code> (<code>syncServer.js:134–153, 272–288</code>). Because there is only one slot per kind, a second concurrent run clobbers the first — which is precisely the failure the <code>isReauthenticate</code> guard exists to dodge (<code>:446–480</code>), and the reason its long comment has to argue that a second catch-up is "both unnecessary and the sole source of the clobber."</p>
+    <div class="evidence">
+      <strong>The good pattern already exists on the other side.</strong> <code>syncClient.js</code> solved the identical problem with <code>restoreResolvers</code>/<code>deleteResolvers</code>/<code>mergeResolvers</code> keyed by <code>request_id</code>, plus a single <code>keyedResolverMaps</code> registry drained uniformly on disconnect (<code>syncClient.js:323–331, 815–820</code>). Mirroring that on the server — a per-connection map keyed by <code>op_id</code> / sync-phase — removes the clobber hazard structurally, which in turn removes the <em>reason</em> for the guard rather than papering over it.
+    </div>
+    <p>This is the mechanism-level companion to C1; extract them together. Heavily entangled with the T87 reauth rework — coordinate directly.</p>
+  </div>
+</div>
+
+<div class="candidate">
+  <div class="candidate-header">
+    <span class="rank">C5</span>
+    <span class="candidate-title">Name the two identities of createSyncClient</span>
+    <span class="severity sev-low">Low</span>
+  </div>
+  <div class="candidate-body">
+    <div class="fields">
+      <span class="label label-seam">split identity behind one factory</span>
+    </div>
+    <p><code>createSyncClient</code> returns two structurally different objects depending on whether <code>serverUrl</code> is set. The no-<code>serverUrl</code> (Host-local) branch (<code>syncClient.js:179–279</code>) is ~100 lines implementing its own <code>write</code>/<code>writeBulkReplace</code> that append directly and broadcast via <code>wss</code>, alongside a set of inert stubs (<code>isConnected → false</code>, <code>flushQueue → {}</code>). It shares almost no runtime path with the remote client below it; it is effectively a second class sharing a constructor and an interface.</p>
+    <div class="evidence">
+      This is a <em>mild</em> observation, not a defect: the shared interface is the point, and the stubs are honestly documented. But the two halves never interact, so a reader must hold "which client am I in" in their head for 1,300 lines. A named <code>createHostLocalClient</code> vs. <code>createRemoteClient</code> split (behind the same factory dispatch) would let each be read and tested in isolation. Low leverage; list it, don't prioritize it.
+    </div>
+  </div>
+</div>
+
+<h2>Benchmarks — what "deep" looks like in this layer</h2>
+<div class="benchmark">
+  <div class="benchmark-title">authorize.js — the canonical deep auth module</div>
+  <p>A 94-line file with one exported function and a narrow signature (<code>{db, token, action, resourceId}</code>) hiding a deep guarantee: every privileged action re-derives role and device trust from the database, never from the token payload, so a revoked device or demoted user is denied on its very next call. The <code>resourceId</code> parameter is accepted-but-unused specifically so a future per-resource rule needs no signature change — a deliberate, documented forward seam, not a premature one.</p>
+</div>
+<div class="benchmark">
+  <div class="benchmark-title">discovery.js — minimal, boundary-correct</div>
+  <p>39 lines. <code>toValidatedHost</code> treats every mDNS broadcast as untrusted input and returns <code>null</code> on any shape mismatch. No abstraction it doesn't need; no adapter for a variation that doesn't exist.</p>
+</div>
+
+<h2>What was checked and found clean</h2>
+<ul>
+<li><strong>Renderer sync-topology leakage:</strong> none. The renderer never imports <code>syncClient</code>/<code>syncServer</code>; it reaches the data layer only through <code>window.shoresh.*</code> IPC. The only topology it sees is <code>isConnected()</code> / <code>onConnectionChange()</code> — "can I reach the host," deliberately the minimum, explicitly documented as read-only (<code>syncClient.js:1216–1219</code>).</li>
+<li><strong>Op-log internals leaking to clients:</strong> the wire vocabulary (<code>op_applied</code>, <code>op_conflict</code>, <code>op_rejected</code>, watermarks) is the sync protocol itself, not a leak of storage internals; row shape is re-validated on receipt (<code>isValidRemoteOp</code>).</li>
+<li><strong>Premature seams:</strong> none found. Every seam crossed (IPC, ops/*, lockManager, rateLimit) has real variation behind it.</li>
+<li><strong>localAuth token seam:</strong> camp/local dispatch is derived, not asserted; verification fails closed on every malformed path.</li>
+</ul>
+
+<p class="meta">End of report. Candidates ranked by leverage: C1 &amp; C2 high, C3 &amp; C4 medium, C5 low. C1/C3/C4 touch the T87 reauth surface — verify against <code>claude/t87-returning-client-reauth</code> before acting.</p>
+</body>
+</html>
