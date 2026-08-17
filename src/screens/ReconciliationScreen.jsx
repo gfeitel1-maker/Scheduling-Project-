@@ -157,6 +157,37 @@ function EvidenceDetail({ decision, expanded }) {
   )
 }
 
+// R7 — review_legacy_priority's consolidated batch decision carries a clear
+// `reason` and the actual `activities` list; render both so the director can
+// see what they're acknowledging instead of a bare button. Names-only list,
+// disclosed via the same measured-reveal pattern as evidence — the batch can
+// be large and the list shouldn't dominate the card by default.
+function LegacyPriorityBody({ decision }) {
+  const [showActivities, setShowActivities] = useState(false)
+  const { ref, style } = useMaxHeightReveal(showActivities)
+  const activities = decision.activities ?? []
+  return (
+    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>
+      {decision.reason}
+      {activities.length > 0 && (
+        <>
+          {' '}
+          <button className="press-97" onClick={() => setShowActivities((v) => !v)} style={styles.linkButton}>
+            {showActivities ? 'Hide the activities' : `Show the ${activities.length} activities`}
+          </button>
+          <div style={style}>
+            <ul ref={ref} style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+              {activities.map((a) => (
+                <li key={a.entityId}>{a.name}</li>
+              ))}
+            </ul>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 async function fetchReadiness() {
   const collections = {
     cohorts: await localClient.list('cohorts').catch(() => []),
@@ -568,7 +599,11 @@ function DecisionCard({ decision, rank, answer, onAnswer, expanded, onToggleEvid
               {`${decision.from.day} · ${decision.from.timeBlock} → ${decision.to.day} · ${decision.to.timeBlock}`}
             </div>
           )}
-          <EvidenceDetail decision={decision} expanded={expanded} />
+          {decision.kind === 'review_legacy_priority' ? (
+            <LegacyPriorityBody decision={decision} />
+          ) : (
+            <EvidenceDetail decision={decision} expanded={expanded} />
+          )}
           <ResolutionControls decision={decision} onAnswer={onAnswer} />
         </>
       )}
@@ -704,7 +739,10 @@ function questionFor(decision) {
       : `Is "${name}" a new record, or one you already have?`
   }
   if (decision.kind === 'confirm_change') return `"${name}" was hand-edited — keep it or overwrite from the file?`
-  if (decision.kind === 'review_legacy_priority') return `Review activity priority for "${name}"`
+  if (decision.kind === 'review_legacy_priority') {
+    const count = decision.count ?? 0
+    return `Review priority for ${count} ${count === 1 ? 'activity' : 'activities'} carried over from an earlier import`
+  }
   return `Use the file's value for "${name}"?`
 }
 

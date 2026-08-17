@@ -305,6 +305,48 @@ describe('done state', () => {
   })
 })
 
+// R7 — the consolidated review_legacy_priority batch decision carries count/
+// reason/activities but the card rendered none of it (bare "Acknowledge",
+// generic "this record" question). Rendering-only fix; acknowledge-only
+// resolution and applyResolutions' `continue` (never a write) stay as-is.
+function legacyPriorityResult() {
+  return {
+    planItems: [],
+    fixedEventsReport: {},
+    legacyPriorityActivities: [
+      { entity_id: 'a1', name: 'Swim' },
+      { entity_id: 'a2', name: 'Archery' },
+    ],
+    fieldProvenance: {},
+    evidenceSupport: {},
+  }
+}
+
+describe('review_legacy_priority — batch decision rendering (R7)', () => {
+  it('renders the count in the question, the reason, and the activity names, and acknowledges without writing a priority field', async () => {
+    localClient.ingestReconcile.mockResolvedValue(legacyPriorityResult())
+    localClient.ingestCommit.mockResolvedValue({ total: 1 })
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await waitFor(() => expect(screen.getByText(/0 of 1 done/)).toBeTruthy())
+
+    expect(screen.getByText(/Review priority for 2 activities carried over from an earlier import/)).toBeTruthy()
+    expect(screen.queryByText(/Review activity priority for "this record"/)).toBeNull()
+    expect(screen.getByText(/Shoresh cannot tell whether each value is a leftover/)).toBeTruthy()
+
+    await userEvent.click(screen.getByText('Show the 2 activities'))
+    expect(screen.getByText('Swim')).toBeTruthy()
+    expect(screen.getByText('Archery')).toBeTruthy()
+
+    await userEvent.click(screen.getByText('Acknowledge'))
+    await waitFor(() => expect(screen.getByText(/1 of 1 done/)).toBeTruthy())
+
+    await userEvent.click(screen.getByText('Use this setup'))
+    await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
+    const inputs = localClient.ingestCommit.mock.calls[0][0]
+    expect(JSON.stringify(inputs)).not.toMatch(/priority/)
+  })
+})
+
 describe('F3 — required readiness gap card', () => {
   it('renders a required_gap hold-lane card, sorted first, when a required readiness area is missing', async () => {
     localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
