@@ -13,6 +13,7 @@ import {
   detectBulkReplaceConflict,
 } from '../ops/operations.js'
 import { authorize } from '../auth/authorize.js'
+import { deviceTrustStatus, deviceTrustReason } from '../auth/deviceTrust.js'
 import { deriveWriteAction, deriveBulkReplaceAction } from '../auth/deriveWriteAction.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
 import { restoreEntity } from '../ops/restore.js'
@@ -79,31 +80,23 @@ function handleAuthenticate(db, ws, msg) {
     "INSERT OR IGNORE INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')"
   ).run(verified.deviceId, `Device ${verified.deviceId.slice(0, 8)}`)
 
-  const deviceRow = db
-    .prepare('SELECT authorized_at, revoked_at FROM devices WHERE id = ?')
-    .get(verified.deviceId)
-  if (!deviceRow || !deviceRow.authorized_at) {
+  const trust = deviceTrustStatus(db, verified.deviceId)
+  if (!trust.found || !trust.authorized || trust.revoked) {
+    const reason = deviceTrustReason(trust)
     recordAuditEvent(db, {
       actorUserId: verified.userId,
       deviceId: verified.deviceId,
       action: 'auth.authenticate',
       outcome: 'deny',
-      reason: 'device_not_authorized',
+      reason,
       metadata: verified.jti ? { jti: verified.jti } : null,
     })
-    ws.close(4403, 'device_not_authorized')
-    return
-  }
-  if (deviceRow.revoked_at) {
-    recordAuditEvent(db, {
-      actorUserId: verified.userId,
-      deviceId: verified.deviceId,
-      action: 'auth.authenticate',
-      outcome: 'deny',
-      reason: 'device_revoked',
-      metadata: verified.jti ? { jti: verified.jti } : null,
-    })
-    ws.close(4404, 'device_revoked')
+    // For the not-found case — unreachable here, since the synchronous
+    // INSERT OR IGNORE self-registration immediately above guarantees
+    // trust.found — this close reason TEXT is now 'device_not_found' (was
+    // hardcoded 'device_not_authorized' pre-C3). The close CODE is
+    // unaffected either way (4403).
+    ws.close(reason === 'device_revoked' ? 4404 : 4403, reason)
     return
   }
 
@@ -188,14 +181,14 @@ function handleLogin(db, ws, msg, now) {
   // the same opaque 'login_failed' response with no reason field — leaking
   // distinct reasons would create a device-existence/authorization oracle
   // (Security review finding 4).
-  const deviceRow = db.prepare('SELECT authorized_at, revoked_at, device_secret_identifier FROM devices WHERE id = ?').get(msg.device_id)
-  if (!deviceRow || !deviceRow.authorized_at || deviceRow.revoked_at) {
+  const trust = deviceTrustStatus(db, msg.device_id)
+  if (!trust.found || !trust.authorized || trust.revoked) {
     send(ws, { type: 'login_failed' })
     return
   }
   // Constant-time comparison for the 64-char hex device secret to prevent
   // timing side-channels (Security review finding 3).
-  const storedSecret = deviceRow.device_secret_identifier
+  const storedSecret = trust.row.device_secret_identifier
   const providedSecret = typeof msg.device_secret_identifier === 'string' ? msg.device_secret_identifier : ''
   let secretOk = false
   if (storedSecret && storedSecret.length === providedSecret.length) {
@@ -805,11 +798,17 @@ export function startSyncServer(db, { port, onPairingRequest, now = Date.now } =
             send(ws, { type: 'token_renewal_failed', reason: 'invalid_token' })
             return
           }
-          const renewDeviceRow = db.prepare('SELECT authorized_at, revoked_at FROM devices WHERE id = ?').get(ws.deviceId)
-          if (!renewDeviceRow || !renewDeviceRow.authorized_at || renewDeviceRow.revoked_at) {
-            const reason = renewDeviceRow?.revoked_at ? 'device_revoked' : 'device_not_authorized'
+          const renewTrust = deviceTrustStatus(db, ws.deviceId)
+          if (!renewTrust.found || !renewTrust.authorized || renewTrust.revoked) {
+            const reason = deviceTrustReason(renewTrust)
+            // For the not-found case — practically unreachable, since
+            // operations.device_id's FK prevents deleting a devices row for
+            // any device that has synced, and the client discards
+            // token_renewal_failed.reason anyway — this reason is now
+            // 'device_not_found' (was the old ternary's 'device_not_authorized'
+            // fallback pre-C3). No close-code change.
             send(ws, { type: 'token_renewal_failed', reason })
-            if (renewDeviceRow?.revoked_at) ws.close(4404, 'device_revoked')
+            if (reason === 'device_revoked') ws.close(4404, 'device_revoked')
             return
           }
           const newToken = issueCampToken(db, verified.userId, ws.deviceId)

@@ -3,7 +3,7 @@ task: sync/auth layer deepening — C1 (extract reliable-delivery/catch-up submo
 document_type: run
 date: 2026-08-17
 round: 1
-status: in-progress
+status: pass
 task_class: security-auth
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, SECURITY.md, docs/governance/standards/WORK_RECORD_STANDARD.md]
 related_tickets: []
@@ -22,8 +22,13 @@ human_gates:
   - "Architecture change: this ADR proposes a new module boundary (opDelivery.js, catchup.js) and new shared functions (deviceTrustStatus, deviceTrustReason) — Article IV 'architecture change without an accepted ADR' gate. ADR accepted 2026-08-17, with owner's directed C3-harmonize change layered on."
   - "Security/auth task class (C3): any change touching the device-trust gate re-query pattern requires Security sign-off per GOVERNANCE_INDEX.md's security-auth row, even though this ADR's explicit design goal is zero behavior change."
   - "database-sync/concurrency span (C1/C4): touches the op-log delivery watermark's internal resolver-storage shape — GOVERNANCE_INDEX.md's concurrency row calls for Red Hat review on any change adjacent to write-ordering/replay semantics, even though C1/C4 do not change ordering or replay themselves."
-verdict: null
-completion_evidence: []
+verdict: pass
+completion_evidence:
+  - "Slice 1 (C1) — merged PR #91 (main 647ce36). Panel unanimous 5/5/Ready; gate report sync-auth-c1-r1.json."
+  - "Slice 2 (C4) — merged PR #92 (main 589a3e4). Security 5/5, Red Hat 4/5, Code Reviewer Ready; Grader PASS 4.6; gate report sync-auth-c4-r1.json."
+  - "Slice 3 (C3) — Grader PASS 4.0 (lowest dim 4), decision_eligibility PASS_ELIGIBLE; gate report sync-auth-deepening-c3-r1.json. Security 4/5 (conditional approve, condition satisfied), Red Hat 4/5, Code Reviewer Ready. Deterministic on solo run: unit 3100 pass / 1 skip exit 0, integration 25/25, lint 0, governance clean, noBareSleeps green."
+  - "C2 was already shipped as T88 before this initiative (single-sourced full_sync snapshot manifest)."
+  - "Invariant proven: allow/deny outcome identical at all four device-trust call sites before/after C3; the two harmonization changes (authorize.js reason, handleAuthenticate close code) are deny-preserving and UX-neutral (both 4403/4404 fold to one director message)."
 archive_when: "All three approved candidates (C1, C4, C3) are implemented as three separate, sequentially merged PRs per the ADR's slice decomposition; every characterization test named in the ADR's Test strategy section passes with assertion bodies unchanged (Slices 1-2) or with the mandatory fail-first before/after pair plus unchanged assertions elsewhere (Slice 3); the integration suite and full deterministic gate set are green on each slice's own branch before merge; Security has signed off on Slice 3 (device-trust predicate + harmonize) confirming zero change to any of the four call sites' allow/deny outcomes, and confirming the reason-label/close-code change is confined to exactly the reachable revoked-but-never-authorized state at authorize.js/handleAuthenticate per the ADR's harmonized precedence; and the ADR's status remains accepted with implementation_state: implemented in the same commit that closes the final slice."
 ---
 
@@ -136,7 +141,7 @@ Every one of the ten appears here.
 | ADR acceptance | done | Owner accepted 2026-08-17 with one directed change to C3: harmonize the device-trust reason precedence (revoked wins) instead of preserving the divergence. See ADR acceptance note + Approach §C3. |
 | Slice 1 (C1) implementation | done | commit `155cb13` — verbatim move to `opDelivery.js` + `catchup.js`; `syncServer.js` 1215→891 lines |
 | Slice 2 (C4) implementation | done | commit `2f993e9` — keyed `Map<op_id,resolve>` apply-ack registry in `catchup.js`; full-sync-ack single-slot behind `resolveFullSyncAck`; `isReauthenticate` byte-unchanged |
-| Slice 3 (C3) implementation | not started | |
+| Slice 3 (C3) implementation | done | commits `a6a40dc` (predicate + revoked-wins) + `9365265` (review fixes) + `0ef360c` (deterministic auth-wait) — `deviceTrust.js` adopted at all four device-trust call sites; `isReauthenticate`/ack-resolver untouched |
 | Slice 1 — test / lint / integration | pass | `syncServer.test.js` 58/58, integration 25/25, lint 0 errors, governance clean; solo full suite 3054 pass. Landed PR #91 (`647ce36`), gate report `sync-auth-c1-r1.json` |
 | Slice 1 — Security review | pass | 5/5 — byte-verbatim confirmed line-by-line; `handleAuthenticate`/auth/trust unchanged; no secret crosses the new module boundary |
 | Slice 1 — Red Hat review | pass | Resilience 5/5 — cross-module `ws`-state correlation, module-scope captures, watermark math, T85/T87 guards all verified intact; no scope creep |
@@ -145,15 +150,24 @@ Every one of the ten appears here.
 | Slice 2 — Security review | pass | 5/5 — per-`ws` registry isolation, no unbounded Map growth (client can't drive registration; entries self-delete on timeout), no auth boundary touched |
 | Slice 2 — Red Hat review | pass | Resilience 4/5 — keyed Map fixes clobber only for DIFFERENT op_ids; same-op_id case (overlapping runs share one watermark) still clobbers but is inert (isReauthenticate-gated). Fix round: honest comments + ADR scoping + known-limitation test |
 | Slice 2 — Code Reviewer | pass | Ready — matches ADR sketch; concurrency test load-bearing; asymmetry (full-sync-ack single-slot) intentional; no scope creep |
-| Slice 3 gates (test/lint/integration, Security sign-off, Red Hat, Code Reviewer) | not started | |
+| Slice 3 — test / lint / integration | pass | solo full suite 3100 pass / 1 skip exit 0, integration 25/25, lint 0 errors, governance clean, noBareSleeps green. Gate report `sync-auth-deepening-c3-r1.json` (Grader PASS 4.0) |
+| Slice 3 — Security review (required sign-off) | pass | 4/5 conditional approve — allow/deny identical at all four sites; harmonization deny-preserving; `handleLogin` oracle-resistance preserved; device secret confined to its `timingSafeEqual` consumer. Condition (re-verify C3 present after a transient worktree-stash revert during review) SATISFIED + committed |
+| Slice 3 — Red Hat review | pass | Resilience 4/5 — allow/deny invariant verified via full truth table + fail-first re-execution + integration; two dead-branch not-found label changes (`device_not_found`) documented in-code/ADR + pinned by tests |
+| Slice 3 — Code Reviewer | pass | Ready — matches ADR sketch; 2 LOW (stale "see git history" comments; close-reason-text nuance) fixed in the fix round |
 
 ## Verifier verdict
 
-Not yet run — no slice implemented.
+VERIFIED — all deterministic gates green on the rebased base (branch HEAD `0ef360c` atop main `589a3e4`):
+unit suite 3100 passed / 1 skipped exit 0; integration 25/25; lint 0 errors; `check:governance` no
+findings; `noBareSleeps` guard green (the two new `renew_token` tests use a deterministic
+`acquire_lock`/`lock_result` probe, not a fixed sleep). Slices 1 (PR #91) and 2 (PR #92) already merged.
 
 ## Grader score
 
-Not yet run — no slice implemented.
+**Slice 1 (C1): PASS 5.0** (`sync-auth-c1-r1.json`). **Slice 2 (C4): PASS 4.6** (`sync-auth-c4-r1.json`).
+**Slice 3 (C3): PASS 4.0**, lowest dimension 4, verifier_pass true, decision_eligibility PASS_ELIGIBLE
+(`sync-auth-deepening-c3-r1.json`) — Security 4, Red Hat 4, Tester 4, Code Reviewer 4. No blocking
+findings across any slice. The whole initiative (C1 + C2-as-T88 + C4 + C3) is complete.
 
 ## Findings carried forward
 
@@ -176,3 +190,16 @@ ADR accepted by owner 2026-08-17, with one directed change: harmonize the C3 dev
 precedence (revoked wins) instead of preserving the divergence — see ADR acceptance note and Approach
 §C3. Governor to route Maker through Slices 1→2→3 per the recommended sequence; Slice 3 must land with
 the mandatory fail-first characterization test (ADR Test strategy §3) and its own Security review pass.
+
+**Shipped (2026-08-17).** All three slices landed on `main` as three separate PRs, in sequence, exactly
+per the ADR's slice decomposition: Slice 1 (C1) PR #91 (`647ce36`), Slice 2 (C4) PR #92 (`589a3e4`),
+Slice 3 (C3) — this run. C2 was already shipped as T88 before the initiative. Every slice cleared its
+own full panel + Grader with no blocking findings; Slice 3's required Security sign-off was given
+(4/5 conditional approve, condition satisfied). The archive_when predicate is met: three sequential PRs,
+allow/deny provably unchanged at all four device-trust sites, the harmonization confined to the reachable
+revoked-but-never-authorized state and confirmed UX-neutral, and the ADR is `accepted` with
+`implementation_state: implemented`. Two things surfaced but deliberately NOT expanded into this scope:
+(1) the `full_sync`/`full_sync_applied` wire-correlator non-goal (would let C4's keyed pattern cover
+full-sync-ack; its own future ADR if ever pursued); (2) the pre-existing fixed-port test flakes
+(`syncClient.test.js` 8237 → T90; `syncServer.test.js` 8137, same class) — environmental, cross-session,
+not introduced here.

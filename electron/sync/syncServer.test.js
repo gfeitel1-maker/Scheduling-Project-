@@ -739,6 +739,170 @@ describe('device self-registration + revocation gate at authenticate (docs/adr/2
   })
 })
 
+describe('C3 fail-first characterization: device-trust reason harmonization at the reachable never-authorized-but-revoked state (docs/adr/2026-08-17-sync-auth-layer-deepening.md)', () => {
+  // Reachable because revokeDevice (electron/main.js) only requires the
+  // device to exist, not that it was ever authorized.
+  function insertRevokedNeverAuthorizedDevice(db, id, name) {
+    db.prepare(
+      `INSERT INTO devices (id, name, revoked_at, revocation_reason, device_secret_identifier, pairing_status)
+       VALUES (?, ?, ?, ?, ?, 'pending')`
+    ).run(id, name, new Date().toISOString(), 'lost', randomBytes(32).toString('hex'))
+  }
+
+  // ADR C3: handleAuthenticate now sources its reason from
+  // deviceTrustReason's revoked-wins precedence. Pre-C3, handleAuthenticate
+  // checked !authorized_at BEFORE revoked_at, so this state closed 4403
+  // ('device_not_authorized'). This was verified fail-first during
+  // development — this assertion was written and run against the
+  // pre-refactor code, where it passed with 4403/'device_not_authorized',
+  // before the call site was switched to deviceTrustReason and the
+  // expectation flipped to match; both steps landed together in this one C3
+  // commit, so there is no separate fail-first commit to point to. Post-C3 it
+  // closes 4404 ('device_revoked'). Confirmed UX-neutral: syncClient.js's
+  // reasonForAuthRejectedCode maps both 4403 and 4404 to the identical
+  // director-facing message.
+  it('handleAuthenticate closes 4404 for a device revoked without ever having been authorized — C3 harmonization', async () => {
+    const targetDeviceId = randomUUID()
+    insertRevokedNeverAuthorizedDevice(db, targetDeviceId, 'Revoked Never Authorized')
+    const targetToken = issueCampToken(db, userId, targetDeviceId)
+
+    const ws = connect()
+    await onceOpen(ws)
+    const closePromise = new Promise((resolve) => ws.once('close', (code, reason) => resolve({ code, reason: reason.toString() })))
+    ws.send(JSON.stringify({ type: 'authenticate', token: targetToken, device_id: targetDeviceId }))
+
+    const { code } = await closePromise
+    expect(code).toBe(4404)
+  })
+
+  // handleLogin never exposes a reason (oracle-resistance) — unchanged by C3.
+  // Included for table-driven completeness, not because it's expected to change.
+  it('handleLogin responds with an opaque login_failed (no reason) for a device revoked without ever having been authorized', async () => {
+    const targetDeviceId = randomUUID()
+    const secret = randomBytes(32).toString('hex')
+    db.prepare(
+      `INSERT INTO devices (id, name, revoked_at, revocation_reason, device_secret_identifier, pairing_status)
+       VALUES (?, ?, ?, ?, ?, 'pending')`
+    ).run(targetDeviceId, 'Revoked Never Authorized', new Date().toISOString(), 'lost', secret)
+
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({
+      type: 'login',
+      device_id: targetDeviceId,
+      name: 'Alice',
+      pin: '1234',
+      device_secret_identifier: secret,
+    }))
+
+    const reply = await onceMessage(ws)
+    expect(reply).toEqual({ type: 'login_failed' })
+
+    ws.close()
+  })
+
+  // renew_token already implements revoked-wins today — unchanged by C3.
+  // Included for table-driven completeness, not because it's expected to change.
+  it('renew_token responds device_revoked and closes 4404 for a device revoked without ever having been authorized (already revoked-wins, pre- and post-C3)', async () => {
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token, device_id: deviceId }))
+    // An authenticated-only probe (acquire_lock), sent right after
+    // authenticate and awaited before the DB mutation below, is the
+    // deterministic sync point: handleAuthenticate is not itself awaited by
+    // its caller, so a fixed sleep can't prove it actually ran — but
+    // acquire_lock is gated on `ws.deviceId` (handleAuthenticate sets it
+    // synchronously, see syncServer.js), so a `lock_result` reply is only
+    // possible once authenticate has genuinely completed. Without this gate,
+    // the DB mutation (pure in-process JS) can race ahead of the real
+    // network round-trip authenticate needs, land BEFORE the server even
+    // processes `authenticate`, and make handleAuthenticate itself see the
+    // device as already-revoked and close 4404 there — never reaching
+    // renew_token's own revoked-wins check, which is what this test means to
+    // exercise.
+    ws.send(
+      JSON.stringify({ type: 'acquire_lock', entity: 'template_slots', entity_id: 'renew-token-sync-probe', field: 'activity_id' })
+    )
+    await onceMessageOfType(ws, 'lock_result')
+
+    // Flip the already-authenticated device to never-authorized-but-revoked
+    // mid-session, matching the existing "revoke mid-session" test's shape.
+    db.prepare("UPDATE devices SET authorized_at = NULL, revoked_at = ?, revocation_reason = 'lost' WHERE id = ?")
+      .run(new Date().toISOString(), deviceId)
+
+    ws.send(JSON.stringify({ type: 'renew_token', token }))
+    const reply = await onceMessageOfType(ws, 'token_renewal_failed')
+    expect(reply.reason).toBe('device_revoked')
+
+    await onceClose(ws)
+    ws.close()
+  })
+})
+
+describe('C3 table-driven: outcome/reason/close-code across found/authorized/revoked at handleAuthenticate and handleLogin', () => {
+  // Explicit close-code/reason coverage for the two reachable, never-revoked
+  // deny states — these were previously exercised (elsewhere in this file)
+  // only by "connection closed", without asserting the specific code. Named
+  // per docs/adr/2026-08-17-sync-auth-layer-deepening.md's test-strategy
+  // requirement to prove seven of eight found/authorized/revoked combinations
+  // are unchanged post-refactor. device_not_found is unreachable at
+  // handleAuthenticate (it self-registers a pending row for any unknown
+  // device before this check runs).
+  it('handleAuthenticate closes 4403/device_not_authorized for a device that has never been authorized (unchanged by C3)', async () => {
+    const targetDeviceId = randomUUID()
+    db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run(targetDeviceId, 'Pending Device')
+    const targetToken = issueCampToken(db, userId, targetDeviceId)
+
+    const ws = connect()
+    await onceOpen(ws)
+    const closePromise = new Promise((resolve) => ws.once('close', (code, reason) => resolve({ code, reason: reason.toString() })))
+    ws.send(JSON.stringify({ type: 'authenticate', token: targetToken, device_id: targetDeviceId }))
+
+    const { code, reason } = await closePromise
+    expect(code).toBe(4403)
+    expect(reason).toBe('device_not_authorized')
+  })
+
+  it('handleAuthenticate closes 4404/device_revoked for a device authorized then revoked (unchanged by C3)', async () => {
+    const targetDeviceId = randomUUID()
+    insertAuthorizedDevice(db, targetDeviceId, 'Revoked Device')
+    db.prepare("UPDATE devices SET revoked_at = ?, revocation_reason = 'lost' WHERE id = ?").run(new Date().toISOString(), targetDeviceId)
+    const targetToken = issueCampToken(db, userId, targetDeviceId)
+
+    const ws = connect()
+    await onceOpen(ws)
+    const closePromise = new Promise((resolve) => ws.once('close', (code, reason) => resolve({ code, reason: reason.toString() })))
+    ws.send(JSON.stringify({ type: 'authenticate', token: targetToken, device_id: targetDeviceId }))
+
+    const { code, reason } = await closePromise
+    expect(code).toBe(4404)
+    expect(reason).toBe('device_revoked')
+  })
+
+  it('handleLogin responds with an opaque login_failed for a device authorized then revoked (unchanged by C3)', async () => {
+    const targetDeviceId = randomUUID()
+    const secret = randomBytes(32).toString('hex')
+    insertAuthorizedDevice(db, targetDeviceId, 'Revoked Device')
+    db.prepare('UPDATE devices SET device_secret_identifier = ? WHERE id = ?').run(secret, targetDeviceId)
+    db.prepare("UPDATE devices SET revoked_at = ?, revocation_reason = 'lost' WHERE id = ?").run(new Date().toISOString(), targetDeviceId)
+
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({
+      type: 'login',
+      device_id: targetDeviceId,
+      name: 'Alice',
+      pin: '1234',
+      device_secret_identifier: secret,
+    }))
+
+    const reply = await onceMessage(ws)
+    expect(reply).toEqual({ type: 'login_failed' })
+
+    ws.close()
+  })
+})
+
 describe('full_sync on first pairing', () => {
   it('sends full_sync with all users and camps on an ALREADY-AUTHORIZED new device\'s first successful authenticate', async () => {
     const newDeviceId = randomUUID()
@@ -2118,6 +2282,51 @@ describe('renew_token WS message (sub-task 3)', () => {
 
     // Server should proactively close the connection
     await onceClose(ws)
+
+    ws.close()
+  })
+
+  // C3 pins renew_token's not-found reason as 'device_not_found' (was the
+  // old ternary's 'device_not_authorized' fallback pre-C3 — see
+  // deviceTrust.js). The state is practically unreachable in production
+  // (operations.device_id's FK prevents deleting a devices row for any
+  // device that has synced, and this specific device has NOT synced any op,
+  // which is exactly what makes the deletion below legal here), and the
+  // client discards token_renewal_failed.reason anyway — but it is worth
+  // pinning so a future change to the label is visible in a test diff.
+  it('responds with token_renewal_failed reason device_not_found when the device row no longer exists (C3 label pin)', async () => {
+    const targetDeviceId = randomUUID()
+    insertAuthorizedDevice(db, targetDeviceId, 'Soon To Be Deleted')
+    const targetToken = issueCampToken(db, userId, targetDeviceId)
+
+    const ws = connect()
+    await onceOpen(ws)
+    ws.send(JSON.stringify({ type: 'authenticate', token: targetToken, device_id: targetDeviceId }))
+    // An authenticated-only probe (acquire_lock), sent right after
+    // authenticate and awaited before the DB mutation below, is the
+    // deterministic sync point: handleAuthenticate is not itself awaited by
+    // its caller, so a fixed sleep can't prove it actually ran — but
+    // acquire_lock is gated on `ws.deviceId` (handleAuthenticate sets it
+    // synchronously, see syncServer.js), so a `lock_result` reply is only
+    // possible once authenticate has genuinely completed. Without this gate,
+    // the DB mutation (pure in-process JS) can race ahead of the real
+    // network round-trip authenticate needs and delete the devices row
+    // BEFORE the server even processes `authenticate` — making
+    // handleAuthenticate's own self-registration re-create it (INSERT OR
+    // IGNORE), which defeats the "row genuinely doesn't exist" scenario this
+    // test means to exercise at renew_token.
+    ws.send(
+      JSON.stringify({ type: 'acquire_lock', entity: 'template_slots', entity_id: 'renew-token-sync-probe', field: 'activity_id' })
+    )
+    await onceMessageOfType(ws, 'lock_result')
+
+    // Legal only because targetDeviceId has never authored an operation —
+    // no operations row's FK references it.
+    db.prepare('DELETE FROM devices WHERE id = ?').run(targetDeviceId)
+
+    ws.send(JSON.stringify({ type: 'renew_token', token: targetToken }))
+    const reply = await onceMessageOfType(ws, 'token_renewal_failed')
+    expect(reply.reason).toBe('device_not_found')
 
     ws.close()
   })

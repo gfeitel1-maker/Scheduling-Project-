@@ -1,6 +1,7 @@
 import { verifySessionToken } from './localAuth.js'
 import { PERMISSIONS } from './permissions.js'
 import { recordAuditEvent } from '../audit/auditLog.js'
+import { deviceTrustStatus, deviceTrustReason } from './deviceTrust.js'
 
 // Central authorization check for every privileged action, per
 // docs/adr/2026-07-24-centralized-authorization-layer.md. Re-derives
@@ -29,7 +30,7 @@ export function authorize({ db, token, action, resourceId }) {
     return deny(db, action, undefined, 'invalid_action', session.userId, session.deviceId, session.jti)
   }
 
-  let userRow, deviceRow
+  let userRow, trust
   try {
     // Re-query users by session.userId — role is read from THIS row, never
     // from the token payload. A row deleted since the token was issued (or a
@@ -40,9 +41,7 @@ export function authorize({ db, token, action, resourceId }) {
     // re-queried fresh on EVERY call, never cached — a device revoked
     // mid-session is denied on its very next request. This is the exact
     // extension point the original comment here named.
-    deviceRow = db
-      .prepare('SELECT id, authorized_at, revoked_at FROM devices WHERE id = ?')
-      .get(session.deviceId)
+    trust = deviceTrustStatus(db, session.deviceId)
   } catch (err) {
     console.warn(`authorize: db error while checking action=${action}: ${err.message}`)
     return deny(db, action, undefined, 'db_error', session.userId, session.deviceId)
@@ -51,14 +50,8 @@ export function authorize({ db, token, action, resourceId }) {
   if (!userRow) {
     return deny(db, action, undefined, 'user_not_found', session.userId, session.deviceId, session.jti)
   }
-  if (!deviceRow) {
-    return deny(db, action, userRow.role, 'device_not_found', session.userId, session.deviceId, session.jti)
-  }
-  if (!deviceRow.authorized_at) {
-    return deny(db, action, userRow.role, 'device_not_authorized', session.userId, session.deviceId, session.jti)
-  }
-  if (deviceRow.revoked_at) {
-    return deny(db, action, userRow.role, 'device_revoked', session.userId, session.deviceId, session.jti)
+  if (!trust.found || !trust.authorized || trust.revoked) {
+    return deny(db, action, userRow.role, deviceTrustReason(trust), session.userId, session.deviceId, session.jti)
   }
 
   const role = userRow.role
