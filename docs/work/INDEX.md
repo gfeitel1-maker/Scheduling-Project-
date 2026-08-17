@@ -33,7 +33,6 @@ Regenerate with `npm run index:work`.
 | [T83-unify-engine-eligibility-copies](../../docs/work/tickets/T83-unify-engine-eligibility-copies.md) | open | — |
 | [T86-device-management-handlers-not-host-gated-on-client](../../docs/work/tickets/T86-device-management-handlers-not-host-gated-on-client.md) | open | [2026-08-16-device-fk-seeding-and-delivery-watermark](../../docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md) · [T85-devices-table-never-synced-cross-device-op-drop](../../docs/work/tickets/T85-devices-table-never-synced-cross-device-op-drop.md) |
 | [T88-single-source-full-sync-manifest](../../docs/work/tickets/T88-single-source-full-sync-manifest.md) | open | [T89-live-op-week-parent-seed](../../docs/work/tickets/T89-live-op-week-parent-seed.md) |
-| [T90-syncclient-test-fixed-port-flake](../../docs/work/tickets/T90-syncclient-test-fixed-port-flake.md) | open | — |
 
 ## Decisions
 
@@ -110,6 +109,7 @@ They are different facts and a run can carry a bad one of each.
 | 2026-08-17 | [R2′b — one-screen ReconciliationScreen (compose single surface + staged-tray-as-dry-run wiring + cutover/deletions + PLATFORM_STATE refresh)](../../docs/work/runs/2026-08-17-reconciliation-r2b-onescreen.md) | ui-ux-design | pass | pass |
 | 2026-08-17 | [R7 — legacy-priority: verify handling in the one-workspace flow; render the batch decision meaningfully](../../docs/work/runs/2026-08-17-reconciliation-r7-legacy-priority.md) | ui-ux-design | pass | pass |
 | 2026-08-17 | [sync/auth layer deepening — C1 (extract reliable-delivery/catch-up submodule), C4 (keyed ack registry), C3 (single device-trust predicate)](../../docs/work/runs/2026-08-17-sync-auth-deepening.md) | security-auth | pass | pass |
+| 2026-08-17 | [T90-syncclient-test-fixed-port-flake](../../docs/work/runs/2026-08-17-t90-test-port-flake.md) | test-infrastructure | pass | pass |
 | 2026-08-16 | [M5 — week-scoped location availability (week_location_exclusions enforcement + UI + lifecycle wiring)](../../docs/work/runs/2026-08-16-locations-m5-week-availability.md) | database-sync | pass | pass |
 | 2026-08-16 | [M6 — optional camp map (background image + drag-to-position geometry)](../../docs/work/runs/2026-08-16-locations-m6-map.md) | database-sync | pass | pass |
 | 2026-08-16 | [T87-returning-client-never-reauthenticates-after-restart](../../docs/work/runs/2026-08-16-t87-returning-client-reauth.md) | security-auth | pass | PASS |

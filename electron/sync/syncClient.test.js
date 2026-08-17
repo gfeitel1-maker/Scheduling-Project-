@@ -50,6 +50,7 @@ function syncDeviceSecretToClient(sourceDb, targetDb, deviceId) {
 import { appendOp, recordConflict, listPendingConflicts } from '../ops/operations.js'
 import { startSyncServer } from './syncServer.js'
 import { createSyncClient } from './syncClient.js'
+import { getFreePort } from '../../test/integration/harness.js'
 
 // T7 fix: isValidDomainSnapshotBatch (syncClient.js) now requires every
 // camp-scoped domain table to be present (as an array) on any full_sync
@@ -67,9 +68,7 @@ const EMPTY_DOMAIN_SNAPSHOT_TABLES = Object.fromEntries(
   DOMAIN_SNAPSHOT_ORDER.map((table) => [table, []])
 )
 
-const PORT = 8237
-const FLUSH_PORT = 8238
-const FLUSH_PORT_TIMEOUT = 8239
+let PORT
 
 // Waits until `ws.send` is called with a message matching `predicate`,
 // by temporarily wrapping `send` rather than sleeping a guessed duration.
@@ -139,6 +138,7 @@ beforeEach(async () => {
 
   token = issueCampToken(hostDb, userId, deviceId)
 
+  PORT = await getFreePort()
   server = startSyncServer(hostDb, { port: PORT })
 })
 
@@ -288,10 +288,11 @@ describe('remote client mode', () => {
   })
 
   it('queues writes when disconnected and reflects them in getQueuedOps', async () => {
+    const unusedPort = await getFreePort()
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
       author_user_id: userId,
-      serverUrl: `ws://localhost:59999`,
+      serverUrl: `ws://localhost:${unusedPort}`,
       token,
     })
 
@@ -304,6 +305,7 @@ describe('remote client mode', () => {
   })
 
   it('flushQueue re-acquires the lock and does not resubmit if denied, but retries lock contention instead of dropping it (Task 10 round-5 Fix 2)', async () => {
+    const FLUSH_PORT = await getFreePort()
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
       author_user_id: userId,
@@ -347,6 +349,7 @@ describe('remote client mode', () => {
   })
 
   it('flushQueue (Fix 2a) does NOT silently discard a failed write: a timeout/disconnected outcome leaves the item queued for retry instead of being dropped', async () => {
+    const FLUSH_PORT_TIMEOUT = await getFreePort()
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
       author_user_id: userId,
@@ -392,7 +395,7 @@ describe('remote client mode', () => {
   })
 
   it('Task 10 round-5 Fix 1: a queued write persists across a simulated syncClient/process restart and is not lost', async () => {
-    const restartPort = 8241
+    const restartPort = await getFreePort()
     // No server listening on this port yet: the write is queued (offline).
     const client1 = createSyncClient(clientDb, {
       device_id: deviceId,
@@ -456,10 +459,11 @@ describe('remote client mode', () => {
     // appendOp's coercion alone does not cover it. Un-coerced, an offline
     // ScheduleScreen edit threw ("Too few parameter values were provided" /
     // "SQLite3 can only bind ...") before the write was ever durably queued.
+    const unusedPort = await getFreePort()
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
       author_user_id: userId,
-      serverUrl: 'ws://localhost:8249',
+      serverUrl: `ws://localhost:${unusedPort}`,
       token,
     })
 
@@ -499,7 +503,7 @@ describe('remote client mode', () => {
     // flushing after a restart (queue rebuilt from pending_writes) put the
     // JSON string on the wire. Same logical write, two payloads, decided by
     // whether the app happened to relaunch.
-    const restartPort = 8250
+    const restartPort = await getFreePort()
     const client1 = createSyncClient(clientDb, {
       device_id: deviceId,
       author_user_id: userId,
@@ -552,7 +556,7 @@ describe('remote client mode', () => {
   })
 
   it('Task 10 round-5 Fix 3: retrying a queued write after a timeout does not create a duplicate op (idempotent via client_write_id)', async () => {
-    const idemPort = 8242
+    const idemPort = await getFreePort()
     const idemServer = startSyncServer(hostDb, { port: idemPort })
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
@@ -1006,7 +1010,7 @@ describe('remote client mode', () => {
   })
 
   it('resolves an in-flight write with { status: "disconnected" } when the connection drops', async () => {
-    const dropPort = 8239
+    const dropPort = await getFreePort()
     const dropServer = startSyncServer(hostDb, { port: dropPort })
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
@@ -1032,7 +1036,7 @@ describe('remote client mode', () => {
   })
 
   it('resolves an in-flight merge request with { status: "disconnected" } immediately when the connection drops, not after the full submit timeout', async () => {
-    const dropPort = 8244
+    const dropPort = await getFreePort()
     const dropServer = startSyncServer(hostDb, { port: dropPort })
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
@@ -1265,7 +1269,7 @@ describe('locations UNIQUE(camp_id, name) collision rejection (D2/D3/D4/D5)', ()
   })
 
   it('D4: flushQueue purges EVERY queued field for a rejected entity_id, not just the field that collided, and does not touch an unrelated queued item', async () => {
-    const d4Port = 8271
+    const d4Port = await getFreePort()
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
       author_user_id: userId,
@@ -1337,7 +1341,7 @@ describe('locations UNIQUE(camp_id, name) collision rejection (D2/D3/D4/D5)', ()
   // a colliding rename with a legitimate, unrelated field change to the SAME
   // already-existing row must not have the legitimate change purged too.
   it('edit case: a legitimate capacity change queued alongside a colliding rename to an EXISTING row SURVIVES — only the rename is dropped', async () => {
-    const editPort = 8272
+    const editPort = await getFreePort()
     const client = createSyncClient(clientDb, {
       device_id: deviceId,
       author_user_id: userId,
@@ -1770,12 +1774,13 @@ describe('reconnect catch-up (Task 10 round-4 Fix 3)', () => {
 })
 
 describe('remote login (fresh client, no local token yet)', () => {
-  const REMOTE_LOGIN_PORT = 8240
+  let REMOTE_LOGIN_PORT
   let freshClientDb, freshClientFile, remoteLoginServer
 
-  beforeEach(() => {
+  beforeEach(async () => {
     freshClientFile = path.join(os.tmpdir(), `shoresh-sc-fresh-${Date.now()}-${Math.random()}.sqlite`)
     freshClientDb = openLocalDb(freshClientFile)
+    REMOTE_LOGIN_PORT = await getFreePort()
     remoteLoginServer = startSyncServer(hostDb, { port: REMOTE_LOGIN_PORT })
   })
 

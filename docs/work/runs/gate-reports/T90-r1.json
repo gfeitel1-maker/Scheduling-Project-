@@ -1,0 +1,18 @@
+{
+  "task_id": "T90",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "red_hat": 5
+  },
+  "overall_score": 5.0,
+  "lowest_dimension": 5,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": ["security", "tester", "code_reviewer"],
+  "notes": "T90 test-only: migrated all six electron/sync/*.test.js files from hardcoded module-scope listen ports to getFreePort()-allocated dynamic ports. Verifier: solo full suite 3100 pass / 1 skip exit 0 (a first run flaked once on restore.sync.test.js = the peer-TOCTOU residual; passes 14/14 x3 isolated + clean on re-run), integration covered, lint 0 errors, governance clean; the concurrent-same-file reproduction (syncClient x3, syncServer x2 as two simultaneous processes) all passed — the deterministic collision the ticket targets is eliminated. Red Hat 5/5: 160/160 assertion parity, offline/timeout tests still exercise their failure paths, intentional same-port collision test preserved, latent PORT+N NaN bug fixed. No Security gate (test-port refactor, per ticket Gates); no Grader (LOW test-only — Verifier + Red Hat sanity, self-consolidated at the main loop). Known residual (Red Hat LOW, documented in run-doc): getFreePort reduces but does not fully eliminate cross-process collision (a small allocate-then-bind TOCTOU window, same pattern as main.reauth.test.js) — not a regression, orders of magnitude rarer than the fixed-port collisions removed here."
+}
