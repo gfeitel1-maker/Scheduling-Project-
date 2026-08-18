@@ -48,12 +48,20 @@ export const localClient = {
   // it must not be reachable by miscounting commas. Fields are enumerated
   // explicitly, never spread, so a caller-supplied token cannot override the
   // real one — same rule as deleteWeek below.
-  ingestCommit: ({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames } = {}) =>
-    shoresh.ingestCommit({ token: currentToken(), approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames }),
+  // U1 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) — captureInverse
+  // is additive and opt-in; every existing caller that omits it is unaffected.
+  ingestCommit: ({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse } = {}) =>
+    shoresh.ingestCommit({ token: currentToken(), approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse }),
   // D1 — read-only dry run of the same commit pipeline, for the reconciliation
   // summary. Same argument shape as ingestCommit; never writes.
   ingestReconcile: ({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames } = {}) =>
     shoresh.ingestReconcile({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames }),
+  // U1+U2 — reverts field-updates AND newly-created rows from a
+  // captureInverse commit. See the ADR's "grace-window" mechanism;
+  // invertibleOps/createdEntityIds never persist past the renderer session
+  // (Invariant 5), so this is the only place they are read from.
+  ingestUndo: ({ invertibleOps, createdEntityIds, client_write_id } = {}) =>
+    shoresh.ingestUndo({ token: currentToken(), invertibleOps, createdEntityIds, client_write_id }),
   // S1b — remember an import label -> existing entity mapping so the next
   // import recognizes it without re-asking. Host-only, admin-gated at the IPC
   // boundary (electron/main.js's confirmAliasHandler); best-effort by callers.

@@ -22,7 +22,7 @@ import { listDeleted, getEntityHistory } from './ops/trash.js'
 import { RESTORABLE_ENTITIES, restoreEntity } from './ops/restore.js'
 import { CLEARABLE_ENTITIES, previewDelete, deleteRecord, mergeLocation } from './ops/deleteRecord.js'
 import { listMigrationReviews, dismissMigrationReviews } from './ops/migrationReviews.js'
-import { commitIngest } from './ops/ingest.js'
+import { commitIngest, ingestUndo } from './ops/ingest.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
@@ -272,7 +272,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // device's sync mode — and the guard below reads it; a shadowing parameter
   // would silently turn the Host check into a comparison against the import
   // mode instead.
-  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames } = {}) {
+  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // Admin only. Staff may edit setup records one at a time; creating a
     // camp's whole structure in one action is a different kind of authority,
@@ -335,6 +335,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // create tier:'new', unchanged.
       seenCounts: seenCounts ?? null,
       pinOnlyActivityNames: pinOnlyActivityNames ?? [],
+      // U1 — additive, opt-in. Absent/false for every existing caller, same
+      // behavior as before (docs/adr/2026-08-17-onescreen-reconciliation-undo.md).
+      captureInverse: captureInverse === true,
     })
   }
 
@@ -384,6 +387,29 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       legacyPriorityActivities: outcome.legacyPriorityActivities ?? [],
       evidenceSupport: outcome.evidenceSupport ?? {},
     }
+  }
+
+  // U1 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) — reverts the
+  // field-update half of an import the director just committed. Same
+  // authority as ingestCommit (an undo is itself a set of writes to the
+  // camp's setup) and the SAME Host-only gate for the SAME reason: it writes
+  // straight to this device's SQLite via appendOp, never through
+  // syncClient.write, so on a Client it would be invisible to the Host and
+  // every peer.
+  function ingestUndoHandler({ token, invertibleOps, createdEntityIds, client_write_id } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const session = requireAuthorized(db, { token, action: 'groups.import' })
+    if (mode === 'client') {
+      throw new Error('Undo can only be run on the main computer.')
+    }
+    if (!isNonEmptyString(client_write_id)) throw new Error('client_write_id is required')
+    return ingestUndo(db, {
+      invertibleOps: Array.isArray(invertibleOps) ? invertibleOps : [],
+      createdEntityIds: Array.isArray(createdEntityIds) ? createdEntityIds : [],
+      author_user_id: session.userId,
+      device_id: deviceId,
+      client_write_id,
+    })
   }
 
   // S1b — confirm that an imported label means an existing entity, so the
@@ -1208,6 +1234,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     getSyncStatus,
     ingestCommit,
     ingestReconcile,
+    ingestUndo: ingestUndoHandler,
     confirmAlias: confirmAliasHandler,
     latestOpSeq: latestOpSeqHandler,
     resolveConflict,
@@ -1296,6 +1323,7 @@ if (isElectronEntryPoint()) {
     'shoresh:get-sync-status',
     'shoresh:ingest-commit',
     'shoresh:ingest-reconcile',
+    'shoresh:ingest-undo',
     'shoresh:confirm-alias',
     'shoresh:latest-op-seq',
     'shoresh:resolve-conflict',
@@ -1348,6 +1376,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:get-sync-status', () => handlers.getSyncStatus())
     ipcMain.handle('shoresh:ingest-commit', (_event, args) => handlers.ingestCommit(args))
     ipcMain.handle('shoresh:ingest-reconcile', (_event, args) => handlers.ingestReconcile(args))
+    ipcMain.handle('shoresh:ingest-undo', (_event, args) => handlers.ingestUndo(args))
     ipcMain.handle('shoresh:confirm-alias', (_event, args) => handlers.confirmAlias(args))
     ipcMain.handle('shoresh:latest-op-seq', () => handlers.latestOpSeq())
     ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))

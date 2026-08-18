@@ -506,12 +506,31 @@ export const mockShoresh = {
   // off localStorage on every call (never a live reference), so skipping the
   // final saveState() is sufficient to discard every mutation this run made —
   // CLONE-RUN-DISCARD without a second copy step.
-  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames } = {}) {
+  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false } = {}) {
     const state = loadState()
     if (!state.camp) throw new Error('ingest: no camp')
+    // U1 Invariant 3 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) —
+    // same guard as the real commitPlan, kept in parity.
+    if (captureInverse && mode === 'replace') {
+      throw new Error('ingestCommit: captureInverse is only supported for mode "add"')
+    }
     const campId = state.camp.id
     const cohortId = cohort_id ?? null
     for (const entity of INGESTIBLE_ENTITIES) if (!Array.isArray(state[entity])) state[entity] = []
+    if (!Array.isArray(state.anchor_activities)) state.anchor_activities = []
+
+    // U1 mock parity. The mock has no op log, so it cannot capture opId/seq
+    // the way the real committer does — instead it snapshots every row
+    // BEFORE this commit runs and diffs against the after-state below: a
+    // changed field on a row that existed before is an "update"
+    // (invertibleOps); a row present after but absent before is a
+    // "creation" (createdEntityIds). Sufficient to drive :5200's undo UI —
+    // NOT a substitute for the real seq-gated "touched since" mechanism,
+    // which only exists under electron:dev (CLAUDE.md's dev/mock split).
+    const captureEntities = [...INGESTIBLE_ENTITIES, 'anchor_activities']
+    const beforeSnapshot = captureInverse
+      ? Object.fromEntries(captureEntities.map((e) => [e, new Map((state[e] ?? []).map((r) => [r.id, { ...r }]))]))
+      : null
 
     // T61 replace mode. The mock has no transaction and no op log, so this
     // simulates only the VISIBLE outcome — the old setup and everything
@@ -920,11 +939,75 @@ export const mockShoresh = {
       }
     }
 
+    let invertibleOps = null
+    let createdEntityIds = null
+    if (captureInverse) {
+      invertibleOps = []
+      createdEntityIds = []
+      for (const entity of captureEntities) {
+        const beforeMap = beforeSnapshot[entity]
+        for (const row of state[entity] ?? []) {
+          const priorRow = beforeMap.get(row.id)
+          if (!priorRow) {
+            createdEntityIds.push({ entity, entity_id: row.id })
+            continue
+          }
+          for (const field of Object.keys(row)) {
+            if (field === 'id') continue
+            const priorValue = field in priorRow ? priorRow[field] : null
+            if (JSON.stringify(row[field]) !== JSON.stringify(priorValue)) {
+              invertibleOps.push({
+                entity, entity_id: row.id, field,
+                opId: `mock:${entity}:${row.id}:${field}:${invertibleOps.length}`,
+                seq: invertibleOps.length,
+                priorValue,
+                prior_source: state.__fieldSource?.[entity]?.[row.id]?.[field] ?? null,
+              })
+            }
+          }
+        }
+      }
+    }
+
     if (!dryRun) saveState(state)
     const outcome = { held: false, conflicts: [], created, total, updated, fixedEvents: { created: fixedCreatedIds.length, skipped: fixedSkipped, partial: fixedPartial, moved: [] } }
     if (replaced) outcome.replaced = replaced
     if (dryRun) { outcome.dryRun = true; outcome.planItems = plan.items }
+    if (captureInverse) { outcome.invertibleOps = invertibleOps; outcome.createdEntityIds = createdEntityIds }
     return outcome
+  },
+
+  // U1+U2 — mock parity (docs/adr/2026-08-17-onescreen-reconciliation-undo.md).
+  // No op log here, so no real "touched since" gate — this applies every
+  // captured field back to its priorValue unconditionally, and deletes every
+  // captured creation unconditionally (no full-field gate, no referential
+  // check). Good enough to drive :5200's undo affordance; the real
+  // seq-gated skip / edited-since / still-referenced behavior is proven only
+  // under electron:dev (CLAUDE.md's dev/mock split).
+  async ingestUndo({ invertibleOps, createdEntityIds } = {}) {
+    const state = loadState()
+    const reverted = []
+    for (const entry of Array.isArray(invertibleOps) ? invertibleOps : []) {
+      const { entity, entity_id, field, priorValue } = entry
+      const row = (state[entity] ?? []).find((r) => r.id === entity_id)
+      if (row) {
+        row[field] = priorValue
+        reverted.push({ entity, entity_id, field })
+      }
+    }
+    const deleted = []
+    for (const entry of Array.isArray(createdEntityIds) ? createdEntityIds : []) {
+      const { entity, entity_id } = entry
+      const rows = state[entity]
+      if (!Array.isArray(rows)) continue
+      const idx = rows.findIndex((r) => r.id === entity_id)
+      if (idx >= 0) {
+        rows.splice(idx, 1)
+        deleted.push({ entity, entity_id })
+      }
+    }
+    saveState(state)
+    return { ok: true, reverted, skipped: [], deleted, kept: [] }
   },
 
   // D1 — read-only dry run for the reconciliation summary. Runs the SAME
