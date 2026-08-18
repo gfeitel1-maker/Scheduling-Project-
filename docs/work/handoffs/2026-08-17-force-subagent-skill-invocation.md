@@ -82,8 +82,12 @@ the `hallmark` question is resolved, the behavioural proof (a designer subagent 
 3. **`hallmark` resolved.** It is present on disk (`~/.claude/skills/hallmark`) but NOT in the active
    Skill-tool menu (every other Designer skill is) → confirmed disabled. Swapped to the enabled
    `frontend-design` (matches "distinctive, non-generic, past templated defaults"). No new skills added.
-4. **Behavioural proof.** A `designer` subagent dispatched on a real UI task invoked the `Skill` tool
-   for its ordered skills (`clarify` → `design-dna` → `impeccable` → …) as its first actions, not
-   merely naming them. Transcript evidence recorded in the session that shipped this work.
+4. **Behavioural proof (from the raw subagent transcript, not self-report).** A `designer` subagent
+   dispatched on a real UI task (design a setup-screen empty state) made four real `Skill` tool calls
+   in order — `clarify → design-dna → impeccable → emil-design-eng`. Its **first two tool calls of the
+   whole run were `Skill:clarify` then `Skill:design-dna`, before any `Read`/`Bash`** — i.e. skills
+   invoked as step 0, exactly as the mandate demands. Verified by parsing the subagent transcript
+   `~/.claude/projects/.../subagents/agent-a888cab889c1e6095.jsonl` for `tool_use` entries with
+   `name:"Skill"`, not by trusting the agent's own "SKILL INVOCATIONS" summary.
 
 `check:governance` clean. Behaviour-only change to agent-def text; no code/tests touched.
