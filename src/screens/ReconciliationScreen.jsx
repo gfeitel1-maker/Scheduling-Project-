@@ -294,7 +294,13 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
         ? Object.fromEntries(Object.entries(answers).filter(([id]) => decisions.some((d) => d.id === id && isDecisionResolvedFor(d, answers))))
         : answers
       const inputs = foldTriageInputs(baseInputs, decisions, answersForApply)
-      const outcome = await localClient.ingestCommit(inputs)
+      // U1 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) — opt into
+      // capturing this commit's field-update inverses so the parent can offer
+      // a grace-window "Undo this import" affordance. No-op when mode is
+      // 'replace' (commitPlan's own Invariant-3 guard would throw otherwise);
+      // buildCommitInputs never sets mode:'replace' AND captureInverse
+      // together — foldTriageInputs' mode comes straight from baseInputs.
+      const outcome = await localClient.ingestCommit({ ...inputs, captureInverse: inputs.mode !== 'replace' })
       if (outcome?.held) {
         // A peer race held the real commit — surface it the same way the dry
         // run does, as fresh hold-lane cards, never a silent failure.
@@ -310,7 +316,10 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
       // The apply is the FIRST dryRun:false call (ADR Seam 3). On success the
       // parent (ImportScreen) tears this screen down and shows its own
       // post-import receipt/readiness banner — no separate receipt state to
-      // maintain here (per §9's v1 scope, no undo button either way).
+      // maintain here. U1: the grace-window undo affordance now lives on
+      // ImportScreen too (it outlives this screen, which unmounts on
+      // success) — outcome.invertibleOps/createdEntityIds ride along on the
+      // same onCommitted callback ImportScreen already consumes.
       await confirmRemembers(identityRememberCalls(decisions, answersForApply, baseInputs.cohort_id))
       onCommitted?.(outcome)
     } catch (err) {

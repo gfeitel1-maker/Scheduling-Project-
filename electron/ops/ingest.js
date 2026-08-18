@@ -15,14 +15,27 @@
 //     cleanly — T16 — and better-sqlite3's transaction gives that for free
 //     provided every write goes through this one function.
 
-import { randomUUID } from 'node:crypto'
-import { appendOp, DELETE_FIELD, latestOp } from './operations.js'
+import { randomUUID, createHash } from 'node:crypto'
+import { appendOp, DELETE_FIELD, latestOp, findOpByClientWriteId } from './operations.js'
 import { latestOpForEntity, lastKnownFields, lastKnownFieldSources } from './restore.js'
 import { PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 import { normalizeName, recognitionKey } from '../../src/ingest/preview.js'
 import { buildPlan, CLEAR } from '../../src/ingest/buildPlan.js'
 import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor } from '../../src/ingest/fieldUpdate.js'
 import { deriveLocationId } from './locationId.js'
+import { PROJECTIONS } from './projections.js'
+import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
+
+// U2 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md, "Finding 4 fix").
+// Delete order: reverse of INGESTIBLE_ENTITIES with anchor_activities first —
+// nothing points into anchors (undoReferences.schemaParity.test.js proves
+// this), and cohorts last because everything that can point at a cohort is
+// deleted before it. A row is only deleted after everything else in D that
+// could reference it is already gone, so one upfront referential pass
+// (referencesInto, run once per candidate before any delete) is sufficient.
+const U2_DELETE_ORDER = Object.freeze([
+  'anchor_activities', 'activities', 'locations', 'time_blocks', 'days_of_operation', 'groups', 'tiers', 'cohorts',
+])
 
 // ADR §2. Kept here rather than imported from the renderer so the guarantee
 // lives with the code that writes; ingest.test.js asserts the two agree.
@@ -486,7 +499,7 @@ function buildExistingSnapshot(db, camp_id, cohort_id, mode) {
  * that DOES hold returns the normal `{ held: true, conflicts, ... }` shape,
  * with none of these three fields present — same as a real held commit.
  */
-export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [] }) {
+export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -536,7 +549,7 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
   const import_run_id = randomUUID()
   const committed_at = new Date().toISOString()
 
-  const outcome = commitPlan(db, plan, { author_user_id: author_user_id ?? null, device_id, resolutions, import_run_id, committed_at, dryRun })
+  const outcome = commitPlan(db, plan, { author_user_id: author_user_id ?? null, device_id, resolutions, import_run_id, committed_at, dryRun, captureInverse })
 
   // D1: these run strictly AFTER commitPlan returns — the dry-run transaction
   // has already rolled back by this point. Computing them earlier, inside the
@@ -569,7 +582,7 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
  * @param {import('../../src/ingest/buildPlan.js').ReconciliationPlan} plan
  * @param {{ author_user_id: string|null, device_id: string, import_run_id?: string, committed_at?: string, dryRun?: boolean }} actor
  */
-export function commitPlan(db, plan, { author_user_id = null, device_id, resolutions = [], import_run_id = null, committed_at = null, dryRun = false }) {
+export function commitPlan(db, plan, { author_user_id = null, device_id, resolutions = [], import_run_id = null, committed_at = null, dryRun = false, captureInverse = false }) {
   // B4: a direct commitPlan caller (tests, or any future caller that skips
   // commitIngest) still gets evidence rows minted with a run id/timestamp of
   // their own, rather than writing NOT NULL columns as null.
@@ -578,6 +591,62 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   const camp_id = plan.camp_id
   const cohort_id = plan.cohort_id ?? null
   const mode = plan.mode ?? 'add'
+
+  // U1 Invariant 3 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md):
+  // captureInverse is only meaningful for an add-mode commit — replaceScope's
+  // teardown/rebuild has no field-update inverse shape at all (that is U3's
+  // job, not built yet). Refused loudly here rather than silently capturing
+  // an empty/partial invertibleOps list, so a caller can't wire undo onto a
+  // Replace commit before U3 exists without an obvious error.
+  if (captureInverse && mode === 'replace') {
+    throw new Error('commitPlan: captureInverse is only supported for mode "add"')
+  }
+
+  // U1 mechanism step 1. `write` is either the plain appendOp (captureInverse
+  // false — every existing caller's behavior is byte-identical) or a wrapper
+  // that additionally classifies each write as an update-to-a-pre-existing-row
+  // (captured into invertibleOps, U1's only invertible shape) or a genuine
+  // creation (captured into createdEntityIds, informational for U1 — U2's
+  // later job, never acted on by U1's undo). Classification is per entity_id,
+  // decided the FIRST time this commit writes to that id — cached so a
+  // second field write to the SAME id within this commit does not re-query
+  // and see this commit's own prior write as "pre-existing" (that would
+  // misclassify a genuine creation with two fields as an update).
+  const invertibleOps = []
+  const createdEntityIds = []
+  const priorExistenceCache = new Map() // `${entity}|${entity_id}` -> boolean
+  const createdIdsSeen = new Set()
+  const write = !captureInverse
+    ? appendOp
+    : (db, op) => {
+        if (op.field === DELETE_FIELD) return appendOp(db, op)
+        const key = `${op.entity}|${op.entity_id}`
+        let existedBefore = priorExistenceCache.get(key)
+        if (existedBefore === undefined) {
+          existedBefore = !!latestOpForEntity(db, op.entity, op.entity_id)
+          priorExistenceCache.set(key, existedBefore)
+        }
+        // Read BEFORE writing — the same latestOp-style lookup the existing
+        // protection/staleness gates already perform, applied here to
+        // capture what an inverse write must restore.
+        const priorOp = existedBefore ? latestOp(db, op.entity, op.entity_id, op.field) : null
+        const written = appendOp(db, op)
+        if (existedBefore) {
+          invertibleOps.push({
+            entity: op.entity,
+            entity_id: op.entity_id,
+            field: op.field,
+            opId: written.id,
+            seq: written.seq,
+            priorValue: priorOp ? priorOp.value : null,
+            prior_source: priorOp ? priorOp.source : null,
+          })
+        } else if (!createdIdsSeen.has(key)) {
+          createdIdsSeen.add(key)
+          createdEntityIds.push({ entity: op.entity, entity_id: op.entity_id })
+        }
+        return written
+      }
 
   // T73: a director's per-conflict decisions, indexed by entity|recognitionKey(name)
   // |field?, using the SAME recognitionKey the rest of the path uses so the key
@@ -877,8 +946,8 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     if (cached) return cached
     const id = deriveLocationId(camp_id, trimmed)
     if (!db.prepare('SELECT 1 FROM locations WHERE id = ?').get(id)) {
-      appendOp(db, { entity: 'locations', entity_id: id, field: 'camp_id', value: camp_id, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
-      appendOp(db, { entity: 'locations', entity_id: id, field: 'name', value: trimmed, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
+      write(db, { entity: 'locations', entity_id: id, field: 'camp_id', value: camp_id, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
+      write(db, { entity: 'locations', entity_id: id, field: 'name', value: trimmed, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
     }
     locationIdByName.set(trimmed, id)
     return id
@@ -976,7 +1045,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     const humanFields = new Set(item._humanFields ?? [])
     for (const [field, value] of Object.entries(fields)) {
       if (value === null || value === undefined) continue
-      appendOp(db, {
+      write(db, {
         entity,
         entity_id: entityId,
         field,
@@ -1011,7 +1080,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     // dbField (decideFieldItem passes the stored column), matching how
     // buildPlan normalized `item._humanFields`.
     const isHuman = (item._humanFields ?? []).includes(field)
-    appendOp(db, {
+    write(db, {
       entity: item.entity,
       entity_id: item.entity_id,
       field,
@@ -1474,7 +1543,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         }
         for (const [field, value] of Object.entries(fields)) {
           if (value === null || value === undefined) continue
-          appendOp(db, {
+          write(db, {
             entity: 'anchor_activities',
             entity_id: anchorId,
             field,
@@ -1512,9 +1581,34 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     else throw e
   }
 
+  // U2 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md, "Finding 2
+  // fix"). Runs AFTER the transaction commits — every write this commit made
+  // (including fields written after the row's own creation) is now live, so
+  // this is the "value observed at commit time" the ADR specifies, not just
+  // the fields THIS commit itself wrote. Skipped for a held/dry-run commit:
+  // nothing was written, so there is nothing to snapshot (mirrors the
+  // held-path's own invertibleOps/createdEntityIds omission below).
+  if (captureInverse && !held && !dryRunAborted) {
+    for (const entry of createdEntityIds) {
+      if (!U2_DELETABLE_ENTITIES.has(entry.entity)) continue
+      const fields = PROJECTIONS[entry.entity]?.fields ?? []
+      const fieldSnapshot = {}
+      for (const field of fields) {
+        const latest = latestOp(db, entry.entity, entry.entity_id, field)
+        fieldSnapshot[field] = latest ? latest.seq : null
+      }
+      entry.fieldSnapshot = fieldSnapshot
+    }
+  }
+
   if (held) {
     // Everything rolled back — no rows, no ops, no teardown. Report the held
     // conflicts for the director to resolve, clearly NOT a thrown error.
+    // U1 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md, "Hold-back/
+    // confidence interaction"): a held commit wrote NOTHING, so this return
+    // must NEVER add invertibleOps/createdEntityIds — anything the `write`
+    // wrapper collected above happened before the throw and does not
+    // correspond to a real write. Do not "fix" this by adding them here.
     return {
       held: true,
       conflicts,
@@ -1559,5 +1653,239 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   if (dryRunAborted) {
     outcome.evidenceSupport = { activities: evidenceSupportActivities, fixedEvents: evidenceSupportFixedEvents }
   }
+  // U1: additive, present only when the caller opted in. invertibleOps holds
+  // only field UPDATES to rows that already existed before this commit
+  // (Invariant 2/6 — the `write` wrapper above cannot populate it with a
+  // creation by construction). createdEntityIds is informational for U1 (the
+  // receipt's "N new records were also added" copy) and load-bearing input
+  // for U2 later; U1's own undo never reads it.
+  if (captureInverse) {
+    outcome.invertibleOps = invertibleOps
+    // U2 capture-scope fix: a future entity added to the op-log through some
+    // other raw-appendOp call site does NOT become undo-deletable merely by
+    // existing in the same transaction — only U2_DELETABLE_ENTITIES members
+    // survive this filter, each carrying the fieldSnapshot U2's full-field
+    // gate needs (undoReferences.schemaParity.test.js keeps this constant in
+    // sync with the registry that gates the actual deletes).
+    outcome.createdEntityIds = createdEntityIds.filter((e) => U2_DELETABLE_ENTITIES.has(e.entity))
+  }
   return outcome
+}
+
+// Deterministic per-row client_write_id for one entry of an ingestUndo call,
+// derived (never randomUUID) from the outer call's own client_write_id plus
+// the entry's identity — so a literally-retried ingestUndo call (same outer
+// client_write_id, e.g. a crash-then-retry before the caller saw a response)
+// reuses the SAME id for the same field, rather than minting a new op each
+// attempt. A different outer client_write_id (a genuinely separate call,
+// e.g. a stale second tab) derives different ids and falls through to the
+// ordinary "touched since" gate below — see ingestUndo's own doc comment.
+function deriveUndoClientWriteId(outerClientWriteId, entity, entity_id, field) {
+  return createHash('sha256').update(`undo|${outerClientWriteId}|${entity}|${entity_id}|${field}`).digest('hex')
+}
+
+// U2's per-row delete client_write_id — same derive-don't-randomize idiom as
+// deriveUndoClientWriteId above, salted separately ('undo-delete' vs 'undo')
+// so a field-update entry and a row-delete entry for the same
+// (entity, entity_id) under the same outer client_write_id can never collide
+// (entity_ids are UUIDs already, so this is belt-and-braces, not load-bearing).
+function deriveUndoDeleteClientWriteId(outerClientWriteId, entity, entity_id) {
+  return createHash('sha256').update(`undo-delete|${outerClientWriteId}|${entity}|${entity_id}`).digest('hex')
+}
+
+/**
+ * U1+U2's undo — reverts field UPDATES captured by commitPlan/commitIngest's
+ * `captureInverse` flag (docs/adr/2026-08-17-onescreen-reconciliation-undo.md,
+ * "U1 mechanism") and, additionally, deletes row CREATIONS the same commit
+ * made ("U2 mechanism"), gated by the full-projection-field gate (Finding 2)
+ * and the live single-hop referential check (Finding 3/4).
+ *
+ * Runs the whole revert+delete loop server-side inside ONE transaction, so the
+ * undo is atomic and appears as ordinary ops in the log — an undo IS an
+ * import, auditable the same way, with no persisted "this was an undo" marker
+ * (v1).
+ *
+ * `createdEntityIds` entries carry the `fieldSnapshot` commitPlan captured
+ * (entity, entity_id, fieldSnapshot: {field: seq|null}) — already filtered to
+ * U2_DELETABLE_ENTITIES by commitPlan, but re-checked here too (a renderer
+ * cannot be trusted to have forwarded the exact array commitPlan returned).
+ *
+ * Returns `{ ok: true, reverted: [{entity, entity_id, field}], skipped:
+ * [{entity, entity_id, field}], deleted: [{entity, entity_id}], kept:
+ * [{entity, entity_id, name, reason: 'edited_since_import'|'still_referenced',
+ * referencedByCount?}] }`. A skipped FIELD entry means the field's current
+ * latest op is no longer the one this commit wrote (a peer write landed after
+ * import touched it, or this exact entry was already reverted by an earlier
+ * ingestUndo call) — the receipt reports both cases identically ("kept,
+ * changed since import"), because from the op-log's point of view they are
+ * genuinely indistinguishable (see the ADR's idempotency/double-undo section).
+ * A kept ROW entry means the row's creation was NOT undone — either a human
+ * edited a field the import left blank (or any field) since commit, or a live
+ * row outside this undo's own deletion set still references it.
+ */
+export function ingestUndo(db, { invertibleOps, createdEntityIds = [], author_user_id, device_id, client_write_id }) {
+  if (!Array.isArray(invertibleOps)) throw new Error('ingestUndo: invertibleOps must be an array')
+  if (!Array.isArray(createdEntityIds)) throw new Error('ingestUndo: createdEntityIds must be an array')
+  if (typeof client_write_id !== 'string' || client_write_id.length === 0) {
+    throw new Error('ingestUndo: client_write_id is required')
+  }
+
+  const reverted = []
+  const skipped = []
+  const deleted = []
+  const kept = []
+
+  const nameOf = (entity, entity_id) => {
+    const table = PROJECTIONS[entity]?.table ?? entity
+    const col = nameColumnFor(entity)
+    const row = db.prepare(`SELECT ${col} AS name FROM ${table} WHERE id = ?`).get(entity_id)
+    return row ? row.name : null
+  }
+
+  const run = db.transaction(() => {
+    // --- U1: field-update inversion, unchanged ---------------------------
+    for (const entry of invertibleOps) {
+      const { entity, entity_id, field, seq, priorValue, prior_source } = entry
+
+      // Idempotency FIRST: a literal retry of this exact undo call (same
+      // outer client_write_id) must return the same result without writing a
+      // second op, even though its own prior write moved the field's seq —
+      // checked before the "touched since" gate below, or a retry would
+      // misread its own earlier write as a peer edit and report a false skip.
+      const rowClientWriteId = deriveUndoClientWriteId(client_write_id, entity, entity_id, field)
+      const alreadyApplied = findOpByClientWriteId(db, rowClientWriteId)
+      if (alreadyApplied) {
+        reverted.push({ entity, entity_id, field })
+        continue
+      }
+
+      // Invariant 4 (ADR, binding): PLAIN seq via latestOp, never
+      // COALESCE(host_seq, seq) via latestOpSeq/latestScopeOpSeq. Undo only
+      // ever runs against the SAME device's db that captured invertibleOps —
+      // invertibleOps is renderer-memory-scoped (Invariant 5) and never
+      // crosses a device boundary — so there is no Client-vs-Host
+      // seq-numbering-space mismatch here. Do NOT "harmonize" this to the
+      // COALESCE form; that would silently break on a Client whose local seq
+      // numbering differs from the Host's.
+      const current = latestOp(db, entity, entity_id, field)
+      const currentSeq = current ? current.seq : null
+      if (currentSeq !== seq) {
+        skipped.push({ entity, entity_id, field })
+        continue
+      }
+
+      appendOp(db, {
+        entity,
+        entity_id,
+        field,
+        value: priorValue,
+        author_user_id: author_user_id ?? null,
+        device_id,
+        parent_op_id: current ? current.id : null,
+        client_write_id: rowClientWriteId,
+        // Carries the field's PRE-import provenance forward rather than
+        // hardcoding 'human' — reverting to a pre-import state must not
+        // launder that state's own provenance (same reasoning as
+        // restoreEntity's lastKnownFieldSources, restore.js).
+        source: prior_source ?? null,
+      })
+      reverted.push({ entity, entity_id, field })
+    }
+
+    // --- U2: row-creation deletion -----------------------------------
+    // Step 1 (Finding 2): full-projection-field gate. A row that passed the
+    // gate is a CANDIDATE for D; the gate is re-run against the LIVE db, not
+    // the caller-supplied snapshot alone, to protect against a caller that
+    // never actually re-checked.
+    const candidateSet = new Map() // `${entity}:${entity_id}` -> {entity, entity_id}
+    for (const entry of createdEntityIds) {
+      const { entity, entity_id, fieldSnapshot } = entry ?? {}
+      if (!entity || !entity_id || !U2_DELETABLE_ENTITIES.has(entity)) continue
+      const snapshot = fieldSnapshot ?? {}
+      let editedSince = false
+      for (const field of Object.keys(snapshot)) {
+        const current = latestOp(db, entity, entity_id, field)
+        const currentSeq = current ? current.seq : null
+        if (currentSeq !== snapshot[field]) { editedSince = true; break }
+      }
+      if (editedSince) {
+        kept.push({ entity, entity_id, name: nameOf(entity, entity_id), reason: 'edited_since_import' })
+        continue
+      }
+      candidateSet.set(`${entity}:${entity_id}`, { entity, entity_id })
+    }
+
+    // Step 2 (Finding 3/4): live single-hop referential check, batch-aware,
+    // walked in U2_DELETE_ORDER (children before parents) with excludeSet
+    // built up INCREMENTALLY as each row is confirmed deletable — not the
+    // whole candidate set up front. This is what makes a cascading case
+    // resolve correctly: an anchor blocked by a live template_slots row is
+    // NOT added to excludeSet, so when its parent day/time_block is checked
+    // next, the still-live anchor correctly counts as a real blocker too
+    // (checking the whole pre-filtered candidate set up front would have
+    // wrongly treated the anchor as "as good as gone" and let the day/
+    // time_block delete out from under it). The "Lake + Kayaking, both
+    // undone together" case still resolves correctly because activities is
+    // ordered before locations: Kayaking is confirmed deletable (nothing
+    // else points at it) and lands in excludeSet before Lake's own check runs.
+    const candidatesByEntity = new Map() // entity -> [entity_id, ...]
+    for (const { entity, entity_id } of candidateSet.values()) {
+      if (!candidatesByEntity.has(entity)) candidatesByEntity.set(entity, [])
+      candidatesByEntity.get(entity).push(entity_id)
+    }
+    const excludeSet = new Set() // confirmed-deletable so far
+    const deleteSetByEntity = new Map() // entity -> [entity_id, ...]
+    for (const entity of U2_DELETE_ORDER) {
+      for (const entity_id of candidatesByEntity.get(entity) ?? []) {
+        const blockers = referencesInto(db, entity, entity_id, excludeSet)
+        if (blockers.length > 0) {
+          kept.push({
+            entity, entity_id, name: nameOf(entity, entity_id),
+            reason: 'still_referenced', referencedByCount: blockers.length,
+          })
+          continue
+        }
+        excludeSet.add(`${entity}:${entity_id}`)
+        if (!deleteSetByEntity.has(entity)) deleteSetByEntity.set(entity, [])
+        deleteSetByEntity.get(entity).push(entity_id)
+      }
+    }
+
+    // Step 3 (Finding 4): delete in the SAME fixed order, children before parents.
+    for (const entity of U2_DELETE_ORDER) {
+      for (const entity_id of deleteSetByEntity.get(entity) ?? []) {
+        const rowClientWriteId = deriveUndoDeleteClientWriteId(client_write_id, entity, entity_id)
+        const alreadyApplied = findOpByClientWriteId(db, rowClientWriteId)
+        if (!alreadyApplied) {
+          const table = PROJECTIONS[entity].table
+          const row = db.prepare(`SELECT camp_id FROM ${table} WHERE id = ?`).get(entity_id)
+          appendOp(db, {
+            entity,
+            entity_id,
+            field: DELETE_FIELD,
+            value: null,
+            author_user_id: author_user_id ?? null,
+            device_id,
+            parent_op_id: null,
+            client_write_id: rowClientWriteId,
+            // Deliberate, per the ADR: a director-attributable delete, not an
+            // import teardown and not ambiguous NULL/legacy. On
+            // anchor_activities this engages rejectedSlotKeys' reimport
+            // suppression — a reimport of the same source file will not
+            // silently resurrect what the director just undid.
+            source: 'human',
+          })
+          // import_evidence residual cleanup, same transaction, same row.
+          if (row?.camp_id) {
+            db.prepare('DELETE FROM import_evidence WHERE camp_id = ? AND entity_type = ? AND entity_id = ?')
+              .run(row.camp_id, entity, entity_id)
+          }
+        }
+        deleted.push({ entity, entity_id })
+      }
+    }
+  })
+  run()
+
+  return { ok: true, reverted, skipped, deleted, kept }
 }

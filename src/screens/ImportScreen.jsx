@@ -18,6 +18,7 @@ import ReconciliationScreen from './ReconciliationScreen.jsx'
 import { getReadiness, describeReadiness } from '../engine/readiness.js'
 import { useSetupCounts } from '../hooks/useSetupCounts.js'
 import { describeOptionalGaps } from './importOutcomeModel.js'
+import { useGraceWindowUndo } from '../hooks/useGraceWindowUndo.js'
 
 // Read last year's schedule and propose the camp's setup from it.
 //
@@ -129,6 +130,12 @@ export default function ImportScreen({ campId, onNavigate }) {
   const [activityRules, setActivityRules] = useState({})
   const [error, setError] = useState(null)
   const [result, setResult] = useState(null)
+  // U1 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) — component-
+  // owned grace-window state (Invariant 5). Lives here rather than on
+  // ReconciliationScreen because that screen unmounts the instant a commit
+  // succeeds (handleReconciliationCommitted below tears the ledger down);
+  // this screen is the one still mounted to offer the undo affordance.
+  const graceWindow = useGraceWindowUndo()
   // R2'b cutover — `held`/`resolving`/`reconciliation`/`queueAnswers`/
   // `queueOpen`/`rememberNotes` are gone: ReconciliationScreen owns the whole
   // triage/held/commit loop once `ledger` is staged (below).
@@ -510,6 +517,9 @@ export default function ImportScreen({ campId, onNavigate }) {
   function stageLedger(inputs, fileName, origin = 'schedule') {
     setProposal(null)
     setLedger({ context: inputs, fileName, origin })
+    // U1 Invariant 5b — starting a NEW import clears any prior grace window;
+    // there is exactly one live undo affordance at a time.
+    graceWindow.clear()
   }
 
   function commit() {
@@ -528,6 +538,15 @@ export default function ImportScreen({ campId, onNavigate }) {
     setFixedEvents([])
     setActivityRules({})
     setGroupUnitOverrides({})
+    // U1 — a Replace-mode commit never carries invertibleOps (captureInverse
+    // is never sent for mode:'replace' — U3 is deferred; no undo affordance
+    // on a Replace commit in v1). An empty invertibleOps array still starts
+    // a "live" window with nothing to revert, which is harmless (undo would
+    // just report nothing reverted) but not worth offering — only start the
+    // window when there is something to undo.
+    if (Array.isArray(outcome?.invertibleOps) && outcome.invertibleOps.length > 0) {
+      graceWindow.start(outcome)
+    }
   }
 
   function handleReconciliationDiscard() {
@@ -604,6 +623,49 @@ export default function ImportScreen({ campId, onNavigate }) {
           )}
           {counts != null && (
             <ImportReadinessNote counts={counts} />
+          )}
+          {/* U1 — grace-window undo. Only rendered while the window is
+              genuinely live (Invariant 5); the copy says "for the next few
+              minutes", never "always available" (Invariant 5c), because a
+              reload or app close forfeits it silently. */}
+          {graceWindow.isLive && (
+            <div style={{ marginTop: 10 }}>
+              {graceWindow.createdEntityIds.length > 0 && (
+                <div style={{ color: 'var(--text-secondary)', marginBottom: 6 }}>
+                  {graceWindow.createdEntityIds.length} new {graceWindow.createdEntityIds.length === 1 ? 'record was' : 'records were'} also added — undoing will try to remove {graceWindow.createdEntityIds.length === 1 ? 'it' : 'them'} too.
+                </div>
+              )}
+              <button className="press-97" onClick={() => graceWindow.undo()} disabled={graceWindow.isPending} style={S.btnSecondary}>
+                Undo this import
+              </button>
+              <span style={{ marginLeft: 8, color: 'var(--text-secondary)' }}>for the next few minutes</span>
+            </div>
+          )}
+          {graceWindow.status === 'used' && (
+            <div style={{ marginTop: 10, color: 'var(--text-secondary)' }}>
+              Undo complete.
+              {graceWindow.deleted.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  Removed {graceWindow.deleted.length} newly created {graceWindow.deleted.length === 1 ? 'record' : 'records'}.
+                </div>
+              )}
+              {graceWindow.skipped.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  Kept {graceWindow.skipped.length} {graceWindow.skipped.length === 1 ? 'field' : 'fields'} changed since import.
+                </div>
+              )}
+              {graceWindow.kept.length > 0 && (
+                <div style={{ marginTop: 4 }}>
+                  Kept {graceWindow.kept.length} new {graceWindow.kept.length === 1 ? 'record' : 'records'}:{' '}
+                  {graceWindow.kept.map((k) =>
+                    `${k.name ?? 'record'} (${k.reason === 'edited_since_import' ? 'edited since import' : `still referenced by ${k.referencedByCount} other ${k.referencedByCount === 1 ? 'record' : 'records'}`})`
+                  ).join('; ')}.
+                </div>
+              )}
+            </div>
+          )}
+          {graceWindow.undoError && (
+            <div style={{ marginTop: 10, ...S.errorBanner }}>{graceWindow.undoError}</div>
           )}
           <div style={{ marginTop: 10, display: 'flex', gap: 10 }}>
             <button className="press-97" onClick={() => onNavigate('groups')} style={S.btnSecondary}>Go to Groups</button>

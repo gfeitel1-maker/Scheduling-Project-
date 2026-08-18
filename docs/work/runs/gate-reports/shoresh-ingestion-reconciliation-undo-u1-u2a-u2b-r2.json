@@ -1,0 +1,20 @@
+{
+  "task_id": "shoresh-ingestion-reconciliation-undo-u1-u2a-u2b",
+  "round": 2,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": 5,
+    "red_hat": 4,
+    "tester": null,
+    "code_reviewer": 5
+  },
+  "overall_score": 4.666666666666667,
+  "lowest_dimension": 4,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": []
+}
