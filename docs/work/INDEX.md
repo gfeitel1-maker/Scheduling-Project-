@@ -144,6 +144,7 @@ either the document is stranded or an edge was never declared.
 - [docs/work/handoffs/2026-08-09-agent-quality-cut-wasted-work-brief.md](../../docs/work/handoffs/2026-08-09-agent-quality-cut-wasted-work-brief.md)
 - [docs/work/handoffs/2026-08-09-doc-staleness-remediation-handoff.md](../../docs/work/handoffs/2026-08-09-doc-staleness-remediation-handoff.md)
 - [docs/work/handoffs/2026-08-09-graph-engineering-exploration-brief.md](../../docs/work/handoffs/2026-08-09-graph-engineering-exploration-brief.md)
+- [docs/work/handoffs/2026-08-17-force-subagent-skill-invocation.md](../../docs/work/handoffs/2026-08-17-force-subagent-skill-invocation.md)
 - [docs/work/handoffs/slices-2-3-handoff.md](../../docs/work/handoffs/slices-2-3-handoff.md)
 - [docs/work/handoffs/T50-schedule-canvas-handoff.md](../../docs/work/handoffs/T50-schedule-canvas-handoff.md)
 - [docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md](../../docs/work/runs/2026-08-17-reconciliation-r2a-logic-modules.md)
