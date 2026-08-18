@@ -89,6 +89,13 @@ Agents may invoke user-level skills as a convenience. **A skill is never a sourc
 If a named skill is unavailable, the agent proceeds and says so — it does not stall, and it does not
 treat the skill's absence as permission to skip the work the skill would have structured.
 
+A dispatched subagent does **not** receive the main session's `using-superpowers` startup injection,
+so each project agent-def carries its own forceful first-action skill mandate (its `## Skills` section
+requires invoking its load-bearing skill(s) via the `Skill` tool as step 0, before producing any
+deliverable), and Governor names those skills in every dispatch brief. This governs *reliability of
+invocation*, not authority — the two sentences above still hold: a skill is never authority, and its
+absence never stalls the work.
+
 ---
 
 ## Article IV — Human authority
