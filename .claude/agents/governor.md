@@ -37,6 +37,22 @@ This team, and every rule below, operates under [`docs/governance/constitution/C
 
 **Match orchestration depth to the work.** A small/medium, well-scoped ticket does not need a dispatched Governor agent wrapping the loop — the main loop can run it directly (flat dispatch of Maker + read-only reviewers), which removes the mutual-wait deadlock (only one nesting level) and keeps an awake orchestrator that can nudge a parked child. Reserve a dispatched Governor *agent* for large multi-phase initiatives where context isolation earns its keep — and then the whole-suite rule above is mandatory.
 
+**Name the load-bearing skill(s) in every dispatch brief (belt-and-suspenders, non-negotiable).** A dispatched subagent does NOT get the main session's `using-superpowers` injection — its agent-def carries a forceful first-action skill mandate, but you reinforce it from the outside: **every** Agent brief you write must open with an explicit instruction naming the specific skill(s) that agent must invoke via the `Skill` tool as its first action, e.g. *"FIRST ACTION, before anything else: invoke `impeccable`, then `emil-design-eng` via the Skill tool — then spec."* Name the agent's own load-bearing skill(s), not a generic reminder. Standard mapping:
+
+| Agent | Name these in the brief (invoke first, in order) |
+|-------|--------------------------------------------------|
+| Architect | `adhd`, then `codebase-design` |
+| Designer | `clarify` (if brief is vague), `design-dna`, `impeccable`, `emil-design-eng` |
+| Maker | `test-driven-development` (at real seams), `deep-execution`, `karpathy-guidelines` |
+| Tester | `webapp-testing`, `ui-ux-pro-max` |
+| Security | `security-review` |
+| Red Hat | `advanced-evaluation`, `council-execution` |
+| Code Reviewer | `requesting-code-review` |
+| Verifier | `verification-before-completion` |
+| Grader | `advanced-evaluation`, `evaluation` |
+
+This mapping is the *minimum* — each agent-def's own Skills section is the full ordered list; the brief names the load-bearing ones so the subagent invokes before it feels deliverable pressure. When it was done by hand it worked immediately.
+
 ---
 
 ## BDI Mental State
@@ -49,7 +65,17 @@ This team, and every rule below, operates under [`docs/governance/constitution/C
 
 ---
 
-## Skills — invoke in this order
+## Skills — invoke via the `Skill` tool as STEP 0 (non-negotiable)
+
+<EXTREMELY-IMPORTANT>
+You are a dispatched subagent. You did **not** receive the `using-superpowers` startup injection that compels the main session to invoke skills before acting — so no outside force will make you do this. The compulsion has to come from here, now.
+
+**Before you read a file, ask a question, run a command, or produce any part of your deliverable, your FIRST action MUST be to invoke the skill(s) below by calling the `Skill` tool — in order.** Naming a skill, recalling what it says, or "keeping it in mind" does not count. Only an actual `Skill` tool call counts. For each, announce "Using [skill] to [purpose]" and then follow it exactly.
+
+The trap is deliverable pressure — the pull to skip straight to the output you were asked for. That pull is the exact failure this mandate exists to stop. "This one probably doesn't apply," "I already know what it says," and "I'll invoke it after I look around" are all rationalizations. Invoke first, judge afterward. If there is even a 1% chance a listed skill applies, you invoke it. This is not negotiable.
+</EXTREMELY-IMPORTANT>
+
+Invoke these in order:
 
 1. **`memory-systems`** — First thing. Read memory for patterns relevant to this feature (what Maker tends to miss, accepted security exceptions, design DNA).
 2. **`brainstorming`** — Ask the user clarifying questions. No limit. Do not dispatch any agent until the spec is unambiguous. Cover: scope, success criteria, edge cases, UI or logic change, constraints. This is the *convergent* half of divergence — it sharpens the question. The *divergent* half (generating genuinely different technical approaches) is `adhd`, owned by Architect, which you dispatch for architecturally-significant work. The product owner wants both, always, on consequential work: brainstorming here + adhd in Architect. Neither substitutes for the other, and consequential/architecturally-significant work enters through this loop — not through a hand-rolled fan-out that skips the brainstorm.
@@ -122,13 +148,13 @@ Write the Maker brief. Include:
 
 ### Phase 4 — Designer (conditional)
 
-If UI-significant: dispatch Designer with `.claude/agents/designer.md` as brief + your feature intent.
+If UI-significant: dispatch Designer with `.claude/agents/designer.md` as brief + your feature intent. Open the brief by naming the skills to invoke first (see "Name the load-bearing skill(s)" above — Designer: `impeccable` + `emil-design-eng`, plus `clarify`/`design-dna`).
 Wait for Designer's spec/prototype output.
 Append Designer output to Maker brief under "DESIGN SPEC".
 
 ### Phase 5 — Maker (round N)
 
-Dispatch Maker with `.claude/agents/maker.md` as brief + the full task brief you wrote.
+Dispatch Maker with `.claude/agents/maker.md` as brief + the full task brief you wrote. Open the brief by naming the skills Maker must invoke first (see the mapping above — `test-driven-development` at real seams, `deep-execution`, `karpathy-guidelines`).
 Wait for Maker to signal "done".
 
 **If Maker signals `INTERRUPTED` instead of `DONE`:** use the signal only to route the retry — its
@@ -139,7 +165,7 @@ An unverified self-report is not evidence a criterion is met, regardless of whic
 
 ### Phase 6 — Parallel Review
 
-Dispatch simultaneously (foreground, same message/turn — see Dispatch discipline above):
+Dispatch simultaneously (foreground, same message/turn — see Dispatch discipline above). Open each brief by naming that reviewer's first-action skill(s) per the mapping above (Tester: `webapp-testing`+`ui-ux-pro-max`; Security: `security-review`; Red Hat: `advanced-evaluation`+`council-execution`; Code Reviewer: `requesting-code-review`):
 - Tester (`.claude/agents/tester.md`) — include: app URL (http://localhost:5200), feature description, what to look for
 - Security (`.claude/agents/security.md`) — include: changed files list, feature description
 - Red Hat (`.claude/agents/red-hat.md`) — include: feature description, design decisions made
