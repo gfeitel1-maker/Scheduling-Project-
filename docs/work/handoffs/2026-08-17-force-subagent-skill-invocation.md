@@ -1,9 +1,9 @@
 ---
 task: "Make dispatched subagents reliably invoke their skills (enforcement, not new skills)"
 document_type: handoff
-status: completed
+status: superseded
 created: 2026-08-17
-completed: 2026-08-18
+archive_when: work shipped (PR #98, merged 2026-08-18) — archive 30 days after 2026-08-18
 ---
 
 # Handoff — force subagent skill invocation
