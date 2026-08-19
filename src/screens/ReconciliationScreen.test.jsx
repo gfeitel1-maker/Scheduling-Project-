@@ -490,3 +490,83 @@ describe('required-gap summary card (§22 compression)', () => {
     expect(onNavigate).toHaveBeenCalledWith('groups')
   })
 })
+
+// Slice 4 — persistent inspect mode, docs/adr/2026-08-19-roots-census-and-
+// persistent-inspector.md §(e)/(f). Reachable outside the import flow (a
+// director opens Roots months later); must never touch ingestReconcile or
+// ingestCommit — this is the safety-critical read-only property.
+describe('inspect mode (persistent inspector, mode="inspect")', () => {
+  it('never calls ingestReconcile or ingestCommit — reads the live snapshot only', async () => {
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+    await waitFor(() => expect(localClient.list).toHaveBeenCalled())
+
+    expect(localClient.ingestReconcile).not.toHaveBeenCalled()
+    expect(localClient.ingestCommit).not.toHaveBeenCalled()
+  })
+
+  it('renders the root map without the import header, tray, apply buttons, or end state', async () => {
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+    await waitFor(() => expect(localClient.list).toHaveBeenCalled())
+
+    expect(screen.queryByText(/Reconciling/)).toBeNull()
+    expect(screen.queryByText('Use this setup')).toBeNull()
+    expect(screen.queryByText(/Apply confirmed changes/)).toBeNull()
+    // The import-only "genuinely empty" short-circuit (§10) must never fire
+    // in inspect mode — there is no import to "settle" into (ADR §(e)).
+    expect(screen.queryByText('Nothing left to reconcile.')).toBeNull()
+  })
+
+  // A populated census (several groups, several activities) is the realistic
+  // case a director actually opens Roots for — the 6 prior tests all used
+  // empty/rejected list() mocks, so none of them exercised a roster with real
+  // rows through this path. The safety property (no write/dry-run) must hold
+  // WITH data, not just on an empty camp.
+  it('a populated camp renders a real roster on node selection, and the safety property still holds', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'groups') {
+        return Promise.resolve([
+          { id: 'g1', name: 'Bogrim', tier_id: null },
+          { id: 'g2', name: 'Amitim', tier_id: null },
+        ])
+      }
+      if (entity === 'activities') {
+        return Promise.resolve([
+          { id: 'a1', name: 'Swim' },
+          { id: 'a2', name: 'Archery' },
+          { id: 'a3', name: 'Ceramics' },
+        ])
+      }
+      return Promise.resolve([])
+    })
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+
+    const groupsNode = await screen.findByLabelText(/^Groups — /)
+    await userEvent.click(groupsNode)
+    expect(screen.getByText('Bogrim')).toBeTruthy()
+    expect(screen.getByText('Amitim')).toBeTruthy()
+
+    expect(localClient.ingestReconcile).not.toHaveBeenCalled()
+    expect(localClient.ingestCommit).not.toHaveBeenCalled()
+  })
+
+  it('a fresh, empty camp marks a required area not_set_up, never a false "Understood" (ADR §(d))', async () => {
+    localClient.list.mockResolvedValue([])
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+
+    const groupsNode = await screen.findByLabelText('Groups — Not set up yet')
+    expect(groupsNode.getAttribute('aria-label')).not.toMatch(/Understood/)
+  })
+
+  it('a per-entity read failure never throws, and surfaces the inline "couldn\'t read part of your setup" notice', async () => {
+    localClient.list.mockRejectedValue(new Error('disk full'))
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+
+    await screen.findByText(/Couldn.t read part of your setup/)
+  })
+
+  it('defaults to import mode when no mode prop is given (ImportScreen call site unchanged)', async () => {
+    localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await waitFor(() => expect(localClient.ingestReconcile).toHaveBeenCalled())
+  })
+})

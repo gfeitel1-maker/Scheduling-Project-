@@ -21,4 +21,7 @@ export const SCREEN_INTRO = {
   anchors: 'Events that happen at the same time every day — Aruchat Boker, Tefillah, Flagpole.',
   dayoverrides: 'Days that do not run normally — a trip day, Color War, a Shabbaton.',
   reconciliation: 'What this file changes about your camp setup — review it, then bring it in.',
+  // Inspect mode (docs/adr/2026-08-19-roots-census-and-persistent-inspector.md
+  // §(e)) — reached from the sidebar, not an import; no file to "bring in".
+  roots: 'What Shoresh knows about your camp — browse it, and jump to any screen to make a change.',
 }

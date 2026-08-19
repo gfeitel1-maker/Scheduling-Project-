@@ -33,9 +33,22 @@ function rosterRowKey(entry) {
   return entry.entityId ?? entry.decisionId
 }
 
-function RosterRow({ entry }) {
+// Slice 4 (docs/adr/2026-08-19-roots-census-and-persistent-inspector.md §(e),
+// open question 4) — a roster row click navigates to the target screen
+// generally, same as the panel's "Open in {Screen} →" button, NOT scrolled/
+// filtered to this specific entity (that highlight-prop enhancement is an
+// explicit ADR follow-up). `onRowClick` is optional so existing callers/tests
+// that don't pass it keep rendering plain, unclickable rows.
+function RosterRow({ entry, onRowClick }) {
+  const clickable = typeof onRowClick === 'function'
   return (
-    <div style={styles.row}>
+    <div
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onClick={clickable ? () => onRowClick(entry) : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') onRowClick(entry) } : undefined}
+      style={clickable ? { ...styles.row, cursor: 'pointer' } : styles.row}
+    >
       <span style={{ ...styles.dot, background: STATE_DOT[entry.state] ?? STATE_DOT.understood }} />
       <span style={styles.name}>{entry.name}</span>
       {entry.group && <span style={styles.groupLabel}>{` — ${entry.group}`}</span>}
@@ -43,7 +56,7 @@ function RosterRow({ entry }) {
   )
 }
 
-export default function RosterList({ roster, threshold = 8, groupField = null, nullGroupLabel = '(no age division)' }) {
+export default function RosterList({ roster, threshold = 8, groupField = null, nullGroupLabel = '(no age division)', onRowClick }) {
   const [query, setQuery] = useState('')
   const showSearch = roster.length > threshold
 
@@ -69,16 +82,16 @@ export default function RosterList({ roster, threshold = 8, groupField = null, n
         />
       )}
       {pinned.map((entry) => (
-        <RosterRow key={rosterRowKey(entry)} entry={entry} />
+        <RosterRow key={rosterRowKey(entry)} entry={entry} onRowClick={onRowClick} />
       ))}
       {groups
         ? [...groups.entries()].map(([label, entries]) => (
           <details key={label} style={styles.group}>
             <summary style={styles.groupSummary}>{`${label} (${entries.length})`}</summary>
-            {entries.map((entry) => <RosterRow key={rosterRowKey(entry)} entry={entry} />)}
+            {entries.map((entry) => <RosterRow key={rosterRowKey(entry)} entry={entry} onRowClick={onRowClick} />)}
           </details>
         ))
-        : filteredRest.map((entry) => <RosterRow key={rosterRowKey(entry)} entry={entry} />)}
+        : filteredRest.map((entry) => <RosterRow key={rosterRowKey(entry)} entry={entry} onRowClick={onRowClick} />)}
       {pinned.length === 0 && filteredRest.length === 0 && (
         <div style={styles.empty}>No matches.</div>
       )}

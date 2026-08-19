@@ -12,6 +12,12 @@ const STATE_TOKEN = {
   attention: 'var(--accent)',
   changed: 'var(--primary)',
   absent: 'var(--anchor)',
+  // Required-5 only (docs/adr/2026-08-19-roots-census-and-persistent-
+  // inspector.md §(d), R3) — "this domain applies and nobody has touched it
+  // yet", a distinct claim from 'absent' ("positive evidence this domain
+  // doesn't apply"). --border is otherwise unused as a node token, muted and
+  // distinct from the other four semantic colors.
+  not_set_up: 'var(--border)',
 }
 
 const STATE_LABEL = {
@@ -19,6 +25,7 @@ const STATE_LABEL = {
   attention: 'Needs attention',
   changed: 'Changed',
   absent: 'Not in source',
+  not_set_up: 'Not set up yet',
 }
 
 const TILE_STATES = ['understood', 'attention', 'changed', 'absent']
@@ -67,9 +74,10 @@ function Node({ x, y, width, height, state, label, selected, onSelect }) {
         cx={cx}
         cy={cy}
         r={dotRadius}
-        fill={state === 'absent' ? 'none' : STATE_TOKEN[state]}
-        stroke={state === 'absent' ? STATE_TOKEN[state] : 'none'}
-        strokeWidth={state === 'absent' ? 2 : 0}
+        fill={state === 'absent' || state === 'not_set_up' ? 'none' : STATE_TOKEN[state]}
+        stroke={state === 'absent' || state === 'not_set_up' ? STATE_TOKEN[state] : 'none'}
+        strokeWidth={state === 'absent' || state === 'not_set_up' ? 2 : 0}
+        strokeDasharray={state === 'not_set_up' ? '2 2' : undefined}
         style={reduced ? undefined : { transition: 'fill var(--motion-base) var(--ease-out)' }}
       />
       {showLabel && (

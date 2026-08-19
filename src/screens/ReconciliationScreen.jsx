@@ -42,7 +42,7 @@ async function fetchReadiness() {
   return getReadiness(collections, null)
 }
 
-export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false }) {
+export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false, mode = 'import' }) {
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -77,7 +77,7 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
   // moment-gating.md) — the show/skip decision is made ONCE, before the
   // moment ever paints, from props computed at parse time in ImportScreen.
   // Recomputing it after mount would let a flash of the wrong branch through.
-  const [showMoment] = useState(() => shouldShowReconstructionMoment({
+  const [showMoment] = useState(() => mode !== 'inspect' && shouldShowReconstructionMoment({
     factCount,
     isFirstImport,
     prefersReducedMotion: prefersReducedMotion(),
@@ -137,11 +137,41 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
     }
   }
 
+  // Inspect mode (docs/adr/2026-08-19-roots-census-and-persistent-inspector.md
+  // §(e)/(f)) — no report, no ingestReconcile, no dry-run. Reuses the SAME
+  // requestGenRef guard as runDryRun (last-issued-wins), not a second ref:
+  // this instance's effect can re-fire (e.g. StrictMode's dev-mode double-
+  // invoke) faster than fetchCensusSnapshot's several list() calls resolve,
+  // and the guard prevents the earlier in-flight call from overwriting a
+  // later one's state within THIS mounted instance. Navigating away from
+  // Roots and back is a different case, protected differently: it unmounts
+  // this component entirely, so a stale fetch resolving after that has no
+  // component left to setState on.
+  async function loadInspectSnapshot() {
+    const myGen = ++requestGenRef.current
+    setLoading(true)
+    setError(null)
+    try {
+      const snapshot = await fetchCensusSnapshot(localClient.list)
+      if (requestGenRef.current !== myGen) return
+      setCensusSnapshot(snapshot)
+    } catch (err) {
+      if (requestGenRef.current !== myGen) return
+      setError(describeWriteFailure(err, 'Could not read your camp setup.'))
+    } finally {
+      if (requestGenRef.current === myGen) setLoading(false)
+    }
+  }
+
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial mount fetch, same pattern as ActivitiesScreen's load()
-    runDryRun({})
+    if (mode === 'inspect') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- initial mount fetch, same pattern as ActivitiesScreen's load()
+      loadInspectSnapshot()
+    } else {
+      runDryRun({})
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [mode])
 
   function stage(decisionId, answer) {
     const next = { ...answers, [decisionId]: answer }
@@ -222,7 +252,7 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
       : null
     return (
       <div style={{ maxWidth: 920, margin: '0 auto' }}>
-        <ScreenIntro screen="reconciliation" />
+        <ScreenIntro screen={mode === 'inspect' ? 'roots' : 'reconciliation'} />
         <ReconstructionMoment
           settling={!!report}
           domainCounts={momentDomainCounts}
@@ -232,11 +262,13 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
     )
   }
 
-  if (loading && !report) {
+  if (loading && (mode === 'inspect' || !report)) {
     return (
       <div style={{ maxWidth: 920, margin: '0 auto' }}>
-        <ScreenIntro screen="reconciliation" />
-        <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Checking this file against your camp…</p>
+        <ScreenIntro screen={mode === 'inspect' ? 'roots' : 'reconciliation'} />
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+          {mode === 'inspect' ? 'Reading your camp setup…' : 'Checking this file against your camp…'}
+        </p>
       </div>
     )
   }
@@ -244,9 +276,9 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
   if (error && !report) {
     return (
       <div style={{ maxWidth: 920, margin: '0 auto' }}>
-        <ScreenIntro screen="reconciliation" />
+        <ScreenIntro screen={mode === 'inspect' ? 'roots' : 'reconciliation'} />
         <div style={styles.errorBanner}>{error}</div>
-        <button className="press-97" onClick={onDiscard} style={S.btnSecondary}>Back</button>
+        {onDiscard && <button className="press-97" onClick={onDiscard} style={S.btnSecondary}>Back</button>}
       </div>
     )
   }
@@ -258,7 +290,9 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
   // (ADR invariant 2: salience never reorders truth).
   const lanes = reportToLanes(report ?? { decisions: [], buckets: {}, readiness: [] })
 
-  const rootMapModel = buildRootMapModel(report, { answers, dismissedGaps, snapshot: censusSnapshot })
+  const rootMapModel = mode === 'inspect'
+    ? buildRootMapModel(null, { snapshot: censusSnapshot, mode: 'inspect' })
+    : buildRootMapModel(report, { answers, dismissedGaps, snapshot: censusSnapshot })
 
   const totalCount = lanes.hold.length + lanes.standard.length
   const doneCount = [...lanes.hold, ...lanes.standard].filter((d) => isDecisionResolvedFor(d, answers, dismissedGaps)).length
@@ -277,7 +311,18 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
   // high-confidence, is still an UNCOMMITTED write until one of them runs.
   // Reaching the end state any other way (decisions resolved, or nothing to
   // decide but something to commit) goes through the real apply -> Receipt.
-  const isGenuinelyEmpty = totalCount === 0 && understoodCount === 0 && notInSourceCount === 0 && lanes.readinessGreen
+  // Inspect mode never reaches the import end state — there is no import to
+  // "settle" into (ADR §(e)), so this short-circuit is import-only.
+  const isGenuinelyEmpty = mode === 'import'
+    && totalCount === 0 && understoodCount === 0 && notInSourceCount === 0 && lanes.readinessGreen
+
+  // A per-entity fetchCensusSnapshot read failure resolves to `null`, not an
+  // empty array (existingSnapshot.js), so a required area falls through to
+  // 'not_set_up's sibling default 'understood' — false-green for a director
+  // doing a pre-camp sanity check. buildRootMapModel already console.warns
+  // per entity; this is the same signal surfaced where a director can
+  // actually see it, subtle rather than blocking (Red Hat LOW).
+  const censusReadFailed = mode === 'inspect' && Object.values(censusSnapshot).some((v) => v === null)
 
   // Interaction spec §1 — tile click toggles (re-clicking the active tile
   // clears the filter); node click always replaces the selection, never
@@ -307,24 +352,29 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
 
   return (
     <div style={{ maxWidth: 920, margin: '0 auto' }}>
-      <ScreenIntro screen="reconciliation" />
+      <ScreenIntro screen={mode === 'inspect' ? 'roots' : 'reconciliation'} />
       {error && <div style={styles.errorBanner}>{error}</div>}
+      {censusReadFailed && (
+        <div style={styles.errorBanner}>Couldn’t read part of your setup — some areas may be incomplete.</div>
+      )}
       {rememberNotes.length > 0 && (
         <div style={styles.rememberNotesBanner}>{rememberNotes.join(' · ')}</div>
       )}
 
       <div style={styles.headerStrip}>
         <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>
-          Reconciling {sourceLabel}
+          {mode === 'inspect' ? 'Your camp, as Shoresh understands it' : `Reconciling ${sourceLabel}`}
         </div>
-        <div style={{ textAlign: 'right' }}>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
-            {doneCount} of {totalCount} done
+        {mode === 'import' && (
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 13, color: 'var(--text-secondary)', fontVariantNumeric: 'tabular-nums' }}>
+              {doneCount} of {totalCount} done
+            </div>
+            <div style={styles.progressTrack}>
+              <div style={{ ...styles.progressFill, width: `${pct}%` }} />
+            </div>
           </div>
-          <div style={styles.progressTrack}>
-            <div style={{ ...styles.progressFill, width: `${pct}%` }} />
-          </div>
-        </div>
+        )}
       </div>
 
       {understoodCount > 0 && (
@@ -370,31 +420,33 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
         </div>
       )}
 
-      <div style={styles.tray}>
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-          {confirmedCount > 0 ? `${confirmedCount} decisions staged` : 'Resolve at least one item, or apply what’s understood as-is.'}
+      {mode === 'import' && (
+        <div style={styles.tray}>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+            {confirmedCount > 0 ? `${confirmedCount} decisions staged` : 'Resolve at least one item, or apply what’s understood as-is.'}
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button
+              className="press-97"
+              disabled={confirmedCount === 0 || applying}
+              onClick={() => apply('confirmedOnly')}
+              style={confirmedCount === 0 ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
+              title={confirmedCount === 0 ? 'Resolve at least one item first.' : undefined}
+            >
+              Apply confirmed changes and keep the rest for review
+            </button>
+            <button
+              className="press-97"
+              disabled={doneCount < totalCount || applying}
+              onClick={() => apply('all')}
+              style={doneCount < totalCount ? { ...S.btnPrimary, ...S.buttonDisabled } : S.btnPrimary}
+              title={doneCount < totalCount ? `Resolve the ${totalCount - doneCount} items marked for your attention first.` : undefined}
+            >
+              Use this setup
+            </button>
+          </div>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button
-            className="press-97"
-            disabled={confirmedCount === 0 || applying}
-            onClick={() => apply('confirmedOnly')}
-            style={confirmedCount === 0 ? { ...S.btnSecondary, ...S.buttonDisabled } : S.btnSecondary}
-            title={confirmedCount === 0 ? 'Resolve at least one item first.' : undefined}
-          >
-            Apply confirmed changes and keep the rest for review
-          </button>
-          <button
-            className="press-97"
-            disabled={doneCount < totalCount || applying}
-            onClick={() => apply('all')}
-            style={doneCount < totalCount ? { ...S.btnPrimary, ...S.buttonDisabled } : S.btnPrimary}
-            title={doneCount < totalCount ? `Resolve the ${totalCount - doneCount} items marked for your attention first.` : undefined}
-          >
-            Use this setup
-          </button>
-        </div>
-      </div>
+      )}
     </div>
   )
 }

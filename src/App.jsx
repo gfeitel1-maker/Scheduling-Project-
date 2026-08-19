@@ -8,6 +8,7 @@ import LoginScreen from './screens/LoginScreen'
 import CampScreen from './screens/CampScreen'
 import ImportScreen from './screens/ImportScreen'
 import ReadinessHub from './screens/ReadinessHub'
+import ReconciliationScreen from './screens/ReconciliationScreen'
 import TiersScreen from './screens/TiersScreen'
 import GroupsScreen from './screens/GroupsScreen'
 import TimeBlocksScreen from './screens/TimeBlocksScreen'
@@ -32,6 +33,12 @@ const SCREENS = {
   readiness:    ReadinessHub,
   camp:         CampScreen,
   import:       ImportScreen,
+  // Roots as a persistent inspector (docs/adr/2026-08-19-roots-census-and-
+  // persistent-inspector.md §(e)) — the first time ReconciliationScreen is
+  // reachable outside the ImportScreen takeover. Fixed `mode="inspect"` prop
+  // threaded at the render site below, same pattern as
+  // SCHEDULE_ROUTE_BY_SCREEN's fixed `route` prop.
+  roots:        ReconciliationScreen,
   conflicts:    ConflictsScreen,
   trash:        TrashScreen,
   cohorts:      CohortsScreen,
@@ -147,6 +154,10 @@ export function AppShell({ campId, role, onLogout }) {
         campId, role, onNavigate: setScreen,
         ...(scheduleRoute ? { initialRoute: scheduleRoute } : {}),
         ...(isWeekScreen ? weekProps : {}),
+        // Roots as persistent inspector — fixed prop per route key, same
+        // pattern as scheduleRoute above (docs/adr/2026-08-19-roots-census-
+        // and-persistent-inspector.md §(e)).
+        ...(screen === 'roots' ? { mode: 'inspect' } : {}),
       }
 
   return (
