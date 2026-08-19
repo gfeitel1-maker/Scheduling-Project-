@@ -56,3 +56,33 @@ export async function buildExistingSnapshot(list, cohortId, mode = 'add') {
   }
   return existing
 }
+
+// Roots census roster (Slice 2, docs/adr/2026-08-19-roots-census-and-persistent-
+// inspector.md §(a)/(e), R1) — a second, separate live-read fetch. Returns rows
+// keyed EXACTLY by the table names CHILD_OF/DOMAIN_OF (domainRollup.js) use,
+// unlike ReconciliationScreen's fetchReadiness, which aliases three of these
+// keys (days/timeBlocks/anchors) for getReadiness/COLLECTION_FOR's unrelated
+// purpose. Deliberately does not touch or alias fetchReadiness's shape —
+// buildRootMapModel's roster construction is a literal
+// `Object.keys(snapshot).forEach(...)` over CHILD_OF's own keys, so the two
+// stay in sync by construction, not by a second table someone has to update.
+const CENSUS_ENTITIES = [
+  'cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'locations', 'activities', 'anchor_activities',
+]
+
+// Each entity fetched independently and in parallel (this runs on every
+// 250ms-debounced dry-run, not just mount — 8 serial round-trips would be
+// wasted latency on every answered decision). A rejected list() call
+// resolves to `null`, not `[]` — buildRootMapModel must be able to tell a
+// genuinely-empty required table (real not_set_up) apart from a transient
+// read failure (e.g. a DB lock during LAN sync), which must never read as
+// "nothing set up yet".
+export async function fetchCensusSnapshot(list) {
+  const entries = await Promise.all(CENSUS_ENTITIES.map(async (entity) => {
+    const nameCol = NAME_COLUMN[entity] ?? 'name'
+    let rows
+    try { rows = (await list(entity)) ?? [] } catch { rows = null }
+    return [entity, rows ? rows.map((r) => ({ ...r, name: r[nameCol] })) : null]
+  }))
+  return Object.fromEntries(entries)
+}

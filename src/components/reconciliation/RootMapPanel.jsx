@@ -4,6 +4,14 @@ import { DOMAIN_LABELS } from './domainRollup.js'
 import { screenForNode, SCREEN_LABEL } from './rootMapNav.js'
 import { prefersReducedMotion } from '../../styles/shared'
 import { isDecisionResolvedFor } from '../../screens/reconciliationTriage.js'
+import RosterList from './RosterList.jsx'
+
+// Census roster (docs/adr/2026-08-19-roots-census-and-persistent-inspector.md
+// §(a)/(b)) — grouping is opportunistic and limited to children with a real,
+// semantically-correct backing field. Groups is the only one today (R4/R5):
+// the tier_id -> Age Division join. Everything else (Activities, Locations,
+// etc.) renders flat + search.
+const ROSTER_GROUP_FIELD = { Groups: 'group' }
 
 // Display labels for the four ingested states — match RootMap's tile labels so the
 // panel heading reads "Needs attention", not the raw state key "attention".
@@ -18,6 +26,13 @@ const STATE_LABEL = {
 // rendering itself.
 //
 // selection: { type: 'none' } | { type: 'tile', state } | { type: 'node', domainKey, childKey? }
+
+function rosterForNode(model, selection) {
+  if (selection.type !== 'node' || !selection.childKey) return null
+  const domain = model.domains.find((d) => d.key === selection.domainKey)
+  const child = domain?.children.find((c) => c.key === selection.childKey)
+  return child?.roster ?? null
+}
 
 function decisionsForNode(model, domainKey, childKey) {
   const domain = model.domains.find((d) => d.key === domainKey)
@@ -111,6 +126,7 @@ export default function RootMapPanel({
   let heading
   let targetScreen = null
   let resolvedCount = 0
+  const roster = rosterForNode(model, selection)
   if (selection.type === 'node') {
     const ids = decisionsForNode(model, selection.domainKey, selection.childKey)
     scoped = ids.map((id) => byId.get(id)).filter(Boolean)
@@ -157,6 +173,9 @@ export default function RootMapPanel({
             >
               {`Open in ${SCREEN_LABEL[targetScreen] ?? targetScreen} →`}
             </button>
+            {roster && roster.length > 0 && (
+              <RosterList roster={roster} groupField={ROSTER_GROUP_FIELD[selection.childKey] ?? null} />
+            )}
           </>
         ) : (
           <div style={styles.empty}>
