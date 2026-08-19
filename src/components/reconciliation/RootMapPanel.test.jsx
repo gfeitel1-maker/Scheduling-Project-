@@ -382,3 +382,63 @@ describe('RootMapPanel default view scoping (H1 fix)', () => {
     expect(screen.getByText('1 resolved · Show all')).toBeTruthy()
   })
 })
+
+describe('RootMapPanel census roster (Slice 2)', () => {
+  function modelWithRoster(roster) {
+    return {
+      domains: [
+        {
+          key: 'Structure', label: 'Structure', state: 'attention', x: 0.5, y: 0.5,
+          children: [
+            { key: 'Groups', name: 'Groups', count: 0, state: 'attention', x: 0.5, y: 0.5, decisionIds: [], roster },
+          ],
+        },
+      ],
+    }
+  }
+
+  it('renders a RosterList below the Open button for a node selection with a non-empty roster', () => {
+    const roster = [
+      { entityId: 'g1', name: 'Shoresh', state: 'understood', decisionId: null, group: 'Age Division: Amitim' },
+      { entityId: 'g2', name: 'Bogrim', state: 'changed', decisionId: 'd1', group: 'Age Division: Sollelim' },
+    ]
+    render(
+      <RootMapPanel
+        model={modelWithRoster(roster)}
+        selection={{ type: 'node', domainKey: 'Structure', childKey: 'Groups' }}
+        lanes={lanes}
+        dismissedGaps={new Set()}
+        answers={{}}
+        onAnswer={noop}
+        onDismissGap={noop}
+        onUndismissGap={noop}
+        expandedEvidence={new Set()}
+        onToggleEvidence={noop}
+        onNavigate={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(screen.getByText('Shoresh')).toBeTruthy()
+    expect(screen.getByText('Bogrim')).toBeTruthy()
+  })
+
+  it('renders nothing extra for a node selection with an empty roster', () => {
+    render(
+      <RootMapPanel
+        model={modelWithRoster([])}
+        selection={{ type: 'node', domainKey: 'Structure', childKey: 'Groups' }}
+        lanes={lanes}
+        dismissedGaps={new Set()}
+        answers={{}}
+        onAnswer={noop}
+        onDismissGap={noop}
+        onUndismissGap={noop}
+        expandedEvidence={new Set()}
+        onToggleEvidence={noop}
+        onNavigate={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(screen.queryByText(/Find in/)).toBeFalsy()
+  })
+})

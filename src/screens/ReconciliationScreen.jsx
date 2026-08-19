@@ -5,6 +5,7 @@ import { buildReconciliationReport } from '../ingest/reconciliationReport.js'
 import { buildBlastRadiusIndex } from '../ingest/blastRadius.js'
 import { reportToLanes } from '../ingest/reportToLanes.js'
 import { getReadiness } from '../engine/readiness.js'
+import { fetchCensusSnapshot } from '../ingest/existingSnapshot.js'
 import { describeWriteFailure } from '../utils/writeErrorMessage.js'
 import ScreenIntro from '../components/ScreenIntro.jsx'
 import { heldConflictsToDecisions, foldTriageInputs, isDecisionResolvedFor, mapCommitError, identityRememberCalls } from './reconciliationTriage.js'
@@ -45,6 +46,11 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  // Roots census roster (Slice 2, docs/adr/2026-08-19-roots-census-and-
+  // persistent-inspector.md §(a)/(e)) — canonical table-name-keyed live
+  // rows, feeding buildRootMapModel's per-child roster. Separate from
+  // `report`/fetchReadiness on purpose; see fetchCensusSnapshot's own doc.
+  const [censusSnapshot, setCensusSnapshot] = useState({})
   const [answers, setAnswers] = useState({})
   // ADR docs/adr/2026-08-18-rootmap-screen-port.md §5 — replaces the old
   // `activeFilters` multi-select Set with one selection union: 'none' (the
@@ -106,6 +112,9 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
 
       const readiness = await fetchReadiness()
       if (requestGenRef.current !== myGen) return
+      const snapshot = await fetchCensusSnapshot(localClient.list)
+      if (requestGenRef.current !== myGen) return
+      setCensusSnapshot(snapshot)
       const blastRadiusIndex = buildBlastRadiusIndex(result?.planItems ?? [])
       const nextReport = buildReconciliationReport({
         planItems: result?.planItems ?? [],
@@ -249,7 +258,7 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
   // (ADR invariant 2: salience never reorders truth).
   const lanes = reportToLanes(report ?? { decisions: [], buckets: {}, readiness: [] })
 
-  const rootMapModel = buildRootMapModel(report, { answers, dismissedGaps })
+  const rootMapModel = buildRootMapModel(report, { answers, dismissedGaps, snapshot: censusSnapshot })
 
   const totalCount = lanes.hold.length + lanes.standard.length
   const doneCount = [...lanes.hold, ...lanes.standard].filter((d) => isDecisionResolvedFor(d, answers, dismissedGaps)).length
