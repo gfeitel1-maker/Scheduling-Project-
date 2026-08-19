@@ -469,4 +469,109 @@ describe('RootMapPanel census roster (Slice 2)', () => {
     screen.getByText('Shoresh').click()
     expect(navigatedTo).toBe('groups')
   })
+
+  // Context wiring (Slice 3, docs/adr/2026-08-19-roots-census-and-persistent-
+  // inspector.md §(g)) — a Field Trips roster row carries its own resolved
+  // targetScreen (manual vs. generated route); it must win over the child's
+  // single fixed screenForNode target.
+  it('a roster entry with its own targetScreen navigates there instead of the node-level target', () => {
+    const model = {
+      domains: [
+        {
+          key: 'Context', label: 'Context', state: 'understood', x: 0.5, y: 0.5,
+          children: [
+            {
+              key: 'Field Trips / Special Events', name: 'Field Trips / Special Events', count: 0, state: 'understood', x: 0.5, y: 0.5, decisionIds: [],
+              roster: [{ entityId: 'ft1', name: 'Field Trip — Monday', state: 'understood', decisionId: null, group: null, targetScreen: 'schedule:generated' }],
+            },
+          ],
+        },
+      ],
+    }
+    let navigatedTo = null
+    render(
+      <RootMapPanel
+        model={model}
+        selection={{ type: 'node', domainKey: 'Context', childKey: 'Field Trips / Special Events' }}
+        lanes={lanes}
+        dismissedGaps={new Set()}
+        answers={{}}
+        onAnswer={noop}
+        onDismissGap={noop}
+        onUndismissGap={noop}
+        expandedEvidence={new Set()}
+        onToggleEvidence={noop}
+        onNavigate={(target) => { navigatedTo = target }}
+        onClearSelection={noop}
+      />,
+    )
+    screen.getByText('Field Trip — Monday').click()
+    expect(navigatedTo).toBe('schedule:generated')
+  })
+
+  // Red Hat follow-up (inherited Slice 2 gap, surfaced by Slice 3) — a child
+  // node with an EMPTY roster (nothing exists there at all) must not read
+  // as "Everything here looks right.", which implies a check that found
+  // nothing wrong. That copy is reserved for a populated, all-understood
+  // roster (or a domain-only selection, which has no roster concept).
+  function contextModel(roster) {
+    return {
+      domains: [
+        {
+          key: 'Context', label: 'Context', state: 'understood', x: 0.5, y: 0.5,
+          children: [
+            {
+              key: 'Field Trips / Special Events', name: 'Field Trips / Special Events', count: 0, state: 'understood', x: 0.5, y: 0.5, decisionIds: [],
+              roster,
+            },
+          ],
+        },
+      ],
+    }
+  }
+
+  it('a child node with an EMPTY roster shows honest "nothing here yet" copy, not "Everything here looks right."', () => {
+    render(
+      <RootMapPanel
+        model={contextModel([])}
+        selection={{ type: 'node', domainKey: 'Context', childKey: 'Field Trips / Special Events' }}
+        lanes={lanes}
+        dismissedGaps={new Set()}
+        answers={{}}
+        onAnswer={noop}
+        onDismissGap={noop}
+        onUndismissGap={noop}
+        expandedEvidence={new Set()}
+        onToggleEvidence={noop}
+        onNavigate={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(screen.getByText('Nothing here yet — open the setup screen to add some.')).toBeTruthy()
+    expect(screen.queryByText('Everything here looks right.')).toBeFalsy()
+  })
+
+  it('a child node with a non-empty, all-understood roster still shows "Everything here looks right."', () => {
+    render(
+      <RootMapPanel
+        model={contextModel([{ entityId: 'ft1', name: 'Field Trip — Monday', state: 'understood', decisionId: null, group: null, targetScreen: 'schedule:manual' }])}
+        selection={{ type: 'node', domainKey: 'Context', childKey: 'Field Trips / Special Events' }}
+        lanes={lanes}
+        dismissedGaps={new Set()}
+        answers={{}}
+        onAnswer={noop}
+        onDismissGap={noop}
+        onUndismissGap={noop}
+        expandedEvidence={new Set()}
+        onToggleEvidence={noop}
+        onNavigate={noop}
+        onClearSelection={noop}
+      />,
+    )
+    // Every roster entry is 'understood' (Context inspect rows never have a
+    // pending decision), so `scoped` (the decision list) is empty here even
+    // though the roster itself is populated.
+    expect(screen.getByText('Everything here looks right.')).toBeTruthy()
+    expect(screen.queryByText('Nothing here yet — open the setup screen to add some.')).toBeFalsy()
+  })
 })

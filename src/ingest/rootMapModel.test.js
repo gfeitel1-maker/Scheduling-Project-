@@ -328,6 +328,67 @@ describe('buildRootMapModel', () => {
     expect(groupsChild.roster).toEqual([])
   })
 
+  // ── Slice 3: Context wiring (docs/adr/2026-08-19-roots-census-and-persistent-inspector.md §(g)) ──
+
+  it('import mode Context stays byte-unchanged even when the snapshot carries field_trips/day_overrides rows', () => {
+    const report = buildReconciliationReport({ planItems: [], readiness: [] })
+    const snapshot = makeSnapshot({
+      field_trips: [{ id: 'ft1', name: 'Field Trip — Monday', route: 'schedule:manual' }],
+      day_overrides: [{ id: 'do1', name: 'Winter Break' }],
+    })
+    const model = buildRootMapModel(report, { answers: {}, dismissedGaps: new Set(), snapshot })
+
+    const context = model.domains.find((d) => d.key === 'Context')
+    expect(context.state).toBe('absent')
+    expect(context.children).toEqual([])
+  })
+
+  it('inspect mode Context with empty rosters reads understood (optional-3 treatment), never absent or not_set_up', () => {
+    const model = buildRootMapModel(null, { snapshot: makeSnapshot(), mode: 'inspect' })
+
+    const context = model.domains.find((d) => d.key === 'Context')
+    expect(context.state).toBe('understood')
+    expect(context.children.map((c) => c.key)).toEqual(['Field Trips / Special Events', 'Day Overrides'])
+    expect(context.children.every((c) => c.roster.length === 0)).toBe(true)
+  })
+
+  it('inspect mode Context gets real rosters from field_trips/day_overrides, with per-row targetScreen on field trips', () => {
+    const snapshot = makeSnapshot({
+      field_trips: [{ id: 'ft1', name: 'Field Trip — Monday', route: 'schedule:generated' }],
+      day_overrides: [{ id: 'do1', name: 'Winter Break' }],
+    })
+    const model = buildRootMapModel(null, { snapshot, mode: 'inspect' })
+
+    const context = model.domains.find((d) => d.key === 'Context')
+    expect(context.state).toBe('understood')
+    const fieldTrips = context.children.find((c) => c.key === 'Field Trips / Special Events')
+    expect(fieldTrips.roster).toEqual([
+      { entityId: 'ft1', name: 'Field Trip — Monday', state: 'understood', decisionId: null, group: null, targetScreen: 'schedule:generated' },
+    ])
+    const dayOverrides = context.children.find((c) => c.key === 'Day Overrides')
+    expect(dayOverrides.roster).toEqual([
+      { entityId: 'do1', name: 'Winter Break', state: 'understood', decisionId: null, group: null },
+    ])
+  })
+
+  it('inspect-mode census-completeness: Context roster entries equal the filtered field_trips + day_overrides snapshot counts, and the whole-model live-only total still holds', () => {
+    const snapshot = makeSnapshot({
+      field_trips: [{ id: 'ft1', name: 'Field Trip — Monday', route: 'schedule:manual' }],
+      day_overrides: [{ id: 'do1', name: 'Winter Break' }, { id: 'do2', name: 'Spring Break' }],
+    })
+    const model = buildRootMapModel(null, { snapshot, mode: 'inspect' })
+
+    const context = model.domains.find((d) => d.key === 'Context')
+    const contextRosterCount = context.children.reduce((sum, c) => sum + c.roster.length, 0)
+    expect(contextRosterCount).toBe(snapshot.field_trips.length + snapshot.day_overrides.length)
+
+    // Part 2's inspect-mode live-only collapse (existing invariant) still
+    // holds once Context's two new entity types are included in the total —
+    // no separate formula needed, since sumRoster already sums every child's
+    // roster and Context's roster is now populated from these same two keys.
+    expect(sumRoster(model)).toBe(Object.values(snapshot).flat().length)
+  })
+
   it('with no snapshot supplied, roster construction is a no-op and existing children are untouched (backward compatible default)', () => {
     const planItems = [
       {

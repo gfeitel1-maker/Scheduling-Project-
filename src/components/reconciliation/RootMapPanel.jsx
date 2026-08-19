@@ -164,7 +164,21 @@ export default function RootMapPanel({
         targetScreen ? (
           <>
             {scoped.length === 0 && (
-              <div style={styles.empty}>Everything here looks right.</div>
+              <div style={styles.empty}>
+                {/* A CHILD node whose roster is empty (nothing exists there
+                    at all — e.g. Context's Field Trips with none stamped,
+                    or Locations before any are added) has nothing to have
+                    "checked" — "Everything here looks right." implies a
+                    check that never happened. Domain-level selections have
+                    no roster concept (rosterForNode returns null without a
+                    childKey) and keep the original copy, as does a child
+                    whose roster is non-empty but every entry is understood
+                    (not_set_up already gets its own distinct copy via the
+                    required-5 token, upstream of this branch). */}
+                {selection.childKey && roster && roster.length === 0
+                  ? 'Nothing here yet — open the setup screen to add some.'
+                  : 'Everything here looks right.'}
+              </div>
             )}
             <button
               className="press-97"
@@ -177,7 +191,12 @@ export default function RootMapPanel({
               <RosterList
                 roster={roster}
                 groupField={ROSTER_GROUP_FIELD[selection.childKey] ?? null}
-                onRowClick={() => onNavigate?.(targetScreen)}
+                // A roster row's own targetScreen (Context's Field Trips,
+                // ADR §(g) — a camp's trips can live on either schedule
+                // route) wins over the child's single fixed target; every
+                // other roster today has no targetScreen field, so this
+                // falls back to the existing node-level behavior unchanged.
+                onRowClick={(entry) => onNavigate?.(entry?.targetScreen ?? targetScreen)}
               />
             )}
           </>

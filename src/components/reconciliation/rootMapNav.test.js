@@ -5,9 +5,10 @@ import { DOMAIN_SCREEN, CHILD_SCREEN, SCREEN_LABEL, screenForNode } from './root
 // screen component tree, which is far heavier than this pure-config test
 // needs). Keep in sync with src/App.jsx's SCREENS keys.
 const REAL_SCREEN_KEYS = new Set([
-  'readiness', 'camp', 'import', 'conflicts', 'trash',
+  'readiness', 'camp', 'import', 'roots', 'conflicts', 'trash',
   'cohorts', 'tiers', 'groups', 'days', 'timeblocks', 'activities',
   'locations', 'anchors', 'dayoverrides', 'schedule',
+  'schedule:manual', 'schedule:generated',
 ])
 
 describe('rootMapNav — every nav target is a real screen', () => {
@@ -44,5 +45,15 @@ describe('rootMapNav — every nav target is a real screen', () => {
 
   it('screenForNode returns null for Context (no edit surface)', () => {
     expect(screenForNode('Context', null)).toBe(null)
+  })
+
+  // ── Context wiring (Slice 3, docs/adr/2026-08-19-roots-census-and-persistent-inspector.md §(g)) ──
+
+  it('Field Trips / Special Events resolves to the schedule (manual default) — inspect-mode-only child', () => {
+    expect(screenForNode('Context', 'Field Trips / Special Events')).toBe('schedule:manual')
+  })
+
+  it('Day Overrides resolves to the existing dayoverrides screen — inspect-mode-only child', () => {
+    expect(screenForNode('Context', 'Day Overrides')).toBe('dayoverrides')
   })
 })
