@@ -11,7 +11,6 @@ amends: docs/adr/2026-08-18-reconciliation-rootmap-screen.md
 related_specs:
   - docs/work/specs/2026-08-18-rootmap-interaction-model.md
   - docs/work/specs/2026-08-18-rootmap-asset-kit.md
-  - docs/work/specs/2026-08-18-rootmap-composited.html
 archive_when: the root-map screen ships and this is folded into PLATFORM_STATE
 ---
 

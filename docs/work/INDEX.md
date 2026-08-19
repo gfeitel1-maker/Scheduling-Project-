@@ -156,8 +156,4 @@ either the document is stranded or an edge was never declared.
 
 A frontmatter field pointing at a work document that does not exist.
 
-| From | Field | Missing target |
-|---|---|---|
-| docs/adr/2026-08-18-rootmap-screen-port.md | `related_specs` | docs/work/specs/2026-08-18-rootmap-composited.html |
-| docs/work/specs/2026-08-18-rootmap-asset-kit.md | `related_specs` | docs/work/specs/2026-08-18-roots-dirA-naturalist.html |
-| docs/work/specs/2026-08-18-rootmap-asset-kit.md | `related_specs` | docs/work/specs/2026-08-18-roots-prototype.html |
+None.
