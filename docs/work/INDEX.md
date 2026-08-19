@@ -98,6 +98,9 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: One-Screen Reconciliation — Projection/Adapter Seam](../../docs/adr/2026-08-17-onescreen-reconciliation-projection.md) | proposed | not_started | [2026-08-17-reconciliation-onescreen-merge](../../docs/work/runs/2026-08-17-reconciliation-onescreen-merge.md) · [2026-08-17-reconciliation-r2b-onescreen](../../docs/work/runs/2026-08-17-reconciliation-r2b-onescreen.md) · [2026-08-17-reconciliation-undo](../../docs/work/runs/2026-08-17-reconciliation-undo.md) |
 | [ADR: One-Screen Reconciliation — Grace-Window Undo (Seam 4, revised)](../../docs/adr/2026-08-17-onescreen-reconciliation-undo.md) | accepted | in_progress | [2026-08-17-reconciliation-undo](../../docs/work/runs/2026-08-17-reconciliation-undo.md) |
 | [ADR: Deepen the sync/auth layer — extract the reliable-delivery+catchup submodule, key its ack registry, and collapse the device-trust gate into one predicate](../../docs/adr/2026-08-17-sync-auth-layer-deepening.md) | accepted | implemented | [2026-08-17-sync-auth-deepening](../../docs/work/runs/2026-08-17-sync-auth-deepening.md) |
+| [Reconciliation root-map screen — hybrid Blender-parts + procedural composition](../../docs/adr/2026-08-18-reconciliation-rootmap-screen.md) | superseded | not_started | — |
+| [Reconciliation root-map screen — production port (static illustration + data-bound SVG)](../../docs/adr/2026-08-18-rootmap-screen-port.md) | accepted | not_started | — |
+| [ADR: Roots Reconstruction Moment — Integration Seam and Gates](../../docs/adr/2026-08-18-roots-reconstruction-moment-gating.md) | accepted | implemented | [2026-08-18-rootmap-asset-kit](../../docs/work/specs/2026-08-18-rootmap-asset-kit.md) · [2026-08-18-rootmap-interaction-model](../../docs/work/specs/2026-08-18-rootmap-interaction-model.md) |
 
 ## Runs
 
@@ -152,4 +155,8 @@ either the document is stranded or an edge was never declared.
 
 A frontmatter field pointing at a work document that does not exist.
 
-None.
+| From | Field | Missing target |
+|---|---|---|
+| docs/adr/2026-08-18-rootmap-screen-port.md | `related_specs` | docs/work/specs/2026-08-18-rootmap-composited.html |
+| docs/work/specs/2026-08-18-rootmap-asset-kit.md | `related_specs` | docs/work/specs/2026-08-18-roots-dirA-naturalist.html |
+| docs/work/specs/2026-08-18-rootmap-asset-kit.md | `related_specs` | docs/work/specs/2026-08-18-roots-prototype.html |
