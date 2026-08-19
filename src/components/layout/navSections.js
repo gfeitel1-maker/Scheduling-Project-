@@ -22,6 +22,12 @@ export const NAV_SECTIONS = [
       // landing screen (S5, OF-1). Carries no mark: it is where the marks are
       // read, not a step that can be complete.
       { key: 'readiness',    label: 'Setup Readiness' },
+      // Roots — the persistent inspector (docs/adr/2026-08-19-roots-census-
+      // and-persistent-inspector.md §(e)): reachable any time, not just mid-
+      // import, so a director can open it months later to see what Shoresh
+      // knows about their camp. Carries no mark, same reasoning as Setup
+      // Readiness — it is a place to look, not a step that can be complete.
+      { key: 'roots',        label: 'Roots' },
       // Sits above the setup rows because it is what a returning camp does
       // first — and below nothing, because a new camp should not have to
       // wonder whether they need it. It carries no mark: importing is not a

@@ -441,4 +441,32 @@ describe('RootMapPanel census roster (Slice 2)', () => {
     )
     expect(screen.queryByText(/Find in/)).toBeFalsy()
   })
+
+  // Slice 4 (docs/adr/2026-08-19-roots-census-and-persistent-inspector.md
+  // §(e), open question 4) — clicking a roster row navigates like the
+  // "Open in..." button, to the same resolved target screen.
+  it('clicking a roster row calls onNavigate with the node\'s resolved target screen', () => {
+    const roster = [
+      { entityId: 'g1', name: 'Shoresh', state: 'understood', decisionId: null, group: 'Age Division: Amitim' },
+    ]
+    let navigatedTo = null
+    render(
+      <RootMapPanel
+        model={modelWithRoster(roster)}
+        selection={{ type: 'node', domainKey: 'Structure', childKey: 'Groups' }}
+        lanes={lanes}
+        dismissedGaps={new Set()}
+        answers={{}}
+        onAnswer={noop}
+        onDismissGap={noop}
+        onUndismissGap={noop}
+        expandedEvidence={new Set()}
+        onToggleEvidence={noop}
+        onNavigate={(target) => { navigatedTo = target }}
+        onClearSelection={noop}
+      />,
+    )
+    screen.getByText('Shoresh').click()
+    expect(navigatedTo).toBe('groups')
+  })
 })

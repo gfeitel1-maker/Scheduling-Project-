@@ -174,7 +174,11 @@ export default function RootMapPanel({
               {`Open in ${SCREEN_LABEL[targetScreen] ?? targetScreen} →`}
             </button>
             {roster && roster.length > 0 && (
-              <RosterList roster={roster} groupField={ROSTER_GROUP_FIELD[selection.childKey] ?? null} />
+              <RosterList
+                roster={roster}
+                groupField={ROSTER_GROUP_FIELD[selection.childKey] ?? null}
+                onRowClick={() => onNavigate?.(targetScreen)}
+              />
             )}
           </>
         ) : (

@@ -89,4 +89,35 @@ describe('RosterList', () => {
 
     expect(screen.getByText('(ungrouped) (1)')).toBeTruthy()
   })
+
+  // Slice 4 (docs/adr/2026-08-19-roots-census-and-persistent-inspector.md
+  // §(e), open question 4) — a roster row click navigates like the panel's
+  // "Open in..." button, general not entity-specific.
+  it('clicking a row fires onRowClick with that entity', () => {
+    const roster = [entry({ entityId: 'e1', name: 'Bogrim' })]
+    const onRowClick = vi.fn()
+    render(<RosterList roster={roster} threshold={0} onRowClick={onRowClick} />)
+
+    fireEvent.click(screen.getByText('Bogrim'))
+    expect(onRowClick).toHaveBeenCalledTimes(1)
+    expect(onRowClick).toHaveBeenCalledWith(roster[0])
+  })
+
+  it('Enter and Space on a focused row fire onRowClick too', () => {
+    const roster = [entry({ entityId: 'e1', name: 'Bogrim' })]
+    const onRowClick = vi.fn()
+    render(<RosterList roster={roster} threshold={0} onRowClick={onRowClick} />)
+
+    const row = screen.getByText('Bogrim').closest('[role="button"]')
+    fireEvent.keyDown(row, { key: 'Enter' })
+    fireEvent.keyDown(row, { key: ' ' })
+    expect(onRowClick).toHaveBeenCalledTimes(2)
+  })
+
+  it('rows are plain, unclickable, and have no button role when onRowClick is not provided', () => {
+    const roster = [entry({ entityId: 'e1', name: 'Bogrim' })]
+    render(<RosterList roster={roster} threshold={0} />)
+
+    expect(screen.queryByRole('button', { name: /Bogrim/ })).toBeFalsy()
+  })
 })
