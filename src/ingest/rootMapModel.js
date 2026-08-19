@@ -55,6 +55,50 @@ const REQUIRED_ENTITY_TYPES = new Set(
   REQUIRED_AREAS.map((a) => REQUIRED_AREA_ENTITY_TYPE[a.key]).filter(Boolean),
 )
 
+// Context's two inspect-only children (ADR §(g)) — authored, never
+// ingested. No decisions ever exist for them (inspect mode never runs
+// buildReconciliationReport), so decisionIds is always [] and state is
+// always 'understood' per row — there is no confirm/attention concept here,
+// only "this exists" or "this doesn't exist yet".
+function buildContextChildren(snapshot) {
+  const fieldTrips = Array.isArray(snapshot.field_trips) ? snapshot.field_trips : []
+  const dayOverrides = Array.isArray(snapshot.day_overrides) ? snapshot.day_overrides : []
+
+  const fieldTripsPos = layoutForChild('Context', 'Field Trips / Special Events', 0)
+  const dayOverridesPos = layoutForChild('Context', 'Day Overrides', 1)
+
+  return [
+    {
+      key: 'Field Trips / Special Events',
+      name: 'Field Trips / Special Events',
+      count: 0,
+      state: 'understood',
+      x: fieldTripsPos.x,
+      y: fieldTripsPos.y,
+      decisionIds: [],
+      // targetScreen (ADR §(g)) — per-row deep-link, since a camp's field
+      // trips can be stamped on either schedule route. RootMapPanel prefers
+      // a roster row's own targetScreen over the child's single fixed
+      // screenForNode target when present.
+      roster: fieldTrips.map((row) => ({
+        entityId: row.id, name: row.name, state: 'understood', decisionId: null, group: null, targetScreen: row.route,
+      })),
+    },
+    {
+      key: 'Day Overrides',
+      name: 'Day Overrides',
+      count: 0,
+      state: 'understood',
+      x: dayOverridesPos.x,
+      y: dayOverridesPos.y,
+      decisionIds: [],
+      roster: dayOverrides.map((row) => ({
+        entityId: row.id, name: row.name, state: 'understood', decisionId: null, group: null,
+      })),
+    },
+  ]
+}
+
 export function buildRootMapModel(report, { answers = {}, dismissedGaps = new Set(), snapshot = {}, mode = 'import' } = {}) {
   // Inspect mode never runs buildReconciliationReport (ADR §(e)) — there is
   // no report, no decisions, no proposed-new entities, ever.
@@ -135,12 +179,29 @@ export function buildRootMapModel(report, { answers = {}, dismissedGaps = new Se
 
   const domains = DOMAINS.map((domainKey) => {
     const domainDecisions = allDecisions.filter((d) => domainOf(d) === domainKey)
+    const domainPos = NODE_LAYOUT[domainKey] ?? { x: 0.5, y: 0.5 }
 
     // 'Context' never has any entity/screen mapping to it (domainRollup.js),
     // so it always has zero decisions here — that absence of attribution IS
-    // the positive evidence of absence the ADR requires, and is the only
-    // domain this model marks 'absent'.
+    // the positive evidence of absence the ADR requires in import mode.
+    // In inspect mode (Slice 3, ADR §(g)), Context becomes real from two
+    // authored-only entity types no CHILD_OF/DOMAIN_OF key ever names.
     const isContext = domainKey === 'Context'
+    if (isContext) {
+      const children = mode === 'inspect' ? buildContextChildren(snapshot) : []
+      return {
+        key: domainKey,
+        label: domainKey,
+        // Import mode: byte-unchanged, always 'absent'. Inspect mode: never
+        // 'absent' (per (d)'s optional-3 policy, absence is an import-mode-
+        // only claim) and never 'not_set_up' (Context isn't a REQUIRED_AREAS
+        // member) — always 'understood', even with two empty rosters.
+        state: mode === 'inspect' ? 'understood' : 'absent',
+        x: domainPos.x,
+        y: domainPos.y,
+        children,
+      }
+    }
 
     const childGroups = new Map()
     for (const d of domainDecisions) {
@@ -194,11 +255,10 @@ export function buildRootMapModel(report, { answers = {}, dismissedGaps = new Se
       }
     })
 
-    const domainPos = NODE_LAYOUT[domainKey] ?? { x: 0.5, y: 0.5 }
     return {
       key: domainKey,
       label: domainKey,
-      state: isContext ? 'absent' : stateOf(domainDecisions, isResolved),
+      state: stateOf(domainDecisions, isResolved),
       x: domainPos.x,
       y: domainPos.y,
       children,

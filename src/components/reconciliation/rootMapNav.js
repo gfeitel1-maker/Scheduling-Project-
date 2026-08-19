@@ -25,6 +25,16 @@ export const CHILD_SCREEN = {
   Days: 'days',
   'Time Blocks': 'timeblocks',
   Locations: 'locations',
+  // Context wiring (Slice 3, docs/adr/2026-08-19-roots-census-and-persistent-
+  // inspector.md §(g)) — inspect-mode-only children (DOMAIN_SCREEN.Context
+  // stays null; import mode never produces a Context child, so these two
+  // entries are unreachable in import mode by construction). Field Trips/
+  // Special Events' fixed target is a default only — a roster row carries
+  // its own resolved `targetScreen` (manual vs. generated) that
+  // RootMapPanel prefers when present; this is the "Open in..." button's
+  // generic fallback.
+  'Field Trips / Special Events': 'schedule:manual',
+  'Day Overrides': 'dayoverrides',
 }
 
 // Human labels for the "Open in {label} →" button. Reuses the plain screen
@@ -38,6 +48,9 @@ export const SCREEN_LABEL = {
   tiers: 'Age Divisions',
   anchors: 'Fixed Events',
   days: 'Days',
+  'schedule:manual': 'Schedule',
+  'schedule:generated': 'Schedule',
+  dayoverrides: 'Day Overrides',
 }
 
 // Resolves a node selection ({ domainKey, childKey? }) to a screen key, or
