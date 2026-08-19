@@ -3,6 +3,7 @@ import { DecisionCard, RequiredGapCard, RequiredGapSummaryCard } from './reconci
 import { DOMAIN_LABELS } from './domainRollup.js'
 import { screenForNode, SCREEN_LABEL } from './rootMapNav.js'
 import { prefersReducedMotion } from '../../styles/shared'
+import { isDecisionResolvedFor } from '../../screens/reconciliationTriage.js'
 
 // Display labels for the four ingested states — match RootMap's tile labels so the
 // panel heading reads "Needs attention", not the raw state key "attention".
@@ -86,9 +87,30 @@ export default function RootMapPanel({
   const allDecisions = [...lanes.hold, ...lanes.standard]
   const byId = new Map(allDecisions.map((d) => [d.id, d]))
 
+  // H1 (docs/work/specs/2026-08-19-roots-reconciliation-audit.md §12 Slice 1)
+  // — the default view must be honest to its "Needs your attention" header:
+  // scope it to the unresolved subset, not the whole hold+standard queue.
+  // Resolved items stay reachable via the "N resolved · Show all" footer
+  // below (the Red Hat MEDIUM companion), never lost.
+  const [showResolved, setShowResolved] = useState(false)
+  // RootMapPanel isn't remounted on selection change (same instance,
+  // `selection` is just a changing prop), so `showResolved` would otherwise
+  // stay stuck true for the rest of the session after one "Show all" click
+  // — silently re-defeating "quiet at first glance" on every later return
+  // to the default view. Reset it by comparing against the selection seen
+  // on the previous render, in the render body (React's documented pattern
+  // for "adjusting state when a prop changes") rather than an effect —
+  // an effect-based reset here trips react-hooks/set-state-in-effect.
+  const [prevSelectionType, setPrevSelectionType] = useState(selection.type)
+  if (selection.type !== prevSelectionType) {
+    setPrevSelectionType(selection.type)
+    if (showResolved) setShowResolved(false)
+  }
+
   let scoped
   let heading
   let targetScreen = null
+  let resolvedCount = 0
   if (selection.type === 'node') {
     const ids = decisionsForNode(model, selection.domainKey, selection.childKey)
     scoped = ids.map((id) => byId.get(id)).filter(Boolean)
@@ -99,13 +121,9 @@ export default function RootMapPanel({
     scoped = allDecisions.filter((d) => ids.has(d.id))
     heading = STATE_LABEL[selection.state] ?? selection.state
   } else {
-    // Default view — the same full hold+standard list the pre-rootmap card
-    // list rendered unfiltered (resolved items stay visible with their
-    // Undo affordance; this is the existing/legacy default, preserved by
-    // the characterization pass in docs/adr/2026-08-18-rootmap-screen-port.md
-    // §7 — only the tile/node axis narrows to single-select, the default
-    // view's content is unchanged).
-    scoped = allDecisions
+    const unresolved = allDecisions.filter((d) => !isDecisionResolvedFor(d, answers, dismissedGaps))
+    resolvedCount = allDecisions.length - unresolved.length
+    scoped = showResolved ? allDecisions : unresolved
     heading = null
   }
 
@@ -188,6 +206,14 @@ export default function RootMapPanel({
         </div>
       )}
       </div>
+
+      {selection.type === 'none' && resolvedCount > 0 && (
+        <div style={styles.resolvedFooter}>
+          <button className="press-97" onClick={() => setShowResolved((v) => !v)} style={styles.showAll}>
+            {showResolved ? 'Hide resolved' : `${resolvedCount} resolved · Show all`}
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -218,6 +244,12 @@ const styles = {
     fontSize: 13,
     color: 'var(--text-secondary)',
     padding: '8px 0',
+  },
+  resolvedFooter: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTop: '1px dashed var(--border)',
+    textAlign: 'right',
   },
   openButton: {
     display: 'block',

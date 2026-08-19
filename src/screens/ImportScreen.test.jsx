@@ -92,8 +92,17 @@ async function uploadFile() {
 async function goToCommit() {
   await userEvent.click(screen.getByText(/Add \d+ record/))
   await waitFor(() => expect(screen.getByText(/Use this setup/)).toBeTruthy())
-  for (const btn of screen.queryAllByText(/^Skip .* for now/)) {
-    await userEvent.click(btn)
+  // H1 (docs/work/specs/2026-08-19-roots-reconciliation-audit.md §12 Slice 1)
+  // — the default panel view now scopes to unresolved decisions, so
+  // dismissing one required_gap removes it from the on-screen list (rather
+  // than just marking it dismissed in place, as it did pre-H1). A single
+  // upfront `queryAllByText` snapshot goes stale after the first click, so
+  // re-query for the next remaining "Skip ... for now" button each pass,
+  // the same way a real director would click what's actually still on screen.
+  let skipButtons = screen.queryAllByText(/^Skip .* for now/)
+  while (skipButtons.length > 0) {
+    await userEvent.click(skipButtons[0])
+    skipButtons = screen.queryAllByText(/^Skip .* for now/)
   }
   await userEvent.click(await screen.findByText('Use this setup'))
 }
