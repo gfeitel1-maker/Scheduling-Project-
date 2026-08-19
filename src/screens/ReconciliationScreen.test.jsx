@@ -217,6 +217,12 @@ describe('last-issued-wins guard (ADR Risk #3)', () => {
       await vi.advanceTimersByTimeAsync(250)
       // gen 2's request is now in flight (pending on gen2 promise).
 
+      // H1 (docs/work/specs/2026-08-19-roots-reconciliation-audit.md §12
+      // Slice 1) — the default panel view now scopes to the unresolved
+      // subset, so the just-resolved decision (and its Undo affordance)
+      // moved behind the "N resolved · Show all" reveal. Reveal it before
+      // undoing — this is the new, intended path, not a workaround.
+      await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(screen.getByText(/resolved · Show all/))
       // Second triage action before gen 2 resolves: schedules gen 3.
       await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(screen.getByText('Undo'))
       await userEvent.setup({ advanceTimers: vi.advanceTimersByTime }).click(screen.getByText('Use this value'))
@@ -263,6 +269,11 @@ describe('held-identity: remember this alias (confirmAlias)', () => {
 
     expect(screen.queryByRole('checkbox')).toBeNull()
     await userEvent.click(screen.getByText('Use "Chipmunks"'))
+    // H1 — resolving the decision moves it behind the default view's "N
+    // resolved · Show all" reveal (docs/work/specs/2026-08-19-roots-
+    // reconciliation-audit.md §12 Slice 1); reveal it to see its checkbox.
+    await waitFor(() => expect(screen.getByText(/resolved · Show all/)).toBeTruthy())
+    await userEvent.click(screen.getByText(/resolved · Show all/))
     await waitFor(() => expect(screen.getByRole('checkbox')).toBeTruthy())
     expect(screen.getByRole('checkbox').checked).toBe(true)
   })
@@ -292,6 +303,10 @@ describe('held-identity: remember this alias (confirmAlias)', () => {
     await screen.findByText(/0 of 1 done/)
 
     await userEvent.click(screen.getByText('Use "Chipmunks"'))
+    // H1 — reveal the resolved decision to reach its checkbox (see the
+    // sibling test above for why).
+    await waitFor(() => expect(screen.getByText(/resolved · Show all/)).toBeTruthy())
+    await userEvent.click(screen.getByText(/resolved · Show all/))
     await waitFor(() => expect(screen.getByRole('checkbox')).toBeTruthy())
     await userEvent.click(screen.getByRole('checkbox'))
     await userEvent.click(screen.getByText('Use this setup'))
@@ -395,6 +410,11 @@ describe('F3 — required readiness gap card', () => {
     await userEvent.click(screen.getByText(/Skip Units for now/))
 
     await waitFor(() => expect(screen.getByText(/1 of 1 done/)).toBeTruthy())
+    // H1 (docs/work/specs/2026-08-19-roots-reconciliation-audit.md §12
+    // Slice 1) — dismissing the gap resolves it (isDecisionResolvedFor),
+    // which moves it behind the default view's "N resolved · Show all"
+    // reveal; reveal it to see its "Skipped —" confirmation.
+    await userEvent.click(screen.getByText(/resolved · Show all/))
     expect(screen.getByText(/Skipped — Units still isn't set up\./)).toBeTruthy()
 
     await userEvent.click(screen.getByText('Use this setup'))
