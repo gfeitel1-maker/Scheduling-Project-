@@ -6,7 +6,7 @@ created: 2026-08-18
 task_class: ui-ux-design
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md]
 related_adrs: [docs/adr/2026-08-18-roots-reconstruction-moment-gating.md]
-related_specs: [docs/work/specs/2026-08-17-roots-visual-expression-brief.md, docs/work/specs/2026-08-18-roots-dirA-naturalist.html, docs/work/specs/2026-08-18-roots-prototype.html]
+related_specs: [docs/work/specs/2026-08-17-roots-visual-expression-brief.md]
 related_tickets: []
 archive_when: "the composeRootMap contract is implemented + unit-tested against real buildReconciliationReport output, and the asset kit is rendered and shipping in the packaged app, or the hybrid approach is dropped in favor of a pure-SVG direction"
 ---
