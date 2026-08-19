@@ -1,10 +1,11 @@
 ---
 title: "Roots census roster + persistent inspector (Slices 2/3/4)"
 document_type: adr
-status: proposed
+status: accepted
 authority: normative
-implementation_state: not_started
+implementation_state: in_progress
 date: 2026-08-19
+approved: 2026-08-19 (owner authorized proceeding to Slice 2 after the audit + two Red Hat challenges)
 task_class: ui-ux-design
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
 related_specs:
