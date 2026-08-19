@@ -17,6 +17,7 @@ import { workbookToSource } from '../ingest/workbookToSource.js'
 import ReconciliationScreen from './ReconciliationScreen.jsx'
 import { getReadiness, describeReadiness } from '../engine/readiness.js'
 import { useSetupCounts } from '../hooks/useSetupCounts.js'
+import { fetchFirstImportCollections, isFirstImport as computeIsFirstImport } from '../ingest/firstImportSignal.js'
 import { describeOptionalGaps } from './importOutcomeModel.js'
 import { useGraceWindowUndo } from '../hooks/useGraceWindowUndo.js'
 
@@ -319,6 +320,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       setError('Waiting for a Program to load before importing. Try again in a moment.')
       return
     }
+    const workbookFactCount = INGESTIBLE_ENTITIES.reduce((n, e) => n + (source.approved[e]?.length ?? 0), 0)
     await stageLedger({
       approved: source.approved,
       links: { groups: {} },
@@ -329,7 +331,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       // The staleness clock is the workbook's EXPORTED generation (ADR §4), not
       // the current op-seq — a field written after the export is what makes it stale.
       base_generation: source.base_generation,
-    }, fileName, 'workbook')
+    }, fileName, 'workbook', workbookFactCount)
   }
 
   // S4a — the enrichment-workbook EXPORT. A read-only download: read the camp's
@@ -514,9 +516,17 @@ export default function ImportScreen({ campId, onNavigate }) {
   // apply. This screen's job is reduced to staging the base commit inputs
   // once the director confirms the file preview — no renderer-side buildPlan,
   // no separate held/queue surfaces to keep in sync.
-  function stageLedger(inputs, fileName, origin = 'schedule') {
+  // Roots reconstruction moment (docs/adr/2026-08-18-roots-reconstruction-
+  // moment-gating.md, Gates 2/3) — factCount and isFirstImport are computed
+  // once here, before ReconciliationScreen ever mounts, so its gate
+  // predicate never has to recompute after the first paint. isFirstImport
+  // reuses the same seven-collection readiness read fetchReadiness() already
+  // performs, factored into firstImportSignal.js so neither screen
+  // duplicates the localClient.list calls.
+  async function stageLedger(inputs, fileName, origin = 'schedule', factCount = 0) {
     setProposal(null)
-    setLedger({ context: inputs, fileName, origin })
+    const firstImport = computeIsFirstImport(await fetchFirstImportCollections())
+    setLedger({ context: inputs, fileName, origin, factCount, isFirstImport: firstImport })
     // U1 Invariant 5b — starting a NEW import clears any prior grace window;
     // there is exactly one live undo affordance at a time.
     graceWindow.clear()
@@ -526,7 +536,12 @@ export default function ImportScreen({ campId, onNavigate }) {
     // S5b — the antechamber no longer commits directly; it stages the base
     // commit inputs and hands off to ReconciliationScreen, which owns the
     // whole triage/dry-run/apply loop from here (R2'b cutover).
-    stageLedger(buildCommitInputs(), fileNames.join(', '), 'schedule')
+    // Not awaited deliberately: nothing after this line in commit() depends
+    // on stageLedger having resolved. setProposal(null) runs synchronously
+    // before stageLedger's internal await; setLedger and the grace-window
+    // clear land together once fetchFirstImportCollections resolves, with no
+    // caller here waiting on either.
+    stageLedger(buildCommitInputs(), fileNames.join(', '), 'schedule', approvedCount)
   }
 
   // ReconciliationScreen's onCommitted/onDiscard — tears the staged ledger
@@ -569,6 +584,8 @@ export default function ImportScreen({ campId, onNavigate }) {
         onCommitted={handleReconciliationCommitted}
         onDiscard={handleReconciliationDiscard}
         onNavigate={onNavigate}
+        factCount={ledger.factCount}
+        isFirstImport={ledger.isFirstImport}
       />
     )
   }

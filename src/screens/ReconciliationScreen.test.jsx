@@ -150,22 +150,48 @@ describe('evidence disclosure (FIX 2, design spec §4)', () => {
   })
 })
 
-describe('drill-down filters', () => {
-  it('a domain filter shows the SAME underlying decisions, just a subset — never a second data source', async () => {
+// docs/adr/2026-08-18-rootmap-screen-port.md §5 replaces the old chip-row
+// multi-select-by-domain filter with the root-map's single-selection union
+// (a tile filters by STATE across domains; a root node selects one
+// domain/child, any state). This is an intentional UX narrowing dictated by
+// the interaction spec, not a regression — verified here against the root
+// map's own aria-labelled nodes/tiles instead of the retired chip labels.
+describe('root-map selection (replaces the old chip-row filter)', () => {
+  it('a root node click shows only that node\'s decisions; clicking a different node replaces, never appends', async () => {
     localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
     await screen.findByText(/0 of 1 done/)
 
-    // Scheduling should carry the one activities decision; Facility none.
-    expect(screen.getByText('Scheduling (1)')).toBeTruthy()
-    expect(screen.getByText('Facility (0)')).toBeTruthy()
-
-    await userEvent.click(screen.getByText('Facility (0)'))
-    expect(screen.queryByText('Keep current')).toBeNull()
-
-    await userEvent.click(screen.getByText('Facility (0)')) // toggle back off
-    await userEvent.click(screen.getByText('Scheduling (1)'))
+    // Default view shows the one decision unfiltered.
     expect(screen.getByText('Keep current')).toBeTruthy()
+
+    // The Facility domain node has zero decisions — selecting it clears the
+    // Scheduling decision from view (single-select, node replaces node).
+    await userEvent.click(screen.getByLabelText(/Resources — /))
+    expect(screen.queryByText('Keep current')).toBeNull()
+    expect(screen.getByText('Everything here looks right.')).toBeTruthy()
+
+    // Selecting the Scheduling domain node brings it back.
+    await userEvent.click(screen.getByLabelText(/Scheduling — /))
+    expect(screen.getByText('Keep current')).toBeTruthy()
+
+    // "Show all" clears the selection back to the default view.
+    await userEvent.click(screen.getByText('Show all'))
+    expect(screen.getByText('Keep current')).toBeTruthy()
+  })
+
+  it('a tile click filters the root map to that state across domains; clicking it again toggles off', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 done/)
+
+    const attentionTile = screen.getByText('Needs attention').closest('button')
+    await userEvent.click(attentionTile)
+    expect(screen.getByText('Keep current')).toBeTruthy()
+    expect(attentionTile.getAttribute('aria-pressed')).toBe('true')
+
+    await userEvent.click(attentionTile) // toggle back off
+    expect(attentionTile.getAttribute('aria-pressed')).toBe('false')
   })
 })
 
