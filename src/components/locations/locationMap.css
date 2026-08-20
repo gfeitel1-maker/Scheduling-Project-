@@ -91,10 +91,10 @@
 }
 
 /* The visual handle (14x14) is under the 24x24 WCAG 2.5.8 minimum — this
-   repo already accepts that exact deviation for .expand-handle/
-   .overlay-fill-handle on the same rationale (a real, keyboard-reachable
-   <button> underneath). The invisible ::before pads the actual hit area
-   without growing the visual glyph. */
+   repo already accepts that exact deviation for .overlay-fill-handle and
+   the schedule grid's .cell-action on the same rationale (a real,
+   keyboard-reachable <button> underneath). The invisible ::before pads the
+   actual hit area without growing the visual glyph. */
 .map-location-handle::before {
   content: '';
   position: absolute;

@@ -189,7 +189,7 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
 
   it('carries the class vocabulary the stylesheet targets', () => {
     const container = renderView()
-    for (const cls of ['.schedule-grid', '.cell', '.cell-name', '.row-header', '.block-name', '.block-time', '.identity-dot', '.expand-handle']) {
+    for (const cls of ['.schedule-grid', '.cell', '.cell-name', '.row-header', '.block-name', '.block-time', '.identity-dot']) {
       expect(container.querySelectorAll(cls).length, cls).toBeGreaterThan(0)
     }
   })
@@ -264,9 +264,9 @@ describe('ScheduleGroupView — collapse (T55)', () => {
     expect(head.getAttribute('title')).toBe(LONG_NAME)
     expect(head.getAttribute('aria-roledescription')).toBe('draggable')
     expect(head.getAttribute('role')).toBe('gridcell')
-    // The expand handle is still mounted (display:none is a style, not an unmount).
-    expect(shut.querySelectorAll('.expand-handle').length)
-      .toBe(open.querySelectorAll('.expand-handle').length)
+    // The merge/split button is still mounted (display:none is a style, not an unmount).
+    expect(shut.querySelectorAll('.cell-action').length)
+      .toBe(open.querySelectorAll('.cell-action').length)
   })
 
   it('exposes the toggle as a button with aria-expanded — the WCAG 2.5.8 equivalent mechanism', () => {

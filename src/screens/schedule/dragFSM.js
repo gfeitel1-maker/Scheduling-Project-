@@ -15,9 +15,14 @@
 //              exists because our commits can fail, so there must be one place that
 //              means "in flight" and one place that returns to Idle either way.
 //
-// One machine, four drag kinds. The kind rides in the context payload. Hit
+// One machine, three drag kinds. The kind rides in the context payload. Hit
 // vocabulary (initialHit / movingHit / finalHit) is FullCalendar's HitDragging
-// naming; the three-machine split is not adopted — four drag kinds do not need it.
+// naming; the three-machine split is not adopted — three drag kinds do not need it.
+//
+// A fourth kind, EXPAND_DRAG, existed here until T92: a drag strip that did the
+// same job (extend an activity into the next block) as the `.cell-action` merge
+// button. T92 consolidated to the click button alone (discoverability), so the
+// drag path is retired — see docs/work/specs/2026-08-20-t92-manual-merge-discoverability.md.
 
 export const IDLE = 'Idle'
 export const POINTING = 'Pointing'
@@ -27,7 +32,6 @@ export const RESOLVING = 'Resolving'
 export const DRAG_KINDS = {
   SLOT_MOVE: 'slot-move',
   PALETTE_DROP: 'palette-drop',
-  EXPAND_DRAG: 'expand-drag',
   OVERLAY_FILL: 'overlay-fill',
 }
 

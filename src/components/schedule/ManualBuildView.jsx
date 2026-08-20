@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import SlotCell from './SlotCell'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
@@ -7,6 +8,50 @@ import useGridKeyboardNav from './useGridKeyboardNav'
 import './scheduleGrid.css'
 
 const NO_COLLAPSE = new Set()
+
+// T92. Device-local UI chrome, not camp data: never routed through
+// window.shoresh/op-log/sync, per the spec's "must not become a per-device
+// write conflict" instruction. localStorage can throw (private browsing,
+// disabled storage) — treat that the same as "already seen" so the app never
+// crashes over a hint.
+const MERGE_HINT_KEY = 'shoresh:manualMergeHintSeen'
+
+function readMergeHintSeen() {
+  try {
+    return localStorage.getItem(MERGE_HINT_KEY) === '1'
+  } catch {
+    return true
+  }
+}
+
+function writeMergeHintSeen() {
+  try {
+    localStorage.setItem(MERGE_HINT_KEY, '1')
+  } catch {
+    // Storage unavailable — nothing to persist, nothing to crash over.
+  }
+}
+
+// Pure lookup, computed once per render rather than as a mutable flag threaded
+// through the JSX map (a render-time reassignment the react-compiler lint
+// rule rejects). Mirrors the exact hasMergeDown condition the render loop
+// below applies per cell, in block/day order, so "first" means the same thing
+// in both places.
+function firstMergeableCellKey({ selectedGroup, days, timeBlocks, geometry }) {
+  for (const block of timeBlocks) {
+    const nextBlock = timeBlocks.find(b => b.sort_order === block.sort_order + 1)
+    if (!nextBlock) continue
+    for (const day of days) {
+      const slot = geometry.getSlot(selectedGroup, day.id, block.id)
+      if (!slot?.activity_id || slot.is_anchor) continue
+      if (slot.flags?.expanded) continue
+      const nextSlot = geometry.getSlot(selectedGroup, day.id, nextBlock.id)
+      if (nextSlot?.is_anchor || nextSlot?.is_span_head === false) continue
+      return `${selectedGroup}|${day.id}|${block.id}`
+    }
+  }
+  return null
+}
 
 // No per-cell droppable: T58 moved hit resolution to the grid surface, and the
 // drop-target paint to `.cell[data-drag-over]` in scheduleGrid.css.
@@ -45,6 +90,19 @@ export default function ManualBuildView({
   const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
   const rowCells = days.map(d => ({ groupId: selectedGroup, dayId: d.id }))
   const gridNav = useGridKeyboardNav()
+
+  // T92 onboarding pulse: exactly one cell — the first mergeable one — gets
+  // the hint, and only until the flag is cleared (first interaction with any
+  // merge button).
+  const [hintSeen, setHintSeen] = useState(readMergeHintSeen)
+  const hintTargetKey = (!hintSeen && selectedGroup)
+    ? firstMergeableCellKey({ selectedGroup, days, timeBlocks, geometry })
+    : null
+  function clearMergeHint() {
+    if (hintSeen) return
+    writeMergeHintSeen()
+    setHintSeen(true)
+  }
 
   return (
     <div style={{ flex: 1, minWidth: 0 }}>
@@ -130,6 +188,9 @@ export default function ManualBuildView({
                       // The tail of an anchor span — covered by the head's grid-row span.
                       if (slot?.is_anchor && geometry.isAnchorTail(selectedGroup, day.id, block.id)) return null
 
+                      // The tail of a merged activity span — covered by the head's grid-row span.
+                      if (slot?.activity_id && !slot.is_anchor && geometry.isActivityTail(selectedGroup, day.id, block.id)) return null
+
                       if (slot?.is_anchor) {
                         const rowSpan = geometry.getAnchorRowSpan(selectedGroup, day.id, block.id)
                         const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
@@ -155,21 +216,24 @@ export default function ManualBuildView({
                       if (slot?.activity_id) {
                         const act = actMap.get(slot.activity_id)
                         const isMerged = Boolean(slot.flags?.expanded)
+                        const rowSpan = geometry.getActivityRowSpan(selectedGroup, day.id, block.id)
                         const isSelected = selectedSlotKeys?.has(cellKey) ?? false
                         const isMultiSelected = isSelected && (selectedSlotKeys?.size ?? 0) > 1
                         const nextBlock = timeBlocks.find(b => b.sort_order === block.sort_order + 1)
                         const nextSlot = nextBlock ? geometry.getSlot(selectedGroup, day.id, nextBlock.id) : null
                         const hasMergeDown = !isMerged && Boolean(nextBlock) && !nextSlot?.is_anchor && nextSlot?.is_span_head !== false
                         const onMergeDown = hasMergeDown && onExpandSlot ? () => {
+                          clearMergeHint()
                           const tailAct = nextSlot?.activity_id ? actMap.get(nextSlot.activity_id) : null
                           const dayObj = days.find(d => d.id === day.id)
                           onExpandSlot(selectedGroup, day.id, block.id, nextBlock.id, nextSlot?.activity_id ?? null, tailAct?.name ?? '', nextBlock.name, dayObj?.label ?? day.id)
                         } : undefined
                         const onSplit = isMerged && onSplitSlot ? () => onSplitSlot(selectedGroup, day.id, block.id) : undefined
+                        const showMergeHint = hasMergeDown && cellKey === hintTargetKey
                         return (
                           <SlotCell
                             key={day.id}
-                            rowSpan={1}
+                            rowSpan={rowSpan}
                             slot={{ ...slot, type: 'activity', groupId: slot.group_id, dayId: slot.day_id, blockId: slot.time_block_id, flags: slot.flags || {} }}
                             activity={act}
                             actColorIdx={slot.activity_id}
@@ -186,12 +250,13 @@ export default function ManualBuildView({
                             isMerged={isMerged}
                             onMergeDown={onMergeDown}
                             onSplitSlot={onSplit}
+                            showMergeHint={showMergeHint}
                             ariaColIndex={ariaColIndex}
                             cellKey={cellKey}
                             collapsed={isCollapsed}
-                            blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
+                            blockNames={blockNamesForSpan(timeBlocks, blockIndex, rowSpan)}
                             column={day.label}
-                            {...placeCell({ blockIndex, columnIndex: dayIndex })}
+                            {...placeCell({ blockIndex, columnIndex: dayIndex, rowSpan })}
                           />
                         )
                       }

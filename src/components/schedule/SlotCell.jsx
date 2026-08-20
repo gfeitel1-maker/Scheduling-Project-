@@ -6,33 +6,19 @@ import { cellAccessibleName } from './cellLabel'
 import CellInlineEditor from './CellInlineEditor'
 import './scheduleGrid.css'
 
-// Hover is a CSS selector (`.cell:hover .expand-handle`, `.expand-handle:hover`)
-// and costs zero JavaScript — that is the payoff of the spec §6 styling
-// relaxation, banked in T56. Both glyphs are always mounted and the stylesheet
-// picks one, because a text swap is the one thing a pseudo-state cannot do to a
-// text node.
-function ExpandHandle({ groupId, dayId, blockId, activityId }) {
-  // No activationConstraint here: it is a sensor option, never a useDraggable
-  // one, so the value that used to sit here was inert. The threshold is the
-  // PointerSensor's, set once in ScheduleScreen (T58, spec §5.6).
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `expand-${groupId}|${dayId}|${blockId}`,
-    data: { expandDrag: { groupId, dayId, blockId, activityId } },
-  })
-
+// T92. The merge/split affordance's glyph. Replaces the bare `↕` text node —
+// ambiguous and font-dependent — with a small outline SVG, same construction
+// as UnfillableIcon/OutdoorIcon below. `currentColor` lets the button's own
+// idle/hover/split CSS `color` rules drive it with no extra inline style. The
+// split reading is the same chevron rotated 90°, not a second glyph — one icon
+// vocabulary for "this control changes the cell's block span".
+function ExpandGlyph({ direction = 'merge' }) {
   return (
-    <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      className="expand-handle"
-      data-dragging={isDragging ? '' : undefined}
-      onClick={e => e.stopPropagation()}
-      title="Drag to extend"
-    >
-      <span className="expand-glyph expand-glyph--idle">─</span>
-      <span className="expand-glyph expand-glyph--active">↕</span>
-    </div>
+    <svg viewBox="0 0 12 12" width={12} height={12} fill="none"
+      style={{ display: 'block', transform: direction === 'split' ? 'rotate(90deg)' : undefined }}>
+      <path d="M3 4.5 L6 7.2 L9 4.5" stroke="currentColor" strokeWidth="1.5"
+        strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }
 
@@ -81,6 +67,11 @@ export default function SlotCell({
   isSelected = false, isMultiSelected = false, pasteMode = false,
   hasMergeDown = false, isMerged = false,
   onMergeDown, onSplitSlot,
+  // T92. Device-local, one-time onboarding pulse on the first mergeable cell of
+  // a camp's first Manual Build session. Owned by the caller (localStorage flag
+  // lives in ManualBuildView, not here) — this prop is purely "should THIS
+  // cell's merge button show it right now".
+  showMergeHint = false,
   // Generated-route "track changes" review (default off, so the manual route
   // and every existing caller are unchanged). showIdentityDot=false is the calm
   // grid: the activity name carries identity, no colour dot. isFlagHighlighted
@@ -139,7 +130,6 @@ export default function SlotCell({
 
   const id = slot ? `${slot.groupId}|${slot.dayId}|${slot.blockId}` : 'empty'
   const canDrag = isDndEnabled && slot?.type === 'activity' && !isLocked && Boolean(activity)
-  const showExpandHandle = slot?.activity_id && !slot?.is_anchor && !isLocked
 
   // Drag only. The matching per-cell droppable is gone: one droppable now sits on
   // the grid surface and the target cell is resolved from pointer coordinates
@@ -323,21 +313,24 @@ export default function SlotCell({
         {isFlagHighlighted && highlightReason && (
           <div className="cell-reason" style={S.cellReasonCallout} role="tooltip">{highlightReason}</div>
         )}
-        {/* Merge-down button (T4) */}
+        {/* Merge-down button (T4, redesigned T92: always visible, quiet at rest) */}
         {hasMergeDown && !isMerged && (
           <button
             className="cell-action"
             title="Let this activity run into the next period"
+            aria-label="Let this activity run into the next period"
+            data-merge-hint={showMergeHint ? '' : undefined}
             onClick={e => { e.stopPropagation(); onMergeDown?.() }}
-          >↕</button>
+          ><ExpandGlyph direction="merge" /></button>
         )}
         {/* Split button (T4) */}
         {isMerged && (
           <button
             className="cell-action cell-action--split"
             title="Split this back into two periods"
+            aria-label="Split this back into two periods"
             onClick={e => { e.stopPropagation(); onSplitSlot?.() }}
-          >↕</button>
+          ><ExpandGlyph direction="split" /></button>
         )}
         {editing ? (
           <CellInlineEditor
@@ -378,14 +371,6 @@ export default function SlotCell({
           <div className="flag flag--outdoor" title="Outdoor activity">
             <OutdoorIcon />
           </div>
-        )}
-        {showExpandHandle && (
-          <ExpandHandle
-            groupId={slot.groupId}
-            dayId={slot.dayId}
-            blockId={slot.blockId}
-            activityId={slot.activity_id}
-          />
         )}
       </div>
     </div>
