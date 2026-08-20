@@ -29,6 +29,7 @@
 | `src/components/layout/navSections.js` | `roots` becomes the home item; remove `readiness` | 3 |
 | `src/screens/ReadinessHub.jsx` | Retired (its worksheet + CTA move to `rootsBanner`) | 3 |
 | `src/screens/ImportScreen.jsx` | Commit success routes to `roots` (not the local receipt); grace-window undo rides along | 4 |
+| `src/components/layout/TopBar.jsx` + `Shell.jsx` | A "← Roots" return affordance on setup screens (closes the inspect→edit→re-inspect loop, audit G4) | 5 |
 
 Each task is independently testable and reversible. Tasks 3 and 4 (landing/redirect, commit-flow) warrant closer review.
 
@@ -138,9 +139,36 @@ On a successful import commit, route the director to Roots with an "Imported N �
 
 ---
 
+### Task 5: Setup-screen "← Roots" return loop (audit G4)
+
+Closes the inspect→edit→re-inspect loop: today the setup CRUD screens have no in-context way back to Roots (the audit's Axis-5 dead-end). Add a "← Roots" affordance in the shared top chrome, shown on editable setup screens.
+
+**Files:**
+- Modify: `src/components/layout/TopBar.jsx` (renders `TITLES[screen]`; add the back affordance; accept `onNavigate`)
+- Modify: `src/components/layout/Shell.jsx` (thread `onNavigate` into `TopBar` — Shell already receives it)
+- Test: a TopBar/Shell test (create `src/components/layout/TopBar.test.jsx` if none exists)
+
+**Interfaces:**
+- Consumes: `onNavigate(screenKey)` (Shell already has it; TopBar currently does not — add the prop), `screen` (already passed).
+- Produces: no new exports; a contextual back-to-Roots control on setup screens.
+
+- [ ] **Step 1: Write the failing test** — render `TopBar` with `screen='groups'` (a setup screen) and an `onNavigate` spy; assert a "← Roots" control exists and calls `onNavigate('roots')` on click. Render with `screen='roots'` (the home itself) and assert the control is ABSENT (no "back to Roots" while already on Roots). Render with a non-setup screen where a back-to-Roots makes no sense (e.g. `schedule` — decide the set) and assert per the chosen rule.
+
+- [ ] **Step 2: Run it, verify it fails** — `npm run test -- src/components/layout/TopBar.test.jsx --no-file-parallelism` → FAIL (no affordance / no `onNavigate` prop).
+
+- [ ] **Step 3: Implement** — add `onNavigate` to `TopBar`'s props; in `Shell.jsx` pass `onNavigate` into `<TopBar screen={currentScreen} onNavigate={onNavigate} onLogout={onLogout} />`. In `TopBar`, when `screen` is a setup/editable screen (define the set — the setup entity screens the nodes deep-link into: groups, activities, tiers, days, timeblocks, locations, anchors, cohorts, dayoverrides — reuse an existing list if one exists rather than duplicating), render a subtle "← Roots" button before/near the title calling `onNavigate('roots')`. Not shown on `roots` itself. Use existing token/link styling (match the app chrome; no new tokens).
+
+- [ ] **Step 4: Run tests, verify pass** — same command → PASS. Confirm no regression in existing layout/chrome tests.
+
+- [ ] **Step 5: Commit** — `git add src/components/layout/TopBar.jsx src/components/layout/Shell.jsx src/components/layout/TopBar.test.jsx && git commit -m "feat(roots): '← Roots' return affordance on setup screens (closes the inspect→edit→re-inspect loop)"`
+
+---
+
 ## Self-Review
 
-**Spec coverage:** landing swap (T3) · node navigation (T1) · readiness verdict single-source + banner (T2) · Import + worksheet + facility-map entry points (T2; facility node-panel link is a small add — see note) · post-import routing (T4) · ReadinessHub retirement (T3) · north-star seam preserved (no undo-needed state added). **Gap noted:** the facility-map *node-panel* link (option 3, the persistent home) is a one-line add to Task 1's panel (a Facility/Resources node "Open facility map →") — fold it into Task 1 or add as Task 2b; it reuses the same `onNavigate('locations')`.
+**Spec coverage:** landing swap (T3) · node navigation (T1) · readiness verdict single-source + banner (T2) · Import + worksheet + facility-map entry points (T2; facility node-panel link is a small add — see note) · post-import routing (T4) · **inspect→edit→re-inspect return loop / audit G4 (T5)** · ReadinessHub retirement (T3) · north-star seam preserved (no undo-needed state added). **Gap noted:** the facility-map *node-panel* link (option 3, the persistent home) is a one-line add to Task 1's panel (a Facility/Resources node "Open facility map →") — fold it into Task 1 or add as Task 2b; it reuses the same `onNavigate('locations')`.
+
+**Audit reconciliation (added after owner review):** every ingest-audit finding is now either done, in this plan, or a filed ticket — D1/D2→T2/T3, G1→T3/T4, G2/G3→T4, **G4→T5**, G5→T93. Design-audit #1–#6 shipped (#109/#110); #7 (first-timer caption)→**T94** (filed); #8 (heading font)→parked with header copy. Roots-audit §12 (M2 multi-select, M3 field-level diff, M4 UNKNOWN, M5 blast-radius) intentionally deferred, recorded in that audit. D4 (dead `needs-attention` branch in `readiness.js`) is an owner-deferred one-line cleanup candidate to sweep while T2 touches `readiness.js`.
 
 **Placeholder scan:** the only deferred content is the header/heading *copy*, which is an explicit PARKED global constraint (owner's language skill), not a plan gap. Button/structural copy is concrete.
 
