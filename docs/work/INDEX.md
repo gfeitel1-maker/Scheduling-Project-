@@ -38,14 +38,11 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
-| [C1b-anchor-slot-drift-moved-signal](../../docs/work/tickets/C1b-anchor-slot-drift-moved-signal.md) | in-progress | — |
 | [T49-finish-ingestion](../../docs/work/tickets/T49-finish-ingestion.md) | open | — |
 | [T51-mcp-cli-ingestion](../../docs/work/tickets/T51-mcp-cli-ingestion.md) | open | — |
 | [T52-activity-colors-tokenization](../../docs/work/tickets/T52-activity-colors-tokenization.md) | open | [T50-schedule-canvas-rebuild](../../docs/work/tickets/T50-schedule-canvas-rebuild.md) |
 | [T81-activities-template-importer-deterministic-location-ids](../../docs/work/tickets/T81-activities-template-importer-deterministic-location-ids.md) | open | — |
-| [T83-unify-engine-eligibility-copies](../../docs/work/tickets/T83-unify-engine-eligibility-copies.md) | open | — |
 | [T86-device-management-handlers-not-host-gated-on-client](../../docs/work/tickets/T86-device-management-handlers-not-host-gated-on-client.md) | open | [2026-08-16-device-fk-seeding-and-delivery-watermark](../../docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md) · [T85-devices-table-never-synced-cross-device-op-drop](../../docs/work/tickets/T85-devices-table-never-synced-cross-device-op-drop.md) |
-| [T88-single-source-full-sync-manifest](../../docs/work/tickets/T88-single-source-full-sync-manifest.md) | open | [T89-live-op-week-parent-seed](../../docs/work/tickets/T89-live-op-week-parent-seed.md) |
 
 ## Decisions
 
