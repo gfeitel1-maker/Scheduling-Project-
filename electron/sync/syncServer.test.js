@@ -2017,6 +2017,11 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
       special_days: 'name',
       special_day_time_blocks: 'name',
       special_day_slots: 'activity_id',
+      // T41 slice 1: elective_set_activities' ensureExists needs both
+      // elective_set_id and activity_id, so 'activity_id' alone no-ops —
+      // same trick as special_day_slots above.
+      elective_sets: 'name',
+      elective_set_activities: 'activity_id',
     }
     const ws = connect()
     await onceOpen(ws)

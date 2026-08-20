@@ -75,9 +75,19 @@ export function useGeneration({
     })
 
     const lockedActIds = new Set(effActivities.filter(a => a.is_locked).map(a => a.id))
-    const preplacedSlots = slotsByRoute.generated
+    const lockedPreplaced = slotsByRoute.generated
       .filter(s => s.activity_id && lockedActIds.has(s.activity_id) && !s.is_released && !s.is_anchor)
       .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, activityId: s.activity_id }))
+    // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md): an
+    // authored elective cell is pre-placed/do-not-fill, exactly like a locked
+    // activity above — threaded into preplacedSlots via electiveSetId so
+    // buildSchedule's engine-skip exclusion picks it up. No author UI writes
+    // elective_set_id yet (that is slice 3), so this is a no-op today and
+    // becomes load-bearing once that slice lands.
+    const electivePreplaced = slotsByRoute.generated
+      .filter(s => s.elective_set_id)
+      .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, electiveSetId: s.elective_set_id }))
+    const preplacedSlots = [...lockedPreplaced, ...electivePreplaced]
 
     const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), anchors: effAnchors, campId, preplacedSlots, locations })
     setGenFindings(result.findings || [])

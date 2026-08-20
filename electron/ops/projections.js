@@ -390,6 +390,57 @@ export const PROJECTIONS = {
       ).run(id, specialDayId, groupId, timeBlockId)
     },
   },
+  // Group-level electives (T41 slice 1, data shape + engine-skip only,
+  // docs/work/specs/2026-08-20-group-electives-design.md). Camp-scoped
+  // parent, same ensureExists shape as special_days/day_override_templates
+  // above.
+  elective_sets: {
+    table: 'elective_sets',
+    key: 'id',
+    fields: ['camp_id', 'name', 'sort_order'],
+    ensureExists: (db, id) => {
+      // Same zero-camps caveat as cohorts/groups/special_days/etc.ensureExists above.
+      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+      getStmt(db, "INSERT OR IGNORE INTO elective_sets (id, camp_id, name) VALUES (?, ?, '')").run(
+        id,
+        camp?.id ?? null
+      )
+    },
+  },
+  // Parent-scoped by elective_set_id, no camp_id column — the join row for one
+  // member activity option. TWO NOT NULL columns (elective_set_id,
+  // activity_id), so this needs the same reconstruct-both-then-insert-once
+  // treatment as ensureWeekJoinRow (elective_set_id is a real FK, so it is
+  // additionally stub-seeded — mirrors the schedule_weeks stub there).
+  elective_set_activities: {
+    table: 'elective_set_activities',
+    key: 'id',
+    fields: ['elective_set_id', 'activity_id'],
+    ensureExists: (db, id, field, value) => {
+      const table = 'elective_set_activities'
+      const readField = (wanted) => {
+        if (field === wanted) return value
+        const prior = getStmt(
+          db,
+          'SELECT value FROM operations WHERE entity = ? AND entity_id = ? AND field = ? ORDER BY seq DESC LIMIT 1'
+        ).get(table, id, wanted)
+        return prior ? prior.value : null
+      }
+      const electiveSetId = readField('elective_set_id')
+      const activityId = readField('activity_id')
+      if (electiveSetId == null || activityId == null) return
+
+      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+      getStmt(
+        db,
+        "INSERT OR IGNORE INTO elective_sets (id, camp_id, name) VALUES (?, ?, '')"
+      ).run(electiveSetId, camp?.id ?? null)
+      getStmt(
+        db,
+        'INSERT OR IGNORE INTO elective_set_activities (id, elective_set_id, activity_id) VALUES (?, ?, ?)'
+      ).run(id, electiveSetId, activityId)
+    },
+  },
   // Join tables with TWO NOT NULL columns (week_id + a real FK). ensureExists
   // reconstructs both fields from the op-log and inserts the complete row once
   // both are known — see ensureWeekJoinRow above for why a week_id-only seed
@@ -592,6 +643,11 @@ export const PROJECTIONS = {
       'is_span_head',
       'is_released',
       'flags',
+      // v35 (T41 slice 1, docs/work/specs/2026-08-20-group-electives-design.md):
+      // a slot with elective_set_id set is an elective cell (activity_id
+      // ignored); the two are mutually exclusive, enforced by the
+      // (UI-driven) write path in a later slice, not here.
+      'elective_set_id',
     ],
     // template_id is NOT NULL with no default and is a real FK, so the row
     // can only be created once the parent link is known — identical shape to

@@ -49,6 +49,13 @@ export const RESTORE_DECISIONS = Object.freeze({
   special_days: 'refused: no author UI yet (T40 slice 1 is data-shape only) — revisit with the author-UI follow-on',
   special_day_time_blocks: 'refused: rebuilt with its parent special day, not on its own',
   special_day_slots: 'refused: rebuilt with its parent special day, not on its own',
+
+  // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md): same
+  // posture as T40 above — this slice ships the data shape only, no setup CRUD
+  // yet, so there is no trash entry point to restore from. Revisit with the
+  // setup-CRUD follow-on slice (slice 2).
+  elective_sets: 'refused: no setup UI yet (T41 slice 1 is data-shape only) — revisit with the setup-CRUD follow-on',
+  elective_set_activities: 'refused: rebuilt with its parent elective set, not on its own',
 })
 
 export const RESTORABLE_ENTITIES = Object.freeze(

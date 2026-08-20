@@ -147,6 +147,20 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     }
   }
 
+  // T41 slice 1 (group-level electives,
+  // docs/work/specs/2026-08-20-group-electives-design.md): a template_slots
+  // cell carrying elective_set_id is authored content, never engine output —
+  // the same pre-placed/do-not-fill treatment anchors get via anchorLookup
+  // above (T62 closed anchor double-scheduling the same way). Threaded
+  // through preplacedSlots entries carrying an electiveSetId (rather than an
+  // activityId) so callers don't need a third top-level array.
+  const electiveLookup = new Map() // "groupId|dayId|blockId" → electiveSetId
+  for (const pre of (preplacedSlots || [])) {
+    if (pre.electiveSetId != null) {
+      electiveLookup.set(`${pre.groupId}|${pre.dayId}|${pre.blockId}`, pre.electiveSetId)
+    }
+  }
+
   const groupMap = new Map(groups.map(g => [g.id, g]))
   const slots = []
   const openSlots = []
@@ -157,8 +171,23 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
         const key = `${group.id}|${day.id}|${block.id}`
         const anchor = anchorLookup.get(key)
 
+        // Deliberate precedence: anchor is checked before elective, so a
+        // slot carrying BOTH is_anchor and elective_set_id resolves as an
+        // anchor — the elective is silently dropped for that cell. Slice 1
+        // has no writer that can produce both on the same slot, but if one
+        // ever does, this is the intended tie-break (anchors are the older,
+        // more constrained mechanism).
         if (anchor) {
           slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'anchor', activityId: null, anchorId: anchor.id, is_span_head: anchor._isSpanHead !== false, flags: {} })
+          continue
+        }
+
+        const electiveSetId = electiveLookup.get(key)
+        if (electiveSetId != null) {
+          // Excluded from openSlots entirely: the engine never fills this
+          // cell and never counts it as unfilled (no UNFILLABLE flag), the
+          // same way an anchor slot above is excluded.
+          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'elective', activityId: null, anchorId: null, electiveSetId, is_span_head: true, flags: {} })
           continue
         }
 
@@ -246,7 +275,12 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
         const nextBlock = timeBlocksSorted[blockIdx + i]
         if (!nextBlock) return false  // not enough blocks remaining
         const nextKey = `${groupId}|${dayId}|${nextBlock.id}`
-        if (assigned.has(nextKey) || anchorLookup.has(nextKey)) return false
+        // A multi-block activity must not span INTO an elective cell, same
+        // as it can't span into an anchor — otherwise place() would write
+        // phantom bookkeeping (assigned/usageCount/placeUsage/activityUsage)
+        // at the elective coordinate, corrupting session credit and capacity
+        // even though the visible schedule still renders the elective.
+        if (assigned.has(nextKey) || anchorLookup.has(nextKey) || electiveLookup.has(nextKey)) return false
         // Tail block must also be within the group's available part of day
         if (avail !== 'all' && avail !== nextBlock.part_of_day) return false
         // Tail block occupies the place too — same capacity + same_tier_only
@@ -309,7 +343,12 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   // correctly block duplicate same-day placements even for pre-placed activities.
   for (const pre of (preplacedSlots || [])) {
     const key = `${pre.groupId}|${pre.dayId}|${pre.blockId}`
-    if (!assigned.has(key)) {
+    // Defense-in-depth: no slice-1 writer can produce a preplacedSlots entry
+    // that is both a locked activity AND an elective cell at the same
+    // coordinate, but a future write path or a sync race shouldn't be able
+    // to silently corrupt bookkeeping if it ever does — mirrors the same
+    // guard anchorLookup effectively gets via the openSlots exclusion above.
+    if (!assigned.has(key) && !electiveLookup.has(key)) {
       const act = activities.find(a => a.id === pre.activityId)
       if (act) place(act, pre.groupId, pre.dayId, pre.blockId)
     }
