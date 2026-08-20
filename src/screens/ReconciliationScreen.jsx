@@ -19,6 +19,8 @@ import { buildRootMapModel } from '../ingest/rootMapModel.js'
 import RootMap from '../components/reconciliation/RootMap.jsx'
 import RootMapPanel from '../components/reconciliation/RootMapPanel.jsx'
 import RootsBanner from '../components/reconciliation/rootsBanner.jsx'
+import PostImportBanner from '../components/reconciliation/postImportBanner.jsx'
+import { useGraceWindowUndo } from '../hooks/useGraceWindowUndo.js'
 
 // Maps censusSnapshot's CHILD_OF-keyed rows (Slice 2's roster shape) onto
 // getReadiness's own collection keys (COLLECTION_FOR in engine/readiness.js)
@@ -65,8 +67,23 @@ async function fetchReadiness() {
   return getReadiness(collections, null)
 }
 
-export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false, mode = 'import' }) {
+export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false, mode = 'import', justImported = null }) {
   const { activeCohort } = useCohorts(campId)
+  // Task 4 (Roots-as-dashboard plan) — when a finished import routes here
+  // carrying its outcome, this hook owns the grace-window undo the old
+  // ImportScreen receipt used to. Started from justImported.invertibleOps
+  // exactly as ImportScreen.handleReconciliationCommitted did. The window
+  // lives with THIS mounted instance (Invariant 5): it survives while the
+  // director stays on Roots and is forfeited when they navigate away (this
+  // component unmounts, and App drops justImported).
+  const graceWindow = useGraceWindowUndo()
+  const { start: startGraceWindow } = graceWindow
+  useEffect(() => {
+    if (mode !== 'inspect') return
+    if (Array.isArray(justImported?.invertibleOps) && justImported.invertibleOps.length > 0) {
+      startGraceWindow(justImported)
+    }
+  }, [mode, justImported, startGraceWindow])
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -424,14 +441,30 @@ export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, 
         <div style={styles.rememberNotesBanner}>{rememberNotes.join(' · ')}</div>
       )}
 
-      {mode === 'inspect' && !censusReadFailed && (
+      {/* Owner decision: ONE focused banner post-import. When a just-committed
+          import is in its continuation on Roots, the PostImportBanner is the
+          whole story (with the readiness verdict folded in as a secondary
+          line); the standalone dashboard RootsBanner is suppressed so there is
+          no second, competing verdict. A normal (non-import) Roots visit keeps
+          the RootsBanner unchanged. `readiness` is [] when the census read
+          failed, which PostImportBanner degrades to no verdict line — never a
+          false "ready". */}
+      {mode === 'inspect' && justImported ? (
+        <PostImportBanner
+          outcome={justImported}
+          readiness={inspectReadiness}
+          censusReadFailed={censusReadFailed}
+          graceWindow={graceWindow}
+          onNavigate={onNavigate}
+        />
+      ) : mode === 'inspect' && !censusReadFailed ? (
         <RootsBanner
           readiness={inspectReadiness}
           brandNew={inspectReadiness.filter((r) => r.kind === 'required').every((r) => r.state === 'missing')}
           onNavigate={onNavigate}
           onDownloadWorksheet={downloadWorksheet}
         />
-      )}
+      ) : null}
 
       <div style={styles.headerStrip}>
         <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--text)' }}>

@@ -407,7 +407,12 @@ button routes through the same `screenForNode`/`onNavigate('groups')`-style deep
 roster entry (not just the child's "Open in..." button) also calls `onNavigate(targetScreen)` — it
 does not open an inline editor. Camp Setup screens remain the only place data is edited; Roots
 (either mode) is read/navigate-only, per the audit's explicit "do not rebuild Camp Setup inside
-Roots."
+Roots." **One scoped exception (Roots-as-dashboard plan, Task 4):** inspect mode is read-only
+*except* the time-boxed, same-session post-import grace-window undo — reachable only in the
+synchronous continuation of an import the director just committed (carried in as the `justImported`
+prop, cleared the moment the director leaves Roots), never from a cold inspect visit, and it
+reverses that just-committed import via the existing sanctioned `ingestUndo` path rather than
+introducing any new write surface.
 
 ### (f) Load-race guard
 

@@ -438,3 +438,30 @@ describe('ImportScreen — Replace warning names Fixed Events and separates the 
     expect(screen.queryByText(/Day Override/)).toBeNull()
   })
 })
+
+// Roots-as-dashboard plan, Task 4: a finished import no longer rests on a
+// local ImportScreen receipt — it hands the commit outcome UP to App (via
+// onImported) and routes the director to Roots, where the post-import banner
+// and the surviving grace-window undo now live.
+describe('ImportScreen — routes a finished import to Roots (plan T4)', () => {
+  it('hands the commit outcome up via onImported and navigates to roots, with no local receipt as the resting surface', async () => {
+    const onImported = vi.fn()
+    const onNavigate = vi.fn()
+    localClient.ingestCommit.mockResolvedValue({
+      total: 3,
+      fixedEvents: { created: 0, skipped: [], partial: [] },
+      invertibleOps: [],
+    })
+    render(<ImportScreen campId="camp-1" onNavigate={onNavigate} onImported={onImported} />)
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant'], 'schedule.txt', { type: 'text/plain' })
+    await userEvent.upload(input, file)
+    await waitFor(() => expect(screen.getAllByText(/Swim/).length).toBeGreaterThan(0))
+    await goToCommit()
+
+    await waitFor(() => expect(onImported).toHaveBeenCalledWith(expect.objectContaining({ total: 3 })))
+    expect(onNavigate).toHaveBeenCalledWith('roots')
+    // The old local receipt must NOT be the resting surface anymore.
+    expect(screen.queryByText(/Imported 3 record/)).toBeNull()
+  })
+})

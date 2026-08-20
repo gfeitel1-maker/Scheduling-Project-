@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { localClient } from '../localClient'
 import { useCohorts } from '../hooks/useCohorts'
-import { S, useEnterTransition } from '../styles/shared'
+import { S } from '../styles/shared'
 import * as XLSX from 'xlsx'
 import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
@@ -15,11 +15,7 @@ import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../
 import { downloadWorkbook, META_SHEET } from '../utils/exportWorkbook.js'
 import { workbookToSource } from '../ingest/workbookToSource.js'
 import ReconciliationScreen from './ReconciliationScreen.jsx'
-import { getReadiness, describeReadiness } from '../engine/readiness.js'
-import { useSetupCounts } from '../hooks/useSetupCounts.js'
 import { fetchFirstImportCollections, isFirstImport as computeIsFirstImport } from '../ingest/firstImportSignal.js'
-import { describeOptionalGaps } from './importOutcomeModel.js'
-import { useGraceWindowUndo } from '../hooks/useGraceWindowUndo.js'
 
 // Read last year's schedule and propose the camp's setup from it.
 //
@@ -74,7 +70,6 @@ const PRIORITY_LABEL = { high: 'High', low: 'Low' }
 // T73/S5b — FIELD_LABEL and fieldLabel now live in src/ingest/fieldLabels.js so
 // this screen and ReconciliationLedger share ONE camp-language map (design §7.3).
 
-const sumCounts = (counts) => Object.values(counts ?? {}).reduce((n, c) => n + c, 0)
 
 // An empty selection and "all groups" (null) both write the same thing — no
 // restriction (T35 Fix 3) — so they must say the same thing, or unticking
@@ -84,14 +79,10 @@ const sumCounts = (counts) => Object.values(counts ?? {}).reduce((n, c) => n + c
 const formatEligibility = (groupNames) =>
   groupNames == null || groupNames.length === 0 ? 'All groups' : `Groups: ${groupNames.join(', ')}`
 
-export default function ImportScreen({ campId, onNavigate }) {
+export default function ImportScreen({ campId, onNavigate, onImported }) {
   // Units and time blocks are scoped to a Program; an import files them under
   // the active one so the setup screens will show them (T33).
   const { activeCohort } = useCohorts(campId)
-  // D4 — the post-commit banner's readiness handoff. useSetupCounts already
-  // subscribes to op-applied events, so counts refresh after the commit's
-  // op-log apply without any extra plumbing here.
-  const { counts } = useSetupCounts(campId)
   const [fileNames, setFileNames] = useState([])
   // ADR 2026-08-17-onescreen-reconciliation-merge.md §2 — replaces the old
   // `preview` (buildPreview's create/skip/lowConfidence shape, now deleted).
@@ -130,13 +121,6 @@ export default function ImportScreen({ campId, onNavigate }) {
   // min_per_week, max_per_week, priority, _inferred }.
   const [activityRules, setActivityRules] = useState({})
   const [error, setError] = useState(null)
-  const [result, setResult] = useState(null)
-  // U1 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) — component-
-  // owned grace-window state (Invariant 5). Lives here rather than on
-  // ReconciliationScreen because that screen unmounts the instant a commit
-  // succeeds (handleReconciliationCommitted below tears the ledger down);
-  // this screen is the one still mounted to offer the undo affordance.
-  const graceWindow = useGraceWindowUndo()
   // R2'b cutover — `held`/`resolving`/`reconciliation`/`queueAnswers`/
   // `queueOpen`/`rememberNotes` are gone: ReconciliationScreen owns the whole
   // triage/held/commit loop once `ledger` is staged (below).
@@ -182,7 +166,6 @@ export default function ImportScreen({ campId, onNavigate }) {
   // groups arrive in four separate passes.
   async function readFiles(fileList) {
     setError(null)
-    setResult(null)
     setLedger(null)
     setProposal(null)
     setFixedEvents([])
@@ -527,9 +510,6 @@ export default function ImportScreen({ campId, onNavigate }) {
     setProposal(null)
     const firstImport = computeIsFirstImport(await fetchFirstImportCollections())
     setLedger({ context: inputs, fileName, origin, factCount, isFirstImport: firstImport })
-    // U1 Invariant 5b — starting a NEW import clears any prior grace window;
-    // there is exactly one live undo affordance at a time.
-    graceWindow.clear()
   }
 
   function commit() {
@@ -538,30 +518,26 @@ export default function ImportScreen({ campId, onNavigate }) {
     // whole triage/dry-run/apply loop from here (R2'b cutover).
     // Not awaited deliberately: nothing after this line in commit() depends
     // on stageLedger having resolved. setProposal(null) runs synchronously
-    // before stageLedger's internal await; setLedger and the grace-window
-    // clear land together once fetchFirstImportCollections resolves, with no
-    // caller here waiting on either.
+    // before stageLedger's internal await; setLedger lands once
+    // fetchFirstImportCollections resolves, with no caller here waiting on it.
     stageLedger(buildCommitInputs(), fileNames.join(', '), 'schedule', approvedCount)
   }
 
-  // ReconciliationScreen's onCommitted/onDiscard — tears the staged ledger
-  // down to the normal result, or back to the file picker, respectively.
+  // ReconciliationScreen's onCommitted/onDiscard. Task 4 (Roots-as-dashboard
+  // plan) — a finished import no longer rests on a local receipt here. It
+  // tears the staged ledger down, hands the commit outcome UP to App (which
+  // carries it across the screen boundary as `justImported`), and routes the
+  // director to Roots, where the post-import banner and the surviving
+  // grace-window undo now live. The undo's invertibleOps/createdEntityIds
+  // ride along on `outcome`, exactly as they did before.
   function handleReconciliationCommitted(outcome) {
-    setResult(outcome)
     setLedger(null)
     setFileNames([])
     setFixedEvents([])
     setActivityRules({})
     setGroupUnitOverrides({})
-    // U1 — a Replace-mode commit never carries invertibleOps (captureInverse
-    // is never sent for mode:'replace' — U3 is deferred; no undo affordance
-    // on a Replace commit in v1). An empty invertibleOps array still starts
-    // a "live" window with nothing to revert, which is harmless (undo would
-    // just report nothing reverted) but not worth offering — only start the
-    // window when there is something to undo.
-    if (Array.isArray(outcome?.invertibleOps) && outcome.invertibleOps.length > 0) {
-      graceWindow.start(outcome)
-    }
+    onImported?.(outcome)
+    onNavigate('roots')
   }
 
   function handleReconciliationDiscard() {
@@ -599,10 +575,6 @@ export default function ImportScreen({ campId, onNavigate }) {
       </p>
 
       {error && <div style={{ ...S.errorBanner, marginBottom: 16 }}>{error}</div>}
-
-      {result && (
-        <ImportReceipt result={result} counts={counts} graceWindow={graceWindow} onNavigate={onNavigate} />
-      )}
 
       <div style={{
         background: 'var(--surface)', border: '1px solid var(--border)',
@@ -1133,142 +1105,4 @@ function ActivityRuleRow({ name, rule, allGroups, onChange, onToggleGroup }) {
       </div>
     </div>
   )
-}
-
-// D4 — the honest readiness verdict inside the post-commit success banner.
-// Reads getReadiness the same way ReadinessHub.jsx does (Array(counts.x || 0)
-// stand-ins, not real rows — only presence/absence matters here), so "Ready
-// to build a week." and "which optional areas are still absent" can never
-// disagree with the hub. describeReadiness owns the blocking sentence;
-// describeOptionalGaps (importOutcomeModel.js) owns the calm optional line.
-// Design polish #3 — the post-import receipt is the payoff moment for the
-// whole import flow; it deserves the same lift-fade EndState gets, not a
-// hard mount. A separate component (mounted only while `result` is truthy)
-// so useEnterTransition's rAF-triggered mount animation replays each time a
-// fresh receipt appears, matching EndState's pattern.
-function ImportReceipt({ result, counts, graceWindow, onNavigate }) {
-  const enterStyle = useEnterTransition('liftFade')
-  return (
-    <div style={{
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      borderLeft: '3px solid var(--success)', borderRadius: 8, padding: '12px 14px',
-      marginBottom: 16, fontSize: 13, lineHeight: 1.6, ...enterStyle,
-    }}>
-      <strong>
-        Imported {result.total} {result.total === 1 ? 'record' : 'records'}
-        {result.fixedEvents?.created > 0 && `, including ${result.fixedEvents.created} fixed ${result.fixedEvents.created === 1 ? 'event' : 'events'}`}.
-      </strong>{' '}
-      They are ordinary records now — edit or delete any of them from the setup screens, and
-      anything you delete can be brought back from Trash.
-      {result.fixedEvents?.skipped?.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          {result.fixedEvents.skipped.length} fixed {result.fixedEvents.skipped.length === 1 ? 'event' : 'events'} couldn’t
-          be created because their time block or groups weren’t imported — you can add {result.fixedEvents.skipped.length === 1 ? 'it' : 'them'} on the Fixed Events screen.
-        </div>
-      )}
-      {result.fixedEvents?.partial?.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          Some fixed events were added for fewer days or groups than proposed, because you didn’t import all of them:{' '}
-          {result.fixedEvents.partial.map((p) => `${p.name} (${p.reason})`).join('; ')}. Adjust {result.fixedEvents.partial.length === 1 ? 'it' : 'them'} on the Fixed Events screen.
-        </div>
-      )}
-      {result.fixedEvents?.moved?.length > 0 && (
-        <div style={{ marginTop: 8 }}>
-          {result.fixedEvents.moved.length} fixed {result.fixedEvents.moved.length === 1 ? 'event has' : 'events have'} moved since this file was last imported, so {result.fixedEvents.moved.length === 1 ? 'it was' : 'they were'} left as-is instead of creating a duplicate:{' '}
-          {result.fixedEvents.moved.map((m) => `${m.name} (${m.reason})`).join('; ')}.
-        </div>
-      )}
-      {/* What the Replace destroyed, stated rather than implied — an
-          import never silently omits (ADR §1), and that cuts both ways. */}
-      {result.replaced && (
-        <div style={{ marginTop: 8 }}>
-          {sumCounts(result.replaced.entities)} old setup {sumCounts(result.replaced.entities) === 1 ? 'record was' : 'records were'} cleared first,
-          along with {sumCounts(result.replaced.dependents)} schedule {sumCounts(result.replaced.dependents) === 1 ? 'row' : 'rows'} that used {sumCounts(result.replaced.entities) === 1 ? 'it' : 'them'}.
-        </div>
-      )}
-      {counts != null && (
-        <ImportReadinessNote counts={counts} />
-      )}
-      {/* U1 — grace-window undo. Only rendered while the window is
-          genuinely live (Invariant 5); the copy says "for the next few
-          minutes", never "always available" (Invariant 5c), because a
-          reload or app close forfeits it silently. */}
-      {graceWindow.isLive && (
-        <div style={{ marginTop: 10 }}>
-          {graceWindow.createdEntityIds.length > 0 && (
-            <div style={{ color: 'var(--text-secondary)', marginBottom: 6 }}>
-              {graceWindow.createdEntityIds.length} new {graceWindow.createdEntityIds.length === 1 ? 'record was' : 'records were'} also added — undoing will try to remove {graceWindow.createdEntityIds.length === 1 ? 'it' : 'them'} too.
-            </div>
-          )}
-          <button className="press-97" onClick={() => graceWindow.undo()} disabled={graceWindow.isPending} style={S.btnSecondary}>
-            Undo this import
-          </button>
-          <span style={{ marginLeft: 8, color: 'var(--text-secondary)' }}>for the next few minutes</span>
-        </div>
-      )}
-      {graceWindow.status === 'used' && (
-        <div style={{ marginTop: 10, color: 'var(--text-secondary)' }}>
-          Undo complete.
-          {graceWindow.deleted.length > 0 && (
-            <div style={{ marginTop: 4 }}>
-              Removed {graceWindow.deleted.length} newly created {graceWindow.deleted.length === 1 ? 'record' : 'records'}.
-            </div>
-          )}
-          {graceWindow.skipped.length > 0 && (
-            <div style={{ marginTop: 4 }}>
-              Kept {graceWindow.skipped.length} {graceWindow.skipped.length === 1 ? 'field' : 'fields'} changed since import.
-            </div>
-          )}
-          {graceWindow.kept.length > 0 && (
-            <div style={{ marginTop: 4 }}>
-              Kept {graceWindow.kept.length} new {graceWindow.kept.length === 1 ? 'record' : 'records'}:{' '}
-              {graceWindow.kept.map((k) =>
-                `${k.name ?? 'record'} (${k.reason === 'edited_since_import' ? 'edited since import' : `still referenced by ${k.referencedByCount} other ${k.referencedByCount === 1 ? 'record' : 'records'}`})`
-              ).join('; ')}.
-            </div>
-          )}
-        </div>
-      )}
-      {graceWindow.undoError && (
-        <div style={{ marginTop: 10, ...S.errorBanner }}>{graceWindow.undoError}</div>
-      )}
-      <div style={{ marginTop: 10, display: 'flex', gap: 10 }}>
-        <button className="press-97" onClick={() => onNavigate('groups')} style={S.btnSecondary}>Go to Groups</button>
-        {counts != null && (
-          <button className="press-97" onClick={() => onNavigate('readiness')} style={readinessLinkBtn}>
-            See Setup Readiness
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function ImportReadinessNote({ counts }) {
-  const collections = {
-    cohorts: Array(counts.cohorts || 0),
-    tiers: Array(counts.tiers || 0),
-    groups: Array(counts.groups || 0),
-    days: Array(counts.days || 0),
-    timeBlocks: Array(counts.timeblocks || 0),
-    activities: Array(counts.activities || 0),
-    anchors: Array(counts.anchors || 0),
-    dayOverrides: Array(counts.dayoverrides || 0),
-  }
-  const readiness = getReadiness(collections)
-  const { blocking } = describeReadiness(readiness)
-  const optionalNote = describeOptionalGaps(readiness)
-
-  return (
-    <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-      <div>{blocking}</div>
-      {optionalNote && <div style={{ marginTop: 2 }}>{optionalNote}</div>}
-    </div>
-  )
-}
-
-const readinessLinkBtn = {
-  background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-  color: 'var(--text-secondary)', fontSize: 13, fontFamily: 'inherit',
-  textDecoration: 'underline',
 }

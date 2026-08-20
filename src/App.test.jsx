@@ -42,8 +42,29 @@ vi.mock('./components/layout/Shell', () => ({
 // test, so it's stubbed out the same way Shell is above.
 vi.mock('./screens/ReconciliationScreen', () => ({
   default: (props) => (
-    <div data-testid="roots-screen" data-mode={props.mode}>
+    <div
+      data-testid="roots-screen"
+      data-mode={props.mode}
+      data-just-imported={props.justImported ? String(props.justImported.total) : ''}
+    >
       <button onClick={() => props.onNavigate('readiness')}>go-to-readiness</button>
+      <button onClick={() => props.onNavigate('import')}>go-to-import</button>
+    </div>
+  ),
+}))
+
+// Task 4 — a stubbed ImportScreen that exercises the carrier: finishing an
+// import hands an outcome up via onImported and routes to Roots.
+vi.mock('./screens/ImportScreen', () => ({
+  default: (props) => (
+    <div data-testid="import-screen">
+      <button
+        onClick={() => {
+          props.onImported({ total: 7, invertibleOps: [] })
+          props.onNavigate('roots')
+        }}
+      >finish-import</button>
+      <button onClick={() => props.onNavigate('roots')}>cancel-to-roots</button>
     </div>
   ),
 }))
@@ -120,5 +141,31 @@ describe('AppShell: Roots as landing screen (plan T3)', () => {
 
     const roots = screen.getByTestId('roots-screen')
     expect(roots.dataset.mode).toBe('inspect')
+  })
+})
+
+// Roots-as-dashboard plan, Task 4: a finished import routes to Roots carrying
+// the commit outcome, which App holds and clears when the director leaves.
+describe('AppShell: finished import carries to Roots (plan T4)', () => {
+  it('lands a finished import on Roots carrying the outcome', () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    fireEvent.click(screen.getByText('go-to-import'))
+    fireEvent.click(screen.getByText('finish-import'))
+
+    const roots = screen.getByTestId('roots-screen')
+    expect(roots.dataset.mode).toBe('inspect')
+    expect(roots.dataset.justImported).toBe('7')
+  })
+
+  it('clears the carried outcome once the director leaves Roots', () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    fireEvent.click(screen.getByText('go-to-import'))
+    fireEvent.click(screen.getByText('finish-import'))
+    expect(screen.getByTestId('roots-screen').dataset.justImported).toBe('7')
+
+    // Leave Roots (to Import) and come back — the outcome must not persist.
+    fireEvent.click(screen.getByText('go-to-import'))
+    fireEvent.click(screen.getByText('cancel-to-roots'))
+    expect(screen.getByTestId('roots-screen').dataset.justImported).toBe('')
   })
 })

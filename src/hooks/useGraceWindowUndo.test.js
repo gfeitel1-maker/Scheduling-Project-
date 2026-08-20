@@ -103,6 +103,48 @@ describe('useGraceWindowUndo', () => {
     expect(result.current.isLive).toBe(false)
   })
 
+  // The unmount guard (isMountedRef) skips undo()'s post-resolution setStates
+  // once the owning component is gone — the director clicked Undo then
+  // navigated away before the IPC returned. Under React 19 a post-unmount
+  // setState is already a silent no-op (no throw, no console warning), so
+  // these tests assert the honest observable property the guard preserves:
+  // undo() settles cleanly after unmount, never surfacing an unhandled
+  // rejection. The guard is the defensive belt; the *surfacing* fix that is
+  // observably red-green is PostImportBanner disabling "Go to Schedule" while
+  // isPending (see ReconciliationScreen.test.jsx), which stops the director
+  // from leaving mid-undo in the first place.
+  it('an undo that resolves AFTER unmount settles cleanly (no throw)', async () => {
+    let resolveIngest
+    localClient.ingestUndo.mockReturnValue(new Promise((resolve) => { resolveIngest = resolve }))
+    const { result, unmount } = renderHook(() => useGraceWindowUndo())
+    act(() => result.current.start(outcome()))
+
+    let p
+    act(() => { p = result.current.undo() })
+    unmount()
+    await act(async () => {
+      resolveIngest({ ok: true, reverted: [], skipped: [] })
+      await expect(p).resolves.toBeUndefined()
+    })
+  })
+
+  it('a FAILED undo that rejects AFTER unmount settles cleanly (the rejection is caught, never unhandled)', async () => {
+    let rejectIngest
+    localClient.ingestUndo.mockReturnValue(new Promise((_, reject) => { rejectIngest = reject }))
+    const { result, unmount } = renderHook(() => useGraceWindowUndo())
+    act(() => result.current.start(outcome()))
+
+    let p
+    act(() => { p = result.current.undo() })
+    unmount()
+    await act(async () => {
+      rejectIngest(new Error('IPC lost'))
+      // undo()'s own catch swallows the rejection; the guard then skips the
+      // setUndoError that would target the dead instance. The promise resolves.
+      await expect(p).resolves.toBeUndefined()
+    })
+  })
+
   it('clear() resets to idle', () => {
     const { result } = renderHook(() => useGraceWindowUndo())
     act(() => result.current.start(outcome()))

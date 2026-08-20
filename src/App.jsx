@@ -79,6 +79,24 @@ export function AppShell({ campId, role, onLogout }) {
   // carrying the readiness verdict banner — rather than mid-setup on Units.
   // Every other screen stays reachable from the sidebar.
   const [screen, setScreen] = useState('roots')
+  // Roots-as-dashboard plan, Task 4 — the carrier that lifts a finished
+  // import's commit outcome across the screen boundary. ImportScreen hands it
+  // up (onImported) as it routes to Roots; ReconciliationScreen (inspect mode)
+  // reads it to show the post-import banner and start the surviving
+  // grace-window undo. Held here, above both screens, so it outlives
+  // ImportScreen unmounting. Cleared the moment the director leaves Roots —
+  // the least-surprising lifecycle: the post-import moment belongs to the
+  // landing, not to every later visit.
+  const [justImported, setJustImported] = useState(null)
+  // Every in-session navigation goes through this: it clears the carried
+  // import outcome the moment the director leaves Roots, so the post-import
+  // banner belongs to the landing, not to every later visit. Clearing at the
+  // navigation edge (rather than in an effect keyed on `screen`) keeps the
+  // transition in one synchronous update, no cascading re-render.
+  const navigate = (next) => {
+    if (next !== 'roots') setJustImported(null)
+    setScreen(next)
+  }
   // Single instance of the pending-conflicts source for this whole shell —
   // both the Sidebar badge count and ConflictsScreen's list read from it, so
   // they can never disagree.
@@ -155,15 +173,18 @@ export function AppShell({ campId, role, onLogout }) {
   const scheduleRoute = SCHEDULE_ROUTE_BY_SCREEN[resolvedScreen]
   const isWeekScreen = resolvedScreen === 'activities' || resolvedScreen === 'groups' || resolvedScreen === 'locations'
   const screenProps = resolvedScreen === 'conflicts'
-    ? { campId, role, onNavigate: setScreen, pendingConflicts }
+    ? { campId, role, onNavigate: navigate, pendingConflicts }
     : {
-        campId, role, onNavigate: setScreen,
+        campId, role, onNavigate: navigate,
         ...(scheduleRoute ? { initialRoute: scheduleRoute } : {}),
         ...(isWeekScreen ? weekProps : {}),
         // Roots as persistent inspector — fixed prop per route key, same
         // pattern as scheduleRoute above (docs/adr/2026-08-19-roots-census-
-        // and-persistent-inspector.md §(e)).
-        ...(resolvedScreen === 'roots' ? { mode: 'inspect' } : {}),
+        // and-persistent-inspector.md §(e)). Task 4 also threads the carried
+        // import outcome so Roots can show its post-import banner + undo.
+        ...(resolvedScreen === 'roots' ? { mode: 'inspect', justImported } : {}),
+        // Task 4 — ImportScreen hands a finished import's outcome up here.
+        ...(resolvedScreen === 'import' ? { onImported: setJustImported } : {}),
       }
 
   return (
@@ -181,7 +202,7 @@ export function AppShell({ campId, role, onLogout }) {
       )}
       <Shell
         currentScreen={resolvedScreen}
-        onNavigate={setScreen}
+        onNavigate={navigate}
         campId={campId}
         role={role}
         onLogout={onLogout}
