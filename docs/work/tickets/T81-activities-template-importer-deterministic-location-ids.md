@@ -1,7 +1,7 @@
 ---
 title: T81-activities-template-importer-deterministic-location-ids
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-16
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/GOVERNANCE_INDEX.md]
 related_tickets: []
@@ -65,3 +65,19 @@ with #68's `UNIQUE_FIELD_ENTITIES` exact-name create rejection and M3c's near-du
 resolve-by-exact-name-first design avoids tripping #68 (it reuses the existing row). Reconcile the
 case-sensitivity UX consequence with PR #70's preview copy ("pool" vs "Pool" → two mergeable rows,
 not silent reuse) so the two don't contradict.
+
+## Resolution (2026-08-20, SHIPPED — Red Hat 5/5 after re-scope, Code Reviewer merge-ready, gate green)
+
+Option (a), scoped to the CSV-template importer only. `confirmImport` + the file-preview map now
+resolve locations by exact trimmed name (case-sensitive) and mint via `deriveLocationId(campId, name)`
+— cross-device byte-identical ids, matching M4/migration/restore. Pinned by a two-DB byte-identity
+test + case-sensitivity tests.
+
+**Re-scope (Red Hat HIGH):** an earlier pass also routed the LocationPicker's INTERACTIVE inline-create
+(`createLocation`) through `deriveLocationId`, which re-opened the rename-then-recollide silent-overwrite
+hazard that `docs/adr/2026-08-15-locations-concurrent-create-collision.md` option (d) already rejected
+for interactive/renameable creates (M4's acceptance was scoped to batch ingest with a commit gate). The
+picker create was reverted to pre-T81 (`crypto.randomUUID` + case-insensitive), byte-identical, honoring
+the ADR. The rename-recollide hazard remains open across the deterministic call sites (M4 + this importer)
+as an already-accepted residual — filed as **T101** for an owner/Architect decision. Full `npm run verify`
+green (214 files, 25/25). Pending owner sign-off.
