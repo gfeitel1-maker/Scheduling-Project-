@@ -1,7 +1,7 @@
 ---
 title: T38-displaced-activities-concept-revisit
 document_type: ticket
-status: parked
+status: completed
 created: 2026-08-03
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 related_adrs: []
@@ -43,3 +43,13 @@ any implementation. Capture displaced-activity persistence expectations explicit
 
 - The flaky test at `src/screens/ScheduleScreen.test.jsx:~1264` ("T4: merging a cell down > sends
   the displaced activity to the tray") exercises this feature — see **T39**.
+
+## Resolution (2026-08-20, verified superseded)
+
+The "Displaced Activities" tray this ticket wanted to reconsider **no longer exists**. It was removed
+in the drag-first placement rework (PR #50, "DisplacedPalette tray removed; displaced→palette") and the
+drag-FSM gesture-correlation work (`displacedItems` plumbing removed — see `legend.test.js:118-122`).
+Displacement is now: a replaced occupant is simply overwritten (with undo) and remains available in the
+palette; a merge stores the displaced tail activity in the head's `flags.expanded` so split can restore
+it (`useSlotMutations.js`). The tray's open questions (when to tray vs auto-replace, persistence, fit
+with the two-routes model) are moot — there is no tray. Superseded per `archive_when`. Pending sign-off.
