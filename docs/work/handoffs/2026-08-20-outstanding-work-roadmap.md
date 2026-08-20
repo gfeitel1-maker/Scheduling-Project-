@@ -45,15 +45,15 @@ The multi-week **ingestion-reconciliation → Roots** arc is largely shipped:
 
 ## 2. Deferred but NOT yet ticketed (recorded in audit/memory only)
 
-**Decision pending from owner:** file these as real tickets, or leave in the audit doc?
+The M2–M5 audit deferrals are now filed as tickets (2026-08-20):
+- **M2 → T95** — multi-select domain filtering (lost when the port went single-select tile/node).
+- **M3 → T96** — field-level `was → will-be` ledger diff (compressed into per-card lines).
+- **M4 → T97** — per-field **UNKNOWN detection** (never built; "not in source" = optional-readiness
+  gaps only, not genuine per-field unknowns). *Highest value of the four — a real capability gap.*
+- **M5 → T98** — blast-radius **actually reorders** salience (currently a hint; order stays report
+  order).
 
-From `docs/work/specs/2026-08-19-roots-reconciliation-audit.md` §12 ("deferred, revisit on evidence"):
-- **M2** — multi-select domain filtering (lost when the port went single-select tile/node).
-- **M3** — field-level `was → will-be` ledger diff (compressed into per-card lines).
-- **M4** — per-field **UNKNOWN detection** (never built; "not in source" = optional-readiness gaps
-  only, not genuine per-field unknowns). *Higher value than the others — it's a real capability gap.*
-- **M5** — blast-radius **actually reorders** salience (currently computed as a hint, order stays
-  report order).
+Still recorded-only (not ticketed):
 
 From the Roots-dashboard work:
 - **Header / heading copy** on Roots + PostImportBanner + ReconstructionMoment — parked for the
