@@ -73,7 +73,7 @@ const SCHEDULE_ROUTE_BY_SCREEN = {
 // Exported (in addition to the default App below) so App.test.jsx can drive
 // it directly with fixed props, bypassing useDeviceMode's async init — the
 // same reasoning every screen test already applies to its own component.
-export function AppShell({ campId, role, onLogout }) {
+export function AppShell({ campId, role, mode, onLogout }) {
   // Roots is the in-session landing (S5, OF-1; plan T3): every director lands
   // on the honest "what does Shoresh know about this camp" home base — now
   // carrying the readiness verdict banner — rather than mid-setup on Units.
@@ -179,7 +179,7 @@ export function AppShell({ campId, role, onLogout }) {
   const screenProps = resolvedScreen === 'conflicts'
     ? { campId, role, onNavigate: navigate, pendingConflicts }
     : {
-        campId, role, onNavigate: navigate,
+        campId, role, deviceMode: mode, onNavigate: navigate,
         ...(scheduleRoute ? { initialRoute: scheduleRoute } : {}),
         ...(isWeekScreen ? weekProps : {}),
         // Roots as persistent inspector — fixed prop per route key, same
@@ -319,5 +319,5 @@ export default function App() {
     return <LoginScreen campName={device.camp?.name} onSubmit={device.login} notice={device.sessionEndedReason} />
   }
 
-  return <AppShell campId={device.camp?.id} role={device.role} onLogout={device.logout} />
+  return <AppShell campId={device.camp?.id} role={device.role} mode={device.mode} onLogout={device.logout} />
 }

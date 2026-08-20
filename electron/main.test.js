@@ -1675,6 +1675,24 @@ describe('approveDevice handler (devices.approve, admin-only)', () => {
 
     expect(() => handlers.approveDevice({ token: adminToken, deviceId: 'does-not-exist' })).toThrow('device not found')
   })
+
+  // T86 — approveDevice writes straight to THIS device's local, never-synced
+  // `devices` table (same shape as ingestCommit/confirmAlias); on a Client
+  // that write can never reach the Host, so it must refuse outright.
+  it('refuses on a device in Client mode, and writes nothing', async () => {
+    await seedCampAndUser({ name: 'AdminApproverClient', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token: adminToken } = await handlers.login({ name: 'AdminApproverClient', pin: '1234' })
+    db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('approve-target-client', 'iPad')
+    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+
+    expect(() => handlers.approveDevice({ token: adminToken, deviceId: 'approve-target-client' }))
+      .toThrow('Device management can only be done on the main computer.')
+
+    const row = db.prepare('SELECT authorized_at, pairing_status FROM devices WHERE id = ?').get('approve-target-client')
+    expect(row.authorized_at).toBeNull()
+    expect(row.pairing_status).toBe('pending')
+  })
 })
 
 describe('denyDevice handler (devices.approve, admin-only)', () => {
@@ -1700,6 +1718,21 @@ describe('denyDevice handler (devices.approve, admin-only)', () => {
 
     const result = handlers.denyDevice({ token: adminToken, deviceId: 'deny-target' })
     expect(result).toEqual({ deviceId: 'deny-target', denied: true })
+  })
+
+  // T86 — same reason as approveDevice's client-mode refusal.
+  it('refuses on a device in Client mode, and writes nothing', async () => {
+    await seedCampAndUser({ name: 'AdminDenierClient', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token: adminToken } = await handlers.login({ name: 'AdminDenierClient', pin: '1234' })
+    db.prepare("INSERT INTO devices (id, name, pairing_status) VALUES (?, ?, 'pending')").run('deny-target-client', 'iPad')
+    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+
+    expect(() => handlers.denyDevice({ token: adminToken, deviceId: 'deny-target-client' }))
+      .toThrow('Device management can only be done on the main computer.')
+
+    const row = db.prepare('SELECT pairing_status FROM devices WHERE id = ?').get('deny-target-client')
+    expect(row.pairing_status).toBe('pending')
   })
 })
 
@@ -1744,6 +1777,24 @@ describe('revokeDevice handler (devices.revoke, admin-only)', () => {
     const { token: adminToken } = await handlers.login({ name: 'AdminRevoker2', pin: '1234' })
 
     expect(() => handlers.revokeDevice({ token: adminToken, deviceId: 'no-such-device' })).toThrow('device not found')
+  })
+
+  // T86 — same reason as approveDevice's client-mode refusal: a self-revoke
+  // on a Client soft-bricks that device's own session locally while leaving
+  // real Host-enforced trust untouched.
+  it('refuses on a device in Client mode, and writes nothing', async () => {
+    await seedCampAndUser({ name: 'AdminRevokerClient', pin: '1234', role: 'admin' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token: adminToken } = await handlers.login({ name: 'AdminRevokerClient', pin: '1234' })
+    db.prepare("INSERT INTO devices (id, name, pairing_status, authorized_at) VALUES (?, ?, 'authorized', ?)").run('revoke-target-client', 'Tablet', new Date().toISOString())
+    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+
+    expect(() => handlers.revokeDevice({ token: adminToken, deviceId: 'revoke-target-client' }))
+      .toThrow('Device management can only be done on the main computer.')
+
+    const row = db.prepare('SELECT revoked_at, pairing_status FROM devices WHERE id = ?').get('revoke-target-client')
+    expect(row.revoked_at).toBeNull()
+    expect(row.pairing_status).toBe('authorized')
   })
 
   it('iterates syncServer.wss.clients and calls close(4404) on the revoked device\'s socket', async () => {

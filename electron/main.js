@@ -720,6 +720,16 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   function approveDevice({ token, deviceId: targetDeviceId } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const { userId } = requireAuthorized(db, { token, action: 'devices.approve' })
+    // T86 — same reason as ingestCommit/confirmAlias: this writes straight to
+    // THIS device's local, never-synced `devices` table. On a Client that
+    // write can never reach the Host, where device trust is actually
+    // enforced, so it must refuse outright rather than present a false
+    // success. Checked after requireAuthorized, matching that precedent, so
+    // an unauthorized caller gets the auth failure rather than learning the
+    // device's mode.
+    if (mode === 'client') {
+      throw new Error('Device management can only be done on the main computer.')
+    }
     if (!isNonEmptyString(targetDeviceId)) throw new Error('deviceId is required')
 
     const existing = db.prepare('SELECT id FROM devices WHERE id = ?').get(targetDeviceId)
@@ -741,6 +751,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   function denyDevice({ token, deviceId: targetDeviceId } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const { userId } = requireAuthorized(db, { token, action: 'devices.approve' })
+    // T86 — same reason as approveDevice above.
+    if (mode === 'client') {
+      throw new Error('Device management can only be done on the main computer.')
+    }
     if (!isNonEmptyString(targetDeviceId)) throw new Error('deviceId is required')
 
     // CodeReview: write pairing_status='denied' so denied devices don't
@@ -757,6 +771,10 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   function revokeDevice({ token, deviceId: targetDeviceId, reason } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const { userId } = requireAuthorized(db, { token, action: 'devices.revoke' })
+    // T86 — same reason as approveDevice above.
+    if (mode === 'client') {
+      throw new Error('Device management can only be done on the main computer.')
+    }
     if (!isNonEmptyString(targetDeviceId)) throw new Error('deviceId is required')
 
     const existing = db.prepare('SELECT id FROM devices WHERE id = ?').get(targetDeviceId)

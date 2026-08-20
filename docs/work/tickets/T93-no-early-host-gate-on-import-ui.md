@@ -1,7 +1,7 @@
 ---
 title: T93-no-early-host-gate-on-import-ui
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-19
 task_class: ui-ux-design
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, SECURITY.md]
@@ -47,3 +47,15 @@ A whole flow's worth of work, discarded at the final step, with no earlier signa
   (`src/hooks/useDeviceMode.js`); confirm the exact host/client signal reachable from ImportScreen.
 - Keep the copy honest and non-blaming ("Import runs on the main computer" — the same framing
   `mapCommitError` already uses).
+
+## Resolution (2026-08-20, SHIPPED — Code Reviewer merge-ready, full gate green)
+
+`ImportScreen` now renders an early host-only explainer ("Import runs on the main computer …") and
+presents no upload/parse path when `deviceMode === 'client'` (reusing the prop T86 threads via
+App.jsx `screenProps`). IPC enforcement untouched (defense in depth). Test-first: client-mode render
+shows guidance + asserts no `input[type=file]`; host/undefined unaffected. Full `npm run verify` green
+(214 files, 25/25). Hooks-ordering verified safe (early return after all hooks). Pending owner sign-off.
+
+**Optional follow-up not done (DoD said "and/or"):** the sidebar / RootsBanner "Import last year"
+control still reads as clickable for a Client director — the host-only signal appears only after they
+open Import. Annotating that entry for non-host devices would complete the picture; left for owner call.

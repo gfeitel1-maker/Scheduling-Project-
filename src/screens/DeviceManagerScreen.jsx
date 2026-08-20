@@ -17,7 +17,14 @@ function pairingStatusLabel(status) {
   return PAIRING_STATUS_LABEL[status] ?? 'Not set up yet'
 }
 
-export default function DeviceManagerScreen({ campId, role }) {
+export default function DeviceManagerScreen({ campId, role, deviceMode }) {
+  // T86 — approveDevice/denyDevice/revokeDevice write straight to this
+  // device's local, never-synced `devices` table; on a Client that write can
+  // never reach the Host, where device trust is actually enforced. The
+  // handlers refuse outright (electron/main.js), and this screen stays
+  // reachable read-only on a Client rather than presenting controls that
+  // would throw.
+  const canManage = deviceMode !== 'client'
   const [pending, setPending] = useState([])
   const [allDevices, setAllDevices] = useState([])
   const [error, setError] = useState(null)
@@ -117,22 +124,26 @@ export default function DeviceManagerScreen({ campId, role }) {
                   <td style={S.td}>{device.name || '—'}</td>
                   <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 11 }}>{device.id.slice(0, 8)}</td>
                   <td style={S.td}>
-                    <div style={styles.actions}>
-                      <button className="press-97"
-                        style={busy[device.id] ? { ...S.btnPrimary, ...S.buttonDisabled } : S.btnPrimary}
-                        disabled={!!busy[device.id]}
-                        onClick={() => handleApprove(device.id)}
-                      >
-                        Approve
-                      </button>
-                      <button
-                        style={busy[device.id] ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-                        disabled={!!busy[device.id]}
-                        onClick={() => handleDeny(device.id)}
-                      >
-                        Deny
-                      </button>
-                    </div>
+                    {canManage ? (
+                      <div style={styles.actions}>
+                        <button className="press-97"
+                          style={busy[device.id] ? { ...S.btnPrimary, ...S.buttonDisabled } : S.btnPrimary}
+                          disabled={!!busy[device.id]}
+                          onClick={() => handleApprove(device.id)}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          style={busy[device.id] ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
+                          disabled={!!busy[device.id]}
+                          onClick={() => handleDeny(device.id)}
+                        >
+                          Deny
+                        </button>
+                      </div>
+                    ) : (
+                      <span style={styles.revokedLabel}>View only from this device — use the main computer</span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -171,7 +182,7 @@ export default function DeviceManagerScreen({ campId, role }) {
                     </td>
                     <td style={S.td}>{fmt(device.authorized_at)}</td>
                     <td style={S.td}>
-                      {isAuthorized && role === 'admin' && (
+                      {isAuthorized && role === 'admin' && canManage && (
                         <button
                           style={busy[device.id] ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
                           disabled={!!busy[device.id]}
@@ -182,6 +193,9 @@ export default function DeviceManagerScreen({ campId, role }) {
                       )}
                       {isRevoked && (
                         <span style={styles.revokedLabel}>Revoked</span>
+                      )}
+                      {isAuthorized && role === 'admin' && !canManage && (
+                        <span style={styles.revokedLabel}>View only from this device — use the main computer</span>
                       )}
                     </td>
                   </tr>

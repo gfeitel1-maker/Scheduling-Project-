@@ -465,3 +465,27 @@ describe('ImportScreen — routes a finished import to Roots (plan T4)', () => {
     expect(screen.queryByText(/Imported 3 record/)).toBeNull()
   })
 })
+
+// T93 — Import is host-only, enforced today only at the IPC layer
+// (electron/main.js throws "Import can only be run on the main computer."
+// when mode === 'client'). Without an early UI gate, a Client-mode director
+// can upload/parse/edit/reconcile a whole import and only discover the
+// constraint at the final commit. deviceMode is the same signal T86 already
+// threads into every screen via App.jsx's screenProps (deviceMode: mode).
+describe('ImportScreen — host-only gate on Client-mode devices (T93)', () => {
+  it('shows host-only guidance and no live upload control when deviceMode is client', () => {
+    render(<ImportScreen campId="camp-1" onNavigate={() => {}} deviceMode="client" />)
+    expect(screen.getByText(/main computer/i)).toBeTruthy()
+    expect(document.querySelector('input[type="file"]')).toBeNull()
+  })
+
+  it('still presents the live upload control when deviceMode is host', () => {
+    render(<ImportScreen campId="camp-1" onNavigate={() => {}} deviceMode="host" />)
+    expect(document.querySelector('input[type="file"]')).toBeTruthy()
+  })
+
+  it('still presents the live upload control when deviceMode is not passed (default/undefined behaves as host)', () => {
+    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
+    expect(document.querySelector('input[type="file"]')).toBeTruthy()
+  })
+})

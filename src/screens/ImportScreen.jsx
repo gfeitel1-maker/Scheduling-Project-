@@ -79,7 +79,7 @@ const PRIORITY_LABEL = { high: 'High', low: 'Low' }
 const formatEligibility = (groupNames) =>
   groupNames == null || groupNames.length === 0 ? 'All groups' : `Groups: ${groupNames.join(', ')}`
 
-export default function ImportScreen({ campId, onNavigate, onImported }) {
+export default function ImportScreen({ campId, onNavigate, onImported, deviceMode }) {
   // Units and time blocks are scoped to a Program; an import files them under
   // the active one so the setup screens will show them (T33).
   const { activeCohort } = useCohorts(campId)
@@ -564,6 +564,26 @@ export default function ImportScreen({ campId, onNavigate, onImported }) {
         factCount={ledger.factCount}
         isFirstImport={ledger.isFirstImport}
       />
+    )
+  }
+
+  // T93 — import is host-only, enforced at the IPC layer (electron/main.js:
+  // "Import can only be run on the main computer."). Without this early
+  // signal a Client-mode director could upload, parse, edit the whole
+  // proposal, and stage the reconciliation ledger only to fail at the final
+  // commit. This is UI guidance only — the IPC-layer check stays exactly as
+  // it is, the real security boundary.
+  if (deviceMode === 'client') {
+    return (
+      <div style={{ maxWidth: 760 }}>
+        <div style={{
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 10, padding: '16px', fontSize: 13, lineHeight: 1.6, color: 'var(--text)',
+        }}>
+          Import runs on the main computer. Open this camp on the main computer to import last
+          year's schedule.
+        </div>
+      </div>
     )
   }
 
