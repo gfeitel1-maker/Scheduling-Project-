@@ -38,6 +38,15 @@ export function useGraceWindowUndo() {
   // be visible until re-render. `isPending` state exists only to drive the
   // button's `disabled` prop.
   const pendingRef = useRef(false)
+  // Unmount guard. undo() awaits ingestUndo, which can resolve (or reject)
+  // after the owning component has unmounted — e.g. the director clicks
+  // "Undo this import" and then navigates away before the IPC returns. Once
+  // unmounted, its setState calls (including setUndoError on failure) would be
+  // swallowed with a React warning AND, worse, a FAILED undo's error would go
+  // unsurfaced. This ref lets undo() skip those post-unmount setStates
+  // cleanly. Safe for every consumer: it only prevents setState on a dead
+  // instance, never changes behavior while mounted.
+  const isMountedRef = useRef(true)
 
   const clearTimer = () => {
     if (timerRef.current) {
@@ -46,7 +55,13 @@ export function useGraceWindowUndo() {
     }
   }
 
-  useEffect(() => clearTimer, [])
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      clearTimer()
+    }
+  }, [])
 
   // Starting a NEW import while a grace window is live immediately clears
   // the prior window's state (Invariant 5b) — there is exactly one live
@@ -91,6 +106,10 @@ export function useGraceWindowUndo() {
         createdEntityIds,
         client_write_id: crypto.randomUUID(),
       })
+      // Component gone (director navigated away mid-undo): the revert still
+      // committed at the op-log, but there is no live UI to report it to —
+      // skip the setStates rather than warn on a dead instance.
+      if (!isMountedRef.current) return
       clearTimer()
       setStatus(USED)
       setSkipped(Array.isArray(result?.skipped) ? result.skipped : [])
@@ -99,11 +118,16 @@ export function useGraceWindowUndo() {
     } catch (err) {
       // Deliberate: leave `status` at LIVE on error so the director can
       // retry the same grace window rather than losing the affordance to a
-      // transient IPC failure.
-      setUndoError(err?.message ?? 'Could not undo this import.')
+      // transient IPC failure. Only surface the error if the component is
+      // still mounted — a post-unmount rejection has no UI to show it in.
+      if (isMountedRef.current) {
+        setUndoError(err?.message ?? 'Could not undo this import.')
+      }
     } finally {
-      pendingRef.current = false
-      setIsPending(false)
+      if (isMountedRef.current) {
+        pendingRef.current = false
+        setIsPending(false)
+      }
     }
   }, [status, invertibleOps, createdEntityIds])
 

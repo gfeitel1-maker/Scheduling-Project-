@@ -1,3 +1,14 @@
+---
+title: "Roots as the dashboard / spine — implementation plan"
+document_type: plan
+status: active
+created: 2026-08-19
+task_class: ui-ux-design
+governing_docs: [docs/governance/constitution/CONSTITUTION.md]
+related_docs: [docs/work/specs/2026-08-19-roots-dashboard-spine-design.md]
+archive_when: the feature ships (all five tasks merged) and PLATFORM_STATE reflects Roots-as-home
+---
+
 # Roots as the Dashboard / Spine — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

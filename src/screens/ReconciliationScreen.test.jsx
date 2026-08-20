@@ -7,7 +7,7 @@
 // guard protects the debounced dry-run re-issue (ADR Risk #3).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../localClient', () => ({
@@ -16,11 +16,28 @@ vi.mock('../localClient', () => ({
     ingestReconcile: vi.fn(),
     ingestCommit: vi.fn(),
     confirmAlias: vi.fn().mockResolvedValue({ id: 'alias-1', superseded: null }),
+    getCamp: vi.fn().mockResolvedValue({ id: 'camp-1' }),
+    latestOpSeq: vi.fn().mockResolvedValue(0),
+    // Task 4 — the surviving grace-window undo now lives on Roots.
+    ingestUndo: vi.fn().mockResolvedValue({ deleted: [], skipped: [], kept: [] }),
   },
 }))
 
+// Text broken across sibling nodes by interleaved JSX expressions — the
+// deepest element whose full text matches, per RTL's own docs.
+function textNode(regex) {
+  return (_, element) => {
+    const has = (node) => regex.test(node.textContent ?? '')
+    return has(element) && Array.from(element.children).every((child) => !has(child))
+  }
+}
+
+const downloadWorkbook = vi.fn()
+vi.mock('../utils/exportWorkbook.js', () => ({ downloadWorkbook: (...a) => downloadWorkbook(...a) }))
+
 import ReconciliationScreen from './ReconciliationScreen.jsx'
 import { localClient } from '../localClient'
+import { getReadiness, describeReadiness } from '../engine/readiness.js'
 
 const baseInputs = { approved: { activities: ['Art'] }, cohort_id: null, mode: 'add' }
 
@@ -562,6 +579,246 @@ describe('inspect mode (persistent inspector, mode="inspect")', () => {
     render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
 
     await screen.findByText(/Couldn.t read part of your setup/)
+  })
+
+  it('renders the dashboard banner with the SAME verdict describeReadiness(getReadiness(...)) would produce', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'groups') return Promise.resolve([])
+      return Promise.resolve([{ id: 'x' }])
+    })
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+
+    const expectedReadiness = getReadiness({
+      cohorts: [{ id: 'x' }],
+      tiers: [{ id: 'x' }],
+      groups: [],
+      days: [{ id: 'x' }],
+      timeBlocks: [{ id: 'x' }],
+      activities: [{ id: 'x' }],
+      anchors: [{ id: 'x' }],
+      dayOverrides: [{ id: 'x' }],
+      locations: [{ id: 'x' }],
+    })
+    const { blocking } = describeReadiness(expectedReadiness)
+
+    await screen.findByText(blocking)
+    expect(screen.getByText('Import last year')).toBeTruthy()
+    expect(screen.getByText('Download worksheet')).toBeTruthy()
+    expect(screen.getByText('Facility map')).toBeTruthy()
+  })
+
+  it('the banner does not render when a census read fails (never a false "ready" verdict)', async () => {
+    localClient.list.mockRejectedValue(new Error('disk full'))
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+
+    await screen.findByText(/Couldn.t read part of your setup/)
+    expect(screen.queryByText('Import last year')).toBeNull()
+  })
+
+  it('the Download worksheet control calls the shared downloadWorkbook builder', async () => {
+    localClient.list.mockResolvedValue([{ id: 'x' }])
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+
+    await screen.findByText('Download worksheet')
+    await userEvent.click(screen.getByText('Download worksheet'))
+    await waitFor(() => expect(downloadWorkbook).toHaveBeenCalled())
+  })
+
+  // Governor review, round 2: the worksheet's cohort_id must come from the
+  // canonical useCohorts(campId) source (the same one ReadinessHub/
+  // AnchorsScreen/TiersScreen use), not an ad-hoc read off the census
+  // snapshot — that would be a second, divergent source of cohort truth.
+  it('the worksheet uses the useCohorts(campId)-derived cohort_id, not a census-snapshot guess', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'cohorts') {
+        return Promise.resolve([
+          { id: 'cohort-b', camp_id: 'camp-1', sort_order: 1, name: 'B' },
+          { id: 'cohort-a', camp_id: 'camp-1', sort_order: 0, name: 'A' },
+        ])
+      }
+      return Promise.resolve([{ id: 'x' }])
+    })
+    render(<ReconciliationScreen mode="inspect" campId="camp-1" onNavigate={vi.fn()} />)
+
+    await screen.findByText('Download worksheet')
+    await userEvent.click(screen.getByText('Download worksheet'))
+    await waitFor(() => expect(downloadWorkbook).toHaveBeenCalled())
+
+    const call = downloadWorkbook.mock.calls[0][0]
+    // useCohorts picks the lowest sort_order first — cohort-a (sort_order 0)
+    // — not the census snapshot's array order, which would have picked
+    // cohort-b (the first row returned by the mock above).
+    expect(call.cohort_id).toBe('cohort-a')
+  })
+
+  it('a rapid double-click on Download worksheet only calls downloadWorkbook once', async () => {
+    // A deferred getCamp lets both clicks land while the first call is still
+    // in flight — the real race the `preparingWorksheet` guard exists for.
+    let resolveGetCamp
+    localClient.getCamp.mockImplementation(() => new Promise((resolve) => { resolveGetCamp = resolve }))
+    localClient.list.mockResolvedValue([{ id: 'x' }])
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+
+    await screen.findByText('Download worksheet')
+    const btn = screen.getByText('Download worksheet')
+    fireEvent.click(btn)
+    fireEvent.click(btn)
+    resolveGetCamp({ id: 'camp-1' })
+
+    await waitFor(() => expect(downloadWorkbook).toHaveBeenCalled())
+    expect(downloadWorkbook).toHaveBeenCalledTimes(1)
+  })
+
+  // Task 4 (Roots-as-dashboard plan) — a finished import routes here carrying
+  // its outcome as `justImported`. The post-import banner and the surviving
+  // grace-window undo live on Roots now, not on ImportScreen.
+  it('with a justImported outcome, shows the post-import summary, a Go to Schedule control, and a reachable grace-window undo', async () => {
+    localClient.list.mockResolvedValue([{ id: 'x' }])
+    const onNavigate = vi.fn()
+    render(
+      <ReconciliationScreen
+        mode="inspect"
+        onNavigate={onNavigate}
+        justImported={{
+          total: 5,
+          fixedEvents: { created: 0, skipped: [], partial: [], moved: [] },
+          invertibleOps: [{ op: '__deleted__' }],
+          createdEntityIds: ['id-1'],
+        }}
+      />
+    )
+
+    await screen.findByText(textNode(/Imported 5 records/))
+
+    await userEvent.click(screen.getByText('Go to Schedule'))
+    expect(onNavigate).toHaveBeenCalledWith('schedule')
+
+    await userEvent.click(screen.getByText('Undo this import'))
+    await waitFor(() => expect(localClient.ingestUndo).toHaveBeenCalled())
+  })
+
+  it('disables Go to Schedule while an undo is in flight, so the director cannot leave mid-undo (write-failure surfacing)', async () => {
+    localClient.list.mockResolvedValue([{ id: 'x' }])
+    let resolveUndo
+    localClient.ingestUndo.mockReturnValue(new Promise((resolve) => { resolveUndo = resolve }))
+    render(
+      <ReconciliationScreen
+        mode="inspect"
+        onNavigate={vi.fn()}
+        justImported={{
+          total: 5,
+          fixedEvents: { created: 0, skipped: [], partial: [], moved: [] },
+          invertibleOps: [{ op: '__deleted__' }],
+          createdEntityIds: ['id-1'],
+        }}
+      />
+    )
+
+    await screen.findByText(textNode(/Imported 5 records/))
+    const goToSchedule = screen.getByText('Go to Schedule')
+    expect(goToSchedule.disabled).toBe(false)
+
+    await userEvent.click(screen.getByText('Undo this import'))
+    await waitFor(() => expect(goToSchedule.disabled).toBe(true))
+
+    resolveUndo({ deleted: [], skipped: [], kept: [] })
+  })
+
+  // Owner decision: ONE focused banner post-import. The dashboard RootsBanner
+  // is suppressed while justImported is live, and the readiness verdict is
+  // folded INTO the PostImportBanner as a secondary line — so there is no
+  // second banner to disagree with. This asserts the folded-in verdict agrees
+  // with the just-imported complete camp AND the standalone RootsBanner is not
+  // rendered.
+  it('folds the readiness verdict into the post-import banner and suppresses the standalone RootsBanner', async () => {
+    // A complete camp: every required area present after the import.
+    localClient.list.mockResolvedValue([{ id: 'x' }])
+    render(
+      <ReconciliationScreen
+        mode="inspect"
+        onNavigate={vi.fn()}
+        justImported={{
+          total: 7,
+          fixedEvents: { created: 0, skipped: [], partial: [], moved: [] },
+          invertibleOps: [],
+        }}
+      />
+    )
+
+    await screen.findByText(textNode(/Imported 7 records/))
+
+    const expectedReadiness = getReadiness({
+      cohorts: [{ id: 'x' }], tiers: [{ id: 'x' }], groups: [{ id: 'x' }],
+      days: [{ id: 'x' }], timeBlocks: [{ id: 'x' }], activities: [{ id: 'x' }],
+      anchors: [{ id: 'x' }], dayOverrides: [{ id: 'x' }], locations: [{ id: 'x' }],
+    })
+    const { blocking } = describeReadiness(expectedReadiness)
+    // The folded-in verdict line reads the "ready" sentence, agreeing with the
+    // just-imported camp — no "not set up" under "Imported N".
+    expect(blocking).toMatch(/Ready to build a week/)
+    await screen.findByText(blocking)
+    expect(screen.queryByText(/not set up/i)).toBeNull()
+
+    // The standalone dashboard RootsBanner (its three entry-point buttons) is
+    // suppressed while the import continuation is live — one focused banner.
+    expect(screen.queryByText('Import last year')).toBeNull()
+    expect(screen.queryByText('Download worksheet')).toBeNull()
+    expect(screen.queryByText('Facility map')).toBeNull()
+  })
+
+  // Degrade path: a failed census read must not show a false "ready" verdict
+  // line — matching how RootsBanner declines to render on the same failure.
+  it('omits the folded-in verdict line when the census read failed (never a false "ready")', async () => {
+    localClient.list.mockRejectedValue(new Error('disk full'))
+    render(
+      <ReconciliationScreen
+        mode="inspect"
+        onNavigate={vi.fn()}
+        justImported={{
+          total: 3,
+          fixedEvents: { created: 0, skipped: [], partial: [], moved: [] },
+          invertibleOps: [],
+        }}
+      />
+    )
+
+    await screen.findByText(textNode(/Imported 3 records/))
+    // The post-import banner still shows, but with no readiness verdict line.
+    expect(screen.queryByText('Ready to build a week.')).toBeNull()
+    expect(screen.queryByText(/Couldn.t read part of your setup/)).toBeTruthy()
+  })
+
+  it('without justImported, shows the normal readiness banner and no post-import summary (Task 2 unbroken)', async () => {
+    localClient.list.mockResolvedValue([{ id: 'x' }])
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+
+    await screen.findByText('Import last year')
+    expect(screen.queryByText(/Imported .* records/)).toBeNull()
+    expect(screen.queryByText('Go to Schedule')).toBeNull()
+    expect(screen.queryByText('Undo this import')).toBeNull()
+  })
+
+  it('the post-import banner surfaces migrated fixed-event caveats (skipped and moved)', async () => {
+    localClient.list.mockResolvedValue([{ id: 'x' }])
+    render(
+      <ReconciliationScreen
+        mode="inspect"
+        onNavigate={vi.fn()}
+        justImported={{
+          total: 2,
+          fixedEvents: {
+            created: 0,
+            skipped: [{ name: 'Flag' }],
+            partial: [],
+            moved: [{ name: 'Lunch', reason: 'time changed' }],
+          },
+          invertibleOps: [],
+        }}
+      />
+    )
+
+    await screen.findByText(textNode(/1 fixed event couldn.t\s+be created/))
+    expect(screen.getByText(textNode(/moved since this file was last imported/))).toBeTruthy()
   })
 
   it('defaults to import mode when no mode prop is given (ImportScreen call site unchanged)', async () => {

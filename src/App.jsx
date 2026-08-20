@@ -7,7 +7,6 @@ import CampBootstrapScreen from './screens/CampBootstrapScreen'
 import LoginScreen from './screens/LoginScreen'
 import CampScreen from './screens/CampScreen'
 import ImportScreen from './screens/ImportScreen'
-import ReadinessHub from './screens/ReadinessHub'
 import ReconciliationScreen from './screens/ReconciliationScreen'
 import TiersScreen from './screens/TiersScreen'
 import GroupsScreen from './screens/GroupsScreen'
@@ -30,14 +29,15 @@ import { seedDays } from './utils/seedDays'
 import { S } from './styles/shared'
 
 const SCREENS = {
-  readiness:    ReadinessHub,
   camp:         CampScreen,
   import:       ImportScreen,
   // Roots as a persistent inspector (docs/adr/2026-08-19-roots-census-and-
   // persistent-inspector.md §(e)) — the first time ReconciliationScreen is
   // reachable outside the ImportScreen takeover. Fixed `mode="inspect"` prop
   // threaded at the render site below, same pattern as
-  // SCHEDULE_ROUTE_BY_SCREEN's fixed `route` prop.
+  // SCHEDULE_ROUTE_BY_SCREEN's fixed `route` prop. Also the in-session
+  // landing screen (see the 'readiness' redirect below) — Setup Readiness
+  // (ReadinessHub) is retired; its verdict now lives on the Roots banner.
   roots:        ReconciliationScreen,
   conflicts:    ConflictsScreen,
   trash:        TrashScreen,
@@ -74,10 +74,33 @@ const SCHEDULE_ROUTE_BY_SCREEN = {
 // it directly with fixed props, bypassing useDeviceMode's async init — the
 // same reasoning every screen test already applies to its own component.
 export function AppShell({ campId, role, onLogout }) {
-  // The Setup Readiness hub is the in-session landing (S5, OF-1): every director
-  // lands on the honest "can this camp build a week yet" home base rather than
-  // mid-setup on Units. Every other screen stays reachable from the sidebar.
-  const [screen, setScreen] = useState('readiness')
+  // Roots is the in-session landing (S5, OF-1; plan T3): every director lands
+  // on the honest "what does Shoresh know about this camp" home base — now
+  // carrying the readiness verdict banner — rather than mid-setup on Units.
+  // Every other screen stays reachable from the sidebar.
+  const [screen, setScreen] = useState('roots')
+  // Roots-as-dashboard plan, Task 4 — the carrier that lifts a finished
+  // import's commit outcome across the screen boundary. ImportScreen hands it
+  // up (onImported) as it routes to Roots; ReconciliationScreen (inspect mode)
+  // reads it to show the post-import banner and start the surviving
+  // grace-window undo. Held here, above both screens, so it outlives
+  // ImportScreen unmounting. Cleared the moment the director leaves Roots —
+  // the least-surprising lifecycle: the post-import moment belongs to the
+  // landing, not to every later visit.
+  const [justImported, setJustImported] = useState(null)
+  // Every in-session navigation goes through this: it clears the carried
+  // import outcome the moment the director leaves Roots, so the post-import
+  // banner belongs to the landing, not to every later visit. Clearing at the
+  // navigation edge (rather than in an effect keyed on `screen`) keeps the
+  // transition in one synchronous update, no cascading re-render.
+  const navigate = (next) => {
+    // 'readiness' redirects to 'roots' at render (resolvedScreen below), so
+    // treat it as 'roots' here too — otherwise a nav to 'readiness' would
+    // clear the post-import banner while visually staying on Roots.
+    const target = next === 'readiness' ? 'roots' : next
+    if (target !== 'roots') setJustImported(null)
+    setScreen(next)
+  }
   // Single instance of the pending-conflicts source for this whole shell —
   // both the Sidebar badge count and ConflictsScreen's list read from it, so
   // they can never disagree.
@@ -145,19 +168,27 @@ export function AppShell({ campId, role, onLogout }) {
 
   const weekProps = { weekId, weeks, onSelectWeek: setWeekId }
 
-  const Screen = SCREENS[screen] || TiersScreen
-  const scheduleRoute = SCHEDULE_ROUTE_BY_SCREEN[screen]
-  const isWeekScreen = screen === 'activities' || screen === 'groups' || screen === 'locations'
-  const screenProps = screen === 'conflicts'
-    ? { campId, role, onNavigate: setScreen, pendingConflicts }
+  // Setup Readiness (ReadinessHub) is retired (plan T3) — its verdict now
+  // lives on the Roots banner. A stale 'readiness' deep-link or nav target
+  // (e.g. a saved link from before this change) redirects to Roots rather
+  // than rendering nothing, same as if the director had landed there fresh.
+  const resolvedScreen = screen === 'readiness' ? 'roots' : screen
+  const Screen = SCREENS[resolvedScreen] || TiersScreen
+  const scheduleRoute = SCHEDULE_ROUTE_BY_SCREEN[resolvedScreen]
+  const isWeekScreen = resolvedScreen === 'activities' || resolvedScreen === 'groups' || resolvedScreen === 'locations'
+  const screenProps = resolvedScreen === 'conflicts'
+    ? { campId, role, onNavigate: navigate, pendingConflicts }
     : {
-        campId, role, onNavigate: setScreen,
+        campId, role, onNavigate: navigate,
         ...(scheduleRoute ? { initialRoute: scheduleRoute } : {}),
         ...(isWeekScreen ? weekProps : {}),
         // Roots as persistent inspector — fixed prop per route key, same
         // pattern as scheduleRoute above (docs/adr/2026-08-19-roots-census-
-        // and-persistent-inspector.md §(e)).
-        ...(screen === 'roots' ? { mode: 'inspect' } : {}),
+        // and-persistent-inspector.md §(e)). Task 4 also threads the carried
+        // import outcome so Roots can show its post-import banner + undo.
+        ...(resolvedScreen === 'roots' ? { mode: 'inspect', justImported } : {}),
+        // Task 4 — ImportScreen hands a finished import's outcome up here.
+        ...(resolvedScreen === 'import' ? { onImported: setJustImported } : {}),
       }
 
   return (
@@ -174,8 +205,8 @@ export function AppShell({ campId, role, onLogout }) {
         </div>
       )}
       <Shell
-        currentScreen={screen}
-        onNavigate={setScreen}
+        currentScreen={resolvedScreen}
+        onNavigate={navigate}
         campId={campId}
         role={role}
         onLogout={onLogout}
