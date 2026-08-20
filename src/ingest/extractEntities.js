@@ -360,6 +360,19 @@ export function extractEntities(parsed) {
           // reported is exactly the text that failed to become an activity —
           // not the raw cell, which would show a time or a dash artifact
           // that was never really "dropped content".
+          //
+          // DELIBERATE BOUNDARY: this is WHOLE-CELL residual only. A cell
+          // where the dash-split yields at least one activity-like part
+          // ("Art - Rm 3" -> keeps "Art") never reaches this branch at all —
+          // names.length > 0 — so the OTHER fragment ("Rm 3") is never
+          // reported as residual, on purpose. Those trailing fragments are
+          // almost always an intentional room/person annotation (the same
+          // " - " pattern T16/activityNamesFromCell's own dash-split exists
+          // to read), not dropped content, and flagging every one would
+          // drown the director in benign "not recognised" noise for text
+          // that is doing exactly what it was written to do. Partial-cell
+          // residual is out of scope here — only a cell that produced ZERO
+          // activities is a genuine unmatched-content case.
           const cleaned = cleanCellValue(cell)
           if (cleaned && !/^-+$/.test(cleaned)) residualCellValues.push(cleaned)
         }
