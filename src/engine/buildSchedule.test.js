@@ -78,6 +78,39 @@ describe('elective cells excluded from regular placement (engine-skip)', () => {
     const placed = slots.filter(s => s.type === 'activity' && s.activityId === 'archery')
     expect(placed.length).toBeGreaterThan(0)
   })
+
+  // Red Hat HIGH: the span-tail collision check in canPlace only consulted
+  // anchorLookup, not electiveLookup, so a multi-block activity whose TAIL
+  // block coincided with an elective cell passed canPlace and place() wrote
+  // phantom bookkeeping (assigned/usageCount/placeUsage/activityUsage) at the
+  // elective coordinate — corrupting session credit and capacity even though
+  // the visible schedule still rendered the elective correctly.
+  it('does not let a multi-block activity span its tail into an elective cell', () => {
+    const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
+    const swim = { id: 'swim', name: 'Swim', priority: 'high', max_per_week: 5, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null, span_blocks: 2 }
+    // b1 is an open head slot; b2 (the would-be tail) is an elective cell.
+    const preplacedSlots = [{ groupId: 'g1', dayId: 'd1', blockId: 'b2', electiveSetId: 'es1' }]
+    const { slots } = buildSchedule(minimal({
+      timeBlocks: [baseBlock, block2], activities: [swim], preplacedSlots,
+    }))
+
+    // Swim was never placed anywhere — its only candidate head (b1) requires
+    // spanning into b2, which is blocked.
+    const placedSwim = slots.filter(s => s.activityId === 'swim')
+    expect(placedSwim).toHaveLength(0)
+
+    // The head slot (b1) stays unfilled/open, not silently occupied.
+    const headSlot = slots.find(s => s.groupId === 'g1' && s.dayId === 'd1' && s.blockId === 'b1')
+    expect(headSlot.activityId).toBeNull()
+    expect(headSlot.flags?.UNFILLABLE).toBe(true)
+
+    // The elective cell itself is untouched — still type 'elective', no
+    // activity/anchor written into it (no phantom double-booking).
+    const electiveCell = slots.find(s => s.groupId === 'g1' && s.dayId === 'd1' && s.blockId === 'b2')
+    expect(electiveCell.type).toBe('elective')
+    expect(electiveCell.activityId).toBeNull()
+    expect(electiveCell.electiveSetId).toBe('es1')
+  })
 })
 
 describe('UNFILLABLE flag', () => {
