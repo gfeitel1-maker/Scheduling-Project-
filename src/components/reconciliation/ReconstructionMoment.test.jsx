@@ -98,6 +98,28 @@ describe('ReconstructionMoment', () => {
     expect(screen.getAllByText('Needs a look')).toHaveLength(1)
   })
 
+  it('paints a needs-attention domain in --accent, never --danger (DESIGN_STANDARD §4)', () => {
+    // Regression guard: --danger is reserved for destructive/fatal; attention
+    // is --accent (bronze), matching RootMap's STATE_TOKEN.attention. This is
+    // the first-run onboarding moment, so an alarm-red "needs a look" both
+    // violated the standard and spiked anxiety at the worst moment.
+    const { container } = render(
+      <ReconstructionMoment
+        settling={true}
+        domainCounts={{ Structure: 0, Scheduling: 0, Time: 1, Facility: 0 }}
+        onSettled={vi.fn()}
+      />
+    )
+    // The one attention row ("Needs a look") must carry --accent, not --danger,
+    // anywhere in its rendered inline styles.
+    const attentionLabel = screen.getByText('Needs a look')
+    const attentionRow = attentionLabel.closest('div')
+    expect(attentionRow.innerHTML).toContain('var(--accent)')
+    expect(attentionRow.innerHTML).not.toContain('var(--danger)')
+    // And nothing in the whole moment paints with --danger.
+    expect(container.innerHTML).not.toContain('var(--danger)')
+  })
+
   it('fires onSettled exactly once, within the settle cap, on transition to settling=true', async () => {
     const onSettled = vi.fn()
     const { rerender } = render(
