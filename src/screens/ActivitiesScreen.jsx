@@ -12,6 +12,7 @@ import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialo
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { CapacityStepper } from './LocationsScreen'
+import { deriveLocationId } from '../../electron/ops/locationId.js'
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
@@ -621,6 +622,18 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   // Kept case-insensitive on purpose — see confirmImport for the full
   // rationale (a case-sensitive resolve would mint unreviewable capacity-
   // fragmenting duplicates the M3c gate never sees).
+  //
+  // NOT aligned to T81/deriveLocationId (Red Hat, T81 round 2): this is an
+  // INTERACTIVE, renameable create — the director can rename this row via
+  // LocationsScreen immediately after creating it — exactly the shape
+  // docs/adr/2026-08-15-locations-concurrent-create-collision.md option (d)
+  // rejects deterministic ids for: create "Pool" (id location:{camp}:Pool),
+  // rename to "Swimming Pool" (id unchanged), a later create of a location
+  // literally named "Pool" would re-derive the same id and silently
+  // overwrite the renamed row's fields. M4's ingest path accepts this
+  // tradeoff only for a batch commit with its own review gate; the picker's
+  // inline-create has no such gate, so it stays random-UUID/case-insensitive,
+  // as the ADR decided. T81's scope is the CSV-template importer only.
   async function createLocation(name) {
     const trimmedName = String(name ?? '').trim()
     if (!trimmedName) return null
@@ -801,12 +814,12 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       const tierMap = Object.fromEntries(tiers.map(t => [t.name.toLowerCase(), t.id]))
       const actMap = Object.fromEntries(activities.map(a => [a.name.toLowerCase(), a.id]))
       const dowMap = Object.fromEntries(DOW.map((d, i) => [d.toLowerCase(), i]))
-      // Existing places keyed the SAME (case-insensitive) way confirmImport
-      // resolves them, mapping to the canonical stored spelling — so the
-      // preview can tell the director, before they commit, whether a row will
-      // reuse an existing place (and surface a case-variant fold like
-      // "pool" → "Pool") or mint a brand-new one.
-      const locNameByLower = new Map(locations.map(l => [String(l.name ?? '').trim().toLowerCase(), String(l.name ?? '').trim()]))
+      // Existing places keyed the SAME (exact, case-SENSITIVE, trim-only) way
+      // confirmImport resolves them (T81, matching deriveLocationId's own
+      // normalization contract) — so the preview agrees with the actual
+      // create: "pool" against an existing "Pool" now shows "new place", not
+      // a silent/annotated fold, because it genuinely mints a second row.
+      const locNameByExact = new Map(locations.map(l => [String(l.name ?? '').trim(), String(l.name ?? '').trim()]))
 
       const parsed = rows.map(r => {
         const name = String(r.name || '').trim()
@@ -831,11 +844,12 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         const prefer_before_day = preferDayStr ? (dowMap[preferDayStr.toLowerCase()] ?? null) : null
 
         const locationName = String(r.location || '').trim() || null
-        // 'reuse' → an existing place (matchedLocationName is its canonical
-        // spelling, shown only when the casing differs so a fold is visible);
-        // 'new' → confirmImport will create it. Camp places only — a name new
-        // to the camp but repeated within this same import still reads 'new'.
-        const matchedLocationName = locationName ? (locNameByLower.get(locationName.toLowerCase()) ?? null) : null
+        // 'reuse' → an existing place, exact-name match (matchedLocationName
+        // is always identical to locationName when set — case variants no
+        // longer fold, T81); 'new' → confirmImport will mint it via
+        // deriveLocationId. Camp places only — a name new to the camp but
+        // repeated within this same import still reads 'new'.
+        const matchedLocationName = locationName ? (locNameByExact.get(locationName) ?? null) : null
         const locationResolution = locationName ? (matchedLocationName ? 'reuse' : 'new') : null
 
         return {
@@ -878,26 +892,30 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       // two rows naming the same new place in one import share one location.
       // This is ActivitiesScreen's own template importer, NOT the
       // electron/ops/ingest.js / src/ingest/* legacy-spreadsheet ingest path
-      // (M4 territory, left writing free-text `location` on purpose).
+      // (M4 territory) — but T81 aligns its create POLICY to that path's:
       //
-      // Resolve CASE-INSENSITIVELY on purpose — do NOT "fix" this to a
-      // case-sensitive exact match to mirror locations.UNIQUE(camp_id, name).
-      // Reusing the existing "Pool" for an imported "pool" is deliberate
-      // duplicate-PREVENTION at the point of entry, and it is consistent with
-      // the LocationPicker, whose own create-row gate is case-insensitive
-      // (`exactMatch`, ~line 143). A case-sensitive resolve here would instead
-      // MINT a distinct capacity-1 "pool" row that fragments the engine's
-      // per-location_id capacity (buildSchedule.js keys capacity by
-      // location_id) so one physical room can be double-booked — and nothing
-      // would ever surface it: the M3c near-duplicate merge gate is fed ONLY
-      // by the one-time v32 migration journal (location_migration_reviews,
-      // written solely in backfillLocations), never by post-migration creates,
-      // so an import-made case variant is permanently unreviewable. Confirmed
-      // by Red Hat, 2026-08-16. (Cross-device same-name forks are already
-      // closed by the write-time collision guard, detectUniqueFieldCollision —
-      // random UUIDs here are correct; deterministic ids were ADR-rejected,
-      // docs/adr/2026-08-15-locations-concurrent-create-collision.md option d.)
-      const locationIdByName = new Map(locations.map(l => [String(l.name ?? '').toLowerCase(), l.id]))
+      // Resolve by EXACT trimmed name first (reuse ANY existing row —
+      // migration/picker/ingest-created), mint only when absent, via
+      // deriveLocationId(campId, trimmedName) rather than crypto.randomUUID().
+      // Case-SENSITIVE on purpose (matches deriveLocationId's own
+      // normalization contract and the v32 UNIQUE(camp_id, name) key) — an
+      // imported "pool" against an existing "Pool" now mints a second,
+      // genuinely distinct row instead of silently folding onto it, exactly
+      // like M3c treats every other case-variant pair (a mergeable near-
+      // duplicate the M3c gate can heal, not a silent create-time fold). This
+      // supersedes the prior case-insensitive/randomUUID policy (Red Hat,
+      // 2026-08-16), which traded away cross-device id determinism — the same
+      // template imported on two paired devices minted two different
+      // `locations.id`s for one place — to dodge a capacity-fragmentation
+      // concern that resolve-by-exact-name-first + M3c's existing merge gate
+      // already covers on every other locations surface. Deterministic ids
+      // were rejected for a *renameable, interactive* create in
+      // docs/adr/2026-08-15-locations-concurrent-create-collision.md option
+      // (d) — that hazard (a later create colliding with an earlier row's
+      // post-create rename) applies equally to M4's own ingest create path,
+      // already shipped and accepted; T81 extends the same, already-accepted
+      // tradeoff to this second call site rather than introducing a new one.
+      const locationIdByName = new Map(locations.map(l => [String(l.name ?? '').trim(), l.id]))
       let added = 0, skipped = 0
       for (const row of importRows) {
         if (!row.name || row.warning) { skipped++; continue }
@@ -906,14 +924,14 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
 
         let locationId = null
         if (row.location) {
-          const locLower = row.location.toLowerCase()
-          locationId = locationIdByName.get(locLower) ?? null
+          const trimmedLoc = String(row.location).trim()
+          locationId = locationIdByName.get(trimmedLoc) ?? null
           if (!locationId) {
             try {
-              const newLocId = crypto.randomUUID()
-              await repository.createRecord('locations', newLocId, { name: row.location, camp_id: campId, capacity: 1, notes: null })
+              const newLocId = deriveLocationId(campId, trimmedLoc)
+              await repository.createRecord('locations', newLocId, { name: trimmedLoc, camp_id: campId, capacity: 1, notes: null })
               locationId = newLocId
-              locationIdByName.set(locLower, newLocId)
+              locationIdByName.set(trimmedLoc, newLocId)
             } catch {
               locationId = null // best-effort: the activity still imports, just without a place
             }
@@ -1126,9 +1144,6 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                           {r.location || '—'}
                           {r.locationResolution === 'new' && (
                             <span style={importAnnotation.newPlace}>+ new place</span>
-                          )}
-                          {r.locationResolution === 'reuse' && r.matchedLocationName !== r.location && (
-                            <span style={importAnnotation.reuse}>reuses “{r.matchedLocationName}”</span>
                           )}
                         </td>
                         <td style={S.td}>{r.priority}</td>

@@ -33,6 +33,7 @@ vi.mock('xlsx', () => ({
 import ActivitiesScreen from './ActivitiesScreen'
 import { localClient } from '../localClient'
 import * as XLSX from 'xlsx'
+import { deriveLocationId } from '../../electron/ops/locationId.js'
 
 const CAMP_ID = 'camp-1'
 
@@ -259,10 +260,10 @@ describe('ActivitiesScreen — delete all', () => {
 
 describe('ActivitiesScreen — import', () => {
   it('imports rows from Excel, resolving unit names and skipping duplicates and rows with a warning', async () => {
-    // Two distinct ids needed: the location this import creates for "Pool"
-    // (D5 UI freeze, extended to the import path — see confirmImport), then
-    // the "Water Play" activity itself.
-    vi.stubGlobal('crypto', { randomUUID: vi.fn().mockReturnValueOnce('new-location-id').mockReturnValueOnce('new-activity-id') })
+    // Only the "Water Play" activity itself needs a randomUUID — the "Pool"
+    // location it creates now mints a deterministic id via deriveLocationId
+    // (T81), not crypto.randomUUID().
+    vi.stubGlobal('crypto', { randomUUID: vi.fn().mockReturnValueOnce('new-activity-id') })
     localClient.list.mockImplementation(entity => {
       if (entity === 'activities') return Promise.resolve([activity({ id: 'a1', name: 'Archery' })])
       if (entity === 'tiers') return Promise.resolve([{ id: 'tier-1', camp_id: CAMP_ID, name: 'Yeladim' }])
@@ -296,7 +297,9 @@ describe('ActivitiesScreen — import', () => {
     // before the activity that references it.
     const locationNamesWritten = localClient.write.mock.calls.filter(c => c[1] === 'locations' && c[3] === 'name').map(c => c[4])
     expect(locationNamesWritten).toEqual(['Pool'])
-    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id', 'location_id', 'new-location-id')
+    const derivedLocId = deriveLocationId(CAMP_ID, 'Pool')
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'locations', derivedLocId, 'name', 'Pool')
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id', 'location_id', derivedLocId)
 
     // D5 UI freeze: the import path never writes the free-text column either.
     expect(localClient.write.mock.calls.some(c => c[1] === 'activities' && c[3] === 'location')).toBe(false)
@@ -324,22 +327,15 @@ describe('ActivitiesScreen — import', () => {
   })
 })
 
-// M4 follow-up (docs/adr/2026-08-15-locations-concurrent-create-collision.md):
-// The CSV template importer resolves a row's free-text `location` to a
-// `locations` row CASE-INSENSITIVELY, on purpose. This is deliberate
-// duplicate-PREVENTION at the point of entry — an imported "pool" reuses an
-// existing "Pool" rather than minting a distinct capacity-1 row. A
-// case-sensitive resolve here would fragment the engine's per-location_id
-// capacity (one physical room becomes two schedulable pools) with NO recovery
-// path: the M3c near-duplicate merge gate is fed only by the one-time v32
-// migration journal (location_migration_reviews), never by post-migration
-// creates, so an import-made case variant is permanently unreviewable
-// (Red Hat, 2026-08-16). These tests pin the case-insensitive behavior so it
-// is not "corrected" back to case-sensitive. Cross-device same-name forks are
-// closed separately by the write-time collision guard, so the fresh randomUUID
-// this path mints (asserted in the 'imports rows…' test above) stays correct.
-describe('ActivitiesScreen — import location resolve is case-insensitive (dup-prevention)', () => {
-  it('reuses an existing "Pool" for an imported "pool" — no duplicate location row is created', async () => {
+// T81 (docs/work/tickets/T81-activities-template-importer-deterministic-location-ids.md):
+// aligned to the M4 Host ingest pattern
+// (docs/adr/2026-08-15-locations-import-export-roundtrip.md D1a) — resolve by
+// EXACT trimmed name first, mint via deriveLocationId(campId, trimmedName)
+// only when absent. Case-SENSITIVE: "Pool" and "pool" are two legitimate,
+// mergeable rows (M3c), not one entity folded at create time. Supersedes the
+// prior case-insensitive/randomUUID policy these tests used to pin.
+describe('ActivitiesScreen — import location resolve is deterministic and case-sensitive (T81)', () => {
+  it('mints a NEW row for an imported "pool" even though "Pool" already exists — no silent case-fold', async () => {
     vi.stubGlobal('crypto', { randomUUID: vi.fn().mockReturnValueOnce('new-activity-id') })
     localClient.list.mockImplementation(entity => {
       if (entity === 'activities') return Promise.resolve([])
@@ -359,13 +355,40 @@ describe('ActivitiesScreen — import location resolve is case-insensitive (dup-
     fireEvent.click(screen.getByText(/Import 1/))
     await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
 
-    // No new location row: "pool" folds onto the existing "Pool".
+    // A distinct "pool" row is minted, case-sensitive, deterministic id.
+    const derivedPoolId = deriveLocationId(CAMP_ID, 'pool')
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'locations', derivedPoolId, 'name', 'pool')
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id', 'location_id', derivedPoolId)
+    // Never the pre-existing "Pool" row's id.
+    expect(localClient.write.mock.calls.some(c => c[1] === 'activities' && c[3] === 'location_id' && c[4] === 'loc-Pool')).toBe(false)
+  })
+
+  it('reuses an existing exact-name "Pool" row on re-import — no duplicate is minted', async () => {
+    vi.stubGlobal('crypto', { randomUUID: vi.fn().mockReturnValueOnce('new-activity-id') })
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([])
+      if (entity === 'locations') return Promise.resolve([{ id: 'loc-Pool', camp_id: CAMP_ID, name: 'Pool', capacity: 3, notes: null }])
+      return Promise.resolve([])
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
+
+    const file = new File(['dummy'], 'activities.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'Swim', location: 'Pool', is_outdoor: '', max_groups_per_slot: '', min_per_week: '', max_per_week: '', same_tier_only: '', priority: '', eligible_tiers: '', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '' },
+    ])
+    await userEvent.upload(fileInput, file)
+    await waitFor(() => expect(screen.queryByText(/Import 1/)).not.toBeNull())
+    fireEvent.click(screen.getByText(/Import 1/))
+    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
+
+    // No new location row: exact-name "Pool" reuses the existing row.
     expect(localClient.write.mock.calls.some(c => c[1] === 'locations' && c[3] === 'name')).toBe(false)
-    // The activity binds to the existing "Pool", never a fresh case-variant row.
     expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id', 'location_id', 'loc-Pool')
   })
 
-  it('within one import, groups case-insensitively — "Field" and "field" share ONE location row', async () => {
+  it('within one import, "Field" and "field" mint TWO distinct location rows (case-sensitive)', async () => {
     let n = 0
     vi.stubGlobal('crypto', { randomUUID: vi.fn(() => `id-${n++}`) })
     localClient.list.mockImplementation(entity => {
@@ -387,17 +410,51 @@ describe('ActivitiesScreen — import location resolve is case-insensitive (dup-
     fireEvent.click(screen.getByText(/Import 2/))
     await waitFor(() => expect(screen.queryByText(/2 added/)).not.toBeNull())
 
-    // Exactly one location created — "field" folds onto the "Field" made first,
-    // so both activities share it (no capacity-fragmenting near-duplicate).
+    // Two distinct location rows, one per case variant.
     const locationNamesWritten = localClient.write.mock.calls.filter(c => c[1] === 'locations' && c[3] === 'name').map(c => c[4])
-    expect(locationNamesWritten).toEqual(['Field'])
+    expect(locationNamesWritten.sort()).toEqual(['Field', 'field'])
+  })
+
+  it('cross-device determinism: the same CSV imported on two independent devices mints byte-identical location ids', async () => {
+    // Two independent "devices" — separate localClient.write mocks, no shared
+    // in-memory state — each importing the identical row from a blank camp.
+    async function importOnOneDevice() {
+      vi.stubGlobal('crypto', { randomUUID: vi.fn().mockReturnValueOnce('new-activity-id') })
+      localClient.list.mockReset().mockImplementation(entity => {
+        if (entity === 'activities') return Promise.resolve([])
+        if (entity === 'locations') return Promise.resolve([])
+        return Promise.resolve([])
+      })
+      localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
+      const { unmount } = render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+      await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
+      const file = new File(['dummy'], 'activities.xlsx')
+      const fileInput = document.querySelector('input[type="file"]')
+      XLSX.utils.sheet_to_json.mockReturnValue([
+        { name: 'Swim', location: 'Pool Deck', is_outdoor: '', max_groups_per_slot: '', min_per_week: '', max_per_week: '', same_tier_only: '', priority: '', eligible_tiers: '', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '' },
+      ])
+      await userEvent.upload(fileInput, file)
+      await waitFor(() => expect(screen.queryByText(/Import 1/)).not.toBeNull())
+      fireEvent.click(screen.getByText(/Import 1/))
+      await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
+      const locWrite = localClient.write.mock.calls.find(c => c[1] === 'locations' && c[3] === 'name')
+      unmount()
+      return locWrite[2] // entity_id minted for the location
+    }
+
+    const idOnDeviceA = await importOnOneDevice()
+    const idOnDeviceB = await importOnOneDevice()
+
+    expect(idOnDeviceA).toBe(idOnDeviceB)
+    expect(idOnDeviceA).toBe(deriveLocationId(CAMP_ID, 'Pool Deck'))
   })
 })
 
-// The import preview must make location resolution visible BEFORE commit, so
-// the director can catch a case-variant fold ("pool" quietly reusing "Pool")
-// or an unexpected new place. This is the pre-commit visibility Red Hat flagged
-// as the one real gap left once the resolve stayed case-insensitive.
+// The import preview must make location resolution visible BEFORE commit, and
+// (T81) must agree with what confirmImport will actually do: resolution is
+// now exact-name-only, so a case variant reads 'new', never a silent/annotated
+// reuse — the preview's locNameByExact map uses the identical exact-trim key
+// as confirmImport's own locationIdByName, so the two can't disagree.
 describe('ActivitiesScreen — import preview shows new-vs-reused location', () => {
   async function uploadRows(rows, locations = []) {
     localClient.list.mockImplementation(entity => {
@@ -415,10 +472,10 @@ describe('ActivitiesScreen — import preview shows new-vs-reused location', () 
   }
   const row = (over) => ({ name: 'Act', location: '', is_outdoor: '', max_groups_per_slot: '', min_per_week: '', max_per_week: '', same_tier_only: '', priority: '', eligible_tiers: '', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '', ...over })
 
-  it('flags a case-variant "pool" as reusing the existing "Pool" — not a silent fold', async () => {
+  it('flags a case-variant "pool" as a NEW place — no silent fold onto the existing "Pool" (T81)', async () => {
     await uploadRows([row({ name: 'Swim', location: 'pool' })], [{ id: 'loc-Pool', camp_id: CAMP_ID, name: 'Pool', capacity: 3, notes: null }])
-    expect(screen.queryByText(/reuses .*Pool/)).not.toBeNull()
-    expect(screen.queryByText(/new place/)).toBeNull()
+    expect(screen.queryByText(/new place/)).not.toBeNull()
+    expect(screen.queryByText(/reuses/)).toBeNull()
   })
 
   it('flags a genuinely new place with a "new place" badge', async () => {
@@ -497,6 +554,12 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
   })
 
   it('creating a new place from the picker creates a locations row and binds it immediately — before the activity is ever saved', async () => {
+    // T81 round 2 (Red Hat): the picker's inline-create is an INTERACTIVE,
+    // renameable create, exactly what
+    // docs/adr/2026-08-15-locations-concurrent-create-collision.md option (d)
+    // rejects deterministic ids for — stays crypto.randomUUID(), unchanged
+    // from pre-T81. Only the CSV-template importer (confirmImport) moved to
+    // deriveLocationId.
     vi.stubGlobal('crypto', { randomUUID: vi.fn().mockReturnValueOnce('new-location-id').mockReturnValueOnce('new-activity-id') })
     localClient.list.mockImplementation(entity => {
       if (entity === 'activities') return Promise.resolve([])
@@ -601,7 +664,6 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
   })
 
   it('C2: a place just created this session shows an in-place capacity stepper defaulting to 1, and adjusting it writes the new capacity', async () => {
-    vi.stubGlobal('crypto', { randomUUID: vi.fn().mockReturnValueOnce('new-location-id').mockReturnValueOnce('new-activity-id') })
     localClient.list.mockImplementation(entity => {
       if (entity === 'locations') return Promise.resolve([])
       return Promise.resolve([])
@@ -617,8 +679,10 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
     // The default (1) is unchanged — only an in-place way to adjust it is added.
     expect(screen.getByLabelText('Groups at once').value).toBe('1')
 
+    // createLocation stays crypto.randomUUID()-based (unchanged from pre-T81)
+    // — the default beforeEach stub returns 'new-activity-id' for every call.
     fireEvent.click(screen.getByLabelText('Increase'))
-    await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'locations', 'new-location-id', 'capacity', 2))
+    await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'locations', 'new-activity-id', 'capacity', 2))
   })
 
   it('C1: the popover mounts fresh (unentered) on open so popFade has a "from" frame to animate from', async () => {
