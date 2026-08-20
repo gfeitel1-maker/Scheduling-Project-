@@ -2,6 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import RootMapPanel from './RootMapPanel.jsx'
+import { S } from '../../styles/shared'
 
 function emptyModel() {
   return { domains: [] }
@@ -117,7 +118,7 @@ describe('RootMapPanel node selection connects to the real edit screen', () => {
         onClearSelection={noop}
       />,
     )
-    expect(screen.getByText('Open in Locations →')).toBeTruthy()
+    expect(screen.getByText('Manage Locations →')).toBeTruthy()
   })
 
   it('calls onNavigate with the resolved target screen when the Open button is clicked', () => {
@@ -139,7 +140,60 @@ describe('RootMapPanel node selection connects to the real edit screen', () => {
         onClearSelection={noop}
       />,
     )
-    screen.getByText('Open in Locations →').click()
+    screen.getByText('Manage Locations →').click()
+    expect(navigatedTo).toBe('locations')
+  })
+
+  it('promotes the node-navigation button to a primary "Manage {node} →" action, reusing S.btnPrimary', () => {
+    const model = baseModel()
+    let navigatedTo = null
+    render(
+      <RootMapPanel
+        model={model}
+        selection={{ type: 'node', domainKey: 'Facility', childKey: 'Locations' }}
+        lanes={lanes}
+        dismissedGaps={new Set()}
+        answers={{}}
+        onAnswer={noop}
+        onDismissGap={noop}
+        onUndismissGap={noop}
+        expandedEvidence={new Set()}
+        onToggleEvidence={noop}
+        onNavigate={(screen) => { navigatedTo = screen }}
+        onClearSelection={noop}
+      />,
+    )
+    const button = screen.getByRole('button', { name: /^Manage .+→$/ })
+    expect(button).toBeTruthy()
+    expect(button.style.background).toBe(S.btnPrimary.background)
+    expect(button.style.color).toBe('rgb(255, 255, 255)')
+    expect(button.style.fontWeight).toBe(String(S.btnPrimary.fontWeight))
+    button.click()
+    expect(navigatedTo).toBe('locations')
+  })
+
+  it('falls back to DOMAIN_LABELS for a domain-only selection (no childKey)', () => {
+    const model = baseModel()
+    let navigatedTo = null
+    render(
+      <RootMapPanel
+        model={model}
+        selection={{ type: 'node', domainKey: 'Facility' }}
+        lanes={lanes}
+        dismissedGaps={new Set()}
+        answers={{}}
+        onAnswer={noop}
+        onDismissGap={noop}
+        onUndismissGap={noop}
+        expandedEvidence={new Set()}
+        onToggleEvidence={noop}
+        onNavigate={(screen) => { navigatedTo = screen }}
+        onClearSelection={noop}
+      />,
+    )
+    const button = screen.getByRole('button', { name: /^Manage .+→$/ })
+    expect(button.textContent).toBe('Manage Resources →')
+    button.click()
     expect(navigatedTo).toBe('locations')
   })
 

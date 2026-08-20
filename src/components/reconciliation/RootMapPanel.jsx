@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { DecisionCard, RequiredGapCard, RequiredGapSummaryCard } from './reconciliationCards.jsx'
 import { DOMAIN_LABELS } from './domainRollup.js'
 import { screenForNode, SCREEN_LABEL } from './rootMapNav.js'
-import { prefersReducedMotion } from '../../styles/shared'
+import { prefersReducedMotion, S } from '../../styles/shared'
 import { isDecisionResolvedFor } from '../../screens/reconciliationTriage.js'
 import RosterList from './RosterList.jsx'
 
@@ -193,7 +193,7 @@ export default function RootMapPanel({
               onClick={() => onNavigate?.(targetScreen)}
               style={styles.openButton}
             >
-              {`Open in ${SCREEN_LABEL[targetScreen] ?? targetScreen} →`}
+              {`Manage ${selection.childKey ?? DOMAIN_LABELS[selection.domainKey] ?? SCREEN_LABEL[targetScreen] ?? targetScreen} →`}
             </button>
             {roster && roster.length > 0 && (
               <RosterList
@@ -307,18 +307,11 @@ const styles = {
     textAlign: 'right',
   },
   openButton: {
+    ...S.btnPrimary,
     display: 'block',
     width: '100%',
     padding: '9px 14px',
     marginBottom: 12,
-    background: 'var(--primary)',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 7,
-    fontWeight: 600,
-    fontSize: 13,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
     textAlign: 'center',
   },
 }
