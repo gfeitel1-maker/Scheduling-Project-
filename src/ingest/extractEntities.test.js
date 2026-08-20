@@ -31,6 +31,54 @@ describe('the entities-only boundary (ADR §2)', () => {
   })
 })
 
+describe('residual — unrecognised cell content (T36)', () => {
+  // A cell that survives cleaning but never becomes an activity name (a stray
+  // "Block 2", a bare room number left in a data column) is content the
+  // director laid out and the parser silently threw away. Surfacing it is the
+  // whole of T36's transparency goal — not a parser fix, a report of what the
+  // parser already decided not to use.
+  it('collects a cell that failed isActivityLike, with its count', () => {
+    const parsed = {
+      pages: [{
+        title: 'Yeladim',
+        columns: ['Monday', 'Tuesday'],
+        rows: [
+          { label: '9:00', cells: ['Block 2', 'Swim'] },
+          { label: '10:00', cells: ['Block 2', 'Drama'] },
+        ],
+      }],
+    }
+    const { residual } = extractEntities(parsed)
+    expect(residual.cells).toEqual([{ value: 'Block 2', count: 2 }])
+  })
+
+  it('never reports an empty cell or a bare dash as residual', () => {
+    const parsed = {
+      pages: [{
+        title: 'Yeladim',
+        columns: ['Monday', 'Tuesday'],
+        rows: [{ label: '9:00', cells: ['', '-'] }],
+      }],
+    }
+    const { residual } = extractEntities(parsed)
+    expect(residual.cells).toEqual([])
+  })
+
+  it('reports no residual for the two real camps beyond what they already carry', () => {
+    // Not an assertion that residual is empty (both camps DO have some
+    // unmatched content) — just that the shape holds on real data.
+    for (const parsed of [campA, campB]) {
+      const { residual } = extractEntities(parsed)
+      expect(Array.isArray(residual.cells)).toBe(true)
+      for (const entry of residual.cells) {
+        expect(typeof entry.value).toBe('string')
+        expect(entry.value.length).toBeGreaterThan(0)
+        expect(entry.count).toBeGreaterThan(0)
+      }
+    }
+  })
+})
+
 describe('orientation is detected, not assumed (ADR §7)', () => {
   it('reads Camp A as one page per group, days across', () => {
     const o = detectOrientation(campA.pages)

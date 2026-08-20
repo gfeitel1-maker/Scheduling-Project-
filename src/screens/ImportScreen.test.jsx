@@ -107,6 +107,26 @@ async function goToCommit() {
   await userEvent.click(await screen.findByText('Use this setup'))
 }
 
+describe('ImportScreen — residual report (T36)', () => {
+  it('renders a non-blocking "not recognised" section for unmatched cell content, before commit', async () => {
+    extractEntities.mockReturnValueOnce({
+      ...baseProposal,
+      residual: { cells: [{ value: 'Block 2', count: 3 }] },
+    })
+    await uploadFile()
+    expect(screen.getByText(/not recognised/i)).toBeTruthy()
+    expect(screen.getByText(textNode(/Block 2.*3.*cells/))).toBeTruthy()
+    // Non-blocking: the commit action is still present and enabled.
+    expect(screen.getByText(/Add \d+ record/)).toBeTruthy()
+  })
+
+  it('renders no residual section when nothing was left unmatched', async () => {
+    extractEntities.mockReturnValueOnce({ ...baseProposal, residual: { cells: [] } })
+    await uploadFile()
+    expect(screen.queryByText(/not recognised/i)).toBeNull()
+  })
+})
+
 describe('ImportScreen — inferred activity rules (T35)', () => {
   it('renders a rule summary for a proposed activity, collapsed by default with the full editor behind Adjust', async () => {
     await uploadFile()

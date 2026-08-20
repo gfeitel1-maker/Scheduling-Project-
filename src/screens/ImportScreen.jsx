@@ -154,6 +154,11 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
   // days_of_operation, which step 8 also deletes. Recoverable from Trash,
   // same as slots (T68).
   const [anchorCount, setAnchorCount] = useState(0)
+  // T36 — sheets that had content but the detector could not turn into a page
+  // (workbookToPages' `.residual`), alongside proposal.residual.cells (content
+  // inside a recognised page that never became an entity). Read-only
+  // transparency, never a gate on commit.
+  const [residualSheets, setResidualSheets] = useState([])
 
   const REPLACEABLE = INGESTIBLE_ENTITIES.filter((e) => e !== 'cohorts')
   // Camp-wide count — what Replace actually deletes. This drives the
@@ -171,6 +176,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
     setFixedEvents([])
     setActivityRules({})
     setGroupUnitOverrides({})
+    setResidualSheets([])
     const files = [...(fileList ?? [])]
     if (files.length === 0) return
     setFileNames(files.map((f) => f.name))
@@ -180,6 +186,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
       // nothing about which group a file is. What differs is the group.
       const prefix = sharedFilenamePrefix(files.map((f) => f.name))
       const pages = []
+      const fileResidualSheets = []
 
       for (const file of files) {
         const title = groupNameFromFilename(file.name, prefix)
@@ -207,11 +214,14 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
             // so an escaped literal round-trips and never re-enters as a formula.
             rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false }).map(unescapeRow),
           }))
-          pages.push(...workbookToPages(sheets, title))
+          const sheetPages = workbookToPages(sheets, title)
+          pages.push(...sheetPages)
+          for (const r of sheetPages.residual ?? []) fileResidualSheets.push({ file: file.name, ...r })
         } else {
           pages.push(...parseTextGrid(await file.text()).pages)
         }
       }
+      setResidualSheets(fileResidualSheets)
 
       if (pages.length === 0) {
         setProposal(null)
@@ -649,6 +659,51 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
                 : 'Could not tell how this file is laid out, so some of the list below may be wrong. Worth checking closely.'}
             </div>
           )}
+
+          {/* T36 — the residual report. Non-blocking transparency: content the
+              parser saw and could not turn into an entity or a page, shown
+              before commit so the director can judge for themselves whether
+              it matters, rather than it vanishing with no trace. */}
+          {(() => {
+            const residualCells = proposal.residual?.cells ?? []
+            if (residualCells.length === 0 && residualSheets.length === 0) return null
+            return (
+              <div style={{
+                background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 12, lineHeight: 1.6,
+              }}>
+                <div style={{
+                  fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
+                  letterSpacing: '0.12em', textTransform: 'uppercase',
+                  color: 'var(--text-secondary)', marginBottom: 8,
+                }}>
+                  Not recognised
+                </div>
+                <div style={{ color: 'var(--text-secondary)', marginBottom: 8 }}>
+                  Shoresh could not match this to anything above. Nothing was added for it — check
+                  whether it matters before you continue.
+                </div>
+                {residualSheets.length > 0 && (
+                  <ul style={{ margin: '0 0 8px', paddingLeft: 18 }}>
+                    {residualSheets.map((r, i) => (
+                      <li key={i}>
+                        Sheet "{r.sheet}" in {r.file}: {r.sample.join(', ')}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {residualCells.length > 0 && (
+                  <ul style={{ margin: 0, paddingLeft: 18 }}>
+                    {residualCells.map((c) => (
+                      <li key={c.value}>
+                        "{c.value}" — {c.count} {c.count === 1 ? 'cell' : 'cells'}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )
+          })()}
 
           {INGESTIBLE_ENTITIES.map(entity => {
             const names = proposal.entities[entity] ?? []

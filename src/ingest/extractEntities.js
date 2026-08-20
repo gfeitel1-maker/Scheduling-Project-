@@ -278,6 +278,13 @@ export function extractEntities(parsed) {
   // convention groupUnits already uses for "one value per name".
   const locations = []
   const activityLocationVotes = new Map() // normalized activity key -> Map(locationText -> count)
+  // T36 — the residual report. A cell that cleans to real text but still fails
+  // isActivityLike (a stray "Block 2", a bare room number sitting in a data
+  // column) is content the director laid out and the parser is about to throw
+  // away with no record. This is the transparency half of T36: not a parser
+  // fix, a tally of what the parser already decided not to use, honestly
+  // captured (raw cleaned text, not a fabricated entity).
+  const residualCellValues = []
 
   for (const page of pages) {
     const title = cleanTitle(page.title)
@@ -348,6 +355,14 @@ export function extractEntities(parsed) {
       }
       row.cells.forEach((cell, cellIndex) => {
         const names = activityNamesFromCell(cell)
+        if (names.length === 0) {
+          // Same cleaning activityNamesFromCell itself applies, so what's
+          // reported is exactly the text that failed to become an activity —
+          // not the raw cell, which would show a time or a dash artifact
+          // that was never really "dropped content".
+          const cleaned = cleanCellValue(cell)
+          if (cleaned && !/^-+$/.test(cleaned)) residualCellValues.push(cleaned)
+        }
         for (const value of names) {
           activities.push(value)
           const cellKey = pageKey ?? page.columns[cellIndex] ?? null
@@ -483,5 +498,9 @@ export function extractEntities(parsed) {
     activityLocations,
     seenCounts,
     counts: Object.fromEntries(Object.entries(entities).map(([k, v]) => [k, v.length])),
+    // T36 — most-seen first, same convention tally() uses for activities, so a
+    // repeated artifact ("Block 2" on every page) reads as one line with a
+    // count rather than a wall of duplicates.
+    residual: { cells: tally(residualCellValues).map((v) => ({ value: v.name, count: v.count })) },
   }
 }

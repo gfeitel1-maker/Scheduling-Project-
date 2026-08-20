@@ -83,6 +83,25 @@ describe('workbookToPages', () => {
     ], 'ignored')
     expect(pages.map((p) => p.title)).toEqual(['Bunk A', 'Bunk B'])
   })
+
+  // T36 — a sheet the detector can't turn into a page is silently skipped
+  // (Excel padding, a notes sheet). A genuinely empty sheet (no content at
+  // all — every workbook ships two or three of these) is not worth a
+  // director's attention; a sheet that HAD content but didn't parse is.
+  it('reports a sheet with content that could not be read as a page, on the returned array', () => {
+    const pages = workbookToPages([
+      populated,
+      { name: 'Notes', rows: [['just a note, no header row']] },
+      { name: 'Sheet3', rows: [] },
+    ], '1A')
+    expect(pages).toHaveLength(1)
+    expect(pages.residual).toEqual([{ sheet: 'Notes', sample: ['just a note, no header row'] }])
+  })
+
+  it('reports nothing for a workbook where every unread sheet is genuinely empty', () => {
+    const pages = workbookToPages([populated, { name: 'Sheet2', rows: [] }, { name: 'Sheet3', rows: [] }], '1A')
+    expect(pages.residual).toEqual([])
+  })
 })
 
 describe('the group name comes from the filename', () => {
