@@ -5,46 +5,49 @@
 // DOMAINS array) as the starting point. x/y are normalized to the
 // illustration ([0,1] on each axis).
 
-// Coordinates snapped onto ACTUAL root pixels of the illustration
-// (src/assets/reconciliation/root-map.png). Each x/y was chosen from a detected
-// root cluster at that depth (analysis in scratchpad), so every dot sits on a
-// real root, not in open cream between them. Normalized [0,1] on each axis.
+// Coordinates land each node on a real root of the 3D-relief backdrop
+// (src/assets/reconciliation/root-map-3d.png). Unlike the flat illustration,
+// these were NOT eyeballed: each node's normalized position on the source
+// illustration was re-projected through the tilted render camera in Blender
+// (world_to_camera_view over the displaced root mesh), so every dot sits on
+// its root in the new perspective. Normalized [0,1] on each axis; if the
+// backdrop is re-rendered at a different camera, re-run that projection.
 export const NODE_LAYOUT = {
   Structure: {
-    x: 0.28,
-    y: 0.46,
+    x: 0.3008,
+    y: 0.485,
     children: {
-      Units: { x: 0.234, y: 0.56 },
-      Groups: { x: 0.23, y: 0.72 },
-      'Age Divisions': { x: 0.338, y: 0.80 },
+      Units: { x: 0.2541, y: 0.5761 },
+      Groups: { x: 0.248, y: 0.7364 },
+      'Age Divisions': { x: 0.347, y: 0.8169 },
     },
   },
   Scheduling: {
-    x: 0.44,
-    y: 0.46,
+    x: 0.4456,
+    y: 0.4807,
     children: {
-      Activities: { x: 0.451, y: 0.56 },
-      'Fixed Events': { x: 0.42, y: 0.64 },
+      Activities: { x: 0.4541, y: 0.5739 },
+      'Fixed Events': { x: 0.4256, y: 0.6533 },
     },
   },
   Time: {
-    x: 0.555,
-    y: 0.52,
+    x: 0.5503,
+    y: 0.5404,
     children: {
-      Days: { x: 0.553, y: 0.58 },
-      'Time Blocks': { x: 0.566, y: 0.72 },
+      Days: { x: 0.5488, y: 0.5963 },
+      'Time Blocks': { x: 0.5622, y: 0.7347 },
     },
   },
   Facility: {
-    x: 0.66,
-    y: 0.50,
+    x: 0.6456,
+    y: 0.5224,
     children: {
-      Locations: { x: 0.634, y: 0.72 },
+      Locations: { x: 0.6258, y: 0.7352 },
     },
   },
   Context: {
-    x: 0.83,
-    y: 0.48,
+    x: 0.8025,
+    y: 0.4992,
     children: {},
   },
 }

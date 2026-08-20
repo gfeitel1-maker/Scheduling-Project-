@@ -1,7 +1,23 @@
 import { useState, useEffect } from 'react'
 import { prefersReducedMotion } from '../../styles/shared'
 import { DOMAIN_LABELS } from './domainRollup.js'
-import rootMapArt from '../../assets/reconciliation/root-map.png'
+import rootMapArt from '../../assets/reconciliation/root-map-3d.png'
+import orbUnderstood from '../../assets/reconciliation/orb_understood.png'
+import orbAttention from '../../assets/reconciliation/orb_attention.png'
+import orbChanged from '../../assets/reconciliation/orb_changed.png'
+import orbAbsent from '../../assets/reconciliation/orb_absent.png'
+import orbNotSetUp from '../../assets/reconciliation/orb_not_set_up.png'
+
+// Woodcut-orb "lantern" sprite per state (engraved sepia orbs on the 3D-relief
+// roots). Baked from scratchpad/blender-roots/production_bake.py — one sprite
+// per state so a state change is an <image> href swap, no runtime tinting.
+const STATE_SPRITE = {
+  understood: orbUnderstood,
+  attention: orbAttention,
+  changed: orbChanged,
+  absent: orbAbsent,
+  not_set_up: orbNotSetUp,
+}
 
 // RootMap — root-map port, docs/adr/2026-08-18-rootmap-screen-port.md §1,
 // implementing docs/work/specs/2026-08-18-rootmap-interaction-model.md §1-§6.
@@ -36,39 +52,22 @@ function selectionMatchesNode(selection, domainKey, childKey) {
   return selection.domainKey === domainKey && !selection.childKey
 }
 
-function Node({ x, y, width, height, state, label, selected, onSelect }) {
+function Node({ x, y, width, height, state, label, selected, onSelect, radius }) {
   const [hovered, setHovered] = useState(false)
   const [pressed, setPressed] = useState(false)
   const reduced = prefersReducedMotion()
   const cx = x * width
   const cy = y * height
-  const ringActive = selected || hovered
-  const ringOpacity = ringActive ? 1 : 0
-  const dotRadius = 7
+  const r = radius
+  const active = selected || hovered
   const showLabel = hovered || selected
-  const pressScale = reduced ? 1 : pressed ? 0.9 : 1
+  const pressScale = reduced ? 1 : pressed ? 0.92 : 1
   const release = () => setPressed(false)
 
-  // Design polish #4/#5 — the label pill and selection ring should read as
-  // "arriving" (scale-in alongside the opacity fade), not pop in at full
-  // size. Reset-on-deactivate is done during render (React's documented
-  // "adjusting state when a prop changes" pattern, already used for
-  // prevSelectionType in RootMapPanel) rather than in an effect, so the
-  // effect only ever sets the entered flag to true — guarded so it never
-  // fires redundantly. No overshoot (DESIGN_STANDARD forbids elastic):
-  // plain var(--ease-out) settle.
-  const [ringEntered, setRingEntered] = useState(false)
-  const [prevRingActive, setPrevRingActive] = useState(ringActive)
-  if (ringActive !== prevRingActive) {
-    setPrevRingActive(ringActive)
-    if (!ringActive) setRingEntered(false)
-  }
-  useEffect(() => {
-    if (!ringActive || ringEntered) return
-    const id = requestAnimationFrame(() => setRingEntered(true))
-    return () => cancelAnimationFrame(id)
-  }, [ringActive, ringEntered])
-
+  // The label pill reads as "arriving" (scale-in with the fade), not popping in
+  // at full size. Reset-on-deactivate happens during render (React's documented
+  // "adjust state when a prop changes" pattern), so the effect only ever sets
+  // the entered flag true — guarded so it never fires redundantly.
   const [labelEntered, setLabelEntered] = useState(false)
   const [prevShowLabel, setPrevShowLabel] = useState(showLabel)
   if (showLabel !== prevShowLabel) {
@@ -80,6 +79,19 @@ function Node({ x, y, width, height, state, label, selected, onSelect }) {
     const id = requestAnimationFrame(() => setLabelEntered(true))
     return () => cancelAnimationFrame(id)
   }, [showLabel, labelEntered])
+
+  // Glow: the lantern lights on hover/selection (strong, in the state colour);
+  // the needs-attention orb pulses on its own (CSS keyframe in index.css) unless
+  // it is already hovered/selected. Understood/changed stay calm at rest — the
+  // glow is a *runtime* cue, never a static tint on the whole screen.
+  const glowColor = STATE_TOKEN[state]
+  // A static drop-shadow is not motion, so the hover/selection glow applies even
+  // under reduced-motion (a selected lantern must still read as selected); only
+  // the transition and the attention pulse are gated as animation.
+  const activeGlow = active
+    ? { filter: `drop-shadow(0 0 7px color-mix(in srgb, ${glowColor} 82%, transparent))` }
+    : {}
+  const pulse = state === 'attention' && !active && !reduced ? 'rootmap-orb--pulse' : ''
 
   return (
     <g
@@ -93,25 +105,27 @@ function Node({ x, y, width, height, state, label, selected, onSelect }) {
             }
       }
     >
-      <circle
-        cx={cx}
-        cy={cy}
-        r={reduced ? 12 : ringEntered ? 12 : 10}
-        fill="none"
-        stroke={STATE_TOKEN[state]}
-        strokeWidth={2.5}
-        opacity={ringOpacity}
-        style={{ transition: reduced ? 'opacity var(--motion-fast) var(--ease-out)' : 'opacity var(--motion-fast) var(--ease-out), r var(--motion-fast) var(--ease-out)' }}
+      {/* hook: the lantern hangs from its root */}
+      <line
+        x1={cx}
+        y1={cy - r + 2}
+        x2={cx - 2}
+        y2={cy - r - 11}
+        stroke="#6b573c"
+        strokeWidth={1.5}
+        opacity={0.45}
       />
-      <circle
-        cx={cx}
-        cy={cy}
-        r={dotRadius}
-        fill={state === 'absent' || state === 'not_set_up' ? 'none' : STATE_TOKEN[state]}
-        stroke={state === 'absent' || state === 'not_set_up' ? STATE_TOKEN[state] : 'none'}
-        strokeWidth={state === 'absent' || state === 'not_set_up' ? 2 : 0}
-        strokeDasharray={state === 'not_set_up' ? '2 2' : undefined}
-        style={reduced ? undefined : { transition: 'fill var(--motion-base) var(--ease-out)' }}
+      <image
+        href={STATE_SPRITE[state]}
+        x={cx - r}
+        y={cy - r}
+        width={r * 2}
+        height={r * 2}
+        className={pulse}
+        style={{
+          ...activeGlow,
+          transition: reduced ? undefined : 'filter var(--motion-base) var(--ease-out)',
+        }}
       />
       {showLabel && (
         <g
@@ -131,7 +145,7 @@ function Node({ x, y, width, height, state, label, selected, onSelect }) {
         >
           <rect
             x={cx - (label.length * 3.2 + 8)}
-            y={cy - 27}
+            y={cy - r - 26}
             width={label.length * 6.4 + 16}
             height={18}
             rx={9}
@@ -140,7 +154,7 @@ function Node({ x, y, width, height, state, label, selected, onSelect }) {
           />
           <text
             x={cx}
-            y={cy - 15}
+            y={cy - r - 14}
             textAnchor="middle"
             style={{ fontFamily: 'var(--font-sans)', fontSize: 11, fill: 'var(--text)' }}
           >
@@ -148,7 +162,7 @@ function Node({ x, y, width, height, state, label, selected, onSelect }) {
           </text>
         </g>
       )}
-      <foreignObject x={cx - 22} y={cy - 22} width={44} height={44} style={{ overflow: 'visible' }}>
+      <foreignObject x={cx - r - 4} y={cy - r - 4} width={r * 2 + 8} height={r * 2 + 8} style={{ overflow: 'visible' }}>
         <button
           type="button"
           aria-label={`${label} — ${STATE_LABEL[state]}`}
@@ -167,8 +181,8 @@ function Node({ x, y, width, height, state, label, selected, onSelect }) {
           onPointerDown={() => setPressed(true)}
           onPointerUp={release}
           style={{
-            width: 44,
-            height: 44,
+            width: '100%',
+            height: '100%',
             background: 'transparent',
             border: 'none',
             cursor: 'pointer',
@@ -179,6 +193,9 @@ function Node({ x, y, width, height, state, label, selected, onSelect }) {
     </g>
   )
 }
+
+const DOMAIN_RADIUS = 24
+const CHILD_RADIUS = 17
 
 export default function RootMap({ model, selection, onSelectTile, onSelectNode, onClearSelection }) {
   const width = 1240
@@ -235,31 +252,9 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
       <div style={styles.canvasWrap}>
         <img src={rootMapArt} alt="" style={styles.art} />
         <svg viewBox={`0 0 ${width} ${height}`} style={styles.svg} role="img" aria-label="The root system — what Shoresh took in.">
-          {model.domains.map((domain) => (
-            <g key={domain.key}>
-              {domain.children.map((child) => {
-                const isAbsent = child.state === 'absent'
-                return (
-                  <g
-                    key={child.key}
-                    opacity={dimmed(domain.key, child.key) ? 0.35 : 1}
-                    style={{ transition: 'opacity var(--motion-base) var(--ease-out)' }}
-                  >
-                    <line
-                      x1={domain.x * width}
-                      y1={domain.y * height}
-                      x2={child.x * width}
-                      y2={child.y * height}
-                      stroke="var(--anchor)"
-                      strokeWidth={1}
-                      strokeDasharray={isAbsent ? '2 3' : undefined}
-                      opacity={isAbsent ? 0.15 : 0.35}
-                    />
-                  </g>
-                )
-              })}
-            </g>
-          ))}
+          {/* No straight connector lines: the drawn roots of the 3D backdrop
+              already carry each child down from its domain, so an overlaid line
+              would read as a competing (and geometrically wrong) extra root. */}
           {model.domains.map((domain) => (
             <g key={domain.key}>
               <g opacity={dimmed(domain.key, null) ? 0.35 : 1} style={{ transition: 'opacity var(--motion-base) var(--ease-out)' }}>
@@ -268,6 +263,7 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
                   y={domain.y}
                   width={width}
                   height={height}
+                  radius={DOMAIN_RADIUS}
                   state={domain.state}
                   label={DOMAIN_LABELS[domain.key] ?? domain.label}
                   selected={selectionMatchesNode(selection, domain.key, null)}
@@ -281,6 +277,7 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
                     y={child.y}
                     width={width}
                     height={height}
+                    radius={CHILD_RADIUS}
                     state={child.state}
                     label={child.count ? `${child.name} — ${child.count}` : child.name}
                     selected={selectionMatchesNode(selection, domain.key, child.key)}
