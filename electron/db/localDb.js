@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 33
+export const CURRENT_SCHEMA_VERSION = 34
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1493,6 +1493,24 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v34 — special days (T40 slice 1, data shape only,
+  // docs/work/specs/2026-08-20-special-days-data-shape-design.md). Three new
+  // tables, no backfill: every camp starts with zero special days, and rows
+  // are minted uuids created interactively (author UI is a separate,
+  // non-goal follow-on for this slice) — no DDL-time side effect, so this
+  // block emits no op, same posture as v33's camp_maps.
+  if (getSchemaVersion(db) >= 33 && getSchemaVersion(db) < 34) {
+    db.transaction(() => {
+      db.exec(SPECIAL_DAYS_DDL)
+      db.exec(SPECIAL_DAY_TIME_BLOCKS_DDL)
+      db.exec(SPECIAL_DAY_SLOTS_DDL)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (34, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct
@@ -1651,6 +1669,37 @@ export const CAMP_MAPS_DDL = `CREATE TABLE IF NOT EXISTS camp_maps (
   image_mime TEXT,
   image_width INTEGER,
   image_height INTEGER
+)`
+
+// Byte-identical duplicates of the special_days / special_day_time_blocks /
+// special_day_slots blocks in schema.sql (schema v34, T40 slice 1,
+// docs/work/specs/2026-08-20-special-days-data-shape-design.md). Kept as
+// constants so the v34 migration cannot drift from schema.sql by a stray
+// space — same discipline as LOCATIONS_DDL/CAMP_MAPS_DDL above.
+export const SPECIAL_DAYS_DDL = `CREATE TABLE IF NOT EXISTS special_days (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  name TEXT NOT NULL,
+  sort_order INTEGER,
+  UNIQUE(camp_id, name)
+)`
+
+export const SPECIAL_DAY_TIME_BLOCKS_DDL = `CREATE TABLE IF NOT EXISTS special_day_time_blocks (
+  id TEXT PRIMARY KEY,
+  special_day_id TEXT NOT NULL REFERENCES special_days(id),
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL,
+  start_time TEXT,
+  end_time TEXT
+)`
+
+export const SPECIAL_DAY_SLOTS_DDL = `CREATE TABLE IF NOT EXISTS special_day_slots (
+  id TEXT PRIMARY KEY,
+  special_day_id TEXT NOT NULL REFERENCES special_days(id),
+  group_id TEXT NOT NULL,
+  time_block_id TEXT NOT NULL,
+  activity_id TEXT,
+  location_id TEXT
 )`
 
 // Director-facing, and it appears in Versions beside weeks they saved

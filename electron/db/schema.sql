@@ -635,3 +635,64 @@ CREATE TABLE IF NOT EXISTS camp_maps (
 CREATE INDEX IF NOT EXISTS idx_template_slots_template_id ON template_slots(template_id);
 CREATE INDEX IF NOT EXISTS idx_template_overlays_template_id ON template_overlays(template_id);
 CREATE INDEX IF NOT EXISTS idx_schedule_snapshots_template_id ON schedule_snapshots(template_id);
+
+-- Special days (schema v34, T40 slice 1,
+-- docs/work/specs/2026-08-20-special-days-data-shape-design.md): a standalone,
+-- undated, throwaway single-day schedule (Maccabiah / colour war / trip day) —
+-- NOT a week, not tied to a calendar date. Ordinary op-log-synced, camp-scoped
+-- entity family (same trust model as groups/activities/day_override_templates),
+-- not host-local. Closest pattern copied verbatim: day_override_templates +
+-- day_override_template_slots (camp-scoped parent + parent-scoped children, no
+-- camp_id on children). The DDL text below is duplicated verbatim in
+-- localDb.js's v34 block (SPECIAL_DAYS_DDL / SPECIAL_DAY_TIME_BLOCKS_DDL /
+-- SPECIAL_DAY_SLOTS_DDL); the three copies are asserted byte-identical by
+-- specialDays.migration.test.js.
+--
+-- special_days: the camp-scoped parent. UNIQUE(camp_id, name) — a camp's
+-- special days are distinguished by name, matching locations/groups. No date
+-- column: the object is not calendar-dated (named/throwaway, not a dated
+-- entry). id is a minted uuid (interactive create — no deriveLocationId-style
+-- determinism, per T81/T101).
+CREATE TABLE IF NOT EXISTS special_days (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  name TEXT NOT NULL,
+  sort_order INTEGER,
+  UNIQUE(camp_id, name)
+);
+
+-- special_day_time_blocks: parent-scoped by special_day_id, no camp_id column
+-- (same shape as day_override_template_slots). Every special day OWNS its time
+-- blocks — no polymorphic "reuse camp time_blocks vs own" flag; the "same grid
+-- as the normal week" case is served by the author UI seeding a special day's
+-- time blocks from the camp's time_blocks at creation, a UI convenience, not a
+-- storage branch (design doc's explicit rejection of a uses_camp_time_blocks
+-- flag).
+CREATE TABLE IF NOT EXISTS special_day_time_blocks (
+  id TEXT PRIMARY KEY,
+  special_day_id TEXT NOT NULL REFERENCES special_days(id),
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL,
+  start_time TEXT,
+  end_time TEXT
+);
+
+-- special_day_slots: parent-scoped by special_day_id (no camp_id column) — the
+-- grid cells, identified by (special_day_id, group_id, time_block_id).
+-- group_id reuses an existing camp `groups` row as the COLUMN (not a
+-- throwaway team); time_block_id is this day's OWN row (special_day_time_blocks,
+-- not the camp's time_blocks). activity_id/location_id are nullable (empty
+-- cell / no location). group_id/activity_id/location_id are deliberately NOT
+-- given a SQL REFERENCES clause — they point at live camp entities the same
+-- soft way the weekly grid does (render resolves by id; a missing id renders
+-- empty), not a hard FK constraint, consistent with the app's op-log model
+-- where FK enforcement is by projection, not SQL FKs. No is_span_head/spanning
+-- and no person/staff column in this slice (owner-deferred).
+CREATE TABLE IF NOT EXISTS special_day_slots (
+  id TEXT PRIMARY KEY,
+  special_day_id TEXT NOT NULL REFERENCES special_days(id),
+  group_id TEXT NOT NULL,
+  time_block_id TEXT NOT NULL,
+  activity_id TEXT,
+  location_id TEXT
+);

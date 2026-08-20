@@ -89,6 +89,7 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'audit_events', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
   { table: 'migration_v26_retired_orphan_log', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
   { table: 'location_migration_reviews', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
+  { table: 'special_days', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
 
   // -- pointers at non-U2-deletable entities (users, devices, templates, etc.) --
   { table: 'devices', column: 'authorized_by_user_id', reason: 'points at users, not a U2-deletable entity' },
@@ -108,6 +109,9 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'pending_writes', column: 'parent_op_id', reason: 'points at operations, not a U2-deletable entity' },
   { table: 'pending_restores', column: 'pending_id', reason: 'internal queue key, not an entity pointer' },
   { table: 'day_override_template_slots', column: 'day_override_template_id', reason: 'points at day_override_templates, not a U2-deletable entity' },
+  { table: 'special_day_time_blocks', column: 'special_day_id', reason: 'points at special_days, not a U2-deletable entity' },
+  { table: 'special_day_slots', column: 'special_day_id', reason: 'points at special_days, not a U2-deletable entity' },
+  { table: 'special_day_slots', column: 'time_block_id', reason: 'points at special_day_time_blocks, not a U2-deletable entity' },
   { table: 'week_activity_exclusions', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
   { table: 'week_group_exclusions', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
   { table: 'week_location_exclusions', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },

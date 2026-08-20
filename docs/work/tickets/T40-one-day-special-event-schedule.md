@@ -1,7 +1,7 @@
 ---
 title: T40-one-day-special-event-schedule
 document_type: ticket
-status: parked
+status: in-progress
 created: 2026-08-01
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 related_adrs: [docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md]
@@ -65,3 +65,23 @@ Four things about it that the weekly model does not currently express:
 Brainstorm, then a specification. Likely an ADR: on the evidence above it introduces either a
 new entity or a new route, both of which are architecturally significant. Sequenced explicitly
 after the normal-schedule work.
+
+## Progress (2026-08-20) — slice 1 (data shape) SHIPPED; initiative now in-progress
+
+Owner brainstorm (2026-08-20) reframed the requirements: **theme/name + run-at-a-location are
+essential; throwaway TEAMS and person-per-cell are NOT required** (reuse the camp's groups as columns;
+cells hold an activity + optional location). Structurally it is a **standalone single-day schedule**
+(like a day-override but its own full thing), **not date-tied**, and it **owns its time blocks**.
+Approach ① chosen: a new `special_days` entity family (over extending day-overrides / a third
+`schedule_templates.kind`). Design doc: `docs/work/specs/2026-08-20-special-days-data-shape-design.md`.
+
+**Slice 1 (data shape) is implemented** (schema v34: `special_days` + `special_day_time_blocks` +
+`special_day_slots`, op-log-synced/camp-scoped; full sync/permissions/migration/rollback/mock
+registration; a `deleteSpecialDay` cascade primitive; integration scenario 26). Reviews: Red Hat 5/5
+(T88-class registration closed by mechanical load-bearing guards), Security 5/5, Code Reviewer
+merge-ready. Full gate green (3383 tests, 26/26 integration).
+
+**Remaining slices (this ticket stays in-progress):** (2) author UI — the screen a director builds a
+special day on (creates it, seeds/edits its time blocks, fills the groups×time grid, assigns
+locations; wires `deleteSpecialDay`); (3) ingest a special-day file; (4) Context/Roots census wiring.
+Deferred/not-required per owner: teams, person-per-cell, calendar dates, multi-block spanning.

@@ -2009,6 +2009,14 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
       // non-ensureExists field UPDATEs zero rows and still logs the op — same
       // trick template_slots uses with activity_id.
       week_location_exclusions: 'location_id',
+      // T40 slice 1: same tricks as day_override_template_slots/template_slots
+      // above — 'name' isn't special_day_time_blocks' parent-key field
+      // (special_day_id), so ensureExists no-ops instead of FK-linking to a
+      // nonexistent parent; special_day_slots' ensureExists needs all three of
+      // special_day_id/group_id/time_block_id, so 'activity_id' alone no-ops.
+      special_days: 'name',
+      special_day_time_blocks: 'name',
+      special_day_slots: 'activity_id',
     }
     const ws = connect()
     await onceOpen(ws)

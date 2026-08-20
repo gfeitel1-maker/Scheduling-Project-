@@ -56,6 +56,14 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   { fromTable: 'week_location_exclusions', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
   // -- into anchor_activities --
   { fromTable: 'template_slots', fromColumn: 'anchor_id', toEntity: 'anchor_activities', kind: 'scalar', enforced: false }, // 3rd Red Hat pass finding: v17 ALTER-added column, missed by the original hand-search
+  // T40 slice 1 (docs/work/specs/2026-08-20-special-days-data-shape-design.md):
+  // special_day_slots.group_id/activity_id/location_id point at U2-deletable
+  // entities (groups/activities/locations) the same soft way template_slots
+  // does — no DB-level FK (schema.sql), so enforced:false, mirroring
+  // template_slots.time_block_id / week_location_exclusions.location_id above.
+  { fromTable: 'special_day_slots', fromColumn: 'group_id', toEntity: 'groups', kind: 'scalar', enforced: false },
+  { fromTable: 'special_day_slots', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
+  { fromTable: 'special_day_slots', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
 ])
 
 // entities U2's deletion slice is allowed to act on — deliberately mirrors

@@ -215,6 +215,7 @@ const UNIQUE_KEYS = {
   tiers:       ['camp_id', 'cohort_id', 'name'],
   time_blocks: ['camp_id', 'cohort_id', 'name'],
   locations:   ['camp_id', 'name'],
+  special_days: ['camp_id', 'name'],
 }
 
 // Mirrors electron/ops/operations.js's UNIQUE_FIELD_ENTITIES exactly (D2,
@@ -317,6 +318,14 @@ export const MOCK_WRITE_ALLOWLIST = {
   week_activity_exclusions: ['week_id', 'activity_id'],
   week_group_exclusions: ['week_id', 'group_id'],
   week_location_exclusions: ['week_id', 'location_id'],
+  // T40 slice 1 (docs/work/specs/2026-08-20-special-days-data-shape-design.md)
+  // — hand-transcribed mirror of PROJECTIONS.special_days/
+  // special_day_time_blocks/special_day_slots.fields, per this file's
+  // "do not import from electron/" rule (kept honest by
+  // electron/ipcSurfaceParity.test.js's drift check).
+  special_days: ['camp_id', 'name', 'sort_order'],
+  special_day_time_blocks: ['special_day_id', 'name', 'sort_order', 'start_time', 'end_time'],
+  special_day_slots: ['special_day_id', 'group_id', 'time_block_id', 'activity_id', 'location_id'],
   schedule_weeks: ['camp_id', 'name', 'sort_order', 'is_archived'],
   schedule_templates: ['kind', 'camp_id', 'week_id', 'name'],
   schedule_snapshots: ['template_id', 'name', 'is_auto', 'created_at', 'slots', 'overlays'],
