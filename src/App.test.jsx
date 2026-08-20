@@ -37,11 +37,15 @@ vi.mock('./components/layout/Shell', () => ({
   default: ({ children }) => <div data-testid="shell">{children}</div>,
 }))
 
-// AppShell's default screen ('readiness') renders ReadinessHub, which pulls
-// in its own heavy setup-counts data layer — irrelevant to this notice-only
+// AppShell's default screen is now 'roots', which renders ReconciliationScreen —
+// a heavy screen with its own data layer, irrelevant to this notice-only
 // test, so it's stubbed out the same way Shell is above.
-vi.mock('./screens/ReadinessHub', () => ({
-  default: () => <div data-testid="readiness-hub" />,
+vi.mock('./screens/ReconciliationScreen', () => ({
+  default: (props) => (
+    <div data-testid="roots-screen" data-mode={props.mode}>
+      <button onClick={() => props.onNavigate('readiness')}>go-to-readiness</button>
+    </div>
+  ),
 }))
 
 import { AppShell } from './App'
@@ -97,5 +101,24 @@ describe('AppShell: offline op-rejected notice (item 7, owner decision)', () => 
     fireEvent.click(screen.getByLabelText('Dismiss'))
 
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+})
+
+// Roots-as-dashboard plan, Task 3: Roots (not the retired Setup Readiness
+// hub) is the in-session landing screen, and any stale 'readiness' deep-link
+// or nav target redirects to it rather than rendering nothing.
+describe('AppShell: Roots as landing screen (plan T3)', () => {
+  it('default-renders the roots screen in inspect mode', () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    const roots = screen.getByTestId('roots-screen')
+    expect(roots.dataset.mode).toBe('inspect')
+  })
+
+  it('redirects a stale readiness nav target to the roots screen, still in inspect mode', () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    fireEvent.click(screen.getByText('go-to-readiness'))
+
+    const roots = screen.getByTestId('roots-screen')
+    expect(roots.dataset.mode).toBe('inspect')
   })
 })
