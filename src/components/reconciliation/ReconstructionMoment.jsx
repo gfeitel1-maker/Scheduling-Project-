@@ -42,12 +42,17 @@ function DomainRow({ row, index }) {
       <span
         style={{
           ...styles.marker,
-          background: isAttention ? 'var(--danger)' : 'var(--secondary)',
+          // Attention is --accent (bronze) per DESIGN_STANDARD §4 — --danger is
+          // reserved for destructive/fatal only. Matches the rest of the Roots
+          // surface (RootMap STATE_TOKEN.attention). Painting a first-run
+          // onboarding "needs a look" in alarm-red both violated the standard
+          // and spiked anxiety at the worst moment.
+          background: isAttention ? 'var(--accent)' : 'var(--secondary)',
         }}
         aria-hidden="true"
       />
       <span style={styles.rowLabel}>{row.label}</span>
-      <span style={{ ...styles.rowState, color: isAttention ? 'var(--danger)' : 'var(--text-secondary)' }}>
+      <span style={{ ...styles.rowState, color: isAttention ? 'var(--accent)' : 'var(--text-secondary)' }}>
         {isAttention ? 'Needs a look' : 'Understood'}
       </span>
     </div>
