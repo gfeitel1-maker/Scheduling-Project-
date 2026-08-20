@@ -7,7 +7,7 @@
 // guard protects the debounced dry-run re-issue (ADR Risk #3).
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../localClient', () => ({
@@ -16,11 +16,17 @@ vi.mock('../localClient', () => ({
     ingestReconcile: vi.fn(),
     ingestCommit: vi.fn(),
     confirmAlias: vi.fn().mockResolvedValue({ id: 'alias-1', superseded: null }),
+    getCamp: vi.fn().mockResolvedValue({ id: 'camp-1' }),
+    latestOpSeq: vi.fn().mockResolvedValue(0),
   },
 }))
 
+const downloadWorkbook = vi.fn()
+vi.mock('../utils/exportWorkbook.js', () => ({ downloadWorkbook: (...a) => downloadWorkbook(...a) }))
+
 import ReconciliationScreen from './ReconciliationScreen.jsx'
 import { localClient } from '../localClient'
+import { getReadiness, describeReadiness } from '../engine/readiness.js'
 
 const baseInputs = { approved: { activities: ['Art'] }, cohort_id: null, mode: 'add' }
 
@@ -562,6 +568,94 @@ describe('inspect mode (persistent inspector, mode="inspect")', () => {
     render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
 
     await screen.findByText(/Couldn.t read part of your setup/)
+  })
+
+  it('renders the dashboard banner with the SAME verdict describeReadiness(getReadiness(...)) would produce', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'groups') return Promise.resolve([])
+      return Promise.resolve([{ id: 'x' }])
+    })
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+
+    const expectedReadiness = getReadiness({
+      cohorts: [{ id: 'x' }],
+      tiers: [{ id: 'x' }],
+      groups: [],
+      days: [{ id: 'x' }],
+      timeBlocks: [{ id: 'x' }],
+      activities: [{ id: 'x' }],
+      anchors: [{ id: 'x' }],
+      dayOverrides: [{ id: 'x' }],
+      locations: [{ id: 'x' }],
+    })
+    const { blocking } = describeReadiness(expectedReadiness)
+
+    await screen.findByText(blocking)
+    expect(screen.getByText('Import last year')).toBeTruthy()
+    expect(screen.getByText('Download worksheet')).toBeTruthy()
+    expect(screen.getByText('Facility map')).toBeTruthy()
+  })
+
+  it('the banner does not render when a census read fails (never a false "ready" verdict)', async () => {
+    localClient.list.mockRejectedValue(new Error('disk full'))
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+
+    await screen.findByText(/Couldn.t read part of your setup/)
+    expect(screen.queryByText('Import last year')).toBeNull()
+  })
+
+  it('the Download worksheet control calls the shared downloadWorkbook builder', async () => {
+    localClient.list.mockResolvedValue([{ id: 'x' }])
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+
+    await screen.findByText('Download worksheet')
+    await userEvent.click(screen.getByText('Download worksheet'))
+    await waitFor(() => expect(downloadWorkbook).toHaveBeenCalled())
+  })
+
+  // Governor review, round 2: the worksheet's cohort_id must come from the
+  // canonical useCohorts(campId) source (the same one ReadinessHub/
+  // AnchorsScreen/TiersScreen use), not an ad-hoc read off the census
+  // snapshot — that would be a second, divergent source of cohort truth.
+  it('the worksheet uses the useCohorts(campId)-derived cohort_id, not a census-snapshot guess', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'cohorts') {
+        return Promise.resolve([
+          { id: 'cohort-b', camp_id: 'camp-1', sort_order: 1, name: 'B' },
+          { id: 'cohort-a', camp_id: 'camp-1', sort_order: 0, name: 'A' },
+        ])
+      }
+      return Promise.resolve([{ id: 'x' }])
+    })
+    render(<ReconciliationScreen mode="inspect" campId="camp-1" onNavigate={vi.fn()} />)
+
+    await screen.findByText('Download worksheet')
+    await userEvent.click(screen.getByText('Download worksheet'))
+    await waitFor(() => expect(downloadWorkbook).toHaveBeenCalled())
+
+    const call = downloadWorkbook.mock.calls[0][0]
+    // useCohorts picks the lowest sort_order first — cohort-a (sort_order 0)
+    // — not the census snapshot's array order, which would have picked
+    // cohort-b (the first row returned by the mock above).
+    expect(call.cohort_id).toBe('cohort-a')
+  })
+
+  it('a rapid double-click on Download worksheet only calls downloadWorkbook once', async () => {
+    // A deferred getCamp lets both clicks land while the first call is still
+    // in flight — the real race the `preparingWorksheet` guard exists for.
+    let resolveGetCamp
+    localClient.getCamp.mockImplementation(() => new Promise((resolve) => { resolveGetCamp = resolve }))
+    localClient.list.mockResolvedValue([{ id: 'x' }])
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+
+    await screen.findByText('Download worksheet')
+    const btn = screen.getByText('Download worksheet')
+    fireEvent.click(btn)
+    fireEvent.click(btn)
+    resolveGetCamp({ id: 'camp-1' })
+
+    await waitFor(() => expect(downloadWorkbook).toHaveBeenCalled())
+    expect(downloadWorkbook).toHaveBeenCalledTimes(1)
   })
 
   it('defaults to import mode when no mode prop is given (ImportScreen call site unchanged)', async () => {

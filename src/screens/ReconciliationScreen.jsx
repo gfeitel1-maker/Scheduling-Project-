@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { localClient } from '../localClient'
+import { useCohorts } from '../hooks/useCohorts'
 import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
 import { buildReconciliationReport } from '../ingest/reconciliationReport.js'
 import { buildBlastRadiusIndex } from '../ingest/blastRadius.js'
@@ -7,6 +8,8 @@ import { reportToLanes } from '../ingest/reportToLanes.js'
 import { getReadiness } from '../engine/readiness.js'
 import { fetchCensusSnapshot } from '../ingest/existingSnapshot.js'
 import { describeWriteFailure } from '../utils/writeErrorMessage.js'
+import { downloadWorkbook } from '../utils/exportWorkbook.js'
+import { INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import ScreenIntro from '../components/ScreenIntro.jsx'
 import { heldConflictsToDecisions, foldTriageInputs, isDecisionResolvedFor, mapCommitError, identityRememberCalls } from './reconciliationTriage.js'
 import { computeDomainCounts } from '../components/reconciliation/domainRollup.js'
@@ -15,6 +18,26 @@ import { shouldShowReconstructionMoment } from '../components/reconciliation/rec
 import { buildRootMapModel } from '../ingest/rootMapModel.js'
 import RootMap from '../components/reconciliation/RootMap.jsx'
 import RootMapPanel from '../components/reconciliation/RootMapPanel.jsx'
+import RootsBanner from '../components/reconciliation/rootsBanner.jsx'
+
+// Maps censusSnapshot's CHILD_OF-keyed rows (Slice 2's roster shape) onto
+// getReadiness's own collection keys (COLLECTION_FOR in engine/readiness.js)
+// — the two intentionally use different key names (existingSnapshot.js's own
+// comment). Reused here rather than a second fetchReadiness()-style round of
+// localClient.list calls: inspect mode already holds the census snapshot.
+function readinessCollectionsFromCensus(snapshot) {
+  return {
+    cohorts: snapshot.cohorts,
+    tiers: snapshot.tiers,
+    groups: snapshot.groups,
+    days: snapshot.days_of_operation,
+    timeBlocks: snapshot.time_blocks,
+    activities: snapshot.activities,
+    anchors: snapshot.anchor_activities,
+    dayOverrides: snapshot.day_overrides,
+    locations: snapshot.locations,
+  }
+}
 
 // docs/work/specs/2026-08-17-reconciliation-onescreen-design.md — the one
 // continuous surface that replaces ImportScreen's six-gate reconciliation
@@ -42,7 +65,8 @@ async function fetchReadiness() {
   return getReadiness(collections, null)
 }
 
-export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false, mode = 'import' }) {
+export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, onCommitted, onDiscard, onNavigate, factCount = 0, isFirstImport = false, mode = 'import' }) {
+  const { activeCohort } = useCohorts(campId)
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -64,6 +88,10 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
   const [showNotInSource, setShowNotInSource] = useState(false)
   const [applying, setApplying] = useState(false)
   const [rememberNotes, setRememberNotes] = useState([])
+  // Roots dashboard banner (plan T2) — mirrors ReadinessHub's `preparing`:
+  // guards downloadWorksheet against a rapid double-click firing the export
+  // twice while the first call is still in flight.
+  const [preparingWorksheet, setPreparingWorksheet] = useState(false)
   // F3 — session-local only. Never written to `answers`, never folded into
   // foldTriageInputs, never sent to commitIngest (docs/adr/2026-08-17-
   // onescreen-reconciliation-merge.md §5).
@@ -241,6 +269,33 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
     if (notes.length > 0) setRememberNotes(notes)
   }
 
+  // Roots dashboard banner (plan T2) — reuses ReadinessHub's exact
+  // downloadWorksheet logic (camp id + every ingestible entity + the current
+  // op-log watermark, handed to the shared downloadWorkbook builder), and the
+  // same cohort id source: useCohorts(campId)'s activeCohort. Not extracted
+  // into a shared helper — reviewer + Governor agreed three lines of real
+  // difference doesn't earn an abstraction yet.
+  async function downloadWorksheet() {
+    if (preparingWorksheet) return
+    setPreparingWorksheet(true)
+    try {
+      const camp = await localClient.getCamp().catch(() => null)
+      const entities = {}
+      for (const entity of INGESTIBLE_ENTITIES) {
+        entities[entity] = await localClient.list(entity).catch(() => [])
+      }
+      const base_generation = await localClient.latestOpSeq().catch(() => 0)
+      downloadWorkbook({
+        ...entities,
+        camp_id: camp?.id ?? null,
+        cohort_id: activeCohort?.id ?? null,
+        base_generation,
+      })
+    } finally {
+      setPreparingWorksheet(false)
+    }
+  }
+
   if (showMoment && !momentSettled && !error) {
     // Phase 1 (growing) while report is null, Phase 2 (settling) the instant
     // it lands — driven by promise resolution, not a timer (Gate 1). The
@@ -324,6 +379,14 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
   // actually see it, subtle rather than blocking (Red Hat LOW).
   const censusReadFailed = mode === 'inspect' && Object.values(censusSnapshot).some((v) => v === null)
 
+  // Roots dashboard banner (plan T2) — computed only in inspect mode, from
+  // the SAME census snapshot the roster already reads, never a second
+  // localClient.list round. Skipped entirely when censusReadFailed (never a
+  // false "ready" verdict on a failed read — the banner just doesn't render).
+  const inspectReadiness = mode === 'inspect' && !censusReadFailed
+    ? getReadiness(readinessCollectionsFromCensus(censusSnapshot))
+    : []
+
   // Interaction spec §1 — tile click toggles (re-clicking the active tile
   // clears the filter); node click always replaces the selection, never
   // appends.
@@ -359,6 +422,15 @@ export default function ReconciliationScreen({ baseInputs, sourceLabel, onCommit
       )}
       {rememberNotes.length > 0 && (
         <div style={styles.rememberNotesBanner}>{rememberNotes.join(' · ')}</div>
+      )}
+
+      {mode === 'inspect' && !censusReadFailed && (
+        <RootsBanner
+          readiness={inspectReadiness}
+          brandNew={inspectReadiness.filter((r) => r.kind === 'required').every((r) => r.state === 'missing')}
+          onNavigate={onNavigate}
+          onDownloadWorksheet={downloadWorksheet}
+        />
       )}
 
       <div style={styles.headerStrip}>
