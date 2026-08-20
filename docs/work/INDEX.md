@@ -27,7 +27,6 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [T100-manualbuildview-converge-on-decidecell](../../docs/work/tickets/T100-manualbuildview-converge-on-decidecell.md) | open | — |
 | [T102-devmock-is-span-head-default-fidelity](../../docs/work/tickets/T102-devmock-is-span-head-default-fidelity.md) | open | — |
-| [T93-no-early-host-gate-on-import-ui](../../docs/work/tickets/T93-no-early-host-gate-on-import-ui.md) | open | — |
 | [T94-roots-first-timer-orientation-caption](../../docs/work/tickets/T94-roots-first-timer-orientation-caption.md) | open | — |
 | [T95-reconciliation-multi-select-domain-filter](../../docs/work/tickets/T95-reconciliation-multi-select-domain-filter.md) | open | — |
 | [T96-reconciliation-field-level-diff-ledger](../../docs/work/tickets/T96-reconciliation-field-level-diff-ledger.md) | open | — |
@@ -42,7 +41,6 @@ Regenerate with `npm run index:work`.
 | [T51-mcp-cli-ingestion](../../docs/work/tickets/T51-mcp-cli-ingestion.md) | open | — |
 | [T52-activity-colors-tokenization](../../docs/work/tickets/T52-activity-colors-tokenization.md) | open | [T50-schedule-canvas-rebuild](../../docs/work/tickets/T50-schedule-canvas-rebuild.md) |
 | [T81-activities-template-importer-deterministic-location-ids](../../docs/work/tickets/T81-activities-template-importer-deterministic-location-ids.md) | open | — |
-| [T86-device-management-handlers-not-host-gated-on-client](../../docs/work/tickets/T86-device-management-handlers-not-host-gated-on-client.md) | open | [2026-08-16-device-fk-seeding-and-delivery-watermark](../../docs/adr/2026-08-16-device-fk-seeding-and-delivery-watermark.md) · [T85-devices-table-never-synced-cross-device-op-drop](../../docs/work/tickets/T85-devices-table-never-synced-cross-device-op-drop.md) |
 
 ## Decisions
 

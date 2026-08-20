@@ -1,7 +1,7 @@
 ---
 title: T86-device-management-handlers-not-host-gated-on-client
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-16
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/GOVERNANCE_INDEX.md, SECURITY.md]
 related_tickets: [docs/work/tickets/T85-devices-table-never-synced-cross-device-op-drop.md, docs/work/tickets/T87-returning-client-never-reauthenticates-after-restart.md]
@@ -155,3 +155,13 @@ Full reachability walk and behavior table established by static trace on 2026-08
 `src/App.jsx`, `src/components/layout/{Sidebar.jsx,navSections.js}`, `src/localClient.js`,
 `src/screens/DeviceManagerScreen.jsx`, and `electron/preload.js`. No existing ticket covered this
 (grep of `docs/work/tickets/`).
+
+## Resolution (2026-08-20, SHIPPED — Security 5/5, Code Reviewer merge-ready, full gate green)
+
+`approveDevice`/`denyDevice`/`revokeDevice` (`electron/main.js`) now run `requireAuthorized` then
+throw in client mode (matching the `ingestCommit`/`confirmAlias` precedent ordering) — direct writes
+to the never-synced local `devices` table can no longer run on a Client. `listDevices` stays readable.
+`DeviceManagerScreen` hides Approve/Deny/Revoke on a Client (via a threaded `deviceMode` prop, renamed
+to avoid Roots' `mode="inspect"`) and shows a "View only from this device" note. Handler-layer tests
+pin the client-mode refusal (rows unmutated) plus a screen render test. Commits bb59347 + review-fix.
+Full `npm run verify` green (214 files, 25/25 integration). Pending owner sign-off per archive_when.
