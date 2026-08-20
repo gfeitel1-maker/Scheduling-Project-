@@ -1,7 +1,7 @@
 ---
 title: T94-roots-first-timer-orientation-caption
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-19
 task_class: ui-ux-design
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/DESIGN_STANDARD.md]
@@ -47,3 +47,20 @@ a root — click one to see what Shoresh found" — styled like the existing `un
   header copy).
 - `docs/work/specs/2026-08-19-roots-dashboard-spine-design.md` (the rework this should be revisited
   against).
+
+## Resolution (2026-08-20, SHIPPED — Code Reviewer merge-ready, gate green)
+
+Designer assessment: still needed after the dashboard rework — the rework raised the payoff of a node
+click but not the node's own discoverability (roots render as plain unlabeled circles at rest; the
+label/ring appear only on hover). Design spec `docs/work/specs/2026-08-20-t94-roots-firsttimer-caption.md`.
+Shipped: a quiet under-canvas caption in inspect mode (ReconciliationScreen), existing tokens
+(13px/--text-secondary), once/dismissible via a device-local localStorage flag
+(`shoresh:rootsFirstTimerCaptionSeen`, T92 pattern), entrance-only fade with reduced-motion suppression,
+dismiss button `aria-label`. Existing canvas aria-label untouched. Test-first (renders when flag absent,
+gone when set, dismiss sets flag, never in import mode); full `npm run verify` green (214 files, 25/25).
+
+**Copy is a PLACEHOLDER** pending the owner's `/didwemenshion` language pass — a one-line swap; the
+structure/affordance ships now. Accepted cosmetic residual (Code Reviewer LOW): the caption's `transition:
+opacity` property is present but inert under reduced motion (never triggers — entered starts true); left
+as-is rather than a no-op round. Under-canvas placement can be eyeballed / screenshot on request. Pending
+owner sign-off.

@@ -28,7 +28,6 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [T100-manualbuildview-converge-on-decidecell](../../docs/work/tickets/T100-manualbuildview-converge-on-decidecell.md) | open | — |
 | [T102-devmock-is-span-head-default-fidelity](../../docs/work/tickets/T102-devmock-is-span-head-default-fidelity.md) | open | — |
-| [T94-roots-first-timer-orientation-caption](../../docs/work/tickets/T94-roots-first-timer-orientation-caption.md) | open | — |
 | [T95-reconciliation-multi-select-domain-filter](../../docs/work/tickets/T95-reconciliation-multi-select-domain-filter.md) | open | — |
 | [T96-reconciliation-field-level-diff-ledger](../../docs/work/tickets/T96-reconciliation-field-level-diff-ledger.md) | open | — |
 | [T97-per-field-unknown-detection](../../docs/work/tickets/T97-per-field-unknown-detection.md) | open | — |

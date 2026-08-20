@@ -827,3 +827,52 @@ describe('inspect mode (persistent inspector, mode="inspect")', () => {
     await waitFor(() => expect(localClient.ingestReconcile).toHaveBeenCalled())
   })
 })
+
+// T94 — first-timer orientation caption under the Roots canvas.
+// docs/work/specs/2026-08-20-t94-roots-firsttimer-caption.md
+describe('T94 — first-timer orientation caption', () => {
+  const CAPTION_KEY = 'shoresh:rootsFirstTimerCaptionSeen'
+
+  beforeEach(() => {
+    const store = new Map()
+    vi.stubGlobal('localStorage', {
+      getItem: (key) => (store.has(key) ? store.get(key) : null),
+      setItem: (key, value) => store.set(key, String(value)),
+      removeItem: (key) => store.delete(key),
+    })
+  })
+
+  it('renders in inspect mode when the localStorage flag is absent', async () => {
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+    await waitFor(() => expect(localClient.list).toHaveBeenCalled())
+
+    expect(screen.getByTestId('roots-firsttimer-caption')).toBeTruthy()
+  })
+
+  it('does not render once the localStorage flag is set', async () => {
+    localStorage.setItem(CAPTION_KEY, '1')
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+    await waitFor(() => expect(localClient.list).toHaveBeenCalled())
+
+    expect(screen.queryByTestId('roots-firsttimer-caption')).toBeNull()
+  })
+
+  it('dismissing the caption sets the flag and removes the row', async () => {
+    render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+    await waitFor(() => expect(localClient.list).toHaveBeenCalled())
+    expect(screen.getByTestId('roots-firsttimer-caption')).toBeTruthy()
+
+    await userEvent.click(screen.getByLabelText('Dismiss hint'))
+
+    expect(screen.queryByTestId('roots-firsttimer-caption')).toBeNull()
+    expect(localStorage.getItem(CAPTION_KEY)).toBe('1')
+  })
+
+  it('never renders in import mode, regardless of the localStorage flag', async () => {
+    localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await waitFor(() => expect(localClient.ingestReconcile).toHaveBeenCalled())
+
+    expect(screen.queryByTestId('roots-firsttimer-caption')).toBeNull()
+  })
+})
