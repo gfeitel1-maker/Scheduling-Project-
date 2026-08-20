@@ -168,4 +168,17 @@ describe('AppShell: finished import carries to Roots (plan T4)', () => {
     fireEvent.click(screen.getByText('cancel-to-roots'))
     expect(screen.getByTestId('roots-screen').dataset.justImported).toBe('')
   })
+
+  // Whole-branch review fix: 'readiness' redirects to 'roots' at render, so a
+  // nav to 'readiness' must not clear justImported — that would silently drop
+  // the post-import banner while the director visually stays on Roots.
+  it('does not clear the carried outcome when navigating to the stale readiness target', () => {
+    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
+    fireEvent.click(screen.getByText('go-to-import'))
+    fireEvent.click(screen.getByText('finish-import'))
+    expect(screen.getByTestId('roots-screen').dataset.justImported).toBe('7')
+
+    fireEvent.click(screen.getByText('go-to-readiness'))
+    expect(screen.getByTestId('roots-screen').dataset.justImported).toBe('7')
+  })
 })

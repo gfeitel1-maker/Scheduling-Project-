@@ -94,7 +94,11 @@ export function AppShell({ campId, role, onLogout }) {
   // navigation edge (rather than in an effect keyed on `screen`) keeps the
   // transition in one synchronous update, no cascading re-render.
   const navigate = (next) => {
-    if (next !== 'roots') setJustImported(null)
+    // 'readiness' redirects to 'roots' at render (resolvedScreen below), so
+    // treat it as 'roots' here too — otherwise a nav to 'readiness' would
+    // clear the post-import banner while visually staying on Roots.
+    const target = next === 'readiness' ? 'roots' : next
+    if (target !== 'roots') setJustImported(null)
     setScreen(next)
   }
   // Single instance of the pending-conflicts source for this whole shell —

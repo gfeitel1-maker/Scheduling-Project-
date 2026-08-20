@@ -555,6 +555,7 @@ export default function ImportScreen({ campId, onNavigate, onImported }) {
   if (ledger) {
     return (
       <ReconciliationScreen
+        campId={campId}
         baseInputs={ledger.context}
         sourceLabel={ledger.fileName}
         onCommitted={handleReconciliationCommitted}
