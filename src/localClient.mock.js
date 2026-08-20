@@ -216,6 +216,7 @@ const UNIQUE_KEYS = {
   time_blocks: ['camp_id', 'cohort_id', 'name'],
   locations:   ['camp_id', 'name'],
   special_days: ['camp_id', 'name'],
+  elective_sets: ['camp_id', 'name'],
 }
 
 // Mirrors electron/ops/operations.js's UNIQUE_FIELD_ENTITIES exactly (D2,
@@ -326,6 +327,11 @@ export const MOCK_WRITE_ALLOWLIST = {
   special_days: ['camp_id', 'name', 'sort_order'],
   special_day_time_blocks: ['special_day_id', 'name', 'sort_order', 'start_time', 'end_time'],
   special_day_slots: ['special_day_id', 'group_id', 'time_block_id', 'activity_id', 'location_id'],
+  // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md) —
+  // hand-transcribed mirror of PROJECTIONS.elective_sets/
+  // elective_set_activities.fields, same discipline as T40 above.
+  elective_sets: ['camp_id', 'name', 'sort_order'],
+  elective_set_activities: ['elective_set_id', 'activity_id'],
   schedule_weeks: ['camp_id', 'name', 'sort_order', 'is_archived'],
   schedule_templates: ['kind', 'camp_id', 'week_id', 'name'],
   schedule_snapshots: ['template_id', 'name', 'is_auto', 'created_at', 'slots', 'overlays'],
@@ -341,6 +347,8 @@ export const MOCK_WRITE_ALLOWLIST = {
     'is_span_head',
     'is_released',
     'flags',
+    // v35 (T41 slice 1, docs/work/specs/2026-08-20-group-electives-design.md)
+    'elective_set_id',
   ],
   conflicts: [],
 }

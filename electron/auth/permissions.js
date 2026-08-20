@@ -52,6 +52,11 @@ export const ENTITIES = [
   'special_days',
   'special_day_time_blocks',
   'special_day_slots',
+  // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md): same
+  // posture as special_days above — staff read/write, delete/bulk_replace
+  // admin-only via default-deny.
+  'elective_sets',
+  'elective_set_activities',
 ]
 
 const staffReadWrite = ENTITIES.flatMap((entity) => [`${entity}.read`, `${entity}.write`])

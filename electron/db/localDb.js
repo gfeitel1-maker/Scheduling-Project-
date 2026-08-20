@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 34
+export const CURRENT_SCHEMA_VERSION = 35
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1511,6 +1511,29 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v35 — group-level electives (T41 slice 1, data shape + engine-skip +
+  // registration only, docs/work/specs/2026-08-20-group-electives-design.md).
+  // Two new tables, no backfill: every camp starts with zero elective sets.
+  // ALSO extends the existing template_slots table with a nullable
+  // elective_set_id column — template_slots is a DRIFTED TABLE (see the
+  // schema.sql comment above it), so this is an ALTER, not folded into a
+  // CREATE TABLE. No DDL-time side effect (no existing slot gets a non-null
+  // elective_set_id), so this block emits no op, same posture as v33/v34.
+  if (getSchemaVersion(db) >= 34 && getSchemaVersion(db) < 35) {
+    db.transaction(() => {
+      db.exec(ELECTIVE_SETS_DDL)
+      db.exec(ELECTIVE_SET_ACTIVITIES_DDL)
+      const hasElectiveSetId = db
+        .pragma('table_info(template_slots)')
+        .some((col) => col.name === 'elective_set_id')
+      if (!hasElectiveSetId) db.exec('ALTER TABLE template_slots ADD COLUMN elective_set_id TEXT')
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (35, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct
@@ -1700,6 +1723,26 @@ export const SPECIAL_DAY_SLOTS_DDL = `CREATE TABLE IF NOT EXISTS special_day_slo
   time_block_id TEXT NOT NULL,
   activity_id TEXT,
   location_id TEXT
+)`
+
+// Byte-identical duplicates of the elective_sets / elective_set_activities
+// blocks in schema.sql (schema v35, T41 slice 1,
+// docs/work/specs/2026-08-20-group-electives-design.md). Kept as constants so
+// the v35 migration cannot drift from schema.sql by a stray space — same
+// discipline as SPECIAL_DAYS_DDL above.
+export const ELECTIVE_SETS_DDL = `CREATE TABLE IF NOT EXISTS elective_sets (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  name TEXT NOT NULL,
+  sort_order INTEGER,
+  UNIQUE(camp_id, name)
+)`
+
+export const ELECTIVE_SET_ACTIVITIES_DDL = `CREATE TABLE IF NOT EXISTS elective_set_activities (
+  id TEXT PRIMARY KEY,
+  elective_set_id TEXT NOT NULL REFERENCES elective_sets(id),
+  activity_id TEXT NOT NULL,
+  UNIQUE(elective_set_id, activity_id)
 )`
 
 // Director-facing, and it appears in Versions beside weeks they saved

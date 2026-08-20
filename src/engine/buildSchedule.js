@@ -147,6 +147,20 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     }
   }
 
+  // T41 slice 1 (group-level electives,
+  // docs/work/specs/2026-08-20-group-electives-design.md): a template_slots
+  // cell carrying elective_set_id is authored content, never engine output —
+  // the same pre-placed/do-not-fill treatment anchors get via anchorLookup
+  // above (T62 closed anchor double-scheduling the same way). Threaded
+  // through preplacedSlots entries carrying an electiveSetId (rather than an
+  // activityId) so callers don't need a third top-level array.
+  const electiveLookup = new Map() // "groupId|dayId|blockId" → electiveSetId
+  for (const pre of (preplacedSlots || [])) {
+    if (pre.electiveSetId != null) {
+      electiveLookup.set(`${pre.groupId}|${pre.dayId}|${pre.blockId}`, pre.electiveSetId)
+    }
+  }
+
   const groupMap = new Map(groups.map(g => [g.id, g]))
   const slots = []
   const openSlots = []
@@ -159,6 +173,15 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
 
         if (anchor) {
           slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'anchor', activityId: null, anchorId: anchor.id, is_span_head: anchor._isSpanHead !== false, flags: {} })
+          continue
+        }
+
+        const electiveSetId = electiveLookup.get(key)
+        if (electiveSetId != null) {
+          // Excluded from openSlots entirely: the engine never fills this
+          // cell and never counts it as unfilled (no UNFILLABLE flag), the
+          // same way an anchor slot above is excluded.
+          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'elective', activityId: null, anchorId: null, electiveSetId, is_span_head: true, flags: {} })
           continue
         }
 

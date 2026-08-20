@@ -30,6 +30,10 @@ export const DIRECT_CAMP_ENTITIES = new Set([
   // the camp-scoped parent. Its two children (special_day_time_blocks,
   // special_day_slots) are parent-scoped by special_day_id, below.
   'special_days',
+  // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md): the
+  // camp-scoped parent. Its one child (elective_set_activities) is
+  // parent-scoped by elective_set_id, below.
+  'elective_sets',
 ])
 
 export const PARENT_SCOPED_ENTITIES = {
@@ -80,6 +84,12 @@ export const PARENT_SCOPED_ENTITIES = {
     parentTable: 'special_days',
     parentKey: 'special_day_id',
   },
+  // T41 slice 1: elective_sets' one child, parent-scoped by elective_set_id.
+  elective_set_activities: {
+    table: 'elective_set_activities',
+    parentTable: 'elective_sets',
+    parentKey: 'elective_set_id',
+  },
 }
 
 // T88 (C2, sync/auth audit): the camp-scoped entity set + FK-safe apply
@@ -120,7 +130,7 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   'schedule_weeks', // references camps.id only; must precede schedule_templates and every week_*_exclusions table below, all of which reference it
   'schedule_templates', // references schedule_weeks.id, nullable
   'day_override_templates', // references cohorts.id, nullable
-  'template_slots', // references groups.id/activities.id, both nullable — no declared FK to schedule_templates.id (schema.sql)
+  'template_slots', // references groups.id/activities.id, both nullable — no declared FK to schedule_templates.id (schema.sql); elective_set_id (v35) also has no declared FK
   'template_overlays', // references schedule_templates.id NOT NULL, days_of_operation.id nullable
   'day_override_template_slots', // references day_override_templates.id NOT NULL
   'week_activity_exclusions', // references schedule_weeks.id and activities.id, both NOT NULL
@@ -129,6 +139,8 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   'special_days', // T40 slice 1; references camps.id only
   'special_day_time_blocks', // references special_days.id NOT NULL
   'special_day_slots', // references special_days.id NOT NULL; group_id/time_block_id/activity_id/location_id have no declared FK
+  'elective_sets', // T41 slice 1; references camps.id only
+  'elective_set_activities', // references elective_sets.id NOT NULL; activity_id has no declared FK
 ]
 
 // The subset of DOMAIN_SNAPSHOT_ORDER that is parent-scoped (joined through

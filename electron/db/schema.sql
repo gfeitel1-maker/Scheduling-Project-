@@ -301,11 +301,16 @@ CREATE TABLE IF NOT EXISTS activities (
 -- idx_groups_camp_name (version 12). activities is camp-scoped only (no
 -- cohort_id), matching groups, not tiers/time_blocks.
 
--- DRIFTED TABLE: a migrated database has 10 columns, not the 6 below.
+-- DRIFTED TABLE: a migrated database has 11 columns, not the 6 below.
 -- Migration-added columns (see localDb.js):
 --   v10: flags TEXT, is_released INTEGER, is_span_head INTEGER
 --   v17: anchor_id TEXT, is_anchor INTEGER
--- Use PRAGMA table_info(template_slots) against a migrated db to see all 10.
+--   v35: elective_set_id TEXT (T41 slice 1, group-level electives,
+--     docs/work/specs/2026-08-20-group-electives-design.md) — a slot with
+--     elective_set_id set is an elective cell (activity_id ignored); the two
+--     are mutually exclusive, enforced by the (UI-driven) write path in a
+--     later slice.
+-- Use PRAGMA table_info(template_slots) against a migrated db to see all 11.
 CREATE TABLE IF NOT EXISTS template_slots (
   id TEXT PRIMARY KEY,
   template_id TEXT NOT NULL,
@@ -695,4 +700,41 @@ CREATE TABLE IF NOT EXISTS special_day_slots (
   time_block_id TEXT NOT NULL,
   activity_id TEXT,
   location_id TEXT
+);
+
+-- Group-level electives (schema v35, T41 slice 1, data shape + engine-skip +
+-- registration only, docs/work/specs/2026-08-20-group-electives-design.md).
+-- An elective period runs several activities at once; a group is distributed
+-- across them — group-level only, no campers, no solver (owner decisions, see
+-- the design doc). The DDL text below is duplicated verbatim in localDb.js's
+-- v35 block (ELECTIVE_SETS_DDL / ELECTIVE_SET_ACTIVITIES_DDL); the two copies
+-- are asserted byte-identical by electives.migration.test.js. template_slots
+-- also gains a nullable elective_set_id column in this migration (an
+-- ALTER TABLE, not a CREATE — template_slots is a DRIFTED TABLE, see its
+-- comment above).
+--
+-- elective_sets: the camp-scoped parent, a reusable named set of activity
+-- options ("Afternoon Chugim" = {Swim, Art, Archery}). UNIQUE(camp_id, name),
+-- matching locations/groups/special_days. id is a minted uuid (interactive
+-- create, no deriveLocationId-style determinism).
+CREATE TABLE IF NOT EXISTS elective_sets (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  name TEXT NOT NULL,
+  sort_order INTEGER,
+  UNIQUE(camp_id, name)
+);
+
+-- elective_set_activities: parent-scoped by elective_set_id, no camp_id
+-- column (mirrors day_override_template_slots/special_day_time_blocks). One
+-- row per member activity option. UNIQUE(elective_set_id, activity_id)
+-- prevents the same activity being listed twice in one set. activity_id is
+-- deliberately NOT given a SQL REFERENCES clause — it points at a live camp
+-- `activities` row the same soft way template_slots.activity_id's sibling
+-- columns do (render resolves by id), consistent with the app's op-log model.
+CREATE TABLE IF NOT EXISTS elective_set_activities (
+  id TEXT PRIMARY KEY,
+  elective_set_id TEXT NOT NULL REFERENCES elective_sets(id),
+  activity_id TEXT NOT NULL,
+  UNIQUE(elective_set_id, activity_id)
 );

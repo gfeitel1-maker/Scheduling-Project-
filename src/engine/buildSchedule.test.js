@@ -41,6 +41,45 @@ describe('anchored activities excluded from regular placement', () => {
   })
 })
 
+// T41 slice 1 (group-level electives,
+// docs/work/specs/2026-08-20-group-electives-design.md): an elective cell is
+// authored content, never engine output — mirrors the anchor-skip test above
+// (T62 closed anchor double-scheduling the same way).
+describe('elective cells excluded from regular placement (engine-skip)', () => {
+  it('never places an activity into a cell carrying an electiveSetId, and does not count it unfilled', () => {
+    const archery = { id: 'archery', name: 'Archery', priority: 'high', max_per_week: 5, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const preplacedSlots = [{ groupId: 'g1', dayId: 'd1', blockId: 'b1', electiveSetId: 'es1' }]
+    const { slots } = buildSchedule(minimal({ activities: [archery], preplacedSlots }))
+
+    const cell = slots.find(s => s.groupId === 'g1' && s.dayId === 'd1' && s.blockId === 'b1')
+    expect(cell).toBeTruthy()
+    expect(cell.type).toBe('elective')
+    expect(cell.activityId).toBeNull()
+    expect(cell.electiveSetId).toBe('es1')
+    // Not counted unfilled: no UNFILLABLE flag on the elective cell.
+    expect(cell.flags?.UNFILLABLE).toBeFalsy()
+
+    // No regular activity slot was placed at this coordinate.
+    const regularAtSameCoord = slots.filter(
+      s => s.groupId === 'g1' && s.dayId === 'd1' && s.blockId === 'b1' && s.type === 'activity'
+    )
+    expect(regularAtSameCoord).toHaveLength(0)
+  })
+
+  it('still places an activity in a block not marked as an elective', () => {
+    const day2 = { id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 1 }
+    const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
+    const archery = { id: 'archery', name: 'Archery', priority: 'low', max_per_week: 5, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const preplacedSlots = [{ groupId: 'g1', dayId: 'd1', blockId: 'b1', electiveSetId: 'es1' }]
+    const { slots } = buildSchedule(minimal({
+      days: [baseDay, day2], timeBlocks: [baseBlock, block2], activities: [archery], preplacedSlots,
+    }))
+
+    const placed = slots.filter(s => s.type === 'activity' && s.activityId === 'archery')
+    expect(placed.length).toBeGreaterThan(0)
+  })
+})
+
 describe('UNFILLABLE flag', () => {
   it('sets UNFILLABLE_reason when no activities are eligible', () => {
     const { slots } = buildSchedule(minimal({ activities: [] }))

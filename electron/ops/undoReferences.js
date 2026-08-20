@@ -64,6 +64,15 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   { fromTable: 'special_day_slots', fromColumn: 'group_id', toEntity: 'groups', kind: 'scalar', enforced: false },
   { fromTable: 'special_day_slots', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
   { fromTable: 'special_day_slots', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
+  // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md):
+  // elective_set_activities.activity_id points at a U2-deletable entity
+  // (activities) the same soft way special_day_slots.activity_id does — no
+  // DB-level FK (schema.sql), so enforced:false. template_slots.elective_set_id
+  // points at elective_sets, which — like special_days — is NOT in
+  // U2_DELETABLE_ENTITIES below, so it is an ACCEPTED_NON_REFERENCE in the
+  // schema-parity scanner (undoReferences.schemaParity.test.js), not an entry
+  // here; deleteElectiveSet.js's own cascade handles its lifecycle directly.
+  { fromTable: 'elective_set_activities', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
 ])
 
 // entities U2's deletion slice is allowed to act on — deliberately mirrors

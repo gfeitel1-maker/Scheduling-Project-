@@ -57,7 +57,7 @@ const DOMAIN_TABLE_COLUMNS = {
   schedule_weeks: ['id', 'camp_id', 'name', 'sort_order', 'is_archived'], // T88 — required so week_*_exclusions' NOT NULL FK to schedule_weeks.id can be satisfied
   schedule_templates: ['id', 'camp_id', 'name', 'kind', 'week_id'],
   day_override_templates: ['id', 'camp_id', 'cohort_id', 'name', 'frequency_mode'],
-  template_slots: ['id', 'template_id', 'group_id', 'activity_id', 'day_id', 'time_block_id', 'flags', 'is_released', 'is_span_head', 'anchor_id', 'is_anchor'],
+  template_slots: ['id', 'template_id', 'group_id', 'activity_id', 'day_id', 'time_block_id', 'flags', 'is_released', 'is_span_head', 'anchor_id', 'is_anchor', 'elective_set_id'],
   template_overlays: ['id', 'template_id', 'unit_id', 'day_id', 'from_block_order', 'to_block_order', 'label'],
   day_override_template_slots: ['id', 'day_override_template_id', 'time_block_id', 'activity_id'],
   week_activity_exclusions: ['id', 'week_id', 'activity_id'],
@@ -67,6 +67,9 @@ const DOMAIN_TABLE_COLUMNS = {
   special_days: ['id', 'camp_id', 'name', 'sort_order'],
   special_day_time_blocks: ['id', 'special_day_id', 'name', 'sort_order', 'start_time', 'end_time'],
   special_day_slots: ['id', 'special_day_id', 'group_id', 'time_block_id', 'activity_id', 'location_id'],
+  // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md)
+  elective_sets: ['id', 'camp_id', 'name', 'sort_order'],
+  elective_set_activities: ['id', 'elective_set_id', 'activity_id'],
 }
 
 // T88 review follow-up (Code Reviewer LOW-MED): DOMAIN_TABLE_COLUMNS is a

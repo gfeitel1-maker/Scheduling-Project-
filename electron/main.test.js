@@ -956,6 +956,13 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     special_days: 'name',
     special_day_time_blocks: 'name',
     special_day_slots: 'activity_id',
+    // T41 slice 1: same trick as week_location_exclusions/special_day_slots
+    // above — elective_set_activities' ensureExists needs both
+    // elective_set_id and activity_id before it creates anything, so
+    // 'activity_id' alone no-ops instead of FK-linking to a nonexistent
+    // parent.
+    elective_sets: 'name',
+    elective_set_activities: 'activity_id',
   }
 
   // Login is scoped to the single camp in this db (`SELECT id FROM camps

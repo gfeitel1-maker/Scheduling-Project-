@@ -257,6 +257,8 @@ export const BULK_REPLACE_ENTITIES = {
       'is_anchor',
       'is_span_head',
       'flags',
+      // v35 (T41 slice 1, docs/work/specs/2026-08-20-group-electives-design.md)
+      'elective_set_id',
     ],
     requiredColumns: ['id', 'template_id'],
   },
