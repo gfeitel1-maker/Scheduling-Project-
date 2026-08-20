@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { prefersReducedMotion } from '../../styles/shared'
 import { DOMAIN_LABELS } from './domainRollup.js'
 import rootMapArt from '../../assets/reconciliation/root-map.png'
@@ -42,11 +42,44 @@ function Node({ x, y, width, height, state, label, selected, onSelect }) {
   const reduced = prefersReducedMotion()
   const cx = x * width
   const cy = y * height
-  const ringOpacity = selected || hovered ? 1 : 0
+  const ringActive = selected || hovered
+  const ringOpacity = ringActive ? 1 : 0
   const dotRadius = 7
   const showLabel = hovered || selected
   const pressScale = reduced ? 1 : pressed ? 0.9 : 1
   const release = () => setPressed(false)
+
+  // Design polish #4/#5 — the label pill and selection ring should read as
+  // "arriving" (scale-in alongside the opacity fade), not pop in at full
+  // size. Reset-on-deactivate is done during render (React's documented
+  // "adjusting state when a prop changes" pattern, already used for
+  // prevSelectionType in RootMapPanel) rather than in an effect, so the
+  // effect only ever sets the entered flag to true — guarded so it never
+  // fires redundantly. No overshoot (DESIGN_STANDARD forbids elastic):
+  // plain var(--ease-out) settle.
+  const [ringEntered, setRingEntered] = useState(false)
+  const [prevRingActive, setPrevRingActive] = useState(ringActive)
+  if (ringActive !== prevRingActive) {
+    setPrevRingActive(ringActive)
+    if (!ringActive) setRingEntered(false)
+  }
+  useEffect(() => {
+    if (!ringActive || ringEntered) return
+    const id = requestAnimationFrame(() => setRingEntered(true))
+    return () => cancelAnimationFrame(id)
+  }, [ringActive, ringEntered])
+
+  const [labelEntered, setLabelEntered] = useState(false)
+  const [prevShowLabel, setPrevShowLabel] = useState(showLabel)
+  if (showLabel !== prevShowLabel) {
+    setPrevShowLabel(showLabel)
+    if (!showLabel) setLabelEntered(false)
+  }
+  useEffect(() => {
+    if (!showLabel || labelEntered) return
+    const id = requestAnimationFrame(() => setLabelEntered(true))
+    return () => cancelAnimationFrame(id)
+  }, [showLabel, labelEntered])
 
   return (
     <g
@@ -63,12 +96,12 @@ function Node({ x, y, width, height, state, label, selected, onSelect }) {
       <circle
         cx={cx}
         cy={cy}
-        r={12}
+        r={reduced ? 12 : ringEntered ? 12 : 10}
         fill="none"
         stroke={STATE_TOKEN[state]}
         strokeWidth={2.5}
         opacity={ringOpacity}
-        style={reduced ? undefined : { transition: 'opacity var(--motion-fast) var(--ease-out)' }}
+        style={{ transition: reduced ? 'opacity var(--motion-fast) var(--ease-out)' : 'opacity var(--motion-fast) var(--ease-out), r var(--motion-fast) var(--ease-out)' }}
       />
       <circle
         cx={cx}
@@ -84,9 +117,13 @@ function Node({ x, y, width, height, state, label, selected, onSelect }) {
         <g
           style={
             reduced
-              ? undefined
+              ? {
+                  opacity: labelEntered ? 1 : 0,
+                  transition: 'opacity var(--motion-fast) var(--ease-out)',
+                }
               : {
-                  opacity: 1,
+                  opacity: labelEntered ? 1 : 0,
+                  transform: labelEntered ? 'scale(1)' : 'scale(0.95)',
                   transformOrigin: `${cx}px ${cy}px`,
                   transition: 'opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out)',
                 }

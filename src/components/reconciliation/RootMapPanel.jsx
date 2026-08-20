@@ -145,8 +145,16 @@ export default function RootMapPanel({
 
   const gaps = scoped.filter((d) => d.kind === 'required_gap')
   const rest = scoped.filter((d) => d.kind !== 'required_gap')
-  const selectionKey = `${selection.type}:${selection.domainKey ?? ''}:${selection.childKey ?? ''}:${selection.state ?? ''}`
-  const crossfade = usePanelCrossfade(selectionKey)
+  // Design polish #2 — the crossfade should fire only when the panel's
+  // CONTENT TYPE/heading actually changes (a node selection, or a
+  // none<->tile<->node type change), not on a tile->tile filter change
+  // (same panel shape, just different rows — quiet, frequent, not a
+  // context switch). Tile state is deliberately excluded from this key so
+  // tile->tile re-renders take the plain-swap path below.
+  const crossfadeShapeKey = selection.type === 'node'
+    ? `node:${selection.domainKey ?? ''}:${selection.childKey ?? ''}`
+    : selection.type
+  const crossfade = usePanelCrossfade(crossfadeShapeKey)
 
   return (
     <div style={styles.panel} aria-label="Needs your attention">
@@ -159,7 +167,7 @@ export default function RootMapPanel({
         )}
       </div>
 
-      <div style={crossfade}>
+      <div style={crossfade} data-testid="panel-crossfade">
       {selection.type === 'node' && (
         targetScreen ? (
           <>
@@ -261,11 +269,16 @@ export default function RootMapPanel({
 }
 
 const styles = {
+  // Design polish #6 — canvas (RootMap) is the ground, this panel is the
+  // lifted response layer above it. --surface-elevated + the existing
+  // authCard/findingsRailPanel shadow recipe (S.authCard in shared.js),
+  // reused verbatim, not invented.
   panel: {
-    background: 'var(--surface)',
+    background: 'var(--surface-elevated)',
     border: '1px solid var(--border)',
     borderRadius: 8,
     padding: 16,
+    boxShadow: '0 2px 24px color-mix(in srgb, var(--text) 6%, transparent)',
   },
   panelHeader: {
     display: 'flex',

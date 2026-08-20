@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { localClient } from '../localClient'
 import { useCohorts } from '../hooks/useCohorts'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import * as XLSX from 'xlsx'
 import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
@@ -601,98 +601,7 @@ export default function ImportScreen({ campId, onNavigate }) {
       {error && <div style={{ ...S.errorBanner, marginBottom: 16 }}>{error}</div>}
 
       {result && (
-        <div style={{
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          borderLeft: '3px solid var(--success)', borderRadius: 8, padding: '12px 14px',
-          marginBottom: 16, fontSize: 13, lineHeight: 1.6,
-        }}>
-          <strong>
-            Imported {result.total} {result.total === 1 ? 'record' : 'records'}
-            {result.fixedEvents?.created > 0 && `, including ${result.fixedEvents.created} fixed ${result.fixedEvents.created === 1 ? 'event' : 'events'}`}.
-          </strong>{' '}
-          They are ordinary records now — edit or delete any of them from the setup screens, and
-          anything you delete can be brought back from Trash.
-          {result.fixedEvents?.skipped?.length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              {result.fixedEvents.skipped.length} fixed {result.fixedEvents.skipped.length === 1 ? 'event' : 'events'} couldn’t
-              be created because their time block or groups weren’t imported — you can add {result.fixedEvents.skipped.length === 1 ? 'it' : 'them'} on the Fixed Events screen.
-            </div>
-          )}
-          {result.fixedEvents?.partial?.length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              Some fixed events were added for fewer days or groups than proposed, because you didn’t import all of them:{' '}
-              {result.fixedEvents.partial.map((p) => `${p.name} (${p.reason})`).join('; ')}. Adjust {result.fixedEvents.partial.length === 1 ? 'it' : 'them'} on the Fixed Events screen.
-            </div>
-          )}
-          {result.fixedEvents?.moved?.length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              {result.fixedEvents.moved.length} fixed {result.fixedEvents.moved.length === 1 ? 'event has' : 'events have'} moved since this file was last imported, so {result.fixedEvents.moved.length === 1 ? 'it was' : 'they were'} left as-is instead of creating a duplicate:{' '}
-              {result.fixedEvents.moved.map((m) => `${m.name} (${m.reason})`).join('; ')}.
-            </div>
-          )}
-          {/* What the Replace destroyed, stated rather than implied — an
-              import never silently omits (ADR §1), and that cuts both ways. */}
-          {result.replaced && (
-            <div style={{ marginTop: 8 }}>
-              {sumCounts(result.replaced.entities)} old setup {sumCounts(result.replaced.entities) === 1 ? 'record was' : 'records were'} cleared first,
-              along with {sumCounts(result.replaced.dependents)} schedule {sumCounts(result.replaced.dependents) === 1 ? 'row' : 'rows'} that used {sumCounts(result.replaced.entities) === 1 ? 'it' : 'them'}.
-            </div>
-          )}
-          {counts != null && (
-            <ImportReadinessNote counts={counts} />
-          )}
-          {/* U1 — grace-window undo. Only rendered while the window is
-              genuinely live (Invariant 5); the copy says "for the next few
-              minutes", never "always available" (Invariant 5c), because a
-              reload or app close forfeits it silently. */}
-          {graceWindow.isLive && (
-            <div style={{ marginTop: 10 }}>
-              {graceWindow.createdEntityIds.length > 0 && (
-                <div style={{ color: 'var(--text-secondary)', marginBottom: 6 }}>
-                  {graceWindow.createdEntityIds.length} new {graceWindow.createdEntityIds.length === 1 ? 'record was' : 'records were'} also added — undoing will try to remove {graceWindow.createdEntityIds.length === 1 ? 'it' : 'them'} too.
-                </div>
-              )}
-              <button className="press-97" onClick={() => graceWindow.undo()} disabled={graceWindow.isPending} style={S.btnSecondary}>
-                Undo this import
-              </button>
-              <span style={{ marginLeft: 8, color: 'var(--text-secondary)' }}>for the next few minutes</span>
-            </div>
-          )}
-          {graceWindow.status === 'used' && (
-            <div style={{ marginTop: 10, color: 'var(--text-secondary)' }}>
-              Undo complete.
-              {graceWindow.deleted.length > 0 && (
-                <div style={{ marginTop: 4 }}>
-                  Removed {graceWindow.deleted.length} newly created {graceWindow.deleted.length === 1 ? 'record' : 'records'}.
-                </div>
-              )}
-              {graceWindow.skipped.length > 0 && (
-                <div style={{ marginTop: 4 }}>
-                  Kept {graceWindow.skipped.length} {graceWindow.skipped.length === 1 ? 'field' : 'fields'} changed since import.
-                </div>
-              )}
-              {graceWindow.kept.length > 0 && (
-                <div style={{ marginTop: 4 }}>
-                  Kept {graceWindow.kept.length} new {graceWindow.kept.length === 1 ? 'record' : 'records'}:{' '}
-                  {graceWindow.kept.map((k) =>
-                    `${k.name ?? 'record'} (${k.reason === 'edited_since_import' ? 'edited since import' : `still referenced by ${k.referencedByCount} other ${k.referencedByCount === 1 ? 'record' : 'records'}`})`
-                  ).join('; ')}.
-                </div>
-              )}
-            </div>
-          )}
-          {graceWindow.undoError && (
-            <div style={{ marginTop: 10, ...S.errorBanner }}>{graceWindow.undoError}</div>
-          )}
-          <div style={{ marginTop: 10, display: 'flex', gap: 10 }}>
-            <button className="press-97" onClick={() => onNavigate('groups')} style={S.btnSecondary}>Go to Groups</button>
-            {counts != null && (
-              <button className="press-97" onClick={() => onNavigate('readiness')} style={readinessLinkBtn}>
-                See Setup Readiness
-              </button>
-            )}
-          </div>
-        </div>
+        <ImportReceipt result={result} counts={counts} graceWindow={graceWindow} onNavigate={onNavigate} />
       )}
 
       <div style={{
@@ -1232,6 +1141,109 @@ function ActivityRuleRow({ name, rule, allGroups, onChange, onToggleGroup }) {
 // to build a week." and "which optional areas are still absent" can never
 // disagree with the hub. describeReadiness owns the blocking sentence;
 // describeOptionalGaps (importOutcomeModel.js) owns the calm optional line.
+// Design polish #3 — the post-import receipt is the payoff moment for the
+// whole import flow; it deserves the same lift-fade EndState gets, not a
+// hard mount. A separate component (mounted only while `result` is truthy)
+// so useEnterTransition's rAF-triggered mount animation replays each time a
+// fresh receipt appears, matching EndState's pattern.
+function ImportReceipt({ result, counts, graceWindow, onNavigate }) {
+  const enterStyle = useEnterTransition('liftFade')
+  return (
+    <div style={{
+      background: 'var(--surface)', border: '1px solid var(--border)',
+      borderLeft: '3px solid var(--success)', borderRadius: 8, padding: '12px 14px',
+      marginBottom: 16, fontSize: 13, lineHeight: 1.6, ...enterStyle,
+    }}>
+      <strong>
+        Imported {result.total} {result.total === 1 ? 'record' : 'records'}
+        {result.fixedEvents?.created > 0 && `, including ${result.fixedEvents.created} fixed ${result.fixedEvents.created === 1 ? 'event' : 'events'}`}.
+      </strong>{' '}
+      They are ordinary records now — edit or delete any of them from the setup screens, and
+      anything you delete can be brought back from Trash.
+      {result.fixedEvents?.skipped?.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          {result.fixedEvents.skipped.length} fixed {result.fixedEvents.skipped.length === 1 ? 'event' : 'events'} couldn’t
+          be created because their time block or groups weren’t imported — you can add {result.fixedEvents.skipped.length === 1 ? 'it' : 'them'} on the Fixed Events screen.
+        </div>
+      )}
+      {result.fixedEvents?.partial?.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          Some fixed events were added for fewer days or groups than proposed, because you didn’t import all of them:{' '}
+          {result.fixedEvents.partial.map((p) => `${p.name} (${p.reason})`).join('; ')}. Adjust {result.fixedEvents.partial.length === 1 ? 'it' : 'them'} on the Fixed Events screen.
+        </div>
+      )}
+      {result.fixedEvents?.moved?.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          {result.fixedEvents.moved.length} fixed {result.fixedEvents.moved.length === 1 ? 'event has' : 'events have'} moved since this file was last imported, so {result.fixedEvents.moved.length === 1 ? 'it was' : 'they were'} left as-is instead of creating a duplicate:{' '}
+          {result.fixedEvents.moved.map((m) => `${m.name} (${m.reason})`).join('; ')}.
+        </div>
+      )}
+      {/* What the Replace destroyed, stated rather than implied — an
+          import never silently omits (ADR §1), and that cuts both ways. */}
+      {result.replaced && (
+        <div style={{ marginTop: 8 }}>
+          {sumCounts(result.replaced.entities)} old setup {sumCounts(result.replaced.entities) === 1 ? 'record was' : 'records were'} cleared first,
+          along with {sumCounts(result.replaced.dependents)} schedule {sumCounts(result.replaced.dependents) === 1 ? 'row' : 'rows'} that used {sumCounts(result.replaced.entities) === 1 ? 'it' : 'them'}.
+        </div>
+      )}
+      {counts != null && (
+        <ImportReadinessNote counts={counts} />
+      )}
+      {/* U1 — grace-window undo. Only rendered while the window is
+          genuinely live (Invariant 5); the copy says "for the next few
+          minutes", never "always available" (Invariant 5c), because a
+          reload or app close forfeits it silently. */}
+      {graceWindow.isLive && (
+        <div style={{ marginTop: 10 }}>
+          {graceWindow.createdEntityIds.length > 0 && (
+            <div style={{ color: 'var(--text-secondary)', marginBottom: 6 }}>
+              {graceWindow.createdEntityIds.length} new {graceWindow.createdEntityIds.length === 1 ? 'record was' : 'records were'} also added — undoing will try to remove {graceWindow.createdEntityIds.length === 1 ? 'it' : 'them'} too.
+            </div>
+          )}
+          <button className="press-97" onClick={() => graceWindow.undo()} disabled={graceWindow.isPending} style={S.btnSecondary}>
+            Undo this import
+          </button>
+          <span style={{ marginLeft: 8, color: 'var(--text-secondary)' }}>for the next few minutes</span>
+        </div>
+      )}
+      {graceWindow.status === 'used' && (
+        <div style={{ marginTop: 10, color: 'var(--text-secondary)' }}>
+          Undo complete.
+          {graceWindow.deleted.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              Removed {graceWindow.deleted.length} newly created {graceWindow.deleted.length === 1 ? 'record' : 'records'}.
+            </div>
+          )}
+          {graceWindow.skipped.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              Kept {graceWindow.skipped.length} {graceWindow.skipped.length === 1 ? 'field' : 'fields'} changed since import.
+            </div>
+          )}
+          {graceWindow.kept.length > 0 && (
+            <div style={{ marginTop: 4 }}>
+              Kept {graceWindow.kept.length} new {graceWindow.kept.length === 1 ? 'record' : 'records'}:{' '}
+              {graceWindow.kept.map((k) =>
+                `${k.name ?? 'record'} (${k.reason === 'edited_since_import' ? 'edited since import' : `still referenced by ${k.referencedByCount} other ${k.referencedByCount === 1 ? 'record' : 'records'}`})`
+              ).join('; ')}.
+            </div>
+          )}
+        </div>
+      )}
+      {graceWindow.undoError && (
+        <div style={{ marginTop: 10, ...S.errorBanner }}>{graceWindow.undoError}</div>
+      )}
+      <div style={{ marginTop: 10, display: 'flex', gap: 10 }}>
+        <button className="press-97" onClick={() => onNavigate('groups')} style={S.btnSecondary}>Go to Groups</button>
+        {counts != null && (
+          <button className="press-97" onClick={() => onNavigate('readiness')} style={readinessLinkBtn}>
+            See Setup Readiness
+          </button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function ImportReadinessNote({ counts }) {
   const collections = {
     cohorts: Array(counts.cohorts || 0),

@@ -383,6 +383,55 @@ describe('RootMapPanel default view scoping (H1 fix)', () => {
   })
 })
 
+// Design polish #2 (docs/adr/2026-08-18-rootmap-screen-port.md) — the blur
+// crossfade is context-switch motion (node selection, or a none/tile/node
+// type change), not a filter-flip. A tile->tile change re-renders the same
+// panel shape and must NOT trigger the blur-out/blur-in pass.
+describe('RootMapPanel panel crossfade (design polish #2)', () => {
+  const props = {
+    dismissedGaps: new Set(),
+    answers: {},
+    onAnswer: noop,
+    onDismissGap: noop,
+    onUndismissGap: noop,
+    expandedEvidence: new Set(),
+    onToggleEvidence: noop,
+    onNavigate: noop,
+    onClearSelection: noop,
+  }
+
+  it('does not take the blur crossfade path on a tile->tile selection change', () => {
+    const model = emptyModel()
+    const { getByTestId, rerender } = render(
+      <RootMapPanel model={model} selection={{ type: 'tile', state: 'attention' }} lanes={lanes} {...props} />,
+    )
+    const before = getByTestId('panel-crossfade').getAttribute('style')
+    rerender(
+      <RootMapPanel model={model} selection={{ type: 'tile', state: 'changed' }} lanes={lanes} {...props} />,
+    )
+    const after = getByTestId('panel-crossfade').getAttribute('style')
+    // No blur-out was initiated: the style is untouched by the selection
+    // change (still whatever the settled/entered state was), unlike a real
+    // crossfade which synchronously flips to blur(2px)/opacity:0 first.
+    expect(after).toBe(before)
+    expect(after ?? '').not.toContain('blur(2px)')
+  })
+
+  it('does take the blur crossfade path on a node selection change', () => {
+    const model = baseModel()
+    const { getByTestId, rerender } = render(
+      <RootMapPanel model={model} selection={{ type: 'node', domainKey: 'Facility' }} lanes={lanes} {...props} />,
+    )
+    rerender(
+      <RootMapPanel model={model} selection={{ type: 'node', domainKey: 'Facility', childKey: 'Locations' }} lanes={lanes} {...props} />,
+    )
+    const after = getByTestId('panel-crossfade').getAttribute('style')
+    // The crossfade synchronously blurs-out on the dep change, before the
+    // rAF flips it back to entered.
+    expect(after ?? '').toContain('blur(2px)')
+  })
+})
+
 describe('RootMapPanel census roster (Slice 2)', () => {
   function modelWithRoster(roster) {
     return {
