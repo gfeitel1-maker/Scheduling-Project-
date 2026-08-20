@@ -28,6 +28,7 @@ Regenerate with `npm run index:work`.
 | [T91-replacing-a-merged-activity-cannot-refill-the-span](../../docs/work/tickets/T91-replacing-a-merged-activity-cannot-refill-the-span.md) | open | — |
 | [T92-manual-generation-cannot-merge](../../docs/work/tickets/T92-manual-generation-cannot-merge.md) | open | — |
 | [T93-no-early-host-gate-on-import-ui](../../docs/work/tickets/T93-no-early-host-gate-on-import-ui.md) | open | — |
+| [T94-roots-first-timer-orientation-caption](../../docs/work/tickets/T94-roots-first-timer-orientation-caption.md) | open | — |
 
 ### unclassified
 
