@@ -1,7 +1,7 @@
 ---
 title: T88-single-source-full-sync-manifest
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-16
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/GOVERNANCE_INDEX.md, SECURITY.md]
 related_tickets: []
@@ -94,3 +94,13 @@ instead — do not pull them into this ticket.
 - No change to the op-log or conflict model; this is snapshot-manifest completeness only.
 - Not implementing M5 location-exclusion behavior — only ensuring the sync plumbing won't drop its
   rows when they arrive.
+
+## Resolution (2026-08-20, verified already-fixed — landed via C2 / sync-auth deepening)
+
+The manifest is single-sourced in `electron/ops/campScopedEntities.js` as `DOMAIN_SNAPSHOT_ORDER`
+(~line 94), with `DOMAIN_PARENT_SCOPED_ENTITIES` derived from it and an `assertDirectEntityParity`
+guard. Send side (`electron/sync/catchup.js`) and apply side (`electron/sync/syncClient.js`) both
+import from it; `week_location_exclusions` is present on both. Integration scenario
+`25-full-sync-manifest-week-location-exclusions.js` pins that a first-pairing Client receives and
+applies those rows (25/25 integration green on this branch). Both archive_when conditions met. Closed
+as already-fixed; pending owner sign-off. (Consistent with memory: C2 == T88, sync-auth deepening.)

@@ -1,7 +1,7 @@
 ---
 title: T83-unify-engine-eligibility-copies
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-16
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/GOVERNANCE_INDEX.md]
 related_tickets: [docs/work/tickets/T82-mutation-envelope-and-eligibility-predicate.md]
@@ -65,3 +65,12 @@ changes shape (it should not). No ADR — behavior-preserving.
 
 - No change to placement order, PRNG seeding, or the schedule the engine produces.
 - No broadening of what "eligible" means — this is deduplication, not a rule change.
+
+## Resolution (2026-08-20, verified already-fixed)
+
+The engine unification is already present — likely landed with T82. `src/engine/buildSchedule.js:2`
+imports `isActivityEligibleForGroup` from `./eligibility.js`; both the placement-pass Set precompute
+(~line 97) and `computeFindings` (~line 461) build their eligible-group Set via the shared predicate.
+No hand-copied eligibility formula remains in the engine; the batch-Set shape is preserved and the
+engine's pinned tests stay green (full `npm run verify` green on this branch). Closed as already-fixed;
+pending owner sign-off per archive_when.

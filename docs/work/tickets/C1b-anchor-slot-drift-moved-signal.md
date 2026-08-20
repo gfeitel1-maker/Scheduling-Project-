@@ -1,7 +1,7 @@
 ---
 title: C1b-anchor-slot-drift-moved-signal
 document_type: ticket
-status: in-progress
+status: completed
 created: 2026-08-10
 governing_docs: [docs/adr/2026-08-10-ingestion-reconciliation-semantics.md]
 related_adrs: [docs/adr/2026-08-10-ingestion-reconciliation-semantics.md]
@@ -73,3 +73,11 @@ A naïve "match by name at a different slot" is **unsafe**: names are not unique
 ## Review loop
 
 Maker (test-first) → Red Hat (predicate + regression) → Verifier (targeted + full suite) → Grader. Isolated on `work/c1b-anchor-slot-drift`; PR into `work/ingestion-reconciliation`.
+
+## Resolution (2026-08-20, verified already-fixed — status was stale in-progress)
+
+The set-cardinality MOVED pre-pass is fully implemented in `electron/ops/ingest.js` (liveUnmatched/
+fileUnmatched, the `!== 1` cardinality guard, movedBySlot, rejectedSlots exclusion); mock parity in
+`src/localClient.mock.js` (`moved: []`); pinned by `electron/ops/ingest.slot-drift.test.js`. The UI
+render moved to `src/components/reconciliation/postImportBanner.jsx` (renders `fixedEvents.moved`) in
+the one-workspace reconciliation rework. Both archive_when conditions met. Closed as already-fixed.
