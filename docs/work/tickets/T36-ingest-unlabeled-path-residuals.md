@@ -62,3 +62,17 @@ region, never a token that also appears inside a value row.
 ## Governance
 Database/sync row. No schema change; parser methodology. An addendum to ADR 2026-08-01 §7 if/when any
 is built, plus the mandatory integration coverage. Sequence after the current owner priorities.
+
+## Partial resolution (2026-08-20) — residual-report shipped; parser residuals still deferred
+
+The **residual-report UI** (the "what was dropped" transparency piece that T49 described and no code
+implemented) is now SHIPPED: `workbookToPages` returns `.residual` for sheets with content but no
+recognisable header; `extractEntities` returns `residual.cells` for cells that fail `isActivityLike`;
+`ImportScreen` renders a non-blocking "Not recognised" box before commit. Code Reviewer merge-ready,
+full gate green. Documented boundary: residual capture is WHOLE-CELL only — a dash-split cell that
+yields at least one activity-like part does not flag its trailing fragment (usually an intentional
+room/person annotation), by design, to avoid alarming the director.
+
+**This ticket stays OPEN.** Its `archive_when` is the three PARSER over-match/silent-omission vectors
+(F1 location-strip, F2 header mis-split, F3 banner over-strip in `textGrid.js`) — all still deferred,
+proven unreachable on the 4-camp corpus (harden before a 5th). The residual-report does not close them.

@@ -76,28 +76,65 @@ export function sheetToPage(rows, title) {
   return { title: asText(title), columns, rows: body }
 }
 
+// A sheet has nothing in it worth reporting — true of the two or three empty
+// sheets every workbook ships alongside the one real one. Distinguishes that
+// from a sheet the detector genuinely could not read (T36).
+function sheetHasContent(rows) {
+  return (rows ?? []).some((r) => Array.isArray(r) && r.some((c) => String(c ?? '').trim() !== ''))
+}
+
+// First few non-empty cells, as a sample of what an unread sheet contained —
+// raw text, not a guess at structure (T36; ADR §1's "over-inclusion is
+// recoverable, silent omission is not" applies to the report just as much as
+// to the entity proposal).
+function sheetSample(rows, limit = 8) {
+  const values = []
+  for (const r of rows ?? []) {
+    if (!Array.isArray(r)) continue
+    for (const c of r) {
+      const t = String(c ?? '').trim()
+      if (t) values.push(t)
+      if (values.length >= limit) return values
+    }
+  }
+  return values
+}
+
 /**
  * A workbook becomes one page per populated sheet.
  *
  * Empty sheets are skipped — Excel ships three by default and Camp Mindy's
  * files use one. A workbook of several real sheets (one per group, say) yields
  * a page each, named for the sheet.
+ *
+ * The returned array also carries a `.residual` property (T36): sheets that
+ * had content but never became a page, each with a sample of what they held,
+ * so the import preview can tell a director what was skipped instead of
+ * silently dropping it. A truly empty sheet is not residual — it never had
+ * anything for the director to miss.
  */
 export function workbookToPages(sheets, fileTitle) {
   const built = []
+  const residual = []
   for (const { name, rows } of sheets ?? []) {
     const page = sheetToPage(rows, name)
-    if (page && page.columns.length > 0 && page.rows.length > 0) built.push({ name, page })
+    if (page && page.columns.length > 0 && page.rows.length > 0) {
+      built.push({ name, page })
+    } else if (sheetHasContent(rows)) {
+      residual.push({ sheet: name, sample: sheetSample(rows) })
+    }
   }
   // Only ONE sheet carries a schedule in every file seen so far, and Excel
   // ships two empty ones alongside it. Naming that page "Sheet1" would make
   // every group in the camp "Sheet1"; the filename is what identifies it.
   // A workbook with several real sheets is a different shape — one page per
   // group — and there the sheet names are the group names.
-  return built.map(({ name, page }) => ({
+  const result = built.map(({ name, page }) => ({
     ...page,
     title: built.length > 1 ? name : (fileTitle || name),
   }))
+  result.residual = residual
+  return result
 }
 
 /**
