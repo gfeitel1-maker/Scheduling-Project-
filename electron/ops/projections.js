@@ -315,6 +315,81 @@ export const PROJECTIONS = {
       ).run(id, value)
     },
   },
+  // Special days (T40 slice 1, data shape only,
+  // docs/work/specs/2026-08-20-special-days-data-shape-design.md). Camp-scoped
+  // parent, same ensureExists shape as day_override_templates above.
+  special_days: {
+    table: 'special_days',
+    key: 'id',
+    fields: ['camp_id', 'name', 'sort_order'],
+    ensureExists: (db, id) => {
+      // Same zero-camps caveat as cohorts/groups/day_override_templates/etc.ensureExists above.
+      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+      getStmt(db, "INSERT OR IGNORE INTO special_days (id, camp_id, name) VALUES (?, ?, '')").run(
+        id,
+        camp?.id ?? null
+      )
+    },
+  },
+  // Parent-scoped by special_day_id, no camp_id column — same shape as
+  // day_override_template_slots above. name and sort_order are NOT NULL with
+  // no default (schema.sql), so the placeholder insert must supply both
+  // (mirroring the schedule_weeks stub in ensureWeekJoinRow below), not just
+  // the id/parent pair.
+  special_day_time_blocks: {
+    table: 'special_day_time_blocks',
+    key: 'id',
+    fields: ['special_day_id', 'name', 'sort_order', 'start_time', 'end_time'],
+    ensureExists: (db, id, field, value) => {
+      if (field !== 'special_day_id') return
+      getStmt(db,
+        "INSERT OR IGNORE INTO special_day_time_blocks (id, special_day_id, name, sort_order) VALUES (?, ?, '', 0)"
+      ).run(id, value)
+    },
+  },
+  // Parent-scoped by special_day_id (no camp_id column), the grid cells. THREE
+  // NOT NULL columns (special_day_id, group_id, time_block_id) — a stricter
+  // version of the week_*_exclusions TWO-NOT-NULL join-row problem below:
+  // seeding only special_day_id would leave group_id/time_block_id unset and
+  // the INSERT would be silently dropped by IGNORE. Reconstruct all three from
+  // the op-log (appendOp already durably wrote each field's op before this
+  // projects, in seq order on both the writer and every replica, per
+  // ensureWeekJoinRow's reasoning below) and insert the complete row only once
+  // all three are known — whichever field arrives LAST creates the row.
+  // special_day_id is stub-seeded defensively (mirrors the schedule_weeks stub
+  // in ensureWeekJoinRow) since it is a real FK; group_id/time_block_id are
+  // deliberately NOT stub-seeded, matching ensureWeekJoinRow's treatment of
+  // its own second column.
+  special_day_slots: {
+    table: 'special_day_slots',
+    key: 'id',
+    fields: ['special_day_id', 'group_id', 'time_block_id', 'activity_id', 'location_id'],
+    ensureExists: (db, id, field, value) => {
+      const table = 'special_day_slots'
+      const readField = (wanted) => {
+        if (field === wanted) return value
+        const prior = getStmt(
+          db,
+          'SELECT value FROM operations WHERE entity = ? AND entity_id = ? AND field = ? ORDER BY seq DESC LIMIT 1'
+        ).get(table, id, wanted)
+        return prior ? prior.value : null
+      }
+      const specialDayId = readField('special_day_id')
+      const groupId = readField('group_id')
+      const timeBlockId = readField('time_block_id')
+      if (specialDayId == null || groupId == null || timeBlockId == null) return
+
+      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+      getStmt(
+        db,
+        "INSERT OR IGNORE INTO special_days (id, camp_id, name) VALUES (?, ?, '')"
+      ).run(specialDayId, camp?.id ?? null)
+      getStmt(
+        db,
+        'INSERT OR IGNORE INTO special_day_slots (id, special_day_id, group_id, time_block_id) VALUES (?, ?, ?, ?)'
+      ).run(id, specialDayId, groupId, timeBlockId)
+    },
+  },
   // Join tables with TWO NOT NULL columns (week_id + a real FK). ensureExists
   // reconstructs both fields from the op-log and inserts the complete row once
   // both are known — see ensureWeekJoinRow above for why a week_id-only seed

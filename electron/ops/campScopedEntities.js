@@ -26,6 +26,10 @@ export const DIRECT_CAMP_ENTITIES = new Set([
   'schedule_weeks',
   'locations',
   'camp_maps',
+  // T40 slice 1 (docs/work/specs/2026-08-20-special-days-data-shape-design.md):
+  // the camp-scoped parent. Its two children (special_day_time_blocks,
+  // special_day_slots) are parent-scoped by special_day_id, below.
+  'special_days',
 ])
 
 export const PARENT_SCOPED_ENTITIES = {
@@ -63,6 +67,18 @@ export const PARENT_SCOPED_ENTITIES = {
     table: 'week_location_exclusions',
     parentTable: 'schedule_weeks',
     parentKey: 'week_id',
+  },
+  // T40 slice 1: both of special_days' children, parent-scoped by
+  // special_day_id (mirroring day_override_template_slots above).
+  special_day_time_blocks: {
+    table: 'special_day_time_blocks',
+    parentTable: 'special_days',
+    parentKey: 'special_day_id',
+  },
+  special_day_slots: {
+    table: 'special_day_slots',
+    parentTable: 'special_days',
+    parentKey: 'special_day_id',
   },
 }
 
@@ -110,6 +126,9 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   'week_activity_exclusions', // references schedule_weeks.id and activities.id, both NOT NULL
   'week_group_exclusions', // references schedule_weeks.id and groups.id, both NOT NULL
   'week_location_exclusions', // T88: references schedule_weeks.id (NOT NULL, no DB-level FK on this side); location_id has no declared FK
+  'special_days', // T40 slice 1; references camps.id only
+  'special_day_time_blocks', // references special_days.id NOT NULL
+  'special_day_slots', // references special_days.id NOT NULL; group_id/time_block_id/activity_id/location_id have no declared FK
 ]
 
 // The subset of DOMAIN_SNAPSHOT_ORDER that is parent-scoped (joined through

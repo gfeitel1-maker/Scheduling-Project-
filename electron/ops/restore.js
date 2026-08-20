@@ -41,6 +41,14 @@ export const RESTORE_DECISIONS = Object.freeze({
   week_group_exclusions: 'refused: rebuilt by toggling the exclusion UI or duplicating the week',
   week_location_exclusions: 'refused: rebuilt by toggling the exclusion UI or duplicating the week',
   conflicts: 'refused: conflicts are closed by resolution or by a week delete, never by trash',
+
+  // T40 slice 1 (docs/work/specs/2026-08-20-special-days-data-shape-design.md):
+  // this slice ships the data shape only — no author UI, so there is no trash
+  // entry point to restore from yet. Revisit when the author-UI follow-on
+  // slice adds create/delete for special days.
+  special_days: 'refused: no author UI yet (T40 slice 1 is data-shape only) — revisit with the author-UI follow-on',
+  special_day_time_blocks: 'refused: rebuilt with its parent special day, not on its own',
+  special_day_slots: 'refused: rebuilt with its parent special day, not on its own',
 })
 
 export const RESTORABLE_ENTITIES = Object.freeze(

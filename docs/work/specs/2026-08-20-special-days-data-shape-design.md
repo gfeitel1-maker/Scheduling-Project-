@@ -3,6 +3,7 @@ title: 2026-08-20-special-days-data-shape-design
 document_type: spec
 status: active
 created: 2026-08-20
+governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md]
 archive_when: the special_days data-shape slice is implemented and merged, and the author/ingest follow-on specs supersede this one for their concerns
 related_tickets: [docs/work/tickets/T40-one-day-special-event-schedule.md]
 related_adrs: [docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md]

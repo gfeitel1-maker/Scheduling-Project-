@@ -63,6 +63,10 @@ const DOMAIN_TABLE_COLUMNS = {
   week_activity_exclusions: ['id', 'week_id', 'activity_id'],
   week_group_exclusions: ['id', 'week_id', 'group_id'],
   week_location_exclusions: ['id', 'week_id', 'location_id'], // T88 — closes the manifest drift (see DOMAIN_SNAPSHOT_ORDER)
+  // T40 slice 1 (docs/work/specs/2026-08-20-special-days-data-shape-design.md)
+  special_days: ['id', 'camp_id', 'name', 'sort_order'],
+  special_day_time_blocks: ['id', 'special_day_id', 'name', 'sort_order', 'start_time', 'end_time'],
+  special_day_slots: ['id', 'special_day_id', 'group_id', 'time_block_id', 'activity_id', 'location_id'],
 }
 
 // T88 review follow-up (Code Reviewer LOW-MED): DOMAIN_TABLE_COLUMNS is a

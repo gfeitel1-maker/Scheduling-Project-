@@ -947,6 +947,15 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     // a FK to schedule_weeks (the sweep's 'V' is not a real week). Same
     // non-ensureExists-field trick template_slots uses with activity_id.
     week_location_exclusions: 'location_id',
+    // T40 slice 1: 'name' is not special_day_time_blocks' parent-key field
+    // (special_day_id), so ensureExists no-ops rather than trying to FK-link
+    // to a nonexistent parent — same trick day_override_template_slots uses
+    // above. special_day_slots picks 'activity_id', mirroring template_slots'
+    // own choice, since its ensureExists needs all three of
+    // special_day_id/group_id/time_block_id before it creates anything.
+    special_days: 'name',
+    special_day_time_blocks: 'name',
+    special_day_slots: 'activity_id',
   }
 
   // Login is scoped to the single camp in this db (`SELECT id FROM camps

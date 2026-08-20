@@ -44,6 +44,14 @@ export const ENTITIES = [
   // week_activity_exclusions/week_group_exclusions above).
   'locations',
   'week_location_exclusions',
+  // T40 slice 1 (docs/work/specs/2026-08-20-special-days-data-shape-design.md):
+  // ordinary camp-scoped entities, staff read/write like every other camp
+  // entity; delete/bulk_replace stay admin-only via default-deny (no explicit
+  // staff grant below, matching every entity here except the deliberate
+  // week_*_exclusions.delete/trash.read/camp_maps.read exceptions).
+  'special_days',
+  'special_day_time_blocks',
+  'special_day_slots',
 ]
 
 const staffReadWrite = ENTITIES.flatMap((entity) => [`${entity}.read`, `${entity}.write`])
