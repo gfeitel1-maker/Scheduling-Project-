@@ -37,6 +37,7 @@ Regenerate with `npm run index:work`.
 
 | Ticket | Status | Referenced by |
 |---|---|---|
+| [T40-one-day-special-event-schedule](../../docs/work/tickets/T40-one-day-special-event-schedule.md) | in-progress | [2026-08-20-special-days-data-shape-design](../../docs/work/specs/2026-08-20-special-days-data-shape-design.md) |
 | [T51-mcp-cli-ingestion](../../docs/work/tickets/T51-mcp-cli-ingestion.md) | open | — |
 | [T52-activity-colors-tokenization](../../docs/work/tickets/T52-activity-colors-tokenization.md) | open | [T50-schedule-canvas-rebuild](../../docs/work/tickets/T50-schedule-canvas-rebuild.md) |
 
