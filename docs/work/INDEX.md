@@ -39,7 +39,7 @@ Regenerate with `npm run index:work`.
 |---|---|---|
 | [T40-one-day-special-event-schedule](../../docs/work/tickets/T40-one-day-special-event-schedule.md) | in-progress | [2026-08-20-special-days-data-shape-design](../../docs/work/specs/2026-08-20-special-days-data-shape-design.md) |
 | [T41-elective-scheduling](../../docs/work/tickets/T41-elective-scheduling.md) | in-progress | [2026-08-20-group-electives-design](../../docs/work/specs/2026-08-20-group-electives-design.md) |
-| [T51-mcp-cli-ingestion](../../docs/work/tickets/T51-mcp-cli-ingestion.md) | open | — |
+| [T51-mcp-cli-ingestion](../../docs/work/tickets/T51-mcp-cli-ingestion.md) | open | [2026-08-20-ingestion-cli-design](../../docs/work/specs/2026-08-20-ingestion-cli-design.md) |
 | [T52-activity-colors-tokenization](../../docs/work/tickets/T52-activity-colors-tokenization.md) | open | [T50-schedule-canvas-rebuild](../../docs/work/tickets/T50-schedule-canvas-rebuild.md) |
 
 ## Decisions
