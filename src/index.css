@@ -80,6 +80,18 @@ a { text-decoration: none; color: inherit; }
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* Roots woodcut-orb "lantern" nodes (RootMap) — the needs-attention orb gently
+   pulses its glow so a director's eye finds what needs them without lighting up
+   the whole screen (calm at a glance; DESIGN_STANDARD — motion explains state).
+   Hover/selection glow is applied inline on the orb; only this infinite pulse
+   needs a keyframe, so it lives here beside the other global animations rather
+   than in a new stylesheet. */
+@keyframes rootmapPulse {
+  0%, 100% { filter: drop-shadow(0 0 1px color-mix(in srgb, var(--accent) 38%, transparent)); }
+  50%      { filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 82%, transparent)); }
+}
+.rootmap-orb--pulse { animation: rootmapPulse 2400ms ease-in-out infinite; }
+
 @media (prefers-reduced-motion: reduce) {
   .press-97, .press-98 { transition: none; }
   .press-97:active:not(:disabled),
@@ -93,6 +105,7 @@ a { text-decoration: none; color: inherit; }
   /* T73 — the auto-advance/mount animations degrade to an instant swap, or a
      reduced-motion user gets a freeze with no cue (design spec §6, §9). */
   [style*="importHeldIn"], [style*="importCardIn"] { animation: none !important; }
+  .rootmap-orb--pulse { animation: none !important; }
 }
 
 /* Activity card hover — gated to real pointers so a touch tap does not

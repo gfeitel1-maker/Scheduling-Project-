@@ -41,11 +41,11 @@ describe('RootMap node label', () => {
   })
 })
 
-// Design polish #4/#5 — under prefers-reduced-motion the label pill and
-// selection ring must drop their scale/radius transform entirely and
-// crossfade on opacity only (DESIGN_STANDARD §8), same as every other
-// mount transition in the app.
-describe('RootMap node label + selection ring under prefers-reduced-motion', () => {
+// Under prefers-reduced-motion the label pill drops its scale transform and
+// crossfades on opacity only (DESIGN_STANDARD §8); the selected lantern still
+// shows its glow — a static drop-shadow is not motion — but without a
+// transition, so selection stays legible for reduced-motion users.
+describe('RootMap node label + selection glow under prefers-reduced-motion', () => {
   const originalMatchMedia = window.matchMedia
 
   afterEach(() => {
@@ -61,7 +61,7 @@ describe('RootMap node label + selection ring under prefers-reduced-motion', () 
     })
   }
 
-  it('renders the selection ring at a fixed r=12 with no radius transition', () => {
+  it('lights the selected lantern with a static glow and no transition under reduced motion', () => {
     mockReducedMotion()
     const { container } = render(
       <RootMap
@@ -72,9 +72,10 @@ describe('RootMap node label + selection ring under prefers-reduced-motion', () 
         onClearSelection={noop}
       />,
     )
-    const ring = container.querySelector('circle[r="12"]')
-    expect(ring).toBeTruthy()
-    expect(ring.getAttribute('style') ?? '').not.toContain('r ')
+    const orbs = [...container.querySelectorAll('image')]
+    const lit = orbs.find((o) => (o.getAttribute('style') ?? '').includes('drop-shadow'))
+    expect(lit).toBeTruthy() // the selected node's lantern glows
+    expect(lit.getAttribute('style') ?? '').not.toContain('transition') // reduced motion => no transition
   })
 
   it('renders the label pill with no transform / transform-origin under reduced motion', () => {
