@@ -3,6 +3,33 @@ import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { normalizeName } from '../../ingest/preview.js'
 import { isActivityEligibleForGroup } from '../../engine/eligibility'
 
+// T91: collect the covered tail rows of a span head being replaced, via a
+// single walk that covers BOTH span representations identically (owner
+// ratified decision 2 — same signal, one walk):
+//   - manual merge: head carries flags.expanded, tail is is_span_head:false
+//     owning the head's activity (set by expandSlot).
+//   - generated/engine: is_span_head chain (head true, N tails false), same
+//     activity_id, no flags.expanded (buildSchedule.js).
+// Walks time blocks in sort_order starting AFTER the head's own block,
+// collecting contiguous following slots (same group+day) that are
+// is_span_head === false AND own the head's activity_id — stopping at the
+// first non-match. Pure, no state.
+function collectSpanTails(slots, timeBlocks, target, headRow) {
+  if (!headRow || headRow.is_span_head === false || headRow.activity_id == null) return []
+  const sortedBlocks = [...timeBlocks].sort((a, b) => a.sort_order - b.sort_order)
+  const headIdx = sortedBlocks.findIndex(b => b.id === target.blockId)
+  if (headIdx === -1) return []
+
+  const tails = []
+  for (let i = headIdx + 1; i < sortedBlocks.length; i++) {
+    const blockId = sortedBlocks[i].id
+    const row = slots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === blockId)
+    if (!row || row.is_span_head !== false || row.activity_id !== headRow.activity_id) break
+    tails.push(row)
+  }
+  return tails
+}
+
 // The per-cell slot / overlay mutation cluster (T32), over the T28 repository.
 // Every handler follows the same shape: read the target from `slots` ->
 // repo.writeSlotFields/writeOverlayFields -> setActionError on failure ->
@@ -230,17 +257,6 @@ export function useSlotMutations({
     const claimId = gestureId ?? crypto.randomUUID()
     const targetKey = cellKey(target.groupId, target.dayId, target.blockId)
     const sourceKey = sourceRow ? cellKey(incoming.groupId, incoming.dayId, incoming.blockId) : null
-    // Canonical (lexical) order. Not load-bearing for deadlock-freedom today:
-    // claimAndRun claims every key in one synchronous pass (no sequential
-    // per-key acquisition to interleave), so two multi-cell ops can never
-    // block on each other regardless of key order. Kept anyway so the same
-    // pair of cells always produces the same `keys` array however a caller
-    // orders target/source — a stable, order-independent identity for the
-    // combined claim. Do NOT remove this on the assumption it's dead: if a
-    // future refactor of claimAndRun ever acquires per-key locks sequentially
-    // instead of snapshotting synchronously, deadlock-freedom would then
-    // depend on this sort, not merely benefit from it.
-    const keys = sourceKey ? [targetKey, sourceKey].sort() : [targetKey]
 
     const freshSlots = slotsRef.current
     const freshTargetRow = freshSlots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId) ?? targetRow
@@ -252,6 +268,43 @@ export function useSlotMutations({
     const prevSourceActivityId = freshSourceRow?.activity_id ?? null
     const prevSourceFlags = freshSourceRow?.flags ?? {}
 
+    // T91: span-aware — a replaced HEAD's covered tail(s) must be freed to an
+    // empty fresh span head, not left orphaned owning the old activity.
+    // collectSpanTails is called once per cell that might be a span head:
+    // the drop target, and — when this is a grid-to-grid drag — the source.
+    const spanTailRows = collectSpanTails(freshSlots, timeBlocks, target, freshTargetRow)
+    const sourceTailRows = freshSourceRow
+      ? collectSpanTails(freshSlots, timeBlocks, { groupId: incoming.groupId, dayId: incoming.dayId, blockId: incoming.blockId }, freshSourceRow)
+      : []
+    // T91 delta-review fix: in ManualBuildView tail cells are independently
+    // droppable, so a head can be dragged onto its own tail (or vice versa) —
+    // a normal "shrink a merged block" gesture. That cell then gets BOTH an
+    // explicit target/source write AND a tail-free from the other side's
+    // collectSpanTails walk, racing two conflicting writes to the same row.
+    // The explicit drop/clear always wins: exclude any row already covered by
+    // a primary write, and dedupe by row id (a cell could otherwise appear in
+    // both spanTailRows and sourceTailRows for a degenerate 2-cell blob).
+    const primaryIds = new Set([targetRow.id, sourceRow?.id].filter(Boolean))
+    const tailRows = []
+    const seenTailIds = new Set(primaryIds)
+    for (const t of [...spanTailRows, ...sourceTailRows]) {
+      if (seenTailIds.has(t.id)) continue
+      seenTailIds.add(t.id)
+      tailRows.push(t)
+    }
+    const tailKeys = tailRows.map(t => cellKey(t.group_id, t.day_id, t.time_block_id))
+    // Canonical (lexical) order. Not load-bearing for deadlock-freedom today:
+    // claimAndRun claims every key in one synchronous pass (no sequential
+    // per-key acquisition to interleave), so two multi-cell ops can never
+    // block on each other regardless of key order. Kept anyway so the same
+    // set of cells always produces the same `keys` array however a caller
+    // orders target/source — a stable, order-independent identity for the
+    // combined claim. Do NOT remove this on the assumption it's dead: if a
+    // future refactor of claimAndRun ever acquires per-key locks sequentially
+    // instead of snapshotting synchronously, deadlock-freedom would then
+    // depend on this sort, not merely benefit from it.
+    const keys = [...new Set([targetKey, sourceKey, ...tailKeys].filter(Boolean))].sort()
+
     let writeError = null
     const { dropped } = await runMutation({
       keys,
@@ -260,6 +313,9 @@ export function useSlotMutations({
         try {
           const writes = [repo.writeSlotFields(targetRow.id, { activity_id: incoming.activityId, flags: {} })]
           if (sourceRow) writes.push(repo.writeSlotFields(sourceRow.id, { activity_id: null, flags: {} }))
+          for (const tail of tailRows) {
+            writes.push(repo.writeSlotFields(tail.id, { activity_id: null, is_span_head: true, flags: {} }))
+          }
           await Promise.all(writes)
         } catch (err) {
           writeError = err
@@ -274,6 +330,8 @@ export function useSlotMutations({
               return { ...s, activity_id: incoming.activityId, flags: {} }
             if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
               return { ...s, activity_id: null, flags: {} }
+            if (tailRows.some(t => t.id === s.id))
+              return { ...s, activity_id: null, is_span_head: true, flags: {} }
             return s
           })
           recalcStats(next)
@@ -307,6 +365,15 @@ export function useSlotMutations({
               await Promise.all([
                 repo.writeSlotFields(targetRow.id, { activity_id: prevTargetActivityId, flags: prevTargetFlags }),
                 ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { activity_id: prevSourceActivityId, flags: prevSourceFlags })] : []),
+                // collectSpanTails only ever collects rows where is_span_head
+                // is exactly false and activity_id is set — the ?? fallbacks
+                // on those two fields would be dead code; flags legitimately
+                // can be absent on a manual tail, so that fallback stays.
+                ...tailRows.map(tail => repo.writeSlotFields(tail.id, {
+                  activity_id: tail.activity_id,
+                  is_span_head: false,
+                  flags: tail.flags ?? {},
+                })),
               ])
             } catch (err) { undoWriteError = err }
           },
@@ -318,6 +385,8 @@ export function useSlotMutations({
                   return { ...s, activity_id: prevTargetActivityId, flags: prevTargetFlags }
                 if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
                   return { ...s, activity_id: prevSourceActivityId, flags: prevSourceFlags }
+                const tail = tailRows.find(t => t.id === s.id)
+                if (tail) return { ...s, activity_id: tail.activity_id, is_span_head: false, flags: tail.flags ?? {} }
                 return s
               })
               slotsRef.current = next
@@ -336,6 +405,7 @@ export function useSlotMutations({
               await Promise.all([
                 repo.writeSlotFields(targetRow.id, { activity_id: incoming.activityId, flags: {} }),
                 ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { activity_id: null, flags: {} })] : []),
+                ...tailRows.map(tail => repo.writeSlotFields(tail.id, { activity_id: null, is_span_head: true, flags: {} })),
               ])
             } catch (err) { redoWriteError = err }
           },
@@ -347,6 +417,8 @@ export function useSlotMutations({
                   return { ...s, activity_id: incoming.activityId, flags: {} }
                 if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
                   return { ...s, activity_id: null, flags: {} }
+                if (tailRows.some(t => t.id === s.id))
+                  return { ...s, activity_id: null, is_span_head: true, flags: {} }
                 return s
               })
               slotsRef.current = next

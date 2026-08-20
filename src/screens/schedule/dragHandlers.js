@@ -8,8 +8,8 @@
 // reproduce exactly what `useDroppable({ disabled })` plus the old
 // `over.data.current.slot` shape used to reject.
 export function makeDragHandlers({
-  timeBlocks, days, slots, actMap, getSlot,
-  expandSlot, placeActivityManual, replaceSlot,
+  slots, getSlot,
+  placeActivityManual, replaceSlot,
 }) {
   function commit(active, hit, gestureId) {
     if (!active || !hit) return
@@ -30,28 +30,6 @@ export function makeDragHandlers({
     }
 
     const { groupId, dayId, blockId } = hit
-
-    if (data.expandDrag) {
-      const { groupId: headGroupId, dayId: headDayId, blockId: headBlockId } = data.expandDrag
-      if (groupId !== headGroupId || dayId !== headDayId) return
-
-      const headBlock = timeBlocks.find(b => b.id === headBlockId)
-      const tailBlock = timeBlocks.find(b => b.id === blockId)
-      if (!headBlock || !tailBlock) return
-      if (tailBlock.sort_order !== headBlock.sort_order + 1) return
-
-      const tailSlot = getSlot(slots, groupId, dayId, blockId)
-      if (!tailSlot || !tailSlot.activity_id || tailSlot.is_anchor) return
-
-      const tailActivity = actMap.get(tailSlot.activity_id)
-      const day = days.find(d => d.id === dayId)
-      expandSlot(
-        headGroupId, headDayId, headBlockId, blockId,
-        tailSlot.activity_id, tailActivity?.name || '', tailBlock.name, day?.label ?? dayId,
-        gestureId
-      )
-      return
-    }
 
     if (data.paletteActivity) {
       if (!groupId || !dayId || !blockId) return

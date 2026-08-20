@@ -178,12 +178,12 @@ describe('Pointing resolves click-vs-drag', () => {
   it('POINTER_DOWN arms Pointing from Idle with the event kind and initial hit', () => {
     const result = transition(idleState, {
       type: 'POINTER_DOWN',
-      kind: DRAG_KINDS.EXPAND_DRAG,
+      kind: DRAG_KINDS.PALETTE_DROP,
       hit: hit('a'),
     })
     expect(result.nextState).toEqual({
       name: POINTING,
-      context: { kind: DRAG_KINDS.EXPAND_DRAG, initialHit: hit('a'), movingHit: null, finalHit: null },
+      context: { kind: DRAG_KINDS.PALETTE_DROP, initialHit: hit('a'), movingHit: null, finalHit: null },
     })
     expect(result.sideEffects).toEqual([])
   })
@@ -317,19 +317,18 @@ describe('POINTER_DOWN outside Idle re-arms rather than wedging', () => {
 })
 
 // ---------------------------------------------------------------------------
-// All four drag kinds go through the one machine.
+// All three drag kinds go through the one machine.
 // ---------------------------------------------------------------------------
 
-describe('all four drag kinds use the same machine', () => {
+describe('all three drag kinds use the same machine', () => {
   const kinds = [
     DRAG_KINDS.SLOT_MOVE,
     DRAG_KINDS.PALETTE_DROP,
-    DRAG_KINDS.EXPAND_DRAG,
     DRAG_KINDS.OVERLAY_FILL,
   ]
 
-  it('exposes exactly the four kinds', () => {
-    expect(kinds).toEqual(['slot-move', 'palette-drop', 'expand-drag', 'overlay-fill'])
+  it('exposes exactly the three kinds', () => {
+    expect(kinds).toEqual(['slot-move', 'palette-drop', 'overlay-fill'])
   })
 
   for (const kind of kinds) {

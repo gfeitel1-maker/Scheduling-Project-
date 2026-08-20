@@ -101,18 +101,17 @@ describe('shared cell components render placed gridcells (T56)', () => {
     expect(container.querySelectorAll('td, th, tr, table').length).toBe(0)
   })
 
-  it('keeps every hover affordance out of React state', () => {
-    // The §6 payoff, banked: hovering a cell must re-render nothing. The merge
-    // button, the split button and the expand handle are all mounted up front
-    // and gated by :hover in scheduleGrid.css, so they are in the DOM without
-    // any pointer event having fired.
-    const { container } = render(
+  it('renders the merge button permanently in the idle DOM, queryable without any hover (T92)', () => {
+    // T92: the merge/split button is no longer hover-gated (visibility:hidden
+    // at rest) — it is always in the DOM and always hit-testable, which is
+    // what makes it discoverable without being told and reachable by
+    // getByRole without simulating hover.
+    render(
       <DndContext>
         <SlotCell
           slot={slot}
           activity={{ id: 'a1', name: 'Soccer' }}
           actColorIdx={0}
-          onEdit={() => {}}
           hasMergeDown={true}
           isDndEnabled={true}
           gridRow="1 / span 1"
@@ -120,11 +119,56 @@ describe('shared cell components render placed gridcells (T56)', () => {
         />
       </DndContext>
     )
-    expect(container.querySelector('.cell-action')).not.toBeNull()
-    expect(container.querySelector('.expand-handle')).not.toBeNull()
-    // Both glyphs are mounted; the stylesheet picks one. A pseudo-state cannot
-    // swap a text node, which is why there are two.
-    expect(container.querySelectorAll('.expand-glyph').length).toBe(2)
+    const button = screen.getByRole('button', { name: /run into the next period/i })
+    expect(button).toBeTruthy()
+    expect(button.querySelector('svg')).not.toBeNull()
+  })
+
+  it('renders the split variant with its own aria-label when the slot is merged', () => {
+    render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          actColorIdx={0}
+          isMerged={true}
+          isDndEnabled={true}
+          gridRow="1 / span 1"
+          gridColumn="2 / span 1"
+        />
+      </DndContext>
+    )
+    const button = screen.getByRole('button', { name: /split this back into two periods/i })
+    expect(button.className).toContain('cell-action--split')
+  })
+
+  it('carries the one-time onboarding pulse data attribute only when showMergeHint is set', () => {
+    const withHint = render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          actColorIdx={0}
+          hasMergeDown={true}
+          isDndEnabled={true}
+          showMergeHint={true}
+        />
+      </DndContext>
+    )
+    expect(withHint.container.querySelector('.cell-action').hasAttribute('data-merge-hint')).toBe(true)
+
+    const withoutHint = render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          actColorIdx={0}
+          hasMergeDown={true}
+          isDndEnabled={true}
+        />
+      </DndContext>
+    )
+    expect(withoutHint.container.querySelector('.cell-action').hasAttribute('data-merge-hint')).toBe(false)
   })
 
   it('never lets dnd-kit displace role="gridcell" with role="button"', () => {

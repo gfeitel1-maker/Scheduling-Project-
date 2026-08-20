@@ -183,6 +183,25 @@ describe('ManualBuildView — collapse (T56 extends T55)', () => {
     expect(folded).toEqual(['b3'])
   })
 
+  it('renders a merged activity span head once, spanning N rows, and skips its tail (T99)', () => {
+    const merged = [
+      ...slots.filter(s => s.id !== 's3'),
+      { id: 's3', group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: 'a1', is_anchor: false, is_span_head: true, flags: { expanded: true } },
+      { id: 's3b', group_id: 'g1', day_id: 'd2', time_block_id: 'b2', activity_id: 'a1', is_anchor: false, is_span_head: false },
+    ]
+    const geometry = makeGridGeometry({ slots: merged, timeBlocks, groups, overlays: [], fillState: null })
+    const container = renderView({ geometry })
+
+    const head = cellAt(container, 'g1|d2|b1')
+    expect(head.getAttribute('role')).toBe('gridcell')
+    expect(head.style.gridRow).toBe('1 / span 2')
+    expect(head.getAttribute('aria-rowspan')).toBe('2')
+    expect(head.textContent).toContain(LONG_NAME)
+
+    // The tail is covered by the head's row span — no independent SlotCell/droppable.
+    expect(cellAt(container, 'g1|d2|b2')).toBeNull()
+  })
+
   it('derives one row-level flag dot, mounted in every row', () => {
     const flagged = [
       ...slots.filter(s => s.id !== 's5'),

@@ -54,7 +54,6 @@ export function resolveHit(point) {
 // authoritative, so a wrong guess here self-corrects.
 function kindFromTarget(target) {
   if (!target?.closest) return null
-  if (target.closest('.expand-handle')) return DRAG_KINDS.EXPAND_DRAG
   if (target.closest('.overlay-fill-handle')) return DRAG_KINDS.OVERLAY_FILL
   if (target.closest('[data-palette-activity]')) return DRAG_KINDS.PALETTE_DROP
   if (target.closest('[data-cell-key]')) return DRAG_KINDS.SLOT_MOVE
@@ -63,7 +62,6 @@ function kindFromTarget(target) {
 
 function kindFromActive(active) {
   const data = active?.data?.current || {}
-  if (data.expandDrag) return DRAG_KINDS.EXPAND_DRAG
   if (data.paletteActivity) return DRAG_KINDS.PALETTE_DROP
   if (data.slot) return DRAG_KINDS.SLOT_MOVE
   return null

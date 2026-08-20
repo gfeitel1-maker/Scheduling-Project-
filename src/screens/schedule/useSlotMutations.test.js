@@ -183,6 +183,253 @@ describe('useSlotMutations — replaceSlot', () => {
   })
 })
 
+// T91: replacing a span head must free every covered tail (manual
+// flags.expanded blob AND generated is_span_head chain — same unified walk),
+// not just rewrite the target cell and orphan the tail(s).
+describe('useSlotMutations — replaceSlot (T91: span-aware tail release)', () => {
+  const timeBlocks = [
+    { id: 'b1', name: 'Block 1', sort_order: 1 },
+    { id: 'b2', name: 'Block 2', sort_order: 2 },
+    { id: 'b3', name: 'Block 3', sort_order: 3 },
+    { id: 'b4', name: 'Block 4', sort_order: 4 },
+  ]
+
+  it('manual 2-block blob: palette replace frees the tail and gives the head the new activity', async () => {
+    const slots = [
+      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-old', is_span_head: true, flags: { expanded: { displacedActivityId: 'act-old', displacedActivityName: 'Old', from_block: 'b2' } } },
+      { id: 'row-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-old', is_span_head: false, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, timeBlocks, activities: [{ id: 'act-old', name: 'Old' }, { id: 'act-new', name: 'New' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-new' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-new', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { activity_id: null, is_span_head: true, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(2)
+  })
+
+  it('manual undo: head restored to its activity + flags.expanded; tail restored to owning the head activity', async () => {
+    const expandedFlag = { expanded: { displacedActivityId: 'act-old', displacedActivityName: 'Old', from_block: 'b2' } }
+    const slots = [
+      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-old', is_span_head: true, flags: expandedFlag },
+      { id: 'row-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-old', is_span_head: false, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, timeBlocks, activities: [{ id: 'act-old', name: 'Old' }, { id: 'act-new', name: 'New' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-new' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    const entry = props.pushUndo.mock.calls[0][0]
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await entry.undo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-old', flags: expandedFlag })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { activity_id: 'act-old', is_span_head: false, flags: {} })
+  })
+
+  it('generated >=3-block is_span_head chain: replace frees EVERY tail', async () => {
+    const slots = [
+      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-old', is_span_head: true, flags: {} },
+      { id: 'row-tail1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-old', is_span_head: false, flags: {} },
+      { id: 'row-tail2', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'act-old', is_span_head: false, flags: {} },
+    ]
+    const { hook, props } = setup({
+      slots,
+      timeBlocks,
+      activities: [{ id: 'act-old', name: 'Old' }, { id: 'act-new', name: 'New' }],
+      routeState: { route: 'generated', existingTemplates: { generated: true, manual: true }, templateId: 'tid-generated' },
+    })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-new' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-new', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail1', { activity_id: null, is_span_head: true, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail2', { activity_id: null, is_span_head: true, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(3)
+  })
+
+  it('guard: an ordinary single cell whose following block is a DIFFERENT activity is not touched (only the target write)', async () => {
+    const slots = [
+      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-old', is_span_head: true, flags: {} },
+      { id: 'row-neighbor', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-other', is_span_head: true, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, timeBlocks, activities: [{ id: 'act-old', name: 'Old' }, { id: 'act-other', name: 'Other' }, { id: 'act-new', name: 'New' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-new' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(1)
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-new', flags: {} })
+  })
+
+  it('undo -> redo -> undo round-trip stays coherent for a span-head replace', async () => {
+    const slots = [
+      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-old', is_span_head: true, flags: {} },
+      { id: 'row-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-old', is_span_head: false, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, timeBlocks, activities: [{ id: 'act-old', name: 'Old' }, { id: 'act-new', name: 'New' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-new' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    const entry = props.pushUndo.mock.calls[0][0]
+
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await entry.undo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-old', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { activity_id: 'act-old', is_span_head: false, flags: {} })
+
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await entry.redo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-new', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { activity_id: null, is_span_head: true, flags: {} })
+
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await entry.undo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-old', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { activity_id: 'act-old', is_span_head: false, flags: {} })
+  })
+
+  it('guard: a following block with the SAME activity_id but is_span_head:true (a coincidental adjacent single-block instance, not a real tail) is not collected', async () => {
+    const slots = [
+      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-old', is_span_head: true, flags: {} },
+      { id: 'row-neighbor', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-old', is_span_head: true, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, timeBlocks, activities: [{ id: 'act-old', name: 'Old' }, { id: 'act-new', name: 'New' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-new' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(1)
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-new', flags: {} })
+  })
+})
+
+// T91 (owner-approved scope extension, "Both ends of a move"): a grid-to-grid
+// drag whose SOURCE is a span head must free the source's covered tails too —
+// same orphan mechanism, the other end of a move. The source cell's own
+// activity_id:null write is unchanged; only its tails are newly freed.
+describe('useSlotMutations — replaceSlot (T91: source-side span tail release)', () => {
+  const timeBlocks = [
+    { id: 'b1', name: 'Block 1', sort_order: 1 },
+    { id: 'b2', name: 'Block 2', sort_order: 2 },
+    { id: 'b3', name: 'Block 3', sort_order: 3 },
+    { id: 'b4', name: 'Block 4', sort_order: 4 },
+  ]
+
+  it('grid-to-grid: source is a manual 2-block blob — source tail freed, target (plain empty cell) unaffected', async () => {
+    const slots = [
+      { id: 'row-source-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_span_head: true, flags: { expanded: { displacedActivityId: 'act-1', displacedActivityName: 'Swim', from_block: 'b2' } } },
+      { id: 'row-source-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', is_span_head: false, flags: {} },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, timeBlocks, activities: [{ id: 'act-1', name: 'Swim' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot(
+        { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' },
+        { groupId: 'g1', dayId: 'd1', blockId: 'b3' }
+      )
+    })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-head', { activity_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-tail', { activity_id: null, is_span_head: true, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(3)
+  })
+
+  it('grid-to-grid: source is a generated 3-block is_span_head chain — every source tail freed', async () => {
+    const slots = [
+      { id: 'row-source-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_span_head: true, flags: {} },
+      { id: 'row-source-tail1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', is_span_head: false, flags: {} },
+      { id: 'row-source-tail2', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'act-1', is_span_head: false, flags: {} },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b4', activity_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({
+      slots,
+      timeBlocks,
+      activities: [{ id: 'act-1', name: 'Swim' }],
+      routeState: { route: 'generated', existingTemplates: { generated: true, manual: true }, templateId: 'tid-generated' },
+    })
+    await act(async () => {
+      await hook.result.current.replaceSlot(
+        { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' },
+        { groupId: 'g1', dayId: 'd1', blockId: 'b4' }
+      )
+    })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-head', { activity_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-tail1', { activity_id: null, is_span_head: true, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-tail2', { activity_id: null, is_span_head: true, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(4)
+  })
+
+  it('undo restores the source span: head gets its activity + flags.expanded back, tail restored to owning it', async () => {
+    const expandedFlag = { expanded: { displacedActivityId: 'act-1', displacedActivityName: 'Swim', from_block: 'b2' } }
+    const slots = [
+      { id: 'row-source-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_span_head: true, flags: expandedFlag },
+      { id: 'row-source-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', is_span_head: false, flags: {} },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, timeBlocks, activities: [{ id: 'act-1', name: 'Swim' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot(
+        { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' },
+        { groupId: 'g1', dayId: 'd1', blockId: 'b3' }
+      )
+    })
+    const entry = props.pushUndo.mock.calls[0][0]
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await entry.undo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-head', { activity_id: 'act-1', flags: expandedFlag })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-tail', { activity_id: 'act-1', is_span_head: false, flags: {} })
+  })
+})
+
+// T91 delta-review fix: a cell that already gets an explicit target/source
+// write must never ALSO be double-written as a "freed tail" — the regression
+// Red Hat found when a merged HEAD is dragged onto its own tail (or vice
+// versa), which ManualBuildView allows because tail cells are independently
+// droppable there.
+describe('useSlotMutations — replaceSlot (T91: no double-write when target/source IS its own span partner)', () => {
+  const timeBlocks = [
+    { id: 'b1', name: 'Block 1', sort_order: 1 },
+    { id: 'b2', name: 'Block 2', sort_order: 2 },
+    { id: 'b3', name: 'Block 3', sort_order: 3 },
+  ]
+
+  it('head dragged onto its own tail: the tail cell is written exactly once, as the target drop — not also as a null tail-free', async () => {
+    const slots = [
+      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_span_head: true, flags: { expanded: { displacedActivityId: 'act-1', displacedActivityName: 'Swim', from_block: 'b2' } } },
+      { id: 'row-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', is_span_head: false, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, timeBlocks, activities: [{ id: 'act-1', name: 'Swim' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot(
+        { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' }, // source: the head
+        { groupId: 'g1', dayId: 'd1', blockId: 'b2' } // target: its own tail
+      )
+    })
+    const tailCalls = props.repo.writeSlotFields.mock.calls.filter(([id]) => id === 'row-tail')
+    expect(tailCalls).toHaveLength(1)
+    expect(tailCalls[0][1]).toEqual({ activity_id: 'act-1', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(2)
+  })
+
+  it('tail dragged onto its own head: the shared cell is written exactly once, as the source clear — no double-write', async () => {
+    const slots = [
+      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_span_head: true, flags: { expanded: { displacedActivityId: 'act-1', displacedActivityName: 'Swim', from_block: 'b2' } } },
+      { id: 'row-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', is_span_head: false, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, timeBlocks, activities: [{ id: 'act-1', name: 'Swim' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot(
+        { groupId: 'g1', dayId: 'd1', blockId: 'b2', activityId: 'act-1' }, // source: the tail
+        { groupId: 'g1', dayId: 'd1', blockId: 'b1' } // target: its own head
+      )
+    })
+    const headCalls = props.repo.writeSlotFields.mock.calls.filter(([id]) => id === 'row-head')
+    expect(headCalls).toHaveLength(1)
+    expect(headCalls[0][1]).toEqual({ activity_id: 'act-1', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { activity_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(2)
+  })
+})
+
 // Deviation A (2026-08-12 drag-FSM gesture-correlation ADR): the undo snapshot
 // must reflect the freshest known state, not the `slots` this render closed
 // over — a second same-cell replaceSlot call, made before a re-render, must not

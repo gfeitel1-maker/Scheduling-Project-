@@ -305,16 +305,12 @@
 
 /* ---------- interaction pseudo-states (this is why §6 was relaxed) ---------- */
 
-/* Replaces SlotCell's cellHovered useState + onPointerEnter/onPointerLeave:
-   hovering a cell no longer re-renders React. */
-/* visibility, not opacity: these are real <button>s and dnd-kit gives the
-   expand handle a tabIndex. An opacity-0 control stays focusable and stays in
-   the accessibility tree, which the useState version never did — it was simply
-   not mounted. visibility: hidden reproduces that. */
-/* Lifted verbatim from S.cellActionBtn (styles/shared.js), which the 'td'
-   branch still applies inline. It has to live here for the grid branch: an
-   inline `display: flex` cannot be overridden by the collapsed rule below, and
-   this absolutely-positioned 16px box is 2px taller than a 20px strip. */
+/* T92: consolidated from two redundant hover-only affordances (this button
+   plus a since-deleted .expand-handle drag strip) into one permanently
+   visible, quiet control. It is a real <button>, always in normal flow and
+   always hit-testable — no visibility:hidden at rest any more, which is what
+   makes it a real keyboard/SR target instead of the effectively-hidden state
+   it had before this pass. */
 .cell-action {
   position: absolute;
   top: 4px;
@@ -323,29 +319,64 @@
   height: 16px;
   border-radius: 4px;
   border: 1px solid var(--border);
-  background: var(--surface-elevated);
+  background: var(--surface);
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
   color: var(--text-secondary);
   z-index: 3;
   padding: 0;
   font-family: inherit;
-  visibility: hidden;
-  opacity: 0;
+  opacity: 0.55;
+  transition: opacity var(--motion-fast) var(--ease-out),
+              border-color var(--motion-fast) var(--ease-out),
+              background var(--motion-fast) var(--ease-out);
 }
 
-.cell:hover .cell-action {
-  visibility: visible;
+.cell-action:hover,
+.cell-action:focus-visible {
   opacity: 1;
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface));
+  color: var(--primary);
+}
+
+.cell-action:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 1px;
+}
+
+.cell-action:active {
+  transform: scale(0.94);
 }
 
 /* Replaces splitHovered useState. */
-.cell-action--split:hover {
+.cell-action--split:hover,
+.cell-action--split:focus-visible {
   border-color: var(--danger);
   color: var(--danger);
+}
+
+/* T92 one-time onboarding pulse: bronze, single non-looping pulse on mount,
+   cleared by the caller (ManualBuildView) after the first interaction — see
+   docs/work/specs/2026-08-20-t92-manual-merge-discoverability.md. */
+.cell-action[data-merge-hint] {
+  animation: cell-action-hint-pulse var(--motion-settle) var(--ease-out) 1;
+}
+
+@keyframes cell-action-hint-pulse {
+  0%   { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
+  40%  { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell-action[data-merge-hint] {
+    animation: none;
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
 }
 
 /* Replaces (cellHovered || reasonFocused) on the review reason callout. */
@@ -379,71 +410,6 @@
 .cell[data-paste-target]:hover .cell-inner {
   border: 2px dashed var(--primary);
   background: color-mix(in srgb, var(--primary) 12%, transparent);
-}
-
-.expand-handle {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 10px;
-  border-radius: 0 0 7px 7px;
-  cursor: row-resize;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background var(--motion-fast) var(--ease-out), opacity var(--motion-fast) var(--ease-out);
-  user-select: none;
-  touch-action: none;
-  z-index: 2;
-  visibility: hidden;
-  opacity: 0;
-}
-
-.cell:hover .expand-handle {
-  visibility: visible;
-  opacity: 0.6;
-}
-
-.cell:hover .expand-handle:hover,
-.expand-handle[data-dragging] {
-  visibility: visible;
-  opacity: 1;
-}
-
-/* Replaces ExpandHandle's own `hovered` useState (T56): the handle's colour and
-   its glyph were the last hover state left in this file's components. Both
-   glyphs are always mounted and one is displayed, because a pseudo-state cannot
-   swap a text node. */
-.expand-handle {
-  background: var(--border);
-}
-
-.expand-handle:hover,
-.expand-handle[data-dragging] {
-  background: var(--primary);
-}
-
-.expand-glyph {
-  font-size: 11px;
-  line-height: 1;
-  pointer-events: none;
-  color: var(--text-secondary);
-}
-
-.expand-glyph--active {
-  display: none;
-  color: #fff;
-}
-
-.expand-handle:hover .expand-glyph--idle,
-.expand-handle[data-dragging] .expand-glyph--idle {
-  display: none;
-}
-
-.expand-handle:hover .expand-glyph--active,
-.expand-handle[data-dragging] .expand-glyph--active {
-  display: block;
 }
 
 /* ---------- overlay cell chrome (was inline in OverlayCell) ---------- */
@@ -540,7 +506,6 @@
 
 .cell[data-collapsed] .identity-dot,
 .cell[data-collapsed] .flag,
-.cell[data-collapsed] .expand-handle,
 .cell[data-collapsed] .cell-action,
 .cell[data-collapsed] .cell-reason,
 .cell[data-collapsed] .overlay-remove,
@@ -637,17 +602,6 @@
 
 .cell[data-drag-over][data-drop-edge='bottom']::before {
   bottom: 5px;
-}
-
-/* Extend-drag kept its own colour and dashed treatment from the inline version
-   it replaces, so the gesture still reads as "grow this" rather than "swap". */
-.cell[data-drag-over][data-drag-kind='expand-drag']::after {
-  outline: 2px dashed var(--success);
-  background: color-mix(in srgb, var(--success) 9%, transparent);
-}
-
-.cell[data-drag-over][data-drag-kind='expand-drag']::before {
-  background: var(--success);
 }
 
 /* Static ghost of the incoming activity + dimmed occupant, per spec's "no
@@ -755,9 +709,16 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .expand-handle,
   .cell-empty {
     transition: none;
+  }
+
+  .cell-action {
+    transition: opacity var(--motion-fast) var(--ease-out);
+  }
+
+  .cell-action:active {
+    transform: none;
   }
 
   .cell[data-flag-changed]::after {

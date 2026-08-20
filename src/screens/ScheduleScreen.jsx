@@ -612,11 +612,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const actMap = new Map(activities.map(a => [a.id, { ...a, colorIdx: a.id }]))
   const anchorMap = new Map(anchors.map(a => [a.id, a]))
 
-  // Group-view and day-view DnD share identical expand-drag/palette-drop/
-  // replace branches — every grid-to-grid or palette-onto-occupied drop always
-  // replaces (drag-first-placement, 2026-08-09). The prior swap-gating flag is
-  // gone: replace is unconditional now, not a product-decision toggle.
-  const dragDeps = { timeBlocks, days, slots, actMap, getSlot, expandSlot, placeActivityManual, replaceSlot }
+  // Group-view and day-view DnD share identical palette-drop/replace branches —
+  // every grid-to-grid or palette-onto-occupied drop always replaces
+  // (drag-first-placement, 2026-08-09). The prior swap-gating flag is gone:
+  // replace is unconditional now, not a product-decision toggle. Merge/extend
+  // (formerly expand-drag) moved to a click affordance in T92 and no longer
+  // rides through the drag FSM.
+  const dragDeps = { timeBlocks, days, slots, actMap, getSlot, placeActivityManual, replaceSlot }
   const groupHandlers = makeDragHandlers(dragDeps)
   const dayHandlers = makeDragHandlers(dragDeps)
 
@@ -624,7 +626,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // a side effect, never during render.
   function describeDrag(active) {
     const data = active?.data?.current || {}
-    if (data.expandDrag) return `${actMap.get(data.expandDrag.activityId)?.name || 'Activity'}, extending`
     if (data.paletteActivity) return actMap.get(data.paletteActivity.id)?.name || 'Activity'
     if (data.slot) return actMap.get(data.slot.activity_id)?.name || 'Empty slot'
     return 'Item'
@@ -1208,7 +1209,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         )
 
         // Group view and manual view each get a DndContext so palette chips can
-        // reach the droppable cells. Group view also handles expand-drag.
+        // reach the droppable cells.
         if (view === 'group') {
           return (
             <DndContext
