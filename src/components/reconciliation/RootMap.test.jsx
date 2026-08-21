@@ -55,7 +55,10 @@ describe('RootMap resting interactivity ring (RA-6)', () => {
         onClearSelection={noop}
       />,
     )
-    const rings = [...container.querySelectorAll('circle[stroke="var(--anchor)"]')]
+    // The resting ring is the only stroked, unfilled circle per node (the glow
+    // circle is fill-only, no stroke) — match both so this can't silently start
+    // counting a future decorative circle instead.
+    const rings = [...container.querySelectorAll('circle[stroke="var(--anchor)"][fill="none"]')]
     // one domain node + one child node in `model()`
     expect(rings).toHaveLength(2)
     for (const ring of rings) {
