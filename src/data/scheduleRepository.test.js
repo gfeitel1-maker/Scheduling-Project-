@@ -259,6 +259,18 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
   })
 })
 
+describe('day_overrides field writes (T108 override-authoring-mode)', () => {
+  it('writeDayOverrideFields writes day_overrides fields in order', async () => {
+    const client = makeFakeClient()
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    await repo.writeDayOverrideFields('ov-1', { schedule_week_id: 'week-1', kind: 'pull' })
+    expect(client.calls.write).toEqual([
+      ['tok', 'day_overrides', 'ov-1', 'schedule_week_id', 'week-1'],
+      ['tok', 'day_overrides', 'ov-1', 'kind', 'pull'],
+    ])
+  })
+})
+
 describe('overlay field writes', () => {
   it('writeOverlayFields writes template_overlays fields in order', async () => {
     const client = makeFakeClient()
@@ -519,5 +531,77 @@ describe('week exclusions — loadWeekExclusions / toggleActivityExclusion / tog
     expect(client.calls.deleteEntity).toEqual([
       ['tok', 'week_location_exclusions', 'excl-loc-1'],
     ])
+  })
+})
+
+// T108 (day-overrides re-point, design §5.2): snapshot save/restore
+// participation. Snapshots are whole-week/template-level, so override
+// capture and restore are scoped to the WHOLE WEEK (all days), not the
+// currently-viewed day.
+describe('day_overrides — loadDayOverridesForWeek / restoreSnapshotRows whole-week participation', () => {
+  it('loadDayOverridesForWeek returns rows for the given schedule_week_id only', async () => {
+    const client = makeFakeClient()
+    client.setListStore({
+      day_overrides: [
+        { id: 'ov-1', schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'swap', activity_id: 'act-art' },
+        { id: 'ov-2', schedule_week_id: 'week-2', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'pull', activity_id: null },
+      ],
+    })
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    const result = await repo.loadDayOverridesForWeek('week-1')
+    expect(result).toEqual([
+      { id: 'ov-1', schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'swap', activity_id: 'act-art' },
+    ])
+  })
+
+  it('restoreSnapshotRows: deletes the whole week\'s current day_overrides, then recreates from the payload', async () => {
+    const client = makeFakeClient()
+    client.setListStore({
+      schedule_templates: [{ id: 'tid', camp_id: 'camp1', name: 'Generated', kind: 'generated', week_id: 'week-1' }],
+      day_overrides: [
+        { id: 'existing-1', schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'swap', activity_id: 'act-old' },
+        { id: 'other-week', schedule_week_id: 'week-2', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'swap', activity_id: 'act-x' },
+      ],
+    })
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    await repo.restoreSnapshotRows('tid', [], [], [
+      { day_id: 'd2', group_id: 'g2', time_block_id: 'b2', activity_id: 'act-new', kind: 'swap', note: null },
+    ])
+
+    // Only the current week's existing override is deleted — a different
+    // week's row is untouched.
+    expect(client.calls.deleteEntity).toEqual([['tok', 'day_overrides', 'existing-1']])
+
+    const dayOverrideWrites = client.calls.write.filter((c) => c[1] === 'day_overrides')
+    // One write() call per field (id shared across all of them) — same
+    // pattern as toggleActivityExclusion's week_id-then-activity_id writes.
+    expect(dayOverrideWrites.length).toBeGreaterThan(0)
+    // schedule_week_id is written first (projections ensureExists gate).
+    expect(dayOverrideWrites[0][3]).toBe('schedule_week_id')
+    expect(dayOverrideWrites[0][4]).toBe('week-1')
+    expect(dayOverrideWrites.every((c) => c[2] === dayOverrideWrites[0][2])).toBe(true)
+  })
+
+  it('restoreSnapshotRows: an empty day_overrides payload deletes the week\'s current overrides and writes nothing new (restore-to-no-overrides)', async () => {
+    const client = makeFakeClient()
+    client.setListStore({
+      schedule_templates: [{ id: 'tid', camp_id: 'camp1', name: 'Generated', kind: 'generated', week_id: 'week-1' }],
+      day_overrides: [
+        { id: 'existing-1', schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'swap', activity_id: 'act-old' },
+      ],
+    })
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    await repo.restoreSnapshotRows('tid', [], [], [])
+
+    expect(client.calls.deleteEntity).toEqual([['tok', 'day_overrides', 'existing-1']])
+    expect(client.calls.write.filter((c) => c[1] === 'day_overrides')).toHaveLength(0)
+  })
+
+  it('restoreSnapshotRows: omitting the 4th arg entirely does not touch day_overrides (back-compat, no template match needed)', async () => {
+    const client = makeFakeClient()
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    await repo.restoreSnapshotRows('tid', [], [])
+    expect(client.calls.deleteEntity.filter((c) => c[1] === 'day_overrides')).toHaveLength(0)
+    expect(client.calls.write.filter((c) => c[1] === 'day_overrides')).toHaveLength(0)
   })
 })

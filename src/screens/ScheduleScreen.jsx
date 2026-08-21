@@ -321,7 +321,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const { saveSnapshot, deleteSnapshot, restoreSnapshot, renameSnapshot } = useSnapshots({
     routeState, repo, setActionError,
     recalcStats, resetUndoRedo,
-    groups, activities, days,
+    groups, activities, days, weekId,
   })
 
   // Week mutation orchestration: create/rename/archive/unarchive/duplicate/delete.

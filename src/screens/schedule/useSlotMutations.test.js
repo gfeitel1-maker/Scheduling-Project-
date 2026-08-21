@@ -19,6 +19,8 @@ function makeRepo(overrides = {}) {
     readElectiveSetIsReusable: vi.fn(async () => 0),
     getElectiveSet: vi.fn(async () => ({ id: 'existing', is_reusable: 0 })),
     deleteElectiveSet: vi.fn(async () => ({ ok: true })),
+    // T108
+    writeDayOverrideFields: vi.fn(async () => ({ status: 'applied' })),
     ...overrides,
   }
 }
@@ -1838,5 +1840,160 @@ describe('useSlotMutations — createElectiveFromCell undo-then-redo re-create (
     const finalSlot = setSlots.get().find(s => s.id === 'row-target')
     expect(finalSlot.elective_set_id).toBe(newSetId)
     expect(finalSlot.elective_set_id).not.toBe(originalSetId)
+  })
+})
+
+// T108 (day-overrides re-point, design §6.1 — RED HAT FINDING #5 fix): a
+// non-override-mode edit onto a cell with an ACTIVE override is BLOCKED, not
+// silently reverted on next render. Every write path that targets an
+// existing cell must check `is_overridden` before dispatching its write.
+describe('useSlotMutations — override edit-block guard (is_overridden, not in override mode)', () => {
+  const OVERRIDE_MESSAGE = 'This day has an override on this cell — switch to Override mode to change it.'
+
+  it('replaceSlot: blocks a write onto an overridden target, surfaces the error, no write, no undo', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-old', flags: {}, is_overridden: true },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+    expect(props.pushUndo).not.toHaveBeenCalled()
+    expect(props.setActionError).toHaveBeenCalledWith(OVERRIDE_MESSAGE)
+  })
+
+  it('placeActivityManual: blocks a write onto an overridden cell', async () => {
+    const slots = [
+      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-old', flags: {}, is_overridden: true },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }], groups: [{ id: 'g1', tier_id: 't1' }] })
+    await act(async () => {
+      await hook.result.current.placeActivityManual('act-1', 'g1', 'd1', 'b1')
+    })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+    expect(props.setActionError).toHaveBeenCalledWith(OVERRIDE_MESSAGE)
+  })
+
+  it('expandSlot: blocks when the head cell is overridden', async () => {
+    const headSlot = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', flags: {}, is_span_head: true, is_overridden: true }
+    const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actTail', flags: {}, is_span_head: true }
+    const { hook, props } = setup({ slots: [headSlot, tailSlot], activities: [{ id: 'actHead', name: 'Swim' }, { id: 'actTail', name: 'Archery' }] })
+    await act(async () => {
+      await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', 'actTail', 'Archery', 'Block 2', 'Mon')
+    })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+    expect(props.setActionError).toHaveBeenCalledWith(OVERRIDE_MESSAGE)
+  })
+
+  it('splitSlot: blocks when the tail cell is overridden', async () => {
+    const headSlot = {
+      id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', is_span_head: true,
+      flags: { expanded: { displacedActivityId: 'actTail', displacedActivityName: 'Archery', from_block: 'b2' } },
+    }
+    const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actHead', is_span_head: false, is_overridden: true }
+    const { hook, props } = setup({ slots: [headSlot, tailSlot], timeBlocks: [{ id: 'b1', name: 'Block 1', sort_order: 1 }, { id: 'b2', name: 'Block 2', sort_order: 2 }], days: [{ id: 'd1', label: 'Mon' }] })
+    await act(async () => {
+      await hook.result.current.splitSlot('g1', 'd1', 'b1')
+    })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+    expect(props.setActionError).toHaveBeenCalledWith(OVERRIDE_MESSAGE)
+  })
+
+  it('createActivityFromCell: blocks onto an overridden cell, never creates the activity', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-old', flags: {}, is_anchor: false, is_overridden: true },
+    ]
+    const { hook, props } = setup({ slots, activities: [], campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }] })
+    await act(async () => {
+      await hook.result.current.createActivityFromCell('Kayaking', { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeActivityFields).not.toHaveBeenCalled()
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+    expect(props.setActionError).toHaveBeenCalledWith(OVERRIDE_MESSAGE)
+  })
+
+  it('createElectiveFromCell: blocks onto an overridden cell', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-old', flags: {}, is_anchor: false, is_overridden: true },
+    ]
+    const { hook, props } = setup({ slots, activities: [], campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }] })
+    await act(async () => {
+      await hook.result.current.createElectiveFromCell('Chugim', ['Art', 'Archery'], { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeElectiveSetFields).not.toHaveBeenCalled()
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+    expect(props.setActionError).toHaveBeenCalledWith(OVERRIDE_MESSAGE)
+  })
+
+  it('a non-overridden cell is unaffected — replaceSlot proceeds normally', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
+    expect(props.setActionError).not.toHaveBeenCalledWith(OVERRIDE_MESSAGE)
+  })
+})
+
+// T108 (design §6.1): the override-authoring-mode write-routing half. Phase 1
+// wires the mode as a plain hook param (`overrideMode`); the UI toggle that
+// sets it is Phase 2 (out of scope here, per the ticket).
+describe('useSlotMutations — override-authoring mode (overrideMode: true)', () => {
+  it('placeActivityManual in override mode writes a day_overrides row (kind: swap), never template_slots', async () => {
+    const slots = [
+      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({
+      slots, activities: [{ id: 'act-1', name: 'Swim' }], groups: [{ id: 'g1', tier_id: 't1' }],
+      overrideMode: true, weekId: 'week-1',
+    })
+    await act(async () => {
+      await hook.result.current.placeActivityManual('act-1', 'g1', 'd1', 'b1')
+    })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+    expect(props.repo.writeDayOverrideFields).toHaveBeenCalled()
+    const [, fields] = props.repo.writeDayOverrideFields.mock.calls[0]
+    expect(fields).toMatchObject({
+      schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1',
+      activity_id: 'act-1', kind: 'swap',
+    })
+  })
+
+  it('pullOverrideCell writes a day_overrides row with kind: pull and a null activity_id', async () => {
+    const slots = [
+      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {} },
+    ]
+    const { hook, props } = setup({ slots, overrideMode: true, weekId: 'week-1' })
+    await act(async () => {
+      await hook.result.current.pullOverrideCell('g1', 'd1', 'b1')
+    })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+    expect(props.repo.writeDayOverrideFields).toHaveBeenCalled()
+    const [, fields] = props.repo.writeDayOverrideFields.mock.calls[0]
+    expect(fields).toMatchObject({
+      schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1',
+      activity_id: null, kind: 'pull',
+    })
+  })
+
+  it('override-mode writes still respect the edit-block guard on an already-overridden cell', async () => {
+    const slots = [
+      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-old', flags: {}, is_overridden: true },
+    ]
+    const { hook, props } = setup({
+      slots, activities: [{ id: 'act-1', name: 'Swim' }], groups: [{ id: 'g1', tier_id: 't1' }],
+      overrideMode: true, weekId: 'week-1',
+    })
+    await act(async () => {
+      await hook.result.current.placeActivityManual('act-1', 'g1', 'd1', 'b1')
+    })
+    // Already-overridden means a NEW override write in override mode is still
+    // allowed (the guard only blocks NON-override-mode edits) — this asserts
+    // the guard is gated correctly on overrideMode, not that it blocks here.
+    expect(props.repo.writeDayOverrideFields).toHaveBeenCalled()
   })
 })

@@ -69,7 +69,7 @@ describe('migration v37: fresh vs migrated equivalence', () => {
   it('declares schema version 37 on a fresh db and gives special_days a notes column', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(37)
+    expect(CURRENT_SCHEMA_VERSION).toBeGreaterThanOrEqual(37)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 37').get().c).toBe(1)
     expect(db.pragma('table_info(special_days)').map((c) => c.name)).toContain('notes')
     db.close()

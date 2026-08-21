@@ -74,6 +74,12 @@ export function useSlotMutations({
   // is_reusable=1 reuse surface (CellInlineEditor's exact-match lookup).
   electiveSetsAll = [],
   durableElectiveSets = [],
+  // T108 (day-overrides re-point, design §6.1/§6). `overrideMode` is a plain
+  // hook param in Phase 1 — the UI toggle that flips it is Phase 2, out of
+  // scope here. `weekId` is required to stamp a day_overrides row's
+  // schedule_week_id.
+  overrideMode = false,
+  weekId,
 }) {
   const {
     route,
@@ -82,6 +88,21 @@ export function useSlotMutations({
     setSlots,
     setOverlays,
   } = routeState
+
+  // T108 (design §6.1, Red Hat Finding #5 fix): a non-override-mode edit onto
+  // a cell whose composed row already carries an ACTIVE override must be
+  // BLOCKED, not executed and then silently reverted by applyDayOverrides on
+  // the next render. Every write path that targets an existing cell calls
+  // this before dispatching. In override-authoring mode the guard does not
+  // apply — authoring a NEW override onto an already-overridden cell (e.g.
+  // replacing a swap) is exactly what override mode is for.
+  function overrideGuard(row) {
+    if (row?.is_overridden && !overrideMode) {
+      setActionError('This day has an override on this cell — switch to Override mode to change it.')
+      return true
+    }
+    return false
+  }
 
   // Rebuilt from `activities` rather than injected: expandSlot's undo
   // description reads `actMap.get(id)?.name`, and this is the screen's exact
@@ -271,6 +292,7 @@ export function useSlotMutations({
     if (!existingTemplates[route]) return
     const targetRow = slots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
     if (!targetRow || targetRow.is_anchor) return
+    if (overrideGuard(targetRow)) return
 
     const hasSource = incoming.groupId != null && incoming.dayId != null && incoming.blockId != null
     const sourceRow = hasSource
@@ -576,9 +598,32 @@ export function useSlotMutations({
     if (!existingTemplates[route]) return
     const slot = getSlot(slots, groupId, dayId, blockId)
     if (!slot || slot.is_anchor) return
+    if (overrideGuard(slot)) return
 
     const activity = activityOverride ?? activities.find(a => a.id === activityId)
     if (!activity) return
+
+    // T108 (design §6.1): in override-authoring mode, a cell edit writes a
+    // day_overrides row (kind: swap) instead of template_slots. No undo/redo
+    // here yet — that lands with the Phase 2 authoring UI.
+    if (overrideMode) {
+      setActionError(null)
+      const id = crypto.randomUUID()
+      try {
+        await repo.writeDayOverrideFields(id, {
+          schedule_week_id: weekId,
+          day_id: dayId,
+          group_id: groupId,
+          time_block_id: blockId,
+          activity_id: activityId,
+          kind: 'swap',
+          note: null,
+        })
+      } catch (err) {
+        setActionError(describeWriteFailure(err, 'That override could not be saved.'))
+      }
+      return
+    }
 
     const group = groups.find(g => g.id === groupId)
     const eligible = isActivityEligibleForGroup(activity, group)
@@ -736,6 +781,7 @@ export function useSlotMutations({
     const headSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
     const tailSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
     if (!headSlot || !tailSlot) return
+    if (overrideGuard(headSlot) || overrideGuard(tailSlot)) return
 
     const headActivityId = headSlot.activity_id
     const existingFlags = headSlot.flags || {}
@@ -871,6 +917,7 @@ export function useSlotMutations({
     const { from_block: tailBlockId } = headSlot.flags.expanded
     const tailSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
     if (!tailSlot) return
+    if (overrideGuard(headSlot) || overrideGuard(tailSlot)) return
 
     const cleanedFlags = { ...headSlot.flags }
     delete cleanedFlags.expanded
@@ -1004,6 +1051,9 @@ export function useSlotMutations({
     const trimmed = String(name ?? '').trim()
     if (!trimmed) return
 
+    const targetRow = slots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+    if (overrideGuard(targetRow)) return
+
     const dupe = activities.find(a => normalizeName(a.name) === normalizeName(trimmed))
     if (dupe) {
       await placeActivityManual(dupe.id, target.groupId, target.dayId, target.blockId)
@@ -1039,6 +1089,7 @@ export function useSlotMutations({
 
     const targetRow = slots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
     if (!targetRow || targetRow.is_anchor) return
+    if (overrideGuard(targetRow)) return
 
     setActionError(null)
 
@@ -1290,6 +1341,34 @@ export function useSlotMutations({
     })
   }
 
+  // T108 (design §6.1): the "pull" override-authoring action — a group is
+  // intentionally taken off programming for this cell. Only meaningful in
+  // override-authoring mode; the guard still applies so a pull can't silently
+  // clobber an existing override outside that mode. No undo/redo yet, same
+  // posture as placeActivityManual's override-mode branch above.
+  async function pullOverrideCell(groupId, dayId, blockId) {
+    if (!existingTemplates[route]) return
+    const slot = getSlot(slots, groupId, dayId, blockId)
+    if (!slot) return
+    if (overrideGuard(slot)) return
+
+    setActionError(null)
+    const id = crypto.randomUUID()
+    try {
+      await repo.writeDayOverrideFields(id, {
+        schedule_week_id: weekId,
+        day_id: dayId,
+        group_id: groupId,
+        time_block_id: blockId,
+        activity_id: null,
+        kind: 'pull',
+        note: null,
+      })
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That override could not be saved.'))
+    }
+  }
+
   return {
     replaceSlot,
     dismissFlag,
@@ -1303,6 +1382,7 @@ export function useSlotMutations({
     splitSlot,
     createActivityFromCell,
     createElectiveFromCell,
+    pullOverrideCell,
     ownWriteRef,
   }
 }

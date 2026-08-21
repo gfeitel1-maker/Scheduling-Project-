@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 37
+export const CURRENT_SCHEMA_VERSION = 38
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1575,6 +1575,27 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v38 — day_overrides re-point (T108, ADR 2026-08-21-day-overrides-repoint-
+  // shape.md D1/§5.2). Two additive changes, no backfill: every camp starts
+  // with zero day_overrides rows, and every existing schedule_snapshots row
+  // gets NULL day_overrides_json. No op is written (DDL-only, same posture
+  // as v33-v37).
+  if (getSchemaVersion(db) >= 37 && getSchemaVersion(db) < 38) {
+    db.transaction(() => {
+      db.exec(DAY_OVERRIDES_DDL)
+      const hasDayOverridesJson = db
+        .pragma('table_info(schedule_snapshots)')
+        .some((col) => col.name === 'day_overrides_json')
+      if (!hasDayOverridesJson) {
+        db.exec('ALTER TABLE schedule_snapshots ADD COLUMN day_overrides_json TEXT')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (38, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct
@@ -1786,6 +1807,24 @@ export const ELECTIVE_SET_ACTIVITIES_DDL = `CREATE TABLE IF NOT EXISTS elective_
   elective_set_id TEXT NOT NULL REFERENCES elective_sets(id),
   activity_id TEXT NOT NULL,
   UNIQUE(elective_set_id, activity_id)
+)`
+
+// Byte-identical duplicate of the day_overrides block in schema.sql (schema
+// v38, T108, ADR 2026-08-21-day-overrides-repoint-shape.md D1). Kept as a
+// constant so the v38 migration cannot drift from schema.sql by a stray
+// space — same discipline as SPECIAL_DAYS_DDL/ELECTIVE_SETS_DDL above.
+export const DAY_OVERRIDES_DDL = `CREATE TABLE IF NOT EXISTS day_overrides (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  schedule_week_id TEXT NOT NULL REFERENCES schedule_weeks(id),
+  day_id TEXT NOT NULL REFERENCES days_of_operation(id),
+  group_id TEXT NOT NULL REFERENCES groups(id),
+  time_block_id TEXT NOT NULL,
+  activity_id TEXT REFERENCES activities(id),
+  kind TEXT NOT NULL DEFAULT 'swap',
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(schedule_week_id, day_id, group_id, time_block_id)
 )`
 
 // Director-facing, and it appears in Versions beside weeks they saved

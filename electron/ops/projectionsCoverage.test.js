@@ -273,6 +273,13 @@ const PROJECTION_FIELD_EXCEPTIONS = {
         'Replicated read-only alongside camp bootstrap/pairing so Clients can verify camp tokens; set by host key generation, never by a renderer write.',
     },
   ],
+  day_overrides: [
+    {
+      column: 'created_at',
+      reason:
+        "Schema-level DEFAULT (datetime('now')) set at INSERT time (schema.sql/DAY_OVERRIDES_DDL) — no writer under src/ or electron/ ever sets it via appendOp, same posture as anchor_activities.unit_id/span_blocks below.",
+    },
+  ],
   anchor_activities: [
     {
       column: 'unit_id',

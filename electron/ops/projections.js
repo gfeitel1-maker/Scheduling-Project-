@@ -447,6 +447,40 @@ export const PROJECTIONS = {
       ).run(id, electiveSetId, activityId)
     },
   },
+  // day_overrides (T108, ADR 2026-08-21-day-overrides-repoint-shape.md D1).
+  // Direct-camp-scoped (camp_id NOT NULL, like special_days), but with FOUR
+  // additional NOT NULL foreign keys (schedule_week_id, day_id, group_id,
+  // time_block_id) — the same accumulate-then-insert-once shape as
+  // elective_set_activities/special_day_slots above, extended to four fields
+  // instead of two. camp_id is derived from `camps LIMIT 1` like every other
+  // direct-camp entity's ensureExists, not read from the op stream.
+  day_overrides: {
+    table: 'day_overrides',
+    key: 'id',
+    fields: ['camp_id', 'schedule_week_id', 'day_id', 'group_id', 'time_block_id', 'activity_id', 'kind', 'note'],
+    ensureExists: (db, id, field, value) => {
+      const table = 'day_overrides'
+      const readField = (wanted) => {
+        if (field === wanted) return value
+        const prior = getStmt(
+          db,
+          'SELECT value FROM operations WHERE entity = ? AND entity_id = ? AND field = ? ORDER BY seq DESC LIMIT 1'
+        ).get(table, id, wanted)
+        return prior ? prior.value : null
+      }
+      const scheduleWeekId = readField('schedule_week_id')
+      const dayId = readField('day_id')
+      const groupId = readField('group_id')
+      const timeBlockId = readField('time_block_id')
+      if (scheduleWeekId == null || dayId == null || groupId == null || timeBlockId == null) return
+
+      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+      getStmt(
+        db,
+        'INSERT OR IGNORE INTO day_overrides (id, camp_id, schedule_week_id, day_id, group_id, time_block_id) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(id, camp?.id ?? null, scheduleWeekId, dayId, groupId, timeBlockId)
+    },
+  },
   // Join tables with TWO NOT NULL columns (week_id + a real FK). ensureExists
   // reconstructs both fields from the op-log and inserts the complete row once
   // both are known — see ensureWeekJoinRow above for why a week_id-only seed
@@ -579,7 +613,9 @@ export const PROJECTIONS = {
   schedule_snapshots: {
     table: 'schedule_snapshots',
     key: 'id',
-    fields: ['template_id', 'name', 'is_auto', 'created_at', 'slots', 'overlays'],
+    // day_overrides_json (v38, T108, design §5.2): the whole week's
+    // day_overrides rows captured at save time, restored on undo.
+    fields: ['template_id', 'name', 'is_auto', 'created_at', 'slots', 'overlays', 'day_overrides_json'],
     ensureExists: (db, id, field, value) => {
       if (field !== 'template_id') return
       // created_at is NOT NULL with no default (schema.sql) — placeholder

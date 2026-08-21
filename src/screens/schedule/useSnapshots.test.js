@@ -12,6 +12,7 @@ function makeRepo(overrides = {}) {
     restoreSnapshotRows: vi.fn(async () => ({ status: 'applied' })),
     reloadSlots: vi.fn(async () => []),
     reloadOverlays: vi.fn(async () => []),
+    loadDayOverridesForWeek: vi.fn(async () => []),
     ...overrides,
   }
 }
@@ -58,6 +59,7 @@ function setup(overrides = {}) {
     groups: [{ id: 'g1', tier_id: 't1' }],
     activities: [{ id: 'act-1', name: 'Swim' }],
     days: [{ id: 'd1' }],
+    weekId: 'week-1',
     ...rest,
   }
   const hook = renderHook((props) => useSnapshots(props), { initialProps: p })
@@ -146,7 +148,7 @@ describe('useSnapshots', () => {
     await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
 
     expect(props.resetUndoRedo).toHaveBeenCalledTimes(1)
-    expect(repo.restoreSnapshotRows).toHaveBeenCalledWith('tid-generated', expect.any(Array), expect.any(Array))
+    expect(repo.restoreSnapshotRows).toHaveBeenCalledWith('tid-generated', expect.any(Array), expect.any(Array), [])
     expect(props.setSlots).toHaveBeenCalledWith(freshSlots)
     expect(props.setOverlays).toHaveBeenCalledWith([])
     expect(props.recalcStats).toHaveBeenCalledWith(freshSlots)
@@ -180,5 +182,67 @@ describe('useSnapshots', () => {
     await act(async () => { await result.current.renameSnapshot('snap-1', 'Final') })
     expect(props.repo.writeSnapshotFields).toHaveBeenCalledWith('snap-1', { name: 'Final', is_auto: false })
     expect(props.setSnapshots).toHaveBeenCalledTimes(1)
+  })
+
+  // T108 (day-overrides re-point, design §5.2): a snapshot captures the
+  // WHOLE WEEK's day_overrides (all days), and restore passes them back to
+  // the repository as a 4th argument.
+  describe('day_overrides participation', () => {
+    it('saveSnapshot captures the week\'s day_overrides into the payload', async () => {
+      const dayOverrides = [
+        { id: 'ov-1', schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'swap', activity_id: 'act-art' },
+      ]
+      const repo = makeRepo({ loadDayOverridesForWeek: vi.fn(async () => dayOverrides) })
+      const { result, props } = setup({ repo })
+      await act(async () => { await result.current.saveSnapshot('v1', false) })
+
+      expect(repo.loadDayOverridesForWeek).toHaveBeenCalledWith('week-1')
+      const [, fields] = repo.writeSnapshotFields.mock.calls[0]
+      expect(JSON.parse(fields.day_overrides_json)).toEqual(dayOverrides)
+    })
+
+    it('saveSnapshot captures an empty day_overrides array when the week has none', async () => {
+      const { result, props } = setup()
+      await act(async () => { await result.current.saveSnapshot('v1', false) })
+      const [, fields] = props.repo.writeSnapshotFields.mock.calls[0]
+      expect(JSON.parse(fields.day_overrides_json)).toEqual([])
+    })
+
+    it('restoreSnapshot passes the parsed day_overrides payload as restoreSnapshotRows\' 4th arg', async () => {
+      const payload = {
+        template_id: 'tid-generated',
+        slots: JSON.stringify([]),
+        overlays: JSON.stringify([]),
+        day_overrides_json: JSON.stringify([
+          { day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'pull', activity_id: null },
+        ]),
+      }
+      const repo = makeRepo({ getSnapshot: vi.fn(async () => payload) })
+      const { result } = setup({ repo })
+      await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
+
+      expect(repo.restoreSnapshotRows).toHaveBeenCalledWith(
+        'tid-generated',
+        expect.any(Array),
+        expect.any(Array),
+        [{ day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'pull', activity_id: null }],
+      )
+    })
+
+    it('restoreSnapshot from a version saved before overrides existed passes an empty array (restore-to-no-overrides)', async () => {
+      const payload = {
+        template_id: 'tid-generated',
+        slots: JSON.stringify([]),
+        overlays: JSON.stringify([]),
+        // No day_overrides_json at all — a snapshot saved before this feature shipped.
+      }
+      const repo = makeRepo({ getSnapshot: vi.fn(async () => payload) })
+      const { result } = setup({ repo })
+      await act(async () => { await result.current.restoreSnapshot({ id: 'snap-1' }) })
+
+      expect(repo.restoreSnapshotRows).toHaveBeenCalledWith(
+        'tid-generated', expect.any(Array), expect.any(Array), [],
+      )
+    })
   })
 })
