@@ -40,3 +40,13 @@ ship the bug.
 
 **Architect (design (i)/(ii)) → Red Hat (challenge the chosen resolution + the interleave test) → Maker
 (test-first) → Red Hat (verify) → Code Reviewer → Verifier → Grader.**
+
+## ⚠️ Pre-PR renumber obligation (2026-08-21)
+
+**This ticket's number COLLIDES with a merged origin/main ticket** (main owns a different
+`T104-extract-shared-free-suffix-scan`).
+Confirmed with the peer that T105–T111 is clear. **Before opening the PR**, renumber this ticket to
+**T111** and update all references (the other 2026-08-20 ADRs/specs,
+sibling tickets T105–T109, the INDEX, the ~35 in-code comments citing the bare number, and the
+gate-report JSON filename). Bare-number citations are currently disambiguated by their full doc-path,
+so the collision is inert until merge — but must be resolved for numbering integrity.
