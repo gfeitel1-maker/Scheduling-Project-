@@ -8,6 +8,11 @@
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 
 export function listEntities(db, entity) {
+  // main.js's list() re-checks this too before it ever calls in here, so for
+  // the IPC path this is redundant-but-harmless. It stays here because the
+  // MCP server (and any other direct, non-IPC caller) invokes listEntities
+  // directly with no upstream guard — do not delete this as "already
+  // checked by the caller."
   if (typeof entity !== 'string' || entity.length === 0) {
     throw new Error('Invalid entity')
   }

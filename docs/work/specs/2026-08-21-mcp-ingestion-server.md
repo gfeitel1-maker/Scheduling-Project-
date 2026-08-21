@@ -40,6 +40,7 @@ const ENTITY_MAP = {
   activities: 'activities',
   days_of_operation: 'days_of_operation',
   time_blocks: 'time_blocks',
+  weeks: 'schedule_weeks',
 }
 ```
 
@@ -93,13 +94,13 @@ return runIngestCli({ file: file_path, dbPath, mode, action: 'commit', authorUse
 ```json
 {
   "name": "list_entities",
-  "description": "List the rows of one setup entity for this camp: Age Divisions, Programs, Groups, Locations, Activities, Days of Operation, or Time Blocks.",
+  "description": "List the rows of one setup entity for this camp: Age Divisions, Programs, Groups, Locations, Activities, Days of Operation, Time Blocks, or Weeks.",
   "inputSchema": {
     "type": "object",
     "properties": {
       "entity": {
         "type": "string",
-        "enum": ["age_divisions", "programs", "groups", "locations", "activities", "days_of_operation", "time_blocks"]
+        "enum": ["age_divisions", "programs", "groups", "locations", "activities", "days_of_operation", "time_blocks", "weeks"]
       }
     },
     "required": ["entity"]
@@ -124,17 +125,43 @@ Handler: for each key in `ENTITY_MAP`, `count = listEntities(db, dbEntity).lengt
 ```json
 {
   "name": "schedule_state",
-  "description": "Read one candidate schedule (Manual or Generated route) for this camp: its template, placed slots/overlays, and computed findings/conflicts (re-runs the schedule engine over the stored placement — ADR Decision 8).",
+  "description": "Read one candidate schedule (Manual or Generated route) for one week of this camp: its template, placed slots/overlays, and computed findings/conflicts (re-runs the schedule engine over the stored placement — ADR Decision 8). A camp can have several weeks, each with its own template per route — pass week_id to pick one; if omitted and the camp has more than one week, this tool returns needs_week: true plus the list of weeks instead of guessing (ADR Decision 9).",
   "inputSchema": {
     "type": "object",
     "properties": {
-      "route": { "type": "string", "enum": ["manual", "generated"] }
+      "route": { "type": "string", "enum": ["manual", "generated"] },
+      "week_id": { "type": "string", "description": "Optional. Required only when the camp has more than one week." }
     },
     "required": ["route"]
   }
 }
 ```
-Handler: find the camp's `schedule_templates` row where `kind = route` via `listEntities(db, 'schedule_templates')` filtered client-side (no new query — `schedule_templates` is already a `DIRECT_CAMP_ENTITIES` member); then `listEntities(db, 'template_slots')` and `listEntities(db, 'template_overlays')` filtered to that template id. Per ADR Decision 8, also assembles `buildSchedule`'s legacy-signature inputs from this camp's setup rows (`electron/ops/scheduleEngineInputs.js`, a headless extraction of the filter/sort/parse logic in `useScheduleData.js`'s `load()`), passes every already-placed, non-anchor slot in as `preplacedSlots` (so nothing already stored is moved), and re-runs `buildSchedule(...)` to get fresh `findings`/`conflicts`. Return `{ ok: true, route, template, slots, overlays, findings, conflicts }`, or `{ ok: true, route, template: null, slots: [], overlays: [], findings: [], conflicts: [] }` if that route has never been built.
+`schedule_templates` resolves by **(week_id, kind)**, not `kind` alone — a camp
+can have many `schedule_weeks` rows, each with its own template per route
+(ADR Decision 9, correcting the original Decision 8 text). Handler week
+resolution, mirroring `useScheduleData.js`'s `templateRowFor`:
+- If `week_id` is given: resolve `schedule_templates` by `(week_id, kind === route)`.
+- If `week_id` is omitted and the camp has exactly one `schedule_weeks` row: use that week.
+- If `week_id` is omitted and multiple weeks exist: do not guess — return
+  `{ ok: true, route, needs_week: true, weeks }` (the `schedule_weeks` rows,
+  also listable via `list_entities` with `entity: 'weeks'`) so the caller can
+  choose.
+
+Once a week is resolved: `listEntities(db, 'template_slots')` and
+`listEntities(db, 'template_overlays')` filtered to that template id. Per ADR
+Decision 8, also assembles `buildSchedule`'s legacy-signature inputs from
+this camp's setup rows (`electron/ops/scheduleEngineInputs.js`, a headless
+extraction of the filter/sort/parse logic in `useScheduleData.js`'s
+`load()`), passes every already-placed, non-anchor slot of the resolved
+week's template in as `preplacedSlots` (so nothing already stored is moved),
+and re-runs `buildSchedule(...)` to get fresh `findings`/`conflicts`.
+
+Return shape, every populated response reports the resolved `week_id`:
+`{ ok: true, route, week_id, template, slots, overlays, findings, conflicts }`,
+or `{ ok: true, route, week_id, template: null, slots: [], overlays: [], findings: [], conflicts: [] }`
+if that route has never been built for the resolved week, or
+`{ ok: true, route, needs_week: true, weeks }` if `week_id` was omitted and
+ambiguous.
 
 ## Result envelope
 

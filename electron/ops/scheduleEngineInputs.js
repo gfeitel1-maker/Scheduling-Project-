@@ -1,6 +1,13 @@
 // Headless assembly of buildSchedule()'s legacy-signature inputs
-// ({ groups, tiers, days, timeBlocks, activities, anchors, campId }) from DB
-// rows, for callers that have no renderer/React tree to load through.
+// ({ groups, tiers, days, timeBlocks, activities, anchors, campId,
+// locations }) from DB rows, for callers that have no renderer/React tree
+// to load through. `locations` IS consumed by buildSchedule (its
+// normalizeInput reads `input.locations`, defaulting to [] — an empty
+// capacity map — when omitted, per src/engine/buildSchedule.js's own
+// comment); this module includes it so a caller that spreads this result
+// straight into buildSchedule(...) gets real location-capacity constraints
+// instead of silently unconstrained ones. Do not drop it as unused without
+// re-checking that call site.
 //
 // Extracted seam (docs/adr/2026-08-21-mcp-ingestion-server.md, Decision 8):
 // the renderer assembles these same inputs in

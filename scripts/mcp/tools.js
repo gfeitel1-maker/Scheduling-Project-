@@ -25,6 +25,7 @@ export const ENTITY_MAP = {
   activities: 'activities',
   days_of_operation: 'days_of_operation',
   time_blocks: 'time_blocks',
+  weeks: 'schedule_weeks',
 }
 
 export function ingestPreviewTool(args, { dbPath }) {
@@ -75,7 +76,15 @@ export function setupSummaryTool(_args, { dbPath }) {
 }
 
 function emptyScheduleState(route) {
-  return { ok: true, route, template: null, slots: [], overlays: [], findings: [], conflicts: [] }
+  return { ok: true, route, week_id: null, template: null, slots: [], overlays: [], findings: [], conflicts: [] }
+}
+
+// schedule_templates resolves by (week_id, kind), not kind alone — a camp
+// can have many schedule_weeks rows, each with its own template per route.
+// Mirrors useScheduleData.js's templateRowFor (docs/adr/2026-08-21-mcp-
+// ingestion-server.md, Decision 9).
+function templateRowFor(templates, weekId, kind) {
+  return templates.find((t) => t.week_id === weekId && (t.kind || 'generated') === kind)
 }
 
 // Re-runs the pure engine over this camp's current setup + this route's
@@ -84,16 +93,27 @@ function emptyScheduleState(route) {
 // SAME stored placement, without moving any slot (docs/adr/2026-08-21-mcp-
 // ingestion-server.md, Decision 8). `slots`/`overlays` in the response are
 // the stored DB rows verbatim; `findings`/`conflicts` are freshly computed.
+//
+// week_id resolution (Decision 9): if given, resolve (week_id, route)
+// directly. If omitted and the camp has exactly one schedule_weeks row, use
+// it. If omitted and multiple weeks exist, do not guess — return
+// { ok: true, needs_week: true, weeks } so the caller can pick.
 export function scheduleStateTool(args, { dbPath }) {
   const db = openLocalDb(dbPath)
   try {
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
     if (!camp) return emptyScheduleState(args.route)
 
-    const template = listEntities(db, 'schedule_templates').find(
-      (t) => (t.kind || 'generated') === args.route
-    )
-    if (!template) return emptyScheduleState(args.route)
+    let weekId = args.week_id ?? null
+    if (!weekId) {
+      const weeks = listEntities(db, 'schedule_weeks')
+      if (weeks.length === 0) return emptyScheduleState(args.route)
+      if (weeks.length > 1) return { ok: true, route: args.route, needs_week: true, weeks }
+      weekId = weeks[0].id
+    }
+
+    const template = templateRowFor(listEntities(db, 'schedule_templates'), weekId, args.route)
+    if (!template) return { ...emptyScheduleState(args.route), week_id: weekId }
 
     const slots = normalizeSlots(
       listEntities(db, 'template_slots').filter((s) => s.template_id === template.id)
@@ -110,6 +130,7 @@ export function scheduleStateTool(args, { dbPath }) {
     return {
       ok: true,
       route: args.route,
+      week_id: weekId,
       template,
       slots,
       overlays,

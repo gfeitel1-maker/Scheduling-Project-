@@ -198,15 +198,18 @@ describe('scripts/mcp/tools.js', () => {
       expect(result.conflicts).toEqual([])
     })
 
-    it('returns the stored template/slots plus computed findings/conflicts once one exists', () => {
+    it('single-week camp: resolves the one week automatically when week_id is omitted', () => {
       const dir = makeTmpDir()
       dirs.push(dir)
       const { dbPath, campId, userId } = bootstrapDb(dir)
       ingestCommitTool({ file_path: SAMPLE }, { dbPath, allowWrite: true, authorUserId: userId })
 
       const db = openLocalDb(dbPath)
+      const weekId = randomUUID()
+      db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order) VALUES (?, ?, ?, ?)').run(weekId, campId, 'Week 1', 0)
       const templateId = randomUUID()
-      db.prepare('INSERT INTO schedule_templates (id, camp_id, kind, name) VALUES (?, ?, ?, ?)').run(templateId, campId, 'generated', 'Week 1')
+      db.prepare('INSERT INTO schedule_templates (id, camp_id, kind, name, week_id) VALUES (?, ?, ?, ?, ?)')
+        .run(templateId, campId, 'generated', 'Week 1', weekId)
       const group = db.prepare('SELECT id FROM groups LIMIT 1').get()
       const activity = db.prepare('SELECT id FROM activities LIMIT 1').get()
       const day = db.prepare('SELECT id FROM days_of_operation LIMIT 1').get()
@@ -219,11 +222,77 @@ describe('scripts/mcp/tools.js', () => {
       const result = scheduleStateTool({ route: 'generated' }, { dbPath })
 
       expect(result.ok).toBe(true)
+      expect(result.needs_week).toBeUndefined()
+      expect(result.week_id).toBe(weekId)
       expect(result.template).not.toBeNull()
       expect(result.template.id).toBe(templateId)
       expect(result.slots.length).toBe(1)
       expect(Array.isArray(result.findings)).toBe(true)
       expect(Array.isArray(result.conflicts)).toBe(true)
+    })
+
+    it('maps the friendly "weeks" name to schedule_weeks rows', () => {
+      const dir = makeTmpDir()
+      dirs.push(dir)
+      const { dbPath, campId } = bootstrapDb(dir)
+      const db = openLocalDb(dbPath)
+      db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order) VALUES (?, ?, ?, ?)').run(randomUUID(), campId, 'Week 1', 0)
+      db.close()
+
+      const result = listEntitiesTool({ entity: 'weeks' }, { dbPath })
+
+      expect(result.ok).toBe(true)
+      expect(result.rows.length).toBe(1)
+      expect(setupSummaryTool({}, { dbPath }).counts.weeks).toBe(1)
+    })
+
+    describe('multi-week camp', () => {
+      function bootstrapTwoWeeksTwoTemplates(dbPath, campId) {
+        const db = openLocalDb(dbPath)
+        const week1 = randomUUID()
+        const week2 = randomUUID()
+        db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order) VALUES (?, ?, ?, ?)').run(week1, campId, 'Week 1', 0)
+        db.prepare('INSERT INTO schedule_weeks (id, camp_id, name, sort_order) VALUES (?, ?, ?, ?)').run(week2, campId, 'Week 2', 1)
+        const template1 = randomUUID()
+        const template2 = randomUUID()
+        db.prepare('INSERT INTO schedule_templates (id, camp_id, kind, name, week_id) VALUES (?, ?, ?, ?, ?)')
+          .run(template1, campId, 'generated', 'Week 1', week1)
+        db.prepare('INSERT INTO schedule_templates (id, camp_id, kind, name, week_id) VALUES (?, ?, ?, ?, ?)')
+          .run(template2, campId, 'generated', 'Week 2', week2)
+        db.close()
+        return { week1, week2, template1, template2 }
+      }
+
+      it('resolves the correct template when week_id is provided', () => {
+        const dir = makeTmpDir()
+        dirs.push(dir)
+        const { dbPath, campId } = bootstrapDb(dir)
+        const { week1, week2, template1, template2 } = bootstrapTwoWeeksTwoTemplates(dbPath, campId)
+
+        const result1 = scheduleStateTool({ route: 'generated', week_id: week1 }, { dbPath })
+        expect(result1.ok).toBe(true)
+        expect(result1.week_id).toBe(week1)
+        expect(result1.template.id).toBe(template1)
+
+        const result2 = scheduleStateTool({ route: 'generated', week_id: week2 }, { dbPath })
+        expect(result2.ok).toBe(true)
+        expect(result2.week_id).toBe(week2)
+        expect(result2.template.id).toBe(template2)
+      })
+
+      it('returns needs_week with the week list when week_id is omitted and multiple weeks exist', () => {
+        const dir = makeTmpDir()
+        dirs.push(dir)
+        const { dbPath, campId } = bootstrapDb(dir)
+        const { week1, week2 } = bootstrapTwoWeeksTwoTemplates(dbPath, campId)
+
+        const result = scheduleStateTool({ route: 'generated' }, { dbPath })
+
+        expect(result.ok).toBe(true)
+        expect(result.needs_week).toBe(true)
+        expect(result.weeks.map((w) => w.id).sort()).toEqual([week1, week2].sort())
+        expect(result.template).toBeUndefined()
+      })
     })
   })
 })

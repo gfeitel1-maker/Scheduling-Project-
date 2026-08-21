@@ -70,13 +70,22 @@ const TOOLS = [
   {
     name: 'list_entities',
     description:
-      'List the rows of one setup entity for this camp: Age Divisions, Programs, Groups, Locations, Activities, Days of Operation, or Time Blocks.',
+      'List the rows of one setup entity for this camp: Age Divisions, Programs, Groups, Locations, Activities, Days of Operation, Time Blocks, or Weeks.',
     inputSchema: {
       type: 'object',
       properties: {
         entity: {
           type: 'string',
-          enum: ['age_divisions', 'programs', 'groups', 'locations', 'activities', 'days_of_operation', 'time_blocks'],
+          enum: [
+            'age_divisions',
+            'programs',
+            'groups',
+            'locations',
+            'activities',
+            'days_of_operation',
+            'time_blocks',
+            'weeks',
+          ],
         },
       },
       required: ['entity'],
@@ -92,10 +101,13 @@ const TOOLS = [
   {
     name: 'schedule_state',
     description:
-      "Read one candidate schedule (Manual or Generated route) for this camp: its template, placed slots/overlays, and computed findings/conflicts (re-runs the schedule engine over the stored placement).",
+      "Read one candidate schedule (Manual or Generated route) for one week of this camp: its template, placed slots/overlays, and computed findings/conflicts (re-runs the schedule engine over the stored placement). A camp can have several weeks, each with its own template per route — pass week_id to pick one; if omitted and the camp has more than one week, this tool returns needs_week: true plus the list of weeks (list_entities with entity 'weeks' also lists them) so the caller can choose.",
     inputSchema: {
       type: 'object',
-      properties: { route: { type: 'string', enum: ['manual', 'generated'] } },
+      properties: {
+        route: { type: 'string', enum: ['manual', 'generated'] },
+        week_id: { type: 'string', description: 'Optional. Required only when the camp has more than one week.' },
+      },
       required: ['route'],
     },
     handler: scheduleStateTool,
