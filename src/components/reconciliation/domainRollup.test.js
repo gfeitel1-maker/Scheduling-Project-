@@ -5,16 +5,19 @@ import { INGESTIBLE_ENTITIES } from '../../ingest/extractEntities.js'
 // W1 — vocabulary unification (docs/work/specs/2026-08-21-vocabulary-
 // unification-design.md). The root-map used to call cohorts "Units" —
 // exactly the inverse of the rest of the app, which calls tiers "Unit".
-// Program is now the only word for cohorts anywhere, and "Resources" is
-// retired in favor of "Location(s)".
+// Program is now the only word for cohorts anywhere. "Resources" is retired;
+// the Facility domain shows its own name "Facility" (like every other domain
+// shows its own — Structure, Time, …) so it does not duplicate the "Locations"
+// entity node beneath it (the location word lives on the entity, not the domain).
 describe('domainRollup — W1 vocabulary unification', () => {
   it('maps the cohorts child node to Program, not Units', () => {
     expect(CHILD_OF.cohorts).toBe('Program')
     expect(Object.values(CHILD_OF)).not.toContain('Units')
   })
 
-  it('labels the Facility domain "Location(s)", not "Resources"', () => {
-    expect(DOMAIN_LABELS.Facility).toBe('Location(s)')
+  it('labels the Facility domain "Facility", not "Resources" (and not a second location label)', () => {
+    expect(DOMAIN_LABELS.Facility).toBe('Facility')
+    expect(Object.values(DOMAIN_LABELS)).not.toContain('Resources')
   })
 })
 

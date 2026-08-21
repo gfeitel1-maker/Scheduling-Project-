@@ -86,7 +86,11 @@ renames its displayed words over the canonical concept, extending the existing
 label map — the M3 locations spec, `docs/work/specs/2026-08-15-m3-locations-design.md`,
 chose "Place" informally and is superseded by this spec on that point; "Place" is
 not in any standard or ADR, so completing the retirement is not an Article-I gate.)
-- `domainRollup.js:31` Facility caption "Resources" → "Location(s)".
+- `domainRollup.js:31` Facility domain caption "Resources" → **"Facility"** (its
+  own domain name, matching Structure/Time/…). NOTE: an intermediate "Location(s)"
+  caption was rejected in review — it duplicated the "Locations" entity node
+  directly beneath it (Tester MEDIUM). The location word lives on the entity, not
+  the domain.
 - `reconstructionMomentCopy.js:14` "Facility & Resources".
 - `screenIntroText.js:20` "Places at your camp…".
 - `recordLabels.js:19` "Place" → "Location"; and `:139` restore copy "set their place again".
@@ -115,6 +119,19 @@ not in any standard or ADR, so completing the retirement is not an Article-I gat
 **"Program with no field" copy (relationship, not a new entity):**
 - `TiersScreen.jsx:246,367-368` reword the borrowed gate messages to canonical:
   e.g. "Add a Program before adding Age Divisions."
+
+**Additional in-scope sites found during implementation** (same word, same
+concept — enumerated here so the doc matches the shipped diff):
+- `CohortsScreen.jsx` — "A program groups units…" → "…age divisions".
+- `ImportScreen.jsx` — several "unit" → "age division" sites incl. the replace-warning copy and its LABEL map.
+- `TiersScreen.jsx` `downloadTemplate()` — sheet name "Units" → "Age Divisions",
+  filename `units_template.xlsx` → `age_divisions_template.xlsx`.
+- `exportWorkbook.js` — tiers sheet name "Units" → "Age Divisions".
+- `navSections.js` / `TopBar.jsx` — sidebar labels.
+- `rootMapLayout.js` — hand-placed layout key `Units` → `Program` (else the
+  root-map node falls back to an auto-arc position — caught in review).
+- `DeleteRecordDialog.jsx` — `LABEL.locations` entity word (the schedule-cell
+  `places(n)` helper is a false positive and was left).
 
 **Ingest (labels/reasons only, not parsing):**
 - `src/ingest/fieldUpdate.js:20` keep `unit → tier_id` as accepted input synonym.

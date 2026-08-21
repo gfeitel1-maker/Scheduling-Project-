@@ -28,7 +28,7 @@ export const DOMAIN_LABELS = {
   Structure: 'Structure',
   Scheduling: 'Scheduling',
   Time: 'Time',
-  Facility: 'Location(s)',
+  Facility: 'Facility',
   Context: 'Context',
 }
 

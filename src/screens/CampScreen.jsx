@@ -13,7 +13,7 @@ import { S } from '../styles/shared'
 //
 // The explanations it carried moved to the screens they describe
 // (src/components/screenIntroText.js) rather than being deleted with it — a
-// sidebar row can say "Units", but not what a unit is.
+// sidebar row can say "Age Divisions", but not what an age division is.
 //
 // The name had nowhere else to live, so it lives here, under System. This is
 // not a setup pathway; it is one setting.

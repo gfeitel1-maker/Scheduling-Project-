@@ -5,7 +5,7 @@
 // product owner, 2026-08-01: "there are currently two pathways to setting up a
 // camp and only one is needed — which should be the sidebar." Retiring it would
 // have thrown the explanations away with it, and a first-run director needs
-// them: a 216px sidebar row can say "Units", but not what a unit is.
+// them: a 216px sidebar row can say "Age Divisions", but not what one is.
 //
 // So they moved here, to the screens themselves, where they are read at the
 // moment they are needed rather than one screen earlier.
