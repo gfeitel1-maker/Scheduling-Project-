@@ -113,7 +113,7 @@ describe('CohortsScreen', () => {
     expect(window.confirm).not.toHaveBeenCalled()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByText('Delete this program?')).not.toBeNull())
-    expect(screen.queryByText('Units and time blocks assigned to it will lose their program reference.')).not.toBeNull()
+    expect(screen.queryByText('Age divisions and time blocks assigned to it will lose their program reference.')).not.toBeNull()
 
     localClient.list.mockResolvedValue([cohort({ id: 'c2', name: 'Second' })])
     fireEvent.click(screen.getByText('Delete Program'))

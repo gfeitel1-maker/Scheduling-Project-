@@ -7,16 +7,16 @@
 
 export const ENTITY_LABEL = {
   cohorts: 'Program',
-  tiers: 'Unit',
+  tiers: 'Age Division',
   groups: 'Group',
   activities: 'Activity',
   days_of_operation: 'Day',
   time_blocks: 'Time block',
   anchor_activities: 'Fixed event',
   day_override_templates: 'Day override',
-  // "Place", not "Location" — the director's word, per the M3 design spec
-  // (docs/work/specs/2026-08-15-m3-locations-design.md Part 1 Copy).
-  locations: 'Place',
+  // W1 (docs/work/specs/2026-08-21-vocabulary-unification-design.md) — "Place"
+  // and "Resources" are retired; "Location" is the one canonical word.
+  locations: 'Location',
   camp_maps: 'Camp map',
 }
 
@@ -32,7 +32,7 @@ const FIELD_LABEL = {
   name: 'Name',
   label: 'Name',
   camp_id: 'Camp',
-  tier_id: 'Unit',
+  tier_id: 'Age Division',
   cohort_id: 'Program',
   day_id: 'Day',
   time_block_id: 'Time block',
@@ -45,9 +45,9 @@ const FIELD_LABEL = {
   max_groups_per_slot: 'Groups per slot',
   min_per_week: 'Fewest per week',
   max_per_week: 'Most per week',
-  same_tier_only: 'Same unit only',
+  same_tier_only: 'Same age division only',
   priority: 'Priority',
-  eligible_tier_ids: 'Eligible units',
+  eligible_tier_ids: 'Eligible age divisions',
   eligible_group_ids: 'Eligible groups',
   prefer_before_day: 'Preferred by day',
   prefer_before_day_min: 'Preferred by day, fewest',
@@ -136,7 +136,7 @@ const RESTORE_CAVEAT = {
   days_of_operation:
     'What was scheduled on it did not come back, though. You can bring that back from Versions on the Schedule screen.',
   locations:
-    'Activities that pointed to it are not re-bound, though — you will need to set their place again.',
+    'Activities that pointed to it are not re-bound, though — you will need to set their location again.',
 }
 
 export function restoreCaveat(entity) {

@@ -62,9 +62,11 @@ describe('v32 registry coverage — locations', () => {
     expect(MOCK_WRITE_ALLOWLIST.locations).toEqual(
       expect.arrayContaining(['camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry'])
     )
-    // Label is 'Place' per the M3 design: the area/screen is "Locations",
-    // each individual item is "a place" (docs/work/specs/2026-08-15-m3-locations-design.md).
-    expect(ENTITY_LABEL.locations).toBe('Place')
+    // Label is 'Location' — W1 (docs/work/specs/2026-08-21-vocabulary-
+    // unification-design.md) retired the M3 design's "Place" word; the area/
+    // screen and each individual item are both "Location" now, one canonical
+    // word per concept.
+    expect(ENTITY_LABEL.locations).toBe('Location')
   })
 
   it('registers activities.location_id everywhere activities is projected/mocked', () => {

@@ -112,4 +112,31 @@ describe('INV-2: restore re-resolves location_id from the frozen string', () => 
     restoreEntity(db, { entity: 'activities', entity_id: 'a5', ...session })
     expect(db.prepare('SELECT location_id FROM activities WHERE id = ?').get('a5').location_id).toBeNull()
   })
+
+  // T101 (docs/work/tickets/T101-locations-deterministic-id-rename-recollide.md):
+  // the base id's row may have been RENAMED since this activity's location
+  // string was frozen. Restore must not rebind to a mismatched-name row —
+  // that would silently attach "Archery" to whatever now lives at the old id.
+  it('T101: base id row was renamed away — does not rebind to the mismatched-name row, leaves location_id NULL', () => {
+    const locId = seedLocation('Pool') // this row's id is deriveLocationId('camp1', 'Pool')
+    db.prepare('UPDATE locations SET name = ? WHERE id = ?').run('Swimming Pool', locId) // renamed post-backfill
+    makePreV32Activity('a6', 'Pool') // frozen string still says 'Pool'
+    write('activities', 'a6', DELETE_FIELD, 1)
+
+    restoreEntity(db, { entity: 'activities', entity_id: 'a6', ...session })
+    const row = db.prepare('SELECT location, location_id FROM activities WHERE id = ?').get('a6')
+    expect(row.location).toBe('Pool')
+    expect(row.location_id).toBeNull()
+  })
+
+  it('T101: rebinds to a disambiguated row whose name matches, when the base id was recollided', () => {
+    const base = deriveLocationId('camp1', 'Pool')
+    db.prepare('INSERT INTO locations (id, camp_id, name, capacity) VALUES (?, ?, ?, 1)').run(base, 'camp1', 'Swimming Pool')
+    db.prepare('INSERT INTO locations (id, camp_id, name, capacity) VALUES (?, ?, ?, 1)').run(`${base}:2`, 'camp1', 'Pool')
+    makePreV32Activity('a7', 'Pool')
+    write('activities', 'a7', DELETE_FIELD, 1)
+
+    restoreEntity(db, { entity: 'activities', entity_id: 'a7', ...session })
+    expect(db.prepare('SELECT location_id FROM activities WHERE id = ?').get('a7').location_id).toBe(`${base}:2`)
+  })
 })

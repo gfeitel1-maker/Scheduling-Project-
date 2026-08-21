@@ -31,11 +31,11 @@ import { fetchFirstImportCollections, isFirstImport as computeIsFirstImport } fr
 
 const LABEL = {
   cohorts: 'Programs',
-  tiers: 'Units',
+  tiers: 'Age Divisions',
   groups: 'Groups',
   days_of_operation: 'Days',
   time_blocks: 'Time Blocks',
-  locations: 'Places',
+  locations: 'Locations',
   activities: 'Activities',
 }
 
@@ -744,7 +744,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
                 {entity === 'groups' && names.length > 0 && (
                   <div style={{ marginTop: 12 }}>
                     <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
-                      Which unit each group belongs to. Left as-is uses what the file itself says.
+                      Which age division each group belongs to. Left as-is uses what the file itself says.
                     </div>
                     {names.map((name) => {
                       const override = groupUnitOverrides[name]
@@ -775,18 +775,18 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
                             }}
                             style={{ fontSize: 12, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}
                           >
-                            <option value="">{proposal.groupUnits?.[name] ? `From file: ${proposal.groupUnits[name]}` : 'No unit (from file)'}</option>
+                            <option value="">{proposal.groupUnits?.[name] ? `From file: ${proposal.groupUnits[name]}` : 'No age division (from file)'}</option>
                             {tierNames.map((t) => (
                               <option key={t} value={t}>{t}</option>
                             ))}
-                            <option value="__new__">+ New unit…</option>
-                            <option value="__clear__">No unit</option>
+                            <option value="__new__">+ New age division…</option>
+                            <option value="__clear__">No age division</option>
                           </select>
                           {isEditing && (
                             <input
                               autoFocus
                               value={override.value}
-                              placeholder="Unit name"
+                              placeholder="Age division name"
                               onChange={(e) => {
                                 const value = e.target.value
                                 setGroupUnitOverrides((prev) => ({ ...prev, [name]: { editing: true, value } }))
@@ -901,7 +901,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
               </div>
               {[
                 { key: 'add', title: 'Keep them', sub: 'Add what I import alongside what’s already here.' },
-                { key: 'replace', title: 'Replace them', sub: `This will replace all Units, Groups, Days, Time Blocks, and Activities across the entire camp — every Program, not just this one. Clears the ${existingCountAll} existing ${existingCountAll === 1 ? 'item' : 'items'} first, then imports.` },
+                { key: 'replace', title: 'Replace them', sub: `This will replace all Age Divisions, Groups, Days, Time Blocks, and Activities across the entire camp — every Program, not just this one. Clears the ${existingCountAll} existing ${existingCountAll === 1 ? 'item' : 'items'} first, then imports.` },
               ].map(opt => {
                 const on = importMode === opt.key
                 return (

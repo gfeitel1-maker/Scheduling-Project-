@@ -325,7 +325,7 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
     await uploadFile()
     await userEvent.click(screen.getByText(/Replace them/))
     const replaceSentence = screen.getByText(/This will replace all/)
-    for (const name of ['Units', 'Groups', 'Days', 'Time Blocks', 'Activities']) {
+    for (const name of ['Age Divisions', 'Groups', 'Days', 'Time Blocks', 'Activities']) {
       expect(replaceSentence.textContent).toContain(name)
     }
   })

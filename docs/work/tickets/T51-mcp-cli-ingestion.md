@@ -1,7 +1,7 @@
 ---
 title: T51-mcp-cli-ingestion
 document_type: ticket
-status: open
+status: in-progress
 created: 2026-08-05
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
 related_adrs: []
@@ -75,3 +75,14 @@ pipeline just automates the broken parts. Fix the pipeline first.
 
 Brainstorm on the open questions above. The CLI and MCP surfaces may be separate tickets once
 the scope is settled.
+
+## Progress (2026-08-20) — CLI SHIPPED; MCP server is the remaining scope
+
+Owner (2026-08-20): CLI first (all three use cases), MCP as its own remaining scope here. **CLI shipped**:
+`scripts/ingest.js` (thin arg-parser) over `scripts/ingestCli.js` `runIngestCli` — reuses the pure
+headless core (buildPlan + commitIngest, like integration scenario 21), `--preview`/`--commit`/`--mode`/
+`--author`/`--json`, T36 residuals in the terminal, exit-code discipline, direct-db-file trust model.
+Design: `docs/work/specs/2026-08-20-ingestion-cli-design.md`. Reviews: Security 5/5, Code Reviewer
+merge-ready. **Remaining (this ticket stays open/in-progress): the MCP server** — can wrap the CLI's
+`--json` / the `runIngestCli` core; needs the auth-model + where-it-runs decisions from the ticket's
+Open Questions. Follow-up worth filing if bulk/scripted use needs multi-Program targeting: a `--cohort` flag.

@@ -15,7 +15,7 @@ export const FIELD_LABEL = {
   max_per_week: 'how many times a week (most)',
   priority: 'how important it is',
   eligible_groups: 'which groups can do it',
-  unit: 'which unit it belongs to',
+  unit: 'which age division it belongs to',
   name: 'its name',
   label: 'its name',
 }

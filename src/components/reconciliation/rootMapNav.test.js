@@ -32,7 +32,22 @@ describe('rootMapNav — every nav target is a real screen', () => {
   })
 
   it('screenForNode resolves child over domain when both exist', () => {
-    expect(screenForNode('Structure', 'Units')).toBe('cohorts')
+    expect(screenForNode('Structure', 'Program')).toBe('cohorts')
+  })
+
+  // W1 — vocabulary unification (docs/work/specs/2026-08-21-vocabulary-
+  // unification-design.md). Pins the de-inversion: the cohorts node reads
+  // "Program", the tiers node reads "Age Division", and "Units" no longer
+  // maps to cohorts anywhere in the nav.
+  it('maps the cohorts node to Program and the tiers node to Age Divisions (W1 de-inversion)', () => {
+    expect(SCREEN_LABEL.cohorts).toBe('Program')
+    expect(SCREEN_LABEL.tiers).toBe('Age Divisions')
+    expect(CHILD_SCREEN['Program']).toBe('cohorts')
+    expect(CHILD_SCREEN['Units']).toBeUndefined()
+  })
+
+  it('labels the groups screen "Groups", not "Groups & Units" (W1)', () => {
+    expect(SCREEN_LABEL.groups).toBe('Groups')
   })
 
   it('screenForNode falls back to the domain screen when child has no entry', () => {

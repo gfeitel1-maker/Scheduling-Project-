@@ -389,6 +389,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       fieldProvenance: outcome.fieldProvenance ?? {},
       legacyPriorityActivities: outcome.legacyPriorityActivities ?? [],
       evidenceSupport: outcome.evidenceSupport ?? {},
+      unknownFieldEvidence: outcome.unknownFieldEvidence ?? {},
     }
   }
 

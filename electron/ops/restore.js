@@ -1,6 +1,6 @@
 import { appendOp, DELETE_FIELD, BULK_REPLACE_FIELD, UNIQUE_FIELD_ENTITIES, detectUniqueFieldCollision } from './operations.js'
 import { PROJECTIONS } from './projections.js'
-import { deriveLocationId } from './locationId.js'
+import { resolveLocationCandidateId } from './locationId.js'
 
 // Which projected entities may be restored, and — for the ones that may not —
 // why. Every key of PROJECTIONS must appear here; restore.test.js fails if a
@@ -247,14 +247,26 @@ export function restoreEntity(db, { entity, entity_id, author_user_id, device_id
   // coherent frozen-column-only state. If location_id was itself written via an
   // op (a post-v32 edit), it is already in `fields` and restored normally; do
   // not override it.
+  //
+  // T101 (docs/work/tickets/T101-locations-deterministic-id-rename-recollide.md):
+  // the base id's row may have been RENAMED since. deriveLocationId's id alone
+  // was existence-only — it would rebind to whatever row now owns that id,
+  // regardless of its current name, silently attaching this activity to the
+  // wrong place. Routed through resolveLocationCandidateId (the same shared
+  // disambiguation ingest.js's create paths use) so restore only rebinds to a
+  // row whose CURRENT name still matches the frozen string — the base id
+  // itself when unrenamed, or a `${base}:n` disambiguated row created by a
+  // later re-import of this name. Restore never MINTS a row (isNew is
+  // ignored beyond the match check) — if no row's name matches, leave
+  // location_id NULL, the same "place was deleted" coherent state as before.
   let rebindLocationId = null
   if (entity === 'activities' && !fields.has('location_id')) {
     const name = String(fields.get('location') ?? '').trim()
     if (name !== '') {
-      const derivedId = deriveLocationId(fields.get('camp_id'), name)
-      if (db.prepare('SELECT 1 FROM locations WHERE id = ?').get(derivedId)) {
-        rebindLocationId = derivedId
-      }
+      const campId = fields.get('camp_id')
+      const existingLocations = db.prepare('SELECT id, name FROM locations WHERE camp_id = ?').all(campId)
+      const candidate = resolveLocationCandidateId(campId, name, existingLocations)
+      if (!candidate.isNew) rebindLocationId = candidate.id
     }
   }
 

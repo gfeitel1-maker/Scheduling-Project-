@@ -23,12 +23,14 @@ export const DOMAINS = ['Structure', 'Scheduling', 'Time', 'Facility', 'Context'
 
 // Presentation-only label map (same ADR §3) — the canonical key stays
 // 'Facility' (DOMAIN_OF, filter chips, and existing tests all key on it);
-// only the root-map's captions display "Resources" for it.
+// the root-map's captions display 'Facility' itself for it too — a longer
+// form ("Resources", "Location(s)") duplicated the 'Locations' entity node's
+// own caption (Tester finding), so the domain keeps its own bare name.
 export const DOMAIN_LABELS = {
   Structure: 'Structure',
   Scheduling: 'Scheduling',
   Time: 'Time',
-  Facility: 'Resources',
+  Facility: 'Facility',
   Context: 'Context',
 }
 
@@ -56,7 +58,7 @@ export function domainOf(decision) {
 // back to a domain-level 'General' pseudo-child (childOf below), never
 // silently dropped.
 export const CHILD_OF = {
-  cohorts: 'Units',
+  cohorts: 'Program',
   tiers: 'Age Divisions',
   groups: 'Groups',
   days_of_operation: 'Days',

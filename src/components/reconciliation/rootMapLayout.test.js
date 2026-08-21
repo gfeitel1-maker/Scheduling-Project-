@@ -18,9 +18,9 @@ describe('rootMapLayout', () => {
     // Assert the behavior against the config, not a frozen literal — coordinate
     // tuning (snapping nodes onto the illustration's roots) changes the values
     // but must always round-trip through layoutForChild unchanged.
-    const units = NODE_LAYOUT.Structure.children.Units
-    expect(units).toBeDefined()
-    expect(layoutForChild('Structure', 'Units', 0)).toEqual(units)
+    const program = NODE_LAYOUT.Structure.children.Program
+    expect(program).toBeDefined()
+    expect(layoutForChild('Structure', 'Program', 0)).toEqual(program)
   })
 
   it('an unlisted child falls back to a deterministic, in-range position near its parent', () => {

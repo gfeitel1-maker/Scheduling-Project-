@@ -339,6 +339,68 @@ function blastRadiusKeyFor(entity, entityId, entityName) {
     : `${entity}:name:${normalizeName(String(entityName ?? ''))}`
 }
 
+// docs/adr/2026-08-20-per-field-unknown-reconciliation-state.md, decision 3/4.
+// The two fields this ADR scopes: an activity's committed value was
+// manufactured (floored min_per_week, or priority left NULL), never a
+// director's judgment. unknownFieldEvidence is a caller-built
+// Map<"entityId:field", true>, pre-filtered against `source !== 'human'` —
+// the same additive-degradation contract fieldProvenance/blastRadiusIndex
+// already use; an omitted map means every lookup misses, byte-identical to
+// pre-ADR output.
+const UNKNOWN_FIELD_CANDIDATES = ['min_per_week', 'priority']
+
+function unknownFieldsFor(entityId, unknownFieldEvidence) {
+  if (entityId == null) return []
+  return UNKNOWN_FIELD_CANDIDATES.filter((f) => unknownFieldEvidence.has(`${entityId}:${f}`))
+}
+
+// Applies the unknown-field pass over one activities planItem: augments an
+// existing decision on the row (any kind — a genuine create/change may
+// already have produced one) with `unknowns`/`unknownField`, or — if the row
+// was otherwise 'understood' (no decision, e.g. an 'unchanged' re-import) —
+// synthesizes a fresh confirm_value decision and moves the bucket count from
+// understood to needsAttention, since an unresolved unknown field is never
+// silently understood (ADR success predicate #2).
+function applyUnknownFields(item, unknownFields, decisionsByKey, buckets, activityEvidence) {
+  const id = decisionId(item.entity, item.entity_id, item.op, item._name)
+  const existing = decisionsByKey.get(id)
+  if (existing) {
+    decisionsByKey.set(id, {
+      ...existing,
+      unknownField: true,
+      unknowns: [...new Set([...(existing.unknowns ?? []), ...unknownFields])],
+    })
+    return
+  }
+  buckets.understood -= 1
+  buckets.needsAttention += 1
+  // The ADR wants the CURRENTLY COMMITTED value, not the plan's proposed
+  // delta. An update/clear item's `.to` is exactly that (the value this
+  // commit is about to write). An 'unchanged' item carries no `fields` at
+  // all (buildPlan's zero-op arm) — its own `_rule` (the same rule
+  // recomputed against the current source) is this pure function's only
+  // available stand-in for "what's live", since nothing differs from it by
+  // definition of 'unchanged'.
+  const committedValueFor = (field) => item.fields?.[field]?.to ?? item._rule?.[field] ?? null
+  const proposedValue = unknownFields.length === 1
+    ? committedValueFor(unknownFields[0])
+    : Object.fromEntries(unknownFields.map((f) => [f, committedValueFor(f)]))
+  decisionsByKey.set(id, {
+    id,
+    kind: 'confirm_value',
+    entity: item.entity,
+    entityId: item.entity_id,
+    entityName: item._name ?? null,
+    field: unknownFields[0], // primary field named, for the existing single-field UI
+    unknownField: true,
+    confidence: 'low',
+    proposedValue,
+    unknowns: unknownFields,
+    evidence: activitySupportFor(item, activityEvidence),
+    reason: 'Not enough information in the source to judge this field.',
+  })
+}
+
 export function buildReconciliationReport(input) {
   const {
     planItems = [], readiness = [], now = null, fixedEventsReport = {},
@@ -351,6 +413,7 @@ export function buildReconciliationReport(input) {
     // this is the same additive-degradation contract fieldProvenance uses.
     evidenceSupport = {},
     blastRadiusIndex = new Map(),
+    unknownFieldEvidence = new Map(),
   } = input ?? {}
   const { activities: activityEvidence = {}, fixedEvents: fixedEventEvidence = {} } = evidenceSupport ?? {}
 
@@ -374,6 +437,17 @@ export function buildReconciliationReport(input) {
     // is defined so a future multi-item-per-row source folds correctly).
     // See mergeDecisions above: CHANGED always dominates on merge, never lost.
     decisionsByKey.set(decision.id, mergeDecisions(existing, decision))
+  }
+
+  // Decision 3/4 (per-field UNKNOWN ADR): a second pass over the same
+  // planItems, independent of classifyItem's outcome — an activity's
+  // min_per_week/priority can be "still unknown" regardless of whether this
+  // row also has an ordinary create/update decision this run.
+  for (const item of planItems) {
+    if (item.entity !== 'activities') continue
+    const unknownFields = unknownFieldsFor(item.entity_id, unknownFieldEvidence)
+    if (unknownFields.length === 0) continue
+    applyUnknownFields(item, unknownFields, decisionsByKey, buckets, activityEvidence)
   }
 
   // Rule 6: readiness rows with state 'optional' contribute to notInSource

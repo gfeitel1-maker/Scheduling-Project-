@@ -86,7 +86,7 @@ function TierRow({ tier, groupCount, role, onSave, onDelete }) {
         <button onClick={() => onDelete(tier.id)}
           style={groupCount > 0 || role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
           disabled={groupCount > 0 || role !== 'admin'}
-          title={groupCount > 0 ? 'Remove groups from this unit first' : role !== 'admin' ? 'Admin only' : ''}
+          title={groupCount > 0 ? 'Remove groups from this age division first' : role !== 'admin' ? 'Admin only' : ''}
         >Delete</button>
       </td>
     </tr>
@@ -140,7 +140,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       ])
       // If a newer load() started (e.g. the user switched cohorts) while
       // this request was in flight, this response is stale — applying it
-      // would overwrite the UI with the wrong cohort's units
+      // would overwrite the UI with the wrong cohort's age divisions
       // (last-resolver-wins race). Bail out without touching state.
       if (requestId !== loadRequestRef.current) return
       const list = (tierData || [])
@@ -167,7 +167,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
     // confirmImport's dedupe — without this, the plain "+ Add" button had
     // zero dedupe check while import did.
     if (tiers.some(t => String(t.name ?? '').trim().toLowerCase() === trimmedName.toLowerCase())) {
-      setError('A unit with this name already exists — choose a different name.')
+      setError('An age division with this name already exists — choose a different name.')
       return
     }
     setAdding(true)
@@ -192,8 +192,8 @@ export default function TiersScreen({ campId, role, onNavigate }) {
     } catch (err) {
       setError(
         /UNIQUE/i.test(err?.message ?? '')
-          ? 'A unit with this name already exists — choose a different name.'
-          : describeWriteFailure(err, 'That unit could not be added.')
+          ? 'An age division with this name already exists — choose a different name.'
+          : describeWriteFailure(err, 'That age division could not be added.')
       )
     } finally {
       setAdding(false)
@@ -205,7 +205,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       await repository.writeFields('tiers', id, fields)
       await load()
     } catch (err) {
-      setError(describeWriteFailure(err, 'That unit could not be saved.'))
+      setError(describeWriteFailure(err, 'That age division could not be saved.'))
       throw err
     }
   }
@@ -231,8 +231,8 @@ export default function TiersScreen({ campId, role, onNavigate }) {
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
-          ? 'Only an admin can delete units.'
-          : describeWriteFailure(err, 'That unit could not be deleted.')
+          ? 'Only an admin can delete age divisions.'
+          : describeWriteFailure(err, 'That age division could not be deleted.')
       )
       setPendingDelete(null)
     } finally {
@@ -243,7 +243,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
 
   function deleteAll() {
     if (!activeCohort) {
-      setError('No program selected — add a program before deleting units.')
+      setError('No program selected — add a program before deleting age divisions.')
       return
     }
     setPendingDeleteAll(true)
@@ -253,7 +253,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
     setDeletingAll(true)
     try {
       // Re-fetch immediately before building the id list rather than using the
-      // closed-over `tiers` state — if another device synced in new units
+      // closed-over `tiers` state — if another device synced in new age divisions
       // between page-load and this click, the stale in-memory snapshot would
       // silently skip them with no indication anything was missed.
       const freshTiers = await localClient.list('tiers')
@@ -265,12 +265,12 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       if (failed > 0) {
         setError(
           failedDueToRole
-            ? 'Only an admin can delete units — no units were deleted.'
-            : `Deleted ${succeeded} of ${ids.length} units — please try again for the rest.`
+            ? 'Only an admin can delete age divisions — no age divisions were deleted.'
+            : `Deleted ${succeeded} of ${ids.length} age divisions — please try again for the rest.`
         )
       }
     } catch (err) {
-      setError(describeWriteFailure(err, 'Those units could not be deleted.'))
+      setError(describeWriteFailure(err, 'Those age divisions could not be deleted.'))
     } finally {
       setDeletingAll(false)
       setPendingDeleteAll(false)
@@ -283,8 +283,8 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       ['Yeladim', 1],
     ])
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Units')
-    XLSX.writeFile(wb, 'units_template.xlsx')
+    XLSX.utils.book_append_sheet(wb, ws, 'Age Divisions')
+    XLSX.writeFile(wb, 'age_divisions_template.xlsx')
   }
 
   function onFileChange(e) {
@@ -365,7 +365,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-          {tiers.length} unit{tiers.length !== 1 ? 's' : ''}
+          {tiers.length} age division{tiers.length !== 1 ? 's' : ''}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
@@ -386,7 +386,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       ) : !activeCohort ? (
         <div style={{ ...S.emptyState, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, marginBottom: 16 }}>
           <div style={S.emptyStateTitle}>No programs yet</div>
-          <div style={S.emptyStateBody}>Add a program before adding units.</div>
+          <div style={S.emptyStateBody}>Add a Program before adding Age Divisions.</div>
         </div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
@@ -402,8 +402,8 @@ export default function TiersScreen({ campId, role, onNavigate }) {
             <tbody>
               {tiers.length === 0 ? (
                 <tr><td colSpan={4} style={S.emptyState}>
-                  <div style={S.emptyStateTitle}>No units yet</div>
-                  <div style={S.emptyStateBody}>Add your first unit below or import from Excel.</div>
+                  <div style={S.emptyStateTitle}>No age divisions yet</div>
+                  <div style={S.emptyStateBody}>Add your first age division below or import from Excel.</div>
                 </td></tr>
               ) : tiers.map(tier => (
                 <TierRow
@@ -423,11 +423,11 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       {/* Add row */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Add Unit
+          Add Age Division
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
           <input
-            placeholder="Unit name (e.g. Yeladim)"
+            placeholder="Age division name (e.g. Yeladim)"
             value={newName}
             onChange={e => setNewName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && addTier()}
@@ -481,7 +481,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
                 <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
                   <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
                   <button className="press-97" onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>
-                    {importing ? 'Importing…' : `Import ${readyRows.length} unit${readyRows.length !== 1 ? 's' : ''}`}
+                    {importing ? 'Importing…' : `Import ${readyRows.length} age division${readyRows.length !== 1 ? 's' : ''}`}
                   </button>
                 </div>
               </>
@@ -507,11 +507,11 @@ export default function TiersScreen({ campId, role, onNavigate }) {
           title={`Delete "${pendingDelete.name}"?`}
           body={
             groupCounts[pendingDelete.id]
-              ? `This unit still has ${groupCounts[pendingDelete.id]} group${groupCounts[pendingDelete.id] === 1 ? '' : 's'} assigned to it. Removing it will leave ${groupCounts[pendingDelete.id] === 1 ? 'that group' : 'those groups'} without a unit.`
-              : 'This unit has no groups, so nothing in your schedules is affected.'
+              ? `This age division still has ${groupCounts[pendingDelete.id]} group${groupCounts[pendingDelete.id] === 1 ? '' : 's'} assigned to it. Removing it will leave ${groupCounts[pendingDelete.id] === 1 ? 'that group' : 'those groups'} without an age division.`
+              : 'This age division has no groups, so nothing in your schedules is affected.'
           }
           recovery={`"${pendingDelete.name}" goes to Trash, and you can put it back from there.`}
-          confirmLabel="Delete Unit"
+          confirmLabel="Delete Age Division"
           busy={deleting}
           onConfirm={confirmTierDelete}
           onCancel={() => setPendingDelete(null)}
@@ -520,9 +520,9 @@ export default function TiersScreen({ campId, role, onNavigate }) {
 
       {pendingDeleteAll && (
         <ConfirmDangerDialog
-          title="Delete all units?"
+          title="Delete all age divisions?"
           recovery="They can be restored from Trash."
-          confirmLabel="Delete All Units"
+          confirmLabel="Delete All Age Divisions"
           busy={deletingAll}
           onConfirm={confirmDeleteAll}
           onCancel={() => setPendingDeleteAll(false)}

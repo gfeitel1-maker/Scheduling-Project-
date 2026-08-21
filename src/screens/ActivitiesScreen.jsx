@@ -12,7 +12,7 @@ import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialo
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { CapacityStepper } from './LocationsScreen'
-import { deriveLocationId } from '../../electron/ops/locationId.js'
+import { resolveLocationCandidateId } from '../../electron/ops/locationId.js'
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
@@ -86,7 +86,7 @@ function LocationPickerPopover({ showEmptyHint, matches, active, showCreateRow, 
   const enter = useEnterTransition('popFade')
   return (
     <div style={{ ...pickerStyles.popover, ...enter }}>
-      {showEmptyHint && <div style={pickerStyles.hintRow}>Type a place, or add a new one…</div>}
+      {showEmptyHint && <div style={pickerStyles.hintRow}>Type a location, or add a new one…</div>}
       {matches.map((l, i) => (
         <button
           key={l.id}
@@ -106,7 +106,7 @@ function LocationPickerPopover({ showEmptyHint, matches, active, showCreateRow, 
           style={{ ...pickerStyles.option, ...pickerStyles.createOption, ...(active === matches.length ? pickerStyles.optionActive : {}) }}
         >
           <PlusIcon />
-          <span style={pickerStyles.createLabel}>Create "{q}" as a new place</span>
+          <span style={pickerStyles.createLabel}>Create "{q}" as a new location</span>
           <span style={pickerStyles.newTag}>NEW</span>
         </button>
       )}
@@ -199,7 +199,7 @@ function LocationPicker({ value, locations, onChange, onCreate, onUpdateCapacity
         </div>
         <div style={pickerStyles.hint}>
           {capacityFeedback || (justCreated
-            ? 'New place — set how many groups fit at once here, or change it later on the Places screen.'
+            ? 'New location — set how many groups fit at once here, or change it later on the Locations screen.'
             : `The schedule will keep this activity to ${capacityWord(selected.capacity)} here.`)}
         </div>
       </div>
@@ -209,7 +209,7 @@ function LocationPicker({ value, locations, onChange, onCreate, onUpdateCapacity
   return (
     <div style={{ position: 'relative' }}>
       {dangling && (
-        <div style={pickerStyles.danglingWarning}>The place set here no longer exists — pick a new one.</div>
+        <div style={pickerStyles.danglingWarning}>The location set here no longer exists — pick a new one.</div>
       )}
       <div style={{ ...pickerStyles.field, ...(focused ? pickerStyles.fieldFocus : {}) }}>
         <MapPinIcon />
@@ -228,7 +228,7 @@ function LocationPicker({ value, locations, onChange, onCreate, onUpdateCapacity
               else if (showCreateRow) handleCreate()
             } else if (e.key === 'Escape') { setOpen(false) }
           }}
-          placeholder="Search or add a place…"
+          placeholder="Search or add a location…"
           style={pickerStyles.input}
         />
       </div>
@@ -352,7 +352,7 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
               <div style={{ paddingTop: 22 }}>
                 <label style={checkLabel}>
                   <input type="checkbox" checked={sameTier} onChange={e => setSameTier(e.target.checked)} style={{ marginRight: 6 }} />
-                  Groups must be from the same unit
+                  Groups must be from the same age division
                 </label>
               </div>
             </div>
@@ -383,9 +383,9 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
           </div>
         </Field>
 
-        <Field label="Eligible Units (leave all unchecked = eligible for all)">
+        <Field label="Eligible Age Divisions (leave all unchecked = eligible for all)">
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 4 }}>
-            {tiers.length === 0 ? <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>No units set up yet</span> : tiers.map(t => (
+            {tiers.length === 0 ? <span style={{ color: 'var(--text-secondary)', fontSize: 13 }}>No age divisions set up yet</span> : tiers.map(t => (
               <label key={t.id} style={checkLabel}>
                 <input type="checkbox" checked={eligTiers.includes(t.id)} onChange={() => toggleTier(t.id)} style={{ marginRight: 5 }} />{t.name}
               </label>
@@ -833,7 +833,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         const eligible_tier_ids = eligTierNames.map(n => tierMap[n]).filter(Boolean)
         if (eligTierNames.length && eligible_tier_ids.length < eligTierNames.length) {
           const missing = eligTierNames.filter(n => !tierMap[n])
-          warning = warning || `Unit(s) not found: ${missing.join(', ')}`
+          warning = warning || `Age Division(s) not found: ${missing.join(', ')}`
         }
 
         const weatherName = String(r.weather_alternative || '').trim()
@@ -928,7 +928,14 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
           locationId = locationIdByName.get(trimmedLoc) ?? null
           if (!locationId) {
             try {
-              const newLocId = deriveLocationId(campId, trimmedLoc)
+              // T101 (docs/work/tickets/T101-locations-deterministic-id-rename-recollide.md):
+              // deriveLocationId's base id may already belong to a RENAMED
+              // row (the row keeps its id, only its name changed) — minting
+              // there directly would silently overwrite the renamed row's
+              // name. resolveLocationCandidateId is the same disambiguation
+              // ingest.js's create paths use; `locations` (loaded from db,
+              // reflecting any rename) is its existing-rows input.
+              const newLocId = resolveLocationCandidateId(campId, trimmedLoc, locations).id
               await repository.createRecord('locations', newLocId, { name: trimmedLoc, camp_id: campId, capacity: 1, notes: null })
               locationId = newLocId
               locationIdByName.set(trimmedLoc, newLocId)
@@ -1060,7 +1067,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                         <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{a.location_id ? locMap[a.location_id] || '—' : '—'}</td>
                         <td style={{ ...S.td, fontSize: 12 }}>{a.is_outdoor ? '🌤' : '—'}</td>
                         <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>
-                          {a.max_groups_per_slot > 1 ? `Up to ${a.max_groups_per_slot}${a.same_tier_only ? ' (same unit)' : ''}` : '—'}
+                          {a.max_groups_per_slot > 1 ? `Up to ${a.max_groups_per_slot}${a.same_tier_only ? ' (same age division)' : ''}` : '—'}
                         </td>
                         <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{a.min_per_week}–{a.max_per_week}</td>
                         <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{a.weather_alternative_id ? actMap[a.weather_alternative_id] || '—' : '—'}</td>
@@ -1143,7 +1150,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                         <td style={S.td}>
                           {r.location || '—'}
                           {r.locationResolution === 'new' && (
-                            <span style={importAnnotation.newPlace}>+ new place</span>
+                            <span style={importAnnotation.newPlace}>+ new location</span>
                           )}
                         </td>
                         <td style={S.td}>{r.priority}</td>

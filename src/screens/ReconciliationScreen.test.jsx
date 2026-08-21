@@ -6,8 +6,8 @@
 // resolution; read-only reconciliation never mutates; the last-issued-wins
 // guard protects the debounced dry-run re-issue (ADR Risk #3).
 
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../localClient', () => ({
@@ -184,7 +184,7 @@ describe('root-map selection (replaces the old chip-row filter)', () => {
 
     // The Facility domain node has zero decisions — selecting it clears the
     // Scheduling decision from view (single-select, node replaces node).
-    await userEvent.click(screen.getByLabelText(/Resources — /))
+    await userEvent.click(screen.getByLabelText(/Facility — /))
     expect(screen.queryByText('Keep current')).toBeNull()
     expect(screen.getByText('Everything here looks right.')).toBeTruthy()
 
@@ -209,6 +209,96 @@ describe('root-map selection (replaces the old chip-row filter)', () => {
 
     await userEvent.click(attentionTile) // toggle back off
     expect(attentionTile.getAttribute('aria-pressed')).toBe('false')
+  })
+})
+
+// RA-10 (docs/adr/2026-08-21-roots-tree-as-primary.md §(c)) — on a wide
+// canvasWrap (>= 900px measured width), RootMapPanel lifts into the
+// lower-canvas region via CSS position only; below the breakpoint it sits in
+// normal document flow. Round-2 review fix (MEDIUM-HIGH): this must NOT be
+// implemented via createPortal toggling between two parent elements — that
+// unmounts/remounts RootMapPanel (losing its internal `showResolved` state
+// and replaying its enter animation) on every plain window resize. The panel
+// stays mounted at ONE stable JSX position; only its wrapper's style changes.
+describe('RootMapPanel placement (RA-10)', () => {
+  const originalResizeObserver = global.ResizeObserver
+  let observedCallback
+  let observedElements
+
+  beforeEach(() => {
+    observedElements = []
+    global.ResizeObserver = class {
+      constructor(callback) { observedCallback = callback }
+      observe(el) { observedElements.push(el) }
+      unobserve() {}
+      disconnect() {}
+    }
+  })
+  afterEach(() => {
+    global.ResizeObserver = originalResizeObserver
+  })
+
+  it('switches the panel wrapper to absolute positioning on wide width and back to normal flow on narrow width', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 done/)
+
+    const panelWrapper = screen.getByLabelText('Needs your attention').parentElement
+
+    // Before any resize signal — today's normal-flow placement.
+    expect(panelWrapper.style.position).not.toBe('absolute')
+
+    act(() => { observedCallback([{ contentRect: { width: 1000 } }]) })
+    expect(panelWrapper.style.position).toBe('absolute')
+
+    act(() => { observedCallback([{ contentRect: { width: 500 } }]) })
+    expect(panelWrapper.style.position).not.toBe('absolute')
+  })
+
+  it('applies hysteresis so a slow drag across the edge does not flip-flop (enter wide at >=900, exit at <880)', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 done/)
+    const panelWrapper = screen.getByLabelText('Needs your attention').parentElement
+
+    act(() => { observedCallback([{ contentRect: { width: 900 } }]) })
+    expect(panelWrapper.style.position).toBe('absolute')
+
+    // Dips into the dead zone between 880 and 900 — must stay wide.
+    act(() => { observedCallback([{ contentRect: { width: 890 } }]) })
+    expect(panelWrapper.style.position).toBe('absolute')
+
+    act(() => { observedCallback([{ contentRect: { width: 875 } }]) })
+    expect(panelWrapper.style.position).not.toBe('absolute')
+  })
+
+  it('never remounts RootMapPanel across a breakpoint crossing — internal state and DOM identity persist', async () => {
+    localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
+    render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
+    await screen.findByText(/0 of 1 done/)
+
+    const panelNode = screen.getByLabelText('Needs your attention')
+
+    // Resolve the one decision (client-side, synchronous) so RootMapPanel's
+    // own `showResolved` local state becomes reachable via a real click.
+    await userEvent.click(screen.getByText('Keep current'))
+    await userEvent.click(screen.getByText(/resolved · Show all/))
+    expect(screen.getByText('Hide resolved')).toBeTruthy()
+
+    act(() => { observedCallback([{ contentRect: { width: 1000 } }]) })
+    expect(screen.getByText('Hide resolved')).toBeTruthy() // state persisted
+    expect(screen.getByLabelText('Needs your attention')).toBe(panelNode) // same DOM node
+
+    act(() => { observedCallback([{ contentRect: { width: 500 } }]) })
+    expect(screen.getByText('Hide resolved')).toBeTruthy()
+    expect(screen.getByLabelText('Needs your attention')).toBe(panelNode)
+
+    // Drain the 250ms debounced dry-run stage() scheduled by the "Keep
+    // current" click above, with REAL timers — otherwise that setTimeout
+    // fires after this test has already ended, consuming a
+    // mockImplementationOnce entry queued by a later, unrelated test (the
+    // "last-issued-wins guard" describe right after this one).
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 260)) })
   })
 })
 
@@ -413,8 +503,8 @@ describe('F3 — required readiness gap card', () => {
 
     await waitFor(() => expect(screen.getByText(/0 of 1 done/)).toBeTruthy())
     expect(screen.getByText('READY TO BUILD?')).toBeTruthy()
-    expect(screen.getByText(/Units aren't set up yet/)).toBeTruthy()
-    expect(screen.getByText('Set up Units')).toBeTruthy()
+    expect(screen.getByText(/Age Divisions aren't set up yet/)).toBeTruthy()
+    expect(screen.getByText('Set up Age Divisions')).toBeTruthy()
   })
 
   it('"Skip for now" dismisses the card locally without staging an answer or touching the commit payload', async () => {
@@ -424,7 +514,7 @@ describe('F3 — required readiness gap card', () => {
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
     await waitFor(() => expect(screen.getByText(/0 of 1 done/)).toBeTruthy())
 
-    await userEvent.click(screen.getByText(/Skip Units for now/))
+    await userEvent.click(screen.getByText(/Skip Age Divisions for now/))
 
     await waitFor(() => expect(screen.getByText(/1 of 1 done/)).toBeTruthy())
     // H1 (docs/work/specs/2026-08-19-roots-reconciliation-audit.md §12
@@ -432,7 +522,7 @@ describe('F3 — required readiness gap card', () => {
     // which moves it behind the default view's "N resolved · Show all"
     // reveal; reveal it to see its "Skipped —" confirmation.
     await userEvent.click(screen.getByText(/resolved · Show all/))
-    expect(screen.getByText(/Skipped — Units still isn't set up\./)).toBeTruthy()
+    expect(screen.getByText(/Skipped — Age Divisions still isn't set up\./)).toBeTruthy()
 
     await userEvent.click(screen.getByText('Use this setup'))
     await waitFor(() => expect(localClient.ingestCommit).toHaveBeenCalled())
@@ -440,14 +530,14 @@ describe('F3 — required readiness gap card', () => {
     expect(JSON.stringify(inputs)).not.toMatch(/readiness:|required_gap/)
   })
 
-  it('clicking "Set up Units" navigates to the readiness row\'s screen', async () => {
+  it('clicking "Set up Age Divisions" navigates to the readiness row\'s screen', async () => {
     localClient.ingestReconcile.mockResolvedValue(understoodOnlyResult())
     localClient.list.mockImplementation((table) => Promise.resolve(table === 'tiers' ? [] : [{ id: 'x' }]))
     const onNavigate = vi.fn()
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={onNavigate} />)
-    await waitFor(() => expect(screen.getByText('Set up Units')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Set up Age Divisions')).toBeTruthy())
 
-    await userEvent.click(screen.getByText('Set up Units'))
+    await userEvent.click(screen.getByText('Set up Age Divisions'))
     expect(onNavigate).toHaveBeenCalledWith('tiers')
   })
 })
@@ -468,8 +558,8 @@ describe('required-gap summary card (§22 compression)', () => {
 
     await waitFor(() => expect(screen.getByText(/0 of 3 done/)).toBeTruthy())
     expect(screen.getAllByText('READY TO BUILD?')).toHaveLength(1)
-    expect(screen.getByText(/Units, Groups, Days/)).toBeTruthy()
-    expect(screen.getByText('Set up Units')).toBeTruthy()
+    expect(screen.getByText(/Age Divisions, Groups, Days/)).toBeTruthy()
+    expect(screen.getByText('Set up Age Divisions')).toBeTruthy()
     expect(screen.getByText('Set up Groups')).toBeTruthy()
     expect(screen.getByText('Set up Days')).toBeTruthy()
   })
@@ -481,7 +571,7 @@ describe('required-gap summary card (§22 compression)', () => {
 
     await waitFor(() => expect(screen.getByText(/0 of 1 done/)).toBeTruthy())
     expect(screen.getAllByText('READY TO BUILD?')).toHaveLength(1)
-    expect(screen.getByText(/Units aren't set up yet/)).toBeTruthy()
+    expect(screen.getByText(/Age Divisions aren't set up yet/)).toBeTruthy()
   })
 
   it('dismissing one item inside the summary card updates dismissedGaps and the spine doneCount, leaving the others open', async () => {
@@ -490,7 +580,7 @@ describe('required-gap summary card (§22 compression)', () => {
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
     await waitFor(() => expect(screen.getByText(/0 of 2 done/)).toBeTruthy())
 
-    await userEvent.click(screen.getByText(/Skip Units for now/))
+    await userEvent.click(screen.getByText(/Skip Age Divisions for now/))
 
     await waitFor(() => expect(screen.getByText(/1 of 2 done/)).toBeTruthy())
     expect(screen.getByText('Set up Groups')).toBeTruthy()

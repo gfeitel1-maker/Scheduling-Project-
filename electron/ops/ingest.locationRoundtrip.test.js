@@ -159,6 +159,65 @@ describe('D1c — resolveOrCreateLocationId cannot double-mint within one commit
   })
 })
 
+describe('T101 — rename-then-recollide never overwrites the renamed row', () => {
+  it('commitCreate: importing "Pool" after a RENAME to "Swimming Pool" creates a distinct row, leaves the renamed row untouched', () => {
+    // Simulate the director's rename: a "Pool" location already exists at its
+    // deterministic base id, then gets renamed. The row keeps its id.
+    const base = deriveLocationId(campId, 'Pool')
+    commitIngest(db, { approved: { locations: ['Pool'] }, camp_id: campId, device_id: deviceId })
+    expect(db.prepare('SELECT id, name FROM locations WHERE id = ?').get(base)).toEqual({ id: base, name: 'Pool' })
+    db.prepare('UPDATE locations SET name = ? WHERE id = ?').run('Swimming Pool', base)
+
+    // Re-import "Pool" via the direct locations-entity create path.
+    const result = commitIngest(db, { approved: { locations: ['Pool'] }, camp_id: campId, device_id: deviceId })
+    expect(result.held).toBe(false)
+
+    const renamed = db.prepare('SELECT id, name FROM locations WHERE id = ?').get(base)
+    expect(renamed).toEqual({ id: base, name: 'Swimming Pool' }) // untouched, not overwritten
+
+    const newRow = db.prepare('SELECT id, name FROM locations WHERE id = ?').get(`${base}:2`)
+    expect(newRow).toEqual({ id: `${base}:2`, name: 'Pool' }) // distinct row
+  })
+
+  it('resolveOrCreateLocationId (D1c): an activity referencing "Pool" after the same rename binds to the NEW distinct row', () => {
+    const base = deriveLocationId(campId, 'Pool')
+    commitIngest(db, { approved: { locations: ['Pool'] }, camp_id: campId, device_id: deviceId })
+    db.prepare('UPDATE locations SET name = ? WHERE id = ?').run('Swimming Pool', base)
+
+    commitIngest(db, {
+      approved: { activities: [{ name: 'Swim', fields: { location: 'Pool' } }] },
+      camp_id: campId, device_id: deviceId,
+    })
+
+    const activity = db.prepare('SELECT location_id FROM activities WHERE camp_id = ? AND name = ?').get(campId, 'Swim')
+    expect(activity.location_id).toBe(`${base}:2`)
+
+    const renamed = db.prepare('SELECT name FROM locations WHERE id = ?').get(base)
+    expect(renamed.name).toBe('Swimming Pool') // the renamed row's name was never touched
+  })
+
+  it('two independent commits (simulating two devices) after the same synced rename converge on the identical disambiguated id', () => {
+    const base = deriveLocationId(campId, 'Pool')
+    commitIngest(db, { approved: { locations: ['Pool'] }, camp_id: campId, device_id: deviceId })
+    db.prepare('UPDATE locations SET name = ? WHERE id = ?').run('Swimming Pool', base)
+
+    // Device A's commit
+    commitIngest(db, { approved: { locations: ['Pool'] }, camp_id: campId, device_id: deviceId })
+    const afterA = db.prepare('SELECT id, name FROM locations WHERE camp_id = ? ORDER BY id').all(campId)
+    expect(afterA.map((r) => r.id)).toContain(`${base}:2`)
+
+    // A second device, syncing the same state, independently derives the SAME id — never a fork.
+    const secondCampId2 = campId // same camp/db here; the id derivation itself is what must agree
+    const recomputed = deriveLocationId(secondCampId2, 'Pool')
+    expect(recomputed).toBe(base) // base id is a pure function of the name — unchanged
+    // No second row minted on a re-run against unchanged state: the existing ':2' row's
+    // name already matches 'Pool', so re-import reuses it rather than minting ':3'.
+    commitIngest(db, { approved: { locations: ['Pool'] }, camp_id: campId, device_id: deviceId })
+    const afterB = db.prepare('SELECT id, name FROM locations WHERE camp_id = ?').all(campId)
+    expect(afterB).toHaveLength(2) // still just the renamed row + the one disambiguated row
+  })
+})
+
 describe('Invariant 2 — ordering-before-location_id', () => {
   it('writes the location create op(s) at a lower seq than the activity location_id op', () => {
     commitIngest(db, {
