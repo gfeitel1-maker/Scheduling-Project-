@@ -33,3 +33,11 @@ Roots Context wiring (T107); ingest of a special-day file; multi-block spanning;
 
 **Designer → Maker (test-first) → Red Hat (cascade under live use; seed-not-branch time blocks) →
 Security (IPC permissions) → Code Reviewer → Tester → Verifier → Grader.**
+
+## Terminology dependency (2026-08-21)
+
+The `camp-setup-ingestion` peer is landing a terminology-unification (ubiquitous-language) ADR — canonical
+labels for unit vs age-division, "programs", "resources"=locations. This author UI labels groups/
+locations/tiers, so **inherit the ratified glossary terms** rather than hard-coding drifting labels. If the
+glossary ADR hasn't landed when T106 starts, keep user-facing strings centralized/easy to swap. Peer will
+ping when the ADR is ready.
