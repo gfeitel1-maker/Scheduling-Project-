@@ -2,7 +2,7 @@
 // and test/integration/scenarios/21-ingest-prior-year.js's temp-db setup:
 // openLocalDb(tmp), manually insert camps/devices/users rows, call the
 // exported handler functions directly — no stdio, no MCP client, no
-// subprocess (docs/work/specs/2026-08-21-mcp-ingestion-server.md, "Test
+// subprocess (docs/work/specs/2026-08-21-mcp-server-tool-schemas.md, "Test
 // seam").
 
 import { describe, it, expect, afterEach } from 'vitest'

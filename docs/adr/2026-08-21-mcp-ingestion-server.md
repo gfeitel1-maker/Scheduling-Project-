@@ -124,7 +124,7 @@ Write gate: the server reads `--allow-write` once at startup into a module-level
 - New: `electron/ops/read.js` — `listEntities(db, entity)`, extracted verbatim from `electron/main.js`'s `list()`.
 - Changed: `electron/main.js` — `list(token, entity)` keeps its auth check, delegates the query to `listEntities(db, entity)`.
 - Changed: `package.json` — add `@modelcontextprotocol/sdk`.
-- New: `docs/work/specs/2026-08-21-mcp-ingestion-server.md` — full JSON schemas for each tool (Maker-facing detail; kept out of this ADR to keep the decision record short-lived-readable).
+- New: `docs/work/specs/2026-08-21-mcp-server-tool-schemas.md` — full JSON schemas for each tool (Maker-facing detail; kept out of this ADR to keep the decision record short-lived-readable).
 
 ## Reused vs. new
 
