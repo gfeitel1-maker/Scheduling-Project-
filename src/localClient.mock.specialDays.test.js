@@ -128,3 +128,41 @@ describe('mockShoresh — special_day_time_blocks / special_day_slots create/rea
     expect(await mockShoresh.list(null, 'special_day_slots')).toEqual([])
   })
 })
+
+describe('mockShoresh — deleteSpecialDay cascade (T106)', () => {
+  it('cascades: removes time blocks and slots scoped to the special day, then the special day itself', async () => {
+    const { mockShoresh } = await import('./localClient.mock.js')
+    globalThis.localStorage.setItem(
+      'shoresh-mock-state',
+      JSON.stringify({ camp: { id: 'camp-1' }, users: [], conflicts: [], devices: [] })
+    )
+    await mockShoresh.write({ entity: 'special_days', entity_id: 'sd-1', field: 'name', value: 'Color War' })
+    await mockShoresh.write({ entity: 'special_day_time_blocks', entity_id: 'tb-1', field: 'special_day_id', value: 'sd-1' })
+    await mockShoresh.write({ entity: 'special_day_time_blocks', entity_id: 'tb-1', field: 'name', value: 'Opening' })
+    await mockShoresh.write({ entity: 'special_day_slots', entity_id: 'sl-1', field: 'special_day_id', value: 'sd-1' })
+    await mockShoresh.write({ entity: 'special_day_slots', entity_id: 'sl-1', field: 'group_id', value: 'grp-1' })
+    await mockShoresh.write({ entity: 'special_day_slots', entity_id: 'sl-1', field: 'time_block_id', value: 'tb-1' })
+
+    // A second, unrelated special day must survive the cascade untouched.
+    await mockShoresh.write({ entity: 'special_days', entity_id: 'sd-2', field: 'name', value: 'Field Day' })
+
+    const result = await mockShoresh.deleteSpecialDay({ specialDayId: 'sd-1' })
+    expect(result).toEqual({ ok: true })
+
+    expect(await mockShoresh.list(null, 'special_days')).toEqual([
+      { id: 'sd-2', camp_id: 'camp-1', name: 'Field Day' },
+    ])
+    expect(await mockShoresh.list(null, 'special_day_time_blocks')).toEqual([])
+    expect(await mockShoresh.list(null, 'special_day_slots')).toEqual([])
+  })
+
+  it('returns { error: "not-found" } for a non-existent special day', async () => {
+    const { mockShoresh } = await import('./localClient.mock.js')
+    globalThis.localStorage.setItem(
+      'shoresh-mock-state',
+      JSON.stringify({ camp: { id: 'camp-1' }, users: [], conflicts: [], devices: [] })
+    )
+    const result = await mockShoresh.deleteSpecialDay({ specialDayId: 'does-not-exist' })
+    expect(result).toEqual({ error: 'not-found' })
+  })
+})

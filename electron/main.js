@@ -27,6 +27,7 @@ import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
 import { deleteElectiveSet } from './ops/deleteElectiveSet.js'
+import { deleteSpecialDay } from './ops/deleteSpecialDay.js'
 import { listDurableElectiveSets } from './ops/durableElectiveSets.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
@@ -1251,6 +1252,27 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ...reportable, ops_written: ops.length }
   }
 
+  // T106 (docs/work/tickets/T106-special-day-author-ui.md; docs/adr/2026-08-20-
+  // special-days-authoring-and-day-override-repoint.md D1): wires the
+  // deleteSpecialDay cascade primitive (electron/ops/deleteSpecialDay.js,
+  // shipped inert in T40 slice 1) to a caller. ADMIN-ONLY ('.delete' not
+  // '.write'), same posture as deleteElectiveSetHandler above (permissions.js
+  // default-deny — staff hold special_days.write but not special_days.delete).
+  function deleteSpecialDayHandler({ token, specialDayId } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'special_days.delete' })
+    if (!isNonEmptyString(specialDayId)) throw new Error('specialDayId is required')
+
+    const result = deleteSpecialDay(
+      db,
+      { specialDayId },
+      { author_user_id: userId, device_id: deviceId }
+    )
+    if (result.error) return result
+    const { ops, ...reportable } = result
+    return { ...reportable, ops_written: ops.length }
+  }
+
   // T105 (docs/work/tickets/T105-elective-inline-authoring-and-render.md;
   // docs/work/specs/2026-08-20-elective-authoring-render-design.md §2):
   // listDurableElectiveSets (electron/ops/durableElectiveSets.js, T103) gets
@@ -1278,6 +1300,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     duplicateWeek: duplicateWeekHandler,
     deleteWeek: deleteWeekHandler,
     deleteElectiveSet: deleteElectiveSetHandler,
+    deleteSpecialDay: deleteSpecialDayHandler,
     listDurableElectiveSets: listDurableElectiveSetsHandler,
     listDeleted: listDeletedHandler,
     listPendingRestores: listPendingRestoresHandler,
@@ -1461,6 +1484,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:duplicate-week', (_event, args) => handlers.duplicateWeek(args))
     ipcMain.handle('shoresh:delete-week', (_event, args) => handlers.deleteWeek(args))
     ipcMain.handle('shoresh:delete-elective-set', (_event, args) => handlers.deleteElectiveSet(args))
+    ipcMain.handle('shoresh:delete-special-day', (_event, args) => handlers.deleteSpecialDay(args))
     ipcMain.handle('shoresh:list-durable-elective-sets', (_event, args) => handlers.listDurableElectiveSets(args && args.token))
   }
 

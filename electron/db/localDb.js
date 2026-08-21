@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 36
+export const CURRENT_SCHEMA_VERSION = 37
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1555,6 +1555,26 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v37 — special_days.notes (T106, ADR 2026-08-20-special-days-authoring-and-
+  // day-override-repoint.md D2). Single nullable-additive column on the
+  // existing special_days table: free-text record/print notes (teams, points,
+  // staffing, trip times) — never solved, only recorded. No backfill (existing
+  // rows get NULL). No op is written (DDL-only, same posture as v33/v34/v35/v36).
+  if (getSchemaVersion(db) >= 36 && getSchemaVersion(db) < 37) {
+    db.transaction(() => {
+      const hasNotes = db
+        .pragma('table_info(special_days)')
+        .some((col) => col.name === 'notes')
+      if (!hasNotes) {
+        db.exec('ALTER TABLE special_days ADD COLUMN notes TEXT')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (37, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct
@@ -1725,6 +1745,7 @@ export const SPECIAL_DAYS_DDL = `CREATE TABLE IF NOT EXISTS special_days (
   camp_id TEXT NOT NULL REFERENCES camps(id),
   name TEXT NOT NULL,
   sort_order INTEGER,
+  notes TEXT,
   UNIQUE(camp_id, name)
 )`
 

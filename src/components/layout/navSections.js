@@ -50,6 +50,14 @@ export const NAV_SECTIONS = [
       { key: 'locations',    label: 'Locations',     area: 'locations',    optional: true },
       { key: 'anchors',      label: 'Fixed Events',  area: 'anchors',      optional: true },
       { key: 'dayoverrides', label: 'Day Overrides', area: 'dayoverrides', optional: true },
+      // T106 (docs/adr/2026-08-20-special-days-authoring-and-day-override-
+      // repoint.md D1/D3b): sits directly after Day Overrides — both are "days
+      // that aren't a normal week" setup rows, adjacency reads correctly.
+      // NOT under `schedule`: a special day is authored once and reused (tier
+      // (c) durable), a setup-shaped relationship to the camp, not a
+      // "build this week" relationship — putting it under `schedule` would
+      // visually imply a third route competing with Manual/Generated.
+      { key: 'specialdays',  label: 'Special Days',  area: 'specialdays',  optional: true },
     ],
   },
   {
@@ -98,4 +106,5 @@ export const AREA_TABLE = {
   locations: 'locations',
   anchors: 'anchor_activities',
   dayoverrides: 'day_override_templates',
+  specialdays: 'special_days',
 }

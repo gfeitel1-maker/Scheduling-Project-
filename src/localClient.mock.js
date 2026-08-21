@@ -324,7 +324,7 @@ export const MOCK_WRITE_ALLOWLIST = {
   // special_day_time_blocks/special_day_slots.fields, per this file's
   // "do not import from electron/" rule (kept honest by
   // electron/ipcSurfaceParity.test.js's drift check).
-  special_days: ['camp_id', 'name', 'sort_order'],
+  special_days: ['camp_id', 'name', 'sort_order', 'notes'],
   special_day_time_blocks: ['special_day_id', 'name', 'sort_order', 'start_time', 'end_time'],
   special_day_slots: ['special_day_id', 'group_id', 'time_block_id', 'activity_id', 'location_id'],
   // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md) —
@@ -1422,6 +1422,28 @@ export const mockShoresh = {
       (m) => m.elective_set_id !== electiveSetId
     )
     state.elective_sets = (state.elective_sets || []).filter((s) => s.id !== electiveSetId)
+
+    saveState(state)
+    return { ok: true }
+  },
+
+  // Permanently delete a special day and its scoped rows, mirroring
+  // deleteSpecialDay.js's cascade (T106, docs/adr/2026-08-20-special-days-
+  // authoring-and-day-override-repoint.md D1): special_day_slots and
+  // special_day_time_blocks before special_days. Operates on localStorage
+  // state — no op-log, no broadcast.
+  async deleteSpecialDay({ specialDayId } = {}) {
+    const state = loadState()
+    const day = (state.special_days || []).find((d) => d.id === specialDayId)
+    if (!day) return { error: 'not-found' }
+
+    state.special_day_slots = (state.special_day_slots || []).filter(
+      (s) => s.special_day_id !== specialDayId
+    )
+    state.special_day_time_blocks = (state.special_day_time_blocks || []).filter(
+      (b) => b.special_day_id !== specialDayId
+    )
+    state.special_days = (state.special_days || []).filter((d) => d.id !== specialDayId)
 
     saveState(state)
     return { ok: true }

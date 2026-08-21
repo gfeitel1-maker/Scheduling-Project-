@@ -321,7 +321,7 @@ export const PROJECTIONS = {
   special_days: {
     table: 'special_days',
     key: 'id',
-    fields: ['camp_id', 'name', 'sort_order'],
+    fields: ['camp_id', 'name', 'sort_order', 'notes'],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/day_override_templates/etc.ensureExists above.
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()

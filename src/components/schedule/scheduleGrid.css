@@ -858,3 +858,91 @@
   border-color: var(--primary);
   color: var(--primary);
 }
+
+/* Special-day per-cell location line (T106,
+   docs/work/specs/2026-08-21-special-day-author-ui-designer-spec.md §2).
+   Sibling overlay, not a SlotCell prop — SlotCell stays pure per the ADR's
+   Governor decision. Shares the filled cell's grid placement via the
+   `.cell-shell` wrapper (SpecialDayCell.jsx), which carries the real
+   gridRow/gridColumn placement. Scoped to src/components/schedule/, within
+   the ADR's stated CSS-exception boundary (ARCHITECTURE_STANDARD.md §7). */
+.cell-location {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  z-index: 2;
+  cursor: pointer;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.cell-location-icon {
+  flex-shrink: 0;
+  color: var(--text-secondary);
+}
+
+/* Hover/focus-only "+ location" affordance — only on cells that already
+   carry an activity and have no location set yet. Mirrors the
+   .cell[data-empty] hover-reveal mechanism already in this file. */
+.cell-location-add {
+  display: none;
+  position: absolute;
+  left: 12px;
+  bottom: 8px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  z-index: 2;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.cell[data-has-activity]:hover .cell-location-add,
+.cell[data-has-activity]:focus-within .cell-location-add,
+.cell-shell[data-has-activity]:hover .cell-location-add,
+.cell-shell[data-has-activity]:focus-within .cell-location-add {
+  display: block;
+  color: var(--primary);
+}
+
+/* Once a location IS set, the add-affordance never shows even on hover —
+   the .cell-location line itself is the edit entry point. */
+.cell[data-has-location] .cell-location-add,
+.cell-shell[data-has-location] .cell-location-add {
+  display: none !important;
+}
+
+/* T106 print styles (design spec §2 "Print"). No existing @media print rules
+   exist elsewhere in the app — this is new surface, scoped conservatively to
+   the special-day grid + notes. */
+@media print {
+  .app-sidebar, .grid-toolbar, .cell-action, .row-header-toggle .row-reorder-btn,
+  .cell-location-add, .back-row button {
+    display: none;
+  }
+
+  .schedule-grid-frame {
+    border: 1px solid #000;
+    box-shadow: none;
+  }
+
+  textarea.notes-field {
+    display: none;
+  }
+
+  .notes-print-view {
+    display: block !important;
+    white-space: pre-wrap;
+    font-size: 12pt;
+  }
+}

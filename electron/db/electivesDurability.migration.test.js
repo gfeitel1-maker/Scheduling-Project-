@@ -69,7 +69,7 @@ describe('migration v36: fresh vs migrated equivalence', () => {
   it('declares schema version 36 on a fresh db and gives elective_sets an is_reusable column', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(36)
+    expect(CURRENT_SCHEMA_VERSION).toBeGreaterThanOrEqual(36)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 36').get().c).toBe(1)
     expect(db.pragma('table_info(elective_sets)').map((c) => c.name)).toContain('is_reusable')
     db.close()

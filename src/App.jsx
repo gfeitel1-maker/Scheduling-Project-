@@ -17,6 +17,7 @@ import AnchorsScreen from './screens/AnchorsScreen'
 import DaysScreen from './screens/DaysScreen'
 import CohortsScreen from './screens/CohortsScreen'
 import DayOverridesScreen from './screens/DayOverridesScreen'
+import SpecialDaysScreen from './screens/SpecialDaysScreen'
 import ScheduleScreen from './screens/ScheduleScreen'
 import ConflictsScreen from './screens/ConflictsScreen'
 import TrashScreen from './screens/TrashScreen'
@@ -50,6 +51,7 @@ const SCREENS = {
   locations:    LocationsScreen,
   anchors:      AnchorsScreen,
   dayoverrides: DayOverridesScreen,
+  specialdays:  SpecialDaysScreen,
   // Two routes to a week, two sidebar destinations, one screen. Neither is the
   // camp's "real" schedule — the director makes that call, never the app
   // (docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md). 'schedule' is

@@ -97,7 +97,7 @@ describe('migration v34: fresh vs migrated equivalence', () => {
   it('declares every column from the CREATE TABLE for each table — no ALTER-added column, no column-order trap', () => {
     const db = freshDb()
     expect(db.pragma('table_info(special_days)').map((c) => c.name)).toEqual([
-      'id', 'camp_id', 'name', 'sort_order',
+      'id', 'camp_id', 'name', 'sort_order', 'notes',
     ])
     expect(db.pragma('table_info(special_day_time_blocks)').map((c) => c.name)).toEqual([
       'id', 'special_day_id', 'name', 'sort_order', 'start_time', 'end_time',

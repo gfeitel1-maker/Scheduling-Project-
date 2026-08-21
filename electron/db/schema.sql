@@ -658,11 +658,18 @@ CREATE INDEX IF NOT EXISTS idx_schedule_snapshots_template_id ON schedule_snapsh
 -- column: the object is not calendar-dated (named/throwaway, not a dated
 -- entry). id is a minted uuid (interactive create — no deriveLocationId-style
 -- determinism, per T81/T101).
+-- notes (schema v37, T106, ADR 2026-08-20-special-days-authoring-and-day-
+-- override-repoint.md D2): free-text record/print surface for a special
+-- day's non-schedulable data (team rosters, staffing, points, trip times) —
+-- recorded and printed, never solved/parsed. MUST be the LAST column: it is
+-- ALTER-added on a migrated db (localDb.js v37), same column-order-trap
+-- precedent as elective_sets.is_reusable.
 CREATE TABLE IF NOT EXISTS special_days (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
   name TEXT NOT NULL,
   sort_order INTEGER,
+  notes TEXT,
   UNIQUE(camp_id, name)
 );
 

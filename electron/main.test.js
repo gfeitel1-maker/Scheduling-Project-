@@ -1090,6 +1090,67 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
       error: 'not-found',
     })
   })
+
+  // T106 (docs/work/tickets/T106-special-day-author-ui.md; docs/adr/2026-08-20-
+  // special-days-authoring-and-day-override-repoint.md D1): wires the
+  // deleteSpecialDay cascade (already pinned by
+  // electron/ops/deleteSpecialDay.test.js) to an IPC caller. Same admin-only,
+  // '.delete'-gated posture as deleteElectiveSet above — staff hold
+  // special_days.write but not special_days.delete (permissions.js
+  // default-deny). This is "does IPC correctly call the existing verified
+  // function," not a re-verification of cascade correctness.
+  it('deletes a special day and its scoped rows for an admin but denies a staff session', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7115 })
+    const { staffToken, adminToken } = await seedTwoRoleSessions(handlers, {
+      staffName: 'SpecialDayDelStaff',
+      adminName: 'SpecialDayDelAdmin',
+    })
+    await handlers.write({
+      token: adminToken, entity: 'special_days', entity_id: 'sd-del-1', field: 'name', value: 'Color War',
+    })
+    await handlers.write({
+      token: adminToken, entity: 'special_day_time_blocks', entity_id: 'sdtb-del-1', field: 'special_day_id', value: 'sd-del-1',
+    })
+    await handlers.write({
+      token: adminToken, entity: 'special_day_time_blocks', entity_id: 'sdtb-del-1', field: 'name', value: 'Opening',
+    })
+    await handlers.write({
+      token: adminToken, entity: 'special_day_slots', entity_id: 'sds-del-1', field: 'special_day_id', value: 'sd-del-1',
+    })
+    await handlers.write({
+      token: adminToken, entity: 'special_day_slots', entity_id: 'sds-del-1', field: 'group_id', value: 'grp-del-1',
+    })
+    await handlers.write({
+      token: adminToken, entity: 'special_day_slots', entity_id: 'sds-del-1', field: 'time_block_id', value: 'sdtb-del-1',
+    })
+
+    expect(() => handlers.deleteSpecialDay({ token: staffToken, specialDayId: 'sd-del-1' })).toThrow(
+      'admin role required'
+    )
+    expect(handlers.deleteSpecialDay({ token: adminToken, specialDayId: 'sd-del-1' })).toEqual({
+      ok: true, ops_written: 3,
+    })
+    expect(db.prepare('SELECT * FROM special_days WHERE id = ?').get('sd-del-1')).toBeUndefined()
+    expect(
+      db.prepare('SELECT * FROM special_day_time_blocks WHERE id = ?').get('sdtb-del-1')
+    ).toBeUndefined()
+    expect(
+      db.prepare('SELECT * FROM special_day_slots WHERE id = ?').get('sds-del-1')
+    ).toBeUndefined()
+  })
+
+  it('deleteSpecialDay returns not-found for a bogus id rather than throwing', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7116 })
+    const { adminToken } = await seedTwoRoleSessions(handlers, {
+      staffName: 'SpecialDayDelStaff2',
+      adminName: 'SpecialDayDelAdmin2',
+    })
+    expect(handlers.deleteSpecialDay({ token: adminToken, specialDayId: 'nonexistent' })).toEqual({
+      error: 'not-found',
+    })
+  })
 })
 
 describe('sanitizeConflictForIpc (Round 2 Fix 1: main-process PIN filtering)', () => {
