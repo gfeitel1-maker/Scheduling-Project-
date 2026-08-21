@@ -2,6 +2,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import RootMap from './RootMap.jsx'
+import { DOMAIN_LABELS } from './domainRollup.js'
 
 // Design-polish finding 3: the canvas node must show a visible caption
 // (not just aria-label) when selected — asserted via a selected node so
@@ -38,6 +39,46 @@ describe('RootMap node label', () => {
       />,
     )
     expect(screen.getByText('Resources')).toBeTruthy()
+  })
+})
+
+// RA-6: a quiet always-on resting ring on every orb (interactive affordance
+// at rest, independent of hover/selection state).
+describe('RootMap resting interactivity ring (RA-6)', () => {
+  it('renders an always-on ring per node', () => {
+    const { container } = render(
+      <RootMap
+        model={model()}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    const rings = [...container.querySelectorAll('circle[stroke="var(--anchor)"]')]
+    // one domain node + one child node in `model()`
+    expect(rings).toHaveLength(2)
+    for (const ring of rings) {
+      expect(ring.getAttribute('fill')).toBe('none')
+      expect(ring.getAttribute('opacity')).toBe('0.28')
+    }
+  })
+})
+
+// RA-8: static self-describing domain legend beneath the tile row.
+describe('RootMap domain legend (RA-8)', () => {
+  it('renders the five domain labels in canvas order, joined by middot', () => {
+    render(
+      <RootMap
+        model={model()}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    const expected = Object.values(DOMAIN_LABELS).join(' · ')
+    expect(screen.getByText(expected)).toBeTruthy()
   })
 })
 

@@ -152,6 +152,11 @@ function Node({ x, y, width, height, state, label, selected, onSelect, radius })
         strokeWidth={1.5}
         opacity={0.45}
       />
+      {/* RA-6: a quiet always-on ring so every orb reads as interactive at
+          rest, independent of hover/selection state (which lights the glow
+          above). No fill, no animation — it must never compete with the
+          hover/selection glow that sits above it in paint order. */}
+      <circle cx={cx} cy={cy} r={r + 4} fill="none" stroke="var(--anchor)" strokeWidth={1} opacity={0.28} />
       <circle
         cx={cx}
         cy={cy}
@@ -294,6 +299,13 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
         })}
       </div>
 
+      {/* RA-8: static self-describing legend, canvas domain order left→right,
+          sourced live from DOMAIN_LABELS so it can never drift from the
+          canvas's own labels. Quiet by design — no motion, no interaction. */}
+      <div style={styles.legend}>
+        {Object.values(DOMAIN_LABELS).join(' · ')}
+      </div>
+
       <div style={styles.canvasWrap}>
         <img src={rootMapArt} alt="" style={styles.art} />
         <svg viewBox={`0 0 ${width} ${height}`} style={styles.svg} role="img" aria-label="The root system — what Shoresh took in.">
@@ -364,6 +376,12 @@ const styles = {
   },
   tileActive: {
     borderWidth: 2,
+  },
+  legend: {
+    fontSize: 12,
+    color: 'var(--text-secondary)',
+    fontFamily: 'var(--font-sans)',
+    marginBottom: 8,
   },
   canvasWrap: {
     position: 'relative',

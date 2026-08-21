@@ -99,7 +99,7 @@ engraving craft, the trunk-holds-the-dashboard metaphor, the honest empty-state 
 - After: give resting orbs a permanent, quiet affordance (a hairline ring, a 1px lift, or a consistent cursor+outline) AND a one-time first-visit coach cue ("these are clickable"). **Reconcile with T94** (roots first-timer orientation caption) so we ship one coherent cue, not two.
 - Why: on a home surface a director may never learn the roots are the interface.
 - Acceptance: nodes signal interactivity at rest without adding visual noise at the all-understood default; first-visit cue shows once and is dismissible; no duplication with T94.
-- Recommendation: a single hairline resting ring in `--anchor` at low opacity + reuse the T94 caption as the first-visit cue (don't invent a second coach mark).
+- **Wave 2 design (locked):** T94's first-timer caption is ALREADY SHIPPED (ReconciliationScreen.jsx + tests) — it stays as the one-time teaching cue. RA-6 adds only the *permanent* at-rest affordance: a resting `<circle>` per orb, `stroke: var(--anchor)`, `strokeWidth 1`, `opacity 0.28`, radius = orb-radius + 4, static (no motion). Do NOT touch T94.
 
 **RA-7 — Non-colour second channel for state.** *(Impeccable I3)*
 - Before: understood/attention/changed filled orbs differ only by hue; absent/not_set_up differ by shape.
