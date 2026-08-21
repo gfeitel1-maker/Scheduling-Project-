@@ -119,13 +119,13 @@ engraving craft, the trunk-holds-the-dashboard metaphor, the honest empty-state 
 **RA-9 — Hero footprint decision.** *(Impeccable I2)*
 - Problem: the tree is the largest element but the controls (tiles, nodes, panel) carry the task; it's currently between "tree is the interface" and "tree is ambient backdrop."
 - Options: (a) commit to **tree-as-primary** — pull the tile counts into/around the crown so the hero *is* the control surface; (b) **tighten** the tree so the tiles/nodes clearly lead. 
-- Decision owner: product + Architect. Recommendation: **(a) tree-as-primary**, since the whole thesis is roots-as-interface — but this is an ADR-worthy change, not a quick edit.
+- **DECISION (owner-approved 2026-08-20): (a) tree-as-primary.** Commit to roots-as-interface — pull the tile counts into/around the crown so the hero IS the control surface. ADR-worthy; Architect writes the ADR before Maker.
 - Acceptance: the hero's size is justified by an explicit IA decision recorded in an ADR; visual-hierarchy read improves to the target.
 
 **RA-10 — Bottom-third dead space.** *(Impeccable I5)*
 - Problem: raising the tree left the lower canvas empty (no nodes below ~0.66), reading as unfinished.
 - Options: crop the canvas height to the live region, or use the space (e.g., the inspector panel sits in it on wide screens).
-- Recommendation: on wide screens, move the inspector panel into the lower-canvas region so the space is used and the tree/panel read as one composition; crop on narrow.
+- **DECISION (owner-approved 2026-08-20): use the space.** On wide screens move the inspector panel into the lower-canvas region so the space is used and the tree/panel read as one composition; crop on narrow.
 - Acceptance: no "unfinished" dead-space read at any supported width.
 
 ### Verification
