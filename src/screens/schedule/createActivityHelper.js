@@ -28,10 +28,11 @@ export function newActivityDefaultFields(trimmedName, campId) {
   }
 }
 
-// `groupId` is accepted for interface parity with callers (a mint is always
-// in service of placing an activity into a specific group's cell) but is not
-// yet part of the written field set — mirrors the pre-extraction behavior.
-export async function createActivity({ name, groupId, campId, activities }, repo) {
+// Callers may pass `groupId` (a mint is always in service of placing into a
+// specific group's cell) but it is not part of the written field set — an
+// activity is all-groups-eligible by default, mirroring pre-extraction behavior.
+// It is intentionally not destructured here (unused), and extra keys are ignored.
+export async function createActivity({ name, campId, activities }, repo) {
   const trimmed = String(name ?? '').trim()
 
   const dupe = (activities ?? []).find(a => normalizeName(a.name) === normalizeName(trimmed))

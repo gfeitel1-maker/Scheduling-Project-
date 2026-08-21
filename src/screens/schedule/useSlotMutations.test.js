@@ -1203,7 +1203,7 @@ describe('useSlotMutations — createActivityFromCell characterization (T106 ext
     ]
     const order = []
     const setActivities = vi.fn(() => { order.push('setActivities') })
-    const writeSlotFields = vi.fn(async (...args) => { order.push('writeSlotFields'); return { status: 'applied' } })
+    const writeSlotFields = vi.fn(async () => { order.push('writeSlotFields'); return { status: 'applied' } })
     const repo = makeRepo({ writeSlotFields })
     const { hook } = setup({ slots, campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }], activities: [], repo, setActivities })
     await act(async () => {
