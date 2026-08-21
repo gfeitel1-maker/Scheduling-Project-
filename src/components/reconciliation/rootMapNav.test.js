@@ -4,10 +4,15 @@ import { DOMAIN_SCREEN, CHILD_SCREEN, SCREEN_LABEL, screenForNode } from './root
 // App.jsx's SCREENS map (mirrored, not imported — App.jsx pulls in the whole
 // screen component tree, which is far heavier than this pure-config test
 // needs). Keep in sync with src/App.jsx's SCREENS keys.
+// T108 Phase 2 review round 2 (MED/HIGH #4) — 'dayoverrides' removed:
+// DayOverridesScreen no longer exists, and neither does any pointer to it
+// (rootMapNav.js's CHILD_SCREEN/SCREEN_LABEL entries were removed alongside
+// this). See screenDestinationsExist.test.js for the App.jsx-sourced version
+// of this same guard.
 const REAL_SCREEN_KEYS = new Set([
   'readiness', 'camp', 'import', 'roots', 'conflicts', 'trash',
   'cohorts', 'tiers', 'groups', 'days', 'timeblocks', 'activities',
-  'locations', 'anchors', 'dayoverrides', 'schedule',
+  'locations', 'anchors', 'schedule',
   'schedule:manual', 'schedule:generated',
 ])
 
@@ -68,7 +73,11 @@ describe('rootMapNav — every nav target is a real screen', () => {
     expect(screenForNode('Context', 'Field Trips / Special Events')).toBe('schedule:manual')
   })
 
-  it('Day Overrides resolves to the existing dayoverrides screen — inspect-mode-only child', () => {
-    expect(screenForNode('Context', 'Day Overrides')).toBe('dayoverrides')
+  // T108 Phase 2 review round 2 (MED/HIGH #4) — the 'Day Overrides' node no
+  // longer exists (rootMapModel.js), so it must not resolve to anything;
+  // an unmapped child falls back to the domain screen (Context -> null),
+  // same as any other unrecognized child key.
+  it('Day Overrides (removed node/mapping) falls back to Context\'s null domain screen, not a dangling pointer', () => {
+    expect(screenForNode('Context', 'Day Overrides')).toBe(null)
   })
 })

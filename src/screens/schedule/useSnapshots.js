@@ -22,6 +22,12 @@ export function useSnapshots({
   activities,
   days,
   weekId,
+  // T108 review round 2 (HIGH #3) — dayOverrides is owned by useScheduleData,
+  // not this hook; restoreSnapshot must reload it and hand the fresh rows
+  // back up so the grid's applyDayOverrides composition (ScheduleScreen's
+  // slots useMemo) recomposes against what was ACTUALLY restored, not
+  // whatever was on screen before the restore ran.
+  setDayOverrides,
 }) {
   const {
     route,
@@ -161,6 +167,15 @@ export function useSnapshots({
 
     const freshOverlays = await repo.reloadOverlays(templateId)
     setOverlays(freshOverlays)
+
+    // HIGH #3 — reload the WHOLE WEEK's day_overrides (restore is week-level,
+    // design §5.2) so ScheduleScreen's applyDayOverrides composition reflects
+    // exactly what restoreSnapshotRows just wrote, including restore-to-none
+    // (an empty reload correctly clears stale overrides from the grid).
+    if (weekId) {
+      const freshDayOverrides = await repo.loadDayOverridesForWeek(weekId)
+      setDayOverrides?.(freshDayOverrides)
+    }
 
     recalcStats(freshSlots)
     setFindings(computeFindings({ slots: freshSlots, groups, activities, days }))

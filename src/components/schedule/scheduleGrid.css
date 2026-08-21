@@ -1038,17 +1038,17 @@
 /* §1.3b — override-mode's grid-scope tint. Attribute writes from the caller
    (ScheduleScreen), not React state — the T55 "collapse is instant, no
    transition" rule applies here too (§1.4): the tint appears/disappears via
-   plain attribute add/remove, no animation. */
+   plain attribute add/remove, no animation.
+   T108 Phase 2 review round 2 (LOW #5) — only the header-cell rule ships:
+   data-override-active is set on ScheduleGroupView's day-column header cell
+   only (the banner + this header tint together already signal the mode
+   unambiguously). The body-cell inset-shadow and schedule-grid-frame border
+   rules that would have paired with a body/frame attribute write were dead
+   CSS — that wiring was never added — so they were removed rather than
+   shipped unused. Re-add them alongside the attribute write if that body-cell
+   tint is picked up as real work later. */
 .schedule-grid--header .cell[data-override-active] {
   background: color-mix(in srgb, var(--secondary) 10%, var(--surface-elevated));
-}
-
-.schedule-grid--body .cell[data-override-active] .cell-inner {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--secondary) 30%, transparent);
-}
-
-.schedule-grid-frame[data-override-active] {
-  border-color: var(--secondary);
 }
 
 /* §1.3a — the override-mode banner, reusing the recoverable-error banner's

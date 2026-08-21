@@ -14,8 +14,12 @@ import {
 // The six-state layer is strictly additive over getSetupGaps. These tests fence
 // the two load-bearing guarantees: Missing == getSetupGaps membership (red only
 // for the five required areas), and every non-required category (Fixed Events,
-// Day Overrides, Locations, Staffing) can never reach Missing. The blocking
+// Locations, Staffing) can never reach Missing. The blocking
 // core's own fence lives in readiness.test.js and must stay byte-identical.
+//
+// T108 Phase 2 review round 2 (MED/HIGH #4) — 'dayoverrides' removed from
+// OPTIONAL_AREAS (readiness.js); overrides are now authored in place on the
+// schedule grid, not a separate setup-shaped screen.
 //
 // M3 (docs/adr/2026-08-15-camp-locations-entity.md) promoted `location` out of
 // FORWARD_AREAS into OPTIONAL_AREAS now that a real Locations screen and
@@ -38,7 +42,6 @@ describe('getReadiness: the six-state layer', () => {
     const r = getReadiness({})
     for (const area of REQUIRED_AREAS) expect(stateOf(r, area.key)).toBe('missing')
     expect(stateOf(r, 'anchors')).toBe('optional')
-    expect(stateOf(r, 'dayoverrides')).toBe('optional')
     expect(stateOf(r, 'location')).toBe('optional')
     expect(stateOf(r, 'staffing')).toBe('optional')
   })
@@ -169,7 +172,7 @@ describe('ALL_CATEGORIES: the stable spine', () => {
   it('lists required (setup order), then optional, then forward', () => {
     expect(ALL_CATEGORIES.map((c) => c.key)).toEqual([
       'tiers', 'groups', 'days', 'timeblocks', 'activities',
-      'anchors', 'dayoverrides',
+      'anchors',
       'location', 'staffing',
     ])
   })

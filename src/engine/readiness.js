@@ -71,11 +71,17 @@ export const REQUIRED_AREAS = [
 ]
 
 // Present in the sidebar and on the setup screen, but never a gap. A camp with
-// no fixed events and no day overrides is finished, not unfinished — and
-// flagging it otherwise teaches directors to ignore the flag that matters.
+// no fixed events is finished, not unfinished — and flagging it otherwise
+// teaches directors to ignore the flag that matters.
+//
+// T108 Phase 2 review round 2 (MED/HIGH #4) — 'dayoverrides' removed: it
+// pointed at App.jsx's SCREENS['dayoverrides'], which no longer exists
+// (overrides are now authored in place on the schedule grid, not a separate
+// setup-shaped screen). Leaving the entry would have silently fallen back to
+// TiersScreen on click — exactly the failure guardScreensExist below exists
+// to catch.
 export const OPTIONAL_AREAS = [
   { key: 'anchors', label: 'Fixed Events', screen: 'anchors' },
-  { key: 'dayoverrides', label: 'Day Overrides', screen: 'dayoverrides' },
   // M3 — promoted out of FORWARD_AREAS now that a real Locations screen and
   // collection exist (docs/adr/2026-08-15-camp-locations-entity.md M3 row).
   // Fixes the dead Review button (gap 14): `screen` used to be 'camp', a
@@ -157,7 +163,6 @@ export const ALL_CATEGORIES = [
 // go through getSetupGaps (COLLECTION_FOR) and are never re-inspected here.
 const OPTIONAL_COLLECTION = {
   anchors: 'anchors',
-  dayoverrides: 'dayOverrides',
   location: 'locations',
 }
 

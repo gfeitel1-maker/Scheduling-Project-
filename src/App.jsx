@@ -28,6 +28,11 @@ import { ensureCohort } from './utils/ensureCohort'
 import { seedDays } from './utils/seedDays'
 import { S } from './styles/shared'
 
+// Keys mirrored into screenKeys.js (a plain-data sibling file, not this
+// component file) so a guard test can assert every readiness/rootMap-node
+// `screen` key resolves to a real entry here, without this file exporting a
+// non-component value (react-refresh/only-export-components forbids that) —
+// see screenDestinationsExist.test.js.
 const SCREENS = {
   camp:         CampScreen,
   import:       ImportScreen,

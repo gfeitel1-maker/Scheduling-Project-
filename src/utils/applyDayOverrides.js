@@ -13,7 +13,18 @@
 // isActivityTail rather than inventing a second span-detection predicate.
 import { isActivityTail } from '../screens/schedule/gridGeometry.js'
 
-export function applyDayOverrides(slots, overridesForWeekDay) {
+// `weekId` (T108 Phase 2 review round 2, LOW #6) is optional defense-in-depth,
+// not the primary correctness mechanism: template_slots rows carry no
+// schedule_week_id of their own (they're keyed by template_id, which resolves
+// to a week via schedule_templates.week_id, not present on a slot row), so
+// this can only be checked against the OVERRIDE's own schedule_week_id, not
+// cross-referenced against the row. Today the caller (ScheduleScreen's slots
+// pipe) already pre-filters `overridesForWeekDay` to one week via
+// useScheduleData's loadDayOverridesForWeek(weekId) — this parameter guards
+// against a future caller that forgets to, rather than replacing that
+// pre-filter. Omitted (undefined), it's a no-op — every override matches on
+// week the same as before.
+export function applyDayOverrides(slots, overridesForWeekDay, weekId) {
   if (!overridesForWeekDay || overridesForWeekDay.length === 0) return slots
 
   let changed = false
@@ -25,6 +36,7 @@ export function applyDayOverrides(slots, overridesForWeekDay) {
     // incorrectly also match the same group+block cell on day 1/2/4/5.
     const match = overridesForWeekDay.find(
       (o) => o.group_id === row.group_id && o.time_block_id === row.time_block_id && o.day_id === row.day_id
+        && (weekId == null || o.schedule_week_id === weekId)
     )
     if (!match) return row
 

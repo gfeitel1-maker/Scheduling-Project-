@@ -60,12 +60,17 @@ const REQUIRED_ENTITY_TYPES = new Set(
 // buildReconciliationReport), so decisionIds is always [] and state is
 // always 'understood' per row — there is no confirm/attention concept here,
 // only "this exists" or "this doesn't exist yet".
+// T108 Phase 2 review round 2 (MED/HIGH #4) — the "Day Overrides" Context
+// child is removed: overrides are now authored in place on the rendered
+// schedule day (ScheduleScreen's Override-this-day mode), not a separate
+// setup-shaped destination, so there is no screen left for this node to
+// point at (screenForNode's 'dayoverrides' mapping is removed alongside
+// this). Field Trips / Special Events is unaffected — it still points at
+// its own per-row targetScreen.
 function buildContextChildren(snapshot) {
   const fieldTrips = Array.isArray(snapshot.field_trips) ? snapshot.field_trips : []
-  const dayOverrides = Array.isArray(snapshot.day_overrides) ? snapshot.day_overrides : []
 
   const fieldTripsPos = layoutForChild('Context', 'Field Trips / Special Events', 0)
-  const dayOverridesPos = layoutForChild('Context', 'Day Overrides', 1)
 
   return [
     {
@@ -82,18 +87,6 @@ function buildContextChildren(snapshot) {
       // screenForNode target when present.
       roster: fieldTrips.map((row) => ({
         entityId: row.id, name: row.name, state: 'understood', decisionId: null, group: null, targetScreen: row.route,
-      })),
-    },
-    {
-      key: 'Day Overrides',
-      name: 'Day Overrides',
-      count: 0,
-      state: 'understood',
-      x: dayOverridesPos.x,
-      y: dayOverridesPos.y,
-      decisionIds: [],
-      roster: dayOverrides.map((row) => ({
-        entityId: row.id, name: row.name, state: 'understood', decisionId: null, group: null,
       })),
     },
   ]

@@ -125,6 +125,28 @@ describe('applyDayOverrides', () => {
     expect(result.find((s) => s.id === 's-day1').activity_id).toBe('act-swim')
   })
 
+  // T108 Phase 2 review round 2 (LOW #6) — schedule_week_id is optional
+  // defense-in-depth. Slots carry no week id of their own, so this can only
+  // be checked against each OVERRIDE row's schedule_week_id.
+  it('weekId param: an override for a different week is not applied when weekId is passed', () => {
+    const slots = [slot()]
+    const result = applyDayOverrides(slots, [override({ schedule_week_id: 'week-OTHER' })], 'week1')
+    expect(result[0].activity_id).toBe('act-swim')
+    expect(result[0].is_overridden).toBeFalsy()
+  })
+
+  it('weekId param: an override for the matching week still applies', () => {
+    const slots = [slot()]
+    const result = applyDayOverrides(slots, [override({ schedule_week_id: 'week1' })], 'week1')
+    expect(result[0].is_overridden).toBe(true)
+  })
+
+  it('weekId omitted (undefined) is a no-op — matches on group/day/block alone, same as before', () => {
+    const slots = [slot()]
+    const result = applyDayOverrides(slots, [override({ schedule_week_id: 'week-OTHER' })])
+    expect(result[0].is_overridden).toBe(true)
+  })
+
   it('returns the same array reference when there are no overrides (no-op stability)', () => {
     const slots = [slot()]
     const result = applyDayOverrides(slots, [])

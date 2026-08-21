@@ -168,7 +168,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       // originally placed). dayOverrides is the whole week's rows (both
       // views need every day's overrides composed — group view renders every
       // day as a column in one pass, per applyDayOverrides.js's day_id match).
-      const withOverrides = applyDayOverrides(rawSlots, dayOverrides)
+      // T108 Phase 2 review round 2 (LOW #6) — weekId passed as defense-in-depth
+      // (dayOverrides is already loaded scoped to this week by useScheduleData).
+      const withOverrides = applyDayOverrides(rawSlots, dayOverrides, weekId)
       const withClosures = withWeekClosureFlags(withOverrides, {
         activities,
         groups,
@@ -361,6 +363,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     routeState, repo, setActionError,
     recalcStats, resetUndoRedo,
     groups, activities, days, weekId,
+    // HIGH #3 (T108 review round 2) — restoreSnapshot reloads day_overrides
+    // and hands the fresh rows back here so the slots pipe recomposes.
+    setDayOverrides,
   })
 
   // Week mutation orchestration: create/rename/archive/unarchive/duplicate/delete.

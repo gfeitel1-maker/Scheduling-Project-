@@ -306,6 +306,38 @@ export function useSlotMutations({
     if (!targetRow || targetRow.is_anchor) return
     if (overrideGuard(targetRow)) return
 
+    // T108 Phase 2 review round 2 (HIGH #1) — replaceSlot is the drag-drop /
+    // card-move entry point (dragHandlers.js routes every drop here), the
+    // PRIMARY placement gesture. In override-authoring mode for the target
+    // cell's day, a drop writes a day_overrides row (kind: swap), never
+    // template_slots — same routing placeActivityManual already does for the
+    // typeahead path. Deliberately does not touch the source cell (a
+    // grid-to-grid drag's source clearing) or span tails: authoring an
+    // override is a per-cell diff (design §4), not a move, so this branch
+    // returns before any of that logic runs. Undo/redo for override
+    // authoring is a deferred follow-up (T113, Governor-accepted) — same
+    // posture as placeActivityManual's override branch below.
+    if (isOverrideModeFor(target.dayId)) {
+      setActionError(null)
+      const id = crypto.randomUUID()
+      const fields = {
+        schedule_week_id: weekId,
+        day_id: target.dayId,
+        group_id: target.groupId,
+        time_block_id: target.blockId,
+        activity_id: incoming.activityId,
+        kind: 'swap',
+        note: null,
+      }
+      try {
+        await repo.writeDayOverrideFields(id, fields)
+        setDayOverrides?.(prev => [...prev, { id, ...fields }])
+      } catch (err) {
+        setActionError(describeWriteFailure(err, 'That override could not be saved.'))
+      }
+      return
+    }
+
     const hasSource = incoming.groupId != null && incoming.dayId != null && incoming.blockId != null
     const sourceRow = hasSource
       ? slots.find(s => s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
@@ -617,8 +649,9 @@ export function useSlotMutations({
 
     // T108 Phase 2 (design §6.1): in override-authoring mode FOR THIS CELL'S
     // DAY, a cell edit writes a day_overrides row (kind: swap) instead of
-    // template_slots. No undo/redo for override authoring (out of scope —
-    // see the design's snapshot-restore path for how overrides are undone).
+    // template_slots. No undo/redo for override authoring — deferred to
+    // T113 (Governor-accepted follow-up); the only way to undo an override
+    // today is a snapshot restore (design's §5.2 whole-week restore path).
     if (isOverrideModeFor(dayId)) {
       setActionError(null)
       const id = crypto.randomUUID()
@@ -1106,6 +1139,17 @@ export function useSlotMutations({
     if (!targetRow || targetRow.is_anchor) return
     if (overrideGuard(targetRow)) return
 
+    // T108 Phase 2 review round 2 (HIGH #2) — day_overrides has no
+    // elective_set_id column (v1 scope, per the schema), so an override
+    // cannot point at an elective. Blocked BEFORE any write — including
+    // before the fresh-mint path below creates elective_sets/
+    // elective_set_activities rows — so override mode can never leave an
+    // orphan one-off elective set with nothing placing it.
+    if (isOverrideModeFor(target.dayId)) {
+      setActionError("Electives can't be overridden for a single day yet — exit Override mode to place an elective.")
+      return
+    }
+
     setActionError(null)
 
     // Reuse-from-existing-durable-set (design §1): an exact name match against
@@ -1359,8 +1403,9 @@ export function useSlotMutations({
   // T108 (design §6.1): the "pull" override-authoring action — a group is
   // intentionally taken off programming for this cell. Only meaningful in
   // override-authoring mode; the guard still applies so a pull can't silently
-  // clobber an existing override outside that mode. No undo/redo yet, same
-  // posture as placeActivityManual's override-mode branch above.
+  // clobber an existing override outside that mode. No undo/redo — deferred
+  // to T113 (Governor-accepted follow-up), same posture as
+  // placeActivityManual's and replaceSlot's override-mode branches above.
   async function pullOverrideCell(groupId, dayId, blockId, note = null) {
     if (!existingTemplates[route]) return
     const slot = getSlot(slots, groupId, dayId, blockId)

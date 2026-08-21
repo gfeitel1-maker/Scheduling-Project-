@@ -1646,6 +1646,31 @@ describe('useSlotMutations — createElectiveFromCell', () => {
     expect(props.pushUndo).toHaveBeenCalledTimes(1)
   })
 
+  // T108 Phase 2 review round 2 (HIGH #2) — day_overrides has no
+  // elective_set_id column in v1, so an override can never point at an
+  // elective. This must be a clear BLOCK, not a silent template_slots write
+  // (which applyDayOverrides would then never see) or an orphaned elective
+  // set with nothing placing it.
+  it('blocks elective placement in override mode — no writes at all, clear message', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: null, flags: {} },
+    ]
+    const activities = [{ id: 'act-swim', name: 'Swimming' }]
+    const { hook, props } = setup({ slots, activities, overrideModeDayId: 'd1', weekId: 'week-1' })
+
+    await act(async () => {
+      await hook.result.current.createElectiveFromCell('Afternoon Chugim', ['Swimming'], { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+
+    expect(props.repo.writeElectiveSetFields).not.toHaveBeenCalled()
+    expect(props.repo.writeElectiveSetActivityFields).not.toHaveBeenCalled()
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+    expect(props.repo.writeDayOverrideFields).not.toHaveBeenCalled()
+    expect(props.setActionError).toHaveBeenCalledWith(
+      "Electives can't be overridden for a single day yet — exit Override mode to place an elective."
+    )
+  })
+
   it('does not write an empty elective when every typed member name is blank', async () => {
     const slots = [
       { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} },
@@ -2014,6 +2039,45 @@ describe('useSlotMutations — override-authoring mode (overrideMode: true)', ()
     })
     expect(props.repo.writeDayOverrideFields).not.toHaveBeenCalled()
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s1', expect.objectContaining({ activity_id: 'act-1' }))
+  })
+
+  // T108 Phase 2 review round 2 (HIGH #1) — the drag-drop path (replaceSlot,
+  // what dragHandlers.js routes ALL drops/card-moves to) had NO override-mode
+  // branch: dragging in override mode silently wrote template_slots for
+  // every day. This pins the fix.
+  it('replaceSlot in override mode writes a day_overrides row (kind: swap), never template_slots', async () => {
+    const slots = [
+      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, is_anchor: false, flags: {} },
+    ]
+    const { hook, props } = setup({
+      slots, activities: [{ id: 'act-1', name: 'Swim' }],
+      overrideModeDayId: 'd1', weekId: 'week-1',
+    })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+    expect(props.repo.writeDayOverrideFields).toHaveBeenCalled()
+    const [, fields] = props.repo.writeDayOverrideFields.mock.calls[0]
+    expect(fields).toMatchObject({
+      schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1',
+      activity_id: 'act-1', kind: 'swap',
+    })
+  })
+
+  it('replaceSlot on a different day than the active override-mode day writes normally, not to day_overrides', async () => {
+    const slots = [
+      { id: 's1', group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: null, is_anchor: false, flags: {} },
+    ]
+    const { hook, props } = setup({
+      slots, activities: [{ id: 'act-1', name: 'Swim' }],
+      overrideModeDayId: 'd1', weekId: 'week-1', // mode active for d1, drop target is d2
+    })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd2', blockId: 'b1' })
+    })
+    expect(props.repo.writeDayOverrideFields).not.toHaveBeenCalled()
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'act-1', flags: {} })
   })
 
   it('pullOverrideDay batches pullOverrideCell across the day\'s non-span, non-overridden blocks for one group', async () => {
