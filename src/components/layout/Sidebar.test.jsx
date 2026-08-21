@@ -82,8 +82,8 @@ describe('Sidebar: the three sections', () => {
     // unfinished. Marking it otherwise trains directors to ignore the mark
     // that matters.
     renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 0, dayoverrides: 0, locations: 0 } })
-    expect(screen.getAllByText('optional').length).toBe(3)
-    for (const label of ['Fixed Events', 'Day Overrides', 'Locations']) {
+    expect(screen.getAllByText('optional').length).toBe(4)
+    for (const label of ['Fixed Events', 'Day Overrides', 'Locations', 'Special Days']) {
       const row = screen.getByText(label).closest('button')
       expect(within(row).queryByText('!')).toBeNull()
     }

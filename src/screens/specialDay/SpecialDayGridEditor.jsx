@@ -114,6 +114,27 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load() }, [specialDayId])
 
+  // Live-delete-while-editing (Red Hat/Code Reviewer MEDIUM): with no live
+  // subscription, a device that deletes the open special day left every
+  // other device's editor stale — writes fail cleanly (placeActivity's
+  // string-matched catch below) but nothing proactively redirects until the
+  // next manual navigation. Mirrors ScheduleScreen.jsx's onOpApplied wiring,
+  // including its ref-for-the-callback trick so the subscription is not torn
+  // down and rebuilt every time the parent passes a fresh onDeletedElsewhere
+  // closure.
+  const onDeletedElsewhereRef = useRef(onDeletedElsewhere)
+  useEffect(() => { onDeletedElsewhereRef.current = onDeletedElsewhere }, [onDeletedElsewhere])
+
+  useEffect(() => {
+    if (typeof localClient.onOpApplied !== 'function') return
+    const unsub = localClient.onOpApplied((op) => {
+      if (op?.entity === 'special_days' && op?.entity_id === specialDayId && op?.field === '__deleted__') {
+        onDeletedElsewhereRef.current?.()
+      }
+    })
+    return () => { unsub?.() }
+  }, [specialDayId])
+
   useEffect(() => {
     function beforePrint() {
       if (notesPrintRef.current) notesPrintRef.current.textContent = notesDraft
@@ -228,6 +249,14 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
         return [...prev, { id, special_day_id: specialDayId, group_id: groupId, time_block_id: blockId, activity_id: activityId, location_id: null }]
       })
     } catch (err) {
+      // No typed error code exists on the write path (writeField only throws
+      // a plain Error with a fixed "write failed..." message; the IPC layer
+      // does not carry a machine-readable reason). This regex is a
+      // best-effort fallback for the case the live onOpApplied subscription
+      // above already handles proactively — it only fires if a write races
+      // ahead of that event. Coupled to whatever message text the write
+      // path/authorize() layer happens to produce; if that text changes,
+      // this detection silently stops working (Code Reviewer LOW).
       if (/not.?found|tombstone/i.test(err?.message ?? '')) { onDeletedElsewhere?.(); return }
       setError(describeWriteFailure(err, 'Could not place that activity.'))
     }

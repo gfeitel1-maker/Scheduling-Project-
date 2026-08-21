@@ -15,6 +15,7 @@ import { S, useEnterTransition } from '../styles/shared'
 import ScreenIntro from '../components/ScreenIntro'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import SpecialDayGridEditor from './specialDay/SpecialDayGridEditor'
+import { seedFailureMessage } from './specialDay/seedFailureMessage'
 
 const LABELS = {
   emptyTitle: 'No special days yet',
@@ -95,11 +96,14 @@ export default function SpecialDaysScreen({ campId, role }) {
   }
 
   async function seedFromCampTimeBlocks(specialDayId) {
+    let seededCount = 0
+    let totalCount = 0
     try {
       const campBlocks = await localClient.list('time_blocks')
       const scoped = (campBlocks || [])
         .filter((b) => b.camp_id === campId)
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+      totalCount = scoped.length
       for (const b of scoped) {
         const newId = crypto.randomUUID()
         await writeField('special_day_time_blocks', newId, 'special_day_id', specialDayId)
@@ -107,9 +111,10 @@ export default function SpecialDaysScreen({ campId, role }) {
         await writeField('special_day_time_blocks', newId, 'sort_order', b.sort_order ?? 0)
         if (b.start_time) await writeField('special_day_time_blocks', newId, 'start_time', b.start_time)
         if (b.end_time) await writeField('special_day_time_blocks', newId, 'end_time', b.end_time)
+        seededCount += 1
       }
     } catch (err) {
-      setError(describeWriteFailure(err, 'Could not seed time blocks.'))
+      setError(describeWriteFailure(err, seedFailureMessage(seededCount, totalCount)))
     } finally {
       setSeedPromptForId(null)
       setOpenId(specialDayId)

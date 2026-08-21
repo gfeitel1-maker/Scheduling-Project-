@@ -56,6 +56,14 @@ const DESTRUCTIVE = Object.freeze(new Set(['groups', 'days_of_operation']))
 // ONE query per entity, shared by previewDelete and deleteRecord so the number
 // the director was shown and the rows that get destroyed cannot drift apart
 // under maintenance. Do not inline a second copy of any of these.
+// T106 Red Hat LOW, accepted: deleting a group clears its template_slots
+// rows (below) but NOT its special_day_slots rows. A deleted group's column
+// simply stops rendering in SpecialDayGridEditor (the grid iterates the live
+// `groups` list, so a slot referencing a gone group_id is never drawn — see
+// SpecialDayGridEditor.test.jsx "removes a group column entirely..."), but
+// those special_day_slots rows themselves stay in the table, inert and
+// unreachable. Full cascade-on-group-delete into special_day_slots is
+// deferred; the rows are harmless dead data, not a correctness or leak risk.
 const SLOT_QUERY = Object.freeze({
   groups: 'SELECT id, template_id FROM template_slots WHERE group_id = ?',
   activities: 'SELECT id, template_id FROM template_slots WHERE activity_id = ?',

@@ -866,6 +866,25 @@
    `.cell-shell` wrapper (SpecialDayCell.jsx), which carries the real
    gridRow/gridColumn placement. Scoped to src/components/schedule/, within
    the ADR's stated CSS-exception boundary (ARCHITECTURE_STANDARD.md §7). */
+/* .cell-shell (SpecialDayCell.jsx) wraps the reused SlotCell/EmptyCell `.cell`
+   leaf. `.cell` is a plain block child and does not stretch to fill the
+   wrapper's row-track height, so in a mixed-height row (one cell tall from a
+   long name/location, sibling short) the short cell's `.cell` falls short of
+   `.cell-shell`'s bottom edge, leaving a gap and detaching the
+   absolutely-positioned `.cell-location` (bottom:8px, positioned against
+   `.cell-shell`, not `.cell`) from the cell it belongs to. Making the leaf
+   fill the wrapper keeps `.cell-location` anchored to the cell's own bottom
+   edge regardless of sibling row height. Scoped to `.cell-shell`, which only
+   SpecialDayCell.jsx renders — the weekly grid's `.cell` is unaffected. */
+.cell-shell {
+  display: flex;
+  flex-direction: column;
+}
+
+.cell-shell > .cell {
+  flex: 1;
+}
+
 .cell-location {
   position: absolute;
   left: 12px;
@@ -913,6 +932,14 @@
 .cell-shell[data-has-activity]:focus-within .cell-location-add {
   display: block;
   color: var(--primary);
+}
+
+/* Tester LOW — the control read as static text, not something clickable, at
+   the same rest state as everything else on the cell. Underline on the
+   control's own hover (distinct from the cell's hover, which is what reveals
+   it in the first place) makes it read as an affordance. */
+.cell-location-add:hover {
+  text-decoration: underline;
 }
 
 /* Once a location IS set, the add-affordance never shows even on hover —

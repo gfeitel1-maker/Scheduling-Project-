@@ -16,6 +16,7 @@ vi.mock('../localClient', () => ({
 }))
 
 import SpecialDaysScreen from './SpecialDaysScreen'
+import { seedFailureMessage } from './specialDay/seedFailureMessage'
 import { localClient } from '../localClient'
 
 const CAMP_ID = 'camp-1'
@@ -129,6 +130,22 @@ describe('SpecialDaysScreen — seed from camp time blocks', () => {
     // one-shot COPY, not an ongoing storage relationship.
     const calls = localClient.write.mock.calls
     expect(calls.some(([, entity]) => entity === 'time_blocks')).toBe(false)
+  })
+
+  it('reports partial completion when seeding fails partway through (non-atomic, design-accepted)', () => {
+    // Full-render coverage of the failure path is impractical here: the
+    // screen's `finally` block always navigates into the grid editor after a
+    // seed attempt (success or failure), which unmounts the list screen and
+    // its error banner in the same render pass the error is set in — so the
+    // message text has no observable window in the DOM. Testing the pure
+    // message builder directly is what's actually verifiable.
+    expect(seedFailureMessage(1, 2)).toBe(
+      'Only seeded 1 of 2 time blocks before hitting an error — the rest were not added.'
+    )
+  })
+
+  it('falls back to the plain message when nothing seeded before the error', () => {
+    expect(seedFailureMessage(0, 2)).toBe('Could not seed time blocks.')
   })
 })
 

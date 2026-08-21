@@ -20,6 +20,7 @@ vi.mock('../../localClient', () => ({
     list: vi.fn(),
     write: vi.fn(),
     deleteEntity: vi.fn(),
+    onOpApplied: vi.fn(() => () => {}),
   },
 }))
 
@@ -41,6 +42,7 @@ beforeEach(() => {
   localClient.list.mockReset()
   localClient.write.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.deleteEntity.mockReset().mockResolvedValue({ status: 'applied' })
+  localClient.onOpApplied.mockReset().mockReturnValue(() => {})
 })
 
 function baseFixtures({ slots = [], groups, activities = [], locations = [] } = {}) {
@@ -119,6 +121,81 @@ describe('SpecialDayGridEditor — all camp groups, no cohort filter', () => {
     await waitFor(() => expect(screen.getByText('Bunk A')).toBeTruthy())
     expect(screen.getByText('Bunk B')).toBeTruthy()
     expect(screen.getByText('Bunk C')).toBeTruthy()
+  })
+})
+
+describe('SpecialDayGridEditor — live-delete-while-editing (Red Hat/Code Reviewer MEDIUM)', () => {
+  it('redirects via onDeletedElsewhere when the open special day is tombstoned by another device, with no write-failure banner', async () => {
+    baseFixtures({ slots: [] })
+    const onDeletedElsewhere = vi.fn()
+    render(
+      <SpecialDayGridEditor
+        campId={CAMP_ID}
+        specialDayId={SD_ID}
+        onBack={() => {}}
+        onDeletedElsewhere={onDeletedElsewhere}
+      />
+    )
+    await waitFor(() => expect(screen.getAllByText('Empty').length).toBeGreaterThan(0))
+
+    expect(localClient.onOpApplied).toHaveBeenCalled()
+    const opHandler = localClient.onOpApplied.mock.calls[0][0]
+    opHandler({ entity: 'special_days', entity_id: SD_ID, field: '__deleted__', value: 1, device_id: 'other-device' })
+
+    await waitFor(() => expect(onDeletedElsewhere).toHaveBeenCalledTimes(1))
+    expect(screen.queryByText(/could not|failed/i)).toBeNull()
+  })
+
+  it('does not redirect on an unrelated op (different entity or a different row)', async () => {
+    baseFixtures({ slots: [] })
+    const onDeletedElsewhere = vi.fn()
+    render(
+      <SpecialDayGridEditor
+        campId={CAMP_ID}
+        specialDayId={SD_ID}
+        onBack={() => {}}
+        onDeletedElsewhere={onDeletedElsewhere}
+      />
+    )
+    await waitFor(() => expect(screen.getAllByText('Empty').length).toBeGreaterThan(0))
+
+    const opHandler = localClient.onOpApplied.mock.calls[0][0]
+    opHandler({ entity: 'special_day_time_blocks', entity_id: 'tb1', field: '__deleted__', value: 1 })
+    opHandler({ entity: 'special_days', entity_id: 'some-other-day', field: '__deleted__', value: 1 })
+    opHandler({ entity: 'special_days', entity_id: SD_ID, field: 'name', value: 'Renamed' })
+
+    expect(onDeletedElsewhere).not.toHaveBeenCalled()
+  })
+})
+
+describe('SpecialDayGridEditor — remove-block confirm guard (Code Reviewer + Tester coverage gap)', () => {
+  it('asks for confirmation when the block has filled cells, and skips the delete if declined', async () => {
+    baseFixtures({
+      slots: [{ id: 'sl1', special_day_id: SD_ID, group_id: 'g1', time_block_id: 'tb1', activity_id: 'act1', location_id: null }],
+      activities: [{ id: 'act1', camp_id: CAMP_ID, name: 'Capture the Flag' }],
+    })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Capture the Flag')).toBeTruthy())
+
+    fireEvent.click(screen.getByTitle('Remove block'))
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
+
+  it('deletes without prompting when the block has no filled cells', async () => {
+    baseFixtures({ slots: [] })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getByTitle('Remove block')).toBeTruthy())
+
+    fireEvent.click(screen.getByTitle('Remove block'))
+
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'special_day_time_blocks', 'tb1'))
+    expect(confirmSpy).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
   })
 })
 
