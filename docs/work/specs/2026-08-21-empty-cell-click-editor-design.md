@@ -459,3 +459,30 @@ not decided here.
    point, but it ships together.
 3. **Audit all three views' hint copy** (ManualBuildView, ScheduleGroupView, ScheduleDayView) — fix any
    "click a cell" text that is currently false, in scope for this ticket.
+
+## Governor addendum after Red Hat (2026-08-21) — SUPERSEDES §1's paste reasoning
+
+Red Hat (Resilience 4/5, BUILDABLE) confirmed the dnd-kit/coexistence reasoning against code (incl. a
+static guard test `dragHandlers.test.js` that enforces the single-droppable premise). Corrections to fold
+in before/at Maker:
+
+4. **Paste-mode precedence (fixes the HIGH gap).** §1 is WRONG that `pasteMode` is filled-cell-only —
+   `handlePasteClick` (`useClipboardSelection.js:65-85`) accepts any target and paste-into-empty is a
+   primary flow (banner: "N of M to paste — click a cell to place"). Precedence on an empty cell is
+   **THREE-way: stamp > paste > edit.** When stamp mode active → stamp; else if paste mode active →
+   paste (via the existing `onCellSelect`/`handlePasteClick` path, same as filled cells); else → open the
+   editor. Thread `stampMode` AND `pasteMode`/`onCellSelect` into the shared EmptyCell, mirroring
+   SlotCell's existing `onCellClick`-before-`setEditing` gating. Note: `ScheduleDayView` has NO
+   paste/stamp today (never receives those props) — so its EmptyCell only needs the edit path.
+5. **Dedup content diff — do NOT silently change it.** `ScheduleGroupView` renders visible text
+   `<div className="cell-empty">Empty</div>` (deliberate, scheduleGrid.css §7 "visible, not invisible");
+   `ManualBuildView`/`ScheduleDayView` render an empty `<div className="cell-empty" />`. The shared
+   EmptyCell must make a CONSCIOUS, consistent choice across all three (keep the T59 aria "Empty"
+   announcement regardless). Exact visible treatment is a Designer/Tester tuning point together with the
+   hover affordance — but it must be a decided, reviewed choice, not a merge artifact.
+6. **Hint copy scope (confirmed):** the ONLY "click a cell"/"Drag activities" hint is
+   `ManualBuildView.jsx:303` — fix that one; do NOT add hints to Group/Day views.
+7. **New test seams:** double-click on an empty cell (open→stopPropagation, no flicker/close); and a
+   tablet/touch note (PointerSensor distance:5 covers touch, but the CLAUDE.md "director on a tablet"
+   persona is the stress case — Tester validates a finger-tap opens the editor and a finger-drag still
+   places).
