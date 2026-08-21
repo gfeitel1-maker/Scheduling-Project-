@@ -2017,6 +2017,11 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
       special_days: 'name',
       special_day_time_blocks: 'name',
       special_day_slots: 'activity_id',
+      // T108: day_overrides is the accumulate-then-insert-once shape (its
+      // ensureExists only materializes once all coordinate columns arrive), so
+      // a single nullable non-coordinate field write still applies to the op-log
+      // — same trick as special_day_slots/template_slots above.
+      day_overrides: 'activity_id',
       // T41 slice 1: elective_set_activities' ensureExists needs both
       // elective_set_id and activity_id, so 'activity_id' alone no-ops —
       // same trick as special_day_slots above.
