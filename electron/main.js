@@ -26,6 +26,7 @@ import { commitIngest, ingestUndo } from './ops/ingest.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
+import { deleteElectiveSet } from './ops/deleteElectiveSet.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
 import {
@@ -1225,6 +1226,30 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ...reportable, ops_written: ops.length }
   }
 
+  // T103 (docs/adr/2026-08-20-electives-authoring.md; docs/work/tickets/
+  // T103-electives-sets-crud-and-durability-marker.md): wires the
+  // deleteElectiveSet cascade primitive (electron/ops/deleteElectiveSet.js,
+  // shipped inert in T41 slice 1) to a caller. ADMIN-ONLY ('.delete' not
+  // '.write'), matching every other entity's permanent-delete posture
+  // (permissions.js default-deny — staff hold elective_sets.write but not
+  // elective_sets.delete). Mirrors deleteWeekHandler's shape: direct db
+  // write + requireAuthorized, no client-mode delegation (same as
+  // deleteWeek/deleteRecord's precedent for host-issued cascades).
+  function deleteElectiveSetHandler({ token, electiveSetId } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'elective_sets.delete' })
+    if (!isNonEmptyString(electiveSetId)) throw new Error('electiveSetId is required')
+
+    const result = deleteElectiveSet(
+      db,
+      { electiveSetId },
+      { author_user_id: userId, device_id: deviceId }
+    )
+    if (result.error) return result
+    const { ops, ...reportable } = result
+    return { ...reportable, ops_written: ops.length }
+  }
+
   return {
     chooseMode,
     discoverHosts: discoverHostsHandler,
@@ -1235,6 +1260,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     dismissMigrationReviews: dismissMigrationReviewsHandler,
     duplicateWeek: duplicateWeekHandler,
     deleteWeek: deleteWeekHandler,
+    deleteElectiveSet: deleteElectiveSetHandler,
     listDeleted: listDeletedHandler,
     listPendingRestores: listPendingRestoresHandler,
     getEntityHistory: getEntityHistoryHandler,
@@ -1416,6 +1442,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:revoke-device', (_event, args) => handlers.revokeDevice(args))
     ipcMain.handle('shoresh:duplicate-week', (_event, args) => handlers.duplicateWeek(args))
     ipcMain.handle('shoresh:delete-week', (_event, args) => handlers.deleteWeek(args))
+    ipcMain.handle('shoresh:delete-elective-set', (_event, args) => handlers.deleteElectiveSet(args))
   }
 
   /**

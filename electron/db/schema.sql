@@ -717,11 +717,22 @@ CREATE TABLE IF NOT EXISTS special_day_slots (
 -- options ("Afternoon Chugim" = {Swim, Art, Archery}). UNIQUE(camp_id, name),
 -- matching locations/groups/special_days. id is a minted uuid (interactive
 -- create, no deriveLocationId-style determinism).
+-- is_reusable (schema v36, T103, docs/adr/2026-08-20-electives-authoring.md
+-- D2): the durability marker. A one-off elective placed in a cell is still a
+-- real, replicated row (the schema has no inline-string cell content), so it
+-- needs an explicit persisted flag every reuse/durable-inventory surface
+-- filters on — 0 = one-off, never reusable; 1 (default) = reusable, the
+-- normal case. Existing (pre-v36) rows default to reusable. MUST be the LAST
+-- column: it is ALTER-added on a migrated db (localDb.js v36), which always
+-- appends, so declaring it last here keeps a fresh install's column order
+-- byte-identical to a migrated one (same column-order-trap precedent as
+-- activities.location_id).
 CREATE TABLE IF NOT EXISTS elective_sets (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
   name TEXT NOT NULL,
   sort_order INTEGER,
+  is_reusable INTEGER NOT NULL DEFAULT 1,
   UNIQUE(camp_id, name)
 );
 

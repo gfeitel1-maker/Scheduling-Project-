@@ -68,7 +68,7 @@ const DOMAIN_TABLE_COLUMNS = {
   special_day_time_blocks: ['id', 'special_day_id', 'name', 'sort_order', 'start_time', 'end_time'],
   special_day_slots: ['id', 'special_day_id', 'group_id', 'time_block_id', 'activity_id', 'location_id'],
   // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md)
-  elective_sets: ['id', 'camp_id', 'name', 'sort_order'],
+  elective_sets: ['id', 'camp_id', 'name', 'sort_order', 'is_reusable'],
   elective_set_activities: ['id', 'elective_set_id', 'activity_id'],
 }
 

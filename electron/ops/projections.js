@@ -397,7 +397,13 @@ export const PROJECTIONS = {
   elective_sets: {
     table: 'elective_sets',
     key: 'id',
-    fields: ['camp_id', 'name', 'sort_order'],
+    // is_reusable (v36, T103, docs/adr/2026-08-20-electives-authoring.md D2):
+    // the durability marker, director-editable via the management screen's
+    // "keep this for next time" gesture — a renderer write like camp_id/
+    // name/sort_order, so it belongs in this allowlist (not
+    // PROJECTION_FIELD_EXCEPTIONS, which is only for server/migration-only
+    // columns).
+    fields: ['camp_id', 'name', 'sort_order', 'is_reusable'],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/special_days/etc.ensureExists above.
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()

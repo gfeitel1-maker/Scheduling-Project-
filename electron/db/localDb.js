@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 35
+export const CURRENT_SCHEMA_VERSION = 36
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1534,6 +1534,27 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v36 — elective durability marker (T103, docs/adr/2026-08-20-electives-
+  // authoring.md D2). Single nullable-additive column on the existing
+  // elective_sets table: `is_reusable INTEGER NOT NULL DEFAULT 1`. Every
+  // existing row (created under v35, before this marker existed) becomes
+  // reusable/durable by the DEFAULT — matches "existing rows = reusable" from
+  // the ADR. No op is written (DDL-only, same posture as v33/v34/v35).
+  if (getSchemaVersion(db) >= 35 && getSchemaVersion(db) < 36) {
+    db.transaction(() => {
+      const hasIsReusable = db
+        .pragma('table_info(elective_sets)')
+        .some((col) => col.name === 'is_reusable')
+      if (!hasIsReusable) {
+        db.exec('ALTER TABLE elective_sets ADD COLUMN is_reusable INTEGER NOT NULL DEFAULT 1')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (36, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct
@@ -1735,6 +1756,7 @@ export const ELECTIVE_SETS_DDL = `CREATE TABLE IF NOT EXISTS elective_sets (
   camp_id TEXT NOT NULL REFERENCES camps(id),
   name TEXT NOT NULL,
   sort_order INTEGER,
+  is_reusable INTEGER NOT NULL DEFAULT 1,
   UNIQUE(camp_id, name)
 )`
 

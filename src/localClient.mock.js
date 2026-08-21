@@ -330,7 +330,7 @@ export const MOCK_WRITE_ALLOWLIST = {
   // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md) —
   // hand-transcribed mirror of PROJECTIONS.elective_sets/
   // elective_set_activities.fields, same discipline as T40 above.
-  elective_sets: ['camp_id', 'name', 'sort_order'],
+  elective_sets: ['camp_id', 'name', 'sort_order', 'is_reusable'],
   elective_set_activities: ['elective_set_id', 'activity_id'],
   schedule_weeks: ['camp_id', 'name', 'sort_order', 'is_archived'],
   schedule_templates: ['kind', 'camp_id', 'week_id', 'name'],
@@ -1397,6 +1397,25 @@ export const mockShoresh = {
     state.week_location_exclusions = (state.week_location_exclusions || []).filter(e => e.week_id !== weekId)
     state.schedule_templates = (state.schedule_templates || []).filter(t => t.week_id !== weekId)
     state.schedule_weeks = allWeeks.filter(w => w.id !== weekId)
+
+    saveState(state)
+    return { ok: true }
+  },
+
+  // Permanently delete an elective set and its member rows, mirroring
+  // deleteElectiveSet.js's cascade (T103, docs/adr/2026-08-20-electives-
+  // authoring.md): elective_set_activities before elective_sets, no touch to
+  // template_slots (a dangling elective_set_id renders empty, same as the
+  // real cascade). Operates on localStorage state — no op-log, no broadcast.
+  async deleteElectiveSet({ electiveSetId } = {}) {
+    const state = loadState()
+    const set = (state.elective_sets || []).find((s) => s.id === electiveSetId)
+    if (!set) return { error: 'not-found' }
+
+    state.elective_set_activities = (state.elective_set_activities || []).filter(
+      (m) => m.elective_set_id !== electiveSetId
+    )
+    state.elective_sets = (state.elective_sets || []).filter((s) => s.id !== electiveSetId)
 
     saveState(state)
     return { ok: true }

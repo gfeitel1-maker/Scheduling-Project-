@@ -113,6 +113,11 @@ export const localClient = {
   // wrapper here does via currentToken(). Fields enumerated explicitly (not
   // spread) so a caller-supplied token in args can never override the real one.
   deleteWeek: ({ weekId }) => shoresh.deleteWeek({ token: currentToken(), weekId }),
+  // deleteElectiveSetHandler (electron/main.js) destructures
+  // { token, electiveSetId } — same explicit-field-threading discipline as
+  // deleteWeek above (T103, docs/adr/2026-08-20-electives-authoring.md).
+  deleteElectiveSet: ({ electiveSetId }) =>
+    shoresh.deleteElectiveSet({ token: currentToken(), electiveSetId }),
   onPairingRequest: (cb) => shoresh.onPairingRequest && shoresh.onPairingRequest(cb),
   onPairingApproved: (cb) => shoresh.onPairingApproved && shoresh.onPairingApproved(cb),
   onPairingDenied: (cb) => shoresh.onPairingDenied && shoresh.onPairingDenied(cb),

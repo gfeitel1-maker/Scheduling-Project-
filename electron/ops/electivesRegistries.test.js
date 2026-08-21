@@ -23,7 +23,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 describe('v35 registry coverage — elective_sets', () => {
   it('is a projected entity (writes materialize, not silently discarded)', () => {
     expect(PROJECTIONS.elective_sets).toBeTruthy()
-    expect(PROJECTIONS.elective_sets.fields).toEqual(['camp_id', 'name', 'sort_order'])
+    // is_reusable added v36 (T103, docs/adr/2026-08-20-electives-authoring.md D2).
+    expect(PROJECTIONS.elective_sets.fields).toEqual(['camp_id', 'name', 'sort_order', 'is_reusable'])
   })
 
   it('is a direct-camp-scoped entity (list() + first-pairing full_sync)', () => {
@@ -33,7 +34,7 @@ describe('v35 registry coverage — elective_sets', () => {
   it('is in the client first-pairing snapshot (DOMAIN_SNAPSHOT_ORDER + columns)', () => {
     const src = fs.readFileSync(path.join(__dirname, '../sync/syncClient.js'), 'utf8')
     expect(DOMAIN_SNAPSHOT_ORDER).toContain('elective_sets')
-    expect(src).toMatch(/elective_sets:\s*\['id', 'camp_id', 'name', 'sort_order'\]/)
+    expect(src).toMatch(/elective_sets:\s*\['id', 'camp_id', 'name', 'sort_order', 'is_reusable'\]/)
   })
 
   it('is in permissions.ENTITIES (not silently admin-only)', () => {
@@ -42,7 +43,7 @@ describe('v35 registry coverage — elective_sets', () => {
 
   it('has a restore decision and a mock write allowlist', () => {
     expect(RESTORE_DECISIONS.elective_sets).toBeDefined()
-    expect(MOCK_WRITE_ALLOWLIST.elective_sets).toEqual(['camp_id', 'name', 'sort_order'])
+    expect(MOCK_WRITE_ALLOWLIST.elective_sets).toEqual(['camp_id', 'name', 'sort_order', 'is_reusable'])
   })
 })
 

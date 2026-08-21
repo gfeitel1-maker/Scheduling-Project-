@@ -1039,6 +1039,57 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
       error: 'last-week',
     })
   })
+
+  // T103 (docs/adr/2026-08-20-electives-authoring.md; docs/work/tickets/
+  // T103-electives-sets-crud-and-durability-marker.md): wires the
+  // deleteElectiveSet cascade (already pinned by
+  // electron/ops/deleteElectiveSet.test.js) to an IPC caller. Same
+  // admin-only, '.delete'-gated posture as deleteWeek above — staff hold
+  // elective_sets.write but not elective_sets.delete (permissions.js
+  // default-deny).
+  it('deletes an elective set and its members for an admin but denies a staff session', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7113 })
+    const { staffToken, adminToken } = await seedTwoRoleSessions(handlers, {
+      staffName: 'ElectiveDelStaff',
+      adminName: 'ElectiveDelAdmin',
+    })
+    await handlers.write({
+      token: adminToken, entity: 'elective_sets', entity_id: 'es-del-1', field: 'name', value: 'Afternoon Chugim',
+    })
+    await handlers.write({
+      token: adminToken, entity: 'activities', entity_id: 'act-del-1', field: 'name', value: 'Swim',
+    })
+    await handlers.write({
+      token: adminToken, entity: 'elective_set_activities', entity_id: 'esa-del-1', field: 'elective_set_id', value: 'es-del-1',
+    })
+    await handlers.write({
+      token: adminToken, entity: 'elective_set_activities', entity_id: 'esa-del-1', field: 'activity_id', value: 'act-del-1',
+    })
+
+    expect(() => handlers.deleteElectiveSet({ token: staffToken, electiveSetId: 'es-del-1' })).toThrow(
+      'admin role required'
+    )
+    expect(handlers.deleteElectiveSet({ token: adminToken, electiveSetId: 'es-del-1' })).toEqual({
+      ok: true, ops_written: 2,
+    })
+    expect(db.prepare('SELECT * FROM elective_sets WHERE id = ?').get('es-del-1')).toBeUndefined()
+    expect(
+      db.prepare('SELECT * FROM elective_set_activities WHERE id = ?').get('esa-del-1')
+    ).toBeUndefined()
+  })
+
+  it('deleteElectiveSet returns not-found for a bogus id rather than throwing', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7114 })
+    const { adminToken } = await seedTwoRoleSessions(handlers, {
+      staffName: 'ElectiveDelStaff2',
+      adminName: 'ElectiveDelAdmin2',
+    })
+    expect(handlers.deleteElectiveSet({ token: adminToken, electiveSetId: 'nonexistent' })).toEqual({
+      error: 'not-found',
+    })
+  })
 })
 
 describe('sanitizeConflictForIpc (Round 2 Fix 1: main-process PIN filtering)', () => {
