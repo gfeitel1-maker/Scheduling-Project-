@@ -417,6 +417,9 @@ const styles = {
     borderRadius: 2,
     background: 'var(--secondary)',
     transformOrigin: 'left center',
-    animation: 'chipRootTick var(--motion-settle) var(--ease-out) 1',
+    // Governor consolidation: the root-tick must stay "under the 300ms
+    // feel" — --motion-settle (340ms) is too slow; --motion-base (220ms) is
+    // the sub-300ms token. Only the tick, not the bump/settle transition.
+    animation: 'chipRootTick var(--motion-base) var(--ease-out) 1',
   },
 }

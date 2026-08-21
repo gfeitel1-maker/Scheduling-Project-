@@ -405,3 +405,109 @@ describe('RootMap reduced motion', () => {
     expect(screen.getByRole('button', { name: 'Locations — Not yet rooted' })).toBeTruthy()
   })
 })
+
+// Code Reviewer LOW (round 2) — the "takes root" bump->settle->idle lifecycle
+// (useTakesRoot in RootMap.jsx) had only reduced-motion suppression tested,
+// never the lifecycle itself firing on a real attention -> understood
+// transition.
+describe('RootMap "takes root" lifecycle (attention -> understood)', () => {
+  function rootingModel(state) {
+    return {
+      domains: [
+        {
+          key: 'Facility',
+          label: 'Facility',
+          state: 'attention',
+          children: [
+            { key: 'Locations', name: 'Locations', count: 1, state, decisionIds: [] },
+          ],
+        },
+      ],
+    }
+  }
+
+  it('marks the chip data-rooting="true" the instant its state prop flips attention -> understood', () => {
+    const { container, rerender } = render(
+      <RootMap
+        model={rootingModel('attention')}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(container.querySelector('[data-rooting="true"]')).toBeNull()
+
+    rerender(
+      <RootMap
+        model={rootingModel('understood')}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    // The bump phase is set synchronously during render (useState compare-
+    // on-render, same pattern RootMapPanel's crossfade uses) — present
+    // immediately after rerender, no timers/rAF flush needed.
+    expect(container.querySelector('[data-rooting="true"]')).toBeTruthy()
+  })
+
+  it('does not mark data-rooting on an unrelated state change (e.g. attention -> changed)', () => {
+    const { container, rerender } = render(
+      <RootMap
+        model={rootingModel('attention')}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    rerender(
+      <RootMap
+        model={rootingModel('changed')}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(container.querySelector('[data-rooting="true"]')).toBeNull()
+  })
+
+  it('suppresses the data-rooting tick under prefers-reduced-motion, while the state/label swap still happens', () => {
+    const originalMatchMedia = window.matchMedia
+    window.matchMedia = (query) => ({
+      matches: query.includes('prefers-reduced-motion'),
+      media: query,
+      addEventListener: noop,
+      removeEventListener: noop,
+    })
+    try {
+      const { container, rerender } = render(
+        <RootMap
+          model={rootingModel('attention')}
+          selection={{ type: 'none' }}
+          onSelectTile={noop}
+          onSelectNode={noop}
+          onClearSelection={noop}
+        />,
+      )
+      rerender(
+        <RootMap
+          model={rootingModel('understood')}
+          selection={{ type: 'none' }}
+          onSelectTile={noop}
+          onSelectNode={noop}
+          onClearSelection={noop}
+        />,
+      )
+      expect(container.querySelector('[data-rooting="true"]')).toBeNull()
+      // The discrete state/label change is instant, not animated — it still
+      // happens under reduced motion.
+      expect(screen.getByRole('button', { name: 'Locations — Rooted' })).toBeTruthy()
+    } finally {
+      window.matchMedia = originalMatchMedia
+    }
+  })
+})
