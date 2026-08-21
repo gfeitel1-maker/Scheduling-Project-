@@ -137,13 +137,13 @@ function NearDuplicateGate({ group, remaining, onMerge, onKeepSeparate, busy, er
         <div style={gateStyles.top}>
           <div style={gateStyles.eyebrow}>
             Before you start
-            <span style={gateStyles.prog}>{remaining} place{remaining === 1 ? '' : 's'} left to review</span>
+            <span style={gateStyles.prog}>{remaining} location{remaining === 1 ? '' : 's'} left to review</span>
           </div>
-          <div style={gateStyles.title}>These look like the same place</div>
+          <div style={gateStyles.title}>These look like the same location</div>
           <p style={gateStyles.lede}>
             Your old schedule used {variantList(group.variants)}. Shoresh kept them separate so it wouldn’t change
-            your data without asking — but that splits how many groups fit. Merge them into one place, or say
-            they’re genuinely different. The activities from both places will move onto the name you keep.
+            your data without asking — but that splits how many groups fit. Merge them into one location, or say
+            they’re genuinely different. The activities from both locations will move onto the name you keep.
           </p>
         </div>
         <div style={gateStyles.variants}>
@@ -178,7 +178,7 @@ function NearDuplicateGate({ group, remaining, onMerge, onKeepSeparate, busy, er
             onClick={() => onMerge({ group, winner, capacity })}
             style={{ ...gateStyles.merge, ...(busy ? S.buttonDisabled : {}) }}
           >
-            {busy ? 'Merging…' : 'Merge into one place'}
+            {busy ? 'Merging…' : 'Merge into one location'}
           </button>
           <button
             className="press-97"
@@ -186,9 +186,9 @@ function NearDuplicateGate({ group, remaining, onMerge, onKeepSeparate, busy, er
             onClick={() => onKeepSeparate(group)}
             style={{ ...gateStyles.keep, ...(busy ? S.buttonDisabled : {}) }}
           >
-            No — these are different places
+            No — these are different locations
           </button>
-          <div style={gateStyles.undo}>You can undo this. The merged place stays in Trash if you change your mind.</div>
+          <div style={gateStyles.undo}>You can undo this. The merged location stays in Trash if you change your mind.</div>
         </div>
       </div>
     </div>
@@ -282,7 +282,7 @@ function MapEmptyState({ role, onUploadClick, busy }) {
       {role === 'admin' ? (
         <>
           <div style={emptyStyles.body}>
-            Add a photo or drawing of your camp grounds, then drag each place onto it. Optional — the schedule
+            Add a photo or drawing of your camp grounds, then drag each location onto it. Optional — the schedule
             works fine without a map.
           </div>
           <button className="press-97" onClick={onUploadClick} disabled={busy} style={{ ...S.btnPrimary, marginTop: 14 }}>
@@ -291,7 +291,7 @@ function MapEmptyState({ role, onUploadClick, busy }) {
         </>
       ) : (
         <div style={emptyStyles.body}>
-          Your director hasn't added a camp map yet. Places still work everywhere else in Shoresh — check back
+          Your director hasn't added a camp map yet. Locations still work everywhere else in Shoresh — check back
           later.
         </div>
       )}
@@ -530,10 +530,10 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
         capacity,
         notes: notes || null,
       }),
-      addFailedText: 'That place could not be added.',
-      saveFailedText: 'That place could not be saved.',
-      adminOnlyDeleteAllText: 'Only an admin can delete places — no places were deleted.',
-      partialDeleteAllText: (succeeded, total, failed) => `Deleted ${succeeded} of ${total} places (${failed} failed — see console).`,
+      addFailedText: 'That location could not be added.',
+      saveFailedText: 'That location could not be saved.',
+      adminOnlyDeleteAllText: 'Only an admin can delete locations — no locations were deleted.',
+      partialDeleteAllText: (succeeded, total, failed) => `Deleted ${succeeded} of ${total} locations (${failed} failed — see console).`,
     })
   const locations = [...unsortedLocations].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || String(a.name ?? '').localeCompare(String(b.name ?? '')))
 
@@ -790,7 +790,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
       await reload()
       await refreshReviewData()
     } catch {
-      setGateError('That merge could not be completed — someone may have changed these places. Try again.')
+      setGateError('That merge could not be completed — someone may have changed these locations. Try again.')
       // A partial success (some losers merged before the failure) must not
       // leave the gate showing a stale group — without this, a group with 3+
       // variants keeps offering an already-deleted loser and every retry
@@ -847,7 +847,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
-          ? 'Only an admin can delete places.'
+          ? 'Only an admin can delete locations.'
           : describeWriteFailure(err, 'That could not be checked before deleting.')
       )
       return
@@ -895,7 +895,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
               onSelectWeek={onSelectWeek}
               exclusionCount={excludedLocationIds.size}
               totalCount={locations.length}
-              entityLabel="places"
+              entityLabel="locations"
             />
           )}
 
@@ -917,15 +917,15 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                 <path d="M12 21s-6-5.2-6-10a6 6 0 0 1 12 0c0 4.8-6 10-6 10Z" />
                 <circle cx="12" cy="11" r="2.2" />
               </svg>
-              <div style={emptyStyles.title}>No places yet</div>
-              <div style={emptyStyles.body}>Add a place below and say how many groups fit at once. Or skip this — the schedule works fine without it, and you can add places any time.</div>
-              <button className="press-97" onClick={() => nameRef.current?.focus()} style={{ ...S.btnPrimary, marginTop: 14 }}>Add your first place</button>
+              <div style={emptyStyles.title}>No locations yet</div>
+              <div style={emptyStyles.body}>Add a location below and say how many groups fit at once. Or skip this — the schedule works fine without it, and you can add locations any time.</div>
+              <button className="press-97" onClick={() => nameRef.current?.focus()} style={{ ...S.btnPrimary, marginTop: 14 }}>Add your first location</button>
             </div>
           ) : (
             <>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
                 <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  {locations.length} place{locations.length !== 1 ? 's' : ''}
+                  {locations.length} location{locations.length !== 1 ? 's' : ''}
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button
@@ -976,7 +976,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
           )}
 
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
-            <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Place</div>
+            <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Location</div>
             <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div style={{ flex: '1 1 160px' }}>
                 <label style={fieldLabel}>Name</label>
@@ -1035,7 +1035,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
       {pendingRemoveMap && (
         <ConfirmDangerDialog
           title="Remove the map image?"
-          recovery="This can't be undone from Trash — you'll need to upload it again. Every place keeps its position."
+          recovery="This can't be undone from Trash — you'll need to upload it again. Every location keeps its position."
           confirmLabel="Remove Map Image"
           busy={removingMap}
           onConfirm={confirmRemoveMap}
@@ -1053,9 +1053,9 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
 
       {pendingDeleteAll && (
         <ConfirmDangerDialog
-          title="Delete all places?"
+          title="Delete all locations?"
           recovery="They can be restored from Trash."
-          confirmLabel="Delete All Places"
+          confirmLabel="Delete All Locations"
           busy={deletingAll}
           onConfirm={confirmDeleteAll}
           onCancel={() => setPendingDeleteAll(false)}

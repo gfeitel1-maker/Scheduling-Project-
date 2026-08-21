@@ -85,7 +85,7 @@ export function computeOverlaps({ slots, activities, locations }) {
     const capacity = loc.capacity ?? 1
     const groupCount = new Set(rows.map(r => r.group_id)).size
     if (groupCount <= capacity) continue
-    const where = loc.name || 'this place'
+    const where = loc.name || 'this location'
     const reason = `${groupCount} groups booked into ${where} — it holds ${capacity}`
     for (const r of rows) add(r.id, reason)
   }

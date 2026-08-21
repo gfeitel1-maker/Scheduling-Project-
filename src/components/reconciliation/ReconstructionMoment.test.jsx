@@ -18,28 +18,28 @@ describe('buildSummarySentence', () => {
   it('one domain needing attention, singular verb, no understood clause omitted only if all understood are empty', () => {
     const rows = buildDomainRows({ Structure: 0, Scheduling: 0, Time: 0, Facility: 3 })
     expect(buildSummarySentence(rows)).toBe(
-      'Structure, Scheduling Model, and Time look right. Facility & Resources needs a quick look.'
+      'Structure, Scheduling Model, and Time look right. Facility needs a quick look.'
     )
   })
 
   it('two domains needing attention, oxford join and plural verb', () => {
     const rows = buildDomainRows({ Structure: 0, Scheduling: 0, Time: 2, Facility: 3 })
     expect(buildSummarySentence(rows)).toBe(
-      'Structure and Scheduling Model look right. Time and Facility & Resources need a quick look.'
+      'Structure and Scheduling Model look right. Time and Facility need a quick look.'
     )
   })
 
   it('all four domains needing attention — no understood clause', () => {
     const rows = buildDomainRows({ Structure: 1, Scheduling: 1, Time: 1, Facility: 1 })
     expect(buildSummarySentence(rows)).toBe(
-      'Structure, Scheduling Model, Time, and Facility & Resources need a quick look.'
+      'Structure, Scheduling Model, Time, and Facility need a quick look.'
     )
   })
 
   it('exactly one understood domain uses singular "looks"', () => {
     const rows = buildDomainRows({ Structure: 0, Scheduling: 1, Time: 1, Facility: 1 })
     expect(buildSummarySentence(rows)).toBe(
-      'Structure looks right. Scheduling Model, Time, and Facility & Resources need a quick look.'
+      'Structure looks right. Scheduling Model, Time, and Facility need a quick look.'
     )
   })
 })
@@ -93,7 +93,7 @@ describe('ReconstructionMoment', () => {
     expect(screen.getByText('Structure')).toBeTruthy()
     expect(screen.getByText('Scheduling Model')).toBeTruthy()
     expect(screen.getByText('Time')).toBeTruthy()
-    expect(screen.getByText('Facility & Resources')).toBeTruthy()
+    expect(screen.getByText('Facility')).toBeTruthy()
     expect(screen.getAllByText('Understood')).toHaveLength(3)
     expect(screen.getAllByText('Needs a look')).toHaveLength(1)
   })

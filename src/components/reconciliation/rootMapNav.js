@@ -17,7 +17,7 @@ export const DOMAIN_SCREEN = {
 // Child-level targets, keyed by the same child display names domainRollup.js's
 // CHILD_OF/REQUIRED_GAP_CHILD_OF produce.
 export const CHILD_SCREEN = {
-  Units: 'cohorts',
+  Program: 'cohorts',
   Groups: 'groups',
   'Age Divisions': 'tiers',
   Activities: 'activities',
@@ -40,11 +40,11 @@ export const CHILD_SCREEN = {
 // Human labels for the "Open in {label} →" button. Reuses the plain screen
 // names a director already knows from the sidebar.
 export const SCREEN_LABEL = {
-  groups: 'Groups & Units',
+  groups: 'Groups',
   activities: 'Activities',
   timeblocks: 'Time Blocks',
   locations: 'Locations',
-  cohorts: 'Units',
+  cohorts: 'Program',
   tiers: 'Age Divisions',
   anchors: 'Fixed Events',
   days: 'Days',

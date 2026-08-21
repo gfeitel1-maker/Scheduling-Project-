@@ -55,7 +55,7 @@ function decisionsForTileState(model, state) {
 }
 
 // Resolves a node selection's heading to display labels: the domain part
-// through DOMAIN_LABELS (so it reads "Resources" like the canvas node, not
+// through DOMAIN_LABELS (so it reads "Location(s)" like the canvas node, not
 // the raw key "Facility"), the child part through the model's own child
 // name (not the internal selection.childKey) — guarded, since a selection
 // can outlive the model it was made against (e.g. mid re-ingest).

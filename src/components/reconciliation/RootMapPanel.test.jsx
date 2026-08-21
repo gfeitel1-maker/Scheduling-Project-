@@ -10,8 +10,13 @@ function emptyModel() {
 
 // Design-polish finding 1/2 (docs/adr/2026-08-18-rootmap-screen-port.md §1):
 // a node selection's heading must show the display domain label
-// (DOMAIN_LABELS, "Resources" not "Facility") and the real child display
-// name resolved from the model, not the raw internal selection keys.
+// (DOMAIN_LABELS) and the real child display name resolved from the model,
+// not the raw internal selection keys. W1 (docs/work/specs/2026-08-21-
+// vocabulary-unification-design.md) retired "Resources" — DOMAIN_LABELS.Facility
+// is now 'Facility' itself (same string as the raw key, chosen to avoid
+// duplicating the 'Locations' entity node's own caption), so this suite no
+// longer has a case where the two values differ; it still exercises the
+// resolution path (DOMAIN_LABELS lookup, child name resolution, fallback).
 function baseModel() {
   return {
     domains: [
@@ -52,8 +57,10 @@ describe('RootMapPanel node heading label resolution', () => {
         onClearSelection={noop}
       />,
     )
-    expect(screen.getByText('Resources')).toBeTruthy()
-    expect(screen.queryByText('Facility')).toBeFalsy()
+    // DOMAIN_LABELS.Facility === 'Facility' (W1), so this no longer proves
+    // "translated, not raw key" on its own — the resolution-path coverage
+    // (DOMAIN_LABELS lookup used, not a hardcoded string) still holds.
+    expect(screen.getByText('Facility')).toBeTruthy()
   })
 
   it('shows the child\'s real display name for a node+child selection, not the raw childKey', () => {
@@ -74,7 +81,7 @@ describe('RootMapPanel node heading label resolution', () => {
         onClearSelection={noop}
       />,
     )
-    expect(screen.getByText('Resources · Locations')).toBeTruthy()
+    expect(screen.getByText('Facility · Locations')).toBeTruthy()
   })
 
   it('falls back to the domain label when the selected child is missing from the model', () => {
@@ -95,7 +102,7 @@ describe('RootMapPanel node heading label resolution', () => {
         onClearSelection={noop}
       />,
     )
-    expect(screen.getByText('Resources')).toBeTruthy()
+    expect(screen.getByText('Facility')).toBeTruthy()
   })
 })
 
@@ -192,7 +199,7 @@ describe('RootMapPanel node selection connects to the real edit screen', () => {
       />,
     )
     const button = screen.getByRole('button', { name: /^Manage .+→$/ })
-    expect(button.textContent).toBe('Manage Resources →')
+    expect(button.textContent).toBe('Manage Facility →')
     button.click()
     expect(navigatedTo).toBe('locations')
   })

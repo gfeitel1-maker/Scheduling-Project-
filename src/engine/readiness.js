@@ -37,7 +37,7 @@
 export const REQUIRED_AREAS = [
   {
     key: 'tiers',
-    label: 'Units',
+    label: 'Age Divisions',
     screen: 'tiers',
     // buildSchedule takes `tiers: _tiers` and never reads it, but eligibility
     // reads group.tier_id — so with no units, nothing is eligible anywhere.

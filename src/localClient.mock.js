@@ -385,7 +385,7 @@ export const mockShoresh = {
   // field on one row, building a row up field-by-field. Without this the mock
   // was write-blind — `write` returned {status:'applied'} but never persisted,
   // so `list` (below) always came back empty, making it impossible to create
-  // a Program/Unit/Group/etc. in a plain `npm run dev` browser and blocking
+  // a Program/Age Division/Group/etc. in a plain `npm run dev` browser and blocking
   // Camp Setup end-to-end outside Electron.
   async write({ entity, entity_id, field, value } = {}) {
     if (!entity || !entity_id) return { status: 'applied' }

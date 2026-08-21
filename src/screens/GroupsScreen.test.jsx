@@ -406,7 +406,7 @@ describe('GroupsScreen', () => {
 })
 
 describe('GroupsScreen — import', () => {
-  it('imports rows from Excel, resolving unit names and skipping duplicates and rows with a warning', async () => {
+  it('imports rows from Excel, resolving age division names and skipping duplicates and rows with a warning', async () => {
     localClient.list.mockImplementation((entity) =>
       Promise.resolve(entity === 'groups' ? [group({ id: 'g1', name: 'Yeladim 1' })] : [tier({ id: 'tier-1', name: 'Yeladim' })])
     )
@@ -436,7 +436,7 @@ describe('GroupsScreen — import', () => {
     expect(availWritten).toEqual(['morning'])
   })
 
-  it('flags an import row whose unit name does not match any existing unit', async () => {
+  it('flags an import row whose age division name does not match any existing age division', async () => {
     localClient.list.mockImplementation((entity) =>
       Promise.resolve(entity === 'groups' ? [] : [tier({ id: 'tier-1', name: 'Yeladim' })])
     )
@@ -447,11 +447,11 @@ describe('GroupsScreen — import', () => {
     const fileInput = document.querySelector('input[type="file"]')
 
     XLSX.utils.sheet_to_json.mockReturnValue([
-      { name: 'Ghost Group', tier_name: 'Nonexistent Unit', availability: 'all' },
+      { name: 'Ghost Group', tier_name: 'Nonexistent Age Division', availability: 'all' },
     ])
 
     await userEvent.upload(fileInput, file)
 
-    await waitFor(() => expect(screen.queryByText('Unit "Nonexistent Unit" not found')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Age Division "Nonexistent Age Division" not found')).not.toBeNull())
   })
 })

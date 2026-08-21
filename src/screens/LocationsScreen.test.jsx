@@ -78,21 +78,21 @@ beforeEach(() => {
 })
 
 describe('LocationsScreen', () => {
-  it('renders the calm empty state when the camp has no places, with no toolbar or table', async () => {
+  it('renders the calm empty state when the camp has no locations, with no toolbar or table', async () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
-    await waitFor(() => expect(screen.queryByText('No places yet')).not.toBeNull())
-    expect(screen.queryByText(/Add a place below and say how many groups fit at once/)).not.toBeNull()
-    expect(screen.queryByText('Add your first place')).not.toBeNull()
+    await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
+    expect(screen.queryByText(/Add a location below and say how many groups fit at once/)).not.toBeNull()
+    expect(screen.queryByText('Add your first location')).not.toBeNull()
     // No toolbar/count eyebrow and no table — the empty state is the calm
     // no-card block (DESIGN_STANDARD §5a), not a 0-row table.
-    expect(screen.queryByText(/places$/)).toBeNull()
+    expect(screen.queryByText(/locations$/)).toBeNull()
     expect(screen.queryByRole('table')).toBeNull()
-    // The Add Place card still renders below the empty block.
-    expect(screen.queryByText('Add Place')).not.toBeNull()
+    // The Add Location card still renders below the empty block.
+    expect(screen.queryByText('Add Location')).not.toBeNull()
   })
 
-  it('loads places scoped to campId and shows the populated table', async () => {
+  it('loads locations scoped to campId and shows the populated table', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'locations') {
         return Promise.resolve([
@@ -104,16 +104,16 @@ describe('LocationsScreen', () => {
     })
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
-    await waitFor(() => expect(screen.queryByText('1 place')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('1 location')).not.toBeNull())
     expect(localClient.list).toHaveBeenCalledWith('locations')
     expect(screen.queryByText('Pool')).not.toBeNull()
     expect(screen.queryByText('3 groups')).not.toBeNull()
     expect(screen.queryByText('Wrong Camp')).toBeNull()
   })
 
-  it('adds a place by writing name first, then camp_id/capacity/notes', async () => {
+  it('adds a location by writing name first, then camp_id/capacity/notes', async () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('No places yet')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
 
     fireEvent.change(screen.getByPlaceholderText('e.g. Pool, Gym, Beit Midrash'), { target: { value: 'Gym' } })
     fireEvent.click(screen.getByText('+ Add'))
@@ -127,7 +127,7 @@ describe('LocationsScreen', () => {
 
   it('the capacity stepper defaults to 1 in the Add card and cannot go below 1', async () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('No places yet')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
 
     const decrease = screen.getByLabelText('Decrease')
     expect(decrease.disabled).toBe(true)
@@ -213,7 +213,7 @@ describe('LocationsScreen', () => {
     await waitFor(() => expect(localClient.deleteRecord).toHaveBeenCalledWith('locations', 'loc-1', 2))
   })
 
-  it('shows honest copy when nothing is bound to the place', async () => {
+  it('shows honest copy when nothing is bound to the location', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'locations') return Promise.resolve([location()])
       return Promise.resolve([])
@@ -240,7 +240,7 @@ describe('LocationsScreen', () => {
 
     fireEvent.click(screen.getByText('Delete'))
 
-    await waitFor(() => expect(screen.queryByText('Only an admin can delete places.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Only an admin can delete locations.')).not.toBeNull())
   })
 
   it('cancels the delete confirm without deleting', async () => {
@@ -271,7 +271,7 @@ describe('LocationsScreen', () => {
     expect(screen.getByText('Delete All').disabled).toBe(true)
   })
 
-  it('shows a styled confirm modal (not window.confirm) before Delete All, and confirming deletes all camp-scoped places', async () => {
+  it('shows a styled confirm modal (not window.confirm) before Delete All, and confirming deletes all camp-scoped locations', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'locations') return Promise.resolve([location({ id: 'loc-1' }), location({ id: 'loc-2', name: 'Gym' })])
       return Promise.resolve([])
@@ -283,10 +283,10 @@ describe('LocationsScreen', () => {
 
     expect(window.confirm).not.toHaveBeenCalled()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
-    await waitFor(() => expect(screen.queryByText('Delete all places?')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Delete all locations?')).not.toBeNull())
     expect(screen.queryByText('They can be restored from Trash.')).not.toBeNull()
 
-    fireEvent.click(screen.getByText('Delete All Places'))
+    fireEvent.click(screen.getByText('Delete All Locations'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledTimes(2))
     expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'locations', 'loc-1')
@@ -302,17 +302,17 @@ describe('LocationsScreen', () => {
     await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
-    await waitFor(() => expect(screen.queryByText('Delete all places?')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Delete all locations?')).not.toBeNull())
     fireEvent.click(screen.getByText('Cancel'))
 
-    expect(screen.queryByText('Delete all places?')).toBeNull()
+    expect(screen.queryByText('Delete all locations?')).toBeNull()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
   })
 
   it('navigates to Activities and to Fixed Events from its own Next chain', async () => {
     const onNavigate = vi.fn()
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={onNavigate} />)
-    await waitFor(() => expect(screen.queryByText('No places yet')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
 
     fireEvent.click(screen.getByText('← Back to Activities'))
     expect(onNavigate).toHaveBeenCalledWith('activities')
@@ -347,7 +347,7 @@ describe('LocationsScreen: migration review region', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
 
-    expect(screen.queryByText('These look like the same place')).toBeNull()
+    expect(screen.queryByText('These look like the same location')).toBeNull()
     expect(screen.queryByText(/Shoresh set a few capacities/)).toBeNull()
   })
 
@@ -416,15 +416,15 @@ describe('LocationsScreen: migration review region', () => {
     ])
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
-    await waitFor(() => expect(screen.queryByText('These look like the same place')).not.toBeNull())
-    expect(screen.queryByText('1 place left to review')).not.toBeNull()
+    await waitFor(() => expect(screen.queryByText('These look like the same location')).not.toBeNull())
+    expect(screen.queryByText('1 location left to review')).not.toBeNull()
     // Default winner = most bound activities — "Pool" (2) over "pool" (1).
     expect(screen.queryByText(/2 activities here/)).not.toBeNull()
     expect(screen.queryByText(/1 activity here/)).not.toBeNull()
     // The advisory strip must not render while the gate is up.
     expect(screen.queryByText(/Shoresh set a few capacities/)).toBeNull()
 
-    fireEvent.click(screen.getByText('Merge into one place'))
+    fireEvent.click(screen.getByText('Merge into one location'))
 
     await waitFor(() =>
       expect(localClient.mergeLocation).toHaveBeenCalledWith({
@@ -437,7 +437,7 @@ describe('LocationsScreen: migration review region', () => {
     await waitFor(() => expect(localClient.dismissMigrationReviews).toHaveBeenCalledWith(['r1', 'r2']))
   })
 
-  it('"No — these are different places" dismisses the group without merging', async () => {
+  it('"No — these are different locations" dismisses the group without merging', async () => {
     const poolId = deriveLocationId(CAMP_ID, 'Pool')
     const poolLowerId = deriveLocationId(CAMP_ID, 'pool')
     localClient.list.mockImplementation((entity) => {
@@ -452,8 +452,8 @@ describe('LocationsScreen: migration review region', () => {
     ])
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
-    await waitFor(() => expect(screen.queryByText('These look like the same place')).not.toBeNull())
-    fireEvent.click(screen.getByText('No — these are different places'))
+    await waitFor(() => expect(screen.queryByText('These look like the same location')).not.toBeNull())
+    fireEvent.click(screen.getByText('No — these are different locations'))
 
     await waitFor(() => expect(localClient.dismissMigrationReviews).toHaveBeenCalledWith(['r1', 'r2']))
     expect(localClient.mergeLocation).not.toHaveBeenCalled()
@@ -495,9 +495,9 @@ describe('LocationsScreen: migration review region', () => {
       .mockRejectedValueOnce(new Error('network blip'))
 
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('These look like the same place')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('These look like the same location')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Merge into one place'))
+    fireEvent.click(screen.getByText('Merge into one location'))
 
     await waitFor(() =>
       expect(localClient.mergeLocation).toHaveBeenCalledWith({
@@ -528,7 +528,7 @@ describe('LocationsScreen: migration review region', () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Pool')).not.toBeNull())
 
-    expect(screen.queryByText('These look like the same place')).toBeNull()
+    expect(screen.queryByText('These look like the same location')).toBeNull()
   })
 
   // FIX 1 (HIGH, safety-panel round): a 3+-variant near-duplicate group whose
@@ -536,7 +536,7 @@ describe('LocationsScreen: migration review region', () => {
   // failure handler only set gateError, never refreshed state, so the gate
   // kept offering an already-deleted loser and every retry died identically
   // on 'no-record' before ever reaching the loser that could still merge.
-  // "these are different places" was the only escape, permanently forfeiting
+  // "these are different locations" was the only escape, permanently forfeiting
   // the un-merged variant. Fixed by refreshing on failure (self-heals the
   // gate onto the remaining mergeable variant) so a retry only re-attempts
   // what is actually still there.
@@ -587,9 +587,9 @@ describe('LocationsScreen: migration review region', () => {
     })
 
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('These look like the same place')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('These look like the same location')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Merge into one place'))
+    fireEvent.click(screen.getByText('Merge into one location'))
 
     await waitFor(() => expect(localClient.mergeLocation).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(screen.queryByText(/That merge could not be completed/)).not.toBeNull())
@@ -602,13 +602,13 @@ describe('LocationsScreen: migration review region', () => {
     expect(screen.queryByText('POOL')).toBeNull()
     expect(screen.getAllByText('pool').length).toBeGreaterThan(0)
 
-    // (c) "these are different places" is not the only escape — the Merge
+    // (c) "these are different locations" is not the only escape — the Merge
     // button is still present and functional.
-    expect(screen.queryByText('Merge into one place')).not.toBeNull()
+    expect(screen.queryByText('Merge into one location')).not.toBeNull()
 
     // (b) retry: the previously-failed loser now succeeds, completing the
     // merge — it does not die re-hitting the already-deleted first loser.
-    fireEvent.click(screen.getByText('Merge into one place'))
+    fireEvent.click(screen.getByText('Merge into one location'))
 
     await waitFor(() => expect(localClient.mergeLocation).toHaveBeenCalledTimes(3))
     await waitFor(() => expect(localClient.dismissMigrationReviews).toHaveBeenCalledWith(['r-Pool', 'r-POOL', 'r-pool']))
@@ -657,9 +657,9 @@ describe('LocationsScreen: migration review region', () => {
     })
 
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('These look like the same place')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('These look like the same location')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Merge into one place'))
+    fireEvent.click(screen.getByText('Merge into one location'))
 
     await waitFor(() => expect(localClient.mergeLocation).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(localClient.dismissMigrationReviews).toHaveBeenCalledWith(['r-Pool', 'r-POOL', 'r-pool']))
@@ -670,12 +670,12 @@ describe('LocationsScreen: migration review region', () => {
 // M5 — per-week location availability, mirroring ActivitiesScreen/GroupsScreen's
 // week-exclusion toggle exactly: a WeekToggle column when weekId is present,
 // toggle-off writes week_id then location_id, toggle-on deletes the row, and
-// closing a place with placed slots requires confirmation first.
+// closing a location with placed slots requires confirmation first.
 describe('LocationsScreen — week availability (M5)', () => {
   const WEEK_ID = 'week-1'
   const weeks = [{ id: WEEK_ID, camp_id: CAMP_ID, name: 'Week 1', sort_order: 0, is_archived: 0 }]
 
-  it('shows a week column with a WeekToggle per place when weekId is set', async () => {
+  it('shows a week column with a WeekToggle per location when weekId is set', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'locations') return Promise.resolve([location({ id: 'loc-1', name: 'Pool' })])
       return Promise.resolve([])
@@ -688,7 +688,7 @@ describe('LocationsScreen — week availability (M5)', () => {
     expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('true')
   })
 
-  it('closing a place with no placed slots writes the exclusion immediately, no confirm', async () => {
+  it('closing a location with no placed slots writes the exclusion immediately, no confirm', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'locations') return Promise.resolve([location({ id: 'loc-1', name: 'Pool' })])
       return Promise.resolve([])
@@ -708,7 +708,7 @@ describe('LocationsScreen — week availability (M5)', () => {
     expect(screen.queryByText(/Turn off/)).toBeNull()
   })
 
-  it('closing a place with placed slots shows a confirm dialog with the slot count first', async () => {
+  it('closing a location with placed slots shows a confirm dialog with the slot count first', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'locations') return Promise.resolve([location({ id: 'loc-1', name: 'Pool' })])
       if (entity === 'activities') return Promise.resolve([activity({ id: 'act-1', location_id: 'loc-1' })])
@@ -734,7 +734,7 @@ describe('LocationsScreen — week availability (M5)', () => {
     expect(localClient.write.mock.calls[1][4]).toBe('loc-1')
   })
 
-  it('reopening an excluded place deletes the exclusion row, no confirm', async () => {
+  it('reopening an excluded location deletes the exclusion row, no confirm', async () => {
     const exclusionRow = { id: 'excl-1', week_id: WEEK_ID, location_id: 'loc-1' }
     localClient.list.mockImplementation((entity) => {
       if (entity === 'locations') return Promise.resolve([location({ id: 'loc-1', name: 'Pool' })])

@@ -17,6 +17,15 @@ describe('entityLabel', () => {
     expect(entityLabel('anchor_activities')).toBe('Fixed event')
   })
 
+  // W1 — vocabulary unification (docs/work/specs/2026-08-21-vocabulary-
+  // unification-design.md). One canonical display word per concept: "Unit"
+  // and "Place" are retired.
+  it('uses the canonical vocabulary word per concept (W1)', () => {
+    expect(entityLabel('tiers')).toBe('Age Division')
+    expect(entityLabel('cohorts')).toBe('Program')
+    expect(entityLabel('locations')).toBe('Location')
+  })
+
   it('never leaks a raw table name for something unmapped', () => {
     // `users` is a real case — deleting a person is covered by the Trash
     // tests — and it renders as a section heading, so it was the most visible.
@@ -32,6 +41,10 @@ describe('fieldLabel', () => {
     expect(fieldLabel('name')).toBe('Name')
     expect(fieldLabel('min_per_week')).toBe('Fewest per week')
     expect(fieldLabel('weather_alternative_id')).toBe('Wet-weather alternative')
+  })
+
+  it('names the tier_id field with the canonical word (W1)', () => {
+    expect(fieldLabel('tier_id')).toBe('Age Division')
   })
 
   it('covers the schedule-cell fields, which used to hit the fallback', () => {

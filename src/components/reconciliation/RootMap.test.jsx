@@ -40,7 +40,7 @@ describe('RootMap node label', () => {
         onClearSelection={noop}
       />,
     )
-    expect(screen.getByText('Resources')).toBeTruthy()
+    expect(screen.getByText('Facility')).toBeTruthy()
   })
 })
 
@@ -144,7 +144,7 @@ describe('RootMap node label + selection glow under prefers-reduced-motion', () 
         onClearSelection={noop}
       />,
     )
-    const text = screen.getByText('Resources')
+    const text = screen.getByText('Facility')
     const labelGroup = text.closest('g')
     const style = labelGroup.getAttribute('style') ?? ''
     expect(style).not.toContain('transform')
@@ -209,7 +209,7 @@ describe('RootMap glow state (attention pulse, hover gating)', () => {
         onClearSelection={noop}
       />,
     )
-    const button = screen.getByRole('button', { name: /Resources/ })
+    const button = screen.getByRole('button', { name: /Facility/ })
     fireEvent.mouseEnter(button)
     const glows = [...container.querySelectorAll('circle[filter="url(#rootmap-glow-blur)"]')]
     const pulsing = glows.filter((g) => g.classList.contains('rootmap-orb--pulse'))
@@ -232,7 +232,7 @@ describe('RootMap glow state (attention pulse, hover gating)', () => {
         onClearSelection={noop}
       />,
     )
-    const button = screen.getByRole('button', { name: /Resources/ })
+    const button = screen.getByRole('button', { name: /Facility/ })
     fireEvent.mouseEnter(button)
     const glow = container.querySelector('circle[filter="url(#rootmap-glow-blur)"]')
     expect(glow.getAttribute('style') ?? '').not.toContain('opacity: 0.9')
@@ -254,7 +254,7 @@ describe('RootMap glow state (attention pulse, hover gating)', () => {
         onClearSelection={noop}
       />,
     )
-    const button = screen.getByRole('button', { name: /Resources/ })
+    const button = screen.getByRole('button', { name: /Facility/ })
     fireEvent.focus(button)
     const glow = container.querySelector('circle[filter="url(#rootmap-glow-blur)"]')
     expect(glow.getAttribute('style') ?? '').toContain('opacity: 0.9')
@@ -286,13 +286,13 @@ describe('RootMap label show-delay (RA-4)', () => {
         onClearSelection={noop}
       />,
     )
-    const button = screen.getByRole('button', { name: /Resources/ })
+    const button = screen.getByRole('button', { name: /Facility/ })
     act(() => { fireEvent.mouseEnter(button) })
-    expect(screen.queryByText('Resources')).toBeNull() // not shown immediately
+    expect(screen.queryByText('Facility')).toBeNull() // not shown immediately
     act(() => { vi.advanceTimersByTime(130) })
-    expect(screen.queryByText('Resources')).not.toBeNull() // shown after the delay
+    expect(screen.queryByText('Facility')).not.toBeNull() // shown after the delay
     act(() => { fireEvent.mouseLeave(button) })
-    expect(screen.queryByText('Resources')).toBeNull()
+    expect(screen.queryByText('Facility')).toBeNull()
     // a quick sweep (enter, leave before 120ms) never shows the label
     act(() => {
       fireEvent.mouseEnter(button)
@@ -300,7 +300,7 @@ describe('RootMap label show-delay (RA-4)', () => {
       fireEvent.mouseLeave(button)
       vi.advanceTimersByTime(130)
     })
-    expect(screen.queryByText('Resources')).toBeNull()
+    expect(screen.queryByText('Facility')).toBeNull()
   })
 })
 

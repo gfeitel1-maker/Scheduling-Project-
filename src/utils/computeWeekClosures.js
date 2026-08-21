@@ -86,7 +86,7 @@ export function computeWeekClosures({
     }
     const locId = actLocationId.get(s.activity_id)
     if (locId != null && excludedLocationIds.has(locId)) {
-      reasons.push(`${locName.get(locId) || 'This place'} is marked closed this week`)
+      reasons.push(`${locName.get(locId) || 'This location'} is marked closed this week`)
     }
     if (reasons.length) closures.set(s.id, reasons.join('; '))
   }

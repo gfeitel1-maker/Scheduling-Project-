@@ -18,10 +18,11 @@ const LABEL = {
   activities: { one: 'activity', the: 'activity' },
   days_of_operation: { one: 'day', the: 'day' },
   // M3c — locations join the shared delete path (D2), but are never
-  // schedule-shaped: they have no "place in a schedule", so this file's own
-  // "places" plural for a schedule cell would collide confusingly with the
-  // entity's own name. LABEL is still needed for the confirmLabel fallback.
-  locations: { one: 'place', the: 'place' },
+  // schedule-shaped: they have no "location in a schedule", so this file's
+  // own "places" plural for a schedule cell (below) would collide confusingly
+  // with the entity's own name. LABEL is still needed for the confirmLabel
+  // fallback.
+  locations: { one: 'location', the: 'location' },
 }
 
 function places(n) {
@@ -40,7 +41,7 @@ function whatChanges(preview) {
 
   if (entity === 'locations') {
     if (ref_count === 0) return `Nothing uses ${who} right now.`
-    return `${activityCount(ref_count)} use ${who} right now. Deleting it takes ${who} off those activities — they stay on the schedule, just without a place.`
+    return `${activityCount(ref_count)} use ${who} right now. Deleting it takes ${who} off those activities — they stay on the schedule, just without a location.`
   }
 
   if (entity === 'activities') {
