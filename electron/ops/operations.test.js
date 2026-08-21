@@ -7,6 +7,7 @@ import { openLocalDb } from '../db/localDb.js'
 import {
   appendOp,
   appendBulkReplaceOp,
+  applyBulkReplaceProjection,
   latestOp,
   detectConflict,
   detectUniqueFieldCollision,
@@ -984,5 +985,120 @@ describe('recordConflict + listPendingConflicts (Task 10 round 3, Fix 3: conflic
 
     const pending = listPendingConflicts(db)
     expect(pending).toHaveLength(2)
+  })
+})
+
+// T104 — bulkReplace sanitizer coverage.
+// docs/work/specs/2026-08-20-elective-cell-atomic-content-design.md
+//
+// bulkReplace never goes through applyProjection/the per-field eviction
+// step, so it is a second, independent write path for template_slots that
+// needs its own guard against a both-non-null row (e.g. a stale
+// pre-fix-shipped snapshot, or a future row-construction bug on the
+// generation/snapshot path).
+describe('bulkReplace mutual-exclusion sanitizer (T104)', () => {
+  beforeEach(() => {
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(
+      'tmpl-1',
+      'camp-1',
+      'Week 1'
+    )
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run('act-1', 'camp-1', 'Swim')
+    db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(
+      'set-1',
+      'camp-1',
+      'Afternoon Chugim'
+    )
+  })
+
+  // 3a: the write-side sanitizer must clean BOTH the inserted row AND the
+  // serialized operations.value JSON — sanitizing only inside the insert
+  // loop would leave the persisted/broadcast payload carrying the raw
+  // both-non-null row even though the materialized row is clean. This is
+  // the test that would fail under a "sanitize inside the loop only" fix.
+  it('3a: appendBulkReplaceOp sanitizes both the inserted row and the serialized op-log payload', () => {
+    const op = appendBulkReplaceOp(db, {
+      entity: 'template_slots',
+      scope_id: 'tmpl-1',
+      rows: [
+        {
+          id: 'slot-both',
+          template_id: 'tmpl-1',
+          day_id: 'day-1',
+          time_block_id: 'block-1',
+          activity_id: 'act-1',
+          elective_set_id: 'set-1',
+        },
+      ],
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+    })
+
+    const insertedRow = db.prepare('SELECT activity_id, elective_set_id FROM template_slots WHERE id = ?').get('slot-both')
+    expect(insertedRow.activity_id).toBe('act-1')
+    expect(insertedRow.elective_set_id).toBeNull()
+
+    const persistedRows = JSON.parse(op.value)
+    expect(persistedRows).toHaveLength(1)
+    expect(persistedRows[0].activity_id).toBe('act-1')
+    expect(persistedRows[0].elective_set_id).toBeNull()
+  })
+
+  // 3b: the replay-side sanitizer is a real backstop, not merely relying on
+  // every writer being patched — simulate a raw op.value JSON string
+  // (as a pre-fix snapshot's stored payload would look) that itself
+  // contains a both-non-null row.
+  it('3b: applyBulkReplaceProjection sanitizes a both-non-null row from raw, unsanitized op.value JSON', () => {
+    const malformedValue = JSON.stringify([
+      {
+        id: 'slot-replay',
+        template_id: 'tmpl-1',
+        day_id: 'day-1',
+        time_block_id: 'block-1',
+        activity_id: 'act-1',
+        elective_set_id: 'set-1',
+      },
+    ])
+
+    applyBulkReplaceProjection(db, {
+      entity: 'template_slots',
+      entity_id: 'tmpl-1',
+      value: malformedValue,
+    })
+
+    const row = db.prepare('SELECT activity_id, elective_set_id FROM template_slots WHERE id = ?').get('slot-replay')
+    expect(row.activity_id).toBe('act-1')
+    expect(row.elective_set_id).toBeNull()
+  })
+
+  it('leaves an entity without a registered exclusive pair (template_overlays) untouched', () => {
+    db.prepare('INSERT INTO days_of_operation (id, camp_id, label, sort_order) VALUES (?, ?, ?, ?)').run(
+      'day-1',
+      'camp-1',
+      'Monday',
+      1
+    )
+
+    const op = appendBulkReplaceOp(db, {
+      entity: 'template_overlays',
+      scope_id: 'tmpl-1',
+      rows: [
+        {
+          id: 'overlay-1',
+          template_id: 'tmpl-1',
+          unit_id: 'unit-1',
+          day_id: 'day-1',
+          from_block_order: '1',
+          to_block_order: '2',
+          label: 'Lunch',
+        },
+      ],
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+    })
+
+    const row = db.prepare('SELECT * FROM template_overlays WHERE id = ?').get('overlay-1')
+    expect(row.label).toBe('Lunch')
+    expect(JSON.parse(op.value)[0].label).toBe('Lunch')
   })
 })

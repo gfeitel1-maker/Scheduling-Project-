@@ -27,6 +27,15 @@ invariant.** Remaining coordination: both branches edit *near* `rootMapModel.js`
 against their landed change before/at implementation to keep `buildContextChildren` consistent. No longer
 a hard block.
 
+**Peer #5 shipped (2026-08-20)** on branch `claude/shoresh-v1-closure-audit-14b20a` (commit `cf1b63d`,
+full gate green; **not yet merged to main** — held for owner merge decision). It adds NO structural
+`rootMapModel.js` change and does not touch Context/`special_days`/`INGESTIBLE_ENTITIES` — it only makes
+activities with an unjudged `min_per_week` (appearances===0) or unset priority render `attention`. When
+wiring `buildContextChildren`, **diff-check against**: `electron/ops/ingest.js`,
+`src/ingest/reconciliationReport.js`, `src/screens/reconciliationResolutions.js`. If T107 needs it on
+main first, ask the peer to flag the merge to the owner — but T107 is late in sequence so it will very
+likely land first.
+
 ## Review loop
 
 **Maker (test-first, extend the Σ-invariant) → Red Hat (no census pollution; the ingestible-overlap

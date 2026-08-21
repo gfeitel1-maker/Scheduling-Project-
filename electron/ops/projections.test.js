@@ -4,7 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { openLocalDb } from '../db/localDb.js'
-import { PROJECTIONS, applyProjection } from './projections.js'
+import { PROJECTIONS, applyProjection, MUTUALLY_EXCLUSIVE_FIELDS, sanitizeMutuallyExclusiveRow } from './projections.js'
 import { appendOp } from './operations.js'
 
 let tmpFile
@@ -321,6 +321,193 @@ describe('applyProjection for template_slots', () => {
       value: 1,
     })
     expect(db.prepare('SELECT * FROM template_slots WHERE id = ?').get('slot-1')).toBeUndefined()
+  })
+})
+
+// T104 — elective cell atomic content + mutual exclusion.
+// docs/work/specs/2026-08-20-elective-cell-atomic-content-design.md
+//
+// template_slots.activity_id and .elective_set_id are two independently
+// conflict-tracked fields on the same row. Without an apply-time invariant,
+// a cross-device interleave of a paired "set one, clear the other" write can
+// leave both non-null with no conflict ever recorded (worked example in the
+// design doc). These tests prove the eviction step in applyProjection closes
+// that race by construction, for any arrival order.
+describe('applyProjection T104 mutual exclusion — template_slots', () => {
+  beforeEach(() => {
+    db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('device-1', 'Device One')
+    db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(
+      'template-1',
+      'camp-1',
+      'Week 1'
+    )
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(
+      'act-1',
+      'camp-1',
+      'Swim'
+    )
+    db.prepare('INSERT INTO elective_sets (id, camp_id, name) VALUES (?, ?, ?)').run(
+      'set-1',
+      'camp-1',
+      'Afternoon Chugim'
+    )
+    db.prepare('INSERT INTO template_slots (id, template_id) VALUES (?, ?)').run(
+      'slot-1',
+      'template-1'
+    )
+  })
+
+  it('registers the exclusive pair for template_slots, symmetric both ways', () => {
+    expect(MUTUALLY_EXCLUSIVE_FIELDS.template_slots).toEqual({
+      activity_id: 'elective_set_id',
+      elective_set_id: 'activity_id',
+    })
+  })
+
+  // The headline test: replay-order interleave, not call-order. This is the
+  // arrival order that produces both-non-null under plain per-field LWW with
+  // no invariant (design doc's worked example) — A's clear lands first, then
+  // B's clear, then B's set, then A's set, none adjacent to their own
+  // device's paired write.
+  //
+  // N-device induction note (design doc): the invariant transition rule is a
+  // pure function of (current row state, next op) — it never references
+  // which/how-many devices authored ops, so this 2-device/4-op interleave is
+  // a sufficient concrete exercise of the one nontrivial transition shape (a
+  // "set" op evicts its partner unconditionally); a 3rd..Nth device's ops
+  // would each individually reduce to the same shape already covered here.
+  it('never leaves both activity_id and elective_set_id non-null, arrival order A-last', () => {
+    const interleavedOps = [
+      { entity: 'template_slots', entity_id: 'slot-1', field: 'elective_set_id', value: null }, // A's clear, seq1
+      { entity: 'template_slots', entity_id: 'slot-1', field: 'activity_id', value: null }, // B's clear, seq2
+      { entity: 'template_slots', entity_id: 'slot-1', field: 'elective_set_id', value: 'set-1' }, // B's set, seq3
+      { entity: 'template_slots', entity_id: 'slot-1', field: 'activity_id', value: 'act-1' }, // A's set, seq4 (last)
+    ]
+    for (const op of interleavedOps) applyProjection(db, op)
+
+    const row = db.prepare('SELECT activity_id, elective_set_id FROM template_slots WHERE id = ?').get('slot-1')
+    expect(row.activity_id != null && row.elective_set_id != null).toBe(false)
+    // The higher-seq setter (A's activity_id, applied last) evicts the
+    // partner right when it lands — this is the assertion that would fail
+    // under plain per-field LWW with no invariant.
+    expect(row.activity_id).toBe('act-1')
+    expect(row.elective_set_id).toBeNull()
+  })
+
+  it('never leaves both activity_id and elective_set_id non-null, arrival order B-last (mirror)', () => {
+    const interleavedOps = [
+      { entity: 'template_slots', entity_id: 'slot-1', field: 'activity_id', value: null }, // A's clear, seq1
+      { entity: 'template_slots', entity_id: 'slot-1', field: 'elective_set_id', value: null }, // B's clear, seq2
+      { entity: 'template_slots', entity_id: 'slot-1', field: 'activity_id', value: 'act-1' }, // A's set, seq3
+      { entity: 'template_slots', entity_id: 'slot-1', field: 'elective_set_id', value: 'set-1' }, // B's set, seq4 (last)
+    ]
+    for (const op of interleavedOps) applyProjection(db, op)
+
+    const row = db.prepare('SELECT activity_id, elective_set_id FROM template_slots WHERE id = ?').get('slot-1')
+    expect(row.activity_id != null && row.elective_set_id != null).toBe(false)
+    expect(row.elective_set_id).toBe('set-1')
+    expect(row.activity_id).toBeNull()
+  })
+
+  it('is a no-op change in the common same-device, already-correct case (sequential, non-interleaved)', () => {
+    // A single write path already clears the other field synchronously in
+    // the same client call — sequential ops from one device, not interleaved
+    // with another device's paired write.
+    applyProjection(db, { entity: 'template_slots', entity_id: 'slot-1', field: 'activity_id', value: 'act-1' })
+    applyProjection(db, { entity: 'template_slots', entity_id: 'slot-1', field: 'elective_set_id', value: null })
+
+    const row = db.prepare('SELECT activity_id, elective_set_id FROM template_slots WHERE id = ?').get('slot-1')
+    expect(row.activity_id).toBe('act-1')
+    expect(row.elective_set_id).toBeNull()
+  })
+
+  it('confirms the no-op-for-other-entities behavior — template_overlays has no exclusive pair', () => {
+    expect(MUTUALLY_EXCLUSIVE_FIELDS.template_overlays).toBeUndefined()
+    expect(sanitizeMutuallyExclusiveRow('template_overlays', { activity_id: 'x', elective_set_id: 'y' })).toEqual({
+      activity_id: 'x',
+      elective_set_id: 'y',
+    })
+  })
+
+  // DELETE_FIELD interaction (Red Hat round 2, test 2a/2b).
+  describe('DELETE_FIELD interaction', () => {
+    it('2a: the eviction guard is never reached on a delete — the row is just deleted', () => {
+      applyProjection(db, { entity: 'template_slots', entity_id: 'slot-1', field: 'elective_set_id', value: 'set-1' })
+      expect(
+        db.prepare('SELECT elective_set_id FROM template_slots WHERE id = ?').get('slot-1').elective_set_id
+      ).toBe('set-1')
+
+      applyProjection(db, { entity: 'template_slots', entity_id: 'slot-1', field: '__deleted__', value: 1 })
+
+      expect(db.prepare('SELECT * FROM template_slots WHERE id = ?').get('slot-1')).toBeUndefined()
+    })
+
+    it('2b: delete-then-recreate cannot leave a dangling corrective side effect from the row previous life', () => {
+      applyProjection(db, { entity: 'template_slots', entity_id: 'slot-1', field: 'elective_set_id', value: 'set-1' })
+      applyProjection(db, { entity: 'template_slots', entity_id: 'slot-1', field: '__deleted__', value: 1 })
+
+      // Fresh insert via ensureExists (template_id write), then an
+      // activity_id set. The freshly-inserted row has elective_set_id NULL
+      // by column default, so the eviction guard's IS NOT NULL condition is
+      // false and no spurious UPDATE runs against stale pre-delete state.
+      applyProjection(db, { entity: 'template_slots', entity_id: 'slot-1', field: 'template_id', value: 'template-1' })
+      applyProjection(db, { entity: 'template_slots', entity_id: 'slot-1', field: 'activity_id', value: 'act-1' })
+
+      const row = db.prepare('SELECT activity_id, elective_set_id FROM template_slots WHERE id = ?').get('slot-1')
+      expect(row.activity_id).toBe('act-1')
+      expect(row.elective_set_id).toBeNull()
+    })
+  })
+
+  // Span-head-with-tails orphaning (Red Hat round 2, test 1) — a
+  // documentation/regression guard on the scope boundary, NOT a fix.
+  // Decision (design doc): T104's invariant is deliberately row-scoped
+  // (WHERE id = ?); it does not and cannot fix a stale tail row's
+  // relationship to a converted head. That is T105's authoring-path
+  // responsibility (route "convert span head to elective" through the same
+  // replaceSlot/collectSpanTails multi-cell atomic write already used for
+  // "replace span head with a different activity").
+  it('span-head-with-tails: T104 is row-scoped and does not fix (nor is required to fix) an orphaned tail after a head-only conversion', () => {
+    db.prepare('INSERT INTO template_slots (id, template_id, activity_id, is_span_head) VALUES (?, ?, ?, ?)').run(
+      'slot-head',
+      'template-1',
+      'act-1',
+      1
+    )
+    db.prepare('INSERT INTO template_slots (id, template_id, activity_id, is_span_head) VALUES (?, ?, ?, ?)').run(
+      'slot-tail',
+      'template-1',
+      'act-1',
+      0
+    )
+
+    // A bare single-field op that only targets the head's own row id —
+    // exactly the gap the design doc names. Converts the head to an
+    // elective; does NOT touch the tail row at all.
+    applyProjection(db, { entity: 'template_slots', entity_id: 'slot-head', field: 'elective_set_id', value: 'set-1' })
+
+    const head = db.prepare('SELECT * FROM template_slots WHERE id = ?').get('slot-head')
+    const tail = db.prepare('SELECT * FROM template_slots WHERE id = ?').get('slot-tail')
+
+    // The head itself is correctly single-kind — this test is not about the
+    // head.
+    expect(head.elective_set_id).toBe('set-1')
+    expect(head.activity_id).toBeNull()
+
+    // The tail independently satisfies the per-row invariant (trivially —
+    // it never had both fields set)...
+    expect(tail.activity_id != null && tail.elective_set_id != null).toBe(false)
+    // ...but it is now an orphaned tail: is_span_head is false, activity_id
+    // is still set, and no head row at the preceding block owns that
+    // activity_id as a span head any longer (the head that used to own it
+    // is now an elective cell). Reachable in principle, scoped out to T105 —
+    // this assertion documents the boundary rather than closing it.
+    expect(tail.is_span_head).toBe(0)
+    expect(tail.activity_id).toBe('act-1')
+    const owningHead = db
+      .prepare('SELECT * FROM template_slots WHERE template_id = ? AND is_span_head = 1 AND activity_id = ?')
+      .get('template-1', 'act-1')
+    expect(owningHead).toBeUndefined()
   })
 })
 

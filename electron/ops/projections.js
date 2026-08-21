@@ -651,8 +651,9 @@ export const PROJECTIONS = {
       'flags',
       // v35 (T41 slice 1, docs/work/specs/2026-08-20-group-electives-design.md):
       // a slot with elective_set_id set is an elective cell (activity_id
-      // ignored); the two are mutually exclusive, enforced by the
-      // (UI-driven) write path in a later slice, not here.
+      // ignored); the two are mutually exclusive, enforced at apply time by
+      // MUTUALLY_EXCLUSIVE_FIELDS below (T104,
+      // docs/work/specs/2026-08-20-elective-cell-atomic-content-design.md).
       'elective_set_id',
     ],
     // template_id is NOT NULL with no default and is a real FK, so the row
@@ -683,6 +684,42 @@ export const PROJECTIONS = {
     fields: [],
     ensureExists: () => {},
   },
+}
+
+// Cells whose "kind" must be exclusive across two independently-conflict-
+// tracked columns on the same row. See T104,
+// docs/work/specs/2026-08-20-elective-cell-atomic-content-design.md, D4.
+// Conflict detection (conflicts table) is keyed per-(entity, entity_id,
+// field), so activity_id and elective_set_id are two separately-arbitrated
+// last-write-wins values on the same template_slots row — a cross-device
+// interleave of a paired "set one, clear the other" write can otherwise
+// leave both non-null with no conflict ever recorded. The eviction step in
+// applyProjection below, plus sanitizeMutuallyExclusiveRow for the
+// bulkReplace write paths (operations.js), close that race at apply time.
+export const MUTUALLY_EXCLUSIVE_FIELDS = {
+  template_slots: {
+    activity_id: 'elective_set_id',
+    elective_set_id: 'activity_id',
+  },
+}
+
+// Pure, total sanitizer for a single row object: if both halves of a
+// registered mutually-exclusive pair are non-null, clears the partner
+// (fixed field-name precedence — the field listed first in the pair's key
+// wins, i.e. activity_id survives over elective_set_id for template_slots),
+// deterministically and identically on every device sanitizing the same row
+// data. No-op for any entity not registered above (e.g. template_overlays).
+// Used by operations.js's bulkReplace write and replay paths, which never
+// go through applyProjection/the per-field eviction step below.
+export function sanitizeMutuallyExclusiveRow(entity, row) {
+  const pairs = MUTUALLY_EXCLUSIVE_FIELDS[entity]
+  if (!pairs) return row
+  for (const [field, partner] of Object.entries(pairs)) {
+    if (row[field] != null && row[partner] != null) {
+      return { ...row, [partner]: null }
+    }
+  }
+  return row
 }
 
 // Reserved field name for a row-delete op — see DELETE_FIELD's definition in
@@ -736,5 +773,25 @@ export function applyProjection(db, op) {
     op.value,
     op.entity_id
   )
+
+  // T104 eviction step: a non-null write to a registered mutually-exclusive
+  // field immediately and unconditionally clears its partner column on the
+  // same row, right now — not deferred to a reconciliation pass, which
+  // could itself race. Because op replay is seq-ordered identically on
+  // every device (load-bearing invariant, docs/adr/2026-08-12-drag-live-
+  // write-serialization.md), this apply-time-only rule is sufficient to
+  // guarantee at most one of the pair is ever non-null, regardless of
+  // cross-device arrival order — see the design doc's worked interleave.
+  // This is a local side effect of replay, not a new appended op: it must
+  // never be re-appended to the op-log (that would create a duplicate-op
+  // loop across devices replaying each other's corrections).
+  const exclusivePair = MUTUALLY_EXCLUSIVE_FIELDS[op.entity]?.[op.field]
+  if (exclusivePair && op.value != null) {
+    getStmt(
+      db,
+      `UPDATE ${projection.table} SET ${exclusivePair} = NULL WHERE ${projection.key} = ? AND ${exclusivePair} IS NOT NULL`
+    ).run(op.entity_id)
+  }
+
   return true
 }

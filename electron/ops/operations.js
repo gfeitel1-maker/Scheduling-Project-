@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Buffer } from 'node:buffer'
-import { PROJECTIONS, applyProjection } from './projections.js'
+import { PROJECTIONS, applyProjection, sanitizeMutuallyExclusiveRow } from './projections.js'
 import { getStmt } from './stmtCache.js'
 
 // Sentinel field name for a row-delete op. Deliberately routed through the
@@ -396,7 +396,13 @@ export function appendBulkReplaceOp(db, { entity, scope_id, rows, author_user_id
 
   const id = randomUUID()
   const timestamp = new Date().toISOString()
-  const value = JSON.stringify(rows)
+  // T104: sanitize the whole rows array up front, before it is serialized
+  // into the op-log payload — sanitizing only inside the insert loop below
+  // would leave operations.value (persisted and broadcast to every peer)
+  // carrying the raw both-non-null row even though the inserted row is
+  // clean. sanitizedRows is used for both.
+  const sanitizedRows = rows.map((row) => sanitizeMutuallyExclusiveRow(entity, row))
+  const value = JSON.stringify(sanitizedRows)
 
   const run = db.transaction(() => {
     getStmt(db, `DELETE FROM ${config.table} WHERE ${config.scopeColumn} = ?`).run(scope_id)
@@ -405,7 +411,7 @@ export function appendBulkReplaceOp(db, { entity, scope_id, rows, author_user_id
       db,
       `INSERT INTO ${config.table} (${config.columns.join(', ')}) VALUES (${config.columns.map(() => '?').join(', ')})`
     )
-    for (const row of rows) {
+    for (const row of sanitizedRows) {
       insert.run(...config.columns.map((col) => (col in row ? row[col] : null)))
     }
 
@@ -451,8 +457,13 @@ export function applyBulkReplaceProjection(db, op) {
       db,
       `INSERT INTO ${config.table} (${config.columns.join(', ')}) VALUES (${config.columns.map(() => '?').join(', ')})`
     )
+    // T104: sanitize defensively on replay too, in case op.value's JSON
+    // (e.g. a pre-fix snapshot's stored payload) itself carries a
+    // both-non-null row — this is the real backstop, not merely relying on
+    // every writer having been patched.
     for (const row of rows) {
-      insert.run(...config.columns.map((col) => (col in row ? row[col] : null)))
+      const sanitized = sanitizeMutuallyExclusiveRow(op.entity, row)
+      insert.run(...config.columns.map((col) => (col in sanitized ? sanitized[col] : null)))
     }
   })
   run()
