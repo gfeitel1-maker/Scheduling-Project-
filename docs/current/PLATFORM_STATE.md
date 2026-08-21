@@ -203,8 +203,8 @@ Managed by `electron/db/projectManager.js`. A "project" is a named SQLite file o
 
 ## Test Coverage
 
-- **Vitest unit tests**: ~2,500 tests across ~160 files in `electron/` and `src/` — auth, ops, projections, sync handlers, IPC handlers, schedule engine, ingest.
-- **Integration test harness**: `test/integration/` — 21 separate-process scenarios driven by `node test/integration/run.js`. Each scenario spawns real Node child processes (not Electron, but using the same `electron/` modules) to verify cross-process behavior that single-process Vitest cannot distinguish from correct behavior. Scenarios cover: bootstrap, offline restart, idempotency, conflict detection, device revocation, seq catch-up, pairing reconnect, field-merge ordering, lock expiry, snapshot restore, schema migration, host crash mid-sync, corrupt payload rejection, clock skew, role-change enforcement, second-device domain sync, restore queue, retiring orphan slots, deleting a used record, and prior-year ingest.
+- **Vitest unit tests**: **3,734 tests** across **247 files** in `electron/` and `src/` (3,733 passing + 1 skipped, full-suite run 2026-08-21) — auth, ops, projections, sync handlers, IPC handlers, schedule engine, ingest.
+- **Integration test harness**: `test/integration/` — **27 separate-process scenarios** driven by `node test/integration/run.js`. Each scenario spawns real Node child processes (not Electron, but using the same `electron/` modules) to verify cross-process behavior that single-process Vitest cannot distinguish from correct behavior. Scenarios cover: bootstrap, offline restart, idempotency, conflict detection, device revocation, seq catch-up, pairing reconnect, field-merge ordering, lock expiry, snapshot restore, schema migration, host crash mid-sync, corrupt payload rejection, clock skew, role-change enforcement, second-device domain sync, restore queue, retiring orphan slots, deleting a used record, and prior-year ingest.
 
 ---
 
