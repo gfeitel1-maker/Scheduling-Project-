@@ -3,6 +3,7 @@ title: "Roots home-screen audit remediation (Emil design-eng + Impeccable)"
 document_type: spec
 status: active
 created: 2026-08-20
+archive_when: "all waves (RA-1 through RA-11) are merged to main"
 task_class: ui-ux-design
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/DESIGN_STANDARD.md]
 related_docs:
