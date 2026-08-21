@@ -4,7 +4,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { openLocalDb } from '../db/localDb.js'
-import { commitIngest, commitPlan, replaceScope, INGESTIBLE_ENTITIES, listImportEvidence } from './ingest.js'
+import { commitIngest, commitPlan, replaceScope, INGESTIBLE_ENTITIES, listImportEvidence, confirmUnknownFieldEvidence, buildUnknownFieldEvidenceMap } from './ingest.js'
+import { inferActivityRules } from '../../src/ingest/activityRules.js'
+import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
 import { INGESTIBLE_ENTITIES as RENDERER_WHITELIST } from '../../src/ingest/extractEntities.js'
 
 // docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md §2, §4.
@@ -1147,7 +1149,9 @@ describe('import evidence persistence (B4)', () => {
     const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Swim').id
     expect(db.prepare('SELECT min_per_week FROM activities WHERE id = ?').get(activityId).min_per_week).toBe(1)
     const first = evidenceRows('activities')
-    expect(first).toHaveLength(2)
+    // eligible_group_names + min_per_week (writeActivityEvidence) + priority
+    // (2026-08-20 ADR: never given in this rule, so tagged 'unknown').
+    expect(first).toHaveLength(3)
     const firstRunId = first[0].import_run_id
 
     // Re-import: no fields proposed (no min_per_week in activityRules, so
@@ -1167,7 +1171,11 @@ describe('import evidence persistence (B4)', () => {
     expect(db.prepare('SELECT min_per_week FROM activities WHERE id = ?').get(activityId).min_per_week).toBeNull()
 
     const second = evidenceRows('activities')
-    expect(second).toHaveLength(2) // still one row per field — upserted, not appended
+    // Still one row per field — upserted, not appended. The re-import's own
+    // rule never mentions priority, but priority evidence is only written
+    // from commitCreate, so this re-import (an update/clear, not a create)
+    // leaves the earlier priority row untouched.
+    expect(second).toHaveLength(3)
     const eligibleRow = second.find((r) => r.field === 'eligible_group_names')
     expect(JSON.parse(eligibleRow.support).appearances).toBe(7)
     expect(eligibleRow.import_run_id).not.toBe(firstRunId)
@@ -1214,10 +1222,213 @@ describe('import evidence persistence (B4)', () => {
     })
     const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Drama').id
     const rows = listImportEvidence(db, campId, { entity_type: 'activities', entity_id: activityId })
-    expect(rows).toHaveLength(2)
-    for (const row of rows) {
+    // eligible_group_names + min_per_week (writeActivityEvidence) + priority
+    // (2026-08-20 ADR: never given in this rule, so tagged 'unknown').
+    expect(rows).toHaveLength(3)
+    for (const row of rows.filter((r) => r.field !== 'priority')) {
       expect(row.support).toEqual({ matched_groups: [], appearances: 3, eligible_group_count: 0 })
       expect(row.confidence).toBe('low') // eligibility_known:false -> honestly low
     }
+    const priorityRow = rows.find((r) => r.field === 'priority')
+    expect(priorityRow.tag).toBe('unknown')
+    expect(priorityRow.confidence).toBe('low')
+  })
+})
+
+// docs/adr/2026-08-20-per-field-unknown-reconciliation-state.md.
+describe('per-field UNKNOWN evidence at import (2026-08-20 ADR)', () => {
+  const evidenceRows = (entity_type, entity_id) =>
+    db.prepare('SELECT * FROM import_evidence WHERE camp_id = ? AND entity_type = ? AND entity_id = ?').all(campId, entity_type, entity_id)
+
+  it('T61 floor: a floored min_per_week gets a tag:"unknown" evidence row, not a fabricated "inferred"', () => {
+    commitIngest(db, {
+      approved: { groups: ['Yeladim'], activities: ['Swim'] },
+      activityRules: { Swim: { eligible_group_names: ['Yeladim'], min_per_week: 0, max_per_week: 2, priority: 'high' } },
+      camp_id: campId, device_id: deviceId,
+    })
+    const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Swim').id
+    // T61's own behavior is unchanged.
+    expect(db.prepare('SELECT min_per_week FROM activities WHERE id = ?').get(activityId).min_per_week).toBe(1)
+
+    const rows = evidenceRows('activities', activityId)
+    const minRow = rows.find((r) => r.field === 'min_per_week')
+    expect(minRow.tag).toBe('unknown')
+    expect(minRow.confidence).toBe('low')
+  })
+
+  it('priority never judged: an activity whose rule carries no high/low priority gets a tag:"unknown" evidence row', () => {
+    commitIngest(db, {
+      approved: { activities: ['Drama'] },
+      activityRules: { Drama: { eligible_group_names: null, min_per_week: 1, max_per_week: 2, priority: 'medium' } },
+      camp_id: campId, device_id: deviceId,
+    })
+    const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Drama').id
+    // The committed value is unchanged: stays NULL, never fabricated.
+    expect(db.prepare('SELECT priority FROM activities WHERE id = ?').get(activityId).priority).toBeNull()
+
+    const rows = evidenceRows('activities', activityId)
+    const priorityRow = rows.find((r) => r.field === 'priority')
+    expect(priorityRow.tag).toBe('unknown')
+    expect(priorityRow.confidence).toBe('low')
+  })
+
+  it('does not write an "unknown" row when min_per_week and priority are genuinely supplied', () => {
+    commitIngest(db, {
+      approved: { groups: ['Yeladim'], activities: ['Swim'] },
+      activityRules: { Swim: { eligible_group_names: ['Yeladim'], min_per_week: 3, max_per_week: 4, priority: 'high' } },
+      camp_id: campId, device_id: deviceId,
+    })
+    const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Swim').id
+    const rows = evidenceRows('activities', activityId)
+    expect(rows.find((r) => r.field === 'min_per_week')?.tag).not.toBe('unknown')
+    expect(rows.find((r) => r.field === 'priority')).toBeUndefined()
+  })
+
+  it('confirmUnknownFieldEvidence flips an "unknown" row to "inferred" and is a no-op on anything else', () => {
+    commitIngest(db, {
+      approved: { activities: ['Drama'] },
+      activityRules: { Drama: { eligible_group_names: null, min_per_week: 1, max_per_week: 2, priority: null } },
+      camp_id: campId, device_id: deviceId,
+    })
+    const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Drama').id
+    expect(evidenceRows('activities', activityId).find((r) => r.field === 'priority').tag).toBe('unknown')
+
+    const flipped = confirmUnknownFieldEvidence(db, {
+      camp_id: campId, entity_type: 'activities', entity_id: activityId, field: 'priority', author_user_id: 'u1',
+    })
+    expect(flipped).toBe(true)
+    expect(evidenceRows('activities', activityId).find((r) => r.field === 'priority').tag).toBe('inferred')
+
+    // Calling it again (nothing left to confirm) is a no-op, not a throw.
+    const secondCall = confirmUnknownFieldEvidence(db, {
+      camp_id: campId, entity_type: 'activities', entity_id: activityId, field: 'priority', author_user_id: 'u1',
+    })
+    expect(secondCall).toBe(false)
+    expect(evidenceRows('activities', activityId).find((r) => r.field === 'priority').tag).toBe('inferred')
+  })
+
+  // ADR success predicate #3, 'looks_right' path: a director confirming the
+  // manufactured default (value unchanged, source stays 'import') must never
+  // see the SAME field re-surface as unknown on a later reconciliation pass.
+  // Wired at the commit seam: commitIngest already receives `resolutions`;
+  // a { reason: 'unknown_field', choice: 'confirm' } entry (the shape
+  // reconciliationResolutions.js's applyResolutions threads from a
+  // looks_right answer) flips the evidence row inside the SAME transaction.
+  it('a "looks_right" resolution on an unknown field flips its evidence row and it never re-surfaces as unknown', () => {
+    commitIngest(db, {
+      approved: { activities: ['Drama'] },
+      activityRules: { Drama: { eligible_group_names: null, min_per_week: 1, max_per_week: 2, priority: null } },
+      camp_id: campId, device_id: deviceId,
+    })
+    const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Drama').id
+    expect(evidenceRows('activities', activityId).find((r) => r.field === 'priority').tag).toBe('unknown')
+
+    // Re-import (nothing changed) carrying the director's 'looks_right'
+    // resolution for the still-unknown priority field.
+    const result = commitIngest(db, {
+      approved: { activities: ['Drama'] },
+      activityRules: { Drama: { eligible_group_names: null, min_per_week: 1, max_per_week: 2, priority: null } },
+      resolutions: [{ entity: 'activities', name: 'Drama', field: 'priority', reason: 'unknown_field', choice: 'confirm' }],
+      camp_id: campId, author_user_id: 'u1', device_id: deviceId,
+    })
+    expect(result.held).toBe(false)
+    // The committed value is untouched — never fabricated.
+    expect(db.prepare('SELECT priority FROM activities WHERE id = ?').get(activityId).priority).toBeNull()
+
+    const priorityRow = evidenceRows('activities', activityId).find((r) => r.field === 'priority')
+    expect(priorityRow.tag).toBe('inferred')
+    expect(JSON.parse(priorityRow.support).confirmedBy).toBe('u1')
+
+    // A THIRD build of the read-time "still unknown" map (the same helper
+    // ReconciliationScreen wires into buildReconciliationReport) no longer
+    // includes this field — predicate #3 holds for the looks_right path.
+    const stillUnknown = buildUnknownFieldEvidenceMap(db, campId, [
+      { entity: 'activities', entity_id: activityId, op: 'unchanged', _name: 'Drama' },
+    ])
+    expect(stillUnknown.has(`${activityId}:priority`)).toBe(false)
+  })
+
+  // Review round follow-up (HIGH): inferActivityRules ALSO floors
+  // min_per_week to 1 for a never-observed activity (appearances===0 ->
+  // perWeek rounds to 0 -> floored to 1), so the REAL mainstream import path
+  // arrives at ingest.js with rule.min_per_week already a valid positive
+  // integer — the T61 floor-detection branch above never fires, and this is
+  // exactly the fabricated-confidence gap the ADR exists to close.
+  it('a real zero-appearance activity (the actual inferActivityRules output) still gets tagged "unknown", not "inferred"', () => {
+    const rules = inferActivityRules(['Swim'], {}, { activities: {} }, 5, ['Yeladim'])
+    const rule = rules.get('Swim')
+    // Pin the premise: the real inferrer floors to 1 with zero observation basis.
+    expect(rule.min_per_week).toBe(1)
+    expect(rule.support.appearances).toBe(0)
+
+    commitIngest(db, {
+      approved: { activities: ['Swim'] },
+      activityRules: { Swim: rule },
+      camp_id: campId, device_id: deviceId,
+    })
+    const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Swim').id
+    // T61's own behavior is unchanged — the committed value is still floored.
+    expect(db.prepare('SELECT min_per_week FROM activities WHERE id = ?').get(activityId).min_per_week).toBe(1)
+
+    const minRow = evidenceRows('activities', activityId).find((r) => r.field === 'min_per_week')
+    expect(minRow.tag).toBe('unknown')
+
+    // The activity would roll up to attention on the next reconciliation
+    // report build, not silently understood.
+    const unknownFieldEvidence = buildUnknownFieldEvidenceMap(db, campId, [
+      { entity: 'activities', entity_id: activityId, op: 'unchanged', _name: 'Swim' },
+    ])
+    const report = buildReconciliationReport({
+      planItems: [{ op: 'unchanged', entity: 'activities', entity_id: activityId, fields: {}, _name: 'Swim', _rule: rule }],
+      readiness: [],
+      unknownFieldEvidence,
+    })
+    expect(report.buckets.needsAttention).toBe(1)
+    expect(report.decisions[0].unknownField).toBe(true)
+    expect(report.decisions[0].unknowns).toContain('min_per_week')
+  })
+
+  it('negative case: an appearances>=1 activity that still rounds/floors to 1 stays "inferred" — a weak real inference, not noise', () => {
+    const rules = inferActivityRules(
+      ['Swim'], { swim: ['Yeladim', 'Bogrim', 'Amitim'] }, { activities: { Swim: 1 } }, 5, ['Yeladim', 'Bogrim', 'Amitim'],
+    )
+    const rule = rules.get('Swim')
+    expect(rule.support.appearances).toBe(1) // real, if thin, observation basis
+    expect(rule.min_per_week).toBe(1) // rounds below 1, floored the same way
+
+    commitIngest(db, {
+      approved: { activities: ['Swim'] },
+      activityRules: { Swim: rule },
+      camp_id: campId, device_id: deviceId,
+    })
+    const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Swim').id
+    const minRow = evidenceRows('activities', activityId).find((r) => r.field === 'min_per_week')
+    expect(minRow.tag).toBe('inferred')
+  })
+
+  // Review round follow-up (MEDIUM): the B4 re-import loop's writeActivityEvidence
+  // call unconditionally upserts tag:'inferred' whenever rule.support exists —
+  // a false self-heal for a field that is STILL genuinely unknown (no human
+  // edit, no looks_right confirm this run).
+  it('re-importing the same zero-appearance file does not clobber a still-unknown min_per_week back to "inferred"', () => {
+    const rules = inferActivityRules(['Swim'], {}, { activities: {} }, 5, ['Yeladim'])
+    commitIngest(db, {
+      approved: { activities: ['Swim'] },
+      activityRules: { Swim: rules.get('Swim') },
+      camp_id: campId, device_id: deviceId,
+    })
+    const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Swim').id
+    expect(evidenceRows('activities', activityId).find((r) => r.field === 'min_per_week').tag).toBe('unknown')
+
+    // Re-import the identical file: still zero appearances, no human edit,
+    // no looks_right resolution this run.
+    const rulesAgain = inferActivityRules(['Swim'], {}, { activities: {} }, 5, ['Yeladim'])
+    const result = commitIngest(db, {
+      approved: { activities: ['Swim'] },
+      activityRules: { Swim: rulesAgain.get('Swim') },
+      camp_id: campId, device_id: deviceId,
+    })
+    expect(result.held).toBe(false)
+    expect(evidenceRows('activities', activityId).find((r) => r.field === 'min_per_week').tag).toBe('unknown')
   })
 })

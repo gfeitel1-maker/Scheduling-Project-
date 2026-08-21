@@ -1053,6 +1053,11 @@ export const mockShoresh = {
       // is its own reimplementation, not electron/ops/ingest.js's writeEvidence
       // path, so there is no support object to collect here.
       evidenceSupport: {},
+      // 2026-08-20 ADR (per-field UNKNOWN): same stub discipline — the mock has
+      // no import_evidence table, so there is nothing to read tag:'unknown'
+      // rows from. buildReconciliationReport degrades additively to "nothing
+      // unknown" on an empty map, matching every other Phase C/D signal above.
+      unknownFieldEvidence: {},
     }
   },
   // S1b — mock stand-in for confirmAlias (electron/ops/confirmAlias.js), mirroring

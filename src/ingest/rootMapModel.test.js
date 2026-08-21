@@ -403,4 +403,29 @@ describe('buildRootMapModel', () => {
     const scheduling = model.domains.find((d) => d.key === 'Scheduling')
     expect(scheduling.children[0].roster).toEqual([])
   })
+
+  // docs/adr/2026-08-20-per-field-unknown-reconciliation-state.md, decision 5
+  // / test plan item 5: proves the reuse-not-extend choice (candidate #4)
+  // actually holds by exercising rootMapModel.js UNCHANGED — an unresolved
+  // unknown-field decision on a live activity rolls up to 'attention' at
+  // both the roster-row level and the domain level, with zero new branches.
+  it('an unresolved unknown-field decision renders the activity roster row and its domain as attention, not understood', () => {
+    const planItems = [
+      {
+        op: 'unchanged', entity: 'activities', entity_id: 'a1', fields: {},
+        evidence: { tier: 'exact_name', matched_name: 'Swim' }, _name: 'Swim',
+      },
+    ]
+    const unknownFieldEvidence = new Map([['a1:min_per_week', true]])
+    const report = buildReconciliationReport({ planItems, readiness: [], unknownFieldEvidence })
+
+    const snapshot = makeSnapshot({ activities: [{ id: 'a1', name: 'Swim' }] })
+    const model = buildRootMapModel(report, { answers: {}, dismissedGaps: new Set(), snapshot })
+
+    const scheduling = model.domains.find((d) => d.key === 'Scheduling')
+    expect(scheduling.state).toBe('attention')
+    const activitiesChild = scheduling.children.find((c) => c.roster.some((r) => r.entityId === 'a1'))
+    const row = activitiesChild.roster.find((r) => r.entityId === 'a1')
+    expect(row.state).toBe('attention')
+  })
 })
