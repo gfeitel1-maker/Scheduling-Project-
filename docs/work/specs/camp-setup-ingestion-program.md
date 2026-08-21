@@ -71,6 +71,7 @@ artifacts, not assumptions.
 | W9 | Programming-collaboration via doc storage on events/electives | Concept | HUMAN (new capability) | W4 | brainstorming → domain-modeling → Architect |
 | W10 | MCP surface (CLI shipped, MCP did not) | Impl | — | — | mcp-builder + tool-design → Maker → Verifier |
 | W11 | /improve-codebase-architecture | Audit | — | all | architecture-auditor (standalone) |
+| W12 | Brand-application (watercolor tree/roots identity board) | Design+Impl | HUMAN (token/type reconciliation) | W3 | Designer → Maker; see reference memory |
 
 ### Sequence
 
@@ -79,6 +80,15 @@ artifacts, not assumptions.
 2. W1 unblocks **W2, W6, W7**.
 3. **W4 / W5** unblock the moment the director provides uploads; **W9** follows W4.
 4. **W11** last, event-triggered by the ADRs this program produces.
+5. **W12** (brand application) after W3. Owner shared a watercolor tree/roots identity
+   board (2026-08-21, "From Roots to Rhythm"). Placement philosophy (owner-confirmed):
+   artwork on Persuade/first-impression surfaces (splash, login, onboarding, completion),
+   print/export, and as system chrome (root-line dividers, leaf elements); **Operate working
+   screens (Roots, Schedule, Setup) stay art-free** — the board feeds the metaphor via
+   root-line/leaf details + palette rather than a centerpiece image. Playfair Display →
+   brand/print only, never UI chrome (Inter stays). Token/type reconciliation to the board is
+   a DEFERRED W12 human decision. First tranche: favicon/app icon, root-line/leaf design
+   tokens, splash/login.
 
 ### Non-counting outcomes (do not return these as "done")
 

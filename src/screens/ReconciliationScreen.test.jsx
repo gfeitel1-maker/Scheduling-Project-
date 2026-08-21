@@ -7,7 +7,7 @@
 // guard protects the debounced dry-run re-issue (ADR Risk #3).
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../localClient', () => ({
@@ -150,7 +150,11 @@ describe('evidence disclosure (FIX 2, design spec §4)', () => {
 
     await userEvent.click(screen.getByText('Why?'))
 
-    expect(screen.getByText(/seen across 2 groups/)).toBeTruthy()
+    // Scoped to the panel — RootMap's own chip info layer (docs/work/specs/
+    // 2026-08-21-roots-metaphor-visual.md) can surface the same evidence
+    // sentence on its attention chip, so an unscoped query is ambiguous.
+    const panel = within(screen.getByLabelText('Needs your attention'))
+    expect(panel.getByText(/seen across 2 groups/)).toBeTruthy()
     expect(screen.queryByText(/matched_groups/)).toBeNull()
     expect(screen.queryByText(/[{}]/)).toBeNull()
   })
@@ -479,7 +483,9 @@ describe('review_legacy_priority — batch decision rendering (R7)', () => {
 
     expect(screen.getByText(/Review priority for 2 activities carried over from an earlier import/)).toBeTruthy()
     expect(screen.queryByText(/Review activity priority for "this record"/)).toBeNull()
-    expect(screen.getByText(/Shoresh cannot tell whether each value is a leftover/)).toBeTruthy()
+    // Scoped to the panel — see the evidence-disclosure test above for why.
+    const panel = within(screen.getByLabelText('Needs your attention'))
+    expect(panel.getByText(/Shoresh cannot tell whether each value is a leftover/)).toBeTruthy()
 
     await userEvent.click(screen.getByText('Show the 2 activities'))
     expect(screen.getByText('Swim')).toBeTruthy()
@@ -660,7 +666,7 @@ describe('inspect mode (persistent inspector, mode="inspect")', () => {
     localClient.list.mockResolvedValue([])
     render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
 
-    const groupsNode = await screen.findByLabelText('Groups — Not set up yet')
+    const groupsNode = await screen.findByLabelText('Groups — Not started')
     expect(groupsNode.getAttribute('aria-label')).not.toMatch(/Understood/)
   })
 

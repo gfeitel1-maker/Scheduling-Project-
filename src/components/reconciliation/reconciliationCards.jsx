@@ -8,7 +8,12 @@ import { isDecisionResolvedFor } from '../../screens/reconciliationTriage.js'
 // the pre-existing card-list render path AND the new RootMapPanel call the
 // SAME card renderer — never two copies drifting.
 
-const CONFIDENCE_COPY = {
+// Exported so RootMap's chip info layer can reuse this exact copy for its
+// glanceable provenance cue, rather than inventing a second wording (spec
+// docs/work/specs/2026-08-21-roots-metaphor-visual.md, Governor consolidation
+// "Information layer").
+// eslint-disable-next-line react-refresh/only-export-components -- shared copy map, not a component
+export const CONFIDENCE_COPY = {
   high: 'clearly stated in the file',
   medium: 'inferred from context',
   low: 'a guess — worth a second look',
@@ -21,7 +26,9 @@ function formatFieldValue(value) {
   return String(value)
 }
 
-function plainEvidenceSentence(evidence) {
+// Exported for the same reason as CONFIDENCE_COPY above.
+// eslint-disable-next-line react-refresh/only-export-components -- shared helper, not a component
+export function plainEvidenceSentence(evidence) {
   if (!evidence || typeof evidence !== 'object') return null
   const parts = []
   if (Array.isArray(evidence.matched_groups) && evidence.matched_groups.length > 0) {

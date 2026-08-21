@@ -1,0 +1,29 @@
+{
+  "task_id": "w6-units-from-import",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": null,
+    "red_hat": 4,
+    "tester": null,
+    "code_reviewer": 4
+  },
+  "overall_score": 4,
+  "lowest_dimension": 4,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": [
+    {
+      "gate_name": "security",
+      "na_reason": "Pure data extraction from spreadsheet parsing; no security-sensitive operations (auth, secrets, protocols, IPC, packaging)"
+    },
+    {
+      "gate_name": "tester",
+      "na_reason": "Logic is unit-tested against real camp fixtures (Camp A 13 tiers unchanged, Camp B now 6 divisions incl. CIT, metadata-skip, accented names, hyphen-precedence); director reviews result at import-time approval screen"
+    }
+  ]
+}

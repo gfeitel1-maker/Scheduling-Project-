@@ -453,6 +453,11 @@ export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, 
   // consulted here — order within each lane stays report.decisions order
   // (ADR invariant 2: salience never reorders truth).
   const lanes = reportToLanes(report ?? { decisions: [], buckets: {}, readiness: [] })
+  // RootMap's info layer (spec docs/work/specs/2026-08-21-roots-metaphor-
+  // visual.md, "Information layer") reads a chip's decision the same way
+  // RootMapPanel already does (~:103) — same lanes, same id map, so the
+  // chip's glanceable "why" can never disagree with the panel's own detail.
+  const decisionsById = new Map([...lanes.hold, ...lanes.standard].map((d) => [d.id, d]))
 
   const rootMapModel = mode === 'inspect'
     ? buildRootMapModel(null, { snapshot: censusSnapshot, mode: 'inspect' })
@@ -617,6 +622,7 @@ export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, 
           onSelectNode={selectNode}
           onClearSelection={clearSelection}
           canvasWrapRef={canvasWrapRef}
+          decisionsById={decisionsById}
         />
 
         {mode === 'inspect' && showFirstTimerCaption && (

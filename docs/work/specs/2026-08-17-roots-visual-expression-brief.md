@@ -1,7 +1,7 @@
 ---
 title: "Roots visual expression — R9′ acceptance brief (owner clarification)"
 document_type: spec
-status: draft
+status: superseded
 created: 2026-08-17
 archive_when: "the R9′ roots-expression phase completes, or the metaphor is dropped per §12"
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md]
