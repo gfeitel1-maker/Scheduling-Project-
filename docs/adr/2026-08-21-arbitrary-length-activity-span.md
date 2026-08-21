@@ -296,6 +296,19 @@ when `UNFILLABLE` is computed or cleared.
   continue to pass unchanged (N=2 is just the smallest case of the new
   general logic); new tests needed at N=3, N=4, shrink-via-drag, split at an
   interior block of N=4, and the boundary-crossing stop conditions in §3.
+- **`src/components/schedule/ManualBuildView.jsx` (~222) and
+  `src/components/schedule/ScheduleGroupView.jsx` (~250)** — these compute
+  `isMerged = Boolean(slot.flags?.expanded)` and derive from it both the
+  extend-button gate (`hasMergeDown = !isMerged && ...`) and the split-button
+  gate (`onSplit = isMerged ? ... : undefined`). Retiring `flags.expanded`
+  (§1) WITHOUT changing these silently disables the Split button for every
+  span — a director could build an N-length span and never cut it. **Maker
+  MUST replace the predicate:** `isMerged` becomes "this row is a span head
+  with ≥1 tail" — derivable via `collectSpanTails(...).length > 0` (or the
+  cheaper `nextSlot?.is_span_head === false && nextSlot?.activity_id ===
+  slot.activity_id`), NOT `flags.expanded` truthiness. Split-enabled uses the
+  same predicate. `getActivityRowSpan` in `gridGeometry.js` is already
+  chain-based and needs no change. (Red Hat HIGH, 2026-08-21.)
 - No `electron/db/schema.sql` change, no migration, no `projections.js`
   change — `template_slots.is_span_head`, `activity_id`, `flags` all already
   exist and are already projected.
@@ -326,6 +339,53 @@ when `UNFILLABLE` is computed or cleared.
   `flags.expanded.displacedActivityId/Name`) — a reshaping of where
   informational (non-structural) displaced-activity data lives, not a new
   concept.
+
+---
+
+## Red Hat resolutions (2026-08-21)
+
+Adversarial design review folded in before Maker. HIGH is recorded in
+Files/modules affected above; the staleness findings are resolved here and
+are binding on the Maker.
+
+**R1 (MED) — re-validate §3 stop conditions on the freshly-diffed tail set at
+dispatch, not only at drag time.** `expandSlot`/`replaceSlot` already re-read
+`slotsRef.current` before dispatch to guard the head/tail they know about;
+extend that same fresh-read to every NEWLY-covered tail: immediately before
+building the diff, re-apply §3's ordered checks (day-end / anchor /
+`WEEK_CLOSED` / locked-or-overridden) against the fresh row for each new
+tail. If any fails, **truncate the span at that block** (keep the valid
+prefix), never absorb the offending block and never abort the whole extend.
+Same rule on the **split** side: re-check override/lock on every trailing
+block before releasing it to an empty head; a block that became
+locked/overridden since read stops the release at that block.
+
+**R2 (MED) — repair-on-read pass (§4) needs a quiescence guard.** A naive
+point-in-time pass on a partially-synced device can "heal" a tail whose head
+simply hasn't arrived yet, racing a legitimate in-flight extend. The pass
+MUST NOT heal on first sight: only correct an orphan condition that (a)
+persists across at least one subsequent sync/read cycle for that group/day,
+AND (b) is not fired while this device has an in-flight write claim on that
+group/day. Healing still writes through the normal path (so all devices
+converge) and is journalled, never a silent render-layer drop. This makes the
+pass idempotent and non-oscillating: a genuine orphan survives two reads and
+heals once; a mid-sync tail resolves on its own before the second read.
+
+**R3 (MED) — block-by-block undo must re-read before it writes.** Each undo
+frame captured its tail's "prior empty-head state" at extend time, possibly
+hours earlier; a cross-device edit (e.g. another device split this span)
+could have repurposed that row since. An undo pop MUST re-read the tail's
+CURRENT row and only restore if `activity_id`/`is_span_head` still match what
+the frame expects to be undoing FROM. If they diverge, no-op that frame and
+surface a quiet "this block changed since you extended it" notice via the
+existing `setActionError`/describeWriteFailure path — never blind-clobber
+newer work. Redo mirrors this. (Atomic forward, guarded granular reverse.)
+
+**R4 (edge) — fresh `timeBlocks`, graceful drop on deleted block.** A
+concurrent Setup edit can delete a time block mid-gesture. Read `timeBlocks`
+fresh at dispatch (not the closure capture); if a targeted `time_block_id`
+no longer exists, drop that block from the span gracefully (truncate), never
+write to a deleted block id.
 
 ---
 
@@ -411,3 +471,20 @@ rewrite — both are ADR-bar triggers per the constitution.
    in the render layer).
 8. `buildSchedule.test.js` must pass unchanged — nothing in this ADR touches
    the engine.
+9. **Split button visibility (R-HIGH):** a rendered span head with ≥1 tail
+   exposes the Split control; a plain (non-span) slot does not; a tail row
+   does not offer its own merge-down. Test the replacement predicate in
+   `ManualBuildView`/`ScheduleGroupView` directly, without `flags.expanded`.
+10. **R1 dispatch-time re-validation:** extend whose fresh-read newly-covered
+    tail became `WEEK_CLOSED`/locked/overridden/anchor between drag-start and
+    dispatch truncates at that block (valid prefix written, offending block
+    untouched). Same for split releasing a since-locked trailing block.
+11. **R2 repair quiescence:** a first-sight orphan tail is NOT healed; an
+    orphan persisting across two reads with no in-flight local claim IS healed
+    once (idempotent, no oscillation between two devices).
+12. **R3 undo re-read:** an undo frame whose target row was repurposed by a
+    (simulated) cross-device edit no-ops with a notice instead of clobbering;
+    an unchanged target restores normally.
+13. **R4 + double-fire edges:** extend targeting a since-deleted block drops
+    it gracefully (no write to a dead id); an identical-range double-fired
+    extend is idempotent (settles at the same N-length span, no data loss).
