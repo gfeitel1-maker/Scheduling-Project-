@@ -94,6 +94,19 @@ export function applyResolutions({ approved, decisions, answers, fixedEvents }) 
     if (decision.kind === 'review_legacy_priority') continue
 
     if (decision.kind === 'confirm_value') {
+      // 2026-08-20 ADR (per-field UNKNOWN), decision 5: 'looks_right' on an
+      // unknownField:true decision does NOT change the committed value (no
+      // edit side-channel fires for it), so — unlike every other confirm_value
+      // — it needs an explicit resolution to reach the commit seam at all.
+      // One resolution per confirmed field; the commit-side write (flipping
+      // import_evidence's tag 'unknown' -> 'inferred') happens in
+      // electron/ops/ingest.js's commitPlan, never here (this module stays
+      // pure/IO-free).
+      if (decision.unknownField && answer?.action === 'looks_right') {
+        for (const field of decision.unknowns ?? []) {
+          resolutions.push({ entity: decision.entity, name: decision.entityName, field, reason: 'unknown_field', choice: 'confirm' })
+        }
+      }
       // Resolved (looks-right or edited-in-place) -> name stays in approved,
       // no resolution needed (an edit ships through the entity's own edit
       // side-channel — activityRules/groupUnitOverrides — not a resolution).

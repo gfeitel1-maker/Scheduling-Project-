@@ -135,7 +135,10 @@ CREATE TABLE IF NOT EXISTS import_evidence (
   entity_id TEXT NOT NULL,       -- plain TEXT, not a FK (same reasoning as source_aliases.entity_id)
   field TEXT NOT NULL,           -- the plan field this evidence supports, e.g.
                                   -- 'eligible_group_names' | 'min_per_week' | 'days' | 'scope'
-  tag TEXT NOT NULL,             -- 'observed' | 'inferred' (parent ADR D1/OQ1)
+  tag TEXT NOT NULL,             -- 'observed' | 'inferred' | 'unknown' (parent ADR D1/OQ1;
+                                  -- 'unknown' added by 2026-08-20 per-field-unknown ADR —
+                                  -- field never judged, not a fabricated value; confidence
+                                  -- is always 'low' by construction for this tag)
   confidence TEXT NOT NULL,      -- 'high' | 'low' — reuses CONFIDENCE.* (src/ingest/confidence.js)
   support TEXT NOT NULL,         -- compact JSON: see the ADR's "What to persist"
   import_run_id TEXT NOT NULL,   -- groups every row one commitIngest call wrote

@@ -110,6 +110,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Reconciliation root-map screen — production port (static illustration + data-bound SVG)](../../docs/adr/2026-08-18-rootmap-screen-port.md) | accepted | not_started | [2026-08-19-roots-census-and-persistent-inspector](../../docs/adr/2026-08-19-roots-census-and-persistent-inspector.md) · [T95-reconciliation-multi-select-domain-filter](../../docs/work/tickets/T95-reconciliation-multi-select-domain-filter.md) |
 | [ADR: Roots Reconstruction Moment — Integration Seam and Gates](../../docs/adr/2026-08-18-roots-reconstruction-moment-gating.md) | accepted | implemented | [2026-08-18-rootmap-asset-kit](../../docs/work/specs/2026-08-18-rootmap-asset-kit.md) · [2026-08-18-rootmap-interaction-model](../../docs/work/specs/2026-08-18-rootmap-interaction-model.md) |
 | [Roots census roster + persistent inspector (Slices 2/3/4)](../../docs/adr/2026-08-19-roots-census-and-persistent-inspector.md) | accepted | complete | — |
+| [ADR: Per-Field UNKNOWN Reconciliation State (Scoped: min_per_week, priority)](../../docs/adr/2026-08-20-per-field-unknown-reconciliation-state.md) | accepted | implemented | — |
 
 ## Runs
 

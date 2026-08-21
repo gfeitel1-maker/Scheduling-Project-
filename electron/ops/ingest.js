@@ -268,7 +268,7 @@ function listAliasMap(db, camp_id, cohort_id) {
 // than trusted — the two entity types inferActivityRules/inferFixedEvents
 // produce support for today.
 const EVIDENCE_ENTITY_TYPES = new Set(['activities', 'anchor_activities'])
-const EVIDENCE_TAGS = new Set(['observed', 'inferred'])
+const EVIDENCE_TAGS = new Set(['observed', 'inferred', 'unknown'])
 const EVIDENCE_CONFIDENCE = new Set(['high', 'low'])
 
 /**
@@ -339,6 +339,32 @@ export function listImportEvidence(db, camp_id, { entity_type, entity_id } = {})
   })
 }
 
+// ADR 2026-08-20 (per-field UNKNOWN), decision 5 — the one genuinely new
+// durable write this ADR introduces. A director resolving an
+// `unknownField: true` decision as 'looks_right' does not change the
+// committed value (it stays whatever the floor/coercion produced), so
+// step-3's read-time rule (unknown tag AND source !== 'human') would keep
+// re-flagging it forever. This flips the evidence row's tag from 'unknown'
+// to 'inferred' so the SAME field self-heals on the next report build,
+// without touching the committed field value or its op-log source.
+// Not called from inside commitPlan's transaction — this is a standalone
+// upsert, same host-local table, matching writeEvidence's own discipline.
+export function confirmUnknownFieldEvidence(db, { camp_id, entity_type, entity_id, field, author_user_id = null }) {
+  const existing = db
+    .prepare('SELECT tag FROM import_evidence WHERE camp_id = ? AND entity_type = ? AND entity_id = ? AND field = ?')
+    .get(camp_id, entity_type, entity_id, field)
+  if (!existing || existing.tag !== 'unknown') return false
+
+  db.prepare(
+    `UPDATE import_evidence SET tag = 'inferred', support = ?
+     WHERE camp_id = ? AND entity_type = ? AND entity_id = ? AND field = ?`
+  ).run(
+    JSON.stringify({ confirmedBy: author_user_id, confirmedAt: new Date().toISOString() }),
+    camp_id, entity_type, entity_id, field,
+  )
+  return true
+}
+
 // C2b assembly helper (docs/adr/2026-08-10-ingestion-phaseC-compression-layer.md).
 // Finds activities whose CURRENT priority was last written with
 // source='import' — the legacy pre-B2 backfill that
@@ -397,6 +423,33 @@ export function buildFieldProvenanceMap(db, planItems) {
       const latest = latestOp(db, item.entity, item.entity_id, dbField)
       const provenance = !!latest && latest.source !== 'import' ? 'human' : 'import'
       map.set(`${item.entity}:${item.entity_id}:${field}`, provenance)
+    }
+  }
+  return map
+}
+
+// ADR 2026-08-20 (per-field UNKNOWN), decision 3: builds the
+// `unknownFieldEvidence` input buildReconciliationReport's read-time rule
+// needs. Mirrors buildFieldProvenanceMap's shape/contract exactly (same
+// caller obligation, same additive-degradation default when omitted) but
+// only walks the two in-scope activities fields, and pre-filters against
+// `source !== 'human'` here — buildReconciliationReport trusts the caller
+// to have already done that AND (the "self-healing" read-time rule), not
+// re-derive it.
+const UNKNOWN_FIELD_CANDIDATES = ['min_per_week', 'priority']
+
+export function buildUnknownFieldEvidenceMap(db, camp_id, planItems) {
+  const map = new Map()
+  for (const item of planItems) {
+    if (item.entity !== 'activities' || item.entity_id == null) continue
+    for (const field of UNKNOWN_FIELD_CANDIDATES) {
+      const evidenceRow = db
+        .prepare('SELECT tag FROM import_evidence WHERE camp_id = ? AND entity_type = ? AND entity_id = ? AND field = ?')
+        .get(camp_id, 'activities', item.entity_id, field)
+      if (evidenceRow?.tag !== 'unknown') continue
+      const latest = latestOp(db, item.entity, item.entity_id, field)
+      if (latest && latest.source === 'human') continue
+      map.set(`${item.entity_id}:${field}`, true)
     }
   }
   return map
@@ -558,6 +611,7 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
   if (dryRun && !outcome.held) {
     outcome.fieldProvenance = Object.fromEntries(buildFieldProvenanceMap(db, plan.items))
     outcome.legacyPriorityActivities = listLegacyPriorityActivities(db, camp_id)
+    outcome.unknownFieldEvidence = Object.fromEntries(buildUnknownFieldEvidenceMap(db, camp_id, plan.items))
     outcome.planItems = plan.items
   }
 
@@ -990,10 +1044,17 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       // to a silently-unplaceable state; likewise a min/max that is not a
       // positive integer is nonsense the write boundary refuses to trust.
       const rule = item._rule
+      // ADR 2026-08-20 (per-field UNKNOWN): tracked here, written below AFTER
+      // writeActivityEvidence — that call unconditionally tags min_per_week
+      // 'inferred' whenever rule.support exists, so an 'unknown' write placed
+      // before it would be immediately clobbered by ON CONFLICT DO UPDATE.
+      let minPerWeekUnknown = false
+      let priorityUnknown = false
       if (rule) {
         if (Number.isInteger(rule.min_per_week) && rule.min_per_week >= 1) fields.min_per_week = rule.min_per_week
         if (Number.isInteger(rule.max_per_week) && rule.max_per_week >= 1) fields.max_per_week = rule.max_per_week
         if (rule.priority === 'high' || rule.priority === 'low') fields.priority = rule.priority
+        else priorityUnknown = true
         const groupIds = Array.isArray(rule.eligible_group_names)
           ? rule.eligible_group_names
               .map((n) => groupIdByName.get(normalizeName(n)))
@@ -1007,6 +1068,18 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         // zero times — correct and silently useless. Floored on both paths.
         if (groupIds.length > 0 && !(Number.isInteger(fields.min_per_week) && fields.min_per_week >= 1)) {
           fields.min_per_week = 1
+          minPerWeekUnknown = true
+        }
+        // Review round follow-up: inferActivityRules (src/ingest/activityRules.js)
+        // ALSO floors min_per_week to 1 for a never-observed activity, so
+        // rule.min_per_week already arrives here as a valid positive integer —
+        // the branch above never fires for the mainstream import path, and the
+        // fabricated confidence slips through as 'inferred'. appearances===0 is
+        // the exact, narrow signal for "no observation basis at all"; an
+        // activity observed at least once (appearances>=1) that merely rounds
+        // below 1 is a legitimate weak inference and stays 'inferred'.
+        if (rule.support?.appearances === 0 && Number.isInteger(fields.min_per_week) && fields.min_per_week >= 1) {
+          minPerWeekUnknown = true
         }
       }
       // M4 §D1c: a brand-new activity's location, resolved (or minted if truly
@@ -1035,6 +1108,27 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       // above actually resolved to a write — the "why" answers "what did the
       // source show", not "what got written" (ADR "On protected/CONFIRMED fields").
       writeActivityEvidence(entityId, rule)
+      // ADR 2026-08-20: record honestly that these fields were never judged,
+      // rather than letting the floor/coercion read as a confident value.
+      // min_per_week is written LAST so it wins over writeActivityEvidence's
+      // unconditional 'inferred' tag for that field (ON CONFLICT DO UPDATE).
+      // priority has no such race — writeActivityEvidence never touches it.
+      if (minPerWeekUnknown) {
+        writeEvidence(db, {
+          camp_id, entity_type: 'activities', entity_id: entityId, field: 'min_per_week',
+          tag: 'unknown', confidence: 'low',
+          support: { reason: 'no rule value supplied; floored to the scheduling minimum' },
+          import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
+        })
+      }
+      if (priorityUnknown) {
+        writeEvidence(db, {
+          camp_id, entity_type: 'activities', entity_id: entityId, field: 'priority',
+          tag: 'unknown', confidence: 'low',
+          support: { reason: 'no priority in source; never inferred or judged' },
+          import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
+        })
+      }
     }
 
     // ADR 2026-08-09 Decision 2 — a field the director explicitly authored in
@@ -1314,7 +1408,40 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     for (const item of plan.items) {
       if (item.entity !== 'activities') continue
       if (item.op !== 'unchanged' && item.op !== 'update' && item.op !== 'clear') continue
+      // Review round follow-up: writeActivityEvidence below unconditionally
+      // upserts tag:'inferred' for min_per_week whenever rule.support exists —
+      // correct for a real re-observation, but a FALSE self-heal for a field
+      // that is still genuinely unknown (no director edit, no looks_right
+      // confirm this run). Captured BEFORE the overwrite: only a row that was
+      // 'unknown' before this run is eligible to be re-asserted below; a row
+      // already 'inferred' (a past looks_right confirm, or a past real
+      // observation) is never downgraded back to 'unknown'.
+      const priorMinPerWeekTag = db
+        .prepare('SELECT tag FROM import_evidence WHERE camp_id = ? AND entity_type = ? AND entity_id = ? AND field = ?')
+        .get(camp_id, 'activities', item.entity_id, 'min_per_week')?.tag
       writeActivityEvidence(item.entity_id, item._rule)
+      if (priorMinPerWeekTag === 'unknown' && item._rule?.support?.appearances === 0) {
+        writeEvidence(db, {
+          camp_id, entity_type: 'activities', entity_id: item.entity_id, field: 'min_per_week',
+          tag: 'unknown', confidence: 'low',
+          support: { reason: 'no rule value supplied; floored to the scheduling minimum' },
+          import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
+        })
+      }
+      // ADR 2026-08-20 (per-field UNKNOWN), decision 5: a director resolving an
+      // unknownField:true decision as 'looks_right' does not change the
+      // committed value, so nothing else in this commit would otherwise learn
+      // about the confirmation. reconciliationResolutions.js's applyResolutions
+      // threads one { entity, name, field, reason: 'unknown_field', choice:
+      // 'confirm' } resolution per confirmed field (renderer, pure) — this is
+      // the single main-process write seam that acts on it, inside the same
+      // transaction as everything else this commit does.
+      for (const field of UNKNOWN_FIELD_CANDIDATES) {
+        const res = resolutionFor(item.entity, item._name, field)
+        if (res?.reason === 'unknown_field' && res.choice === 'confirm') {
+          confirmUnknownFieldEvidence(db, { camp_id, entity_type: 'activities', entity_id: item.entity_id, field, author_user_id })
+        }
+      }
     }
 
     // C1b: read-only slot-drift MOVED signal (docs/work/tickets/
