@@ -112,6 +112,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: Roots Reconstruction Moment — Integration Seam and Gates](../../docs/adr/2026-08-18-roots-reconstruction-moment-gating.md) | accepted | implemented | [2026-08-18-rootmap-asset-kit](../../docs/work/specs/2026-08-18-rootmap-asset-kit.md) · [2026-08-18-rootmap-interaction-model](../../docs/work/specs/2026-08-18-rootmap-interaction-model.md) |
 | [Roots census roster + persistent inspector (Slices 2/3/4)](../../docs/adr/2026-08-19-roots-census-and-persistent-inspector.md) | accepted | complete | — |
 | [ADR: Per-Field UNKNOWN Reconciliation State (Scoped: min_per_week, priority)](../../docs/adr/2026-08-20-per-field-unknown-reconciliation-state.md) | accepted | implemented | — |
+| [W10 — MCP server for Shoresh ingestion + read surface](../../docs/adr/2026-08-21-mcp-ingestion-server.md) | accepted | not-yet-implemented | [2026-08-21-mcp-server-tool-schemas](../../docs/work/specs/2026-08-21-mcp-server-tool-schemas.md) |
 | [Roots home screen — tree-as-primary crown cluster + use-the-space inspector (RA-9 / RA-10)](../../docs/adr/2026-08-21-roots-tree-as-primary.md) | accepted | implemented | — |
 
 ## Runs
