@@ -157,6 +157,19 @@ export function inferUnitFromCode(title) {
   return m ? m[1] : null
 }
 
+// W6: a group-column header with no "Unit - Bunk" hyphen still often carries a
+// division, spelled as a leading word (or words) followed by a trailing bunk
+// number — "Yeladim 1", "Tzofim 2", "Chalutzim 3A". The bunk keeps the FULL
+// header as its name (owner decision, 2026-08-21) rather than just the
+// number, because "1" is not a usable bunk name on its own. A header with no
+// trailing number ("CIT") returns null — the caller's job, not this one's, to
+// decide what a token with no number becomes.
+function splitDivisionWord(title) {
+  const m = String(title ?? '').match(/^([A-Za-z][A-Za-z\s]*?)\s+(\d+[A-Za-z]?)$/)
+  if (!m) return null
+  return { unit: m[1].trim(), group: String(title).trim() }
+}
+
 // "Adom 4's - Matzo Balls Schedule" -> "Adom 4's - Matzo Balls"
 // "Monday — All Camp" -> "Monday"
 // Exported so fixed-event detection keys a page title into groupNameByTitle the
@@ -315,18 +328,27 @@ export function extractEntities(parsed) {
       }
     } else {
       // Columns are group names on this layout. The header is the raw
-      // group/bunk name — try splitUnitAndGroup, the same "Unit - Bunk"
-      // heuristic the pages-orientation titles use above (ADR 2026-08-09
-      // Decision 2). The ADR also proposed inferUnitFromCode as a second
-      // fallback here, but Camp B's real "CIT" column header (a plain bunk
-      // name with no separator) matches inferUnitFromCode's positional-code
-      // regex and would mint a false unit "C" — exactly the false positive
-      // the ADR itself flagged as a stop-ship signal for this specific
-      // reuse (open question 2). So inferUnitFromCode is NOT reused on this
-      // orientation; a header with no "Unit - Bunk" separator stays
-      // unit: null, per "a wrong unit is worse than a blank one."
+      // group/bunk name. Three heuristics, tried in order, each only taken
+      // when the previous one found nothing (W6, owner-ratified 2026-08-21):
+      //
+      // 1. splitUnitAndGroup — the "Unit - Bunk" hyphen heuristic the
+      //    pages-orientation titles use above (ADR 2026-08-09 Decision 2).
+      // 2. splitDivisionWord — "Word Number" ("Yeladim 1", "Tzofim 2"): the
+      //    real Camp B fixture's actual shape. The bunk keeps the FULL
+      //    header as its name, not just the trailing number.
+      // 3. Lone-token fallback — no hyphen, no trailing number ("CIT"): the
+      //    header becomes its own division AND its own bunk. This
+      //    intentionally overturns the old guard against reusing
+      //    inferUnitFromCode here (which would have minted "C" from "CIT");
+      //    the guard's real intent — never mint "C" from "CIT" — still
+      //    holds, because this path always keeps the division as the WHOLE
+      //    token, never a prefix carved out of it.
       page.columns.forEach((c) => {
-        const { unit, group } = splitUnitAndGroup(c)
+        const hyphen = splitUnitAndGroup(c)
+        const divisionWord = hyphen.unit ? null : splitDivisionWord(c)
+        const { unit, group } = hyphen.unit
+          ? hyphen
+          : divisionWord ?? { unit: String(c ?? '').trim(), group: String(c ?? '').trim() }
         groups.push({ title: c, unit, group })
         if (unit) units.push(unit)
       })
