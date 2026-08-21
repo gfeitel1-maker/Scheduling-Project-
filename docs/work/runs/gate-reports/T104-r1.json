@@ -1,0 +1,29 @@
+{
+  "task_id": "T104",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": null,
+    "red_hat": 5,
+    "tester": null,
+    "code_reviewer": 4
+  },
+  "overall_score": 4.5,
+  "lowest_dimension": 4,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": [
+    {
+      "gate_name": "security",
+      "na_reason": "T104 touches only op-log apply/bulk-replace internals; no auth/permission/IPC/secret/PIN surface changed"
+    },
+    {
+      "gate_name": "tester",
+      "na_reason": "Data-layer/op-log change with no UI surface; CONTENT_RACE flag and authoring UI scoped to T105"
+    }
+  ]
+}
