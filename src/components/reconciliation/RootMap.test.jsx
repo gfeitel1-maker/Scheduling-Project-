@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
+import { createRef } from 'react'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import RootMap from './RootMap.jsx'
 import { DOMAIN_LABELS } from './domainRollup.js'
+import { NODE_LAYOUT } from './rootMapLayout.js'
 
 // Design-polish finding 3: the canvas node must show a visible caption
 // (not just aria-label) when selected — asserted via a selected node so
@@ -299,5 +301,198 @@ describe('RootMap label show-delay (RA-4)', () => {
       vi.advanceTimersByTime(130)
     })
     expect(screen.queryByText('Resources')).toBeNull()
+  })
+})
+
+// RA-9 (docs/adr/2026-08-21-roots-tree-as-primary.md) — the standalone tile
+// row above the canvas is removed; the 4 state-count controls render as a
+// crown-flanking tag cluster inside the SVG, anchored to one fixed point.
+describe('RootMap crown cluster (RA-9)', () => {
+  it('renders no standalone tile row above the canvas', () => {
+    const { container } = render(
+      <RootMap
+        model={model()}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    // The old tile row was a <div> flex container sitting above the <svg>,
+    // with the 4 state buttons as its direct children. It must be gone —
+    // every button now lives inside the svg (Node's foreignObject buttons
+    // plus the crown cluster's), none directly under a <div>.
+    const preSvgButtons = [...container.querySelectorAll('div > button')]
+    expect(preSvgButtons).toHaveLength(0)
+    expect(container.querySelectorAll('button').length).toBeGreaterThan(0)
+    expect(container.querySelector('g[data-crown-cluster="true"]')).toBeTruthy()
+  })
+
+  it('renders the 4 state tags as real buttons inside the svg, with counts and labels', () => {
+    render(
+      <RootMap
+        model={model()}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(screen.getByText('Needs attention').closest('button')).toBeTruthy()
+    expect(screen.getByText('Understood').closest('button')).toBeTruthy()
+    expect(screen.getByText('Changed').closest('button')).toBeTruthy()
+    expect(screen.getByText('Not in source').closest('button')).toBeTruthy()
+  })
+
+  it('toggles aria-pressed per tag and clicking twice clears the selection', () => {
+    let selection = { type: 'none' }
+    const onSelectTile = vi.fn((state) => { selection = { type: 'tile', state } })
+    const onClearSelection = vi.fn(() => { selection = { type: 'none' } })
+    const { rerender } = render(
+      <RootMap
+        model={model()}
+        selection={selection}
+        onSelectTile={onSelectTile}
+        onSelectNode={noop}
+        onClearSelection={onClearSelection}
+      />,
+    )
+    const attentionTag = screen.getByText('Needs attention').closest('button')
+    expect(attentionTag.getAttribute('aria-pressed')).toBe('false')
+
+    fireEvent.click(attentionTag)
+    expect(onSelectTile).toHaveBeenCalledWith('attention')
+    rerender(
+      <RootMap
+        model={model()}
+        selection={{ type: 'tile', state: 'attention' }}
+        onSelectTile={onSelectTile}
+        onSelectNode={noop}
+        onClearSelection={onClearSelection}
+      />,
+    )
+    const activeTag = screen.getByText('Needs attention').closest('button')
+    expect(activeTag.getAttribute('aria-pressed')).toBe('true')
+
+    fireEvent.click(activeTag)
+    expect(onClearSelection).toHaveBeenCalled()
+  })
+
+  it('draws a hook-thread line from each tag toward the crown anchor', () => {
+    const { container } = render(
+      <RootMap
+        model={model()}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    const crownCluster = container.querySelector('g[data-crown-cluster="true"]')
+    const threads = [...crownCluster.querySelectorAll('line[stroke="#6b573c"]')]
+    expect(threads).toHaveLength(4)
+  })
+
+  // Round-2 review fix (HIGH) — the ADR's premise that tags "hang safely
+  // above the node band" was arithmetically wrong at the ADR's own offsets;
+  // this test uses the REAL production node positions (rootMapLayout.js,
+  // read-only import) rather than the test fixture's arbitrary x/y, so it
+  // actually exercises the geometry the bug was found in.
+  function productionLikeModel() {
+    return {
+      domains: Object.entries(NODE_LAYOUT).map(([key, domain]) => ({
+        key,
+        label: key,
+        state: 'understood',
+        x: domain.x,
+        y: domain.y,
+        children: Object.entries(domain.children ?? {}).map(([childKey, child]) => ({
+          key: childKey,
+          name: childKey,
+          count: 0,
+          state: 'understood',
+          x: child.x,
+          y: child.y,
+          decisionIds: [],
+        })),
+      })),
+    }
+  }
+
+  function rectsOverlap(a, b) {
+    return !(a.right <= b.left || a.left >= b.right || a.bottom <= b.top || a.top >= b.bottom)
+  }
+
+  it('the crown cluster never overlaps a real domain/child node, at production coordinates', () => {
+    const { container } = render(
+      <RootMap
+        model={productionLikeModel()}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    const tagRects = [...container.querySelectorAll('g[data-crown-cluster="true"] foreignObject')].map((fo) => ({
+      left: Number(fo.getAttribute('x')),
+      top: Number(fo.getAttribute('y')),
+      right: Number(fo.getAttribute('x')) + Number(fo.getAttribute('width')),
+      bottom: Number(fo.getAttribute('y')) + Number(fo.getAttribute('height')),
+    }))
+    expect(tagRects).toHaveLength(4)
+
+    // Every orb <image> is the exact node bbox (x/y/width/height = cx-r,
+    // cy-r, 2r, 2r) — a real per-node geometric rectangle, not eyeballed.
+    const nodeRects = [...container.querySelectorAll('image')].map((img) => ({
+      left: Number(img.getAttribute('x')),
+      top: Number(img.getAttribute('y')),
+      right: Number(img.getAttribute('x')) + Number(img.getAttribute('width')),
+      bottom: Number(img.getAttribute('y')) + Number(img.getAttribute('height')),
+    }))
+    expect(nodeRects.length).toBeGreaterThan(0)
+
+    for (const tag of tagRects) {
+      for (const node of nodeRects) {
+        expect(rectsOverlap(tag, node)).toBe(false)
+      }
+    }
+  })
+
+  it('renders the crown cluster group before the first node group in DOM order (tab order, paint order)', () => {
+    const { container } = render(
+      <RootMap
+        model={productionLikeModel()}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    const svg = container.querySelector('svg')
+    const crownCluster = svg.querySelector('g[data-crown-cluster="true"]')
+    // The crown cluster's own buttons ARE inside crownCluster, so the first
+    // button in svg DOM order must be one of the crown tags, not a node.
+    const firstButtonInSvg = svg.querySelector('button')
+    expect(crownCluster.contains(firstButtonInSvg)).toBe(true)
+  })
+})
+
+// RA-10 (same ADR) — RootMap exposes canvasWrap's DOM node via a forwarded
+// ref, its only new prop, so the parent can measure it for the breakpoint.
+describe('RootMap canvasWrap ref (RA-10 plumbing)', () => {
+  it('forwards canvasWrapRef to the canvas wrapper div', () => {
+    const ref = createRef()
+    render(
+      <RootMap
+        model={model()}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+        canvasWrapRef={ref}
+      />,
+    )
+    expect(ref.current).toBeInstanceOf(HTMLElement)
+    expect(ref.current.querySelector('svg')).toBeTruthy()
   })
 })
