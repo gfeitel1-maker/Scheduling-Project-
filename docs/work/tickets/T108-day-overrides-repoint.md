@@ -1,7 +1,7 @@
 ---
 title: T108-day-overrides-repoint
 document_type: ticket
-status: open
+status: in-progress
 created: 2026-08-20
 task_class: ui-ux-design
 governing_docs: [docs/adr/2026-08-20-special-days-authoring-and-day-override-repoint.md]
