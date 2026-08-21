@@ -82,12 +82,28 @@ renames its displayed words over the canonical concept, extending the existing
 - `rootMapNav.js:47` (`SCREEN_LABEL.cohorts:'Units'`).
 - CohortsScreen already says "Program" — no change.
 
-**`locations` → "Location":**
+**`locations` → "Location":** (retirement of "Place" is repo-wide, not just the
+label map — the M3 locations spec, `docs/work/specs/2026-08-15-m3-locations-design.md`,
+chose "Place" informally and is superseded by this spec on that point; "Place" is
+not in any standard or ADR, so completing the retirement is not an Article-I gate.)
 - `domainRollup.js:31` Facility caption "Resources" → "Location(s)".
-- `recordLabels.js:19` "Place" → "Location".
 - `reconstructionMomentCopy.js:14` "Facility & Resources".
 - `screenIntroText.js:20` "Places at your camp…".
+- `recordLabels.js:19` "Place" → "Location"; and `:139` restore copy "set their place again".
+- `src/screens/LocationsScreen.jsx` — ~15 director-facing sites: "Add Place",
+  "Add your first place", "{n} place/places" counts, "Merge into one place",
+  delete-dialog "Delete all places?"/"Delete All Places"/entityLabel, admin/error
+  copy, map-empty "Places still work everywhere else", merge/rollback copy.
+- `src/screens/ActivitiesScreen.jsx` — location-picker copy: 'Create "{q}" as a new
+  place', "Type a place, or add a new one…", "New place — … on the Places screen.",
+  dangling "The place set here no longer exists", import badge "+ new place".
+- `src/utils/computeOverlaps.js:88` fallback 'this place'; `computeWeekClosures.js:89`
+  "'This place' is marked closed this week".
 - `rootMapNav.js:44` already "Locations" — no change.
+- Tests asserting these strings (LocationsScreen.map.test.jsx "No places yet",
+  ActivitiesScreen.test.jsx "+ new place", etc.) updated to canonical.
+- FALSE POSITIVES to leave: `DaysScreen` "places" = day-slots not locations;
+  code identifiers (`placeActivity`, `placement`, `placeholder`, "in place").
 
 **`groups` nav label:**
 - `rootMapNav.js:42` "Groups & Units" → "Groups".

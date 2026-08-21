@@ -113,7 +113,7 @@ describe('exportWorkbook — sheets + columns', () => {
     expect(groups[1][STATUS_COLUMN]).toBe('Inferred') // source: import
     // Explicit status word wins.
     const wb2 = exportWorkbook({ ...fixture(), tiers: [{ id: 'u', name: 'X', status: 'Unknown' }] })
-    expect(sheetRows(wb2, 'Units')[0][STATUS_COLUMN]).toBe('Unknown')
+    expect(sheetRows(wb2, 'Age Divisions')[0][STATUS_COLUMN]).toBe('Unknown')
   })
 })
 
@@ -210,7 +210,7 @@ describe('exportWorkbook — every string cell is sanitized (Security F3)', () =
       tiers: [{ id: 'u', name: '@SUM', sort_order: 1 }],
     })
     const round = XLSX.read(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }), { type: 'array' })
-    const cell = round.Sheets['Units'][XLSX.utils.encode_cell({ c: 1, r: 1 })]
+    const cell = round.Sheets['Age Divisions'][XLSX.utils.encode_cell({ c: 1, r: 1 })]
     expect(cell.t).toBe('s')
     expect(cell.f).toBeUndefined()
     expect(cell.v).toBe("'@SUM")

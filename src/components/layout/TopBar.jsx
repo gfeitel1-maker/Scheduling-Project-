@@ -7,7 +7,7 @@ import { CHILD_SCREEN, DOMAIN_SCREEN } from '../reconciliation/rootMapNav'
 const TITLES = {
   import:       'Import last year',
   cohorts:      'Programs',
-  tiers:        'Units',
+  tiers:        'Age Divisions',
   groups:       'Groups',
   days:         'Days',
   timeblocks:   'Time Blocks',

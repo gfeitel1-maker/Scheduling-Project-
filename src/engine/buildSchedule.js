@@ -584,7 +584,7 @@ function buildSchedule(input) {
           groupId: null,
           activityId: act.id,
           severity: 'caution',
-          reason: `"${act.name || act.id}" is set to a place that isn't in your locations list, so it has no place limit`,
+          reason: `"${act.name || act.id}" is set to a location that isn't in your locations list, so it has no capacity limit`,
         })
       }
     }

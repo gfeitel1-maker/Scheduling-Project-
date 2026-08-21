@@ -28,7 +28,7 @@ export const DOMAIN_LABELS = {
   Structure: 'Structure',
   Scheduling: 'Scheduling',
   Time: 'Time',
-  Facility: 'Resources',
+  Facility: 'Location(s)',
   Context: 'Context',
 }
 
@@ -56,7 +56,7 @@ export function domainOf(decision) {
 // back to a domain-level 'General' pseudo-child (childOf below), never
 // silently dropped.
 export const CHILD_OF = {
-  cohorts: 'Units',
+  cohorts: 'Program',
   tiers: 'Age Divisions',
   groups: 'Groups',
   days_of_operation: 'Days',

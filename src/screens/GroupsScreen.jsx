@@ -49,7 +49,7 @@ function GroupRow({ group, tiers, role, onSave, onDelete, onHistory, weekToggle 
         <td style={S.td}><input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} /></td>
         <td style={S.td}>
           <select value={tierId} onChange={e => setTierId(e.target.value)} style={S.input}>
-            <option value="">— No unit —</option>
+            <option value="">— No age division —</option>
             {tiers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </td>
@@ -292,7 +292,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         let warning = null
         if (!name) warning = 'Missing name'
         const tierId = tierName ? tierMap[tierName.toLowerCase()] : null
-        if (tierName && !tierId) warning = `Unit "${tierName}" not found`
+        if (tierName && !tierId) warning = `Age Division "${tierName}" not found`
         const availability = ['all','morning','afternoon'].includes(avail) ? avail : 'all'
         return { name, tierName, tierId: tierId || null, availability, warning }
       })
@@ -365,7 +365,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       )}
       {tiers.length === 0 && !loading && (
         <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#7a5100' }}>
-          No units found. Set up units first so you can assign groups to them.
+          No age divisions found. Set up age divisions first so you can assign groups to them.
         </div>
       )}
 
@@ -394,7 +394,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
             <thead>
               <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
                 <th style={S.th}>Name</th>
-                <th style={S.th}>Unit</th>
+                <th style={S.th}>Age Division</th>
                 <th style={S.th}>Availability</th>
                 {weekId && <th style={{ ...S.th, textAlign: 'center' }}>{currentWeek?.name ?? 'Week'}</th>}
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
@@ -428,7 +428,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
                     <>
                       <tr style={{ background: 'var(--surface-elevated)', borderBottom: '1px solid var(--border)' }}>
                         <td colSpan={weekId ? 5 : 4} style={{ padding: '6px 14px', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                          No Unit
+                          No Age Division
                         </td>
                       </tr>
                       {noTier.map(g => (
@@ -448,7 +448,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <input placeholder="Group name" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGroup()} style={{ ...S.input, flex: '1 1 160px', minWidth: 120 }} />
           <select value={newTierId} onChange={e => setNewTierId(e.target.value)} style={{ ...S.input, flex: '0 0 140px' }}>
-            <option value="">— No unit —</option>
+            <option value="">— No age division —</option>
             {tiers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
           <select value={newAvail} onChange={e => setNewAvail(e.target.value)} style={{ ...S.input, flex: '0 0 150px' }}>
@@ -470,7 +470,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
                   {readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings (skipped)`}
                 </div>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 18 }}>
-                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Name</th><th style={S.th}>Unit</th><th style={S.th}>Availability</th><th style={S.th}>Status</th></tr></thead>
+                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Name</th><th style={S.th}>Age Division</th><th style={S.th}>Availability</th><th style={S.th}>Status</th></tr></thead>
                   <tbody>
                     {importRows.map((r, i) => (
                       <tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}>

@@ -259,7 +259,7 @@ describe('ActivitiesScreen — delete all', () => {
 })
 
 describe('ActivitiesScreen — import', () => {
-  it('imports rows from Excel, resolving unit names and skipping duplicates and rows with a warning', async () => {
+  it('imports rows from Excel, resolving age division names and skipping duplicates and rows with a warning', async () => {
     // Only the "Water Play" activity itself needs a randomUUID — the "Pool"
     // location it creates now mints a deterministic id via deriveLocationId
     // (T81), not crypto.randomUUID().
@@ -305,7 +305,7 @@ describe('ActivitiesScreen — import', () => {
     expect(localClient.write.mock.calls.some(c => c[1] === 'activities' && c[3] === 'location')).toBe(false)
   })
 
-  it('flags an import row whose unit name does not match any existing unit', async () => {
+  it('flags an import row whose age division name does not match any existing age division', async () => {
     localClient.list.mockImplementation(entity => {
       if (entity === 'activities') return Promise.resolve([])
       if (entity === 'tiers') return Promise.resolve([{ id: 'tier-1', camp_id: CAMP_ID, name: 'Yeladim' }])
@@ -318,12 +318,12 @@ describe('ActivitiesScreen — import', () => {
     const fileInput = document.querySelector('input[type="file"]')
 
     XLSX.utils.sheet_to_json.mockReturnValue([
-      { name: 'Ghost Activity', location: '', is_outdoor: '', max_groups_per_slot: '', min_per_week: '', max_per_week: '', same_tier_only: '', priority: '', eligible_tiers: 'Nonexistent Unit', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '' },
+      { name: 'Ghost Activity', location: '', is_outdoor: '', max_groups_per_slot: '', min_per_week: '', max_per_week: '', same_tier_only: '', priority: '', eligible_tiers: 'Nonexistent Age Division', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '' },
     ])
 
     await userEvent.upload(fileInput, file)
 
-    await waitFor(() => expect(screen.queryByText(/Unit\(s\) not found: nonexistent unit/)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText(/Age Division\(s\) not found: nonexistent age division/)).not.toBeNull())
   })
 })
 
@@ -506,32 +506,32 @@ describe('ActivitiesScreen — import preview shows new-vs-reused location', () 
   }
   const row = (over) => ({ name: 'Act', location: '', is_outdoor: '', max_groups_per_slot: '', min_per_week: '', max_per_week: '', same_tier_only: '', priority: '', eligible_tiers: '', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '', ...over })
 
-  it('flags a case-variant "pool" as a NEW place — no silent fold onto the existing "Pool" (T81)', async () => {
+  it('flags a case-variant "pool" as a NEW location — no silent fold onto the existing "Pool" (T81)', async () => {
     await uploadRows([row({ name: 'Swim', location: 'pool' })], [{ id: 'loc-Pool', camp_id: CAMP_ID, name: 'Pool', capacity: 3, notes: null }])
-    expect(screen.queryByText(/new place/)).not.toBeNull()
+    expect(screen.queryByText(/new location/)).not.toBeNull()
     expect(screen.queryByText(/reuses/)).toBeNull()
   })
 
-  it('flags a genuinely new place with a "new place" badge', async () => {
+  it('flags a genuinely new location with a "new location" badge', async () => {
     await uploadRows([row({ name: 'Kayak', location: 'Lake' })], [])
-    expect(screen.queryByText(/new place/)).not.toBeNull()
+    expect(screen.queryByText(/new location/)).not.toBeNull()
   })
 
   it('shows no annotation for an exact-case match — reuse is obvious', async () => {
     await uploadRows([row({ name: 'Swim', location: 'Pool' })], [{ id: 'loc-Pool', camp_id: CAMP_ID, name: 'Pool', capacity: 3, notes: null }])
     expect(screen.queryByText(/reuses/)).toBeNull()
-    expect(screen.queryByText(/new place/)).toBeNull()
+    expect(screen.queryByText(/new location/)).toBeNull()
   })
 })
 
-// M3b — the place picker (docs/work/specs/2026-08-15-m3-locations-design.md
+// M3b — the location picker (docs/work/specs/2026-08-15-m3-locations-design.md
 // §picker) replacing the free-text Location input, and the D5 UI freeze it
 // completes: the modal save path must write location_id and must never write
 // the free-text activities.location column again.
 describe('ActivitiesScreen — location picker (M3b)', () => {
   async function openAddModal() {
     fireEvent.click(screen.getByText('+ Add Activity'))
-    await waitFor(() => expect(screen.queryByPlaceholderText('Search or add a place…')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByPlaceholderText('Search or add a location…')).not.toBeNull())
   }
 
   it('D5: the modal save path writes location_id and never the free-text location column', async () => {
@@ -550,7 +550,7 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
     expect(localClient.write.mock.calls.some(c => c[3] === 'location')).toBe(false)
   })
 
-  it('typeahead filters existing places by case-insensitive substring, with a create row alongside a non-exact match', async () => {
+  it('typeahead filters existing locations by case-insensitive substring, with a create row alongside a non-exact match', async () => {
     localClient.list.mockImplementation(entity => {
       if (entity === 'activities') return Promise.resolve([])
       if (entity === 'locations') return Promise.resolve([{ id: 'loc-1', camp_id: CAMP_ID, name: 'Beit Midrash', capacity: 1, notes: null }])
@@ -560,13 +560,13 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
     await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
 
     await openAddModal()
-    fireEvent.change(screen.getByPlaceholderText('Search or add a place…'), { target: { value: 'be' } })
+    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'be' } })
 
     await waitFor(() => expect(screen.queryByText('Beit Midrash')).not.toBeNull())
-    expect(screen.queryByText('Create "be" as a new place')).not.toBeNull()
+    expect(screen.queryByText('Create "be" as a new location')).not.toBeNull()
   })
 
-  it('selecting an existing place binds location_id and shows the selected token; save writes it', async () => {
+  it('selecting an existing location binds location_id and shows the selected token; save writes it', async () => {
     localClient.list.mockImplementation(entity => {
       if (entity === 'activities') return Promise.resolve([])
       if (entity === 'locations') return Promise.resolve([{ id: 'loc-1', camp_id: CAMP_ID, name: 'Pool', capacity: 3, notes: null }])
@@ -577,7 +577,7 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
 
     await openAddModal()
     fireEvent.change(screen.getByPlaceholderText('Activity name'), { target: { value: 'Swim' } })
-    fireEvent.change(screen.getByPlaceholderText('Search or add a place…'), { target: { value: 'Pool' } })
+    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Pool' } })
     fireEvent.mouseDown(screen.getByText('Pool'))
 
     await waitFor(() => expect(screen.queryByText('· 3 groups at once')).not.toBeNull())
@@ -587,7 +587,7 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
     expect(localClient.write.mock.calls.some(c => c[3] === 'location')).toBe(false)
   })
 
-  it('creating a new place from the picker creates a locations row and binds it immediately — before the activity is ever saved', async () => {
+  it('creating a new location from the picker creates a locations row and binds it immediately — before the activity is ever saved', async () => {
     // T81 round 2 (Red Hat): the picker's inline-create is an INTERACTIVE,
     // renameable create, exactly what
     // docs/adr/2026-08-15-locations-concurrent-create-collision.md option (d)
@@ -605,8 +605,8 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
 
     await openAddModal()
     fireEvent.change(screen.getByPlaceholderText('Activity name'), { target: { value: 'Kayaking' } })
-    fireEvent.change(screen.getByPlaceholderText('Search or add a place…'), { target: { value: 'Lake' } })
-    fireEvent.mouseDown(screen.getByText('Create "Lake" as a new place'))
+    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Lake' } })
+    fireEvent.mouseDown(screen.getByText('Create "Lake" as a new location'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'locations', 'new-location-id', 'name', 'Lake'))
     expect(localClient.write.mock.calls.some(c => c[1] === 'activities')).toBe(false) // director never left the modal, activity not yet saved
@@ -615,7 +615,7 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id', 'location_id', 'new-location-id'))
   })
 
-  it('clearing a selected place writes location_id: null on save', async () => {
+  it('clearing a selected location writes location_id: null on save', async () => {
     localClient.list.mockImplementation(entity => {
       if (entity === 'activities') return Promise.resolve([])
       if (entity === 'locations') return Promise.resolve([{ id: 'loc-1', camp_id: CAMP_ID, name: 'Pool', capacity: 3, notes: null }])
@@ -626,12 +626,12 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
 
     await openAddModal()
     fireEvent.change(screen.getByPlaceholderText('Activity name'), { target: { value: 'Swim' } })
-    fireEvent.change(screen.getByPlaceholderText('Search or add a place…'), { target: { value: 'Pool' } })
+    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Pool' } })
     fireEvent.mouseDown(screen.getByText('Pool'))
     await waitFor(() => expect(screen.queryByLabelText('Clear')).not.toBeNull())
 
     fireEvent.click(screen.getByLabelText('Clear'))
-    await waitFor(() => expect(screen.queryByPlaceholderText('Search or add a place…')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByPlaceholderText('Search or add a location…')).not.toBeNull())
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Activity' }))
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id', 'location_id', null))
@@ -643,7 +643,7 @@ describe('ActivitiesScreen — location picker (M3b)', () => {
 describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
   async function openAddModal() {
     fireEvent.click(screen.getByText('+ Add Activity'))
-    await waitFor(() => expect(screen.queryByPlaceholderText('Search or add a place…')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByPlaceholderText('Search or add a location…')).not.toBeNull())
   }
 
   it('C3: labels the field "Location (optional)" and shows blank-is-fine helper text on the empty state', async () => {
@@ -656,7 +656,7 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
     expect(screen.queryByText('Leaving it blank is fine. Not every activity has a room.')).not.toBeNull()
   })
 
-  it('C3: the blank-is-fine hint disappears once typing starts or a place is bound', async () => {
+  it('C3: the blank-is-fine hint disappears once typing starts or a location is bound', async () => {
     localClient.list.mockImplementation(entity => {
       if (entity === 'locations') return Promise.resolve([{ id: 'loc-1', camp_id: CAMP_ID, name: 'Pool', capacity: 3, notes: null }])
       return Promise.resolve([])
@@ -665,7 +665,7 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
     await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
 
     await openAddModal()
-    fireEvent.change(screen.getByPlaceholderText('Search or add a place…'), { target: { value: 'Po' } })
+    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Po' } })
     expect(screen.queryByText('Leaving it blank is fine. Not every activity has a room.')).toBeNull()
 
     fireEvent.mouseDown(screen.getByText('Pool'))
@@ -679,10 +679,10 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
     await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
 
     await openAddModal()
-    expect(screen.getByPlaceholderText('Search or add a place…').getAttribute('maxLength')).toBe('60')
+    expect(screen.getByPlaceholderText('Search or add a location…').getAttribute('maxLength')).toBe('60')
   })
 
-  it('C2: a place picked from the existing list shows the plain capacity meta, not a stepper', async () => {
+  it('C2: a location picked from the existing list shows the plain capacity meta, not a stepper', async () => {
     localClient.list.mockImplementation(entity => {
       if (entity === 'locations') return Promise.resolve([{ id: 'loc-1', camp_id: CAMP_ID, name: 'Pool', capacity: 3, notes: null }])
       return Promise.resolve([])
@@ -691,13 +691,13 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
     await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
 
     await openAddModal()
-    fireEvent.change(screen.getByPlaceholderText('Search or add a place…'), { target: { value: 'Pool' } })
+    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Pool' } })
     fireEvent.mouseDown(screen.getByText('Pool'))
     await waitFor(() => expect(screen.queryByText('· 3 groups at once')).not.toBeNull())
     expect(screen.queryByLabelText('Groups at once')).toBeNull()
   })
 
-  it('C2: a place just created this session shows an in-place capacity stepper defaulting to 1, and adjusting it writes the new capacity', async () => {
+  it('C2: a location just created this session shows an in-place capacity stepper defaulting to 1, and adjusting it writes the new capacity', async () => {
     localClient.list.mockImplementation(entity => {
       if (entity === 'locations') return Promise.resolve([])
       return Promise.resolve([])
@@ -706,8 +706,8 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
     await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
 
     await openAddModal()
-    fireEvent.change(screen.getByPlaceholderText('Search or add a place…'), { target: { value: 'Lake' } })
-    fireEvent.mouseDown(screen.getByText('Create "Lake" as a new place'))
+    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Lake' } })
+    fireEvent.mouseDown(screen.getByText('Create "Lake" as a new location'))
     await waitFor(() => expect(screen.queryByLabelText('Groups at once')).not.toBeNull())
 
     // The default (1) is unchanged — only an in-place way to adjust it is added.
@@ -735,7 +735,7 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
     // showed no "from" state at all.
     await act(async () => { await new Promise(r => requestAnimationFrame(r)) })
 
-    fireEvent.focus(screen.getByPlaceholderText('Search or add a place…'))
+    fireEvent.focus(screen.getByPlaceholderText('Search or add a location…'))
     const popover = screen.getByText('Pool').closest('button').parentElement
     expect(popover.style.opacity).toBe('0')
 
@@ -746,17 +746,17 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
   it('C5: editing an activity with a dangling location_id surfaces a warning instead of reading as empty', async () => {
     localClient.list.mockImplementation(entity => {
       if (entity === 'activities') return Promise.resolve([activity({ location_id: 'loc-ghost' })])
-      if (entity === 'locations') return Promise.resolve([]) // the place is gone
+      if (entity === 'locations') return Promise.resolve([]) // the location is gone
       return Promise.resolve([])
     })
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Edit'))
-    await waitFor(() => expect(screen.queryByText('The place set here no longer exists — pick a new one.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('The location set here no longer exists — pick a new one.')).not.toBeNull())
     // The search box is shown (not a stale-looking selected token) so the
     // director can immediately pick a replacement.
-    expect(screen.queryByPlaceholderText('Search or add a place…')).not.toBeNull()
+    expect(screen.queryByPlaceholderText('Search or add a location…')).not.toBeNull()
   })
 
   it('C5: saving without re-picking a dangling location clears it rather than persisting the stale id', async () => {
@@ -769,7 +769,7 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Edit'))
-    await waitFor(() => expect(screen.queryByText('The place set here no longer exists — pick a new one.')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('The location set here no longer exists — pick a new one.')).not.toBeNull())
 
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'act-1', 'location_id', null))

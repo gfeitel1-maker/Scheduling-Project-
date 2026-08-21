@@ -11,7 +11,7 @@ const DOMAIN_LABELS = {
   Structure: 'Structure',
   Scheduling: 'Scheduling Model',
   Time: 'Time',
-  Facility: 'Facility & Resources',
+  Facility: 'Facility & Location(s)',
 }
 
 // Root-map port (docs/adr/2026-08-18-rootmap-screen-port.md §3) widened the

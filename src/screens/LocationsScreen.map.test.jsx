@@ -85,12 +85,12 @@ beforeEach(() => {
 describe('LocationsScreen — List | Map toggle', () => {
   it('defaults to the List tab and switches to Map on click', async () => {
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('No places yet')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No locations yet')).not.toBeNull())
     expect(screen.queryByText('No map yet')).toBeNull()
 
     fireEvent.click(screen.getByText('Map'))
     await waitFor(() => expect(screen.queryByText('No map yet')).not.toBeNull())
-    expect(screen.queryByText('No places yet')).toBeNull()
+    expect(screen.queryByText('No locations yet')).toBeNull()
   })
 })
 

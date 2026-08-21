@@ -38,7 +38,7 @@ export const STATUS_COLUMN = 'Status'
 // stored form is transformed for the sheet.
 export const SHEET_LAYOUT = Object.freeze([
   { entity: 'cohorts', sheet: 'Programs', nameKey: 'name', columns: [{ key: 'name' }] },
-  { entity: 'tiers', sheet: 'Units', nameKey: 'name', ordered: true, columns: [{ key: 'name' }] },
+  { entity: 'tiers', sheet: 'Age Divisions', nameKey: 'name', ordered: true, columns: [{ key: 'name' }] },
   {
     entity: 'groups', sheet: 'Groups', nameKey: 'name',
     columns: [{ key: 'name' }, { key: 'unit', label: true }, { key: 'availability' }],

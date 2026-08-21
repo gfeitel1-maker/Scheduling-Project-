@@ -17,7 +17,7 @@ export const NODE_LAYOUT = {
     x: 0.3002,
     y: 0.334,
     children: {
-      Units: { x: 0.2542, y: 0.4256 },
+      Program: { x: 0.2542, y: 0.4256 },
       Groups: { x: 0.2493, y: 0.5849 },
       'Age Divisions': { x: 0.3482, y: 0.6644 },
     },

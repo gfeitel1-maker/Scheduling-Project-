@@ -58,7 +58,7 @@ beforeEach(() => {
 })
 
 describe('TiersScreen delete confirmation', () => {
-  it('shows a styled confirm modal (not window.confirm) naming the unit before deleting', async () => {
+  it('shows a styled confirm modal (not window.confirm) naming the age division before deleting', async () => {
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
 
@@ -67,9 +67,9 @@ describe('TiersScreen delete confirmation', () => {
     expect(window.confirm).not.toHaveBeenCalled()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByText('Delete "Yeladim"?')).not.toBeNull())
-    expect(screen.queryByText('This unit has no groups, so nothing in your schedules is affected.')).not.toBeNull()
+    expect(screen.queryByText('This age division has no groups, so nothing in your schedules is affected.')).not.toBeNull()
 
-    fireEvent.click(screen.getByText('Delete Unit'))
+    fireEvent.click(screen.getByText('Delete Age Division'))
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'tiers', 'tier-1'))
   })
 
@@ -85,11 +85,11 @@ describe('TiersScreen delete confirmation', () => {
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
   })
 
-  it('shows honest, count-aware copy when the unit still has groups', async () => {
+  it('shows honest, count-aware copy when the age division still has groups', async () => {
     // The row's Delete button is gated on groupCount and stays disabled
     // whenever this device's local groupCounts is nonzero — but that count
     // can go stale mid-session (another device assigns a group to this
-    // unit while the confirm dialog is already open on this one, and a
+    // age division while the confirm dialog is already open on this one, and a
     // subsequent reload picks it up). The dialog body must independently
     // reflect the live count rather than trusting the button already
     // screened it out. Simulate that by opening the dialog while the
@@ -113,13 +113,13 @@ describe('TiersScreen delete confirmation', () => {
 
     fireEvent.click(screen.getByText('Delete'))
     await waitFor(() => expect(screen.queryByText('Delete "Yeladim"?')).not.toBeNull())
-    expect(screen.queryByText('This unit has no groups, so nothing in your schedules is affected.')).not.toBeNull()
+    expect(screen.queryByText('This age division has no groups, so nothing in your schedules is affected.')).not.toBeNull()
 
     fireEvent.click(screen.getByText('Edit'))
     fireEvent.click(screen.getByText('Save'))
 
-    await waitFor(() => expect(screen.queryByText(/This unit still has 1 group assigned to it/)).not.toBeNull())
-    expect(screen.queryByText('This unit has no groups, so nothing in your schedules is affected.')).toBeNull()
+    await waitFor(() => expect(screen.queryByText(/This age division still has 1 group assigned to it/)).not.toBeNull())
+    expect(screen.queryByText('This age division has no groups, so nothing in your schedules is affected.')).toBeNull()
   })
 
   it('dismisses on Escape without deleting', async () => {
@@ -162,7 +162,7 @@ describe('TiersScreen — cohort-scoped load', () => {
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
-    await waitFor(() => expect(screen.queryByText('2 units')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('2 age divisions')).not.toBeNull())
     expect(screen.queryByText('Wrong Cohort')).toBeNull()
     expect(screen.queryByText('Wrong Camp')).toBeNull()
     const rows = screen.getAllByRole('row').slice(1)
@@ -180,9 +180,9 @@ describe('TiersScreen — add', () => {
       return Promise.resolve([])
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 units')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('0 age divisions')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Unit name (e.g. Yeladim)'), { target: { value: 'Bogrim' } })
+    fireEvent.change(screen.getByPlaceholderText('Age division name (e.g. Yeladim)'), { target: { value: 'Bogrim' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
@@ -204,13 +204,13 @@ describe('TiersScreen — add', () => {
       return Promise.resolve({ status: 'applied' })
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 units')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('0 age divisions')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Unit name (e.g. Yeladim)'), { target: { value: 'Bogrim' } })
+    fireEvent.change(screen.getByPlaceholderText('Age division name (e.g. Yeladim)'), { target: { value: 'Bogrim' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'tiers', 'new-tier-id'))
-    await waitFor(() => expect(screen.queryByText(/That unit could not be added/)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText(/That age division could not be added/)).not.toBeNull())
   })
 
   it('shows a collision-specific message when the underlying write fails with UNIQUE', async () => {
@@ -231,9 +231,9 @@ describe('TiersScreen — add', () => {
       return Promise.resolve({ status: 'applied' })
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 units')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('0 age divisions')).not.toBeNull())
 
-    fireEvent.change(screen.getByPlaceholderText('Unit name (e.g. Yeladim)'), { target: { value: 'Bogrim' } })
+    fireEvent.change(screen.getByPlaceholderText('Age division name (e.g. Yeladim)'), { target: { value: 'Bogrim' } })
     fireEvent.click(screen.getByText('+ Add'))
 
     await waitFor(() => expect(screen.queryByText(/already exists/)).not.toBeNull())
@@ -265,10 +265,10 @@ describe('TiersScreen — deleteAll', () => {
 
     expect(window.confirm).not.toHaveBeenCalled()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
-    await waitFor(() => expect(screen.queryByText('Delete all units?')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Delete all age divisions?')).not.toBeNull())
     expect(screen.queryByText('They can be restored from Trash.')).not.toBeNull()
 
-    fireEvent.click(screen.getByText('Delete All Units'))
+    fireEvent.click(screen.getByText('Delete All Age Divisions'))
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'tiers', 'tier-1'))
   })
 
@@ -277,10 +277,10 @@ describe('TiersScreen — deleteAll', () => {
     await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
-    await waitFor(() => expect(screen.queryByText('Delete all units?')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Delete all age divisions?')).not.toBeNull())
     fireEvent.click(screen.getByText('Cancel'))
 
-    expect(screen.queryByText('Delete all units?')).toBeNull()
+    expect(screen.queryByText('Delete all age divisions?')).toBeNull()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
   })
 
@@ -300,11 +300,11 @@ describe('TiersScreen — deleteAll', () => {
       return Promise.resolve([])
     })
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('1 unit')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('1 age division')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
-    await waitFor(() => expect(screen.queryByText('Delete all units?')).not.toBeNull())
-    fireEvent.click(screen.getByText('Delete All Units'))
+    await waitFor(() => expect(screen.queryByText('Delete all age divisions?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Age Divisions'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledTimes(2))
     expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'tiers', 'tier-1')
@@ -317,10 +317,10 @@ describe('TiersScreen — deleteAll', () => {
     await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
-    await waitFor(() => expect(screen.queryByText('Delete all units?')).not.toBeNull())
-    fireEvent.click(screen.getByText('Delete All Units'))
+    await waitFor(() => expect(screen.queryByText('Delete all age divisions?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Age Divisions'))
 
-    await waitFor(() => expect(screen.queryByText(/Only an admin can delete units — no units were deleted/)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText(/Only an admin can delete age divisions — no age divisions were deleted/)).not.toBeNull())
   })
 
   it('disables Delete All for non-admin roles', async () => {
@@ -345,10 +345,10 @@ describe('TiersScreen — deleteAll', () => {
     await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
-    await waitFor(() => expect(screen.queryByText('Delete all units?')).not.toBeNull())
-    fireEvent.click(screen.getByText('Delete All Units'))
+    await waitFor(() => expect(screen.queryByText('Delete all age divisions?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Age Divisions'))
 
-    await waitFor(() => expect(screen.queryByText(/Those units could not be deleted/)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText(/Those age divisions could not be deleted/)).not.toBeNull())
   })
 })
 
@@ -357,7 +357,7 @@ describe('TiersScreen — import', () => {
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
 
-    const file = new File(['dummy'], 'units.xlsx')
+    const file = new File(['dummy'], 'age_divisions.xlsx')
     const fileInput = document.querySelector('input[type="file"]')
 
     const rows = [
@@ -366,12 +366,12 @@ describe('TiersScreen — import', () => {
       { name: 'Bogrim', sort_order: 2 }, // new, valid
     ]
     XLSX.utils.sheet_to_json.mockReturnValue(rows)
-    XLSX.read.mockReturnValue({ SheetNames: ['Units'], Sheets: { Units: {} } })
+    XLSX.read.mockReturnValue({ SheetNames: ['Age Divisions'], Sheets: { 'Age Divisions': {} } })
 
     await userEvent.upload(fileInput, file)
 
     await waitFor(() => expect(screen.queryByText(/1 with warnings/)).not.toBeNull())
-    fireEvent.click(screen.getByText(/Import 2 units/))
+    fireEvent.click(screen.getByText(/Import 2 age divisions/))
 
     await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
     expect(screen.queryByText(/2 skipped/)).not.toBeNull()

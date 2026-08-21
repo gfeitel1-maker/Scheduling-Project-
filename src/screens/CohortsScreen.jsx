@@ -348,7 +348,7 @@ export default function CohortsScreen({ campId }) {
       </div>
 
       <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-        A program groups units, time blocks, and fixed events that share a schedule structure.
+        A program groups age divisions, time blocks, and fixed events that share a schedule structure.
         Most camps have one program ("Main"). Add a second for specialty programs with a different time grid.
       </div>
 
@@ -360,7 +360,7 @@ export default function CohortsScreen({ campId }) {
       {pendingDelete && (
         <ConfirmDangerDialog
           title="Delete this program?"
-          body="Units and time blocks assigned to it will lose their program reference."
+          body="Age divisions and time blocks assigned to it will lose their program reference."
           confirmLabel="Delete Program"
           busy={deleting}
           onConfirm={confirmCohortDelete}
