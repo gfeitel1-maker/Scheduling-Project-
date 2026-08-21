@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { prefersReducedMotion } from '../../styles/shared'
 import { DOMAIN_LABELS } from './domainRollup.js'
-import rootMapArt from '../../assets/reconciliation/root-map-3d.png'
+import rootMapArt from '../../assets/reconciliation/root-map-3d.webp'
 import orbUnderstood from '../../assets/reconciliation/orb_understood.png'
 import orbAttention from '../../assets/reconciliation/orb_attention.png'
 import orbChanged from '../../assets/reconciliation/orb_changed.png'
@@ -52,17 +52,48 @@ function selectionMatchesNode(selection, domainKey, childKey) {
   return selection.domainKey === domainKey && !selection.childKey
 }
 
+// Hover-driven glow is a mouse affordance; a touch tap fires the same
+// mouseenter without a matching leave, so it would otherwise leave a lit
+// node stuck. Computed once (not per-render) — matchMedia is undefined in
+// SSR/jsdom without a mock, so default to true (fine pointer) there.
+function hasFinePointer() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return true
+  return window.matchMedia('(hover: hover) and (pointer: fine)').matches
+}
+
 function Node({ x, y, width, height, state, label, selected, onSelect, radius }) {
   const [hovered, setHovered] = useState(false)
+  const [focused, setFocused] = useState(false)
   const [pressed, setPressed] = useState(false)
+  const [finePointer] = useState(hasFinePointer)
   const reduced = prefersReducedMotion()
   const cx = x * width
   const cy = y * height
   const r = radius
-  const active = selected || hovered
-  const showLabel = hovered || selected
-  const pressScale = reduced ? 1 : pressed ? 0.92 : 1
+  const pressScale = reduced ? 1 : pressed ? 0.96 : 1
   const release = () => setPressed(false)
+
+  // Label pill shows on hover only after a short delay, so a quick pointer
+  // sweep across nodes doesn't flash a string of labels. Focus shows the
+  // label immediately (keyboard navigation has no "sweep"). The reset-on-
+  // unhover follows the same render-time-adjustment pattern as labelEntered
+  // below, rather than a synchronous setState in the effect body.
+  const [labelShown, setLabelShown] = useState(false)
+  const [prevHovered, setPrevHovered] = useState(hovered)
+  if (hovered !== prevHovered) {
+    setPrevHovered(hovered)
+    if (!hovered) setLabelShown(false)
+  }
+  useEffect(() => {
+    if (!hovered || labelShown) return
+    const id = setTimeout(() => setLabelShown(true), 120)
+    return () => clearTimeout(id)
+  }, [hovered, labelShown])
+
+  // Keyboard focus always lights the node; mouse hover only does on a fine
+  // pointer, so a touch tap can't leave a stuck glow.
+  const active = selected || focused || (hovered && finePointer)
+  const showLabel = focused || (hovered && labelShown) || selected
 
   // The label pill reads as "arriving" (scale-in with the fade), not popping in
   // at full size. Reset-on-deactivate happens during render (React's documented
@@ -84,13 +115,19 @@ function Node({ x, y, width, height, state, label, selected, onSelect, radius })
   // the needs-attention orb pulses on its own (CSS keyframe in index.css) unless
   // it is already hovered/selected. Understood/changed stay calm at rest — the
   // glow is a *runtime* cue, never a static tint on the whole screen.
+  //
+  // The glow shape (blur, gradient edge) is painted ONCE via the static
+  // #rootmap-glow-blur filter; only its opacity ever changes, so nothing here
+  // triggers a repaint of the blur itself (RA-1 — animating `filter` is
+  // expensive per-frame, `opacity` is compositor-only).
   const glowColor = STATE_TOKEN[state]
-  // A static drop-shadow is not motion, so the hover/selection glow applies even
+  // A static glow is not motion, so the hover/selection glow applies even
   // under reduced-motion (a selected lantern must still read as selected); only
   // the transition and the attention pulse are gated as animation.
-  const activeGlow = active
-    ? { filter: `drop-shadow(0 0 7px color-mix(in srgb, ${glowColor} 82%, transparent))` }
-    : {}
+  const glowStyle = {
+    opacity: active ? 0.9 : 0,
+    transition: reduced ? undefined : 'opacity var(--motion-base) var(--ease-out)',
+  }
   const pulse = state === 'attention' && !active && !reduced ? 'rootmap-orb--pulse' : ''
 
   return (
@@ -115,17 +152,21 @@ function Node({ x, y, width, height, state, label, selected, onSelect, radius })
         strokeWidth={1.5}
         opacity={0.45}
       />
+      <circle
+        cx={cx}
+        cy={cy}
+        r={r * 0.82}
+        fill={glowColor}
+        filter="url(#rootmap-glow-blur)"
+        className={pulse}
+        style={glowStyle}
+      />
       <image
         href={STATE_SPRITE[state]}
         x={cx - r}
         y={cy - r}
         width={r * 2}
         height={r * 2}
-        className={pulse}
-        style={{
-          ...activeGlow,
-          transition: reduced ? undefined : 'filter var(--motion-base) var(--ease-out)',
-        }}
       />
       {showLabel && (
         <g
@@ -173,13 +214,17 @@ function Node({ x, y, width, height, state, label, selected, onSelect, radius })
             setHovered(false)
             release()
           }}
-          onFocus={() => setHovered(true)}
+          onFocus={() => setFocused(true)}
           onBlur={() => {
-            setHovered(false)
+            setFocused(false)
             release()
           }}
           onPointerDown={() => setPressed(true)}
           onPointerUp={release}
+          onPointerCancel={() => {
+            setHovered(false)
+            release()
+          }}
           style={{
             width: '100%',
             height: '100%',
@@ -252,6 +297,14 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
       <div style={styles.canvasWrap}>
         <img src={rootMapArt} alt="" style={styles.art} />
         <svg viewBox={`0 0 ${width} ${height}`} style={styles.svg} role="img" aria-label="The root system — what Shoresh took in.">
+          <defs>
+            {/* Static blur, painted once — RA-1: node glow only ever
+                animates opacity on the shapes that reference this filter,
+                never the filter itself. */}
+            <filter id="rootmap-glow-blur" x="-100%" y="-100%" width="300%" height="300%">
+              <feGaussianBlur stdDeviation="6" />
+            </filter>
+          </defs>
           {/* No straight connector lines: the drawn roots of the 3D backdrop
               already carry each child down from its domain, so an overlaid line
               would read as a competing (and geometrically wrong) extra root. */}
