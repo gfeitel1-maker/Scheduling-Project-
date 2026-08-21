@@ -65,10 +65,12 @@
     "directories": {
       "output": "release"
     },
+    "icon": "build/icon.png",
     "mac": {
       "target": "dir",
       "category": "public.app-category.productivity",
-      "identity": null
+      "identity": null,
+      "icon": "build/icon.icns"
     }
   }
 }
