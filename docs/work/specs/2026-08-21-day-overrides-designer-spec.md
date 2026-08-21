@@ -3,13 +3,9 @@ title: "T108 — Day-Overrides re-point: Designer spec"
 document_type: spec
 status: draft
 created: 2026-08-21
-governing_docs:
-  - docs/governance/standards/DESIGN_STANDARD.md
-  - docs/adr/2026-08-06-schedule-canvas-visual-layer.md
-related_specs:
-  - docs/work/specs/2026-08-21-day-overrides-repoint-design.md
-related_adrs:
-  - docs/adr/2026-08-21-day-overrides-repoint-shape.md
+governing_docs: [docs/governance/standards/DESIGN_STANDARD.md, docs/adr/2026-08-06-schedule-canvas-visual-layer.md]
+related_specs: [docs/work/specs/2026-08-21-day-overrides-repoint-design.md]
+related_adrs: [docs/adr/2026-08-21-day-overrides-repoint-shape.md]
 related_tickets:
   - docs/work/tickets/T108-day-overrides-repoint.md
 archive_when: T108 ships and merges; fold the shipped shape into PLATFORM_STATE

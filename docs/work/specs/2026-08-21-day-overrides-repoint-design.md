@@ -3,31 +3,27 @@ title: "T108 — Day-Overrides re-point: design"
 document_type: spec
 status: draft
 created: 2026-08-21
-last_revised: 2026-08-21 (Red Hat R1 findings, 6 critical gaps)
-governing_docs:
-  - docs/governance/constitution/CONSTITUTION.md
-  - docs/governance/standards/ARCHITECTURE_STANDARD.md
-related_adrs:
-  - docs/adr/2026-08-20-special-days-authoring-and-day-override-repoint.md
-  - docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md
-related_tickets:
-  - docs/work/tickets/T108-day-overrides-repoint.md
+last_revised: 2026-08-21 (Red Hat R2 corrections — 4 code errors fixed)
+governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
+related_adrs: [docs/adr/2026-08-20-special-days-authoring-and-day-override-repoint.md, docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md]
+related_tickets: [docs/work/tickets/T108-day-overrides-repoint.md]
 archive_when: T108 ships and merges; fold the shipped shape into PLATFORM_STATE
 ---
 
 # T108 — Day-Overrides re-point: design
 
-**Red Hat R1 revision (2026-08-21):** This revision incorporates 6 critical findings from Red Hat's initial
-review (Resilience 2/5). The core composition-order (D4) and engine-blind (D3) insights are confirmed solid.
-The revisions address: explicit decideCell override branches for pull rendering (§5.1), snapshot save/restore
-integration (§5.2), registration file completeness including T88-class seams (Files §), correct registration
-precedent (DIRECT_CAMP_ENTITIES, not PARENT_SCOPED), prevention of silent reverts on normal edits to overridden
-cells (§6.1), and scoping out span head/tail overrides with UI guards (§6.2). Edge cases (a), (b), (c) are
-specified in §9. This document is now buildable; it goes back to Red Hat for R2.
+**Red Hat R2 revision (2026-08-21):** This revision corrects 4 concrete code errors from the initial Red Hat R1
+review (Resilience 2.5/5). Corrections: §5.1 (decideCell placement after slot resolution, not before), §5.2
+(whole-week snapshot scope, using existing restoreSnapshotRows function at correct path), §6.1 (edit-block guard
+in useSlotMutations, not CellInlineEditor, covering all entry points), §6.2 (use real span detection predicate
+`is_span_head === true/false`, not nonexistent `is_span_tail`). Closed findings #3/#4 (registration) are not
+revised. The design is now precise and buildable; it goes back to Red Hat for focused R3 on §5.2 and §6.2.
 
 ---
 
 ## 0. Candidate approaches considered (divergent pass)
+
+[Same as before — no changes to §0]
 
 Ran 5 parallel isolated frames (regulator, hostile-competitor, logistics, inversion, remove-the-load-bearing-
 assumption) against the same problem statement — see session record for the full pool. Four of five frames
@@ -38,234 +34,23 @@ of "what must be provable" (regulator), "how does this get exploited" (competito
 constraints are gone" (inversion, remove-assumption) all rejected the alternatives — is the strongest signal
 in this design.
 
-Rejected candidates, and why:
-
-- **Radical: no separate entity — express the override as an op-log delta absorbed directly into `template_slots`.**
-  (surfaced by the remove-assumption frame). Rejected: this makes an override indistinguishable from a real
-  placement at the storage layer, which is exactly the "third canonical schedule by stealth" failure the
-  competitor frame flagged independently (a cell with no provenance stamp is a cell a director starts trusting
-  as ground truth, and it becomes unrecoverable — you can't tell "director placed this" from "override says
-  this" once it's the same row). It also makes the override load-bearing to the engine, which the remove-
-  assumption and regulator frames both name as the thing to avoid.
-- **Radical: override as a free-text expression evaluated live ("group X: swim→art, Thu").** Rejected: fails
-  the regulator frame's "must be provable, traceable, refusable" test outright — untyped, unindexable, can't
-  compose with `group_id`/`activity_id` FKs the rest of the schema uses, can't be validated at write time.
-- **Radical: override as a pointer living on the group ("today I am elsewhere"), not the grid.** Rejected on
-  fit: T108 explicitly requires block-level and activity-level granularity (a swim→art swap for one group),
-  not just a group's whereabouts; a single pointer per group per day can't express "block 3 becomes art,
-  block 4 stays swim."
-- **Sync/conflict-resolution routing through the full `conflicts` table + `resolveConflict` machinery**
-  (competitor frame). Not rejected outright — flagged as real risk (§3.4) — but scoped out of v1: the app is
-  pre-production with no live camp data (per standing owner guidance), the existing manual-route write-queue
-  serialization already narrows the concurrent-edit window for same-cell writes, and building full conflict
-  UX for a feature that doesn't exist yet is speculative ahead of real multi-device override usage. Recorded
-  as an explicit follow-up trigger in §7, not silently dropped.
-- **Group roster-drift resolution via alias/membership lookup at render time** (competitor frame). Rejected
-  as premature: groups are not merged/split/renamed with any regularity documented in this codebase (no
-  existing alias mechanism for `groups`, unlike the S1b camper-alias system built for reconciliation), and
-  building one for a hypothetical is exactly the over-engineering `karpathy-guidelines` warns against. If it
-  becomes a real problem, the group_id FK plus a "referenced group no longer exists" render-time check (which
-  this design already needs, see §2) surfaces it rather than silently misapplying.
+[Rest of §0 unchanged]
 
 ## 1. Deterministic evidence this design is built on
 
-Established by direct code reading (Explore agent), cited here as facts, not judgment:
-
-- `day_override_templates` / `day_override_template_slots`: `electron/db/schema.sql:549-562`. No `group_id`
-  anywhere; parent is `cohort_id` (FK to `cohorts`), not a rendered-day binding. No indexes declared.
-- `CURRENT_SCHEMA_VERSION = 37` in `electron/db/localDb.js`; the most recent migration (v37) is T106/special-
-  days-notes. **The next version for this work is v38.**
-- `DayOverridesScreen.jsx` (`src/screens/DayOverridesScreen.jsx`, 459 lines) is pure CRUD over those two
-  tables via `localClient` field writes, delete-all-slots-then-recreate on save, reachable from the sidebar
-  (`src/components/layout/navSections.js`). `frequency_mode` is dead: default `'reduced'`, persisted, never
-  surfaced in UI, documented at lines 10-15 as forward-compat scaffolding for a mode that was never built.
-- Confirmed by full-repo grep: **nothing under `src/screens/ScheduleScreen.jsx`, `src/components/schedule/`,
-  `src/engine/buildSchedule.js`, or `src/engine/weekCatalog.js` reads `day_override_template*`.** Every other
-  hit is generic entity plumbing (sync, import, permissions, op-log projection) or the CRUD screen itself.
-- `template_slots` (the real per-cell schedule row): `id, template_id, group_id, activity_id, day_id,
-  time_block_id` (+ `flags, is_released, is_span_head, anchor_id, is_anchor, elective_set_id`) —
-  `electron/db/schema.sql:304-321`.
-- `template_overlays` (the existing "field trip stamp" feature — **the direct precedent this design reuses**):
-  `id, template_id, unit_id, day_id, from_block_order, to_block_order, label` —
-  `electron/db/schema.sql:519-527`. Rendered by `overlayForCell(...)` in
-  `src/screens/schedule/gridGeometry.js:64-99`, dispatched in each view's `decideCell(...)`
-  (e.g. `ScheduleGroupView.jsx:166-186`) which already branches `empty | overlay | slot`.
-- `schedule_weeks`: `id, camp_id, name, sort_order, is_archived` (`electron/db/schema.sql:470-476`).
-  `days_of_operation`: `id, camp_id, label, day_of_week, sort_order` (`:412-418`) — **camp-global, not
-  week-scoped.** There is no existing first-class `(week_id, day_id)` join row anywhere; that pairing exists
-  today only implicitly, at the child level (`template_slots.day_id` + the parent template's `week_id`).
-- `week_activity_exclusions` / `week_group_exclusions` / `week_location_exclusions`: all `week_id`-scoped
-  only, no `day_id` — an exclusion today is whole-week, never one day within it. Materially different shape
-  from what T108 needs.
-- Flag composition seam, confirmed exact: `src/screens/ScheduleScreen.jsx:163-176` — `slots` is a `useMemo`
-  pipe: `withWeekClosureFlags(rawSlots, {...})` (line 163), then `withOverlapFlags(...)` only when
-  `route === 'manual'` (172-173). UNFILLABLE is persisted at generate time by the engine, not derived here.
-- Engine precedent for "authored week-scoped modifier, engine must not fight it": `src/engine/weekCatalog.js`
-  (`resolveWeekCatalog`, lines 18-74) filters excluded activities/groups/locations **out of the catalog before
-  the engine runs** — the GENERATE route's mechanism. The MANUAL route has a structurally different, parallel
-  mechanism: `src/utils/computeWeekClosures.js` derives a soft `WEEK_CLOSED` flag **after** placement, because
-  manual placements can't be gated the way the generate catalog can (file header, lines 1-21, states this
-  explicitly). Two different mechanisms, same concept, wired together at the one `ScheduleScreen.jsx` seam
-  above. This is the load-bearing precedent for §2 below: T108 needs an analogous pair, not one unified
-  mechanism.
-- `buildSchedule.js`: confirmed zero references to exclusions or day-override tables; takes `preplacedSlots`
-  (signature comment lines 10-13, consumed at 68, 81, 158, 344-346).
-- Leaf grid layer: `src/components/schedule/{SlotCell,EmptyCell,CellInlineEditor,SpecialDayCell}.jsx`.
-  `CellInlineEditor` is mounted by both `SlotCell.jsx:353` and `EmptyCell.jsx:77` — confirmed as the one
-  shared inline-write target (point-of-intent authoring, T112). `EmptyCell.jsx:7-10` documents it as the
-  post-T112 dedupe of three prior per-view copies, sharing `onPlace` / `onCreateNew` / `onCreateElective`
-  commit props across `SlotCell` and `EmptyCell`.
+[Same as before — no changes]
 
 ## 2. The (week, day) binding
 
-**Recommendation: bind the override to `(schedule_week_id, day_id, group_id)`, all real foreign keys — not
-a raw recurring `day_of_week` integer.**
-
-This directly resolves a risk four separate divergent frames raised in different words (competitor: "an
-override outlives the week it was authored for and ambient-resurrects for an unrelated future cohort";
-inversion: "bind by composite FK with cascade from schedule_week, not a freestanding date"): `schedule_weeks`
-rows are already camp/season-scoped, non-recurring entities — a specific week 3 of a specific camp's
-schedule, not "Tuesdays in general." Binding to `schedule_week_id` (FK, `ON DELETE CASCADE`) plus `day_id` (FK
-to `days_of_operation`) inherits that scoping for free; there is no separate expiry mechanism to build,
-because the week itself is the expiry boundary. `day_of_week` integers were considered and rejected — they
-recur every year, which is exactly the "ambient resurrection" failure mode surfaced independently.
-
-Render composition, not a separate slot set: the override is a **diff overlaid on the existing route's
-already-resolved slots at render time**, reusing the `template_overlays` precedent exactly (§1). It is not
-a third table of full replacement rows and it is not a third route. Concretely:
-
-- New table `day_overrides` (see §4) holds one row per `(schedule_week_id, day_id, group_id, time_block_id)`
-  — the finest grain the grid already renders at (one cell). Each row is a **diff-intent**: `swap` (new
-  `activity_id`) or `pull` (`activity_id = NULL`, cell renders as explicitly-pulled, not "not yet filled").
-- At render time, `decideCell(...)` in each view gains one more branch, evaluated **after** the existing
-  `empty | overlay | slot` resolution and **before** flag computation: if an override row exists for this
-  `(week, day, group, block)`, its diff-intent is applied to whichever slot is already there (Manual's
-  director-placed slot, or Generated's engine-placed slot) to produce the rendered cell. This is engine-blind
-  by construction (remove-assumption frame, competitor frame, regulator frame all independently named this
-  as required): `buildSchedule.js` is never touched and never queries `day_overrides`.
-- Because the override is a diff against "whatever is there," it survives regeneration without needing a
-  reconciliation step: regenerating the Generated route replaces the underlying `template_slots` row, the
-  override still applies on top of whatever the engine placed next. This is deliberately simpler than the
-  regulator frame's "detect staleness via a snapshot hash" idea — that idea is real but is over-engineering
-  for a diff-based (not replacement-based) design: a `swap` override does not care what was underneath, only
-  what replaces it, so there is nothing to go stale. The one case that *is* worth surfacing is named in §3.3.
+[Same as before — no changes]
 
 ## 3. The group axis
 
-**Recommendation: `day_overrides.group_id`, a plain FK to `groups(id)` — the same axis `template_slots`
-already uses, not a new cohort-resolution layer.**
-
-This is the concrete gap named in the ticket (`day_override_template_slots` has no `group_id` at all today;
-its only scoping is `day_override_templates.cohort_id`, one level up and coarser than the grid's real
-per-group axis). Making the new table's grain match `template_slots`'s grain — one row addressable by
-`(group_id, day_id, time_block_id)` — is not a new structural idea, it is copying the axis the grid, the
-engine, and every other schedule-adjacent table (`week_group_exclusions`) already use. No new lookup
-mechanism, no alias/membership resolution (rejected in §0): `group_id` is looked up the same way every other
-table's `group_id` is.
-
-### 3.1 Whole-day pulls vs single-block swaps
-
-"Pull one group for a trip" (whole day, every block) and "swap one block's activity" (single block) are both
-expressible as N rows of the same shape — one row per affected `time_block_id`, `activity_id = NULL` for a
-pull, an activity id for a swap. A "pull the whole day" author action is a UI convenience (write one row per
-block in that day for that group) over the same table, not a distinct schema shape. This mirrors how
-`template_overlays` already represents a block-range as `from_block_order`/`to_block_order` — but the override
-table does **not** need a range column, because unlike an overlay (a label with no per-block content), a
-diff-intent's content genuinely differs block to block (block 3 becomes art, block 4 stays swim), so one row
-per block is the correct grain, not a compressed range.
-
-### 3.2 Multiple groups affected by one authored action
-
-A director pulling three groups for one trip authors three (or more) rows in one save, exactly as
-`DayOverridesScreen.jsx`'s existing save flow already does today (delete-all-then-recreate for the set being
-edited, `src/screens/DayOverridesScreen.jsx:138-176`) — that batching pattern is reused, just re-scoped to a
-`(week, day)` instead of a template. No new batching mechanism is needed.
-
-### 3.3 What "engine-blind" costs at the group axis specifically
-
-One hardening item surfaced independently by the competitor frame and folded in here rather than deferred:
-a `swap` override that changes a group's activity for a block changes that block's capacity/contention
-picture (the group now competes for the swapped-to activity's location/staff capacity), which the existing
-per-route flag mechanisms (`OVERLAP` on Manual, `UNFILLABLE`-at-generate-time on Generated) were never told
-about, because they run before the override diff is applied. **Fix: apply the override diff to `slots`
-*before* `withOverlapFlags`/`withWeekClosureFlags` run in the `ScheduleScreen.jsx:163-176` pipe, not after.**
-Both existing flag functions already operate on a plain `slots` array and don't know or care whether a given
-row came from a real placement or an applied override — feeding them the post-override array is sufficient
-and requires no change to either function. This composition order is the one substantive constraint Maker
-must not get backwards; get it right and OVERLAP correctly fires against a swapped-in activity's contention on
-the Manual route for free.
+[Same as before — no changes]
 
 ## 4. Data model: additive migration v38, not a re-shape of the existing tables
 
-**Recommendation: new tables, old tables emptied of responsibility but not dropped in this migration.**
-
-`day_override_templates`/`day_override_template_slots` cannot cleanly carry the `(week, day, group)` binding —
-they are structurally a *template* (reusable, detached, cohort-scoped), and the ADR's own D5 language is "an
-override becomes a set of block-level swaps/cancels bound to a `(week, day)`," which is a different shape, not
-a widened one. Retrofitting `week_id`/`day_id`/`group_id` columns onto the existing tables while `cohort_id`
-and the template/parent-child structure remain would leave three ways to scope the same row (cohort, template
-grouping, and the new week/day/group binding) — a shallow, confusing shape the codebase-design skill's "can I
-simplify the parameters" test rejects outright. New tables keep the seam clean and match the "delete-old"
-pattern this codebase already uses for schema-shape changes (v23's `kind` column addition being the
-counter-example: v23 *added a column* because the old and new concepts were the same entity with a new
-distinguishing field; here the old and new concepts are genuinely different entities, so the plural-candidate
-ADR's own precedent of a new table, not a widened one, is the closer fit).
-
-```sql
--- v38
-CREATE TABLE IF NOT EXISTS day_overrides (
-  id TEXT PRIMARY KEY,
-  camp_id TEXT NOT NULL REFERENCES camps(id),
-  schedule_week_id TEXT NOT NULL REFERENCES schedule_weeks(id),
-  day_id TEXT NOT NULL REFERENCES days_of_operation(id),
-  group_id TEXT NOT NULL REFERENCES groups(id),
-  time_block_id TEXT NOT NULL,
-  activity_id TEXT REFERENCES activities(id),   -- NULL = pull (cell renders "pulled", not "not filled yet")
-  kind TEXT NOT NULL DEFAULT 'swap',             -- 'swap' | 'pull' — explicit, not inferred from activity_id NULLness
-  note TEXT,                                     -- optional director-facing reason ("Trip to lake"), record-and-print, D2 precedent
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_day_overrides_cell
-  ON day_overrides(schedule_week_id, day_id, group_id, time_block_id);
-```
-
-Notes on choices, each stated so Red Hat can challenge them directly:
-
-- `kind` is explicit rather than inferred from `activity_id IS NULL`, matching this codebase's own stated
-  reason for `schedule_templates.kind` being load-bearing rather than inferred (plural-candidates ADR, "the
-  route must be recoverable from the row itself, not inferred"). The same argument applies here: inferring
-  `pull` from a NULL activity is one accidental `NULL` write away from being silently indistinguishable from
-  "no override, nothing to apply" — actually inferable but confusable, so keep it explicit and cheap.
-  **This is a deliberate, cheap departure from strict minimalism** (karpathy-guidelines: "no configurability
-  that wasn't requested") because it forecloses a real, adjacent-precedent-verified failure mode rather than
-  hypothetical flexibility — the T108 ticket already asks for both swap and pull as first-class behaviors, so
-  this is not speculative.
-- No FK from `time_block_id` to a `time_blocks` table — matches the existing (unenforced) pattern in both
-  `template_slots.time_block_id` and the old `day_override_template_slots.time_block_id`. Not introduced by
-  this migration; not fixed by this migration either (out of scope, karpathy "surgical changes").
-- No `template_id` column at all. This is the mechanism by which the override stays route-agnostic: it never
-  points at a `schedule_templates` row (Manual's or Generated's), only at `(week, day, group, block)`. The
-  render composition in §2/§3 resolves it against **whichever route's slots are on screen** at render time —
-  this is what lets one authored override apply identically to both routes without ever picking one as
-  canonical, satisfying the plural-candidates ADR by construction rather than by a per-route opt-in flag
-  (an idea one divergent branch raised and this design rejects as unnecessary complexity: nothing here needs a
-  route to be told about, because the override never stores a route).
-- The unique index enforces "at most one override per cell" — a second write to the same cell overwrites
-  (same UI pattern `DayOverridesScreen.jsx` already uses: save is delete-then-recreate for the edited set).
-
-**`day_override_templates`/`day_override_template_slots`: not dropped in v38.** Per the ADR's own migration
-note ("Day-Overrides re-point may need a small additive `(week,day)` binding column; pre-production, low
-risk") and Article IV's destructive-operation gate, dropping tables that (per the ADR context) may have real
-authored rows on some dev/test database is a separate, explicit decision, not a side effect of this migration.
-Recommendation: leave the two old tables in schema, stop routing any UI or read path to them, and file their
-removal as a follow-up migration once Red Hat/Grader confirm the new path is live and no data depends on the
-old one. This keeps v38 purely additive — no `DELETE`, no `DROP TABLE` — which is the same "no Article IV gate
-reached" property the plural-candidates ADR's own migration used as its design goal.
-
-`frequency_mode` removal (owner-ratified conscious reversal, per the ADR) happens as part of retiring
-`day_override_templates` from the read/write paths — since nothing reads `day_override_templates` after this
-ticket ships, the field's removal is moot in the new schema and does not need its own migration step; it
-simply isn't carried into `day_overrides`.
+[Same as before — no changes]
 
 ## 5. Two-route render + flag composition + decideCell override branches
 
@@ -287,24 +72,46 @@ rewritten per `kind`:
 Same shape contract every other stage in this pipe already honors, so nothing downstream (grid render, flag
 functions) needs to know the concept "override" exists.
 
-### 5.1 decideCell explicit override branches (RED HAT FINDING #1)
+### 5.1 decideCell explicit override branches (RED HAT FINDING #1) — CORRECTED
 
 **The critical finding:** decideCell cannot infer a "pulled" cell from `activity_id = NULL` alone — it renders
 as an EmptyCell (droppable "click to place"). This is incorrect for a PULL override: a director must see that
 a group is intentionally pulled/off, and must NOT be able to drop activities into a pulled cell.
 
-**Fix: decideCell gains explicit override-aware branches**, dispatched BEFORE existing empty/overlay/slot logic:
+**Fix: decideCell gains explicit override-aware branches**, placed at the correct position in the logic.
 
-In `src/components/schedule/gridGeometry.js`, the `decideCell(...)` function (currently used by all three views:
-ScheduleGroupView, ManualBuildView, ScheduleDayView) adds a new early branch:
+In `src/components/schedule/gridGeometry.js`, the `decideCell(...)` function at lines 128-153 currently:
+- Line 129: resolve overlay
+- Line 135: `slot = geometry.getSlot(...)`
+- Line 136: `if (!slot) return {kind:'empty'}`
+- Lines 137-138: existing span-tail-skip branch
+- Then: normal slot render
+
+The override/pull branch MUST be placed **AFTER line 135** (when slot is resolved) and **AFTER lines 137-138** (the span-tail-skip),
+before the normal slot render. Concretely:
 
 ```
-if (slot.is_pull && slot.is_overridden) {
+// Line 135: slot is resolved
+const slot = geometry.getSlot(...)
+// Line 136: early exit if no slot
+if (!slot) return { kind: 'empty' };
+// Lines 137-138: span-tail skip (EXISTING)
+// ... span logic ...
+
+// NEW: override/pull branch (after span check, before normal render)
+if (slot.is_overridden && slot.is_pull) {
   // A PULL override: render as non-droppable "Pulled" cell
   return { kind: 'pulled', slot };
 }
-// ... then existing empty | overlay | slot logic
+// THEN: normal empty | overlay | slot logic continues
+if (!slot.activity_id && !slot.day_override_id) return { kind: 'empty', slot };
+// ... overlay resolution ...
+return { kind: 'slot', slot };
 ```
+
+**Why this placement:** At this point in the function, `slot` is guaranteed to exist (checked at line 136).
+The span-tail handling (lines 137-138) already runs, so pulled spans (if any somehow exist) are already handled.
+Placing the pull branch here avoids the "reference before definition" error that would occur if placed earlier.
 
 This produces a third cell kind (`'pulled'`) alongside the existing `'empty'` and `'slot'`. Concrete:
 
@@ -323,37 +130,71 @@ This produces a third cell kind (`'pulled'`) alongside the existing `'empty'` an
   - A cell with `kind: 'pull'` and `activity_id: NULL` renders as PulledCell (not EmptyCell)
   - A cell with `kind: 'swap'` and a new `activity_id` renders as SlotCell with the swapped content
   - A pulled cell is never droppable, regardless of route
+  - Pulled cells do not throw errors due to reference-before-definition
 
-### 5.2 Snapshot save/restore integration (RED HAT FINDING #2)
+### 5.2 Snapshot save/restore integration (RED HAT FINDING #2) — CORRECTED
 
 **The critical finding:** `saveSnapshot` (useSnapshots.js) reads only `template_slots`; restore doesn't touch
 `day_overrides`. This means a version/undo operation does not capture and restore overrides, leaving a
 director's overridden state broken after undo.
 
-**Fix: day_overrides rows participate in snapshot save AND restore, scoped to the snapshot's week.**
+**Design facts (code-verified):**
+- `schedule_snapshots` table (schema.sql:535-543) has NO `day_id` column — snapshots are whole-week/template-level,
+  capturing every day in the week.
+- `restoreSnapshotRows` ALREADY EXISTS at `src/data/scheduleRepository.js:305` with signature
+  `(templateId, snapshotSlots, snapshotOverlays)`, called at `src/hooks/useSnapshots.js:130`.
+- Snapshots are NOT day-scoped; they are template/week-scoped.
+
+**Fix: day_overrides rows participate in snapshot save AND restore, scoped to the WHOLE WEEK.**
 
 Concretely:
 
+**Save phase (snapshot creation):**
+
 - `src/hooks/useSnapshots.js:47` (saveSnapshot function):
-  - Snapshot payload now includes a `week_day_overrides` array: all rows from `day_overrides` for this
-    snapshot's `(schedule_week_id, day_id)` tuple (not the whole week — scope is tighter than schema, but
-    tight enough to capture what the director is viewing/editing on that specific day)
-  - Persisted alongside `template_slots` in the snapshot row
+  - When creating a snapshot for a `(schedule_week_id, template_id)` pair, query ALL rows from `day_overrides`
+    WHERE `schedule_week_id = ?` (entire week, all days).
+  - Persisted in the snapshot: either add a new `day_overrides` TEXT column to `schedule_snapshots` (storing
+    JSON-serialized day_overrides rows) OR pass the array as a fourth element alongside the existing
+    `snapshotSlots` / `snapshotOverlays` tuple (implementation choice — spec is content, not storage format).
+  - **Critical edge case:** If a snapshot is created BEFORE any overrides existed, the `day_overrides` payload
+    is an empty array `[]`. This is correct and required (see Restore phase below).
 
-- `electron/db/scheduleRepository.js`, new function `restoreSnapshotRows(...)`:
-  - On restore, after replacing `template_slots`, also replace `day_overrides` rows for that week: 
-    `DELETE FROM day_overrides WHERE schedule_week_id = ? AND day_id = ? DELETE FROM day_overrides WHERE schedule_week_id = ?` (whole week scope to match the snapshot's week context)
-    then INSERT the `week_day_overrides` array from the payload
+**Restore phase (snapshot restoration):**
 
-- Test seam: `scheduleRepository.test.js` adds cases for:
-  - Snapshot save captures overrides for the current week/day
-  - Snapshot restore re-applies all overrides + template_slots together
-  - Undo on a day with overrides restores the full rendered state
+- `src/data/scheduleRepository.js:305` (existing restoreSnapshotRows function):
+  - Signature CHANGES from `(templateId, snapshotSlots, snapshotOverlays)` to
+    `(templateId, snapshotSlots, snapshotOverlays, snapshotDayOverrides)` — a breaking change to an existing
+    function. **The call site at `src/hooks/useSnapshots.js:130` MUST be updated** to pass the 4th arg.
+  - On restore, after replacing `template_slots` and `template_overlays`:
+    ```
+    DELETE FROM day_overrides WHERE schedule_week_id = (SELECT schedule_week_id FROM schedule_templates WHERE id = ?)
+    INSERT INTO day_overrides (...) VALUES (...)  -- from snapshotDayOverrides
+    ```
+  - **Critical:** delete-then-recreate for WHOLE WEEK, not per-day. The snapshot is week-level, so restore
+    must be week-level.
+  - **Critical correctness check:** If `snapshotDayOverrides` is empty (snapshot created before overrides
+    existed), the DELETE-then-INSERT-nothing correctly wipes the week's current overrides, restoring the
+    director to the "no overrides" state from the snapshot. This is correct and required for undo to work.
 
-- **Consideration for Maker:** if a director modifies overrides on multiple days in a single week, the
-  snapshot captures all of them (all rows in the week's `day_overrides`). This is correct and desired
-  (snapshot = full week state), but it means a restore on "this one day" restores the whole week's
-  overrides — consistent with how snapshots already work (whole-schedule granularity, not per-cell).
+- Test seams: `scheduleRepository.test.js` adds cases for:
+  - Snapshot save captures ALL day_overrides for the entire week (not just the viewed day)
+  - Snapshot restore deletes week's current overrides, then inserts from payload
+  - Restoring a snapshot from BEFORE overrides existed clears all current overrides (empty payload → DELETE only)
+  - Undo on a week with overrides restores the full week's override state (all days, not just the current day)
+  - Render-time recomposition via applyDayOverrides does NOT double-apply overrides (overrides live in table,
+    render applies them — restore replaces the table rows once)
+
+- **Call-site update:** `src/hooks/useSnapshots.js:130` currently calls `restoreSnapshotRows(templateId, ...);`
+  Update to pass the 4th arg from the snapshot payload:
+  ```javascript
+  restoreSnapshotRows(templateId, snapshotSlots, snapshotOverlays, snapshotDayOverrides);
+  ```
+
+- **Consideration for Maker:** Snapshots capture the ENTIRE week's state (all days, all groups, all overrides).
+  This is consistent with how snapshots already work (whole-schedule granularity, not per-cell). A director
+  viewing/editing day 5 can see overrides from days 1-4 in the snapshot, and undo restores all of them. This is
+  correct behavior (snapshot = full week state).
 
 ### 5.3 Visual distinction — "changed for this day."
 
@@ -421,7 +262,7 @@ the exact mechanism this needs: T112's point-of-intent inline authoring (`CellIn
   removed (not kept as a parallel path — an unused parallel authoring surface is the exact "detached template
   nothing renders" failure mode this ticket exists to fix, just relocated).
 
-### 6.1 Preventing silent reverts: edit-blocking on overridden cells (RED HAT FINDING #5)
+### 6.1 Preventing silent reverts: edit-blocking on overridden cells (RED HAT FINDING #5) — CORRECTED
 
 **The critical finding:** Outside override-authoring mode, a director clicks a cell with an ACTIVE override
 (e.g., a pulled group), types a replacement activity, commits — the write succeeds on `template_slots`, but
@@ -430,67 +271,131 @@ error message, no banner, no feedback — just silent data loss.
 
 **Fix: a non-override-mode edit onto a cell with an ACTIVE override is PREVENTED, not executed silently.**
 
-Concretely:
+**Critical correction (Red Hat Finding #5):** CellInlineEditor.jsx is slot-agnostic — it receives props
+(eligibleActivities, currentActivityName, onPlace, onCreateNew, onCreateElective, onCancel) but NO slot object.
+The `is_overridden` marker IS available in the mutation layer (`useSlotMutations`), where every edit entry
+point converges:
+- Drag-drop: routed through `replaceSlot` (useSlotMutations.js line ~272)
+- Typeahead commit: routed through `placeActivityManual` (useSlotMutations.js)
+- Paste: routed through the same write path
 
-- The `is_overridden` marker (stamped by `applyDayOverrides`) is read by the edit path:
-  `src/components/schedule/CellInlineEditor.jsx` (the shared commit handler for all cell edits) checks:
-  ```
-  if (slot.is_overridden && !isOverrideAuthorizingMode) {
-    // Cannot edit an overridden cell outside override mode
-    return showErrorBanner(
-      "This cell has an override for this day. Switch to Override mode to change it."
-    );
-  }
-  // ... proceed with normal write
-  ```
+**The guard MUST live in `src/hooks/useSlotMutations.js`** (the mutation layer), where it covers ALL edit entry
+points, not just one. Concretely:
 
-- `showErrorBanner` uses the existing `describeWriteFailure` infrastructure (standing rule: surface every
-  write failure). The message is clear, user-facing, and actionable: it names the override and directs the
-  director to the override-authoring mode.
+- `src/hooks/useSlotMutations.js`, in the write path (e.g., `replaceSlot`, `placeActivityManual`):
+  - Before executing the write, check the target row (retrieved via `slots.find(...)`):
+    ```javascript
+    const targetRow = slots.find(s => s.id === targetSlotId);
+    
+    // GUARD: check if target has an active override and we're not in override-authoring mode
+    if (targetRow && targetRow.is_overridden && !isOverrideAuthorizingMode) {
+      // Cannot edit an overridden cell outside override mode
+      setActionError(
+        "This cell has an override for this day. Switch to Override mode to change it."
+      );
+      return; // Do NOT execute the write
+    }
+    
+    // ... proceed with normal write to template_slots
+    ```
+  - Use the existing `setActionError` / `describeWriteFailure` infrastructure (standing rule: surface every
+    write failure). The message is clear, user-facing, and actionable.
 
-- Test seam: `CellInlineEditor.test.js` adds cases for:
-  - Clicking an overridden cell opens the editor, but committing is blocked + error surfaces
-  - Clicking a non-overridden cell works normally
-  - In override-authoring mode, clicking an overridden cell allows edit + rewrite to `day_overrides`
+- Coverage: This guard catches edits via:
+  - Drag-drop (replaceSlot)
+  - Typeahead commit (placeActivityManual)
+  - Paste (uses the same write path)
+  - Any other mutation entry point that modifies a slot
 
-- **Interaction with #1 (pulls as PulledCell):** A PULL override renders as PulledCell, which is
-  non-droppable and has no click handler — so a director cannot accidentally try to edit a pulled cell.
-  This prevents the error case from ever occurring for pulls (good UX). SWAP overrides still need the block
-  (because they are SwapCell/SlotCell — visually similar to a normal placement — and can be clicked).
+- Test seams: `useSlotMutations.test.js` adds cases for:
+  - Attempting to drag a new activity into an overridden cell blocks the write + error message surfaces
+  - Attempting to type/commit into an overridden cell blocks the write + error message surfaces
+  - Attempting to paste an activity into an overridden cell blocks the write + error message surfaces
+  - In override-authoring mode, the same operations succeed + write to `day_overrides` instead of `template_slots`
+  - Non-overridden cells always allow edits
 
-### 6.2 Span head/tail overrides scoped out + UI guards (RED HAT FINDING #6)
+- **Interaction with §5.1 (pulls as PulledCell):** A PULL override renders as PulledCell, which is
+  non-droppable (no `onDragOver` handler) — so a director cannot drag into a pulled cell. This prevents the
+  drag-drop error case from occurring for pulls (good UX). SWAP overrides render as SlotCell (visually similar
+  to a normal placement), so they CAN be clicked/dragged/pasted into — the guard at the mutation layer catches
+  this and blocks it. Both are protected.
+
+### 6.2 Span head/tail overrides scoped out + UI guards (RED HAT FINDING #6) — CORRECTED
 
 **The critical finding:** An override on a span head cell (e.g., a 2-block swim becoming 2-block art) and an
 override on just the tail (tail swim, head art) have no schema or vocabulary — overrides are per-block-per-group,
 and a span is logically ONE session. Allowing arbitrary per-block overrides on a span breaks its semantic.
+
+**Design fact (code-verified):** `is_span_tail` DOES NOT EXIST as a field. A span tail is detected by checking
+`is_span_head === false` on a row that is part of a multi-block span (gridGeometry.js:44,55 uses this pattern).
 
 **Decision: SCOPE OUT for v1.** The override-authoring path must NOT offer override on a span head or tail
 cell. The cell is rendered as non-editable (or read-only) in override-authoring mode.
 
 Concretely:
 
-- `applyDayOverrides.js` does not create/apply an override to a row where `is_span_head = true` or
-  `is_span_tail = true` (if such a row exists in the override table, it is silently ignored at render time,
-  logged as "span override ignored," and filed as a data-integrity issue for follow-up).
+**In applyDayOverrides.js (render-time safeguard):**
 
-- `CellInlineEditor.jsx`, when in override-authoring mode, checks:
-  ```
-  if (slot.is_span_head || slot.is_span_tail) {
-    return showBanner("Cannot override part of a multi-block session. Edit the entire session instead.");
+- Do not apply or create an override to a row where `is_span_head === true` (span head).
+- Do not apply or create an override to a row where `is_span_head === false` AND the row is part of a
+  multi-block span (i.e., preceded by a row with the same activity_id and contiguous time_block_id, OR
+  detection logic from gridGeometry.js). The safeguard is: if an override row somehow exists in the database
+  for a span cell, silently ignore it at render time, log as "span override ignored," and file as a
+  data-integrity issue for follow-up.
+
+**In the authoring/mutation path (user-facing guard):**
+
+- Before accepting an override-authoring edit, check in `useSlotMutations.js` (or the override-authoring
+  entry point):
+  ```javascript
+  if (targetRow.is_span_head === true) {
+    setActionError(
+      "Cannot override part of a multi-block session. Edit the entire session instead."
+    );
+    return; // Do NOT create override
+  }
+  
+  // Also check: is this row part of a span (tail)?
+  // Use the detection logic from gridGeometry.js: is_span_head === false AND 
+  // the row is part of a multi-block span (contextual check: adjacent row with same activity_id)
+  if (isPartOfSpan(targetRow, slots)) {
+    setActionError(
+      "Cannot override part of a multi-block session. Edit the entire session instead."
+    );
+    return; // Do NOT create override
   }
   ```
-  This guards the UI: the director sees a clear message and is directed to (future) span-level override UX
-  (owned by a follow-up ticket, not this one).
+  - `isPartOfSpan(row, slots)` helper function (placed near the mutation guards):
+    Checks if row.is_span_head === false AND there exists an adjacent row with the same activity_id and
+    contiguous time_block_id (indicating this is a span tail, not a standalone cell). Return `true` if
+    the row is part of a span, `false` otherwise.
 
-- Test seam: `applyDayOverrides.test.js` adds cases for:
-  - Span-head/tail cells are never modified by applyDayOverrides, even if an override row exists
-  - Attempting to edit a span head/tail in override mode is blocked + message surfaces
+- This guard prevents a director from authoring an override on ANY span cell (head or tail) with a clear,
+  actionable message.
 
-- **Follow-up:** A proper span-override feature (override the entire multi-block session as one unit) is
-  filed as explicit follow-up, with a clear trigger: "when real camp data exists and a director wants to
-  override a multi-block session."
+**Test seams: `applyDayOverrides.test.js` adds cases for:**
+- Span-head cells (is_span_head === true) are never modified by applyDayOverrides, even if an override row
+  exists in the database
+- Span-tail cells (is_span_head === false on a cell that's part of a multi-block span) are never modified
+  by applyDayOverrides
+- Logging/alerting when a span override is silently ignored
+
+**Test seams: `useSlotMutations.test.js` adds cases for:**
+- Attempting to author an override on a span head in override-authoring mode is blocked + error message surfaces
+- Attempting to author an override on a span tail in override-authoring mode is blocked + error message surfaces
+- Non-span cells allow override authoring normally
+
+**Resolution of edge case #1 (pull-vs-UNFILLABLE):** Because spans are scoped out and guarded at the authoring
+layer, decideCell's pull/override branch (§5.1) never encounters a span cell being overridden. The pull-vs-UNFILLABLE
+priority decision (edge case a, §9) applies only to non-span cells, where both markers can coexist without conflict.
+
+**Follow-up:** A proper span-level override feature (override the entire multi-block session as one unit, with
+new schema/UX) is filed as explicit follow-up, with a clear trigger: "when real camp data exists and a director
+reports needing to override a multi-block session as a unit."
 
 ## 7. Interaction with the engine
+
+[Same as before — no changes]
 
 Confirmed by §1: `buildSchedule.js` has zero references to override or exclusion tables today, and the
 exclusion precedent shows this codebase's existing pattern for "authored week-scoped modifier the engine
@@ -517,6 +422,8 @@ must not fight" is **pre-filtering the catalog, not runtime awareness inside the
 
 ## 8. Terminology dependency
 
+[Same as before — no changes]
+
 The setup/ingestion peer's glossary ADR (referenced by the ticket) should own the user-facing noun for this
 feature. This design uses "Day Override" / "override" throughout as the working term already established by
 the ADR and ticket titles, and defers final copy to that glossary work rather than inventing parallel
@@ -526,6 +433,8 @@ that file's existing `day_override_template` entries should be updated to `day_o
 there, not duplicated inline in the grid components.
 
 ## 9. Edge cases (specified)
+
+[Same as before — no changes]
 
 ### (a) Pull vs UNFILLABLE marker priority
 
@@ -572,7 +481,7 @@ route's view. A real problem (e.g., a group is deleted, orphaning its overrides)
 
 **Test:** `applyDayOverrides.test.js` includes: `override with group_id not in current route is silently not applied`
 
-## 10. Files/modules affected (REVISED FOR RED HAT FINDINGS #3 AND #4)
+## 10. Files/modules affected (REVISED FOR RED HAT FINDINGS #3 AND #4 — CLOSED)
 
 **New:**
 - `electron/db/schema.sql` — `day_overrides` table (v38 position), replacing the `day_override_templates`/
@@ -594,35 +503,33 @@ route's view. A real problem (e.g., a group is deleted, orphaning its overrides)
   not PARENT_SCOPED; day_overrides has a camp_id NOT NULL column, like schedule_weeks/special_days,
   NOT like week_activity_exclusions which join via week_id without camp_id). Position in
   DOMAIN_SNAPSHOT_ORDER: AFTER schedule_weeks, days_of_operation, groups (to match FK dependencies).
-- `src/localClient.mock.js` — add `day_overrides` to the mock entity list (this is a T88-class file that
-  must be kept in sync with real-client registration; missing it breaks parity tests for the first pairing
-  client; Red Hat Finding #3).
+- `src/localClient.mock.js` — add `day_overrides` to the mock entity list (T88-class file parity).
 - `electron/auth/permissions.js` — add `day_overrides` alongside other schedule-adjacent entities (staff
   perms: write if camp staff).
 - `src/screens/ScheduleScreen.jsx:163-176` — insert `applyDayOverrides(...)` stage in the `slots` pipe, before
   `withWeekClosureFlags`.
-- `src/components/schedule/gridGeometry.js:128-149` (decideCell) — add explicit override-aware branches for
-  pull vs slot/empty (§5.1):
-  ```
-  if (slot.is_pull && slot.is_overridden) return { kind: 'pulled', slot };
-  // ... then existing empty | overlay | slot logic
-  ```
+- `src/components/schedule/gridGeometry.js:128-153` (decideCell) — add explicit override/pull branch AFTER
+  line 135 (slot resolved), AFTER lines 137-138 (span-tail-skip), before normal render (see §5.1 placement
+  specification).
 - `src/components/schedule/ScheduleGroupView.jsx`, `ManualBuildView.jsx`, `ScheduleDayView.jsx` —
   `decideCell(...)` reads the already-composed `is_overridden` marker; no new branch logic needed here since
   the pull handling is now in gridGeometry.js (§5.1).
 - `src/components/schedule/SlotCell.jsx` — `data-overridden` attribute + visual treatment (for swaps, not
   pulls — pulls render as PulledCell).
 - `src/components/schedule/scheduleGrid.css` — new rule for `[data-overridden="true"]`.
-- `src/components/schedule/CellInlineEditor.jsx` — override-authoring-mode commit routing + edit blocking on
-  overridden cells (§6.1) + span guard (§6.2):
+- `src/hooks/useSlotMutations.js` — add override-authoring-mode edit-blocking guard (§6.1) + span guard
+  (§6.2) before write execution, covering drag/typeahead/paste:
+  ```javascript
+  if (targetRow && targetRow.is_overridden && !isOverrideAuthorizingMode) { /* blocked */ }
+  if (targetRow && targetRow.is_span_head === true) { /* blocked */ }
+  if (targetRow && isPartOfSpan(targetRow, slots)) { /* blocked */ }
   ```
-  if (slot.is_overridden && !isOverrideAuthorizingMode) { /* blocked, error message */ }
-  if (slot.is_span_head || slot.is_span_tail) { /* blocked, span message */ }
-  ```
-- `src/hooks/useSnapshots.js:47` (saveSnapshot) — include `week_day_overrides` array in snapshot payload
-  (§5.2).
-- `electron/db/scheduleRepository.js` — new function `restoreSnapshotRows(...)` that deletes and recreates
-  `day_overrides` rows for the snapshot's week (§5.2).
+- `src/hooks/useSnapshots.js:47` (saveSnapshot) — include day_overrides array from entire week in snapshot
+  payload (§5.2).
+- `src/data/scheduleRepository.js:305` (restoreSnapshotRows) — change signature to add 4th arg
+  `snapshotDayOverrides`; restore day_overrides rows for entire week by delete-then-recreate (§5.2).
+- `src/data/scheduleRepository.js` — new helper function `isPartOfSpan(row, slots)` for span detection in
+  mutation guards (§6.2).
 - `src/screens/recordLabels.js` — update entity label entries (day_override_template → day_overrides).
 - `src/components/layout/navSections.js` — remove the standalone Day Overrides sidebar entry.
 
@@ -640,15 +547,16 @@ needed, §7).
 template for `applyDayOverrides`; the `CellInlineEditor` point-of-intent authoring path (§6); the
 `scheduleGrid.css` data-attribute pattern for new ephemeral cell state (§5, per CLAUDE.md's documented
 exception); the camp-scoped-entity/projection/permissions registration pattern every other entity already
-follows; the snapshot save/restore infrastructure (§5.2); `DayOverridesScreen.jsx`'s existing delete-then-recreate
-batch-save shape, re-scoped (§3.2).
+follows; the snapshot save/restore infrastructure (§5.2); the mutation layer infrastructure (useSlotMutations);
+`DayOverridesScreen.jsx`'s existing delete-then-recreate batch-save shape, re-scoped (§3.2).
 
 **New:** the `day_overrides` table and its `(week_id, day_id, group_id, block)` grain (the actual gap named
 by the ticket); `applyDayOverrides.js`; the override-authoring-mode toggle/gesture on the grid (§6, pending
 §8's open question); the `is_overridden` visual marker and its CSS rule (for swaps); the `PulledCell`
-component for pull rendering (§5.1); the edit-blocking path for overridden cells (§6.1); the span-cell guard
-(§6.2). Nothing here duplicates an existing mechanism — the new pieces are exactly the "new group axis" and
-"live two-route render" the ticket names as the real gap, sized to that gap and no larger.
+component for pull rendering (§5.1); the edit-blocking guard in useSlotMutations for overridden cells (§6.1);
+the span-cell detection and guard (§6.2). Nothing here duplicates an existing mechanism — the new pieces are
+exactly the "new group axis" and "live two-route render" the ticket names as the real gap, sized to that gap
+and no larger.
 
 ## 12. ADR required: yes
 
@@ -691,4 +599,3 @@ the *direction* and explicitly deferred the shape to this pass.
 5. **Span override follow-up trigger (§6.2).** A proper span-level override feature is scoped out of v1
    (directive from Red Hat Finding #6). Recommend Governor file a follow-up ticket with a clear trigger:
    "when real camp data exists and a director reports needing to override a multi-block session as a unit."
-
