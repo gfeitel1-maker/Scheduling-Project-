@@ -24,6 +24,20 @@ interaction), on **both routes**. The management screen (T103) is the secondary 
 - Durability default (tier a) + one-gesture promotion to (b)/(c) per the foundational ADR.
 - Export renders an elective cell as its set (member list), not blank.
 
+## Binding constraints from T103 Red Hat review (MEDIUM — must honor here)
+
+T103 shipped the durability data layer but has **no consuming read path yet**. This ticket wires reads,
+so it inherits two guarantees Red Hat flagged (2026-08-20, T103 review):
+
+1. **Every reuse/durable read surface (palette, management list, Context inventory) MUST go through
+   `listDurableElectiveSets` (`electron/ops/durableElectiveSets.js`), never the generic
+   `list('elective_sets')` IPC.** The generic `list()` path (`electron/main.js`) is a read-everything
+   primitive that returns one-offs (`is_reusable=0`) unfiltered — reaching for it by habit silently
+   defeats the durability guarantee, and nothing lints/tests would catch it. Add a test asserting the
+   reuse surface never shows an `is_reusable=0` set.
+2. **`listDurableElectiveSets` gains its first production callers here** — until this ticket, the
+   invariant is enforced only in isolation. Wire it as the single seam for "durable/reusable electives."
+
 ## Review loop
 
 **Designer (if the cell affordance is UI-significant) → Maker (test-first) → Red Hat (engine-skip still

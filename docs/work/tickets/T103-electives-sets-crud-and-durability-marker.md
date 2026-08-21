@@ -31,6 +31,11 @@ archive_when: shipped and merged
    the durable inventory query.
 4. **Capacity + eligibility fields** on the offering (per-member capacity via existing `locations`;
    age/eligibility on the set/members) — schema + projection + mock, no engine assignment.
+   **RESOLVED (2026-08-20): no new schema needed.** An `elective_set_activities` member is an
+   `activity_id` reference, so every member inherits capacity (`activities.location_id` →
+   `locations.capacity`) and eligibility (`activities.eligible_tier_ids`/`eligible_group_ids`) from its
+   underlying activity row unchanged. Adding parallel columns on the set would duplicate authoritative
+   activity data. Item closed as already-covered.
 
 ## Out of scope (later tickets)
 
@@ -46,4 +51,16 @@ Security (IPC permissions surface) → Code Reviewer → Verifier → Grader.**
 ## Coordination
 
 `elective_sets` projection writable-fields change + v36 may intersect the `shoresh-v1-closure-audit`
-peer's PROJECTIONS registry guard — notify before landing.
+peer's PROJECTIONS registry guard — notify before landing. **Done:** peer confirmed the guard is
+parity-based and `is_reusable` (renderer-writable) is registered in `PROJECTIONS[elective_sets].fields`;
+`projectionsCoverage.test.js` green.
+
+## Review outcome (2026-08-20)
+
+Implemented scope 1–3 (item 4 resolved as already-covered, above). Reviews: **Security 5/5**, **Red Hat
+4/5** (no defects shipped; two MEDIUM *forward* risks — the durability invariant has no production caller
+yet and the generic `list('elective_sets')` IPC is an unguarded parallel read route — both carried into
+**T105** as binding constraints), **Code Reviewer 4/5** (merge-ready; the item-4 doc reconciliation above
+closes its one MEDIUM). Two LOW notes recorded: `v36_down.js` uses `DROP COLUMN` (SQLite ≥3.35 — fine on
+the bundled binary; version note is a nice-to-have) and the invariant is convention-not-structural (watch
+item for T104/T105 when a second consumer appears). Deterministic gate: see the full `npm run verify` run.
