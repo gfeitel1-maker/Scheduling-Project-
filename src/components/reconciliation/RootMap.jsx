@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { prefersReducedMotion } from '../../styles/shared'
 import { DOMAIN_LABELS } from './domainRollup.js'
+import { NODE_LAYOUT } from './rootMapLayout.js'
 import rootMapArt from '../../assets/reconciliation/root-map-3d.webp'
 import orbUnderstood from '../../assets/reconciliation/orb_understood.png'
 import orbAttention from '../../assets/reconciliation/orb_attention.png'
@@ -247,9 +248,108 @@ function Node({ x, y, width, height, state, label, selected, onSelect, radius })
 const DOMAIN_RADIUS = 24
 const CHILD_RADIUS = 17
 
-export default function RootMap({ model, selection, onSelectTile, onSelectNode, onClearSelection }) {
-  const width = 1240
-  const height = 1240 * 0.62
+// Matches the width/height RootMap renders its <svg> viewBox at, below —
+// module-level so the crown-ceiling math (also module-level) can use the
+// same scale without eyeballing a second copy of the numbers.
+const WIDTH = 1240
+const HEIGHT = WIDTH * 0.62
+
+// RA-9 review round 2 (HIGH) — the ADR's premise that CROWN.y = 0.30 sits
+// "above the domain node band, domains start at y≈0.33" was arithmetically
+// wrong: the topmost real node (Scheduling, y=0.3299, radius 24) has its top
+// edge at y≈0.299 of the viewBox, so a hand-picked 0.30 anchor plus the
+// tags' own downward offsets (+0.070) plunged tags into the node band and
+// stole their clicks. Computed from the real positions in rootMapLayout.js
+// instead of a second hand-picked constant, so it can never drift out of
+// sync with the layout again: the minimum top-edge y across every domain
+// AND child node, minus a safety margin.
+const CROWN_SAFETY_MARGIN_PX = 16
+
+function computeNodeBandCeilingNormalized() {
+  let minTopNormalized = Infinity
+  for (const domain of Object.values(NODE_LAYOUT)) {
+    minTopNormalized = Math.min(minTopNormalized, domain.y - DOMAIN_RADIUS / HEIGHT)
+    for (const child of Object.values(domain.children ?? {})) {
+      minTopNormalized = Math.min(minTopNormalized, child.y - CHILD_RADIUS / HEIGHT)
+    }
+  }
+  return minTopNormalized - CROWN_SAFETY_MARGIN_PX / HEIGHT
+}
+
+const NODE_BAND_CEILING_Y = computeNodeBandCeilingNormalized()
+
+// RA-9 (docs/adr/2026-08-21-roots-tree-as-primary.md) — the 4 tile counts
+// hang from one fixed crown anchor, trunk-pixel-independent. Normalized
+// [0,1] coordinates, same convention as rootMapLayout.js. Same fan shape and
+// left/right ordering the ADR specified (attention/changed innermost and
+// lowest) — only CROWN.y moves, derived below so every tag clears
+// NODE_BAND_CEILING_Y.
+const CROWN_TAG_OFFSETS = {
+  understood: { dx: -0.115, dy: 0.045 },
+  attention: { dx: -0.045, dy: 0.070 },
+  changed: { dx: 0.045, dy: 0.070 },
+  absent: { dx: 0.115, dy: 0.045 },
+}
+// Presentational sizing (not ADR-specified) — sized to fit the 20px/12px
+// count/label text the tags reuse from today's tile styling.
+const CROWN_TAG_WIDTH = 132
+const CROWN_TAG_HEIGHT = 44
+
+const CROWN_MAX_TAG_DY = Math.max(...Object.values(CROWN_TAG_OFFSETS).map((o) => o.dy))
+const CROWN = {
+  x: 0.5,
+  y: NODE_BAND_CEILING_Y - CROWN_MAX_TAG_DY - (CROWN_TAG_HEIGHT / 2) / HEIGHT,
+}
+
+function CrownCluster({ width, height, tileCounts, selection, onSelectTile, onClearSelection }) {
+  const crownX = CROWN.x * width
+  const crownY = CROWN.y * height
+  return (
+    <g data-crown-cluster="true">
+      {TILE_STATES.map((state) => {
+        const offset = CROWN_TAG_OFFSETS[state]
+        const cx = crownX + offset.dx * width
+        const cy = crownY + offset.dy * height
+        const tagX = cx - CROWN_TAG_WIDTH / 2
+        const tagY = cy - CROWN_TAG_HEIGHT / 2
+        const active = selection.type === 'tile' && selection.state === state
+        return (
+          <g key={state}>
+            {/* hook-thread: reuses Node's lantern-hook treatment so the four
+                independent tags read as hanging from one point. */}
+            <line x1={cx} y1={tagY} x2={crownX} y2={crownY} stroke="#6b573c" strokeWidth={1.5} opacity={0.45} />
+            <foreignObject x={tagX} y={tagY} width={CROWN_TAG_WIDTH} height={CROWN_TAG_HEIGHT} style={{ overflow: 'visible' }}>
+              <button
+                type="button"
+                className="press-97"
+                aria-pressed={active}
+                onClick={() => (active ? onClearSelection() : onSelectTile(state))}
+                style={
+                  active
+                    ? {
+                        ...styles.tile,
+                        ...styles.tileActive,
+                        borderLeftWidth: 3,
+                        borderColor: STATE_TOKEN[state],
+                        background: `color-mix(in srgb, var(--surface) 92%, ${STATE_TOKEN[state]} 8%)`,
+                      }
+                    : { ...styles.tile, borderLeftWidth: 3, borderLeftColor: STATE_TOKEN[state] }
+                }
+              >
+                <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--text)' }}>{tileCounts[state]}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{STATE_LABEL[state]}</div>
+              </button>
+            </foreignObject>
+          </g>
+        )
+      })}
+    </g>
+  )
+}
+
+export default function RootMap({ model, selection, onSelectTile, onSelectNode, onClearSelection, canvasWrapRef }) {
+  const width = WIDTH
+  const height = HEIGHT
 
   const dimmed = (domainKey, childKey) => {
     if (selection.type !== 'tile') return false
@@ -271,34 +371,6 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
 
   return (
     <div>
-      <div style={styles.tileRow}>
-        {TILE_STATES.map((state) => {
-          const active = selection.type === 'tile' && selection.state === state
-          return (
-            <button
-              key={state}
-              type="button"
-              className="press-97"
-              aria-pressed={active}
-              onClick={() => (active ? onClearSelection() : onSelectTile(state))}
-              style={
-                active
-                  ? {
-                      ...styles.tile,
-                      ...styles.tileActive,
-                      borderColor: STATE_TOKEN[state],
-                      background: `color-mix(in srgb, var(--surface) 92%, ${STATE_TOKEN[state]} 8%)`,
-                    }
-                  : styles.tile
-              }
-            >
-              <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--text)' }}>{tileCounts[state]}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{STATE_LABEL[state]}</div>
-            </button>
-          )
-        })}
-      </div>
-
       {/* RA-8: static self-describing legend, canvas domain order left→right,
           sourced live from DOMAIN_LABELS so it can never drift from the
           canvas's own labels. Quiet by design — no motion, no interaction. */}
@@ -306,7 +378,7 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
         {Object.values(DOMAIN_LABELS).join(' · ')}
       </div>
 
-      <div style={styles.canvasWrap}>
+      <div style={styles.canvasWrap} ref={canvasWrapRef}>
         <img src={rootMapArt} alt="" style={styles.art} />
         <svg viewBox={`0 0 ${width} ${height}`} style={styles.svg} role="img" aria-label="The root system — what Shoresh took in.">
           <defs>
@@ -317,6 +389,20 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
               <feGaussianBlur stdDeviation="6" />
             </filter>
           </defs>
+          {/* Crown cluster renders FIRST — round-2 review fix: with zero
+              overlap against the node band (see NODE_BAND_CEILING_Y above)
+              paint order no longer matters for click-stealing, but painting
+              it first also fixes DOM/tab order so the 4 filter buttons come
+              before the node buttons, matching visual reading order
+              (crown, then roots). */}
+          <CrownCluster
+            width={width}
+            height={height}
+            tileCounts={tileCounts}
+            selection={selection}
+            onSelectTile={onSelectTile}
+            onClearSelection={onClearSelection}
+          />
           {/* No straight connector lines: the drawn roots of the 3D backdrop
               already carry each child down from its domain, so an overlaid line
               would read as a competing (and geometrically wrong) extra root. */}
@@ -359,14 +445,11 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
 }
 
 const styles = {
-  tileRow: {
-    display: 'flex',
-    gap: 12,
-    marginBottom: 12,
-  },
   tile: {
-    flex: 1,
+    width: '100%',
+    height: '100%',
     background: 'var(--surface)',
+    opacity: 0.94,
     border: '1px solid var(--border)',
     borderRadius: 8,
     padding: '10px 14px',
