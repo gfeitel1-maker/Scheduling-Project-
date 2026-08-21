@@ -12,7 +12,7 @@ import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialo
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { CapacityStepper } from './LocationsScreen'
-import { deriveLocationId } from '../../electron/ops/locationId.js'
+import { resolveLocationCandidateId } from '../../electron/ops/locationId.js'
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
@@ -928,7 +928,14 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
           locationId = locationIdByName.get(trimmedLoc) ?? null
           if (!locationId) {
             try {
-              const newLocId = deriveLocationId(campId, trimmedLoc)
+              // T101 (docs/work/tickets/T101-locations-deterministic-id-rename-recollide.md):
+              // deriveLocationId's base id may already belong to a RENAMED
+              // row (the row keeps its id, only its name changed) — minting
+              // there directly would silently overwrite the renamed row's
+              // name. resolveLocationCandidateId is the same disambiguation
+              // ingest.js's create paths use; `locations` (loaded from db,
+              // reflecting any rename) is its existing-rows input.
+              const newLocId = resolveLocationCandidateId(campId, trimmedLoc, locations).id
               await repository.createRecord('locations', newLocId, { name: trimmedLoc, camp_id: campId, capacity: 1, notes: null })
               locationId = newLocId
               locationIdByName.set(trimmedLoc, newLocId)
