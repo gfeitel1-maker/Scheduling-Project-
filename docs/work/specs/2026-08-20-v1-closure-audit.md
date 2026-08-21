@@ -177,35 +177,21 @@ just compress the chrome. Coordinate with the blender-scene peer's Wave-1 RootMa
 
 ---
 
-## V1-now vs defer split
+## V1-now vs defer split — FINAL OUTCOMES (updated 2026-08-21)
 
-| # | Item | Status | Verdict |
-|---|------|--------|---------|
-| 3 | PROJECTIONS guard | **Done, green** | Close; no work |
-| 4 | Replace atomicity | **Done, green** | Close; no work |
-| 5 | Per-field UNKNOWN | Real scoped gap | **V1 now — scoped slice, ADR first**; unblocks peer T107 |
-| 1 | Trunk / root-crown | Confirmed | **V1 now — bounded art fix** |
-| 2 | Art↔anchor coupling | Confirmed | **V1 rule now** (stable-anchor); procedural-decouple deferred |
-| 7 | Roots density | Confirmed | **V1 now — bounded compression pass** |
-| 6A | Replace-in-span length inherit | Non-broken | Defer |
-| 6B | Manual >2-block spans | Non-broken | Defer |
+| # | Item | Verdict | Outcome |
+|---|------|---------|---------|
+| 3 | PROJECTIONS guard | Already done | **Closed** — `projectionsCoverage.test.js` meets the acceptance criterion; 83 tests green. No work. |
+| 4 | Replace atomicity | Already done | **Closed** — T61 `completed`; `replaceScope` in one transaction; green. No work. |
+| 5 | Per-field UNKNOWN | V1 now, scoped | **SHIPPED** — [PR #128](https://github.com/gfeitel1-maker/Scheduling-Project-/pull/128); ADR `2026-08-20-per-field-unknown-reconciliation-state.md`; full gate green; Red Hat HIGH (mainstream floor path) closed. |
+| 1 | Trunk / root-crown | Bounded art fix | **ABANDONED** — owner reviewed the dissolve render (2026-08-21) and rejected it; asset reverted, branch dropped. Main's trunk stands. |
+| 2 | Art↔anchor coupling | V1 rule | **Documented, no code** — coupling confirmed real (coords hand-projected against the render, `rootMapLayout.js`). Rule: art may change only if node coords stay stable; procedural-bake decouple deferred. Moot now that no art change ships. |
+| 7 | Roots density | Bounded compression | **Handed off** — owned by the blender-scene session as RA-9/RA-10 (`ReconciliationScreen.jsx`/`RootMap.jsx`), ADR `2026-08-21-roots-tree-as-primary.md`. My render evidence (roots start ~47% down at 1280×720) is the ADR's before-state. No separate PR from this session. |
+| 6A/6B | Merged-span editing | Defer | **Deferred, documented** — replace-in-span is honest/reversible (T91-tested); missing span-length inheritance + >2-block manual spans are convenience gaps, not integrity. |
 
-## Bounded implementation sequence
+## Net closure status
 
-1. **#5 UNKNOWN — ADR + scoped slice** (P1 correctness/truthfulness; unblocks peer T107).
-   Architect writes the data-model ADR (add `unknown` field-evidence tag; populate reserved
-   `unknowns` for `priority`; tag the `min_per_week=1` floor as inferred). Maker implements
-   test-first. Send recommendation to audit-peer before coding.
-2. **#1 + #2 Trunk refinement** (P1 visual; owns `rootMapLayout.js` + backdrop lane).
-   Re-shape trunk in `build_tree.py`, keep camera + roots + composition fixed, re-bake,
-   re-webp, verify `NODE_LAYOUT` still lands on roots (re-project only if a domain-node root
-   moved). Render against the real Roots screen. Ping blender peer on merge so RA-9 rebases.
-3. **#7 Roots compression pass** (P1 visual; coordinate with peer's RootMap work).
-   Compress header/banner/cards into a slim strip; roots become the above-fold center.
-4. **Report closure of #3, #4** (docs only) and the defer notes for #6.
+The two P0 correctness items (#3, #4) were **already closed and green** before this work — the directive reasoned from the 2026-08-16 audit that predated the fixes. Of the remaining items, **#5 shipped** (the one real open correctness/truthfulness gap), **#7 is being delivered by the peer session**, **#2 is a recorded rule needing no code**, **#6 is deferred with rationale**, and **#1 (trunk) was attempted and rejected by the owner** — reverted, main unchanged.
 
-Blender/art work (2) must not delay #5. Each step goes through the normal Governor →
-Architect/Designer → Maker → Verifier/Reviewer/Security/Red Hat loop with real gates, small
-reversible changes, and test-first at the data seam (#5).
-</content>
-</invoke>
+No new architecture was invented to make code prettier. The specific correctness seam that could silently ship bad data (#5) is closed; nothing was reopened.
+
