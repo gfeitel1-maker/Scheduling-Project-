@@ -83,12 +83,14 @@ a { text-decoration: none; color: inherit; }
 /* Roots woodcut-orb "lantern" nodes (RootMap) — the needs-attention orb gently
    pulses its glow so a director's eye finds what needs them without lighting up
    the whole screen (calm at a glance; DESIGN_STANDARD — motion explains state).
-   Hover/selection glow is applied inline on the orb; only this infinite pulse
-   needs a keyframe, so it lives here beside the other global animations rather
-   than in a new stylesheet. */
+   Hover/selection glow is applied inline on the orb's glow shape; only this
+   infinite pulse needs a keyframe, so it lives here beside the other global
+   animations rather than in a new stylesheet. Animates `opacity` only — the
+   glow shape's blur is painted once (RA-1, RootMap.jsx #rootmap-glow-blur),
+   never re-rasterized per frame. */
 @keyframes rootmapPulse {
-  0%, 100% { filter: drop-shadow(0 0 1px color-mix(in srgb, var(--accent) 38%, transparent)); }
-  50%      { filter: drop-shadow(0 0 5px color-mix(in srgb, var(--accent) 82%, transparent)); }
+  0%, 100% { opacity: 0.22; }
+  50%      { opacity: 0.75; }
 }
 .rootmap-orb--pulse { animation: rootmapPulse 2400ms ease-in-out infinite; }
 
