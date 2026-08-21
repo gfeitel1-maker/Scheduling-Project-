@@ -72,6 +72,11 @@ export default function CellInlineEditor({
   }
 
   function handleKeyDown(e) {
+    // Defense-in-depth: the primary fix is useGridKeyboardNav's own
+    // '.cell-inline-editor' guard, but stopping propagation here means no
+    // future ancestor keydown listener (grid nav or otherwise) can reach into
+    // an open editor and act on a key this component didn't itself handle.
+    e.stopPropagation()
     if (e.key === 'Enter') { e.preventDefault(); commitTop(); return }
     if (e.key === 'Escape') { e.preventDefault(); committedRef.current = true; onCancel(); return }
   }

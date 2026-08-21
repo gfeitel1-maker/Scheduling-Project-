@@ -53,3 +53,18 @@ Grader.**
 Priority call: this is what makes electives (and point-of-intent entry generally) actually *reachable*
 by a director. Recommend doing it soon as a fast-follow, but it is a genuine interaction redesign with
 its own risk, so it is scoped as its own ticket rather than folded into T105.
+
+## Live diagnosis (2026-08-21)
+
+Empty-cell authoring VERIFIED WORKING live (real keyboard, dedicated port, HEAD 2585356): click →
+type → Enter/click-suggestion/create-new/elective-colon-grammar all write + re-render, zero console
+errors. The first live Tester's "nothing places" + "no hover affordance" were **browser-automation
+artifacts** (driver delivers key:"" not "Enter"; hover/screenshot limits), NOT defects. Reviews:
+Red Hat 5/5, Code Reviewer ready.
+
+**One real bug found (pre-existing, elevated by T112):** Arrow/Home/End keys inside an OPEN inline
+editor leak to `useGridKeyboardNav.js` (~97-104) → move grid focus → blur editor → discard the edit.
+CellInlineEditor doesn't stopPropagation; the grid nav doesn't exclude editor-originating events.
+Affects filled SlotCell editors too. Fix (in progress): early-return in useGridKeyboardNav when the
+event originates in `.cell-inline-editor`, + stopPropagation defense-in-depth, with focus-retention
+tests. Tab-not-committing left as-is (by-design).
