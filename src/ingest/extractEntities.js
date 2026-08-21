@@ -164,11 +164,26 @@ export function inferUnitFromCode(title) {
 // number, because "1" is not a usable bunk name on its own. A header with no
 // trailing number ("CIT") returns null — the caller's job, not this one's, to
 // decide what a token with no number becomes.
+// Unicode-aware so an accented division name ("Café 1" -> "Café") is captured
+// too, not just ASCII. A division word that itself contains a digit ("K2 1")
+// is NOT handled here — deliberately ambiguous between "unit K2, bunk 1" and
+// "unit K, bunk 2 1" — and falls through to the lone-token branch below,
+// becoming its own division. Accepted limitation, surfaced at import review.
 function splitDivisionWord(title) {
-  const m = String(title ?? '').match(/^([A-Za-z][A-Za-z\s]*?)\s+(\d+[A-Za-z]?)$/)
+  const m = String(title ?? '').match(/^([\p{L}][\p{L}\s]*?)\s+(\d+[A-Za-z]?)$/u)
   if (!m) return null
   return { unit: m[1].trim(), group: String(title).trim() }
 }
+
+// W6 review — a metadata column ("Notes", "Lunch") is neither a division nor
+// a group, and must never be treated as one. Matched case-insensitively
+// against the TRIMMED full header, before the three-branch division
+// resolution runs at all.
+export const NON_GROUP_HEADERS = new Set([
+  'notes', 'note', 'staff', 'lunch', 'dinner', 'breakfast', 'snack',
+  'free', 'free time', 'break', 'total', 'totals', 'activity', 'activities',
+  'lineup', 'time', 'times', 'period', 'periods', 'location', 'room', 'tbd', 'n/a',
+])
 
 // "Adom 4's - Matzo Balls Schedule" -> "Adom 4's - Matzo Balls"
 // "Monday — All Camp" -> "Monday"
@@ -343,12 +358,20 @@ export function extractEntities(parsed) {
       //    the guard's real intent — never mint "C" from "CIT" — still
       //    holds, because this path always keeps the division as the WHOLE
       //    token, never a prefix carved out of it.
+      //
+      // Accepted fork: a division that mixes numbered ("Yeladim 1") and
+      // non-numbered ("Yeladim Aleph") bunk headers forks into two divisions
+      // — "Yeladim" from rule 2, "Yeladim Aleph" from rule 3's lone-token
+      // fallback, since a no-number token is always its own division. Not
+      // reconciled here; surfaced to the director at import review instead.
       page.columns.forEach((c) => {
+        const trimmed = String(c ?? '').trim()
+        if (NON_GROUP_HEADERS.has(trimmed.toLowerCase())) return
         const hyphen = splitUnitAndGroup(c)
         const divisionWord = hyphen.unit ? null : splitDivisionWord(c)
         const { unit, group } = hyphen.unit
           ? hyphen
-          : divisionWord ?? { unit: String(c ?? '').trim(), group: String(c ?? '').trim() }
+          : divisionWord ?? { unit: trimmed, group: trimmed }
         groups.push({ title: c, unit, group })
         if (unit) units.push(unit)
       })

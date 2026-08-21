@@ -279,6 +279,35 @@ describe('unit inference (ADR 2026-08-09 Decision 2)', () => {
     expect(groupUnits['Chagalls 1']).toBe('Kfar A')
   })
 
+  it('groups-are-columns: metadata columns (Notes, Lunch) are skipped entirely, not treated as divisions or groups', () => {
+    const grid = { pages: [{ title: 'Monday', columns: ['Yeladim 1', 'Notes', 'Tzofim 2', 'Lunch', 'CIT'], rows: [
+      { label: '09:00-10:00', cells: ['Swim', 'n/a', 'Art', 'n/a', 'Archery'] },
+    ] }] }
+    const { entities, groupUnits } = extractEntities(grid)
+    expect(entities.tiers).toEqual(['Yeladim', 'Tzofim', 'CIT'])
+    expect(entities.groups).toEqual(['Yeladim 1', 'Tzofim 2', 'CIT'])
+    expect(groupUnits['Notes']).toBeUndefined()
+    expect(groupUnits['Lunch']).toBeUndefined()
+  })
+
+  it('groups-are-columns: metadata match is case-insensitive on the trimmed header', () => {
+    const grid = { pages: [{ title: 'Monday', columns: [' NOTES ', 'CIT'], rows: [
+      { label: '09:00-10:00', cells: ['n/a', 'Archery'] },
+    ] }] }
+    const { entities } = extractEntities(grid)
+    expect(entities.groups).toEqual(['CIT'])
+  })
+
+  it('groups-are-columns: an accented division word is captured ("Café 1" -> division "Café")', () => {
+    const grid = { pages: [{ title: 'Monday', columns: ['Café 1', 'Zoï 2'], rows: [
+      { label: '09:00-10:00', cells: ['Swim', 'Art'] },
+    ] }] }
+    const { entities, groupUnits } = extractEntities(grid)
+    expect(entities.tiers).toEqual(['Café', 'Zoï'])
+    expect(groupUnits['Café 1']).toBe('Café')
+    expect(groupUnits['Zoï 2']).toBe('Zoï')
+  })
+
   it('groups-are-pages (positional-code path) is unaffected by the W6 group-column rule', () => {
     const grid = { pages: [{
       title: 'Tzofim 1', columns: ['Monday', 'Tuesday'], timeColumnLabeled: false,
