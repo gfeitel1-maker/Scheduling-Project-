@@ -7,11 +7,16 @@ import { DOMAINS } from './domainRollup.js'
 // only-export-components rule stays happy (component files may only export
 // components).
 
+// W1 (docs/work/specs/2026-08-21-vocabulary-unification-design.md) — one
+// canonical caption for the Facility domain, matching domainRollup.js's
+// DOMAIN_LABELS: 'Facility' alone, not 'Facility & Resources'/'Facility &
+// Location(s)' — the longer forms duplicated the 'Locations' entity node's
+// own caption (Tester finding).
 const DOMAIN_LABELS = {
   Structure: 'Structure',
   Scheduling: 'Scheduling Model',
   Time: 'Time',
-  Facility: 'Facility & Location(s)',
+  Facility: 'Facility',
 }
 
 // Root-map port (docs/adr/2026-08-18-rootmap-screen-port.md §3) widened the

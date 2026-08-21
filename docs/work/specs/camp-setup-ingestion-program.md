@@ -3,6 +3,7 @@ title: Camp Setup + Ingestion Program Brief
 document_type: program-brief
 status: draft
 authority: subordinate-to-constitution
+governing_docs: docs/governance/constitution/CONSTITUTION.md
 owner: Governor (session camp-setup-ingestion-0ce0e1)
 created: 2026-08-21
 review_trigger: any workstream promoted to an ADR or spec; any change to the peer-session boundary

@@ -114,7 +114,7 @@ describe('ImportScreen — reviewable unit column (ADR 2026-08-09 Decision 2)', 
     await uploadFile()
     const select = document.querySelector('select')
     await userEvent.selectOptions(select, '__new__')
-    const textInput = document.querySelector('input[placeholder="Unit name"]')
+    const textInput = document.querySelector('input[placeholder="Age division name"]')
     await userEvent.type(textInput, 'Brand New Unit')
     const inputs = await commit()
     expect(inputs.links.groups.Chagalls).toBe('Brand New Unit')

@@ -6,7 +6,8 @@ authority: subordinate-to-constitution
 owner: Governor (session camp-setup-ingestion-0ce0e1)
 approved_by: product owner (2026-08-21)
 created: 2026-08-21
-parent: docs/work/specs/camp-setup-ingestion-program.md
+parent_spec: docs/work/specs/camp-setup-ingestion-program.md
+governing_docs: docs/governance/constitution/CONSTITUTION.md
 review_trigger: any change to a canonical display word, or introduction of the per-camp relabel layer (follow-up W1b)
 ---
 
