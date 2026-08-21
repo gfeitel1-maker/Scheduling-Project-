@@ -988,7 +988,7 @@ describe('recordConflict + listPendingConflicts (Task 10 round 3, Fix 3: conflic
   })
 })
 
-// T104 — bulkReplace sanitizer coverage.
+// T111 — bulkReplace sanitizer coverage.
 // docs/work/specs/2026-08-20-elective-cell-atomic-content-design.md
 //
 // bulkReplace never goes through applyProjection/the per-field eviction
@@ -996,7 +996,7 @@ describe('recordConflict + listPendingConflicts (Task 10 round 3, Fix 3: conflic
 // needs its own guard against a both-non-null row (e.g. a stale
 // pre-fix-shipped snapshot, or a future row-construction bug on the
 // generation/snapshot path).
-describe('bulkReplace mutual-exclusion sanitizer (T104)', () => {
+describe('bulkReplace mutual-exclusion sanitizer (T111)', () => {
   beforeEach(() => {
     db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(
       'tmpl-1',

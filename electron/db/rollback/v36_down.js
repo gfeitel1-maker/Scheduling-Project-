@@ -1,5 +1,5 @@
 // Inverse of migration v36 (electron/db/localDb.js): drops
-// elective_sets.is_reusable, the T103 durability marker
+// elective_sets.is_reusable, the T110 durability marker
 // (docs/adr/2026-08-20-electives-authoring.md D2).
 //
 // A single ADD COLUMN, so the rollback is a single DROP COLUMN plus the

@@ -117,7 +117,7 @@ describe('mockShoresh — elective_set_activities and template_slots.elective_se
 // T105 §2 — the reuse-surface exclusion the ticket's scope literally requires:
 // listDurableElectiveSets must never surface an is_reusable=0 (one-off) set,
 // and the generic list('elective_sets') must never be substituted for it on a
-// reuse surface (T103 Red Hat note).
+// reuse surface (T110 Red Hat note).
 describe('mockShoresh — listDurableElectiveSets (T105 §2 reuse-surface exclusion)', () => {
   it('excludes an is_reusable=0 set and includes an is_reusable=1 set', async () => {
     const { mockShoresh } = await import('./localClient.mock.js')

@@ -1040,8 +1040,8 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     })
   })
 
-  // T103 (docs/adr/2026-08-20-electives-authoring.md; docs/work/tickets/
-  // T103-electives-sets-crud-and-durability-marker.md): wires the
+  // T110 (docs/adr/2026-08-20-electives-authoring.md; docs/work/tickets/
+  // T110-electives-sets-crud-and-durability-marker.md): wires the
   // deleteElectiveSet cascade (already pinned by
   // electron/ops/deleteElectiveSet.test.js) to an IPC caller. Same
   // admin-only, '.delete'-gated posture as deleteWeek above — staff hold

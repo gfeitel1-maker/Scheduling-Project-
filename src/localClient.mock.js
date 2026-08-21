@@ -1409,7 +1409,7 @@ export const mockShoresh = {
   },
 
   // Permanently delete an elective set and its member rows, mirroring
-  // deleteElectiveSet.js's cascade (T103, docs/adr/2026-08-20-electives-
+  // deleteElectiveSet.js's cascade (T110, docs/adr/2026-08-20-electives-
   // authoring.md): elective_set_activities before elective_sets, no touch to
   // template_slots (a dangling elective_set_id renders empty, same as the
   // real cascade). Operates on localStorage state — no op-log, no broadcast.

@@ -7,8 +7,8 @@ governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/s
 related_adrs:
   - docs/adr/2026-08-20-electives-authoring.md
   - docs/adr/2026-08-12-drag-live-write-serialization.md
-related_tickets: [docs/work/tickets/T104-elective-cell-atomic-content-and-mutual-exclusion.md]
-archive_when: T104 ships and this is folded into PLATFORM_STATE, or superseded by a ratified ADR
+related_tickets: [docs/work/tickets/T111-elective-cell-atomic-content-and-mutual-exclusion.md]
+archive_when: T111 ships and this is folded into PLATFORM_STATE, or superseded by a ratified ADR
 ---
 
 # Elective cell: atomic content-kind + mutual exclusion — design
@@ -88,7 +88,7 @@ no visibility into, and cannot order, writes issued by a **different device's** 
 instance.
 
 **Finding, stated plainly: the per-cell write queue does not, and structurally cannot, prevent the
-cross-device interleave T104 is about.** It solves same-tab/same-device gesture ordering (its own
+cross-device interleave T111 is about.** It solves same-tab/same-device gesture ordering (its own
 stated problem, the T91/DnD race). It is orthogonal to this ticket's race, not a partial solution to it.
 Treating it as "half the fix" for D4 would be a category error — two different races, two different
 mechanisms, and conflating them is exactly the kind of trap this design pass exists to catch.
@@ -144,7 +144,7 @@ Add a `MUTUALLY_EXCLUSIVE_FIELDS` map colocated with `PROJECTIONS` in `electron/
 
 ```js
 // Cells whose "kind" must be exclusive across two independently-conflict-tracked
-// columns on the same row. See T104 / 2026-08-20-electives-authoring.md D4.
+// columns on the same row. See T111 / 2026-08-20-electives-authoring.md D4.
 const MUTUALLY_EXCLUSIVE_FIELDS = {
   template_slots: {
     activity_id: 'elective_set_id',
@@ -312,7 +312,7 @@ replaced without its tails being cleared in the same operation. Converting a spa
 the same class of write (replace this cell's content, and by doing so vacate whatever it was spanning) —
 T105 should route it through the identical `replaceSlot`-shaped multi-cell write (claim head + tails
 atomically, clear tails' `activity_id`/`is_span_head` alongside setting the head's `elective_set_id`),
-not a lone single-field write to the head. This is authoring-path work, out of T104's scope (T104 is the
+not a lone single-field write to the head. This is authoring-path work, out of T111's scope (T111 is the
 data-layer invariant; T105 owns the UI write path), but the requirement is concrete enough to hand off:
 **T105 must not offer "convert to elective" as a write that only touches the head row when the head is a
 span head with tails present** — either it releases the span (clearing tails) in the same atomic write,
@@ -330,7 +330,7 @@ of write.
 **Residual, documented rather than closed:** if T105's multi-cell head+tails write itself races a
 *second* device's concurrent edit to one of the tail cells specifically (not the head), the outcome is
 governed by the same per-cell LWW and the same multi-cell-atomicity guarantees the 2026-08-12 ADR already
-accepts as its own residual scope for any multi-cell operation — this is not a new hazard T104 introduces,
+accepts as its own residual scope for any multi-cell operation — this is not a new hazard T111 introduces,
 it is the pre-existing, already-accepted residual of the write-serialization design, inherited unchanged.
 No new mechanism is owed for it here.
 
@@ -392,13 +392,13 @@ observed state across renders using a `useRef` map, entirely client-side, never 
   `slots.flags`, never synced, never persisted. Reopening the app or switching routes naturally clears the
   marker (a fresh render has no "own last write" memory to diff against), which is the correct behavior
   for a transient, session-scoped notice, not a claim of permanent record.
-- This hook is genuinely new (T104 doesn't yet exist in the tree in any form), but its mechanism is not:
+- This hook is genuinely new (T111 doesn't yet exist in the tree in any form), but its mechanism is not:
   it reuses `useFlagChangeAck`'s render-time-diff-against-a-ref technique, `SlotCell`'s existing
   flag-rendering vocabulary, and adds no schema, no op, no IPC surface — a UI-layer addition only.
 
 **Scope note:** this hook is a UI concern that belongs to the T105 authoring-path ticket to wire into
 `ScheduleScreen.jsx` alongside the actual authoring interactions it depends on (optimistic-write tracking
-already lives in `useSlotMutations`); T104 (this ticket, the data-layer invariant) is the reason the
+already lives in `useSlotMutations`); T111 (this ticket, the data-layer invariant) is the reason the
 *guarantee* the flag reports on ("at most one kind ever persists") is dependable in the first place. Noting
 the design here per Governor's instruction to "design it into the doc" — the hand-off boundary to T105 is
 the same boundary the electives-authoring ADR already draws between D4 (this ticket) and the authoring UI.
@@ -494,7 +494,7 @@ device count. State the invariant as: **after applying any op in seq order, at m
    `applyBulkReplaceProjection`, the tail row still independently satisfies the per-row invariant
    (`activity_id` xor `elective_set_id`, trivially true since it never had both) while explicitly asserting
    it is now an **orphaned tail** (`is_span_head: false`, `activity_id` set, but no head row at the
-   preceding block owns that `activity_id` as a span head any longer) — proving in code that T104's
+   preceding block owns that `activity_id` as a span head any longer) — proving in code that T111's
    invariant is row-local by design and does NOT silently paper over the orphaning scenario; it is a
    regression guard on the documented scope boundary, not a fix for it (the fix is T105's authoring-path
    requirement, out of this ticket's code).
@@ -536,11 +536,11 @@ device count. State the invariant as: **after applying any op in seq order, at m
   see "Considered and verified safe: full_sync" above.
 - **New (UI layer, owned by T105, designed here per Governor's instruction):** `useContentRaceFlag` hook
   (sibling to `src/screens/schedule/useFlagChangeAck.js`), a `CONTENT_RACE` severity in `SlotCell.jsx`'s
-  existing `FLAG_SEVERITY`/`FLAG_COLORS` vocabulary. Not implemented by T104; T104 is what makes the
+  existing `FLAG_SEVERITY`/`FLAG_COLORS` vocabulary. Not implemented by T111; T111 is what makes the
   guarantee this flag reports on ("at most one kind ever persists") true.
 - **No changes** to `src/engine/buildSchedule.js`, `scheduleRepository.js`'s row-construction logic, any
   other screen/hook/component file, or any migration file. No schema change, no v36 addition beyond what
-  T103 (the separate `is_reusable` marker ticket) already carries.
+  T110 (the separate `is_reusable` marker ticket) already carries.
 
 ## Reused vs. new
 

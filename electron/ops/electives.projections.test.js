@@ -34,7 +34,7 @@ afterEach(() => {
 
 describe('PROJECTIONS registry', () => {
   it('registers both tables with their field allowlists', () => {
-    // is_reusable added v36 (T103, docs/adr/2026-08-20-electives-authoring.md D2).
+    // is_reusable added v36 (T110, docs/adr/2026-08-20-electives-authoring.md D2).
     expect(PROJECTIONS.elective_sets.fields).toEqual(['camp_id', 'name', 'sort_order', 'is_reusable'])
     expect(PROJECTIONS.elective_set_activities.fields).toEqual(['elective_set_id', 'activity_id'])
   })

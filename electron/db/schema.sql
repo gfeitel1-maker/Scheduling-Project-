@@ -724,7 +724,7 @@ CREATE TABLE IF NOT EXISTS special_day_slots (
 -- options ("Afternoon Chugim" = {Swim, Art, Archery}). UNIQUE(camp_id, name),
 -- matching locations/groups/special_days. id is a minted uuid (interactive
 -- create, no deriveLocationId-style determinism).
--- is_reusable (schema v36, T103, docs/adr/2026-08-20-electives-authoring.md
+-- is_reusable (schema v36, T110, docs/adr/2026-08-20-electives-authoring.md
 -- D2): the durability marker. A one-off elective placed in a cell is still a
 -- real, replicated row (the schema has no inline-string cell content), so it
 -- needs an explicit persisted flag every reuse/durable-inventory surface

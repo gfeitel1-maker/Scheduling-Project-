@@ -1,5 +1,5 @@
 ---
-title: T103-electives-sets-crud-and-durability-marker
+title: T110-electives-sets-crud-and-durability-marker
 document_type: ticket
 status: in-progress
 created: 2026-08-20
@@ -9,10 +9,10 @@ related_adrs: [docs/adr/2026-08-20-electives-authoring.md]
 archive_when: shipped and merged
 ---
 
-# T103 — Electives sets: management CRUD, IPC, and the durability marker
+# T110 — Electives sets: management CRUD, IPC, and the durability marker
 
 **First ticket of the ratified electives-authoring ADR.** The isolated, low-risk data foundation —
-**no schedule-cell writing** (that is T104, the race-prone seam). Test-first.
+**no schedule-cell writing** (that is T111, the race-prone seam). Test-first.
 
 ## Scope
 
@@ -39,8 +39,8 @@ archive_when: shipped and merged
 
 ## Out of scope (later tickets)
 
-Cell rendering + inline in-context create (T104/T105); the atomic cell-content / mutual-exclusion write
-path (T104 — the correctness-critical seam); import recognition of flattened electives.
+Cell rendering + inline in-context create (T111/T105); the atomic cell-content / mutual-exclusion write
+path (T111 — the correctness-critical seam); import recognition of flattened electives.
 
 ## Review loop
 
@@ -63,14 +63,11 @@ yet and the generic `list('elective_sets')` IPC is an unguarded parallel read ro
 **T105** as binding constraints), **Code Reviewer 4/5** (merge-ready; the item-4 doc reconciliation above
 closes its one MEDIUM). Two LOW notes recorded: `v36_down.js` uses `DROP COLUMN` (SQLite ≥3.35 — fine on
 the bundled binary; version note is a nice-to-have) and the invariant is convention-not-structural (watch
-item for T104/T105 when a second consumer appears). Deterministic gate: see the full `npm run verify` run.
+item for T111/T105 when a second consumer appears). Deterministic gate: see the full `npm run verify` run.
 
-## ⚠️ Pre-PR renumber obligation (2026-08-21)
+## Renumbered T103 → T110 (2026-08-21)
 
-**This ticket's number COLLIDES with a merged origin/main ticket** (main owns a different
-`T103-location-disambiguation-suffix-namespace`).
-Confirmed with the peer that T105–T111 is clear. **Before opening the PR**, renumber this ticket to
-**T110** and update all references (the other 2026-08-20 ADRs/specs,
-sibling tickets T105–T109, the INDEX, the ~35 in-code comments citing the bare number, and the
-gate-report JSON filename). Bare-number citations are currently disambiguated by their full doc-path,
-so the collision is inert until merge — but must be resolved for numbering integrity.
+Originally created as **T103**, which collided with a merged origin/main ticket
+(`T103-location-disambiguation-suffix-namespace`). Renumbered to **T110** across the file, the
+2026-08-20 ADRs/specs, sibling tickets, the INDEX, in-code comments, and the gate-report JSON before
+opening the PR. Peer confirmed T105–T111 clear.

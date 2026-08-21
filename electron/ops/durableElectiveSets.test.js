@@ -1,6 +1,6 @@
 // @vitest-environment node
 //
-// T103 (docs/adr/2026-08-20-electives-authoring.md D2;
+// T110 (docs/adr/2026-08-20-electives-authoring.md D2;
 // docs/adr/2026-08-20-in-context-knowledge-and-durability-tiers.md D3): the
 // load-bearing invariant a one-off/scoped elective set must never appear in
 // a durable reuse listing. This is the query every reuse surface (palette,

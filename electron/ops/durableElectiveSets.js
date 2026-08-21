@@ -1,4 +1,4 @@
-// The one query every reuse/durable-inventory surface must use (T103,
+// The one query every reuse/durable-inventory surface must use (T110,
 // docs/adr/2026-08-20-electives-authoring.md D2;
 // docs/adr/2026-08-20-in-context-knowledge-and-durability-tiers.md D3): a
 // tier-(a)/(b) elective set (is_reusable = 0) must never appear in a durable

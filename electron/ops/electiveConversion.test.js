@@ -1,7 +1,7 @@
 // @vitest-environment node
 //
-// T105 §3 — the multi-device interleave test the T104 design doc explicitly
-// could not write (scoped to T105's write path). Follows T104's own
+// T105 §3 — the multi-device interleave test the T111 design doc explicitly
+// could not write (scoped to T105's write path). Follows T111's own
 // multi-device interleave test shape: direct applyProjection calls against a
 // shared test db, no real transport.
 import { describe, it, expect, afterEach, beforeEach } from 'vitest'
@@ -60,9 +60,9 @@ describe('span-head -> elective conversion — multi-device interleave (T105 §3
 
     // Invariant this test protects: the tail is NEVER left owning an
     // activity_id while the head is not an activity head — i.e. no orphaned
-    // tail, regardless of which device's elective "wins" the head (T104's
+    // tail, regardless of which device's elective "wins" the head (T111's
     // MUTUALLY_EXCLUSIVE_FIELDS already guarantees the head itself is
-    // single-kind; this test is about the head/tail RELATIONSHIP, which T104
+    // single-kind; this test is about the head/tail RELATIONSHIP, which T111
     // explicitly does not know about).
     expect(tail.activity_id).toBeNull()
     expect(Boolean(tail.is_span_head)).toBe(true)

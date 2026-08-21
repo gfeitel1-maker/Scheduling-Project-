@@ -9,7 +9,7 @@ related_adrs:
   - docs/adr/2026-08-20-in-context-knowledge-and-durability-tiers.md
   - docs/adr/2026-08-12-drag-live-write-serialization.md
   - docs/adr/2026-08-06-schedule-canvas-visual-layer.md
-related_tickets: [docs/work/tickets/T105-elective-inline-authoring-and-render.md, docs/work/tickets/T104-elective-cell-atomic-content-and-mutual-exclusion.md, docs/work/tickets/T103-electives-sets-crud-and-durability-marker.md, docs/work/tickets/T109-orphaned-span-tail-reconciliation-guard.md]
+related_tickets: [docs/work/tickets/T105-elective-inline-authoring-and-render.md, docs/work/tickets/T111-elective-cell-atomic-content-and-mutual-exclusion.md, docs/work/tickets/T110-electives-sets-crud-and-durability-marker.md, docs/work/tickets/T109-orphaned-span-tail-reconciliation-guard.md]
 archive_when: T105 ships and merges, or is superseded by a ratified ADR
 ---
 
@@ -24,10 +24,10 @@ archive_when: T105 ships and merges, or is superseded by a ratified ADR
   `window.shoresh.write`) already accepts `elective_sets`/`elective_set_activities` writes exactly the
   way `createActivityFromCell` writes `activities` fields today. Confirmed by reading the registration
   block, not inferred.
-- `listDurableElectiveSets(db, campId)` (`electron/ops/durableElectiveSets.js`) already exists (T103) and
+- `listDurableElectiveSets(db, campId)` (`electron/ops/durableElectiveSets.js`) already exists (T110) and
   is the single sanctioned read for `is_reusable = 1` rows. It has **zero production callers today** —
   T105 is genuinely its first consumer.
-- `MUTUALLY_EXCLUSIVE_FIELDS` and `sanitizeMutuallyExclusiveRow` are **shipped** (`ef51354`, T104) in
+- `MUTUALLY_EXCLUSIVE_FIELDS` and `sanitizeMutuallyExclusiveRow` are **shipped** (`ef51354`, T111) in
   `electron/ops/projections.js:697-`, covering both `applyProjection` and both `bulkReplace` insert sites.
   T105 does not touch this mechanism; it is a dependency, already load-bearing.
 - `createActivityFromCell` (`src/screens/schedule/useSlotMutations.js:943`) and `CellInlineEditor`
@@ -41,7 +41,7 @@ archive_when: T105 ships and merges, or is superseded by a ratified ADR
   Verified: this is a private (non-exported) `collectSpanTails` closure. **T105 must add its own elective
   variant, not literally call `replaceSlot`** (see §1).
 - `useFlagChangeAck` (`src/screens/schedule/useFlagChangeAck.js`) is the concrete render-time-diff
-  technique the T104 design doc says `useContentRaceFlag` should mirror: a `useRef` map of
+  technique the T111 design doc says `useContentRaceFlag` should mirror: a `useRef` map of
   `cellKey -> signature`, diffed on every `slots` change inside a `useEffect`, reset on route-switch/
   resync-token bump, `useState` for the exposed result. This file is short (≈115 lines) and is the closest
   possible template — `useContentRaceFlag` should be read as "the same shape, different signature
@@ -83,7 +83,7 @@ Clusters that emerged:
   against those, disproportionate to the ticket.
 - **Deferred/lazy-resolution plays** (JIT member pull on hover; two-phase manifest confirm before write) —
   traps. Writing the set with zero members and back-filling later creates a transient, real, synced row
-  that is momentarily an elective with no members — exactly the kind of "not really atomic" state D4/T104
+  that is momentarily an elective with no members — exactly the kind of "not really atomic" state D4/T111
   exists to prevent one layer up. A manifest-confirm step before commit is a soft modal in spirit (a
   blocking review gate before the write fires), which the ADR's "no mandatory setup screen, no
   interrogation" language rules out even at cell scale.
@@ -108,7 +108,7 @@ contain a comma (rare, but colon is the character least likely to collide, and t
 "Afternoon Chugim" has no punctuation). Detection: on every keystroke, if the current value contains `:`,
 switch the editor into elective-authoring render mode; if it does not, the editor behaves **exactly as
 today** — this is the load-bearing branch that keeps the legacy `createActivityFromCell` path byte-for-
-byte unchanged (T104 design doc's own "smallest responsible" bar applies here too).
+byte unchanged (T111 design doc's own "smallest responsible" bar applies here too).
 
 **Colon-in-activity-name guard (Red Hat, round 1 revision): exact-match-first, delimiter-second.** A real
 activity can legitimately contain a colon (e.g. "Free Time: Cabin Choice"), and the naive rule above would
@@ -225,7 +225,7 @@ exception:
   captures `prevTargetActivityId`/`prevTargetFlags`; if the head had tails, restore them to their pre-
   conversion state the same way `replaceSlot`'s undo closure already does), **and** best-effort cleanup of
   the one-off `elective_sets` row this gesture minted: if `is_reusable` is still `false` at undo time (the
-  director never promoted it), call the existing `deleteElectiveSet` cascade (T103,
+  director never promoted it), call the existing `deleteElectiveSet` cascade (T110,
   `electron/ops/deleteElectiveSet.js`, already wired via IPC) on `electiveSetId`. If the director already
   promoted it to reusable before undoing, **do not delete it** — a promoted set is durable camp knowledge
   the undo should not silently destroy; undo only clears the cell's reference to it, matching how undoing a
@@ -261,7 +261,7 @@ shape as `CellInlineEditor`'s existing `exact` match logic, applied to a second 
 
 T105 needs **two different reads of `elective_sets`, for two different surfaces, and they must not share a
 variable name or a fetch path.** Conflating them (loading one list and using it for both render and reuse)
-is exactly the kind of silent-drift bug the T103 Red Hat note warned about, just moved one level up from
+is exactly the kind of silent-drift bug the T110 Red Hat note warned about, just moved one level up from
 "forgot to filter" to "used the wrong already-filtered list for the wrong surface."
 
 - **`electiveSetsAll`** — every `elective_sets` row for this camp, `is_reusable` true or false, fetched via
@@ -270,11 +270,11 @@ is exactly the kind of silent-drift bug the T103 Red Hat note warned about, just
   its set's name and member count *regardless* of whether that set is a one-off, because a one-off elective
   is a real row a director just placed and needs to see rendered correctly, not hidden because it isn't
   durable. Rendering is not a reuse surface; filtering it to durable-only would make a director's own
-  freshly-typed one-off elective render as blank/missing, which is a worse bug than the one T103 guards
+  freshly-typed one-off elective render as blank/missing, which is a worse bug than the one T110 guards
   against.
 - **`durableElectiveSets`** — `is_reusable = 1` rows only, fetched via the `listDurableElectiveSets`-backed
   IPC wrapper (below). **Consumers: §1's exact-match-to-existing-set lookup in `CellInlineEditor`, and any
-  future palette/management list.** This is the seam T103's Red Hat note binds — never substitute
+  future palette/management list.** This is the seam T110's Red Hat note binds — never substitute
   `electiveSetsAll` (even filtered client-side) for this list on a reuse surface.
 
 Concretely:
@@ -282,7 +282,7 @@ Concretely:
 - `useSlotMutations`/`ScheduleScreen.jsx` loads `durableElectiveSets` via a `window.shoresh.*` IPC call
   that wraps `listDurableElectiveSets` (a thin new IPC handler mirroring `listUsers`'s shape — read-only,
   no new write surface), **not** by filtering a generic `list('elective_sets')` result client-side. Filtering
-  client-side after a generic list is exactly the mistake the T103 Red Hat note warns about: it works today
+  client-side after a generic list is exactly the mistake the T110 Red Hat note warns about: it works today
   and silently breaks the day someone reuses the generic `list` call for a different screen and forgets the
   filter. The seam must be server-side and singular.
 - `electiveSetsAll` is loaded the same way every other render-lookup list already is (`activities`, `anchors`
@@ -334,11 +334,11 @@ taking the same four arguments) from the hook's internal scope so both `replaceS
 already-reviewed `replaceSlot` pattern, which is the point: T105 does not invent a new multi-cell primitive,
 it calls the existing one with an elective-shaped payload instead of an activity-shaped one.
 
-**Multi-device interleave test (new, required by the ticket — this is the test the T104 design doc
+**Multi-device interleave test (new, required by the ticket — this is the test the T111 design doc
 explicitly could not write because it is scoped to T105's write path):**
 
 Location: an integration-style test near `electron/ops/operations.test.js` or a new
-`electron/ops/electiveConversion.test.js`, following the shape of T104's own multi-device interleave test
+`electron/ops/electiveConversion.test.js`, following the shape of T111's own multi-device interleave test
 (direct `applyProjection`/`applyBulkReplaceProjection` calls against a shared test db, no real transport —
 matching this repo's existing test style for this class of race).
 
@@ -368,9 +368,9 @@ test('two devices converting the same span head to an elective concurrently neve
   const head = getRow(headId), tail = getRow(tailId)
   // Invariant this test protects: the tail is NEVER left owning an activity_id
   // while the head is not an activity head — i.e. no orphaned tail, regardless
-  // of which device's elective "wins" the head (T104's MUTUALLY_EXCLUSIVE_FIELDS
+  // of which device's elective "wins" the head (T111's MUTUALLY_EXCLUSIVE_FIELDS
   // already guarantees the head itself is single-kind; this test is about the
-  // head/tail RELATIONSHIP, which T104 explicitly does not know about).
+  // head/tail RELATIONSHIP, which T111 explicitly does not know about).
   expect(tail.activity_id).toBeNull()
   expect(tail.is_span_head).toBe(true)
   expect(head.activity_id).toBeNull()
@@ -378,7 +378,7 @@ test('two devices converting the same span head to an elective concurrently neve
 })
 ```
 
-**Residual, stated plainly (per the T104 design doc's own precedent for documenting rather than
+**Residual, stated plainly (per the T111 design doc's own precedent for documenting rather than
 eliminating this class of residual) — two distinct residuals, not one:**
 
 1. **Field-level interleave (what this test covers):** the test above shows that *once both devices' ops
@@ -388,7 +388,7 @@ eliminating this class of residual) — two distinct residuals, not one:**
    a different activity directly into the tail cell** while A and B are converting the head is not closed by
    this test and is not a new hazard T105 introduces — it is the same per-cell LWW residual
    `2026-08-12-drag-live-write-serialization` already accepts for any multi-cell operation. No new mechanism
-   is owed for that case here, consistent with T104's own resolution of the equivalent question.
+   is owed for that case here, consistent with T111's own resolution of the equivalent question.
 2. **Crash/disconnect between the head write and a tail-release write actually landing (not an interleave —
    a partial-completion failure):** as corrected in §1, `runMutation`'s `Promise.all` is same-device write
    *ordering*, not a durable multi-row transaction across IPC calls. If the process crashes or the
@@ -416,7 +416,7 @@ Per the schedule-canvas ADR: a data attribute, no new tokens, no new React state
   `Afternoon Chugim (3)` — matching the existing single-line truncation behavior already applied to long
   activity names, no new truncation logic.
 - **Dangling-reference fallback (Red Hat, round 1 — was asymmetric with §6's export):** `slot.elective_set_id`
-  can point at a set that no longer exists (deleted via the T103 `deleteElectiveSet` cascade from another
+  can point at a set that no longer exists (deleted via the T110 `deleteElectiveSet` cascade from another
   device, or a race with an in-flight delete) or that currently has zero members (all its
   `elective_set_activities` rows were individually removed). The render must handle both explicitly, the
   same way §6's export already does with `set ? ... : ''`:
@@ -522,7 +522,7 @@ than requiring a separate hook-in per function. This is why the recording point 
 described as "hooked into the same `onSuccess` callback ... already call" — concretely, `runMutation` is the
 one shared choke point, and `ownWriteRef` recording belongs there, not duplicated per caller.
 
-**Recency window:** reuse `MAX_SINGLE_EDIT_CELLS`-scoped recency the T104 design doc names — concretely, a
+**Recency window:** reuse `MAX_SINGLE_EDIT_CELLS`-scoped recency the T111 design doc names — concretely, a
 `RECENCY_WINDOW_MS` (e.g. 5000ms, Maker/Designer to tune) timestamp check on `ownWriteRef`'s entries, so a
 cell this device wrote to an hour ago and is now legitimately different (the director themselves changed it
 again from a different tab, or simply forgot) does not resurface a stale race notice. This is a genuinely
@@ -613,14 +613,14 @@ column.
 ## Reused vs. new
 
 **Reused, not rebuilt:** the generic `PROJECTIONS`-backed write path for `elective_sets`/
-`elective_set_activities` (T103); the existing generic `list('elective_sets')` read for `electiveSetsAll`
-(§2); `listDurableElectiveSets` (T103, first production callers here) for `durableElectiveSets`;
-`MUTUALLY_EXCLUSIVE_FIELDS`/`sanitizeMutuallyExclusiveRow` (T104, untouched dependency); `createActivityFromCell`'s
+`elective_set_activities` (T110); the existing generic `list('elective_sets')` read for `electiveSetsAll`
+(§2); `listDurableElectiveSets` (T110, first production callers here) for `durableElectiveSets`;
+`MUTUALLY_EXCLUSIVE_FIELDS`/`sanitizeMutuallyExclusiveRow` (T111, untouched dependency); `createActivityFromCell`'s
 member-creation logic and defaults, called from the new elective path rather than duplicated;
 `collectSpanTails`'s walk logic and `replaceSlot`'s `claimAndRun`/`runMutation`/multi-cell dispatch shape,
 **including its same-device-only atomicity ceiling** (not exceeded, per Governor's instruction — see §1/§3
 and T109); `replaceSlot`'s `pushUndo` pattern, extended to `createElectiveFromCell`; `deleteElectiveSet`
-(T103) as the undo-time cleanup primitive for a not-yet-promoted one-off; `useFlagChangeAck`'s render-time-
+(T110) as the undo-time cleanup primitive for a not-yet-promoted one-off; `useFlagChangeAck`'s render-time-
 diff-against-a-ref technique as the literal template for `useContentRaceFlag`; `FLAG_SEVERITY`/`FLAG_COLORS`'
 existing object-literal shape; `CellInlineEditor`'s existing `normalizeName` matcher and exact/fuzzy
 branching, applied to a second (elective-name) lookup rather than a new matcher, and to the exact-match-

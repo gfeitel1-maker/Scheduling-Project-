@@ -1,5 +1,5 @@
 {
-  "task_id": "T104",
+  "task_id": "T111",
   "round": 1,
   "verifier_pass": true,
   "gate_scores": {
@@ -19,7 +19,7 @@
   "self_declared_na": [
     {
       "gate_name": "security",
-      "na_reason": "T104 touches only op-log apply/bulk-replace internals; no auth/permission/IPC/secret/PIN surface changed"
+      "na_reason": "T111 touches only op-log apply/bulk-replace internals; no auth/permission/IPC/secret/PIN surface changed"
     },
     {
       "gate_name": "tester",

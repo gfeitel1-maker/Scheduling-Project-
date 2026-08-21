@@ -1228,8 +1228,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ...reportable, ops_written: ops.length }
   }
 
-  // T103 (docs/adr/2026-08-20-electives-authoring.md; docs/work/tickets/
-  // T103-electives-sets-crud-and-durability-marker.md): wires the
+  // T110 (docs/adr/2026-08-20-electives-authoring.md; docs/work/tickets/
+  // T110-electives-sets-crud-and-durability-marker.md): wires the
   // deleteElectiveSet cascade primitive (electron/ops/deleteElectiveSet.js,
   // shipped inert in T41 slice 1) to a caller. ADMIN-ONLY ('.delete' not
   // '.write'), matching every other entity's permanent-delete posture
@@ -1275,7 +1275,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
   // T105 (docs/work/tickets/T105-elective-inline-authoring-and-render.md;
   // docs/work/specs/2026-08-20-elective-authoring-render-design.md §2):
-  // listDurableElectiveSets (electron/ops/durableElectiveSets.js, T103) gets
+  // listDurableElectiveSets (electron/ops/durableElectiveSets.js, T110) gets
   // its first production caller here — the single sanctioned seam for
   // "durable/reusable electives" (is_reusable = 1 only). Read-only, mirrors
   // listUsers's shape exactly: requireAuthorized then one query, no

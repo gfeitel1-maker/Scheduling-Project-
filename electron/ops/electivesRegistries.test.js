@@ -23,7 +23,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 describe('v35 registry coverage — elective_sets', () => {
   it('is a projected entity (writes materialize, not silently discarded)', () => {
     expect(PROJECTIONS.elective_sets).toBeTruthy()
-    // is_reusable added v36 (T103, docs/adr/2026-08-20-electives-authoring.md D2).
+    // is_reusable added v36 (T110, docs/adr/2026-08-20-electives-authoring.md D2).
     expect(PROJECTIONS.elective_sets.fields).toEqual(['camp_id', 'name', 'sort_order', 'is_reusable'])
   })
 

@@ -1085,7 +1085,7 @@ export function useSlotMutations({
     // durable-set exact-match reuse lookup in CellInlineEditor (which reads
     // everything before ITS first colon as the query). Not exercised by any
     // shipped authoring surface today; noted for whoever builds the
-    // management-screen create/rename path T103 left as its secondary
+    // management-screen create/rename path T110 left as its secondary
     // surface.
     const electiveSetId = crypto.randomUUID()
     try {

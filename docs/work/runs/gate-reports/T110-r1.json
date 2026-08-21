@@ -1,5 +1,5 @@
 {
-  "task_id": "T103",
+  "task_id": "T110",
   "round": 1,
   "verifier_pass": true,
   "gate_scores": {
@@ -15,7 +15,7 @@
   "gap": [],
   "cross_gate_flags": [
     {
-      "ref": "ticket:T103 § Review outcome",
+      "ref": "ticket:T110 § Review outcome",
       "gate_names": [
         "code_reviewer",
         "red_hat"

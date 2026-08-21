@@ -397,7 +397,7 @@ export const PROJECTIONS = {
   elective_sets: {
     table: 'elective_sets',
     key: 'id',
-    // is_reusable (v36, T103, docs/adr/2026-08-20-electives-authoring.md D2):
+    // is_reusable (v36, T110, docs/adr/2026-08-20-electives-authoring.md D2):
     // the durability marker, director-editable via the management screen's
     // "keep this for next time" gesture — a renderer write like camp_id/
     // name/sort_order, so it belongs in this allowlist (not
@@ -652,7 +652,7 @@ export const PROJECTIONS = {
       // v35 (T41 slice 1, docs/work/specs/2026-08-20-group-electives-design.md):
       // a slot with elective_set_id set is an elective cell (activity_id
       // ignored); the two are mutually exclusive, enforced at apply time by
-      // MUTUALLY_EXCLUSIVE_FIELDS below (T104,
+      // MUTUALLY_EXCLUSIVE_FIELDS below (T111,
       // docs/work/specs/2026-08-20-elective-cell-atomic-content-design.md).
       'elective_set_id',
     ],
@@ -687,7 +687,7 @@ export const PROJECTIONS = {
 }
 
 // Cells whose "kind" must be exclusive across two independently-conflict-
-// tracked columns on the same row. See T104,
+// tracked columns on the same row. See T111,
 // docs/work/specs/2026-08-20-elective-cell-atomic-content-design.md, D4.
 // Conflict detection (conflicts table) is keyed per-(entity, entity_id,
 // field), so activity_id and elective_set_id are two separately-arbitrated
@@ -774,7 +774,7 @@ export function applyProjection(db, op) {
     op.entity_id
   )
 
-  // T104 eviction step: a non-null write to a registered mutually-exclusive
+  // T111 eviction step: a non-null write to a registered mutually-exclusive
   // field immediately and unconditionally clears its partner column on the
   // same row, right now — not deferred to a reconciliation pass, which
   // could itself race. Because op replay is seq-ordered identically on

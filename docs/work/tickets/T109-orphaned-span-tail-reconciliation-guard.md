@@ -5,7 +5,7 @@ status: open
 created: 2026-08-20
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md]
-related_tickets: [docs/work/tickets/T105-elective-inline-authoring-and-render.md, docs/work/tickets/T104-elective-cell-atomic-content-and-mutual-exclusion.md]
+related_tickets: [docs/work/tickets/T105-elective-inline-authoring-and-render.md, docs/work/tickets/T111-elective-cell-atomic-content-and-mutual-exclusion.md]
 archive_when: shipped and merged
 ---
 

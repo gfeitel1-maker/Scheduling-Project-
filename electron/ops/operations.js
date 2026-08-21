@@ -396,7 +396,7 @@ export function appendBulkReplaceOp(db, { entity, scope_id, rows, author_user_id
 
   const id = randomUUID()
   const timestamp = new Date().toISOString()
-  // T104: sanitize the whole rows array up front, before it is serialized
+  // T111: sanitize the whole rows array up front, before it is serialized
   // into the op-log payload — sanitizing only inside the insert loop below
   // would leave operations.value (persisted and broadcast to every peer)
   // carrying the raw both-non-null row even though the inserted row is
@@ -457,7 +457,7 @@ export function applyBulkReplaceProjection(db, op) {
       db,
       `INSERT INTO ${config.table} (${config.columns.join(', ')}) VALUES (${config.columns.map(() => '?').join(', ')})`
     )
-    // T104: sanitize defensively on replay too, in case op.value's JSON
+    // T111: sanitize defensively on replay too, in case op.value's JSON
     // (e.g. a pre-fix snapshot's stored payload) itself carries a
     // both-non-null row — this is the real backstop, not merely relying on
     // every writer having been patched.

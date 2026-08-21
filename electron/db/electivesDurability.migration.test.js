@@ -1,8 +1,8 @@
 // @vitest-environment node
 //
-// Migration v36 — durability marker on elective_sets (T103,
+// Migration v36 — durability marker on elective_sets (T110,
 // docs/adr/2026-08-20-electives-authoring.md D2 / docs/work/tickets/
-// T103-electives-sets-crud-and-durability-marker.md). Adds a single
+// T110-electives-sets-crud-and-durability-marker.md). Adds a single
 // nullable-additive column, `is_reusable INTEGER NOT NULL DEFAULT 1`, to the
 // existing elective_sets table (v35). Existing rows default to reusable
 // (durable) — no behavior change for anything created before this migration.

@@ -324,7 +324,7 @@ describe('applyProjection for template_slots', () => {
   })
 })
 
-// T104 — elective cell atomic content + mutual exclusion.
+// T111 — elective cell atomic content + mutual exclusion.
 // docs/work/specs/2026-08-20-elective-cell-atomic-content-design.md
 //
 // template_slots.activity_id and .elective_set_id are two independently
@@ -333,7 +333,7 @@ describe('applyProjection for template_slots', () => {
 // leave both non-null with no conflict ever recorded (worked example in the
 // design doc). These tests prove the eviction step in applyProjection closes
 // that race by construction, for any arrival order.
-describe('applyProjection T104 mutual exclusion — template_slots', () => {
+describe('applyProjection T111 mutual exclusion — template_slots', () => {
   beforeEach(() => {
     db.prepare('INSERT INTO devices (id, name) VALUES (?, ?)').run('device-1', 'Device One')
     db.prepare('INSERT INTO schedule_templates (id, camp_id, name) VALUES (?, ?, ?)').run(
@@ -461,13 +461,13 @@ describe('applyProjection T104 mutual exclusion — template_slots', () => {
 
   // Span-head-with-tails orphaning (Red Hat round 2, test 1) — a
   // documentation/regression guard on the scope boundary, NOT a fix.
-  // Decision (design doc): T104's invariant is deliberately row-scoped
+  // Decision (design doc): T111's invariant is deliberately row-scoped
   // (WHERE id = ?); it does not and cannot fix a stale tail row's
   // relationship to a converted head. That is T105's authoring-path
   // responsibility (route "convert span head to elective" through the same
   // replaceSlot/collectSpanTails multi-cell atomic write already used for
   // "replace span head with a different activity").
-  it('span-head-with-tails: T104 is row-scoped and does not fix (nor is required to fix) an orphaned tail after a head-only conversion', () => {
+  it('span-head-with-tails: T111 is row-scoped and does not fix (nor is required to fix) an orphaned tail after a head-only conversion', () => {
     db.prepare('INSERT INTO template_slots (id, template_id, activity_id, is_span_head) VALUES (?, ?, ?, ?)').run(
       'slot-head',
       'template-1',

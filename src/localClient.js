@@ -115,7 +115,7 @@ export const localClient = {
   deleteWeek: ({ weekId }) => shoresh.deleteWeek({ token: currentToken(), weekId }),
   // deleteElectiveSetHandler (electron/main.js) destructures
   // { token, electiveSetId } — same explicit-field-threading discipline as
-  // deleteWeek above (T103, docs/adr/2026-08-20-electives-authoring.md).
+  // deleteWeek above (T110, docs/adr/2026-08-20-electives-authoring.md).
   deleteElectiveSet: ({ electiveSetId }) =>
     shoresh.deleteElectiveSet({ token: currentToken(), electiveSetId }),
   // deleteSpecialDayHandler (electron/main.js) destructures { token,

@@ -143,7 +143,7 @@ export function decideCell(geometry, groupId, dayId, blockId) {
 
   const isUnfillable = Boolean(slot.flags?.UNFILLABLE) && !slot.flags?.UNFILLABLE_dismissed
   // T105 — an elective cell (elective_set_id set, activity_id null under
-  // T104's MUTUALLY_EXCLUSIVE_FIELDS invariant) has real content and must
+  // T111's MUTUALLY_EXCLUSIVE_FIELDS invariant) has real content and must
   // render as a slot, never fall into the 'empty' droppable branch.
   const hasContent = Boolean(slot.activity_id) || Boolean(slot.elective_set_id)
   if (!hasContent && !slot.is_anchor && !isUnfillable) return { kind: 'empty' }

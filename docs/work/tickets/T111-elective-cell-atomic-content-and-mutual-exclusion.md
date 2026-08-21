@@ -1,16 +1,16 @@
 ---
-title: T104-elective-cell-atomic-content-and-mutual-exclusion
+title: T111-elective-cell-atomic-content-and-mutual-exclusion
 document_type: ticket
 status: in-progress
 created: 2026-08-20
 task_class: database-sync
 governing_docs: [docs/adr/2026-08-20-electives-authoring.md]
 related_adrs: [docs/adr/2026-08-20-electives-authoring.md, docs/adr/2026-08-12-drag-live-write-serialization.md]
-depends_on: [docs/work/tickets/T103-electives-sets-crud-and-durability-marker.md]
+depends_on: [docs/work/tickets/T110-electives-sets-crud-and-durability-marker.md]
 archive_when: shipped and merged
 ---
 
-# T104 — Elective cell: atomic content-kind + mutual exclusion (the correctness-critical seam)
+# T111 — Elective cell: atomic content-kind + mutual exclusion (the correctness-critical seam)
 
 **The HIGH-severity seam Red Hat named.** A `template_slots` cell must never carry both `activity_id`
 and `elective_set_id`. Conflict detection is per-`(entity,entity_id,field)`, so writing the two as
@@ -41,12 +41,9 @@ ship the bug.
 **Architect (design (i)/(ii)) → Red Hat (challenge the chosen resolution + the interleave test) → Maker
 (test-first) → Red Hat (verify) → Code Reviewer → Verifier → Grader.**
 
-## ⚠️ Pre-PR renumber obligation (2026-08-21)
+## Renumbered T104 → T111 (2026-08-21)
 
-**This ticket's number COLLIDES with a merged origin/main ticket** (main owns a different
-`T104-extract-shared-free-suffix-scan`).
-Confirmed with the peer that T105–T111 is clear. **Before opening the PR**, renumber this ticket to
-**T111** and update all references (the other 2026-08-20 ADRs/specs,
-sibling tickets T105–T109, the INDEX, the ~35 in-code comments citing the bare number, and the
-gate-report JSON filename). Bare-number citations are currently disambiguated by their full doc-path,
-so the collision is inert until merge — but must be resolved for numbering integrity.
+Originally created as **T104**, which collided with a merged origin/main ticket
+(`T104-extract-shared-free-suffix-scan`). Renumbered to **T111** across the file, the 2026-08-20
+ADRs/specs, sibling tickets, the INDEX, in-code comments, and the gate-report JSON before opening the
+PR. Peer confirmed T105–T111 clear.
