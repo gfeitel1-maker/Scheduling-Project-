@@ -1,7 +1,7 @@
 ---
 title: T101-locations-deterministic-id-rename-recollide
 document_type: ticket
-status: open
+status: completed
 created: 2026-08-20
 task_class: database-sync
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/adr/2026-08-15-locations-concurrent-create-collision.md, docs/adr/2026-08-15-locations-import-export-roundtrip.md]
@@ -79,3 +79,19 @@ alternative was considered but rejected as heavier and UI-dependent for a rare, 
 **Scope:** the two ingest create points + the T81 importer path + `restore.js`'s rebind (INV-2) must all
 resolve through the shared helper so they agree. Red Hat gate: cross-device determinism/convergence +
 op-log replay of the disambiguated id + the `:${n}` scan's stability under concurrent pre-sync imports.
+
+## Resolution (2026-08-20, SHIPPED — Red Hat 4/5 PASS, Code Reviewer merge-ready)
+
+Mitigation built: single-sourced `resolveLocationCandidateId` (pure, `electron/ops/locationId.js`) +
+`resolveLocationCreateId` (db wrapper, `electron/ops/locationCreate.js`), routed through both ingest
+create sites, restore's rebind (which correctly only reuses, never mints — degrades to NULL for a
+deleted place), and the T81 ActivitiesScreen importer. `${base}:${n}` deterministic disambiguation on a
+rename-recollide; cross-device convergent + replay-safe (Red Hat verified: two devices scan the same
+synced state → same id; the disambiguated id is written as an explicit op, never re-derived on replay).
+Test-first (recollide→distinct row + renamed untouched, two-db convergence, chained recollide, restore
+rebind). Full gate green.
+
+**Non-blocking follow-ups filed (Red Hat + reuse review):** T103 (the `${base}:${n}` suffix isn't
+namespace-reserved against a literal name like "Pool:2" — never corrupting thanks to the name-equality
+guard, but can produce confusing id assignment; + the scan is unbounded); T104 (the free-suffix-scan
+duplicates `duplicateWeek.js`'s pattern — extract a shared `findFreeSuffixedId`).
