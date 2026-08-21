@@ -135,6 +135,45 @@ describe('runIngestCli', () => {
     expect(result.error).toMatch(/no camp bootstrapped/)
   })
 
+  it('attributes written ops to --author when given, and leaves them unattributed when omitted', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath } = bootstrapDb(dir)
+    const db0 = openLocalDb(dbPath)
+    const userId = randomUUID()
+    db0.prepare("INSERT INTO users (id, camp_id, name, pin_hash, pin_salt, role) VALUES (?, (SELECT id FROM camps LIMIT 1), 'Ruth', 'h', 's', 'admin')")
+      .run(userId)
+    db0.close()
+
+    const withAuthor = runIngestCli({ file: SAMPLE, dbPath, action: 'commit', authorUserId: userId })
+    expect(withAuthor.ok).toBe(true)
+
+    const db1 = openLocalDb(dbPath)
+    const unattributed = db1
+      .prepare("SELECT COUNT(*) c FROM operations WHERE entity = 'groups' AND author_user_id IS NULL")
+      .get().c
+    const attributed = db1
+      .prepare("SELECT COUNT(*) c FROM operations WHERE entity = 'groups' AND author_user_id = ?")
+      .get(userId).c
+    expect(unattributed).toBe(0)
+    expect(attributed).toBeGreaterThan(0)
+    db1.close()
+  })
+
+  it('leaves ops unattributed when --author is omitted', () => {
+    const dir = makeTmpDir()
+    dirs.push(dir)
+    const { dbPath } = bootstrapDb(dir)
+
+    const result = runIngestCli({ file: SAMPLE, dbPath, action: 'commit' })
+    expect(result.ok).toBe(true)
+
+    const db = openLocalDb(dbPath)
+    const attributed = db.prepare("SELECT COUNT(*) c FROM operations WHERE entity = 'groups' AND author_user_id IS NOT NULL").get().c
+    expect(attributed).toBe(0)
+    db.close()
+  })
+
   it('re-importing the same file twice creates nothing new the second time', () => {
     const dir = makeTmpDir()
     dirs.push(dir)

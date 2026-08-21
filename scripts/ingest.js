@@ -5,15 +5,15 @@
 //
 // docs/work/specs/2026-08-20-ingestion-cli-design.md
 //
-//   node scripts/ingest.js <file> --db <path> [--preview | --commit] [--mode add|replace] [--json]
+//   node scripts/ingest.js <file> --db <path> [--preview | --commit] [--mode add|replace] [--author <userId>] [--json]
 
 import { fileURLToPath } from 'node:url'
 import { runIngestCli } from './ingestCli.js'
 
-const USAGE = 'usage: node scripts/ingest.js <file> --db <path> [--preview | --commit] [--mode add|replace] [--json]'
+const USAGE = 'usage: node scripts/ingest.js <file> --db <path> [--preview | --commit] [--mode add|replace] [--author <userId>] [--json]'
 
 export function parseArgs(argv) {
-  const opts = { file: null, dbPath: null, action: 'preview', mode: 'add', json: false }
+  const opts = { file: null, dbPath: null, action: 'preview', mode: 'add', authorUserId: null, json: false }
   const positional = []
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
@@ -21,6 +21,7 @@ export function parseArgs(argv) {
     else if (arg === '--preview') opts.action = 'preview'
     else if (arg === '--commit') opts.action = 'commit'
     else if (arg === '--mode') opts.mode = argv[++i]
+    else if (arg === '--author') opts.authorUserId = argv[++i]
     else if (arg === '--json') opts.json = true
     else positional.push(arg)
   }

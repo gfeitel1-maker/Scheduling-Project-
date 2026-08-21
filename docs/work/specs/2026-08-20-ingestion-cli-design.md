@@ -48,7 +48,7 @@ a separate npm package or distributable binary in this slice (that's a packaging
 wanted).
 
 ```
-node scripts/ingest.js <file> --db <path> [--preview | --commit] [--mode add|replace] [--json]
+node scripts/ingest.js <file> --db <path> [--preview | --commit] [--mode add|replace] [--author <userId>] [--json]
 ```
 
 - `<file>` — the workbook/CSV/text schedule to ingest.
@@ -62,6 +62,8 @@ node scripts/ingest.js <file> --db <path> [--preview | --commit] [--mode add|rep
   atomic teardown the app's Replace path uses (host-only, transactional).
 - `--json` — emit the report/outcome as machine-readable JSON instead of human text (for scripts and a
   future MCP wrapper). Mutually informative with `--preview`/`--commit`.
+- `--author <userId>` — attribute the committed ops to this user (so History/Trash can name who imported).
+  Optional; a session-less CLI has no logged-in user, so it defaults to `null` (unattributed).
 
 Exit codes: 0 on success (preview or commit), non-zero on a parse error, a missing/invalid db, or a
 commit failure — so scripts can gate on it (the *gate-exit-code* discipline).
@@ -90,6 +92,7 @@ it is a separate, local, filesystem-trust-boundaried tool.
 - **Any change to the ingestion logic itself** — the CLI is harness-only; parser residuals (T36
   F1/F2/F3) stay deferred.
 - **Auth/PIN for the CLI** — deliberately out (filesystem is the boundary).
+- **S4b re-import staleness protection** — the CLI uses the fresh-import path (`workbookToPages`/`extractEntities`, like scenario 21), NOT the S4b `workbookToSource` `base_generation` staleness gate the reconciliation re-import path uses. Do not point the CLI (or a future MCP wrapper) at an S4b-exported enrichment workbook expecting that protection.
 
 ## Testing seams
 

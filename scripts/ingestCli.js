@@ -73,7 +73,7 @@ function readPages(file) {
  *
  * @returns {{ ok, action, mode, file, db, error, summary, conflicts, residual, exitCode }}
  */
-export function runIngestCli({ file, dbPath, mode = 'add', action = 'preview' }) {
+export function runIngestCli({ file, dbPath, mode = 'add', action = 'preview', authorUserId = null }) {
   const base = baseResult({ file, dbPath, mode, action })
 
   let buf
@@ -122,6 +122,7 @@ export function runIngestCli({ file, dbPath, mode = 'add', action = 'preview' })
         approved,
         links: { groups: proposal.groupUnits },
         camp_id: camp.id,
+        author_user_id: authorUserId,
         device_id: device.id,
         fixedEvents,
         mode,
