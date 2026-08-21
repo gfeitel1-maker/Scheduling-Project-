@@ -283,6 +283,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     overrideModeDayId,
     weekId,
     setDayOverrides,
+    // T108 Phase 2 review round 3 (HIGH — re-authoring an existing override
+    // silently no-ops) — every override write path needs the CURRENT rows to
+    // look up an existing coordinate's id before deciding whether to reuse
+    // it or mint a fresh one.
+    dayOverrides,
   })
   const {
     replaceSlot, dismissFlag, lockActivity, releaseCell,

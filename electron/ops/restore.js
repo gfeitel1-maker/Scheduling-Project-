@@ -25,6 +25,11 @@ export const RESTORE_DECISIONS = Object.freeze({
   time_blocks: 'restorable',
   anchor_activities: 'restorable',
   day_override_templates: 'restorable',
+  // T108 Phase 2 review round 3 (full-gate) — day_overrides (the live
+  // entity; day_override_templates above is the retired predecessor kept
+  // declared-but-unused per the design doc) is a normal authored
+  // camp-scoped entity like anchor_activities, restorable from the op-log.
+  day_overrides: 'restorable',
   locations: 'restorable',
 
   users: 'refused: a restore would re-emit pin_hash and pin_salt as replicating ops',

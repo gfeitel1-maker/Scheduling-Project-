@@ -3,6 +3,7 @@ import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { normalizeName } from '../../ingest/preview.js'
 import { isActivityEligibleForGroup } from '../../engine/eligibility'
 import { createActivity } from './createActivityHelper'
+import { findOverrideId, upsertDayOverride } from '../../utils/dayOverrideCoordinate.js'
 
 // T91: collect the covered tail rows of a span head being replaced, via a
 // single walk that covers BOTH span representations identically (owner
@@ -89,9 +90,42 @@ export function useSlotMutations({
   // reload. Optional so an unrelated caller/test omitting it just skips the
   // optimistic update (the write itself does not depend on it).
   setDayOverrides,
+  // T108 Phase 2 review round 3 (HIGH — re-authoring an existing override
+  // silently no-ops). The CURRENT day_overrides rows, read-only here — every
+  // override write path below looks up whether a row already exists for its
+  // exact coordinate BEFORE deciding an id, via findOverrideId. Defaults to
+  // [] so an unrelated caller/test that omits it degrades to "always mint a
+  // fresh id" (the pre-fix, first-write-only behavior) rather than crashing.
+  dayOverrides = [],
 }) {
   function isOverrideModeFor(dayId) {
     return overrideModeDayId != null && dayId === overrideModeDayId
+  }
+
+  // Shared write primitive for every override-authoring path (replaceSlot,
+  // placeActivityManual, pullOverrideCell): reuses the coordinate's existing
+  // row id when one exists (an UPDATE, matching the UNIQUE constraint),
+  // mints a fresh id only for a genuinely new coordinate (an INSERT). Both
+  // the DB write AND the optimistic array update go through this one
+  // function so they can never drift into disagreeing about which id/entry
+  // is current — see dayOverrideCoordinate.js and
+  // electron/ops/dayOverrides.projections.test.js for why a fresh id per
+  // write silently loses data against the real UNIQUE(schedule_week_id,
+  // day_id, group_id, time_block_id) constraint.
+  async function writeOverrideForCoordinate({ dayId, groupId, blockId, activityId, kind, note = null }) {
+    const coord = { weekId, dayId, groupId, blockId }
+    const id = findOverrideId(dayOverrides, coord) ?? crypto.randomUUID()
+    const fields = {
+      schedule_week_id: weekId,
+      day_id: dayId,
+      group_id: groupId,
+      time_block_id: blockId,
+      activity_id: activityId,
+      kind,
+      note,
+    }
+    await repo.writeDayOverrideFields(id, fields)
+    setDayOverrides?.((prev) => upsertDayOverride(prev, { id, ...fields }))
   }
   const {
     route,
@@ -319,19 +353,11 @@ export function useSlotMutations({
     // posture as placeActivityManual's override branch below.
     if (isOverrideModeFor(target.dayId)) {
       setActionError(null)
-      const id = crypto.randomUUID()
-      const fields = {
-        schedule_week_id: weekId,
-        day_id: target.dayId,
-        group_id: target.groupId,
-        time_block_id: target.blockId,
-        activity_id: incoming.activityId,
-        kind: 'swap',
-        note: null,
-      }
       try {
-        await repo.writeDayOverrideFields(id, fields)
-        setDayOverrides?.(prev => [...prev, { id, ...fields }])
+        await writeOverrideForCoordinate({
+          dayId: target.dayId, groupId: target.groupId, blockId: target.blockId,
+          activityId: incoming.activityId, kind: 'swap',
+        })
       } catch (err) {
         setActionError(describeWriteFailure(err, 'That override could not be saved.'))
       }
@@ -654,19 +680,8 @@ export function useSlotMutations({
     // today is a snapshot restore (design's §5.2 whole-week restore path).
     if (isOverrideModeFor(dayId)) {
       setActionError(null)
-      const id = crypto.randomUUID()
-      const fields = {
-        schedule_week_id: weekId,
-        day_id: dayId,
-        group_id: groupId,
-        time_block_id: blockId,
-        activity_id: activityId,
-        kind: 'swap',
-        note: null,
-      }
       try {
-        await repo.writeDayOverrideFields(id, fields)
-        setDayOverrides?.(prev => [...prev, { id, ...fields }])
+        await writeOverrideForCoordinate({ dayId, groupId, blockId, activityId, kind: 'swap' })
       } catch (err) {
         setActionError(describeWriteFailure(err, 'That override could not be saved.'))
       }
@@ -1413,19 +1428,8 @@ export function useSlotMutations({
     if (overrideGuard(slot)) return
 
     setActionError(null)
-    const id = crypto.randomUUID()
-    const fields = {
-      schedule_week_id: weekId,
-      day_id: dayId,
-      group_id: groupId,
-      time_block_id: blockId,
-      activity_id: null,
-      kind: 'pull',
-      note,
-    }
     try {
-      await repo.writeDayOverrideFields(id, fields)
-      setDayOverrides?.(prev => [...prev, { id, ...fields }])
+      await writeOverrideForCoordinate({ dayId, groupId, blockId, activityId: null, kind: 'pull', note })
     } catch (err) {
       setActionError(describeWriteFailure(err, 'That override could not be saved.'))
     }

@@ -25,6 +25,41 @@ function makeRepo(overrides = {}) {
   }
 }
 
+// T108 Phase 2 review round 3 — a plain vi.fn() mock (makeRepo's default
+// writeDayOverrideFields above) accepts ANY id unconditionally, so it could
+// never have caught the real-schema bug (day_overrides has
+// UNIQUE(schedule_week_id, day_id, group_id, time_block_id); the electron/ops
+// projection does INSERT OR IGNORE keyed by id, then UPDATE WHERE id=?, so a
+// FRESH id for an already-overridden coordinate silently persists nothing —
+// see electron/ops/dayOverrides.projections.test.js for the real-SQLite
+// proof). This fake reproduces that exact semantic in memory: a row keyed by
+// id; writing a NEW id whose coordinate already belongs to a DIFFERENT id is
+// a no-op (mirrors "INSERT OR IGNORE finds the UNIQUE collision, UPDATE
+// WHERE id=<fresh id> matches nothing"); writing an id that already owns the
+// row updates it in place. Used to prove the hook-level fix (id reuse) is
+// what actually prevents data loss, not merely that a mock accepted the call.
+function makeRealisticDayOverrideRepo() {
+  const rowsById = new Map()
+  const writeDayOverrideFields = vi.fn(async (id, fields) => {
+    const coordKey = `${fields.schedule_week_id}|${fields.day_id}|${fields.group_id}|${fields.time_block_id}`
+    const ownerOfCoord = [...rowsById.values()].find((r) => r.coordKey === coordKey && r.id !== id)
+    if (ownerOfCoord) {
+      // UNIQUE collision on the tuple: INSERT OR IGNORE inserts nothing, and
+      // the follow-up UPDATE WHERE id=<this id> matches no row either — a
+      // total no-op, exactly like the real projection.
+      return { status: 'applied' }
+    }
+    const existing = rowsById.get(id) ?? {}
+    rowsById.set(id, { ...existing, ...fields, id, coordKey })
+    return { status: 'applied' }
+  })
+  return {
+    ...makeRepo({ writeDayOverrideFields }),
+    _rowsById: rowsById,
+    _rowForCoord: (coordKey) => [...rowsById.values()].find((r) => r.coordKey === coordKey),
+  }
+}
+
 // The route-scoped values the hook pulls off routeState. setSlots/setOverlays are
 // the route-PINNED setters (in the real screen they are bound to the route the
 // entry was made on); the tests assert the undo closures still target these.
@@ -2095,5 +2130,102 @@ describe('useSlotMutations — override-authoring mode (overrideMode: true)', ()
     expect(props.repo.writeDayOverrideFields).toHaveBeenCalledTimes(2)
     const blockIds = props.repo.writeDayOverrideFields.mock.calls.map(([, fields]) => fields.time_block_id)
     expect(blockIds.sort()).toEqual(['b1', 'b2'])
+  })
+
+  // T108 Phase 2 review round 3 (HIGH — re-authoring an existing override
+  // silently no-ops / data loss). Uses makeRealisticDayOverrideRepo, which
+  // reproduces the real UNIQUE(schedule_week_id, day_id, group_id,
+  // time_block_id) collision semantics a plain vi.fn() mock cannot — a
+  // FRESH id for an already-overridden coordinate must be a documented no-op
+  // here too, or this test would give the same false confidence the
+  // original round-2 tests did (see electron/ops/dayOverrides.projections.test.js
+  // for the real-SQLite version of this same proof).
+  describe('re-authoring an existing override (coordinate id reuse)', () => {
+    const slots = [
+      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, is_anchor: false, flags: {} },
+    ]
+
+    it('placeActivityManual, re-authored: the SECOND write reuses the id findOverrideId resolves, and the row ends up with the SECOND content', async () => {
+      const repo = makeRealisticDayOverrideRepo()
+      const { hook, props } = setup({
+        slots, activities: [{ id: 'act-art', name: 'Art' }, { id: 'act-boat', name: 'Boating' }],
+        overrideModeDayId: 'd1', weekId: 'week-1', repo,
+      })
+
+      await act(async () => {
+        await hook.result.current.placeActivityManual('act-art', 'g1', 'd1', 'b1')
+      })
+      const firstId = repo.writeDayOverrideFields.mock.calls[0][0]
+      expect(repo._rowForCoord('week-1|d1|g1|b1').activity_id).toBe('act-art')
+
+      // Simulate the real app: the composed dayOverrides state now includes
+      // the row the first write created, fed back in via rerender (the same
+      // way ScheduleScreen's setDayOverrides -> re-render -> updated prop
+      // cycle works in production).
+      hook.rerender({
+        ...props,
+        dayOverrides: [{ id: firstId, schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', activity_id: 'act-art', kind: 'swap', note: null }],
+      })
+
+      await act(async () => {
+        await hook.result.current.placeActivityManual('act-boat', 'g1', 'd1', 'b1')
+      })
+      const secondId = repo.writeDayOverrideFields.mock.calls[1][0]
+
+      // THE FIX: the second write reused the first write's id.
+      expect(secondId).toBe(firstId)
+      // And because the id was reused, the row's content is now the SECOND
+      // override — not silently stuck on the first (the bug this closes).
+      const rows = [...repo._rowsById.values()]
+      expect(rows).toHaveLength(1)
+      expect(rows[0].activity_id).toBe('act-boat')
+    })
+
+    it('WITHOUT id reuse (fresh id per write), the realistic repo reproduces the data-loss bug — pins why the fix is required', async () => {
+      // Same scenario as above, but calling the repo directly with two FRESH
+      // ids for the same coordinate — exactly what the pre-fix
+      // useSlotMutations.js code did (crypto.randomUUID() unconditionally).
+      // This is the control case: it demonstrates the realistic mock's
+      // UNIQUE-collision behavior is real, not a tautology that always passes.
+      const repo = makeRealisticDayOverrideRepo()
+      await repo.writeDayOverrideFields('fresh-id-1', {
+        schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', activity_id: 'act-art', kind: 'swap', note: null,
+      })
+      await repo.writeDayOverrideFields('fresh-id-2', {
+        schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', activity_id: 'act-boat', kind: 'swap', note: null,
+      })
+      const rows = [...repo._rowsById.values()]
+      expect(rows).toHaveLength(1)
+      expect(rows[0].id).toBe('fresh-id-1')
+      expect(rows[0].activity_id).toBe('act-art') // the second write vanished
+    })
+
+    it('setDayOverrides upserts by coordinate: after a re-authored write, the array has exactly ONE entry with the NEW content', async () => {
+      const repo = makeRealisticDayOverrideRepo()
+      let current = []
+      const setDayOverrides = vi.fn((updater) => {
+        current = typeof updater === 'function' ? updater(current) : updater
+      })
+      const { hook, props } = setup({
+        slots, activities: [{ id: 'act-art', name: 'Art' }, { id: 'act-boat', name: 'Boating' }],
+        overrideModeDayId: 'd1', weekId: 'week-1', repo, setDayOverrides,
+      })
+
+      await act(async () => {
+        await hook.result.current.placeActivityManual('act-art', 'g1', 'd1', 'b1')
+      })
+      expect(current).toHaveLength(1)
+      expect(current[0].activity_id).toBe('act-art')
+
+      hook.rerender({ ...props, dayOverrides: current })
+
+      await act(async () => {
+        await hook.result.current.placeActivityManual('act-boat', 'g1', 'd1', 'b1')
+      })
+      // Upsert, not append: still exactly one entry, and applyDayOverrides'
+      // find() (first match wins) now sees the fresh content immediately.
+      expect(current).toHaveLength(1)
+      expect(current[0].activity_id).toBe('act-boat')
+    })
   })
 })

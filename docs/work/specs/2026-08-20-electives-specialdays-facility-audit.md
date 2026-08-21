@@ -140,7 +140,7 @@ problem. They were built at different times and **do not know about each other.*
 
 | Mechanism | Table | The quadrant it serves | State |
 |---|---|---|---|
-| **Day Override Templates** ([DayOverridesScreen.jsx](../../../src/screens/DayOverridesScreen.jsx)) | `day_override_templates` | *override* (mostly-normal day) | Built, **never rendered against a week**, no group axis; `frequency_mode` is a dead field |
+| **Day Override Templates** (`DayOverridesScreen.jsx`, since removed by T108) | `day_override_templates` | *override* (mostly-normal day) | Built, **never rendered against a week**, no group axis; `frequency_mode` is a dead field |
 | **Field-Trip stamps** ([FieldTripDrawer.jsx](../../../src/components/schedule/FieldTripDrawer.jsx)) | `template_overlays` | *event/context* (a label, not an assignment) | Built, label-only banner over the normal grid |
 | **Special Days** ([schema.sql:661-703](../../../electron/db/schema.sql), v34) | `special_days` family | *special schedule* (own day, own time blocks, full grid) | Data layer **fully built, no UI at all** |
 | **Roots "Context"** ([rootMapModel.js:63-76](../../../src/ingest/rootMapModel.js)) | reads overlays + overrides | read-only inventory | Surfaces #1 and #2; not yet #3 |
