@@ -17,6 +17,7 @@ import { describeStartupFailure, formatStartupFailureLog } from './startupFailur
 import { deriveWriteAction, deriveBulkReplaceAction } from './auth/deriveWriteAction.js'
 import { recordAuditEvent } from './audit/auditLog.js'
 import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from './ops/campScopedEntities.js'
+import { listEntities } from './ops/read.js'
 import { IPC_PIN_FIELDS } from './ops/pinFields.js'
 import { listDeleted, getEntityHistory } from './ops/trash.js'
 import { RESTORABLE_ENTITIES, restoreEntity } from './ops/restore.js'
@@ -947,17 +948,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     // check on this path today.
     requireAuthorized(db, { token, action: `${entity}.read` })
 
-    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
-    if (!camp) return []
-
-    if (DIRECT_CAMP_ENTITIES.has(entity)) {
-      return db.prepare(`SELECT * FROM ${entity} WHERE camp_id = ?`).all(camp.id)
-    }
-
-    const { table, parentTable, parentKey } = PARENT_SCOPED_ENTITIES[entity]
-    return db
-      .prepare(`SELECT t.* FROM ${table} t JOIN ${parentTable} p ON p.id = t.${parentKey} WHERE p.camp_id = ?`)
-      .all(camp.id)
+    return listEntities(db, entity)
   }
 
   // Scope-filtered sibling of list(): same allowlist-before-query discipline,

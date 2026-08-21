@@ -221,10 +221,15 @@ describe('what it refuses to guess', () => {
     }
   })
 
-  it('proposes no units for a layout that does not carry them', () => {
-    // Camp B's columns are bare group names with no unit prefix.
-    expect(extractEntities(campB).entities.tiers).toEqual([])
-    expect(extractEntities(campB).groupUnits).toEqual({})
+  it('infers a division from a "Word Number" group-column header (W6)', () => {
+    // Camp B's real headers are "Yeladim 1", "Tzofim 2", etc. — a division
+    // word followed by a bunk number, no hyphen. The division is the leading
+    // word-part; the bunk keeps its FULL header as its name (owner decision).
+    const { entities, groupUnits } = extractEntities(campB)
+    expect(entities.tiers).toEqual(['Yeladim', 'Tzofim', 'Chalutzim', 'Alufim', 'Giborim', 'CIT'])
+    expect(groupUnits['Tzofim 2']).toBe('Tzofim')
+    expect(groupUnits['Yeladim 1']).toBe('Yeladim')
+    expect(groupUnits['CIT']).toBe('CIT')
   })
 })
 
@@ -241,20 +246,79 @@ describe('unit inference (ADR 2026-08-09 Decision 2)', () => {
     expect(groupUnits['Picassos']).toBe('Kfar B')
   })
 
-  it('groups-are-columns: a plain-name header with no separator stays unit: null (no false positive)', () => {
-    // Real Camp B fixture headers include "CIT", a bare bunk name that would
-    // match inferUnitFromCode's positional-code regex if it were reused here
-    // — a false positive the ADR itself flags as a stop-ship signal for that
-    // specific reuse (open question 2). Confirmed against the real fixture:
-    expect(extractEntities(campB).entities.tiers).toEqual([])
-    expect(extractEntities(campB).groupUnits).toEqual({})
-    // And directly, against synthetic plain-name headers of the same shape:
+  it('groups-are-columns: a lone-token header with no separator and no trailing number becomes its own division (W6)', () => {
+    // "CIT" has no hyphen and no trailing bunk number, so it falls to the
+    // lone-token fallback: division "CIT", bunk "CIT" — never "C" (that was
+    // the false positive the old guard existed to prevent; the guard's real
+    // intent — never mint "C" from "CIT" — still holds under the new rule).
     const grid = { pages: [{ title: 'Monday', columns: ['Zahav', 'Gesher', 'CIT'], rows: [
       { label: '09:00-10:00', cells: ['Swim', 'Art', 'Music'] },
     ] }] }
     const { entities, groupUnits } = extractEntities(grid)
+    expect(entities.tiers).toEqual(['Zahav', 'Gesher', 'CIT'])
+    expect(groupUnits['Zahav']).toBe('Zahav')
+    expect(groupUnits['Gesher']).toBe('Gesher')
+    expect(groupUnits['CIT']).toBe('CIT')
+  })
+
+  it('groups-are-columns: a "Word Number" header keeps the full header as the bunk name', () => {
+    const grid = { pages: [{ title: 'Monday', columns: ['Yeladim 1'], rows: [
+      { label: '09:00-10:00', cells: ['Swim'] },
+    ] }] }
+    const { entities, groupUnits } = extractEntities(grid)
+    expect(entities.tiers).toEqual(['Yeladim'])
+    expect(groupUnits['Yeladim 1']).toBe('Yeladim')
+  })
+
+  it('groups-are-columns: a hyphenated header still splits via the hyphen rule first, even when it also looks like "Word Number"', () => {
+    const grid = { pages: [{ title: 'Monday', columns: ['Kfar A - Chagalls 1'], rows: [
+      { label: '09:00-10:00', cells: ['Swim'] },
+    ] }] }
+    const { entities, groupUnits } = extractEntities(grid)
+    expect(entities.tiers).toEqual(['Kfar A'])
+    expect(groupUnits['Chagalls 1']).toBe('Kfar A')
+  })
+
+  it('groups-are-columns: metadata columns (Notes, Lunch) are skipped entirely, not treated as divisions or groups', () => {
+    const grid = { pages: [{ title: 'Monday', columns: ['Yeladim 1', 'Notes', 'Tzofim 2', 'Lunch', 'CIT'], rows: [
+      { label: '09:00-10:00', cells: ['Swim', 'n/a', 'Art', 'n/a', 'Archery'] },
+    ] }] }
+    const { entities, groupUnits } = extractEntities(grid)
+    expect(entities.tiers).toEqual(['Yeladim', 'Tzofim', 'CIT'])
+    expect(entities.groups).toEqual(['Yeladim 1', 'Tzofim 2', 'CIT'])
+    expect(groupUnits['Notes']).toBeUndefined()
+    expect(groupUnits['Lunch']).toBeUndefined()
+  })
+
+  it('groups-are-columns: metadata match is case-insensitive on the trimmed header', () => {
+    const grid = { pages: [{ title: 'Monday', columns: [' NOTES ', 'CIT'], rows: [
+      { label: '09:00-10:00', cells: ['n/a', 'Archery'] },
+    ] }] }
+    const { entities } = extractEntities(grid)
+    expect(entities.groups).toEqual(['CIT'])
+  })
+
+  it('groups-are-columns: an accented division word is captured ("Café 1" -> division "Café")', () => {
+    const grid = { pages: [{ title: 'Monday', columns: ['Café 1', 'Zoï 2'], rows: [
+      { label: '09:00-10:00', cells: ['Swim', 'Art'] },
+    ] }] }
+    const { entities, groupUnits } = extractEntities(grid)
+    expect(entities.tiers).toEqual(['Café', 'Zoï'])
+    expect(groupUnits['Café 1']).toBe('Café')
+    expect(groupUnits['Zoï 2']).toBe('Zoï')
+  })
+
+  it('groups-are-pages (positional-code path) is unaffected by the W6 group-column rule', () => {
+    const grid = { pages: [{
+      title: 'Tzofim 1', columns: ['Monday', 'Tuesday'], timeColumnLabeled: false,
+      rows: [{ label: '09:00-10:00', cells: ['Swim', 'Art'] }],
+    }] }
+    const { entities, groupUnits } = extractEntities(grid)
+    // days-orientation path: splitUnitAndGroup then inferUnitFromCode fallback.
+    // "Tzofim 1" has no hyphen and inferUnitFromCode's regex requires a single
+    // leading letter/digit-run token, which "Tzofim" (a whole word) is not.
     expect(entities.tiers).toEqual([])
-    expect(groupUnits).toEqual({})
+    expect(groupUnits['Tzofim 1']).toBeUndefined()
   })
 
   it('groups-are-pages, labeled: a title matching neither shape now falls back to inferUnitFromCode', () => {

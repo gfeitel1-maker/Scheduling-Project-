@@ -1,0 +1,29 @@
+{
+  "task_id": "camp-setup-ingestion-w1",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": null,
+    "red_hat": null,
+    "tester": 4,
+    "code_reviewer": 5
+  },
+  "overall_score": 4.5,
+  "lowest_dimension": 4,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": [
+    {
+      "gate_name": "security",
+      "na_reason": "Pure display-string rename of canonical vocabulary labels; no auth, secret, PIN, protocol, IPC, or packaging surface touched"
+    },
+    {
+      "gate_name": "red_hat",
+      "na_reason": "No stored-data-shape, op-log, sync, or migration change; internal DB entity/column names unchanged (tiers, cohorts, locations, groups untouched in schema)"
+    }
+  ]
+}
