@@ -113,3 +113,40 @@ describe('mockShoresh — elective_set_activities and template_slots.elective_se
     expect(slot.elective_set_id).toBe('es-1')
   })
 })
+
+// T105 §2 — the reuse-surface exclusion the ticket's scope literally requires:
+// listDurableElectiveSets must never surface an is_reusable=0 (one-off) set,
+// and the generic list('elective_sets') must never be substituted for it on a
+// reuse surface (T110 Red Hat note).
+describe('mockShoresh — listDurableElectiveSets (T105 §2 reuse-surface exclusion)', () => {
+  it('excludes an is_reusable=0 set and includes an is_reusable=1 set', async () => {
+    const { mockShoresh } = await import('./localClient.mock.js')
+    globalThis.localStorage.setItem(
+      'shoresh-mock-state',
+      JSON.stringify({ camp: { id: 'camp-1' }, users: [], conflicts: [], devices: [] })
+    )
+    await mockShoresh.write({ entity: 'elective_sets', entity_id: 'es-oneoff', field: 'name', value: 'One-Off' })
+    await mockShoresh.write({ entity: 'elective_sets', entity_id: 'es-oneoff', field: 'is_reusable', value: 0 })
+    await mockShoresh.write({ entity: 'elective_sets', entity_id: 'es-durable', field: 'name', value: 'Durable' })
+    await mockShoresh.write({ entity: 'elective_sets', entity_id: 'es-durable', field: 'is_reusable', value: 1 })
+
+    const durable = await mockShoresh.listDurableElectiveSets()
+    expect(durable.map(s => s.id)).toEqual(['es-durable'])
+
+    // The flip side: the generic list still returns BOTH — the render surface
+    // (§2's electiveSetsAll) must see the one-off too.
+    const all = await mockShoresh.list(null, 'elective_sets')
+    expect(all.map(s => s.id).sort()).toEqual(['es-durable', 'es-oneoff'])
+  })
+
+  it('a set with no is_reusable write at all (never promoted) is excluded, not treated as durable', async () => {
+    const { mockShoresh } = await import('./localClient.mock.js')
+    globalThis.localStorage.setItem(
+      'shoresh-mock-state',
+      JSON.stringify({ camp: { id: 'camp-1' }, users: [], conflicts: [], devices: [] })
+    )
+    await mockShoresh.write({ entity: 'elective_sets', entity_id: 'es-1', field: 'name', value: 'Fresh One-Off' })
+    const durable = await mockShoresh.listDurableElectiveSets()
+    expect(durable).toEqual([])
+  })
+})

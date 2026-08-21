@@ -19,7 +19,7 @@ export const SCREEN_INTRO = {
   activities: 'What groups do during free blocks — archery, swimming, ceramics, peulot.',
   locations: 'Locations at your camp and how many groups fit in each — the Pool, the Gym, the Beit Midrash. Optional: add them only if you want the schedule to keep two groups out of the same room.',
   anchors: 'Events that happen at the same time every day — Aruchat Boker, Tefillah, Flagpole.',
-  dayoverrides: 'Days that do not run normally — a trip day, Color War, a Shabbaton.',
+  specialdays: "Build a standalone schedule for Color War, a field trip, or any day that doesn't follow your normal program.",
   reconciliation: 'What this file changes about your camp setup — review it, then bring it in.',
   // Inspect mode (docs/adr/2026-08-19-roots-census-and-persistent-inspector.md
   // §(e)) — reached from the sidebar, not an import; no file to "bring in".

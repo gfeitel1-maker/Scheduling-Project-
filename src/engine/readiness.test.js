@@ -60,10 +60,6 @@ describe('getSetupGaps: what actually blocks building a week', () => {
     expect(getSetupGaps({ ...FULL, anchors: [] })).toEqual([])
   })
 
-  it('does not treat Day Overrides as a gap', () => {
-    expect(getSetupGaps({ ...FULL, dayOverrideTemplates: [] })).toEqual([])
-  })
-
   it('reports every missing area at once, in setup order', () => {
     const gaps = getSetupGaps({ cohorts: [], tiers: [], groups: [], days: [], timeBlocks: [], activities: [] })
     expect(gaps.map((g) => g.key)).toEqual(['tiers', 'groups', 'days', 'timeblocks', 'activities'])
@@ -84,11 +80,12 @@ describe('getSetupGaps: what actually blocks building a week', () => {
     }
   })
 
-  it('exposes exactly five required areas and three optional ones', () => {
+  it('exposes exactly five required areas and two optional ones', () => {
     expect(REQUIRED_AREAS).toHaveLength(5)
-    // M3: anchors, dayoverrides, and (newly) location — promoted out of
-    // FORWARD_AREAS (docs/adr/2026-08-15-camp-locations-entity.md).
-    expect(OPTIONAL_AREAS).toHaveLength(3)
+    // M3: anchors and location — promoted out of FORWARD_AREAS
+    // (docs/adr/2026-08-15-camp-locations-entity.md). T108 Phase 2 review
+    // round 2 (MED/HIGH #4) — dayoverrides removed (see readiness.js).
+    expect(OPTIONAL_AREAS).toHaveLength(2)
     // The two must not overlap; an area that is both is the bug this replaces.
     const required = new Set(REQUIRED_AREAS.map((a) => a.key))
     for (const optional of OPTIONAL_AREAS) expect(required.has(optional.key)).toBe(false)

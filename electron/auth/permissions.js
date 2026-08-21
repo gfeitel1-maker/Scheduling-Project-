@@ -57,6 +57,11 @@ export const ENTITIES = [
   // admin-only via default-deny.
   'elective_sets',
   'elective_set_activities',
+  // T108 (day-overrides re-point, ADR 2026-08-21-day-overrides-repoint-
+  // shape.md D1): ordinary camp-scoped entity, staff read/write; delete
+  // stays admin-only via default-deny (no explicit staff grant below),
+  // matching the special_days/elective_sets posture above.
+  'day_overrides',
 ]
 
 const staffReadWrite = ENTITIES.flatMap((entity) => [`${entity}.read`, `${entity}.write`])

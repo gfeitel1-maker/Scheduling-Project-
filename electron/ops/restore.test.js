@@ -89,12 +89,16 @@ describe('the restore allowlist is enforced, not merely documented', () => {
     expect(restoreEntity(db, { entity: 'wat', entity_id: 'x', ...session })).toEqual({ error: 'not-restorable' })
   })
 
-  it('accepts exactly the setup entities the ADR names (incl. v32 locations)', () => {
+  it('accepts exactly the setup entities the ADR names (incl. v32 locations, T108 day_overrides)', () => {
     expect([...RESTORABLE_ENTITIES].sort()).toEqual([
       'activities',
       'anchor_activities',
       'cohorts',
       'day_override_templates',
+      // T108 Phase 2 review round 3 (full-gate) — day_overrides is the live
+      // entity (day_override_templates is the retired predecessor, kept
+      // declared for now, see restore.js).
+      'day_overrides',
       'days_of_operation',
       'groups',
       'locations',

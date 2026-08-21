@@ -21,6 +21,13 @@ export function useSnapshots({
   groups,
   activities,
   days,
+  weekId,
+  // T108 review round 2 (HIGH #3) — dayOverrides is owned by useScheduleData,
+  // not this hook; restoreSnapshot must reload it and hand the fresh rows
+  // back up so the grid's applyDayOverrides composition (ScheduleScreen's
+  // slots useMemo) recomposes against what was ACTUALLY restored, not
+  // whatever was on screen before the restore ran.
+  setDayOverrides,
 }) {
   const {
     route,
@@ -56,6 +63,11 @@ export function useSnapshots({
     const id = crypto.randomUUID()
     const createdAt = new Date().toISOString()
     const snapOverlays = overlaysByRoute[routeName].map(o => ({ unit_id: o.unit_id, day_id: o.day_id, from_block_order: o.from_block_order, to_block_order: o.to_block_order, label: o.label }))
+    // Whole-week day_overrides capture (design §5.2): snapshots are
+    // whole-week/template-level, so this is every day, not just the one
+    // currently on screen.
+    const dayOverrides = weekId ? await repo.loadDayOverridesForWeek(weekId) : []
+    const dayOverridesJson = JSON.stringify(dayOverrides)
     setActionError(null)
     try {
       await repo.writeSnapshotFields(id, {
@@ -65,12 +77,13 @@ export function useSnapshots({
         created_at: createdAt,
         slots: JSON.stringify(snapSlots),
         overlays: JSON.stringify(snapOverlays),
+        day_overrides_json: dayOverridesJson,
       })
     } catch (err) {
       setActionError(describeWriteFailure(err, 'That version could not be saved.'))
       throw err
     }
-    setRouteSnapshots(prev => [{ id, template_id: tid, name: name || null, is_auto: isAuto, created_at: createdAt, slots: JSON.stringify(snapSlots), overlays: JSON.stringify(snapOverlays), restorable: true }, ...prev])
+    setRouteSnapshots(prev => [{ id, template_id: tid, name: name || null, is_auto: isAuto, created_at: createdAt, slots: JSON.stringify(snapSlots), overlays: JSON.stringify(snapOverlays), day_overrides_json: dayOverridesJson, restorable: true }, ...prev])
   }
 
   // Deleting a version is the director's call, never an automatic cleanup.
@@ -124,10 +137,22 @@ export function useSnapshots({
 
     fullSnap.slots = parsed.slots
     fullSnap.overlays = parsed.overlays
+    // A snapshot saved before this feature shipped has no day_overrides_json
+    // at all — an empty array correctly restores the week to "no overrides"
+    // (design §5.2's delete-then-recreate-nothing case), same as an
+    // explicitly-empty payload.
+    let snapshotDayOverrides = []
+    if (fullSnap.day_overrides_json) {
+      try {
+        snapshotDayOverrides = JSON.parse(fullSnap.day_overrides_json) || []
+      } catch {
+        snapshotDayOverrides = []
+      }
+    }
 
     setActionError(null)
     try {
-      await repo.restoreSnapshotRows(templateId, fullSnap.slots, fullSnap.overlays)
+      await repo.restoreSnapshotRows(templateId, fullSnap.slots, fullSnap.overlays, snapshotDayOverrides)
     } catch (err) {
       setActionError(
         err?.message?.includes('admin role required')
@@ -142,6 +167,15 @@ export function useSnapshots({
 
     const freshOverlays = await repo.reloadOverlays(templateId)
     setOverlays(freshOverlays)
+
+    // HIGH #3 — reload the WHOLE WEEK's day_overrides (restore is week-level,
+    // design §5.2) so ScheduleScreen's applyDayOverrides composition reflects
+    // exactly what restoreSnapshotRows just wrote, including restore-to-none
+    // (an empty reload correctly clears stale overrides from the grid).
+    if (weekId) {
+      const freshDayOverrides = await repo.loadDayOverridesForWeek(weekId)
+      setDayOverrides?.(freshDayOverrides)
+    }
 
     recalcStats(freshSlots)
     setFindings(computeFindings({ slots: freshSlots, groups, activities, days }))

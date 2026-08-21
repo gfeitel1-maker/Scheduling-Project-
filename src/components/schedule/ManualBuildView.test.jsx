@@ -127,6 +127,36 @@ describe('ManualBuildView — CSS Grid conversion (T56)', () => {
     expect(empty.style.gridColumn).toBe('3 / span 1')
   })
 
+  it('T112 — click on an empty cell opens the inline editor', () => {
+    const container = renderView()
+    const empty = cellAt(container, 'g1|d2|b2')
+    expect(empty.querySelector('.cell-inline-editor-input')).toBeNull()
+    fireEvent.click(empty)
+    expect(empty.querySelector('.cell-inline-editor-input')).not.toBeNull()
+  })
+
+  it('T112 — commit calls onPlace with the empty cell identity', () => {
+    const placed = []
+    const container = renderView({
+      eligibleActivitiesFor: () => [{ id: 'a9', name: 'Soccer' }],
+      onPlace: (slot, activityId) => placed.push([slot, activityId]),
+    })
+    const empty = cellAt(container, 'g1|d2|b2')
+    fireEvent.click(empty)
+    const input = empty.querySelector('.cell-inline-editor-input')
+    fireEvent.change(input, { target: { value: 'Soccer' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(placed).toEqual([[{ groupId: 'g1', dayId: 'd2', blockId: 'b2' }, 'a9']])
+  })
+
+  it('T112 — filled-cell left-click still selects (unchanged)', () => {
+    const selected = []
+    const container = renderView({ onCellSelect: (slot) => selected.push(slot) })
+    fireEvent.click(cellAt(container, 'g1|d2|b1'))
+    expect(selected.length).toBe(1)
+    expect(cellAt(container, 'g1|d2|b1').querySelector('.cell-inline-editor-input')).toBeNull()
+  })
+
   it('drives row tracks from buildRowTracks via --grid-rows', () => {
     const container = renderView()
     const body = container.querySelector('.schedule-grid--body')

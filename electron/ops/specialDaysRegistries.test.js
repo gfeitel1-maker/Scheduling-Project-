@@ -23,7 +23,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 describe('v34 registry coverage — special_days', () => {
   it('is a projected entity (writes materialize, not silently discarded)', () => {
     expect(PROJECTIONS.special_days).toBeTruthy()
-    expect(PROJECTIONS.special_days.fields).toEqual(['camp_id', 'name', 'sort_order'])
+    expect(PROJECTIONS.special_days.fields).toEqual(['camp_id', 'name', 'sort_order', 'notes'])
   })
 
   it('is a direct-camp-scoped entity (list() + first-pairing full_sync)', () => {
@@ -33,7 +33,7 @@ describe('v34 registry coverage — special_days', () => {
   it('is in the client first-pairing snapshot (DOMAIN_SNAPSHOT_ORDER + columns)', () => {
     const src = fs.readFileSync(path.join(__dirname, '../sync/syncClient.js'), 'utf8')
     expect(DOMAIN_SNAPSHOT_ORDER).toContain('special_days')
-    expect(src).toMatch(/special_days:\s*\['id', 'camp_id', 'name', 'sort_order'\]/)
+    expect(src).toMatch(/special_days:\s*\['id', 'camp_id', 'name', 'sort_order', 'notes'\]/)
   })
 
   it('is in permissions.ENTITIES (not silently admin-only)', () => {
@@ -42,7 +42,7 @@ describe('v34 registry coverage — special_days', () => {
 
   it('has a restore decision and a mock write allowlist', () => {
     expect(RESTORE_DECISIONS.special_days).toBeDefined()
-    expect(MOCK_WRITE_ALLOWLIST.special_days).toEqual(['camp_id', 'name', 'sort_order'])
+    expect(MOCK_WRITE_ALLOWLIST.special_days).toEqual(['camp_id', 'name', 'sort_order', 'notes'])
   })
 })
 

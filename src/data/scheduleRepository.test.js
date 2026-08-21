@@ -259,6 +259,18 @@ describe('the single slot->row mapper — one mapper, three call-site shapes', (
   })
 })
 
+describe('day_overrides field writes (T108 override-authoring-mode)', () => {
+  it('writeDayOverrideFields writes day_overrides fields in order', async () => {
+    const client = makeFakeClient()
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    await repo.writeDayOverrideFields('ov-1', { schedule_week_id: 'week-1', kind: 'pull' })
+    expect(client.calls.write).toEqual([
+      ['tok', 'day_overrides', 'ov-1', 'schedule_week_id', 'week-1'],
+      ['tok', 'day_overrides', 'ov-1', 'kind', 'pull'],
+    ])
+  })
+})
+
 describe('overlay field writes', () => {
   it('writeOverlayFields writes template_overlays fields in order', async () => {
     const client = makeFakeClient()
@@ -299,17 +311,68 @@ describe('reads — fetch + normalize', () => {
     expect(data.snapshots).toEqual([{ id: 'snap1', template_id: 'tid' }])
   })
 
-  it('loadSetupLists fetches the eight setup entities and keys them by entity name', async () => {
+  it('loadSetupLists fetches the ten setup entities and keys them by entity name (T105 adds electiveSetsAll\'s two)', async () => {
     const client = makeFakeClient()
     client.setListStore({ groups: [{ id: 'g1' }], activities: [{ id: 'a1' }], locations: [{ id: 'L1' }] })
     const repo = createScheduleRepository({ localClient: client, getToken })
     const lists = await repo.loadSetupLists()
     expect(client.calls.list).toEqual([
       'groups', 'days_of_operation', 'time_blocks', 'activities', 'anchor_activities', 'tiers', 'cohorts', 'locations',
+      'elective_sets', 'elective_set_activities',
     ])
     expect(lists.groups).toEqual([{ id: 'g1' }])
     expect(lists.activities).toEqual([{ id: 'a1' }])
     expect(lists.locations).toEqual([{ id: 'L1' }])
+  })
+
+  // T105 §2 — the durable-read seam is a SEPARATE call, never a client-side
+  // filter of loadSetupLists' elective_sets.
+  it('loadDurableElectiveSets calls the dedicated listDurableElectiveSets primitive, not list("elective_sets")', async () => {
+    const client = makeFakeClient()
+    client.listDurableElectiveSets = async () => [{ id: 'es-1', name: 'Durable', is_reusable: 1 }]
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    const rows = await repo.loadDurableElectiveSets()
+    expect(rows).toEqual([{ id: 'es-1', name: 'Durable', is_reusable: 1 }])
+  })
+
+  // T105 review fix (GATE RED #1): electives are NOT a readiness
+  // prerequisite. A failure fetching them (an entity a caller doesn't stub,
+  // an older schema, a rejected promise) must never fail the CORE setup
+  // lists (groups/days/timeBlocks/activities/...) that readiness/the grid
+  // depend on — it must default to [] instead.
+  it('loadSetupLists tolerates a rejecting elective_sets/elective_set_activities fetch — core lists still resolve', async () => {
+    const client = makeFakeClient()
+    client.setListStore({ groups: [{ id: 'g1' }], activities: [{ id: 'a1' }] })
+    client.list = vi.fn((entity) => {
+      if (entity === 'elective_sets' || entity === 'elective_set_activities') {
+        return Promise.reject(new Error('Unrecognized entity: elective_sets'))
+      }
+      return Promise.resolve(client.listStore[entity] ?? [])
+    })
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    const lists = await repo.loadSetupLists()
+    expect(lists.groups).toEqual([{ id: 'g1' }])
+    expect(lists.activities).toEqual([{ id: 'a1' }])
+    expect(lists.elective_sets).toEqual([])
+    expect(lists.elective_set_activities).toEqual([])
+  })
+
+  it('loadDurableElectiveSets tolerates a rejecting listDurableElectiveSets call — defaults to []', async () => {
+    const client = makeFakeClient()
+    client.listDurableElectiveSets = vi.fn(() => Promise.reject(new Error('not implemented')))
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    const rows = await repo.loadDurableElectiveSets()
+    expect(rows).toEqual([])
+  })
+
+  it('loadDurableElectiveSets tolerates a missing listDurableElectiveSets method entirely (older localClient/mock)', async () => {
+    const client = makeFakeClient()
+    // No listDurableElectiveSets property at all — calling it throws
+    // "is not a function", exactly the ScheduleScreenExclusions.test.jsx
+    // regression this fix closes.
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    const rows = await repo.loadDurableElectiveSets()
+    expect(rows).toEqual([])
   })
 
   it('reloadSlots calls listByScope(template_slots, templateId) and normalizes the result', async () => {
@@ -468,5 +531,77 @@ describe('week exclusions — loadWeekExclusions / toggleActivityExclusion / tog
     expect(client.calls.deleteEntity).toEqual([
       ['tok', 'week_location_exclusions', 'excl-loc-1'],
     ])
+  })
+})
+
+// T108 (day-overrides re-point, design §5.2): snapshot save/restore
+// participation. Snapshots are whole-week/template-level, so override
+// capture and restore are scoped to the WHOLE WEEK (all days), not the
+// currently-viewed day.
+describe('day_overrides — loadDayOverridesForWeek / restoreSnapshotRows whole-week participation', () => {
+  it('loadDayOverridesForWeek returns rows for the given schedule_week_id only', async () => {
+    const client = makeFakeClient()
+    client.setListStore({
+      day_overrides: [
+        { id: 'ov-1', schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'swap', activity_id: 'act-art' },
+        { id: 'ov-2', schedule_week_id: 'week-2', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'pull', activity_id: null },
+      ],
+    })
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    const result = await repo.loadDayOverridesForWeek('week-1')
+    expect(result).toEqual([
+      { id: 'ov-1', schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'swap', activity_id: 'act-art' },
+    ])
+  })
+
+  it('restoreSnapshotRows: deletes the whole week\'s current day_overrides, then recreates from the payload', async () => {
+    const client = makeFakeClient()
+    client.setListStore({
+      schedule_templates: [{ id: 'tid', camp_id: 'camp1', name: 'Generated', kind: 'generated', week_id: 'week-1' }],
+      day_overrides: [
+        { id: 'existing-1', schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'swap', activity_id: 'act-old' },
+        { id: 'other-week', schedule_week_id: 'week-2', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'swap', activity_id: 'act-x' },
+      ],
+    })
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    await repo.restoreSnapshotRows('tid', [], [], [
+      { day_id: 'd2', group_id: 'g2', time_block_id: 'b2', activity_id: 'act-new', kind: 'swap', note: null },
+    ])
+
+    // Only the current week's existing override is deleted — a different
+    // week's row is untouched.
+    expect(client.calls.deleteEntity).toEqual([['tok', 'day_overrides', 'existing-1']])
+
+    const dayOverrideWrites = client.calls.write.filter((c) => c[1] === 'day_overrides')
+    // One write() call per field (id shared across all of them) — same
+    // pattern as toggleActivityExclusion's week_id-then-activity_id writes.
+    expect(dayOverrideWrites.length).toBeGreaterThan(0)
+    // schedule_week_id is written first (projections ensureExists gate).
+    expect(dayOverrideWrites[0][3]).toBe('schedule_week_id')
+    expect(dayOverrideWrites[0][4]).toBe('week-1')
+    expect(dayOverrideWrites.every((c) => c[2] === dayOverrideWrites[0][2])).toBe(true)
+  })
+
+  it('restoreSnapshotRows: an empty day_overrides payload deletes the week\'s current overrides and writes nothing new (restore-to-no-overrides)', async () => {
+    const client = makeFakeClient()
+    client.setListStore({
+      schedule_templates: [{ id: 'tid', camp_id: 'camp1', name: 'Generated', kind: 'generated', week_id: 'week-1' }],
+      day_overrides: [
+        { id: 'existing-1', schedule_week_id: 'week-1', day_id: 'd1', group_id: 'g1', time_block_id: 'b1', kind: 'swap', activity_id: 'act-old' },
+      ],
+    })
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    await repo.restoreSnapshotRows('tid', [], [], [])
+
+    expect(client.calls.deleteEntity).toEqual([['tok', 'day_overrides', 'existing-1']])
+    expect(client.calls.write.filter((c) => c[1] === 'day_overrides')).toHaveLength(0)
+  })
+
+  it('restoreSnapshotRows: omitting the 4th arg entirely does not touch day_overrides (back-compat, no template match needed)', async () => {
+    const client = makeFakeClient()
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    await repo.restoreSnapshotRows('tid', [], [])
+    expect(client.calls.deleteEntity.filter((c) => c[1] === 'day_overrides')).toHaveLength(0)
+    expect(client.calls.write.filter((c) => c[1] === 'day_overrides')).toHaveLength(0)
   })
 })

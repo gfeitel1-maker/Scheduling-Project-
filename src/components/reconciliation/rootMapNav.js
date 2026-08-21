@@ -34,7 +34,10 @@ export const CHILD_SCREEN = {
   // RootMapPanel prefers when present; this is the "Open in..." button's
   // generic fallback.
   'Field Trips / Special Events': 'schedule:manual',
-  'Day Overrides': 'dayoverrides',
+  // T108 Phase 2 review round 2 (MED/HIGH #4) — 'Day Overrides' removed: the
+  // node it pointed at (rootMapModel.js's Context child) is gone too, and
+  // there is no App.jsx SCREENS entry for it any more (overrides are
+  // authored in place on the schedule grid, not a separate screen).
 }
 
 // Human labels for the "Open in {label} →" button. Reuses the plain screen
@@ -50,7 +53,6 @@ export const SCREEN_LABEL = {
   days: 'Days',
   'schedule:manual': 'Schedule',
   'schedule:generated': 'Schedule',
-  dayoverrides: 'Day Overrides',
 }
 
 // Resolves a node selection ({ domainKey, childKey? }) to a screen key, or

@@ -40,6 +40,11 @@ export const FLAG_COLORS = {
   // token is the director's aesthetic call (like OVERLAP's); see
   // docs/work/specs/2026-08-16-manual-route-week-exclusions-design.md §5.
   WEEK_CLOSED: 'var(--secondary)',
+  // T105 §5 — a concurrent-edit notice (this device's own recent write to
+  // this cell no longer matches what it now holds), derived/render-time/
+  // locally-dismissible, never persisted. Reuses WEEK_CLOSED's slate rather
+  // than adding a new token.
+  CONTENT_RACE: 'var(--secondary)',
 }
 
 // Severity is a distinct lookup from FLAG_COLORS (hue) on purpose — kept
@@ -51,6 +56,7 @@ export const FLAG_SEVERITY = {
   WEEK_CLOSED: 'caution',
   UNDERSERVED: 'caution',
   DISTRIBUTION: 'info',
+  CONTENT_RACE: 'caution',
 }
 
 export const SEVERITY_BAR_COLOR = {
@@ -108,10 +114,35 @@ const WEEK_CLOSED_ENTRY = {
   description: 'This activity or group is marked not to run this week',
 }
 
+// T105 §5, route-agnostic like WEEK_CLOSED (a concurrent edit is equally
+// possible on either route) — legend.test.js's "documents every per-slot flag
+// the engine can emit" holds CONTENT_RACE to the same bar as OVERLAP: it is
+// derived (never persisted), but it IS a real per-slot treatment a director
+// can see, so it belongs in the legend exactly like OVERLAP does.
+const CONTENT_RACE_ENTRY = {
+  flagKey: 'CONTENT_RACE',
+  label: 'Changed elsewhere',
+  shape: 'dot',
+  color: FLAG_COLORS.CONTENT_RACE,
+  description: 'Replaced by a concurrent edit on another device',
+}
+
 export const LEGEND_ENTRIES = [
   UNFILLABLE_ENTRY,
   OVERLAP_ENTRY,
   WEEK_CLOSED_ENTRY,
+  CONTENT_RACE_ENTRY,
+  // T108 Phase 2 (Designer spec §2.6) — a director-authored diff, not an
+  // engine-emitted flag, so flagKey is null (like Locked/Fixed event below).
+  // Never filtered out by legendEntriesFor: an override can appear on either
+  // route (design §5.4).
+  {
+    flagKey: null,
+    label: 'Overridden today',
+    shape: 'frame',
+    color: 'var(--secondary)',
+    description: 'Changed for this day only — the rest of the week is unaffected',
+  },
   {
     flagKey: null,
     label: 'Locked',

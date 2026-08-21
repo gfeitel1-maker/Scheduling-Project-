@@ -127,8 +127,12 @@ describe('migration v35: fresh vs migrated equivalence', () => {
 
   it('declares every column for elective_sets and elective_set_activities — no column-order trap', () => {
     const db = freshDb()
+    // is_reusable arrived in v36 (docs/adr/2026-08-20-electives-authoring.md
+    // D2, electron/db/electivesDurability.migration.test.js) — this v35 test
+    // runs against the CURRENT schema (freshDb migrates all the way up), so
+    // it must expect the column too.
     expect(db.pragma('table_info(elective_sets)').map((c) => c.name)).toEqual([
-      'id', 'camp_id', 'name', 'sort_order',
+      'id', 'camp_id', 'name', 'sort_order', 'is_reusable',
     ])
     expect(db.pragma('table_info(elective_set_activities)').map((c) => c.name)).toEqual([
       'id', 'elective_set_id', 'activity_id',

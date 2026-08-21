@@ -94,4 +94,9 @@ contextBridge.exposeInMainWorld('shoresh', {
   openRecentProject: (targetPath) => ipcRenderer.invoke('shoresh:open-recent-project', { path: targetPath }),
   duplicateWeek: (args) => ipcRenderer.invoke('shoresh:duplicate-week', args),
   deleteWeek: (args) => ipcRenderer.invoke('shoresh:delete-week', args),
+  deleteElectiveSet: (args) => ipcRenderer.invoke('shoresh:delete-elective-set', args),
+  deleteSpecialDay: (args) => ipcRenderer.invoke('shoresh:delete-special-day', args),
+  // T105: the durability read seam's first production caller
+  // (electron/ops/durableElectiveSets.js, T110) — mirrors listUsers's shape.
+  listDurableElectiveSets: (token) => ipcRenderer.invoke('shoresh:list-durable-elective-sets', { token }),
 })

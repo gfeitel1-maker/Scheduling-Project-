@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 35
+export const CURRENT_SCHEMA_VERSION = 38
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1534,6 +1534,68 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v36 — elective durability marker (T103, docs/adr/2026-08-20-electives-
+  // authoring.md D2). Single nullable-additive column on the existing
+  // elective_sets table: `is_reusable INTEGER NOT NULL DEFAULT 1`. Every
+  // existing row (created under v35, before this marker existed) becomes
+  // reusable/durable by the DEFAULT — matches "existing rows = reusable" from
+  // the ADR. No op is written (DDL-only, same posture as v33/v34/v35).
+  if (getSchemaVersion(db) >= 35 && getSchemaVersion(db) < 36) {
+    db.transaction(() => {
+      const hasIsReusable = db
+        .pragma('table_info(elective_sets)')
+        .some((col) => col.name === 'is_reusable')
+      if (!hasIsReusable) {
+        db.exec('ALTER TABLE elective_sets ADD COLUMN is_reusable INTEGER NOT NULL DEFAULT 1')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (36, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v37 — special_days.notes (T106, ADR 2026-08-20-special-days-authoring-and-
+  // day-override-repoint.md D2). Single nullable-additive column on the
+  // existing special_days table: free-text record/print notes (teams, points,
+  // staffing, trip times) — never solved, only recorded. No backfill (existing
+  // rows get NULL). No op is written (DDL-only, same posture as v33/v34/v35/v36).
+  if (getSchemaVersion(db) >= 36 && getSchemaVersion(db) < 37) {
+    db.transaction(() => {
+      const hasNotes = db
+        .pragma('table_info(special_days)')
+        .some((col) => col.name === 'notes')
+      if (!hasNotes) {
+        db.exec('ALTER TABLE special_days ADD COLUMN notes TEXT')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (37, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v38 — day_overrides re-point (T108, ADR 2026-08-21-day-overrides-repoint-
+  // shape.md D1/§5.2). Two additive changes, no backfill: every camp starts
+  // with zero day_overrides rows, and every existing schedule_snapshots row
+  // gets NULL day_overrides_json. No op is written (DDL-only, same posture
+  // as v33-v37).
+  if (getSchemaVersion(db) >= 37 && getSchemaVersion(db) < 38) {
+    db.transaction(() => {
+      db.exec(DAY_OVERRIDES_DDL)
+      const hasDayOverridesJson = db
+        .pragma('table_info(schedule_snapshots)')
+        .some((col) => col.name === 'day_overrides_json')
+      if (!hasDayOverridesJson) {
+        db.exec('ALTER TABLE schedule_snapshots ADD COLUMN day_overrides_json TEXT')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (38, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct
@@ -1704,6 +1766,7 @@ export const SPECIAL_DAYS_DDL = `CREATE TABLE IF NOT EXISTS special_days (
   camp_id TEXT NOT NULL REFERENCES camps(id),
   name TEXT NOT NULL,
   sort_order INTEGER,
+  notes TEXT,
   UNIQUE(camp_id, name)
 )`
 
@@ -1735,6 +1798,7 @@ export const ELECTIVE_SETS_DDL = `CREATE TABLE IF NOT EXISTS elective_sets (
   camp_id TEXT NOT NULL REFERENCES camps(id),
   name TEXT NOT NULL,
   sort_order INTEGER,
+  is_reusable INTEGER NOT NULL DEFAULT 1,
   UNIQUE(camp_id, name)
 )`
 
@@ -1743,6 +1807,24 @@ export const ELECTIVE_SET_ACTIVITIES_DDL = `CREATE TABLE IF NOT EXISTS elective_
   elective_set_id TEXT NOT NULL REFERENCES elective_sets(id),
   activity_id TEXT NOT NULL,
   UNIQUE(elective_set_id, activity_id)
+)`
+
+// Byte-identical duplicate of the day_overrides block in schema.sql (schema
+// v38, T108, ADR 2026-08-21-day-overrides-repoint-shape.md D1). Kept as a
+// constant so the v38 migration cannot drift from schema.sql by a stray
+// space — same discipline as SPECIAL_DAYS_DDL/ELECTIVE_SETS_DDL above.
+export const DAY_OVERRIDES_DDL = `CREATE TABLE IF NOT EXISTS day_overrides (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  schedule_week_id TEXT NOT NULL REFERENCES schedule_weeks(id),
+  day_id TEXT NOT NULL REFERENCES days_of_operation(id),
+  group_id TEXT NOT NULL REFERENCES groups(id),
+  time_block_id TEXT NOT NULL,
+  activity_id TEXT REFERENCES activities(id),
+  kind TEXT NOT NULL DEFAULT 'swap',
+  note TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(schedule_week_id, day_id, group_id, time_block_id)
 )`
 
 // Director-facing, and it appears in Versions beside weeks they saved

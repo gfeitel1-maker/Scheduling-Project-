@@ -34,7 +34,7 @@ afterEach(() => {
 
 describe('PROJECTIONS registry', () => {
   it('registers all three tables with their field allowlists', () => {
-    expect(PROJECTIONS.special_days.fields).toEqual(['camp_id', 'name', 'sort_order'])
+    expect(PROJECTIONS.special_days.fields).toEqual(['camp_id', 'name', 'sort_order', 'notes'])
     expect(PROJECTIONS.special_day_time_blocks.fields).toEqual([
       'special_day_id', 'name', 'sort_order', 'start_time', 'end_time',
     ])

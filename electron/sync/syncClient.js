@@ -55,6 +55,8 @@ const DOMAIN_TABLE_COLUMNS = {
   locations: ['id', 'camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry'],
   camp_maps: ['id', 'camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'],
   schedule_weeks: ['id', 'camp_id', 'name', 'sort_order', 'is_archived'], // T88 — required so week_*_exclusions' NOT NULL FK to schedule_weeks.id can be satisfied
+  // T108 (day-overrides re-point, ADR 2026-08-21-day-overrides-repoint-shape.md D1)
+  day_overrides: ['id', 'camp_id', 'schedule_week_id', 'day_id', 'group_id', 'time_block_id', 'activity_id', 'kind', 'note', 'created_at'],
   schedule_templates: ['id', 'camp_id', 'name', 'kind', 'week_id'],
   day_override_templates: ['id', 'camp_id', 'cohort_id', 'name', 'frequency_mode'],
   template_slots: ['id', 'template_id', 'group_id', 'activity_id', 'day_id', 'time_block_id', 'flags', 'is_released', 'is_span_head', 'anchor_id', 'is_anchor', 'elective_set_id'],
@@ -64,11 +66,11 @@ const DOMAIN_TABLE_COLUMNS = {
   week_group_exclusions: ['id', 'week_id', 'group_id'],
   week_location_exclusions: ['id', 'week_id', 'location_id'], // T88 — closes the manifest drift (see DOMAIN_SNAPSHOT_ORDER)
   // T40 slice 1 (docs/work/specs/2026-08-20-special-days-data-shape-design.md)
-  special_days: ['id', 'camp_id', 'name', 'sort_order'],
+  special_days: ['id', 'camp_id', 'name', 'sort_order', 'notes'],
   special_day_time_blocks: ['id', 'special_day_id', 'name', 'sort_order', 'start_time', 'end_time'],
   special_day_slots: ['id', 'special_day_id', 'group_id', 'time_block_id', 'activity_id', 'location_id'],
   // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md)
-  elective_sets: ['id', 'camp_id', 'name', 'sort_order'],
+  elective_sets: ['id', 'camp_id', 'name', 'sort_order', 'is_reusable'],
   elective_set_activities: ['id', 'elective_set_id', 'activity_id'],
 }
 

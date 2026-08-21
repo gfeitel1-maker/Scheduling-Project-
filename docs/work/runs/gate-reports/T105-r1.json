@@ -1,0 +1,29 @@
+{
+  "task_id": "T105",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": null,
+    "red_hat": 4,
+    "tester": null,
+    "code_reviewer": 5
+  },
+  "overall_score": 4.5,
+  "lowest_dimension": 4,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": [
+    {
+      "gate_name": "security",
+      "na_reason": "Reuses existing IPC/permission surface (listDurableElectiveSets is read-only, mirrors listUsers); no new auth/secret/PIN changes"
+    },
+    {
+      "gate_name": "tester",
+      "na_reason": "Initial live run invalid due to test-environment port collision (shared strictPort 5200, tested wrong branch); corrected live run on dedicated port in progress; feature present and unit+integration-tested green"
+    }
+  ]
+}

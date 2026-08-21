@@ -78,12 +78,14 @@ describe('Sidebar: the three sections', () => {
   })
 
   it('never shows the blocking mark on an optional area', () => {
-    // A camp with no day overrides (or locations) is finished, not
-    // unfinished. Marking it otherwise trains directors to ignore the mark
-    // that matters.
-    renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 0, dayoverrides: 0, locations: 0 } })
+    // A camp with no locations is finished, not unfinished. Marking it
+    // otherwise trains directors to ignore the mark that matters.
+    // T108 Phase 2 — the standalone Day Overrides nav entry/area is retired
+    // (overrides are now authored in place on the schedule grid), so it is
+    // no longer one of the optional rows this test checks.
+    renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 0, locations: 0 } })
     expect(screen.getAllByText('optional').length).toBe(3)
-    for (const label of ['Fixed Events', 'Day Overrides', 'Locations']) {
+    for (const label of ['Fixed Events', 'Locations', 'Special Days']) {
       const row = screen.getByText(label).closest('button')
       expect(within(row).queryByText('!')).toBeNull()
     }

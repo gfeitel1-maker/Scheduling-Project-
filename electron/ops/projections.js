@@ -321,7 +321,7 @@ export const PROJECTIONS = {
   special_days: {
     table: 'special_days',
     key: 'id',
-    fields: ['camp_id', 'name', 'sort_order'],
+    fields: ['camp_id', 'name', 'sort_order', 'notes'],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/day_override_templates/etc.ensureExists above.
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
@@ -397,7 +397,13 @@ export const PROJECTIONS = {
   elective_sets: {
     table: 'elective_sets',
     key: 'id',
-    fields: ['camp_id', 'name', 'sort_order'],
+    // is_reusable (v36, T110, docs/adr/2026-08-20-electives-authoring.md D2):
+    // the durability marker, director-editable via the management screen's
+    // "keep this for next time" gesture — a renderer write like camp_id/
+    // name/sort_order, so it belongs in this allowlist (not
+    // PROJECTION_FIELD_EXCEPTIONS, which is only for server/migration-only
+    // columns).
+    fields: ['camp_id', 'name', 'sort_order', 'is_reusable'],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/special_days/etc.ensureExists above.
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
@@ -439,6 +445,40 @@ export const PROJECTIONS = {
         db,
         'INSERT OR IGNORE INTO elective_set_activities (id, elective_set_id, activity_id) VALUES (?, ?, ?)'
       ).run(id, electiveSetId, activityId)
+    },
+  },
+  // day_overrides (T108, ADR 2026-08-21-day-overrides-repoint-shape.md D1).
+  // Direct-camp-scoped (camp_id NOT NULL, like special_days), but with FOUR
+  // additional NOT NULL foreign keys (schedule_week_id, day_id, group_id,
+  // time_block_id) — the same accumulate-then-insert-once shape as
+  // elective_set_activities/special_day_slots above, extended to four fields
+  // instead of two. camp_id is derived from `camps LIMIT 1` like every other
+  // direct-camp entity's ensureExists, not read from the op stream.
+  day_overrides: {
+    table: 'day_overrides',
+    key: 'id',
+    fields: ['camp_id', 'schedule_week_id', 'day_id', 'group_id', 'time_block_id', 'activity_id', 'kind', 'note'],
+    ensureExists: (db, id, field, value) => {
+      const table = 'day_overrides'
+      const readField = (wanted) => {
+        if (field === wanted) return value
+        const prior = getStmt(
+          db,
+          'SELECT value FROM operations WHERE entity = ? AND entity_id = ? AND field = ? ORDER BY seq DESC LIMIT 1'
+        ).get(table, id, wanted)
+        return prior ? prior.value : null
+      }
+      const scheduleWeekId = readField('schedule_week_id')
+      const dayId = readField('day_id')
+      const groupId = readField('group_id')
+      const timeBlockId = readField('time_block_id')
+      if (scheduleWeekId == null || dayId == null || groupId == null || timeBlockId == null) return
+
+      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+      getStmt(
+        db,
+        'INSERT OR IGNORE INTO day_overrides (id, camp_id, schedule_week_id, day_id, group_id, time_block_id) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(id, camp?.id ?? null, scheduleWeekId, dayId, groupId, timeBlockId)
     },
   },
   // Join tables with TWO NOT NULL columns (week_id + a real FK). ensureExists
@@ -573,7 +613,9 @@ export const PROJECTIONS = {
   schedule_snapshots: {
     table: 'schedule_snapshots',
     key: 'id',
-    fields: ['template_id', 'name', 'is_auto', 'created_at', 'slots', 'overlays'],
+    // day_overrides_json (v38, T108, design §5.2): the whole week's
+    // day_overrides rows captured at save time, restored on undo.
+    fields: ['template_id', 'name', 'is_auto', 'created_at', 'slots', 'overlays', 'day_overrides_json'],
     ensureExists: (db, id, field, value) => {
       if (field !== 'template_id') return
       // created_at is NOT NULL with no default (schema.sql) — placeholder
@@ -645,8 +687,9 @@ export const PROJECTIONS = {
       'flags',
       // v35 (T41 slice 1, docs/work/specs/2026-08-20-group-electives-design.md):
       // a slot with elective_set_id set is an elective cell (activity_id
-      // ignored); the two are mutually exclusive, enforced by the
-      // (UI-driven) write path in a later slice, not here.
+      // ignored); the two are mutually exclusive, enforced at apply time by
+      // MUTUALLY_EXCLUSIVE_FIELDS below (T111,
+      // docs/work/specs/2026-08-20-elective-cell-atomic-content-design.md).
       'elective_set_id',
     ],
     // template_id is NOT NULL with no default and is a real FK, so the row
@@ -677,6 +720,42 @@ export const PROJECTIONS = {
     fields: [],
     ensureExists: () => {},
   },
+}
+
+// Cells whose "kind" must be exclusive across two independently-conflict-
+// tracked columns on the same row. See T111,
+// docs/work/specs/2026-08-20-elective-cell-atomic-content-design.md, D4.
+// Conflict detection (conflicts table) is keyed per-(entity, entity_id,
+// field), so activity_id and elective_set_id are two separately-arbitrated
+// last-write-wins values on the same template_slots row — a cross-device
+// interleave of a paired "set one, clear the other" write can otherwise
+// leave both non-null with no conflict ever recorded. The eviction step in
+// applyProjection below, plus sanitizeMutuallyExclusiveRow for the
+// bulkReplace write paths (operations.js), close that race at apply time.
+export const MUTUALLY_EXCLUSIVE_FIELDS = {
+  template_slots: {
+    activity_id: 'elective_set_id',
+    elective_set_id: 'activity_id',
+  },
+}
+
+// Pure, total sanitizer for a single row object: if both halves of a
+// registered mutually-exclusive pair are non-null, clears the partner
+// (fixed field-name precedence — the field listed first in the pair's key
+// wins, i.e. activity_id survives over elective_set_id for template_slots),
+// deterministically and identically on every device sanitizing the same row
+// data. No-op for any entity not registered above (e.g. template_overlays).
+// Used by operations.js's bulkReplace write and replay paths, which never
+// go through applyProjection/the per-field eviction step below.
+export function sanitizeMutuallyExclusiveRow(entity, row) {
+  const pairs = MUTUALLY_EXCLUSIVE_FIELDS[entity]
+  if (!pairs) return row
+  for (const [field, partner] of Object.entries(pairs)) {
+    if (row[field] != null && row[partner] != null) {
+      return { ...row, [partner]: null }
+    }
+  }
+  return row
 }
 
 // Reserved field name for a row-delete op — see DELETE_FIELD's definition in
@@ -730,5 +809,25 @@ export function applyProjection(db, op) {
     op.value,
     op.entity_id
   )
+
+  // T111 eviction step: a non-null write to a registered mutually-exclusive
+  // field immediately and unconditionally clears its partner column on the
+  // same row, right now — not deferred to a reconciliation pass, which
+  // could itself race. Because op replay is seq-ordered identically on
+  // every device (load-bearing invariant, docs/adr/2026-08-12-drag-live-
+  // write-serialization.md), this apply-time-only rule is sufficient to
+  // guarantee at most one of the pair is ever non-null, regardless of
+  // cross-device arrival order — see the design doc's worked interleave.
+  // This is a local side effect of replay, not a new appended op: it must
+  // never be re-appended to the op-log (that would create a duplicate-op
+  // loop across devices replaying each other's corrections).
+  const exclusivePair = MUTUALLY_EXCLUSIVE_FIELDS[op.entity]?.[op.field]
+  if (exclusivePair && op.value != null) {
+    getStmt(
+      db,
+      `UPDATE ${projection.table} SET ${exclusivePair} = NULL WHERE ${projection.key} = ? AND ${exclusivePair} IS NOT NULL`
+    ).run(op.entity_id)
+  }
+
   return true
 }

@@ -194,6 +194,115 @@ describe('ScheduleGroupView — CSS Grid conversion (T54)', () => {
     }
   })
 
+  it('T112 — click on an empty cell opens the inline editor', () => {
+    const container = renderView()
+    const empty = cellAt(container, 'g1|d1|b3')
+    expect(empty.querySelector('.cell-inline-editor-input')).toBeNull()
+    fireEvent.click(empty)
+    expect(empty.querySelector('.cell-inline-editor-input')).not.toBeNull()
+  })
+
+  it('T112 — stamp mode active: empty-cell click stamps, not edits', () => {
+    const stamped = []
+    const container = renderView({ stampMode: 'Field trip', handleStampClick: (g, d, b) => stamped.push([g, d, b]) })
+    const empty = cellAt(container, 'g1|d1|b3')
+    fireEvent.click(empty)
+    expect(stamped).toEqual([['g1', 'd1', 'b3']])
+    expect(empty.querySelector('.cell-inline-editor-input')).toBeNull()
+  })
+
+  it('T112 — paste mode active: empty-cell click pastes (onCellSelect), not edits', () => {
+    const selected = []
+    const container = renderView({ pasteMode: true, onCellSelect: (slot) => selected.push(slot) })
+    const empty = cellAt(container, 'g1|d1|b3')
+    fireEvent.click(empty)
+    expect(selected).toEqual([{ groupId: 'g1', dayId: 'd1', blockId: 'b3' }])
+    expect(empty.querySelector('.cell-inline-editor-input')).toBeNull()
+  })
+
+  it('T112 — filled-cell left-click still selects (unchanged)', () => {
+    const selected = []
+    const container = renderView({ onCellSelect: (slot) => selected.push(slot) })
+    fireEvent.click(cellAt(container, 'g1|d1|b1'))
+    expect(selected.length).toBe(1)
+    expect(container.querySelector('.cell-inline-editor-input')).toBeNull()
+  })
+
+  it('T112 — an open empty-cell editor unmounts when a drop lands on the same cell (race case, design §4)', () => {
+    const { container, rerender } = render(
+      <DndContext>
+        <ScheduleGroupView
+          groups={groups}
+          days={days}
+          timeBlocks={timeBlocks}
+          selectedGroup="g1"
+          onSelectGroup={() => {}}
+          weatherMode={false}
+          stampMode={false}
+          actMap={actMap}
+          anchorMap={new Map()}
+          releaseCell={() => {}}
+          geometry={makeGridGeometry({ slots, timeBlocks, groups, overlays, fillState: null })}
+          handleFillEnter={() => {}}
+          startFill={() => {}}
+          removeOverlay={() => {}}
+          handleStampClick={() => {}}
+          eligibleActivitiesFor={() => []}
+          onPlace={() => {}}
+          onCreateNew={() => {}}
+          fillState={null}
+          onExpandSlot={() => {}}
+          onSplitSlot={() => {}}
+          selectedSlotKeys={new Set()}
+          pasteMode={false}
+          onCellSelect={() => {}}
+        />
+      </DndContext>
+    )
+    const empty = cellAt(container, 'g1|d1|b3')
+    fireEvent.click(empty)
+    expect(cellAt(container, 'g1|d1|b3').querySelector('.cell-inline-editor-input')).not.toBeNull()
+
+    // A drop lands on that same cell: the geometry now reports a filled slot,
+    // so the view stops rendering EmptyCell for this key and renders SlotCell
+    // instead — the stale editor unmounts for free.
+    const filledSlots = [...slots, { id: 's9', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'a2', is_anchor: false }]
+    rerender(
+      <DndContext>
+        <ScheduleGroupView
+          groups={groups}
+          days={days}
+          timeBlocks={timeBlocks}
+          selectedGroup="g1"
+          onSelectGroup={() => {}}
+          weatherMode={false}
+          stampMode={false}
+          actMap={actMap}
+          anchorMap={new Map()}
+          releaseCell={() => {}}
+          geometry={makeGridGeometry({ slots: filledSlots, timeBlocks, groups, overlays, fillState: null })}
+          handleFillEnter={() => {}}
+          startFill={() => {}}
+          removeOverlay={() => {}}
+          handleStampClick={() => {}}
+          eligibleActivitiesFor={() => []}
+          onPlace={() => {}}
+          onCreateNew={() => {}}
+          fillState={null}
+          onExpandSlot={() => {}}
+          onSplitSlot={() => {}}
+          selectedSlotKeys={new Set()}
+          pasteMode={false}
+          onCellSelect={() => {}}
+        />
+      </DndContext>
+    )
+    const nowFilled = cellAt(container, 'g1|d1|b3')
+    expect(nowFilled.hasAttribute('data-empty')).toBe(false)
+    expect(nowFilled.querySelector('.cell-inline-editor-input')).toBeNull()
+    expect(nowFilled.textContent).toContain('Soccer')
+  })
+
   it('does not attach cell hover handlers in the gridcell branch', () => {
     // The §6 payoff: hover is a CSS selector, so the long activity name is
     // rendered with no ellipsis clamp and no pointer-enter state to re-render.

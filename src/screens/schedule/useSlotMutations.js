@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react'
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { normalizeName } from '../../ingest/preview.js'
 import { isActivityEligibleForGroup } from '../../engine/eligibility'
+import { createActivity } from './createActivityHelper'
+import { findOverrideId, upsertDayOverride } from '../../utils/dayOverrideCoordinate.js'
 
 // T91: collect the covered tail rows of a span head being replaced, via a
 // single walk that covers BOTH span representations identically (owner
@@ -68,7 +70,63 @@ export function useSlotMutations({
   days,
   timeBlocks,
   campId,
+  // T105 §2 — two distinct lists, never conflated: electiveSetsAll is the
+  // render surface (renders one-offs too), durableElectiveSets is the
+  // is_reusable=1 reuse surface (CellInlineEditor's exact-match lookup).
+  electiveSetsAll = [],
+  durableElectiveSets = [],
+  // T108 Phase 2 (design §6.1/§6) — overrideModeDayId is the one (week, day)
+  // currently in override-authoring mode (ScheduleScreen's toggle), or null.
+  // A per-cell check (dayId === overrideModeDayId), not a screen-wide
+  // boolean: group view renders every day as a column at once, so a cell on
+  // any OTHER day must still route through the normal write path even while
+  // some other day's mode is active. `weekId` stamps a day_overrides row's
+  // schedule_week_id.
+  overrideModeDayId = null,
+  weekId,
+  // T108 Phase 2 — local mirror of the day_overrides rows (useScheduleData's
+  // `dayOverrides`), so a fresh override/pull appears on the grid immediately
+  // through the same applyDayOverrides composition, without waiting for a
+  // reload. Optional so an unrelated caller/test omitting it just skips the
+  // optimistic update (the write itself does not depend on it).
+  setDayOverrides,
+  // T108 Phase 2 review round 3 (HIGH — re-authoring an existing override
+  // silently no-ops). The CURRENT day_overrides rows, read-only here — every
+  // override write path below looks up whether a row already exists for its
+  // exact coordinate BEFORE deciding an id, via findOverrideId. Defaults to
+  // [] so an unrelated caller/test that omits it degrades to "always mint a
+  // fresh id" (the pre-fix, first-write-only behavior) rather than crashing.
+  dayOverrides = [],
 }) {
+  function isOverrideModeFor(dayId) {
+    return overrideModeDayId != null && dayId === overrideModeDayId
+  }
+
+  // Shared write primitive for every override-authoring path (replaceSlot,
+  // placeActivityManual, pullOverrideCell): reuses the coordinate's existing
+  // row id when one exists (an UPDATE, matching the UNIQUE constraint),
+  // mints a fresh id only for a genuinely new coordinate (an INSERT). Both
+  // the DB write AND the optimistic array update go through this one
+  // function so they can never drift into disagreeing about which id/entry
+  // is current — see dayOverrideCoordinate.js and
+  // electron/ops/dayOverrides.projections.test.js for why a fresh id per
+  // write silently loses data against the real UNIQUE(schedule_week_id,
+  // day_id, group_id, time_block_id) constraint.
+  async function writeOverrideForCoordinate({ dayId, groupId, blockId, activityId, kind, note = null }) {
+    const coord = { weekId, dayId, groupId, blockId }
+    const id = findOverrideId(dayOverrides, coord) ?? crypto.randomUUID()
+    const fields = {
+      schedule_week_id: weekId,
+      day_id: dayId,
+      group_id: groupId,
+      time_block_id: blockId,
+      activity_id: activityId,
+      kind,
+      note,
+    }
+    await repo.writeDayOverrideFields(id, fields)
+    setDayOverrides?.((prev) => upsertDayOverride(prev, { id, ...fields }))
+  }
   const {
     route,
     existingTemplates,
@@ -76,6 +134,21 @@ export function useSlotMutations({
     setSlots,
     setOverlays,
   } = routeState
+
+  // T108 (design §6.1, Red Hat Finding #5 fix): a non-override-mode edit onto
+  // a cell whose composed row already carries an ACTIVE override must be
+  // BLOCKED, not executed and then silently reverted by applyDayOverrides on
+  // the next render. Every write path that targets an existing cell calls
+  // this before dispatching. In override-authoring mode the guard does not
+  // apply — authoring a NEW override onto an already-overridden cell (e.g.
+  // replacing a swap) is exactly what override mode is for.
+  function overrideGuard(row) {
+    if (row?.is_overridden && !isOverrideModeFor(row.day_id)) {
+      setActionError('This day has an override on this cell — switch to Override mode to change it.')
+      return true
+    }
+    return false
+  }
 
   // Rebuilt from `activities` rather than injected: expandSlot's undo
   // description reads `actMap.get(id)?.name`, and this is the screen's exact
@@ -146,6 +219,16 @@ export function useSlotMutations({
   // ScheduleScreen mount lifetime — a few hundred entries at most, not a
   // real leak. Do NOT reintroduce a clear-on-route-switch here.
   const cellQueueRef = useRef(new Map())
+
+  // T105 §5 — the shared choke point useContentRaceFlag reads from. Populated
+  // by runMutation's own onSuccess path (below), covering every forward/undo/
+  // redo write that touches a cell's activity_id/elective_set_id at one place
+  // rather than a separate hook-in per caller. `kind` is
+  // `activity:<id>` | `elective:<id>` | `empty`; `atWriteToken` is a
+  // Date.now() timestamp for useContentRaceFlag's RECENCY_WINDOW_MS check.
+  // Never cleared on route switch here — useContentRaceFlag owns its own
+  // reset (it reads this ref, it does not own its lifetime).
+  const ownWriteRef = useRef(new Map())
 
   function cellKey(groupId, dayId, blockId) {
     return `${route}|${templateId}|${groupId}|${dayId}|${blockId}`
@@ -222,7 +305,13 @@ export function useSlotMutations({
   // finding 1/2's multi-cell atomicity: nothing fires for a dropped op),
   // `{ error }` when getError() reports one (onError fires, no onSuccess),
   // otherwise onSuccess fires with the dispatch's own result.
-  async function runMutation({ keys, claimId, dispatch, getError, onError, onSuccess }) {
+  // `ownWriteKinds` (T105 §5, Red Hat fold-in A): an optional
+  // `{ [cellKey]: kind }` map recorded into ownWriteRef immediately after a
+  // successful onSuccess — the ONE place every own-write is captured,
+  // regardless of which of the ~13 call sites below fired. A caller that
+  // doesn't touch activity_id/elective_set_id (dismissFlag, releaseCell's
+  // is_released, overlays) simply omits it.
+  async function runMutation({ keys, claimId, dispatch, getError, onError, onSuccess, ownWriteKinds }) {
     const outcome = await claimAndRun(keys, claimId, dispatch)
     const error = getError ? getError() : undefined
     if (error) {
@@ -231,6 +320,12 @@ export function useSlotMutations({
     }
     if (outcome.dropped) return { dropped: true }
     onSuccess?.(outcome.result)
+    if (ownWriteKinds) {
+      const atWriteToken = Date.now()
+      for (const [key, kind] of Object.entries(ownWriteKinds)) {
+        ownWriteRef.current.set(key, { kind, atWriteToken })
+      }
+    }
     return { dropped: false }
   }
 
@@ -243,6 +338,31 @@ export function useSlotMutations({
     if (!existingTemplates[route]) return
     const targetRow = slots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
     if (!targetRow || targetRow.is_anchor) return
+    if (overrideGuard(targetRow)) return
+
+    // T108 Phase 2 review round 2 (HIGH #1) — replaceSlot is the drag-drop /
+    // card-move entry point (dragHandlers.js routes every drop here), the
+    // PRIMARY placement gesture. In override-authoring mode for the target
+    // cell's day, a drop writes a day_overrides row (kind: swap), never
+    // template_slots — same routing placeActivityManual already does for the
+    // typeahead path. Deliberately does not touch the source cell (a
+    // grid-to-grid drag's source clearing) or span tails: authoring an
+    // override is a per-cell diff (design §4), not a move, so this branch
+    // returns before any of that logic runs. Undo/redo for override
+    // authoring is a deferred follow-up (T113, Governor-accepted) — same
+    // posture as placeActivityManual's override branch below.
+    if (isOverrideModeFor(target.dayId)) {
+      setActionError(null)
+      try {
+        await writeOverrideForCoordinate({
+          dayId: target.dayId, groupId: target.groupId, blockId: target.blockId,
+          activityId: incoming.activityId, kind: 'swap',
+        })
+      } catch (err) {
+        setActionError(describeWriteFailure(err, 'That override could not be saved.'))
+      }
+      return
+    }
 
     const hasSource = incoming.groupId != null && incoming.dayId != null && incoming.blockId != null
     const sourceRow = hasSource
@@ -340,6 +460,11 @@ export function useSlotMutations({
           return next
         })
       },
+      ownWriteKinds: {
+        [targetKey]: `activity:${incoming.activityId}`,
+        ...(sourceKey ? { [sourceKey]: 'empty' } : {}),
+        ...Object.fromEntries(tailRows.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), 'empty'])),
+      },
     })
     if (writeError || dropped) return // fully superseded before dispatch, or write failed: no setSlots, no pushUndo
 
@@ -393,6 +518,11 @@ export function useSlotMutations({
               return next
             })
           },
+          ownWriteKinds: {
+            [targetKey]: prevTargetActivityId ? `activity:${prevTargetActivityId}` : 'empty',
+            ...(sourceKey ? { [sourceKey]: prevSourceActivityId ? `activity:${prevSourceActivityId}` : 'empty' } : {}),
+            ...Object.fromEntries(tailRows.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), t.activity_id ? `activity:${t.activity_id}` : 'empty'])),
+          },
         })
       },
       redo: async () => {
@@ -424,6 +554,11 @@ export function useSlotMutations({
               slotsRef.current = next
               return next
             })
+          },
+          ownWriteKinds: {
+            [targetKey]: `activity:${incoming.activityId}`,
+            ...(sourceKey ? { [sourceKey]: 'empty' } : {}),
+            ...Object.fromEntries(tailRows.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), 'empty'])),
           },
         })
       },
@@ -476,6 +611,10 @@ export function useSlotMutations({
       return
     }
     setSlots(prev => prev.map(s => s.id === slotId ? { ...s, is_released: true } : s))
+    // releaseCell only unlocks (is_released), it never touches activity_id/
+    // elective_set_id — no ownWriteRef entry belongs here (T105 §5 table:
+    // releaseCell's 'empty' entry is for a FUTURE cell-clear action, not this
+    // one; unlocking a locked cell does not change its content).
   }
 
   async function addOverlay({ unitId, dayId, fromBlockOrder, toBlockOrder, label }) {
@@ -529,9 +668,25 @@ export function useSlotMutations({
     if (!existingTemplates[route]) return
     const slot = getSlot(slots, groupId, dayId, blockId)
     if (!slot || slot.is_anchor) return
+    if (overrideGuard(slot)) return
 
     const activity = activityOverride ?? activities.find(a => a.id === activityId)
     if (!activity) return
+
+    // T108 Phase 2 (design §6.1): in override-authoring mode FOR THIS CELL'S
+    // DAY, a cell edit writes a day_overrides row (kind: swap) instead of
+    // template_slots. No undo/redo for override authoring — deferred to
+    // T113 (Governor-accepted follow-up); the only way to undo an override
+    // today is a snapshot restore (design's §5.2 whole-week restore path).
+    if (isOverrideModeFor(dayId)) {
+      setActionError(null)
+      try {
+        await writeOverrideForCoordinate({ dayId, groupId, blockId, activityId, kind: 'swap' })
+      } catch (err) {
+        setActionError(describeWriteFailure(err, 'That override could not be saved.'))
+      }
+      return
+    }
 
     const group = groups.find(g => g.id === groupId)
     const eligible = isActivityEligibleForGroup(activity, group)
@@ -631,6 +786,7 @@ export function useSlotMutations({
           return next
         })
       },
+      ownWriteKinds: { [key]: `activity:${activityId}` },
     })
     if (writeError || dropped) return // fully superseded before dispatch, or write failed: no setSlots, no pushUndo
 
@@ -656,6 +812,7 @@ export function useSlotMutations({
               return next
             })
           },
+          ownWriteKinds: { [key]: prevActivityId ? `activity:${prevActivityId}` : 'empty' },
         })
       },
       redo: async () => {
@@ -676,6 +833,7 @@ export function useSlotMutations({
               return next
             })
           },
+          ownWriteKinds: { [key]: `activity:${activityId}` },
         })
       },
     })
@@ -686,6 +844,7 @@ export function useSlotMutations({
     const headSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
     const tailSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
     if (!headSlot || !tailSlot) return
+    if (overrideGuard(headSlot) || overrideGuard(tailSlot)) return
 
     const headActivityId = headSlot.activity_id
     const existingFlags = headSlot.flags || {}
@@ -747,6 +906,7 @@ export function useSlotMutations({
           return next
         })
       },
+      ownWriteKinds: { [tailKey]: headActivityId ? `activity:${headActivityId}` : 'empty' },
     })
     if (writeError || dropped) return // fully superseded before dispatch, or write failed: no setSlots, no pushUndo
 
@@ -777,6 +937,7 @@ export function useSlotMutations({
               return next
             })
           },
+          ownWriteKinds: { [tailKey]: prevTailActivityId ? `activity:${prevTailActivityId}` : 'empty' },
         })
       },
       redo: async () => {
@@ -804,6 +965,7 @@ export function useSlotMutations({
               return next
             })
           },
+          ownWriteKinds: { [tailKey]: headActivityId ? `activity:${headActivityId}` : 'empty' },
         })
       },
     })
@@ -818,6 +980,7 @@ export function useSlotMutations({
     const { from_block: tailBlockId } = headSlot.flags.expanded
     const tailSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === tailBlockId)
     if (!tailSlot) return
+    if (overrideGuard(headSlot) || overrideGuard(tailSlot)) return
 
     const cleanedFlags = { ...headSlot.flags }
     delete cleanedFlags.expanded
@@ -865,6 +1028,7 @@ export function useSlotMutations({
           return next
         })
       },
+      ownWriteKinds: { [tailKey]: 'empty' },
     })
     if (writeError || dropped) return // fully superseded before dispatch, or write failed: no setSlots, no pushUndo
 
@@ -901,6 +1065,7 @@ export function useSlotMutations({
               return next
             })
           },
+          ownWriteKinds: { [tailKey]: prevTailActivityId ? `activity:${prevTailActivityId}` : 'empty' },
         })
       },
       redo: async () => {
@@ -928,6 +1093,7 @@ export function useSlotMutations({
               return next
             })
           },
+          ownWriteKinds: { [tailKey]: 'empty' },
         })
       },
     })
@@ -940,9 +1106,16 @@ export function useSlotMutations({
   // default. Re-checks for a normalized-name dup defensively — CellInlineEditor
   // already resolves an exact match to onPlace, not onCreateNew, but a second
   // inline-write could race the same name between typing and Enter.
+  // Object builder + dedupe/mint logic extracted to createActivityHelper.js
+  // (T106) so the weekly path below, createElectiveFromCell's member-creation
+  // loop, and the special-day adapter all mint through one shared function —
+  // not a duplicate literal (T105 design §1's "Reused vs. new").
   async function createActivityFromCell(name, target) {
     const trimmed = String(name ?? '').trim()
     if (!trimmed) return
+
+    const targetRow = slots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+    if (overrideGuard(targetRow)) return
 
     const dupe = activities.find(a => normalizeName(a.name) === normalizeName(trimmed))
     if (dupe) {
@@ -950,41 +1123,333 @@ export function useSlotMutations({
       return
     }
 
-    const newId = crypto.randomUUID()
-    const fields = {
-      name: trimmed,
-      camp_id: campId,
-      priority: null,
-      is_locked: false,
-      span_blocks: 1,
-      location_id: null,
-      is_outdoor: false,
-      max_groups_per_slot: 1,
-      // Usage-derived: this write IS the activity's first placement, so the
-      // target starts at 1 — never a spurious under-served flag on the week
-      // it was hand-created for.
-      min_per_week: 1,
-      max_per_week: null,
-      same_tier_only: false,
-      eligible_tier_ids: [],
-      eligible_group_ids: [],
-      prefer_before_day: null,
-      prefer_before_day_min: null,
-      weather_alternative_id: null,
-      notes: null,
-    }
-
     setActionError(null)
+    let result
     try {
-      await repo.writeActivityFields(newId, fields)
+      result = await createActivity({ name: trimmed, groupId: target.groupId, campId, activities }, repo)
     } catch (err) {
       setActionError(describeWriteFailure(err, 'That activity could not be created.'))
       return
     }
 
-    const newRow = { id: newId, ...fields }
-    setActivities(prev => [...prev, newRow])
-    await placeActivityManual(newId, target.groupId, target.dayId, target.blockId, newRow)
+    setActivities(prev => [...prev, result.activity])
+    await placeActivityManual(result.activityId, target.groupId, target.dayId, target.blockId, result.activity)
+  }
+
+  // T105 §1 — the elective-authoring commit path, sibling to
+  // createActivityFromCell rather than a rewrite of it. `memberNames` are
+  // resolved to activity ids by reusing createActivityFromCell's own
+  // dedupe-by-normalized-name check (not a second matcher); a name with no
+  // exact existing activity mints a new one via newActivityDefaultFields.
+  // Member creation + the elective_sets/elective_set_activities writes are
+  // sequential repo.write calls, the same granularity createActivityFromCell
+  // already accepts for the single-activity case — not a bigger transaction
+  // (design §1's "Ordering/atomicity note").
+  async function createElectiveFromCell(setName, memberNames, target) {
+    if (!existingTemplates[route]) return
+    const trimmedSet = String(setName ?? '').trim()
+    if (!trimmedSet) return
+
+    const targetRow = slots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+    if (!targetRow || targetRow.is_anchor) return
+    if (overrideGuard(targetRow)) return
+
+    // T108 Phase 2 review round 2 (HIGH #2) — day_overrides has no
+    // elective_set_id column (v1 scope, per the schema), so an override
+    // cannot point at an elective. Blocked BEFORE any write — including
+    // before the fresh-mint path below creates elective_sets/
+    // elective_set_activities rows — so override mode can never leave an
+    // orphan one-off elective set with nothing placing it.
+    if (isOverrideModeFor(target.dayId)) {
+      setActionError("Electives can't be overridden for a single day yet — exit Override mode to place an elective.")
+      return
+    }
+
+    setActionError(null)
+
+    // Reuse-from-existing-durable-set (design §1): an exact name match against
+    // the DURABLE list (never electiveSetsAll) places that set directly,
+    // rather than minting a duplicate.
+    const durableMatch = durableElectiveSets.find(s => normalizeName(s.name) === normalizeName(trimmedSet))
+    if (durableMatch) {
+      // Never deleted by our own undo (isFreshOneOff stays false) — redo's
+      // existence check will therefore always find it, so no recreate path
+      // ever fires for a durable-set placement. setName/memberActivityIds
+      // are unused in that case.
+      await placeElectiveOnCell(durableMatch.id, target, targetRow)
+      return
+    }
+
+    // Member-activity creation below is NOT undoable — an Enter that mints N
+    // new activities has no single undo step that un-creates them. This
+    // mirrors createActivityFromCell's already-accepted posture (its own
+    // single-activity create is likewise not undone by undoing the
+    // placement), extended here to N members instead of one. Accepted,
+    // consistent, not a new gap this ticket introduces — flagged rather than
+    // silently inherited.
+    const memberIds = []
+    for (const rawName of memberNames ?? []) {
+      const trimmed = String(rawName ?? '').trim()
+      if (!trimmed) continue
+      let result
+      try {
+        result = await createActivity({ name: trimmed, groupId: target.groupId, campId, activities }, repo)
+      } catch (err) {
+        setActionError(describeWriteFailure(err, 'That activity could not be created.'))
+        return
+      }
+      if (result.isNew) setActivities(prev => [...prev, result.activity])
+      memberIds.push(result.activityId)
+    }
+    if (memberIds.length === 0) return // no valid members typed — do not write an empty elective
+
+    // Known latent limitation, accepted rather than fixed here: a colon
+    // inside the SET NAME itself (only reachable via a non-inline path —
+    // this cell's own grammar splits on the FIRST colon, so `trimmedSet`
+    // here can never itself contain one) would not round-trip through the
+    // durable-set exact-match reuse lookup in CellInlineEditor (which reads
+    // everything before ITS first colon as the query). Not exercised by any
+    // shipped authoring surface today; noted for whoever builds the
+    // management-screen create/rename path T110 left as its secondary
+    // surface.
+    const electiveSetId = crypto.randomUUID()
+    try {
+      await repo.writeElectiveSetFields(electiveSetId, { name: trimmedSet, camp_id: campId, is_reusable: 0 })
+      for (const activityId of memberIds) {
+        await repo.writeElectiveSetActivityFields(crypto.randomUUID(), { elective_set_id: electiveSetId, activity_id: activityId })
+      }
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That elective could not be created.'))
+      return
+    }
+
+    // memberIds are passed through so a later redo (after an intervening
+    // undo deletes this one-off set) can re-create the SAME set — same name,
+    // same resolved member activity ids — without re-typing/re-resolving
+    // names, per design §1 Redo.
+    await placeElectiveOnCell(electiveSetId, target, targetRow, { isFreshOneOff: true, setName: trimmedSet, memberActivityIds: memberIds })
+  }
+
+  // Cell write for an elective (both the fresh-mint path and the reuse-a-
+  // durable-set path share this): span-head-aware exactly like replaceSlot —
+  // collectSpanTails releases any covered tail rows in the same gesture
+  // (design §3), and the whole write goes through the same claim/chain/
+  // dispatch primitive as every other mutation.
+  async function placeElectiveOnCell(electiveSetId, target, targetRow, { isFreshOneOff = false, setName = null, memberActivityIds = [] } = {}) {
+    const claimId = crypto.randomUUID()
+    // Mutable across repeated undo/redo cycles on this ONE pushUndo entry:
+    // a redo that re-creates the set (below) mints a fresh id, and a LATER
+    // undo/redo of the SAME entry must act on that fresh id, not the
+    // original (now-deleted) one.
+    let liveElectiveSetId = electiveSetId
+    const targetKey = cellKey(target.groupId, target.dayId, target.blockId)
+
+    const freshSlots = slotsRef.current
+    const freshTargetRow = freshSlots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId) ?? targetRow
+    const prevTargetActivityId = freshTargetRow.activity_id ?? null
+    const prevTargetElectiveSetId = freshTargetRow.elective_set_id ?? null
+    const prevTargetFlags = freshTargetRow.flags ?? {}
+
+    const spanTailRows = collectSpanTails(freshSlots, timeBlocks, target, freshTargetRow)
+    const tailKeys = spanTailRows.map(t => cellKey(t.group_id, t.day_id, t.time_block_id))
+    const keys = [...new Set([targetKey, ...tailKeys])].sort()
+
+    let writeError = null
+    const { dropped } = await runMutation({
+      keys,
+      claimId,
+      dispatch: async () => {
+        try {
+          const writes = [repo.writeSlotFields(targetRow.id, { elective_set_id: electiveSetId, activity_id: null, flags: {} })]
+          for (const tail of spanTailRows) {
+            writes.push(repo.writeSlotFields(tail.id, { activity_id: null, is_span_head: true, flags: {} }))
+          }
+          await Promise.all(writes)
+        } catch (err) {
+          writeError = err
+        }
+      },
+      getError: () => writeError,
+      onError: (err) => setActionError(describeWriteFailure(err, 'That elective could not be placed.')),
+      onSuccess: () => {
+        setSlots(prev => {
+          const next = prev.map(s => {
+            if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+              return { ...s, elective_set_id: electiveSetId, activity_id: null, flags: {} }
+            if (spanTailRows.some(t => t.id === s.id))
+              return { ...s, activity_id: null, is_span_head: true, flags: {} }
+            return s
+          })
+          recalcStats(next)
+          recalcFindings(next)
+          slotsRef.current = next
+          return next
+        })
+      },
+      ownWriteKinds: {
+        [targetKey]: `elective:${electiveSetId}`,
+        ...Object.fromEntries(tailKeys.map(k => [k, 'empty'])),
+      },
+    })
+    if (writeError || dropped) return
+
+    const set = electiveSetsAll.find(s => s.id === electiveSetId)
+    pushUndo({
+      description: `Placed ${set?.name ?? 'an elective'}`,
+      undo: async () => {
+        let undoWriteError = null
+        await runMutation({
+          keys,
+          claimId: crypto.randomUUID(),
+          dispatch: async () => {
+            try {
+              await Promise.all([
+                repo.writeSlotFields(targetRow.id, {
+                  elective_set_id: prevTargetElectiveSetId,
+                  activity_id: prevTargetActivityId,
+                  flags: prevTargetFlags,
+                }),
+                ...spanTailRows.map(tail => repo.writeSlotFields(tail.id, {
+                  activity_id: tail.activity_id,
+                  is_span_head: false,
+                  flags: tail.flags ?? {},
+                })),
+              ])
+            } catch (err) { undoWriteError = err }
+          },
+          getError: () => undoWriteError,
+          onSuccess: () => {
+            setSlots(prev => {
+              const next = prev.map(s => {
+                if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+                  return { ...s, elective_set_id: prevTargetElectiveSetId, activity_id: prevTargetActivityId, flags: prevTargetFlags }
+                const tail = spanTailRows.find(t => t.id === s.id)
+                if (tail) return { ...s, activity_id: tail.activity_id, is_span_head: false, flags: tail.flags ?? {} }
+                return s
+              })
+              slotsRef.current = next
+              return next
+            })
+          },
+          ownWriteKinds: {
+            [targetKey]: prevTargetElectiveSetId ? `elective:${prevTargetElectiveSetId}` : (prevTargetActivityId ? `activity:${prevTargetActivityId}` : 'empty'),
+            ...Object.fromEntries(spanTailRows.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), t.activity_id ? `activity:${t.activity_id}` : 'empty'])),
+          },
+        })
+        // Undo-time one-off cleanup (Red Hat fold-in B): a FRESH read of
+        // is_reusable, never the value captured at forward-write time — a set
+        // promoted or synced to reusable between the forward write and this
+        // undo must survive. Best-effort: a failure here leaves an orphaned
+        // one-off elective_sets row, which is harmless (findable/deletable
+        // like any hand-created row), never a thrown/blocking error.
+        if (isFreshOneOff) {
+          try {
+            const currentIsReusable = await repo.readElectiveSetIsReusable(liveElectiveSetId)
+            const stillOneOff = currentIsReusable === 0 || currentIsReusable === '0' || currentIsReusable === false || currentIsReusable == null
+            if (stillOneOff) await repo.deleteElectiveSet(liveElectiveSetId)
+          } catch {
+            // best-effort — see comment above
+          }
+        }
+      },
+      redo: async () => {
+        // Redo re-applies the SAME memberActivityIds the original forward
+        // write resolved — it never re-resolves member NAMES (design §1).
+        // But the SET ROW itself may no longer exist: if undo deleted a
+        // not-yet-promoted one-off (the isFreshOneOff branch above), a fresh
+        // read here (never a value captured at forward-write or undo time)
+        // detects that and RE-CREATES the set + member rows with FRESH ids
+        // before writing the cell — replaying a write against the dangling
+        // original id would silently lose the director's elective (it would
+        // render 'Elective (removed)'), which is a real data-loss bug, not
+        // an accepted asymmetry.
+        if (isFreshOneOff) {
+          const existing = await repo.getElectiveSet(liveElectiveSetId)
+          if (!existing) {
+            const freshSetId = crypto.randomUUID()
+            try {
+              await repo.writeElectiveSetFields(freshSetId, { name: setName, camp_id: campId, is_reusable: 0 })
+              for (const activityId of memberActivityIds) {
+                await repo.writeElectiveSetActivityFields(crypto.randomUUID(), { elective_set_id: freshSetId, activity_id: activityId })
+              }
+            } catch (err) {
+              setActionError(describeWriteFailure(err, 'That elective could not be restored.'))
+              return
+            }
+            liveElectiveSetId = freshSetId
+          }
+        }
+        let redoWriteError = null
+        await runMutation({
+          keys,
+          claimId: crypto.randomUUID(),
+          dispatch: async () => {
+            try {
+              const writes = [repo.writeSlotFields(targetRow.id, { elective_set_id: liveElectiveSetId, activity_id: null, flags: {} })]
+              for (const tail of spanTailRows) {
+                writes.push(repo.writeSlotFields(tail.id, { activity_id: null, is_span_head: true, flags: {} }))
+              }
+              await Promise.all(writes)
+            } catch (err) { redoWriteError = err }
+          },
+          getError: () => redoWriteError,
+          onSuccess: () => {
+            setSlots(prev => {
+              const next = prev.map(s => {
+                if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+                  return { ...s, elective_set_id: liveElectiveSetId, activity_id: null, flags: {} }
+                if (spanTailRows.some(t => t.id === s.id))
+                  return { ...s, activity_id: null, is_span_head: true, flags: {} }
+                return s
+              })
+              slotsRef.current = next
+              return next
+            })
+          },
+          ownWriteKinds: {
+            [targetKey]: `elective:${liveElectiveSetId}`,
+            ...Object.fromEntries(tailKeys.map(k => [k, 'empty'])),
+          },
+        })
+      },
+    })
+  }
+
+  // T108 (design §6.1): the "pull" override-authoring action — a group is
+  // intentionally taken off programming for this cell. Only meaningful in
+  // override-authoring mode; the guard still applies so a pull can't silently
+  // clobber an existing override outside that mode. No undo/redo — deferred
+  // to T113 (Governor-accepted follow-up), same posture as
+  // placeActivityManual's and replaceSlot's override-mode branches above.
+  async function pullOverrideCell(groupId, dayId, blockId, note = null) {
+    if (!existingTemplates[route]) return
+    const slot = getSlot(slots, groupId, dayId, blockId)
+    if (!slot) return
+    if (overrideGuard(slot)) return
+
+    setActionError(null)
+    try {
+      await writeOverrideForCoordinate({ dayId, groupId, blockId, activityId: null, kind: 'pull', note })
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That override could not be saved.'))
+    }
+  }
+
+  // T108 Phase 2 (Designer spec §3.3 "Whole-day pull") — batches
+  // pullOverrideCell across every non-span, non-anchor block for one group on
+  // the active override day, mirroring DayOverridesScreen.jsx's existing
+  // delete-then-recreate batch shape (design §3.2), re-scoped to "create N".
+  // Skips any block that already has an active override (the per-cell guard
+  // inside pullOverrideCell would silently no-op those anyway; skipping here
+  // avoids issuing writes doomed to be blocked).
+  async function pullOverrideDay(groupId, dayId) {
+    const dayBlocks = timeBlocks.filter(b => {
+      const s = getSlot(slots, groupId, dayId, b.id)
+      return s && !s.is_anchor && !s.is_overridden
+    })
+    for (const block of dayBlocks) {
+      await pullOverrideCell(groupId, dayId, block.id)
+    }
   }
 
   return {
@@ -995,9 +1460,13 @@ export function useSlotMutations({
     addOverlay,
     removeOverlay,
     updateOverlayRange,
+    pullOverrideDay,
     placeActivityManual,
     expandSlot,
     splitSlot,
     createActivityFromCell,
+    createElectiveFromCell,
+    pullOverrideCell,
+    ownWriteRef,
   }
 }

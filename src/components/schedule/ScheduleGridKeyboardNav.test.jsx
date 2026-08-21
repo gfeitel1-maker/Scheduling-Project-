@@ -249,6 +249,49 @@ describe('T59 — accessible names', () => {
   })
 })
 
+// T112 fast-follow. Arrow/Home/End keys must not leak from an open
+// CellInlineEditor into grid navigation — a leaked arrow moves DOM focus to
+// another cell, which blurs the editor's input and silently discards the
+// in-progress edit via CellInlineEditor's onBlur -> onCancel path. Enter and
+// Tab are not in NAVIGATION_KEYS, so this is arrows/Home/End only.
+describe('T59/T112 — keys inside an open inline editor do not leak to grid nav', () => {
+  let container
+  beforeEach(() => { container = renderGroupView() })
+
+  it('EmptyCell editor: arrow/Home/End inside the input do not move grid focus or close the editor', () => {
+    const emptyCell = cellAt(container, 4, 2) // 'Empty, Block 3, Monday'
+    fireEvent.click(emptyCell)
+    const input = emptyCell.querySelector('.cell-inline-editor-input')
+    expect(input).not.toBeNull()
+
+    for (const key of ['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Home', 'End']) {
+      fireEvent.keyDown(input, { key })
+      // The editor is still mounted on the same cell — no blur, no discard.
+      expect(emptyCell.querySelector('.cell-inline-editor-input')).toBe(input)
+    }
+    // Grid focus/roving-tabindex position adopted the cell the editor opened
+    // on (the same way any click-to-focus does) but never moved FURTHER —
+    // the arrow/Home/End presses above stayed inside the editor.
+    expect(focusedCell(container)).toBe(emptyCell)
+  })
+
+  it('filled SlotCell editor (opened via right-click): arrow keys inside the input do not close it', () => {
+    const filledCell = cellAt(container, 2, 2) // 'Soccer, Block 1, Monday'
+    fireEvent.contextMenu(filledCell)
+    const input = filledCell.querySelector('.cell-inline-editor-input')
+    expect(input).not.toBeNull()
+
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    fireEvent.keyDown(input, { key: 'Home' })
+    expect(filledCell.querySelector('.cell-inline-editor-input')).toBe(input)
+  })
+
+  it('regression guard: ArrowDown on a focused cell with no editor open still navigates', () => {
+    press(container, 'ArrowDown')
+    expect(focusedCell(container)).toBe(cellAt(container, 2, 1))
+  })
+})
+
 describe('T59 — the T55 collapsed-row contract survives', () => {
   let container
   beforeEach(() => { container = renderGroupView({ collapsedBlockIds: new Set(['b3']) }) })

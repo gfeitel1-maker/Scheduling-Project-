@@ -34,7 +34,8 @@ afterEach(() => {
 
 describe('PROJECTIONS registry', () => {
   it('registers both tables with their field allowlists', () => {
-    expect(PROJECTIONS.elective_sets.fields).toEqual(['camp_id', 'name', 'sort_order'])
+    // is_reusable added v36 (T110, docs/adr/2026-08-20-electives-authoring.md D2).
+    expect(PROJECTIONS.elective_sets.fields).toEqual(['camp_id', 'name', 'sort_order', 'is_reusable'])
     expect(PROJECTIONS.elective_set_activities.fields).toEqual(['elective_set_id', 'activity_id'])
   })
 
@@ -66,6 +67,32 @@ describe('elective_sets — camp-scoped parent', () => {
       author_user_id: 'user-1', device_id: 'device-1',
     })
     expect(db.prepare('SELECT sort_order FROM elective_sets WHERE id = ?').get('es-1').sort_order).toBe(2)
+  })
+
+  it('a new set defaults to reusable (durable) until explicitly marked one-off', () => {
+    appendOp(db, {
+      entity: 'elective_sets', entity_id: 'es-1', field: 'name', value: 'Afternoon Chugim',
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+    expect(db.prepare('SELECT is_reusable FROM elective_sets WHERE id = ?').get('es-1').is_reusable).toBe(1)
+  })
+
+  it('is_reusable write round trip: a director can mark a set one-off, and mark it reusable again', () => {
+    appendOp(db, {
+      entity: 'elective_sets', entity_id: 'es-1', field: 'name', value: 'One-Off Trip Prep',
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+    appendOp(db, {
+      entity: 'elective_sets', entity_id: 'es-1', field: 'is_reusable', value: 0,
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+    expect(db.prepare('SELECT is_reusable FROM elective_sets WHERE id = ?').get('es-1').is_reusable).toBe(0)
+
+    appendOp(db, {
+      entity: 'elective_sets', entity_id: 'es-1', field: 'is_reusable', value: 1,
+      author_user_id: 'user-1', device_id: 'device-1',
+    })
+    expect(db.prepare('SELECT is_reusable FROM elective_sets WHERE id = ?').get('es-1').is_reusable).toBe(1)
   })
 })
 

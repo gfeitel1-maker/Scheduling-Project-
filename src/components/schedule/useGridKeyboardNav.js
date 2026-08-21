@@ -96,6 +96,13 @@ export default function useGridKeyboardNav() {
 
   const onKeyDown = useCallback(event => {
     if (!NAVIGATION_KEYS.has(event.key)) return
+    // T112 fast-follow. An open CellInlineEditor's text input is inside a
+    // cell, so without this guard an arrow/Home/End typed there is claimed by
+    // grid navigation instead of the input: focus moves to another cell,
+    // which blurs the editor and CellInlineEditor's onBlur discards the
+    // in-progress edit as an implicit cancel. Enter/Escape are handled by the
+    // editor itself and are not in NAVIGATION_KEYS, so only this leak exists.
+    if (event.target.closest('.cell-inline-editor')) return
     const frame = frameRef.current
     if (!frame) return
     // Only when focus is actually on a cell — a control inside a cell (the

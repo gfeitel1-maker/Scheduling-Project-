@@ -137,13 +137,25 @@ export function decideCell(geometry, groupId, dayId, blockId) {
   if (slot.is_anchor && geometry.isAnchorTail(groupId, dayId, blockId)) return { kind: 'skip' }
   if (!slot.is_anchor && geometry.isActivityTail(groupId, dayId, blockId)) return { kind: 'skip' }
 
+  // T108 Phase 2 (design §5.1) — a PULL override (applyDayOverrides stamps
+  // is_overridden + is_pull) renders as a non-droppable PulledCell, never
+  // EmptyCell: the director must see the group is intentionally pulled and
+  // must not be able to drop into the cell. Placed after the span-tail skip
+  // (a pulled span cell is never produced — applyDayOverrides refuses spans)
+  // and before the normal empty/slot branches so it never falls into 'empty'.
+  if (slot.is_overridden && slot.is_pull) return { kind: 'pulled', slot }
+
   const rowSpan = slot.is_anchor
     ? geometry.getAnchorRowSpan(groupId, dayId, blockId)
     : geometry.getActivityRowSpan(groupId, dayId, blockId)
 
   const isUnfillable = Boolean(slot.flags?.UNFILLABLE) && !slot.flags?.UNFILLABLE_dismissed
-  if (!slot.activity_id && !slot.is_anchor && !isUnfillable) return { kind: 'empty' }
+  // T105 — an elective cell (elective_set_id set, activity_id null under
+  // T111's MUTUALLY_EXCLUSIVE_FIELDS invariant) has real content and must
+  // render as a slot, never fall into the 'empty' droppable branch.
+  const hasContent = Boolean(slot.activity_id) || Boolean(slot.elective_set_id)
+  if (!hasContent && !slot.is_anchor && !isUnfillable) return { kind: 'empty' }
 
-  const cellType = !slot.activity_id && !isUnfillable ? 'unavailable' : 'activity'
+  const cellType = !hasContent && !isUnfillable ? 'unavailable' : 'activity'
   return { kind: 'slot', slot, rowSpan, cellType }
 }

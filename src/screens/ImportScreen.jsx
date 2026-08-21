@@ -139,10 +139,13 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
   // pre-confirm pass as the Program-filtered duplicate-check set so the
   // warning can state real numbers.
   // Saved versions survive the delete but their slots name group/activity ids
-  // that no longer exist, so restoring one fails; Day Override templates
-  // survive as named shells with nothing in them.
+  // that no longer exist, so restoring one fails.
+  //
+  // T108 Phase 2 review round 2 (MED/HIGH #4) — dayOverrideCount/
+  // day_override_templates removed: that table is retired product concept
+  // (overrides are now `day_overrides` rows, authored in place on the
+  // schedule grid, not a standalone CRUD screen with "templates" to refill).
   const [snapshotCount, setSnapshotCount] = useState(0)
-  const [dayOverrideCount, setDayOverrideCount] = useState(0)
   // Slots placed on EITHER schedule route, camp-wide. replaceScope tears down
   // template_slots and template_overlays for both Manual Build and Generated
   // Schedule (FK ordering forces it), and the director sees the count only
@@ -236,7 +239,6 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
       }
       setExistingRecordsAll(existingAll)
       setSnapshotCount((await localClient.list('schedule_snapshots').catch(() => [])).length)
-      setDayOverrideCount((await localClient.list('day_override_templates').catch(() => [])).length)
       setSlotCount((await localClient.list('template_slots').catch(() => [])).length)
       setAnchorCount((await localClient.list('anchor_activities').catch(() => [])).length)
       setImportMode('add')
@@ -927,7 +929,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
               {/* What Replace destroys beyond the setup records above, said
                   before the confirm rather than discovered weeks later.
                   Split into two sub-blocks (T68): recoverable items — slots,
-                  Fixed Events, Day Override templates — share one bordered
+                  Fixed Events — share one bordered
                   container in --accent (temporary/recoverable per
                   DESIGN_STANDARD); saved versions get their own --danger
                   container, always last, because they are the one item that
@@ -943,9 +945,6 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
                   { key: 'anchors', count: anchorCount, render: () => (
                       <>Your <strong>{anchorCount}</strong> Fixed {anchorCount === 1 ? 'Event' : 'Events'} will
                       be cleared. {anchorCount === 1 ? 'It is' : 'They are'} recoverable from Trash.</>) },
-                  { key: 'dayOverrides', count: dayOverrideCount, render: () => (
-                      <>Your {dayOverrideCount} Day Override {dayOverrideCount === 1 ? 'template keeps its name' : 'templates keep their names'} but
-                      {dayOverrideCount === 1 ? ' is' : ' are'} emptied — you will need to fill {dayOverrideCount === 1 ? 'it' : 'them'} in again.</>) },
                 ].filter((w) => w.count > 0)
 
                 const irreversibleWarnings = [

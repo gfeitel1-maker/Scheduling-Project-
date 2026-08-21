@@ -27,6 +27,9 @@ import { commitIngest, ingestUndo } from './ops/ingest.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
+import { deleteElectiveSet } from './ops/deleteElectiveSet.js'
+import { deleteSpecialDay } from './ops/deleteSpecialDay.js'
+import { listDurableElectiveSets } from './ops/durableElectiveSets.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
 import {
@@ -1217,6 +1220,67 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ...reportable, ops_written: ops.length }
   }
 
+  // T110 (docs/adr/2026-08-20-electives-authoring.md; docs/work/tickets/
+  // T110-electives-sets-crud-and-durability-marker.md): wires the
+  // deleteElectiveSet cascade primitive (electron/ops/deleteElectiveSet.js,
+  // shipped inert in T41 slice 1) to a caller. ADMIN-ONLY ('.delete' not
+  // '.write'), matching every other entity's permanent-delete posture
+  // (permissions.js default-deny — staff hold elective_sets.write but not
+  // elective_sets.delete). Mirrors deleteWeekHandler's shape: direct db
+  // write + requireAuthorized, no client-mode delegation (same as
+  // deleteWeek/deleteRecord's precedent for host-issued cascades).
+  function deleteElectiveSetHandler({ token, electiveSetId } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'elective_sets.delete' })
+    if (!isNonEmptyString(electiveSetId)) throw new Error('electiveSetId is required')
+
+    const result = deleteElectiveSet(
+      db,
+      { electiveSetId },
+      { author_user_id: userId, device_id: deviceId }
+    )
+    if (result.error) return result
+    const { ops, ...reportable } = result
+    return { ...reportable, ops_written: ops.length }
+  }
+
+  // T106 (docs/work/tickets/T106-special-day-author-ui.md; docs/adr/2026-08-20-
+  // special-days-authoring-and-day-override-repoint.md D1): wires the
+  // deleteSpecialDay cascade primitive (electron/ops/deleteSpecialDay.js,
+  // shipped inert in T40 slice 1) to a caller. ADMIN-ONLY ('.delete' not
+  // '.write'), same posture as deleteElectiveSetHandler above (permissions.js
+  // default-deny — staff hold special_days.write but not special_days.delete).
+  function deleteSpecialDayHandler({ token, specialDayId } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'special_days.delete' })
+    if (!isNonEmptyString(specialDayId)) throw new Error('specialDayId is required')
+
+    const result = deleteSpecialDay(
+      db,
+      { specialDayId },
+      { author_user_id: userId, device_id: deviceId }
+    )
+    if (result.error) return result
+    const { ops, ...reportable } = result
+    return { ...reportable, ops_written: ops.length }
+  }
+
+  // T105 (docs/work/tickets/T105-elective-inline-authoring-and-render.md;
+  // docs/work/specs/2026-08-20-elective-authoring-render-design.md §2):
+  // listDurableElectiveSets (electron/ops/durableElectiveSets.js, T110) gets
+  // its first production caller here — the single sanctioned seam for
+  // "durable/reusable electives" (is_reusable = 1 only). Read-only, mirrors
+  // listUsers's shape exactly: requireAuthorized then one query, no
+  // client-mode delegation. Never substitute the generic `list('elective_sets')`
+  // handler for this — that returns one-offs unfiltered.
+  function listDurableElectiveSetsHandler(token) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'elective_sets.read' })
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) return []
+    return listDurableElectiveSets(db, camp.id)
+  }
+
   return {
     chooseMode,
     discoverHosts: discoverHostsHandler,
@@ -1227,6 +1291,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     dismissMigrationReviews: dismissMigrationReviewsHandler,
     duplicateWeek: duplicateWeekHandler,
     deleteWeek: deleteWeekHandler,
+    deleteElectiveSet: deleteElectiveSetHandler,
+    deleteSpecialDay: deleteSpecialDayHandler,
+    listDurableElectiveSets: listDurableElectiveSetsHandler,
     listDeleted: listDeletedHandler,
     listPendingRestores: listPendingRestoresHandler,
     getEntityHistory: getEntityHistoryHandler,
@@ -1408,6 +1475,9 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:revoke-device', (_event, args) => handlers.revokeDevice(args))
     ipcMain.handle('shoresh:duplicate-week', (_event, args) => handlers.duplicateWeek(args))
     ipcMain.handle('shoresh:delete-week', (_event, args) => handlers.deleteWeek(args))
+    ipcMain.handle('shoresh:delete-elective-set', (_event, args) => handlers.deleteElectiveSet(args))
+    ipcMain.handle('shoresh:delete-special-day', (_event, args) => handlers.deleteSpecialDay(args))
+    ipcMain.handle('shoresh:list-durable-elective-sets', (_event, args) => handlers.listDurableElectiveSets(args && args.token))
   }
 
   /**

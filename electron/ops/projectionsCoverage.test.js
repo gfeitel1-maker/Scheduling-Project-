@@ -273,6 +273,13 @@ const PROJECTION_FIELD_EXCEPTIONS = {
         'Replicated read-only alongside camp bootstrap/pairing so Clients can verify camp tokens; set by host key generation, never by a renderer write.',
     },
   ],
+  day_overrides: [
+    {
+      column: 'created_at',
+      reason:
+        "Schema-level DEFAULT (datetime('now')) set at INSERT time (schema.sql/DAY_OVERRIDES_DDL) — no writer under src/ or electron/ ever sets it via appendOp, same posture as anchor_activities.unit_id/span_blocks below.",
+    },
+  ],
   anchor_activities: [
     {
       column: 'unit_id',
@@ -569,7 +576,7 @@ describe('scanner anti-vacuity floors', () => {
       'activities.is_locked', // commit 9f4b178 — pattern (c): repo.<method>() indirection
       'camps.name', // CampScreen.jsx — pattern (a): direct fully-literal localClient.write call
       'groups.name', // GroupsScreen.jsx — pattern (e): repository.createRecord('groups', id, {…}) setup-CRUD call site
-      'day_override_templates.name', // DayOverridesScreen.jsx — pattern (b): local 3-arg writeFields(entity, id, fields) wrapper
+      'tiers.name', // TiersScreen.jsx — pattern (b): local writeFields(entity, id, fields) wrapper (replaced day_override_templates.name after T108 removed DayOverridesScreen)
     ]
     for (const c of canaries) {
       expect(scanResult.foundPairs.has(c), `expected scanner to find canary pair '${c}'`).toBe(true)

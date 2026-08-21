@@ -113,6 +113,19 @@ export const localClient = {
   // wrapper here does via currentToken(). Fields enumerated explicitly (not
   // spread) so a caller-supplied token in args can never override the real one.
   deleteWeek: ({ weekId }) => shoresh.deleteWeek({ token: currentToken(), weekId }),
+  // deleteElectiveSetHandler (electron/main.js) destructures
+  // { token, electiveSetId } — same explicit-field-threading discipline as
+  // deleteWeek above (T110, docs/adr/2026-08-20-electives-authoring.md).
+  deleteElectiveSet: ({ electiveSetId }) =>
+    shoresh.deleteElectiveSet({ token: currentToken(), electiveSetId }),
+  // deleteSpecialDayHandler (electron/main.js) destructures { token,
+  // specialDayId } — same wrapper shape as deleteElectiveSet above (T106,
+  // docs/adr/2026-08-20-special-days-authoring-and-day-override-repoint.md).
+  deleteSpecialDay: ({ specialDayId }) =>
+    shoresh.deleteSpecialDay({ token: currentToken(), specialDayId }),
+  // T105 §2 — the sole reuse/durable-read seam. Never a client-side filter of
+  // the generic list('elective_sets') result.
+  listDurableElectiveSets: () => shoresh.listDurableElectiveSets(currentToken()),
   onPairingRequest: (cb) => shoresh.onPairingRequest && shoresh.onPairingRequest(cb),
   onPairingApproved: (cb) => shoresh.onPairingApproved && shoresh.onPairingApproved(cb),
   onPairingDenied: (cb) => shoresh.onPairingDenied && shoresh.onPairingDenied(cb),

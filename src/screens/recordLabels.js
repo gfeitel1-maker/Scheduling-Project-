@@ -13,7 +13,9 @@ export const ENTITY_LABEL = {
   days_of_operation: 'Day',
   time_blocks: 'Time block',
   anchor_activities: 'Fixed event',
-  day_override_templates: 'Day override',
+  // T108 Phase 2 (design §8) — the entity is `day_overrides` now (the
+  // standalone day_override_templates CRUD table is retired, see D2).
+  day_overrides: 'Day override',
   // W1 (docs/work/specs/2026-08-21-vocabulary-unification-design.md) — "Place"
   // and "Resources" are retired; "Location" is the one canonical word.
   locations: 'Location',
@@ -79,7 +81,9 @@ const FIELD_LABEL = {
   is_anchor: 'Fixed event',
   flags: 'Findings',
   is_all_day: 'All day',
-  day_override_template_id: 'Day override',
+  day_override_id: 'Day override',
+  schedule_week_id: 'Week',
+  kind: 'Kind',
 }
 
 // Which entity a foreign-key field points at, so a history line can read

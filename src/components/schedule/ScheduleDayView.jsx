@@ -1,34 +1,17 @@
 import SlotCell from '../schedule/SlotCell'
+import EmptyCell from './EmptyCell'
+import PulledCell from './PulledCell'
 import OverlayCell from '../schedule/OverlayCell'
+import OverrideToggleButton from './OverrideToggleButton'
 import { decideCell } from '../../screens/schedule/gridGeometry'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
-import { cellAccessibleName, blockNamesForSpan } from './cellLabel'
+import { blockNamesForSpan } from './cellLabel'
 import useGridKeyboardNav from './useGridKeyboardNav'
 import './scheduleGrid.css'
 
 const NO_COLLAPSE = new Set()
-
-// No per-cell droppable: T58 moved hit resolution to the grid surface, and the
-// drop-target paint to `.cell[data-drag-over]` in scheduleGrid.css.
-function EmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex, collapsed, blockNames, column }) {
-  return (
-    <div
-      role="gridcell"
-      className="cell"
-      data-empty=""
-      data-cell-key={`${groupId}|${dayId}|${blockId}`}
-      data-collapsed={collapsed ? '' : undefined}
-      aria-colindex={ariaColIndex}
-      // T59. An empty cell announces as empty, never as a blank cell.
-      aria-label={cellAccessibleName({ subject: 'Empty', blockNames, column })}
-      style={{ gridRow, gridColumn }}
-    >
-      <div className="cell-empty" />
-    </div>
-  )
-}
 
 // DndContext and the one grid-surface droppable live in ScheduleScreen (they
 // cover sidebar + grid). Drag state is the FSM's and reaches cells as data
@@ -51,6 +34,12 @@ export default function ScheduleDayView({
   highlightColor = 'var(--danger)',
   collapsedBlockIds = NO_COLLAPSE,
   onToggleBlockCollapsed,
+  // T105
+  electiveSetsAll = [], electiveMembersBySet, onCreateElective,
+  isContentRaced, onDismissContentRace,
+  // T108 Phase 2 (design §6, Designer spec §1.1) — the day view IS one
+  // (week, day), so the toggle lives once in the toolbar, not per-column.
+  overrideModeDayId, onToggleOverrideMode,
 }) {
   const gridTemplateColumns = columnTracks(groups.length)
   const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
@@ -60,7 +49,7 @@ export default function ScheduleDayView({
   return (
     <div className="schedule-view-enter">
       {/* Day pills */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         {days.map(d => (
           <button key={d.id} onClick={() => onSelectDay(d.id)} className="press-98" style={{
             padding: '5px 16px', borderRadius: 20,
@@ -70,6 +59,16 @@ export default function ScheduleDayView({
             fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-sans)',
           }}>{d.label}</button>
         ))}
+        {/* T108 Phase 2 (Designer spec §1.1) — one control, next to the
+            existing week/day selector controls, since every column here
+            already shares the one (week, selectedDay) binding. */}
+        {selectedDay && onToggleOverrideMode && (
+          <OverrideToggleButton
+            active={overrideModeDayId === selectedDay}
+            onClick={() => onToggleOverrideMode(selectedDay)}
+            showLabel
+          />
+        )}
       </div>
 
       {selectedDay && (
@@ -153,6 +152,13 @@ export default function ScheduleDayView({
                             collapsed={isCollapsed}
                             blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
                             column={group.name}
+                            eligibleActivities={eligibleActivitiesFor?.(group.id) ?? []}
+                            onPlace={onPlace}
+                            onCreateNew={onCreateNew}
+                            onCreateElective={onCreateElective}
+                            // Stamp mode wins over opening the editor, mirroring the
+                            // SlotCell call below. Day view has no paste mode.
+                            onCellClick={stampMode ? (() => handleStampClick(group.id, selectedDay, block.id)) : undefined}
                             {...placeCell({ blockIndex, columnIndex: groupIndex })}
                           />
                         )
@@ -174,6 +180,22 @@ export default function ScheduleDayView({
                             blockNames={blockNamesForSpan(timeBlocks, blockIndex, rowSpan)}
                             column={group.name}
                             {...placeCell({ blockIndex, columnIndex: groupIndex, rowSpan })}
+                          />
+                        )
+                      }
+
+                      // T108 Phase 2 (design §5.1) — a PULL override, never droppable.
+                      if (decision.kind === 'pulled') {
+                        return (
+                          <PulledCell
+                            key={group.id}
+                            slot={decision.slot}
+                            ariaColIndex={ariaColIndex}
+                            cellKey={cellKey}
+                            collapsed={isCollapsed}
+                            blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
+                            column={group.name}
+                            {...placeCell({ blockIndex, columnIndex: groupIndex })}
                           />
                         )
                       }
@@ -202,6 +224,11 @@ export default function ScheduleDayView({
                           eligibleActivities={eligibleActivitiesFor?.(group.id) ?? []}
                           onPlace={onPlace}
                           onCreateNew={onCreateNew}
+                          onCreateElective={onCreateElective}
+                          electiveSetsAll={electiveSetsAll}
+                          electiveMembersBySet={electiveMembersBySet}
+                          isContentRaced={isContentRaced?.(group.id, selectedDay, block.id)}
+                          onDismissContentRace={() => onDismissContentRace?.(`${group.id}|${selectedDay}|${block.id}`)}
                           onRelease={s => releaseCell(s.id)}
                           isLocked={isLocked}
                           isDndEnabled={!isLocked && !stampMode}

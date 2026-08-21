@@ -1,36 +1,17 @@
 import SlotCell from '../schedule/SlotCell'
+import EmptyCell from './EmptyCell'
+import PulledCell from './PulledCell'
 import OverlayCell from '../schedule/OverlayCell'
+import OverrideToggleButton from './OverrideToggleButton'
 import { decideCell } from '../../screens/schedule/gridGeometry'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
-import { cellAccessibleName, blockNamesForSpan } from './cellLabel'
+import { blockNamesForSpan } from './cellLabel'
 import useGridKeyboardNav from './useGridKeyboardNav'
 import './scheduleGrid.css'
 
 const NO_COLLAPSE = new Set()
-
-// No per-cell droppable: T58 moved hit resolution to the grid surface, and the
-// drop-target paint to `.cell[data-drag-over]` in scheduleGrid.css. data-cell-key
-// is what makes this cell findable from pointer coordinates.
-function EmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex, collapsed, blockNames, column }) {
-  return (
-    <div
-      role="gridcell"
-      className="cell"
-      data-empty=""
-      data-cell-key={`${groupId}|${dayId}|${blockId}`}
-      data-collapsed={collapsed ? '' : undefined}
-      aria-colindex={ariaColIndex}
-      // T59. An empty cell announces as empty, never as a blank cell.
-      aria-label={cellAccessibleName({ subject: 'Empty', blockNames, column })}
-      style={{ gridRow, gridColumn }}
-    >
-      <div className="cell-empty">Empty</div>
-    </div>
-  )
-}
-
 
 // DndContext and the one grid-surface droppable live in ScheduleScreen (they
 // cover sidebar + grid). Drag state is the FSM's and reaches cells as data
@@ -58,6 +39,16 @@ export default function ScheduleGroupView({
   // Neither implies the other, which is why both are written here.
   collapsedBlockIds = NO_COLLAPSE,
   onToggleBlockCollapsed,
+  // T105
+  electiveSetsAll = [], electiveMembersBySet, onCreateElective,
+  isContentRaced, onDismissContentRace,
+  // T108 Phase 2 (design §6, Designer spec §1.1) — each day COLUMN is its
+  // own (week, day) binding here, so the toggle lives once per column, in
+  // that column's header cell.
+  overrideModeDayId, onToggleOverrideMode,
+  // Designer spec §3.3 "whole-day pull" — batches a pull across every block
+  // for the selected group on the active override day.
+  onPullOverrideDay,
 }) {
   const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
   const rowCells = days.map(d => ({ groupId: selectedGroup, dayId: d.id }))
@@ -104,8 +95,28 @@ export default function ScheduleGroupView({
                         role="columnheader"
                         className="cell"
                         aria-colindex={dayIndex + 2}
-                        style={placeCell({ blockIndex: 0, columnIndex: dayIndex })}
-                      >{d.label}</div>
+                        data-override-active={overrideModeDayId === d.id ? '' : undefined}
+                        style={{ ...placeCell({ blockIndex: 0, columnIndex: dayIndex }), position: 'relative' }}
+                      >
+                        {d.label}
+                        {onToggleOverrideMode && (
+                          <span style={{ position: 'absolute', top: 4, right: 4, display: 'flex', gap: 2 }}>
+                            {overrideModeDayId === d.id && onPullOverrideDay && (
+                              <button
+                                type="button"
+                                className="cell-action"
+                                title={`Pull ${groups.find(g => g.id === selectedGroup)?.name ?? 'group'} for the whole day`}
+                                aria-label={`Pull ${groups.find(g => g.id === selectedGroup)?.name ?? 'group'} for the whole day`}
+                                onClick={e => { e.stopPropagation(); onPullOverrideDay(selectedGroup, d.id) }}
+                              >⇥</button>
+                            )}
+                            <OverrideToggleButton
+                              active={overrideModeDayId === d.id}
+                              onClick={() => onToggleOverrideMode(d.id)}
+                            />
+                          </span>
+                        )}
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -175,6 +186,16 @@ export default function ScheduleGroupView({
                               collapsed={isCollapsed}
                               blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
                               column={day.label}
+                              eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
+                              onPlace={onPlace}
+                              onCreateNew={onCreateNew}
+                              onCreateElective={onCreateElective}
+                              // Three-way precedence (stamp > paste > edit): onCellClick
+                              // is only defined while stamp mode is active, mirroring the
+                              // SlotCell call below exactly.
+                              onCellClick={stampMode ? (() => handleStampClick(selectedGroup, day.id, block.id)) : undefined}
+                              pasteMode={pasteMode}
+                              onCellSelect={onCellSelect}
                               {...placeCell({ blockIndex, columnIndex: dayIndex })}
                             />
                           )
@@ -196,6 +217,22 @@ export default function ScheduleGroupView({
                               blockNames={blockNamesForSpan(timeBlocks, blockIndex, rowSpan)}
                               column={day.label}
                               {...placeCell({ blockIndex, columnIndex: dayIndex, rowSpan })}
+                            />
+                          )
+                        }
+
+                        // T108 Phase 2 (design §5.1) — a PULL override, never droppable.
+                        if (decision.kind === 'pulled') {
+                          return (
+                            <PulledCell
+                              key={day.id}
+                              slot={decision.slot}
+                              ariaColIndex={ariaColIndex}
+                              cellKey={cellKey}
+                              collapsed={isCollapsed}
+                              blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
+                              column={day.label}
+                              {...placeCell({ blockIndex, columnIndex: dayIndex })}
                             />
                           )
                         }
@@ -235,6 +272,11 @@ export default function ScheduleGroupView({
                             eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
                             onPlace={onPlace}
                             onCreateNew={onCreateNew}
+                            onCreateElective={onCreateElective}
+                            electiveSetsAll={electiveSetsAll}
+                            electiveMembersBySet={electiveMembersBySet}
+                            isContentRaced={isContentRaced?.(selectedGroup, day.id, block.id)}
+                            onDismissContentRace={() => onDismissContentRace?.(`${selectedGroup}|${day.id}|${block.id}`)}
                             onRelease={s => releaseCell(s.id)}
                             isLocked={isLocked}
                             onSelect={!stampMode && !slot.is_anchor ? onCellSelect : undefined}

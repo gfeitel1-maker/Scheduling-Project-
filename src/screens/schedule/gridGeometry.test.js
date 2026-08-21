@@ -189,4 +189,23 @@ describe('decideCell', () => {
     expect(d.kind).toBe('slot')
     expect(d.cellType).toBe('activity')
   })
+
+  // T108 Phase 2 (design §5.1) — a PULL override composed by applyDayOverrides
+  // (is_overridden + is_pull stamped on the row) must route to 'pulled', never
+  // 'empty' (which would render as a droppable EmptyCell).
+  it('routes a pull-overridden slot to kind "pulled", not empty', () => {
+    const slots = [slot({ time_block_id: 'b1', activity_id: null, is_overridden: true, is_pull: true, flags: {} })]
+    const geometry = makeGridGeometry({ slots, timeBlocks, groups, overlays: [], fillState: null })
+    const d = decideCell(geometry, 'g1', 'd1', 'b1')
+    expect(d.kind).toBe('pulled')
+    expect(d.slot).toBe(slots[0])
+  })
+
+  it('routes a swap-overridden slot to a normal slot decision (SlotCell renders the marker)', () => {
+    const slots = [slot({ time_block_id: 'b1', activity_id: 'act-art', is_overridden: true, flags: {} })]
+    const geometry = makeGridGeometry({ slots, timeBlocks, groups, overlays: [], fillState: null })
+    const d = decideCell(geometry, 'g1', 'd1', 'b1')
+    expect(d.kind).toBe('slot')
+    expect(d.slot.is_overridden).toBe(true)
+  })
 })

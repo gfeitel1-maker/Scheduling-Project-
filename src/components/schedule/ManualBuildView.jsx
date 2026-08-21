@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import SlotCell from './SlotCell'
+import EmptyCell from './EmptyCell'
+import PulledCell from './PulledCell'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
-import { cellAccessibleName, blockNamesForSpan } from './cellLabel'
+import { blockNamesForSpan } from './cellLabel'
 import useGridKeyboardNav from './useGridKeyboardNav'
 import './scheduleGrid.css'
 
@@ -53,26 +55,6 @@ function firstMergeableCellKey({ selectedGroup, days, timeBlocks, geometry }) {
   return null
 }
 
-// No per-cell droppable: T58 moved hit resolution to the grid surface, and the
-// drop-target paint to `.cell[data-drag-over]` in scheduleGrid.css.
-function EmptyDropCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex, collapsed, blockNames, column }) {
-  return (
-    <div
-      role="gridcell"
-      className="cell"
-      data-empty=""
-      data-cell-key={`${groupId}|${dayId}|${blockId}`}
-      data-collapsed={collapsed ? '' : undefined}
-      aria-colindex={ariaColIndex}
-      // T59. An empty cell announces as empty, never as a blank cell.
-      aria-label={cellAccessibleName({ subject: 'Empty', blockNames, column })}
-      style={{ gridRow, gridColumn }}
-    >
-      <div className="cell-empty" />
-    </div>
-  )
-}
-
 // DndContext and the one grid-surface droppable live in ScheduleScreen (for
 // manual mode). This component is just the grid — group pills + slot grid.
 export default function ManualBuildView({
@@ -85,6 +67,9 @@ export default function ManualBuildView({
   selectedSlotKeys, pasteMode, onCellSelect,
   collapsedBlockIds = NO_COLLAPSE,
   onToggleBlockCollapsed,
+  // T105
+  electiveSetsAll = [], electiveMembersBySet, onCreateElective,
+  isContentRaced, onDismissContentRace,
 }) {
   const gridTemplateColumns = columnTracks(days.length)
   const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
@@ -191,6 +176,25 @@ export default function ManualBuildView({
                       // The tail of a merged activity span — covered by the head's grid-row span.
                       if (slot?.activity_id && !slot.is_anchor && geometry.isActivityTail(selectedGroup, day.id, block.id)) return null
 
+                      // T108 Phase 2 (design §5.1) — a PULL override, never droppable.
+                      // Manual route has no decideCell dispatch (this view mirrors it
+                      // inline, per this file's own header note), so the pull check
+                      // is repeated here rather than routed through gridGeometry.js.
+                      if (slot?.is_overridden && slot?.is_pull) {
+                        return (
+                          <PulledCell
+                            key={day.id}
+                            slot={slot}
+                            ariaColIndex={ariaColIndex}
+                            cellKey={cellKey}
+                            collapsed={isCollapsed}
+                            blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
+                            column={day.label}
+                            {...placeCell({ blockIndex, columnIndex: dayIndex })}
+                          />
+                        )
+                      }
+
                       if (slot?.is_anchor) {
                         const rowSpan = geometry.getAnchorRowSpan(selectedGroup, day.id, block.id)
                         const anchor = slot.anchor_id ? anchorMap.get(slot.anchor_id) : null
@@ -213,8 +217,8 @@ export default function ManualBuildView({
                         )
                       }
 
-                      if (slot?.activity_id) {
-                        const act = actMap.get(slot.activity_id)
+                      if (slot?.activity_id || slot?.elective_set_id) {
+                        const act = slot.activity_id ? actMap.get(slot.activity_id) : null
                         const isMerged = Boolean(slot.flags?.expanded)
                         const rowSpan = geometry.getActivityRowSpan(selectedGroup, day.id, block.id)
                         const isSelected = selectedSlotKeys?.has(cellKey) ?? false
@@ -241,6 +245,11 @@ export default function ManualBuildView({
                             eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
                             onPlace={onPlace}
                             onCreateNew={onCreateNew}
+                            onCreateElective={onCreateElective}
+                            electiveSetsAll={electiveSetsAll}
+                            electiveMembersBySet={electiveMembersBySet}
+                            isContentRaced={isContentRaced?.(selectedGroup, day.id, block.id)}
+                            onDismissContentRace={() => onDismissContentRace?.(`${selectedGroup}|${day.id}|${block.id}`)}
                             onSelect={onCellSelect}
                             isDndEnabled={true}
                             isSelected={isSelected}
@@ -262,7 +271,7 @@ export default function ManualBuildView({
                       }
 
                       return (
-                        <EmptyDropCell
+                        <EmptyCell
                           key={day.id}
                           groupId={selectedGroup}
                           dayId={day.id}
@@ -271,6 +280,10 @@ export default function ManualBuildView({
                           collapsed={isCollapsed}
                           blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
                           column={day.label}
+                          eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
+                          onPlace={onPlace}
+                          onCreateNew={onCreateNew}
+                          onCreateElective={onCreateElective}
                           {...placeCell({ blockIndex, columnIndex: dayIndex })}
                         />
                       )
@@ -292,7 +305,7 @@ export default function ManualBuildView({
       )}
 
       <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>
-        Drag activities from the left panel onto any open cell, or click a cell to pick one. An empty cell just isn’t filled yet.
+        Drag activities from the left panel onto any open cell, or click an empty cell to type one in. An empty cell just isn’t filled yet.
       </div>
     </div>
   )

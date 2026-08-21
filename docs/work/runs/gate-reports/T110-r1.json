@@ -1,0 +1,33 @@
+{
+  "task_id": "T110",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": 5,
+    "red_hat": 4,
+    "tester": null,
+    "code_reviewer": 4
+  },
+  "overall_score": 4.333333333333333,
+  "lowest_dimension": 4,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [
+    {
+      "ref": "ticket:T110 § Review outcome",
+      "gate_names": [
+        "code_reviewer",
+        "red_hat"
+      ]
+    }
+  ],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": [
+    {
+      "gate_name": "tester",
+      "na_reason": "Data-layer ticket (schema migration, IPC, sync registration). No UI. Director-eye testing deferred to T105 (cell rendering + authoring)."
+    }
+  ]
+}

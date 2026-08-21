@@ -180,6 +180,7 @@ function seedDemoCamp() {
     template_slots,
     template_overlays: [],
     schedule_snapshots: [],
+    day_overrides: [],
   }
 }
 
@@ -217,6 +218,7 @@ const UNIQUE_KEYS = {
   locations:   ['camp_id', 'name'],
   special_days: ['camp_id', 'name'],
   elective_sets: ['camp_id', 'name'],
+  day_overrides: ['schedule_week_id', 'day_id', 'group_id', 'time_block_id'],
 }
 
 // Mirrors electron/ops/operations.js's UNIQUE_FIELD_ENTITIES exactly (D2,
@@ -324,17 +326,23 @@ export const MOCK_WRITE_ALLOWLIST = {
   // special_day_time_blocks/special_day_slots.fields, per this file's
   // "do not import from electron/" rule (kept honest by
   // electron/ipcSurfaceParity.test.js's drift check).
-  special_days: ['camp_id', 'name', 'sort_order'],
+  special_days: ['camp_id', 'name', 'sort_order', 'notes'],
   special_day_time_blocks: ['special_day_id', 'name', 'sort_order', 'start_time', 'end_time'],
   special_day_slots: ['special_day_id', 'group_id', 'time_block_id', 'activity_id', 'location_id'],
   // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md) —
   // hand-transcribed mirror of PROJECTIONS.elective_sets/
   // elective_set_activities.fields, same discipline as T40 above.
-  elective_sets: ['camp_id', 'name', 'sort_order'],
+  elective_sets: ['camp_id', 'name', 'sort_order', 'is_reusable'],
   elective_set_activities: ['elective_set_id', 'activity_id'],
+  // T108 (day-overrides re-point, ADR 2026-08-21-day-overrides-repoint-
+  // shape.md D1) — hand-transcribed mirror of PROJECTIONS.day_overrides.fields,
+  // same discipline as T40/T41 above.
+  day_overrides: ['camp_id', 'schedule_week_id', 'day_id', 'group_id', 'time_block_id', 'activity_id', 'kind', 'note'],
   schedule_weeks: ['camp_id', 'name', 'sort_order', 'is_archived'],
   schedule_templates: ['kind', 'camp_id', 'week_id', 'name'],
-  schedule_snapshots: ['template_id', 'name', 'is_auto', 'created_at', 'slots', 'overlays'],
+  // day_overrides_json (T108, design §5.2) — hand-transcribed mirror of
+  // PROJECTIONS.schedule_snapshots.fields.
+  schedule_snapshots: ['template_id', 'name', 'is_auto', 'created_at', 'slots', 'overlays', 'day_overrides_json'],
   template_overlays: ['template_id', 'unit_id', 'day_id', 'from_block_order', 'to_block_order', 'label'],
   template_slots: [
     'template_id',
@@ -1161,6 +1169,12 @@ export const mockShoresh = {
     if (!key || !Array.isArray(state[entity])) return []
     return state[entity].filter((row) => row[key] === scopeId)
   },
+  // T105 §2 — mirrors listDurableElectiveSetsHandler (electron/main.js):
+  // is_reusable = 1 rows only, never the unfiltered list('elective_sets').
+  async listDurableElectiveSets() {
+    const state = loadState()
+    return (state.elective_sets || []).filter((s) => s.is_reusable === 1)
+  },
   async getDeviceId() {
     return 'mock-device'
   },
@@ -1402,6 +1416,47 @@ export const mockShoresh = {
     state.week_location_exclusions = (state.week_location_exclusions || []).filter(e => e.week_id !== weekId)
     state.schedule_templates = (state.schedule_templates || []).filter(t => t.week_id !== weekId)
     state.schedule_weeks = allWeeks.filter(w => w.id !== weekId)
+
+    saveState(state)
+    return { ok: true }
+  },
+
+  // Permanently delete an elective set and its member rows, mirroring
+  // deleteElectiveSet.js's cascade (T110, docs/adr/2026-08-20-electives-
+  // authoring.md): elective_set_activities before elective_sets, no touch to
+  // template_slots (a dangling elective_set_id renders empty, same as the
+  // real cascade). Operates on localStorage state — no op-log, no broadcast.
+  async deleteElectiveSet({ electiveSetId } = {}) {
+    const state = loadState()
+    const set = (state.elective_sets || []).find((s) => s.id === electiveSetId)
+    if (!set) return { error: 'not-found' }
+
+    state.elective_set_activities = (state.elective_set_activities || []).filter(
+      (m) => m.elective_set_id !== electiveSetId
+    )
+    state.elective_sets = (state.elective_sets || []).filter((s) => s.id !== electiveSetId)
+
+    saveState(state)
+    return { ok: true }
+  },
+
+  // Permanently delete a special day and its scoped rows, mirroring
+  // deleteSpecialDay.js's cascade (T106, docs/adr/2026-08-20-special-days-
+  // authoring-and-day-override-repoint.md D1): special_day_slots and
+  // special_day_time_blocks before special_days. Operates on localStorage
+  // state — no op-log, no broadcast.
+  async deleteSpecialDay({ specialDayId } = {}) {
+    const state = loadState()
+    const day = (state.special_days || []).find((d) => d.id === specialDayId)
+    if (!day) return { error: 'not-found' }
+
+    state.special_day_slots = (state.special_day_slots || []).filter(
+      (s) => s.special_day_id !== specialDayId
+    )
+    state.special_day_time_blocks = (state.special_day_time_blocks || []).filter(
+      (b) => b.special_day_id !== specialDayId
+    )
+    state.special_days = (state.special_days || []).filter((d) => d.id !== specialDayId)
 
     saveState(state)
     return { ok: true }

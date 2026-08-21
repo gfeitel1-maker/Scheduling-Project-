@@ -16,7 +16,7 @@ import LocationsScreen from './screens/LocationsScreen'
 import AnchorsScreen from './screens/AnchorsScreen'
 import DaysScreen from './screens/DaysScreen'
 import CohortsScreen from './screens/CohortsScreen'
-import DayOverridesScreen from './screens/DayOverridesScreen'
+import SpecialDaysScreen from './screens/SpecialDaysScreen'
 import ScheduleScreen from './screens/ScheduleScreen'
 import ConflictsScreen from './screens/ConflictsScreen'
 import TrashScreen from './screens/TrashScreen'
@@ -28,6 +28,11 @@ import { ensureCohort } from './utils/ensureCohort'
 import { seedDays } from './utils/seedDays'
 import { S } from './styles/shared'
 
+// Keys mirrored into screenKeys.js (a plain-data sibling file, not this
+// component file) so a guard test can assert every readiness/rootMap-node
+// `screen` key resolves to a real entry here, without this file exporting a
+// non-component value (react-refresh/only-export-components forbids that) —
+// see screenDestinationsExist.test.js.
 const SCREENS = {
   camp:         CampScreen,
   import:       ImportScreen,
@@ -49,7 +54,7 @@ const SCREENS = {
   activities:   ActivitiesScreen,
   locations:    LocationsScreen,
   anchors:      AnchorsScreen,
-  dayoverrides: DayOverridesScreen,
+  specialdays:  SpecialDaysScreen,
   // Two routes to a week, two sidebar destinations, one screen. Neither is the
   // camp's "real" schedule — the director makes that call, never the app
   // (docs/adr/2026-07-28-plural-candidate-schedules-per-camp.md). 'schedule' is

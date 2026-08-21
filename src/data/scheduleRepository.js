@@ -86,7 +86,57 @@ export function createScheduleRepository({
           localClient.list('cohorts'),
           localClient.list('locations'),
         ])
-      return { groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts, locations }
+      // electiveSetsAll (design §2) — the UNFILTERED render-surface list, via
+      // the same generic list() primitive every other setup list already
+      // uses. Deliberately fetched OUTSIDE the Promise.all above and in its
+      // own try/catch: electives are NOT a readiness prerequisite (T105
+      // review fix) — a camp on an older schema, a test double that doesn't
+      // stub this entity, or any other elective-fetch failure must never
+      // fail the core setup-lists load that getSetupGaps/readiness and the
+      // grid depend on. Default to [] on any failure, same as an empty camp.
+      let elective_sets = []
+      let elective_set_activities = []
+      try {
+        ;[elective_sets, elective_set_activities] = await Promise.all([
+          localClient.list('elective_sets'),
+          localClient.list('elective_set_activities'),
+        ])
+      } catch {
+        // best-effort — see comment above
+      }
+      return { groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts, locations, elective_sets, elective_set_activities }
+    },
+
+    // durableElectiveSets (design §2) — the reuse-surface list, is_reusable=1
+    // only, via the dedicated listDurableElectiveSets IPC seam. Never a
+    // client-side filter of loadSetupLists' elective_sets. Best-effort, same
+    // as loadSetupLists' elective fetch above: not a readiness prerequisite,
+    // must never fail the caller's load.
+    async loadDurableElectiveSets() {
+      try {
+        return (await localClient.listDurableElectiveSets()) || []
+      } catch {
+        return []
+      }
+    },
+
+    // Fresh read of one elective_sets row (or null if it no longer exists —
+    // deleted by an intervening undo, or a cross-device race). Used both by
+    // the undo-time is_reusable check (fold-in B) and the redo-time
+    // existence check (re-create-with-fresh-ids fix) — both need a FRESH
+    // read, never a value captured in a closure at forward-write time.
+    async getElectiveSet(electiveSetId) {
+      const rows = await localClient.list('elective_sets')
+      return (rows || []).find(r => r.id === electiveSetId) ?? null
+    },
+
+    // Fresh read of a single elective set's is_reusable at undo time (T105
+    // Red Hat fold-in B) — deliberately NOT a value captured in the undo
+    // closure at forward-write time, so a set promoted/synced between the
+    // forward write and the undo is never wrongly deleted.
+    async readElectiveSetIsReusable(electiveSetId) {
+      const row = await this.getElectiveSet(electiveSetId)
+      return row ? row.is_reusable : null
     },
 
     async loadTemplateData() {
@@ -118,6 +168,15 @@ export function createScheduleRepository({
 
     async loadWeeks() {
       return (await localClient.list('schedule_weeks')) || []
+    },
+
+    // T108 (day-overrides re-point, design §5.2). day_overrides is
+    // direct-camp-scoped (no parent_id, unlike the week_*_exclusions above),
+    // so this filters localClient.list() client-side rather than using
+    // listByScope.
+    async loadDayOverridesForWeek(weekId) {
+      const rows = (await localClient.list('day_overrides')) || []
+      return rows.filter((r) => r.schedule_week_id === weekId)
     },
 
     async loadWeekExclusions(weekId) {
@@ -210,6 +269,27 @@ export function createScheduleRepository({
       await writeFields('template_overlays', overlayId, fields)
     },
 
+    async writeElectiveSetFields(electiveSetId, fields) {
+      await writeFields('elective_sets', electiveSetId, fields)
+    },
+
+    async writeElectiveSetActivityFields(memberId, fields) {
+      await writeFields('elective_set_activities', memberId, fields)
+    },
+
+    // T108 (day-overrides re-point, design §6.1) — override-authoring-mode
+    // cell edits write here instead of template_slots.
+    async writeDayOverrideFields(dayOverrideId, fields) {
+      await writeFields('day_overrides', dayOverrideId, fields)
+    },
+
+    // Undo-time cleanup for a one-off elective the director never promoted
+    // (T105 design §1). Best-effort — callers accept a thrown error the same
+    // way every other undo write does.
+    async deleteElectiveSet(electiveSetId) {
+      return localClient.deleteElectiveSet({ electiveSetId })
+    },
+
     async writeSnapshotFields(snapshotId, fields) {
       await writeFields('schedule_snapshots', snapshotId, fields)
     },
@@ -237,7 +317,15 @@ export function createScheduleRepository({
     // restoreSnapshot(): replace slots (from snapshot slots — no is_span_head),
     // then overlays. Opposite order and different overlay content from
     // replaceWeek; both preserved.
-    async restoreSnapshotRows(templateId, snapshotSlots, snapshotOverlays) {
+    // snapshotDayOverrides (T108, design §5.2): the whole week's day_overrides
+    // rows captured at save time. Restore is whole-week delete-then-recreate
+    // (matching schedule_snapshots' own whole-week/template-level grain, not
+    // the currently-viewed day) — resolved by looking up templateId's
+    // week_id, since a snapshot only carries a template_id. An unresolvable
+    // template (no matching schedule_templates row, e.g. in tests that don't
+    // seed one) is a no-op for day_overrides, same posture as an omitted 4th
+    // arg — neither is a bug, both leave day_overrides untouched.
+    async restoreSnapshotRows(templateId, snapshotSlots, snapshotOverlays, snapshotDayOverrides) {
       const token = getToken()
       const rows = snapshotSlots.map(s => mapSlotToRow(s, templateId, { spanHead: false }))
       const overlayRows = (snapshotOverlays || []).map(o => ({
@@ -251,6 +339,28 @@ export function createScheduleRepository({
       }))
       await localClient.bulkReplace(token, 'template_slots', templateId, rows)
       await localClient.bulkReplace(token, 'template_overlays', templateId, overlayRows)
+
+      const templates = (await localClient.list('schedule_templates')) || []
+      const weekId = templates.find((t) => t.id === templateId)?.week_id
+      if (!weekId) return
+
+      const existing = (await localClient.list('day_overrides')) || []
+      const weekRows = existing.filter((r) => r.schedule_week_id === weekId)
+      for (const row of weekRows) {
+        await localClient.deleteEntity(token, 'day_overrides', row.id)
+      }
+      for (const ov of snapshotDayOverrides || []) {
+        const id = crypto.randomUUID()
+        await writeFields('day_overrides', id, {
+          schedule_week_id: weekId,
+          day_id: ov.day_id,
+          group_id: ov.group_id,
+          time_block_id: ov.time_block_id,
+          activity_id: ov.activity_id ?? null,
+          kind: ov.kind,
+          note: ov.note ?? null,
+        })
+      }
     },
 
     // --- delete ------------------------------------------------------------

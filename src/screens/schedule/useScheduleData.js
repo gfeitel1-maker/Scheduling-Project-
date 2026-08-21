@@ -55,8 +55,18 @@ export function recalcFindings(slotList, ctx) {
   return computeFindings({ slots: slotList, groups: ctx.groups, activities: ctx.activities, days: ctx.days })
 }
 
-const EMPTY_SETUP_LISTS = { groups: [], days: [], timeBlocks: [], activities: [], anchors: [], tiers: [], cohorts: [], locations: [] }
+const EMPTY_SETUP_LISTS = {
+  groups: [], days: [], timeBlocks: [], activities: [], anchors: [], tiers: [], cohorts: [], locations: [],
+  // T105 §2 — two distinct elective lists, never conflated: electiveSetsAll
+  // is the unfiltered render surface, durableElectiveSets is the is_reusable=1
+  // reuse surface.
+  electiveSetsAll: [], electiveSetActivities: [], durableElectiveSets: [],
+}
 const EMPTY_EXCLUSIONS = { activityExclusions: [], groupExclusions: [], locationExclusions: [] }
+// T108 Phase 2 (design §5.2) — day_overrides load at whole-week grain, same
+// as exclusions: applyDayOverrides (the composition stage) then filters to
+// the current (weekId, dayId) at render time client-side.
+const EMPTY_DAY_OVERRIDES = []
 const EMPTY_TEMPLATE_DATA = {
   existingTemplates: {}, templateIdByRoute: {},
   slotsByRoute: {}, overlaysByRoute: {}, snapshotsByRoute: {}, statsByRoute: {}, findingsByRoute: {},
@@ -73,6 +83,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes 
   const [weekId, setWeekId] = useState(null)
   const [weekDeletedBanner, setWeekDeletedBanner] = useState(null)
   const [exclusions, setExclusions] = useState(EMPTY_EXCLUSIONS)
+  const [dayOverrides, setDayOverrides] = useState(EMPTY_DAY_OVERRIDES)
   const [templateData, setTemplateDataState] = useState(EMPTY_TEMPLATE_DATA)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
@@ -109,7 +120,9 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes 
       const {
         groups: gd, days_of_operation: td, time_blocks: bd, activities: ad,
         anchor_activities: ancd, tiers: tierd, cohorts: cohd, locations: locd,
+        elective_sets: esd, elective_set_activities: esad,
       } = await repo.loadSetupLists()
+      const durableElectiveSets = await repo.loadDurableElectiveSets()
       if (gen !== generationRef.current) return
       g = [...(gd || [])].filter(x => x.camp_id === campId).sort((x, y) => x.name.localeCompare(y.name))
       const b = [...(bd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
@@ -131,8 +144,13 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes 
       })
       const coh = (cohd || []).filter(x => x.camp_id === campId)
       const loc = (locd || []).filter(x => x.camp_id === campId)
+      const electiveSetsAll = (esd || []).filter(x => x.camp_id === campId)
+      const electiveSetActivities = esad || []
       if (gen !== generationRef.current) return
-      setSetupLists({ groups: sortedG, days: d, timeBlocks: b, activities: a, anchors: anc, tiers: t, cohorts: coh, locations: loc })
+      setSetupLists({
+        groups: sortedG, days: d, timeBlocks: b, activities: a, anchors: anc, tiers: t, cohorts: coh, locations: loc,
+        electiveSetsAll, electiveSetActivities, durableElectiveSets: durableElectiveSets || [],
+      })
     } catch {
       if (gen !== generationRef.current) return
       setLoadError('Failed to load schedule data — check your connection and refresh')
@@ -199,6 +217,14 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes 
     } catch {
       if (gen !== generationRef.current) return
       setExclusions(EMPTY_EXCLUSIONS)
+    }
+    try {
+      const ovr = await repo.loadDayOverridesForWeek(liveWeekId)
+      if (gen !== generationRef.current) return
+      setDayOverrides(ovr || [])
+    } catch {
+      if (gen !== generationRef.current) return
+      setDayOverrides(EMPTY_DAY_OVERRIDES)
     }
     // Both routes are refreshed on every load. loadAll() re-runs on every
     // applied op, and a load that only refreshed the route on screen would
@@ -286,6 +312,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes 
     weekId,
     weekDeletedBanner, setWeekDeletedBanner,
     exclusions,
+    dayOverrides, setDayOverrides,
     templateData,
     loading, loadError, templateError,
     reload: load,
