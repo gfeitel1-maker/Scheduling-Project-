@@ -1,0 +1,29 @@
+{
+  "task_id": "T106",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": 5,
+    "red_hat": 4,
+    "tester": 3,
+    "code_reviewer": 4
+  },
+  "overall_score": 4,
+  "lowest_dimension": 3,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [
+    {
+      "ref": "src/components/special-days/SpecialDayGrid.jsx",
+      "gate_names": [
+        "code_reviewer",
+        "red_hat",
+        "tester"
+      ]
+    }
+  ],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": []
+}
