@@ -38,6 +38,22 @@ so it inherits two guarantees Red Hat flagged (2026-08-20, T103 review):
 2. **`listDurableElectiveSets` gains its first production callers here** — until this ticket, the
    invariant is enforced only in isolation. Wire it as the single seam for "durable/reusable electives."
 
+## Inherited obligations from T104 design + Red Hat (must design/build here)
+
+3. **Span-head → elective conversion must be a multi-cell atomic write.** T104's apply-time invariant is
+   row-scoped and deliberately does NOT know about spans. So converting a cell that is a span HEAD (with
+   tail rows) to an elective must route through the existing `replaceSlot`/`collectSpanTails` pattern
+   (`useSlotMutations.js:18-27`) that already clears tails atomically for activity→activity replacement —
+   NOT a single-row write on the head (which would orphan the tails, and orphaned tails still count toward
+   the engine span-tail collision check, commit 8357447). Because `replaceSlot`'s multi-cell atomicity is
+   **same-device only** (per-cell write queue is in-memory/never-synced), T105 must add its **own
+   multi-device interleave test** for two devices converting the same span head concurrently.
+4. **`CONTENT_RACE` flag is only mechanism-level in the T104 design — T105 must fully specify it.** The
+   derived, render-time, locally-dismissible flag (mirroring `useFlagChangeAck` / the `OVERLAP` derived
+   pattern, no persisted op, no sync surface) that tells a director "this cell's elective/activity was
+   replaced by a concurrent edit." T104 makes the guarantee true; T105 designs + builds the surface.
+   Do NOT treat it as already-specified.
+
 ## Review loop
 
 **Designer (if the cell affordance is UI-significant) → Maker (test-first) → Red Hat (engine-skip still

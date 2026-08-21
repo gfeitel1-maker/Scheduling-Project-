@@ -1,7 +1,7 @@
 ---
 title: T104-elective-cell-atomic-content-and-mutual-exclusion
 document_type: ticket
-status: open
+status: in-progress
 created: 2026-08-20
 task_class: database-sync
 governing_docs: [docs/adr/2026-08-20-electives-authoring.md]
