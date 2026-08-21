@@ -124,7 +124,7 @@ Handler: for each key in `ENTITY_MAP`, `count = listEntities(db, dbEntity).lengt
 ```json
 {
   "name": "schedule_state",
-  "description": "Read one candidate schedule (Manual or Generated route) for this camp: its template and placed slots/overlays. Does not compute conflicts or flags.",
+  "description": "Read one candidate schedule (Manual or Generated route) for this camp: its template, placed slots/overlays, and computed findings/conflicts (re-runs the schedule engine over the stored placement — ADR Decision 8).",
   "inputSchema": {
     "type": "object",
     "properties": {
@@ -134,7 +134,7 @@ Handler: for each key in `ENTITY_MAP`, `count = listEntities(db, dbEntity).lengt
   }
 }
 ```
-Handler: find the camp's `schedule_templates` row where `kind = route` via `listEntities(db, 'schedule_templates')` filtered client-side (no new query — `schedule_templates` is already a `DIRECT_CAMP_ENTITIES` member); then `listEntities(db, 'template_slots')` and `listEntities(db, 'template_overlays')` filtered to that template id. Return `{ ok: true, route, template, slots, overlays }`, or `{ ok: true, route, template: null, slots: [], overlays: [] }` if that route has never been built.
+Handler: find the camp's `schedule_templates` row where `kind = route` via `listEntities(db, 'schedule_templates')` filtered client-side (no new query — `schedule_templates` is already a `DIRECT_CAMP_ENTITIES` member); then `listEntities(db, 'template_slots')` and `listEntities(db, 'template_overlays')` filtered to that template id. Per ADR Decision 8, also assembles `buildSchedule`'s legacy-signature inputs from this camp's setup rows (`electron/ops/scheduleEngineInputs.js`, a headless extraction of the filter/sort/parse logic in `useScheduleData.js`'s `load()`), passes every already-placed, non-anchor slot in as `preplacedSlots` (so nothing already stored is moved), and re-runs `buildSchedule(...)` to get fresh `findings`/`conflicts`. Return `{ ok: true, route, template, slots, overlays, findings, conflicts }`, or `{ ok: true, route, template: null, slots: [], overlays: [], findings: [], conflicts: [] }` if that route has never been built.
 
 ## Result envelope
 
