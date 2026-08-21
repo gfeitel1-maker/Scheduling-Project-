@@ -137,6 +137,14 @@ export function decideCell(geometry, groupId, dayId, blockId) {
   if (slot.is_anchor && geometry.isAnchorTail(groupId, dayId, blockId)) return { kind: 'skip' }
   if (!slot.is_anchor && geometry.isActivityTail(groupId, dayId, blockId)) return { kind: 'skip' }
 
+  // T108 Phase 2 (design §5.1) — a PULL override (applyDayOverrides stamps
+  // is_overridden + is_pull) renders as a non-droppable PulledCell, never
+  // EmptyCell: the director must see the group is intentionally pulled and
+  // must not be able to drop into the cell. Placed after the span-tail skip
+  // (a pulled span cell is never produced — applyDayOverrides refuses spans)
+  // and before the normal empty/slot branches so it never falls into 'empty'.
+  if (slot.is_overridden && slot.is_pull) return { kind: 'pulled', slot }
+
   const rowSpan = slot.is_anchor
     ? geometry.getAnchorRowSpan(groupId, dayId, blockId)
     : geometry.getActivityRowSpan(groupId, dayId, blockId)

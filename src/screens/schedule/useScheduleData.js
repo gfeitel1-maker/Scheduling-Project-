@@ -63,6 +63,10 @@ const EMPTY_SETUP_LISTS = {
   electiveSetsAll: [], electiveSetActivities: [], durableElectiveSets: [],
 }
 const EMPTY_EXCLUSIONS = { activityExclusions: [], groupExclusions: [], locationExclusions: [] }
+// T108 Phase 2 (design §5.2) — day_overrides load at whole-week grain, same
+// as exclusions: applyDayOverrides (the composition stage) then filters to
+// the current (weekId, dayId) at render time client-side.
+const EMPTY_DAY_OVERRIDES = []
 const EMPTY_TEMPLATE_DATA = {
   existingTemplates: {}, templateIdByRoute: {},
   slotsByRoute: {}, overlaysByRoute: {}, snapshotsByRoute: {}, statsByRoute: {}, findingsByRoute: {},
@@ -79,6 +83,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes 
   const [weekId, setWeekId] = useState(null)
   const [weekDeletedBanner, setWeekDeletedBanner] = useState(null)
   const [exclusions, setExclusions] = useState(EMPTY_EXCLUSIONS)
+  const [dayOverrides, setDayOverrides] = useState(EMPTY_DAY_OVERRIDES)
   const [templateData, setTemplateDataState] = useState(EMPTY_TEMPLATE_DATA)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
@@ -213,6 +218,14 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes 
       if (gen !== generationRef.current) return
       setExclusions(EMPTY_EXCLUSIONS)
     }
+    try {
+      const ovr = await repo.loadDayOverridesForWeek(liveWeekId)
+      if (gen !== generationRef.current) return
+      setDayOverrides(ovr || [])
+    } catch {
+      if (gen !== generationRef.current) return
+      setDayOverrides(EMPTY_DAY_OVERRIDES)
+    }
     // Both routes are refreshed on every load. loadAll() re-runs on every
     // applied op, and a load that only refreshed the route on screen would
     // leave the other one showing whatever it held before the op arrived.
@@ -299,6 +312,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes 
     weekId,
     weekDeletedBanner, setWeekDeletedBanner,
     exclusions,
+    dayOverrides, setDayOverrides,
     templateData,
     loading, loadError, templateError,
     reload: load,

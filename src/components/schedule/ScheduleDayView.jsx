@@ -1,6 +1,8 @@
 import SlotCell from '../schedule/SlotCell'
 import EmptyCell from './EmptyCell'
+import PulledCell from './PulledCell'
 import OverlayCell from '../schedule/OverlayCell'
+import OverrideToggleButton from './OverrideToggleButton'
 import { decideCell } from '../../screens/schedule/gridGeometry'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
@@ -35,6 +37,9 @@ export default function ScheduleDayView({
   // T105
   electiveSetsAll = [], electiveMembersBySet, onCreateElective,
   isContentRaced, onDismissContentRace,
+  // T108 Phase 2 (design §6, Designer spec §1.1) — the day view IS one
+  // (week, day), so the toggle lives once in the toolbar, not per-column.
+  overrideModeDayId, onToggleOverrideMode,
 }) {
   const gridTemplateColumns = columnTracks(groups.length)
   const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
@@ -44,7 +49,7 @@ export default function ScheduleDayView({
   return (
     <div className="schedule-view-enter">
       {/* Day pills */}
-      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         {days.map(d => (
           <button key={d.id} onClick={() => onSelectDay(d.id)} className="press-98" style={{
             padding: '5px 16px', borderRadius: 20,
@@ -54,6 +59,16 @@ export default function ScheduleDayView({
             fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-sans)',
           }}>{d.label}</button>
         ))}
+        {/* T108 Phase 2 (Designer spec §1.1) — one control, next to the
+            existing week/day selector controls, since every column here
+            already shares the one (week, selectedDay) binding. */}
+        {selectedDay && onToggleOverrideMode && (
+          <OverrideToggleButton
+            active={overrideModeDayId === selectedDay}
+            onClick={() => onToggleOverrideMode(selectedDay)}
+            showLabel
+          />
+        )}
       </div>
 
       {selectedDay && (
@@ -165,6 +180,22 @@ export default function ScheduleDayView({
                             blockNames={blockNamesForSpan(timeBlocks, blockIndex, rowSpan)}
                             column={group.name}
                             {...placeCell({ blockIndex, columnIndex: groupIndex, rowSpan })}
+                          />
+                        )
+                      }
+
+                      // T108 Phase 2 (design §5.1) — a PULL override, never droppable.
+                      if (decision.kind === 'pulled') {
+                        return (
+                          <PulledCell
+                            key={group.id}
+                            slot={decision.slot}
+                            ariaColIndex={ariaColIndex}
+                            cellKey={cellKey}
+                            collapsed={isCollapsed}
+                            blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
+                            column={group.name}
+                            {...placeCell({ blockIndex, columnIndex: groupIndex })}
                           />
                         )
                       }

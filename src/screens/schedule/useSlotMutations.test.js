@@ -1949,7 +1949,7 @@ describe('useSlotMutations — override-authoring mode (overrideMode: true)', ()
     ]
     const { hook, props } = setup({
       slots, activities: [{ id: 'act-1', name: 'Swim' }], groups: [{ id: 'g1', tier_id: 't1' }],
-      overrideMode: true, weekId: 'week-1',
+      overrideModeDayId: 'd1', weekId: 'week-1',
     })
     await act(async () => {
       await hook.result.current.placeActivityManual('act-1', 'g1', 'd1', 'b1')
@@ -1967,7 +1967,7 @@ describe('useSlotMutations — override-authoring mode (overrideMode: true)', ()
     const slots = [
       { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {} },
     ]
-    const { hook, props } = setup({ slots, overrideMode: true, weekId: 'week-1' })
+    const { hook, props } = setup({ slots, overrideModeDayId: 'd1', weekId: 'week-1' })
     await act(async () => {
       await hook.result.current.pullOverrideCell('g1', 'd1', 'b1')
     })
@@ -1986,7 +1986,7 @@ describe('useSlotMutations — override-authoring mode (overrideMode: true)', ()
     ]
     const { hook, props } = setup({
       slots, activities: [{ id: 'act-1', name: 'Swim' }], groups: [{ id: 'g1', tier_id: 't1' }],
-      overrideMode: true, weekId: 'week-1',
+      overrideModeDayId: 'd1', weekId: 'week-1',
     })
     await act(async () => {
       await hook.result.current.placeActivityManual('act-1', 'g1', 'd1', 'b1')
@@ -1995,5 +1995,41 @@ describe('useSlotMutations — override-authoring mode (overrideMode: true)', ()
     // allowed (the guard only blocks NON-override-mode edits) — this asserts
     // the guard is gated correctly on overrideMode, not that it blocks here.
     expect(props.repo.writeDayOverrideFields).toHaveBeenCalled()
+  })
+
+  // T108 Phase 2 (design §6.1, group-view correctness) — override mode is
+  // scoped to ONE (week, day); group view renders every day as a column at
+  // once, so a cell on a DIFFERENT day than the active mode must still route
+  // through the normal write path, never day_overrides.
+  it('a cell on a different day than the active override-mode day writes normally, not to day_overrides', async () => {
+    const slots = [
+      { id: 's1', group_id: 'g1', day_id: 'd2', time_block_id: 'b1', activity_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({
+      slots, activities: [{ id: 'act-1', name: 'Swim' }], groups: [{ id: 'g1', tier_id: 't1' }],
+      overrideModeDayId: 'd1', weekId: 'week-1', // mode active for d1, this cell is on d2
+    })
+    await act(async () => {
+      await hook.result.current.placeActivityManual('act-1', 'g1', 'd2', 'b1')
+    })
+    expect(props.repo.writeDayOverrideFields).not.toHaveBeenCalled()
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s1', expect.objectContaining({ activity_id: 'act-1' }))
+  })
+
+  it('pullOverrideDay batches pullOverrideCell across the day\'s non-span, non-overridden blocks for one group', async () => {
+    const slots = [
+      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {}, is_anchor: false },
+      { id: 's2', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', flags: {}, is_anchor: false },
+      { id: 's3', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: null, flags: {}, is_anchor: true },
+    ]
+    const timeBlocks = [{ id: 'b1' }, { id: 'b2' }, { id: 'b3' }]
+    const { hook, props } = setup({ slots, timeBlocks, overrideModeDayId: 'd1', weekId: 'week-1' })
+    await act(async () => {
+      await hook.result.current.pullOverrideDay('g1', 'd1')
+    })
+    // b1 and b2 get pull writes; b3 (anchor) is skipped.
+    expect(props.repo.writeDayOverrideFields).toHaveBeenCalledTimes(2)
+    const blockIds = props.repo.writeDayOverrideFields.mock.calls.map(([, fields]) => fields.time_block_id)
+    expect(blockIds.sort()).toEqual(['b1', 'b2'])
   })
 })

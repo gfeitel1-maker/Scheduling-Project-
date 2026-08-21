@@ -20,6 +20,7 @@ import FieldTripDrawer from '../components/schedule/FieldTripDrawer'
 import { exportToExcel } from '../utils/exportSchedule'
 import { withOverlapFlags } from '../utils/computeOverlaps'
 import { withWeekClosureFlags } from '../utils/computeWeekClosures'
+import { applyDayOverrides } from '../utils/applyDayOverrides'
 import { deriveScheduleTemplateId } from '../../electron/ops/scheduleTemplateId'
 import { resolveSelection } from './resolveSelection'
 import { getSlot, makeGridGeometry } from './schedule/gridGeometry'
@@ -101,7 +102,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // useGeneration, the switcher's highlighted value) reads.
   const {
     setupLists, setActivities, weeks, setWeeks,
-    weekId, weekDeletedBanner, setWeekDeletedBanner, exclusions,
+    weekId, weekDeletedBanner, setWeekDeletedBanner, exclusions, dayOverrides, setDayOverrides,
     templateData, loading, loadError, templateError, reload,
   } = useScheduleData({ campId, weekId: preferredWeekId, repo, routes: ROUTES })
   const { groups, days, timeBlocks, activities, anchors, tiers, cohorts, locations, electiveSetsAll, electiveSetActivities, durableElectiveSets } = setupLists
@@ -160,7 +161,15 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // product stance (the engine refuses clashes rather than making them).
   const slots = useMemo(
     () => {
-      const withClosures = withWeekClosureFlags(rawSlots, {
+      // T108 Phase 2 (design §5) — applyDayOverrides runs FIRST, before
+      // withWeekClosureFlags/withOverlapFlags, so both flag stages evaluate
+      // the POST-override content (an overridden cell's OVERLAP/WEEK_CLOSED
+      // reflects what's actually there, not what the engine/manual edit
+      // originally placed). dayOverrides is the whole week's rows (both
+      // views need every day's overrides composed — group view renders every
+      // day as a column in one pass, per applyDayOverrides.js's day_id match).
+      const withOverrides = applyDayOverrides(rawSlots, dayOverrides)
+      const withClosures = withWeekClosureFlags(withOverrides, {
         activities,
         groups,
         locations,
@@ -173,7 +182,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
         ? withOverlapFlags(withClosures, activities, locations)
         : withClosures
     },
-    [route, rawSlots, activities, locations, groups, activityExclusions, groupExclusions, locationExclusions, weekId]
+    [route, rawSlots, dayOverrides, activities, locations, groups, activityExclusions, groupExclusions, locationExclusions, weekId]
   )
   // The generated "track changes" review (docs/work/specs/2026-08-01-generated-
   // flag-review.md). One piece of state is the single source of truth for both
@@ -198,6 +207,26 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const [view, setView] = useState('group') // 'group' | 'activity' | 'day'
   const [selectedGroup, setSelectedGroup] = useState(null)
   const [selectedDay, setSelectedDay] = useState(null)
+  // T108 Phase 2 (design §6, Designer spec §1) — "Override this day" mode.
+  // UI-session state only, scoped to one (weekId, dayId), never persisted
+  // (Designer spec §6 implementation note: no day_overrides column for "is
+  // this day being edited" — that would conflate authoring UI state with the
+  // data model). null = not in override-authoring mode. Day view's toggle
+  // targets `selectedDay`; group view's per-column toggle passes its own
+  // dayId, so at most one (week, day) is ever in override mode at a time —
+  // toggling a different column's control simply moves the active day.
+  const [overrideModeDayId, setOverrideModeDayId] = useState(null)
+  function toggleOverrideMode(dayId) {
+    setOverrideModeDayId(prev => (prev === dayId ? null : dayId))
+  }
+  // Safety-net auto-exit (Designer spec §1.4.3): navigating to a different
+  // day/week/route/view makes an active override mode meaningless to keep on
+  // — every commit inside it already writes immediately (no unsaved state to
+  // lose), so this is a plain reset, not a confirm-guarded exit.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setOverrideModeDayId(null)
+  }, [weekId, route, view])
   const [weatherMode, setWeatherMode] = useState(false)
   const [confirmRegen, setConfirmRegen] = useState(false)
   const [selectedActivity, setSelectedActivity] = useState(null)
@@ -243,11 +272,21 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     getSlot, setActivities,
     slots, groups, activities, locations, days, timeBlocks, campId,
     electiveSetsAll, durableElectiveSets,
+    // T108 Phase 2 (design §6.1) — overrideModeDayId is the one (week, day)
+    // currently in override-authoring mode, or null. The mutation layer
+    // compares it against each target cell's own dayId, so a cell on any
+    // OTHER day still routes through the normal write path even while some
+    // other day's mode is active elsewhere in the same view (group view
+    // shows every day as a column at once).
+    overrideModeDayId,
+    weekId,
+    setDayOverrides,
   })
   const {
     replaceSlot, dismissFlag, lockActivity, releaseCell,
     removeOverlay, placeActivityManual, expandSlot, splitSlot,
     createActivityFromCell, createElectiveFromCell, ownWriteRef,
+    pullOverrideDay,
   } = slotMutations
 
   // T105 §5 — CONTENT_RACE: derived, render-time, locally-dismissible.
@@ -1114,6 +1153,25 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               </div>
             )}
 
+            {/* T108 Phase 2 (Designer spec §1.3a) — the override-mode banner.
+                Reuses the recoverable-error banner's shape in --secondary
+                instead of --danger (a deliberate mode, not an error). */}
+            {hasSchedule && overrideModeDayId && (
+              <div className="override-mode-banner">
+                <span>
+                  ✎ Editing overrides — {days.find(d => d.id === overrideModeDayId)?.label ?? 'this day'}
+                  {weeks.find(w => w.id === weekId)?.name ? `, ${weeks.find(w => w.id === weekId).name}` : ''}
+                </span>
+                <button
+                  type="button"
+                  className="override-mode-banner-done"
+                  onClick={() => setOverrideModeDayId(null)}
+                >
+                  Done
+                </button>
+              </div>
+            )}
+
             {/* Group view — the manual route draws its own grid, whose empty
                 cells are drop targets rather than engine output. */}
             {hasSchedule && view === 'group' && isManual && (
@@ -1181,6 +1239,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 highlightColor={highlightColor}
                 collapsedBlockIds={collapsedBlockIds}
                 onToggleBlockCollapsed={toggleBlockCollapsed}
+                overrideModeDayId={overrideModeDayId}
+                onToggleOverrideMode={toggleOverrideMode}
+                onPullOverrideDay={pullOverrideDay}
               />
             )}
 
@@ -1192,6 +1253,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 timeBlocks={timeBlocks}
                 selectedDay={selectedDay}
                 onSelectDay={setSelectedDay}
+                overrideModeDayId={overrideModeDayId}
+                onToggleOverrideMode={toggleOverrideMode}
+                onPullOverrideDay={pullOverrideDay}
                 weatherMode={weatherMode}
                 stampMode={stampMode}
                 actMap={actMap}
@@ -1319,7 +1383,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                       // Matches cellStructuralBar's left border, so the swatch is
                       // the same mark the director sees on the cell.
                       ? { width: 3, height: 12, borderRadius: 1, background: entry.color, display: 'inline-block', flexShrink: 0 }
-                      : { width: 10, height: 10, borderRadius: 2, background: entry.color, border: '1px solid var(--border)', display: 'inline-block', flexShrink: 0 }
+                      : entry.shape === 'frame'
+                        // T108 Phase 2 (Designer spec §2.6) — a small swatch with the
+                        // same dashed-border treatment as the overridden-cell marker.
+                        ? { width: 10, height: 10, borderRadius: 2, background: 'transparent', border: `1.5px dashed ${entry.color}`, display: 'inline-block', flexShrink: 0 }
+                        : { width: 10, height: 10, borderRadius: 2, background: entry.color, border: '1px solid var(--border)', display: 'inline-block', flexShrink: 0 }
                 }
               />
               {entry.label}

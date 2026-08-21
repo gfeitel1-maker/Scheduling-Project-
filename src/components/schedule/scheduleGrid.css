@@ -954,7 +954,11 @@
    the special-day grid + notes. */
 @media print {
   .app-sidebar, .grid-toolbar, .cell-action, .row-header-toggle .row-reorder-btn,
-  .cell-location-add, .back-row button {
+  .cell-location-add, .back-row button,
+  /* T108 Phase 2 (Designer spec §3.4) — the override-mode banner is
+     screen-only authoring chrome; a director printing a day is printing the
+     result, not the authoring mode. */
+  .override-mode-banner {
     display: none;
   }
 
@@ -971,5 +975,122 @@
     display: block !important;
     white-space: pre-wrap;
     font-size: 12pt;
+  }
+
+  /* T108 Phase 2 (Designer spec §3.4) — dashes survive B&W print regardless
+     of driver color handling; force black same as the frame border above. */
+  .cell[data-overridden] .cell-inner {
+    border-style: dashed;
+    border-color: #000;
+  }
+
+  .cell-pulled-label,
+  .cell-pulled-note {
+    color: #000;
+  }
+
+  .cell-pulled-label svg {
+    stroke: #000;
+  }
+}
+
+/* ---------- T108 Phase 2: day-overrides re-point (design §5.3/§5.1,
+   Designer spec §1-3) ---------- */
+
+/* §2.3 — the overridden-cell marker. A dashed frame (not a dot, per §2.2's
+   "new shape category, not a re-saturated hue") so it reads distinct from
+   WEEK_CLOSED/CONTENT_RACE despite sharing --secondary's hue, and coexists
+   with UNFILLABLE's corner icon by occupying different visual territory
+   (perimeter vs. corner, §2.4 — no extra rule needed for that coexistence). */
+.cell[data-overridden] .cell-inner {
+  border: 1.5px dashed var(--secondary);
+  background: color-mix(in srgb, var(--secondary) 6%, var(--surface));
+}
+
+/* §3.2 — pulled-cell content presentation. The frame border above already
+   applies (a pull carries data-overridden too); this only replaces the
+   normal name/identity-dot line with the Pulled label + optional note. */
+.cell-inner--pulled {
+  background: color-mix(in srgb, var(--secondary) 6%, var(--surface));
+}
+
+.cell-pulled-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--secondary);
+}
+
+.cell-pulled-note {
+  font-size: 10px;
+  font-style: italic;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  overflow-wrap: anywhere;
+}
+
+.cell[data-collapsed] .cell-pulled-note {
+  display: none;
+}
+
+/* §1.3b — override-mode's grid-scope tint. Attribute writes from the caller
+   (ScheduleScreen), not React state — the T55 "collapse is instant, no
+   transition" rule applies here too (§1.4): the tint appears/disappears via
+   plain attribute add/remove, no animation. */
+.schedule-grid--header .cell[data-override-active] {
+  background: color-mix(in srgb, var(--secondary) 10%, var(--surface-elevated));
+}
+
+.schedule-grid--body .cell[data-override-active] .cell-inner {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--secondary) 30%, transparent);
+}
+
+.schedule-grid-frame[data-override-active] {
+  border-color: var(--secondary);
+}
+
+/* §1.3a — the override-mode banner, reusing the recoverable-error banner's
+   shape/motion in --secondary instead of --danger. */
+.override-mode-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: color-mix(in srgb, var(--secondary) 8%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--secondary) 35%, var(--border));
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  color: var(--secondary);
+  animation: override-banner-in var(--motion-base) var(--ease-out);
+}
+
+@keyframes override-banner-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.override-mode-banner-done {
+  border: 1px solid var(--secondary);
+  color: var(--secondary);
+  background: transparent;
+  border-radius: 6px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: var(--font-sans);
+}
+
+.override-mode-banner-done:hover {
+  background: color-mix(in srgb, var(--secondary) 10%, var(--surface));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .override-mode-banner {
+    animation: none;
   }
 }

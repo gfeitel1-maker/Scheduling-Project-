@@ -128,6 +128,13 @@ export default function SlotCell({
     // readable off the element itself — resolveHit reads exactly this.
     'data-drop-disabled': !isDndEnabled || isLocked ? '' : undefined,
     'data-elective': slot?.elective_set_id ? '' : undefined,
+    // T108 Phase 2 (design §5.3, Designer spec §2) — a SWAP override (a pull
+    // never reaches SlotCell; it routes to PulledCell in gridGeometry.js's
+    // decideCell). Two attributes per the Designer spec §6 implementation
+    // note: data-overridden gates the frame border, data-overridden-kind
+    // distinguishes swap/pull for any future shared styling.
+    'data-overridden': slot?.is_overridden ? 'true' : undefined,
+    'data-overridden-kind': slot?.is_overridden ? 'swap' : undefined,
   }
 
   function triggerPress() {

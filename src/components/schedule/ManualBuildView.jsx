@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import SlotCell from './SlotCell'
 import EmptyCell from './EmptyCell'
+import PulledCell from './PulledCell'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
@@ -174,6 +175,25 @@ export default function ManualBuildView({
 
                       // The tail of a merged activity span — covered by the head's grid-row span.
                       if (slot?.activity_id && !slot.is_anchor && geometry.isActivityTail(selectedGroup, day.id, block.id)) return null
+
+                      // T108 Phase 2 (design §5.1) — a PULL override, never droppable.
+                      // Manual route has no decideCell dispatch (this view mirrors it
+                      // inline, per this file's own header note), so the pull check
+                      // is repeated here rather than routed through gridGeometry.js.
+                      if (slot?.is_overridden && slot?.is_pull) {
+                        return (
+                          <PulledCell
+                            key={day.id}
+                            slot={slot}
+                            ariaColIndex={ariaColIndex}
+                            cellKey={cellKey}
+                            collapsed={isCollapsed}
+                            blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
+                            column={day.label}
+                            {...placeCell({ blockIndex, columnIndex: dayIndex })}
+                          />
+                        )
+                      }
 
                       if (slot?.is_anchor) {
                         const rowSpan = geometry.getAnchorRowSpan(selectedGroup, day.id, block.id)

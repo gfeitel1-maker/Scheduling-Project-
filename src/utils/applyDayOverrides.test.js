@@ -109,6 +109,22 @@ describe('applyDayOverrides', () => {
     expect(result[0].is_overridden).toBeFalsy()
   })
 
+  it('group view (whole-week composition): a day-3 override never matches the identical group+block cell on another day', () => {
+    // Group view renders every day as a column in one call (design §5.1) —
+    // the whole week's overrides are composed against the whole week's slots
+    // in one pass, so day_id must be part of the match, not just
+    // group_id/time_block_id (which repeat identically across days).
+    const slots = [
+      slot({ id: 's-day1', day_id: 'day1', time_block_id: 'block1' }),
+      slot({ id: 's-day3', day_id: 'day3', time_block_id: 'block1' }),
+    ]
+    const overrides = [override({ id: 'ovr-day3', day_id: 'day3', time_block_id: 'block1' })]
+    const result = applyDayOverrides(slots, overrides)
+    expect(result.find((s) => s.id === 's-day3').is_overridden).toBe(true)
+    expect(result.find((s) => s.id === 's-day1').is_overridden).toBeFalsy()
+    expect(result.find((s) => s.id === 's-day1').activity_id).toBe('act-swim')
+  })
+
   it('returns the same array reference when there are no overrides (no-op stability)', () => {
     const slots = [slot()]
     const result = applyDayOverrides(slots, [])

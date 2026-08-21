@@ -132,6 +132,17 @@ export const LEGEND_ENTRIES = [
   OVERLAP_ENTRY,
   WEEK_CLOSED_ENTRY,
   CONTENT_RACE_ENTRY,
+  // T108 Phase 2 (Designer spec §2.6) — a director-authored diff, not an
+  // engine-emitted flag, so flagKey is null (like Locked/Fixed event below).
+  // Never filtered out by legendEntriesFor: an override can appear on either
+  // route (design §5.4).
+  {
+    flagKey: null,
+    label: 'Overridden today',
+    shape: 'frame',
+    color: 'var(--secondary)',
+    description: 'Changed for this day only — the rest of the week is unaffected',
+  },
   {
     flagKey: null,
     label: 'Locked',

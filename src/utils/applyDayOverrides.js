@@ -18,8 +18,13 @@ export function applyDayOverrides(slots, overridesForWeekDay) {
 
   let changed = false
   const next = slots.map((row) => {
+    // day_id is part of the match, not just group_id/time_block_id: the
+    // group view renders every day as its own column in one pass (design §5.1
+    // — "columns are days"), so the whole week's overrides are composed in
+    // one call here. Without day_id in the predicate, a day-3 override would
+    // incorrectly also match the same group+block cell on day 1/2/4/5.
     const match = overridesForWeekDay.find(
-      (o) => o.group_id === row.group_id && o.time_block_id === row.time_block_id
+      (o) => o.group_id === row.group_id && o.time_block_id === row.time_block_id && o.day_id === row.day_id
     )
     if (!match) return row
 

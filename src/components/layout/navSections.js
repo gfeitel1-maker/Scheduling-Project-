@@ -49,14 +49,17 @@ export const NAV_SECTIONS = [
       // own required Next button.
       { key: 'locations',    label: 'Locations',     area: 'locations',    optional: true },
       { key: 'anchors',      label: 'Fixed Events',  area: 'anchors',      optional: true },
-      { key: 'dayoverrides', label: 'Day Overrides', area: 'dayoverrides', optional: true },
+      // T108 Phase 2 (design §10 "Removed") — the standalone Day Overrides
+      // CRUD screen/nav entry is retired: overrides are now authored in
+      // place on the rendered day via "Override this day" mode
+      // (ScheduleScreen), not a separate setup-shaped screen.
+      //
       // T106 (docs/adr/2026-08-20-special-days-authoring-and-day-override-
-      // repoint.md D1/D3b): sits directly after Day Overrides — both are "days
-      // that aren't a normal week" setup rows, adjacency reads correctly.
-      // NOT under `schedule`: a special day is authored once and reused (tier
-      // (c) durable), a setup-shaped relationship to the camp, not a
-      // "build this week" relationship — putting it under `schedule` would
-      // visually imply a third route competing with Manual/Generated.
+      // repoint.md D1/D3b): NOT under `schedule`: a special day is authored
+      // once and reused (tier (c) durable), a setup-shaped relationship to
+      // the camp, not a "build this week" relationship — putting it under
+      // `schedule` would visually imply a third route competing with
+      // Manual/Generated.
       { key: 'specialdays',  label: 'Special Days',  area: 'specialdays',  optional: true },
     ],
   },
@@ -105,6 +108,5 @@ export const AREA_TABLE = {
   activities: 'activities',
   locations: 'locations',
   anchors: 'anchor_activities',
-  dayoverrides: 'day_override_templates',
   specialdays: 'special_days',
 }
