@@ -71,7 +71,7 @@ artifacts, not assumptions.
 | W9 | Programming-collaboration via doc storage on events/electives | Concept | HUMAN (new capability) | W4 | brainstorming → domain-modeling → Architect |
 | W10 | MCP surface (CLI shipped, MCP did not) | Impl | — | — | mcp-builder + tool-design → Maker → Verifier |
 | W11 | /improve-codebase-architecture | Audit | — | all | architecture-auditor (standalone) |
-| W12 | Brand-application — imagery + iconography ONLY (NO reskin; palette/type frozen) | Impl | PARKED on owner asset files | W3 | Maker; owner provides SVG icons + illustrations + favicon |
+| W12 | Brand-application — imagery + iconography ONLY (NO reskin; palette/type frozen; RASTER not SVG) | Impl | integration pending | W3 | Maker; assets intaken to src/assets/brand/ |
 
 ### Sequence
 
