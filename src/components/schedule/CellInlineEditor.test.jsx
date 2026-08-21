@@ -100,5 +100,32 @@ describe('CellInlineEditor', () => {
       fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
       expect(onCreateElective).not.toHaveBeenCalled()
     })
+
+    // Code Reviewer LOW: an empty pre-colon set name must never fall through
+    // to onCreateNew and mint an activity literally named ": Swimming".
+    it('an empty set name never falls through to onCreateNew (no ": Swimming" activity)', () => {
+      const onCreateNew = vi.fn()
+      const onPlace = vi.fn()
+      const onCancel = vi.fn()
+      render(<CellInlineEditor eligibleActivities={eligible} currentActivityName={null} onPlace={onPlace} onCreateNew={onCreateNew} onCreateElective={vi.fn()} onCancel={onCancel} />)
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: ': Swimming' } })
+      fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+      expect(onCreateNew).not.toHaveBeenCalled()
+      expect(onPlace).not.toHaveBeenCalled()
+      // Nothing committed — Enter was a no-op, so blur still cancels (proves
+      // the editor is still "open"/uncommitted, not silently accepted).
+      fireEvent.blur(screen.getByRole('textbox'))
+      expect(onCancel).toHaveBeenCalled()
+    })
+
+    it('same invalid-grammar guard applies with no onCreateElective wired at all (legacy caller)', () => {
+      const onCreateNew = vi.fn()
+      render(<CellInlineEditor eligibleActivities={eligible} currentActivityName={null} onPlace={vi.fn()} onCreateNew={onCreateNew} onCancel={vi.fn()} />)
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Chugim: Kayaking' } })
+      fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+      // No onCreateElective prop means the colon grammar can't commit either
+      // — must not silently degrade into onCreateNew('Chugim: Kayaking').
+      expect(onCreateNew).not.toHaveBeenCalled()
+    })
   })
 })

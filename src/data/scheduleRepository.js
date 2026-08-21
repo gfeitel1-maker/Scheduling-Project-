@@ -75,7 +75,7 @@ export function createScheduleRepository({
   return {
     // --- reads -------------------------------------------------------------
     async loadSetupLists() {
-      const [groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts, locations, elective_sets, elective_set_activities] =
+      const [groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts, locations] =
         await Promise.all([
           localClient.list('groups'),
           localClient.list('days_of_operation'),
@@ -85,20 +85,49 @@ export function createScheduleRepository({
           localClient.list('tiers'),
           localClient.list('cohorts'),
           localClient.list('locations'),
-          // electiveSetsAll (design §2) — the UNFILTERED render-surface list,
-          // via the same generic list() primitive every other setup list
-          // already uses. Never the reuse surface — see loadDurableElectiveSets.
+        ])
+      // electiveSetsAll (design §2) — the UNFILTERED render-surface list, via
+      // the same generic list() primitive every other setup list already
+      // uses. Deliberately fetched OUTSIDE the Promise.all above and in its
+      // own try/catch: electives are NOT a readiness prerequisite (T105
+      // review fix) — a camp on an older schema, a test double that doesn't
+      // stub this entity, or any other elective-fetch failure must never
+      // fail the core setup-lists load that getSetupGaps/readiness and the
+      // grid depend on. Default to [] on any failure, same as an empty camp.
+      let elective_sets = []
+      let elective_set_activities = []
+      try {
+        ;[elective_sets, elective_set_activities] = await Promise.all([
           localClient.list('elective_sets'),
           localClient.list('elective_set_activities'),
         ])
+      } catch {
+        // best-effort — see comment above
+      }
       return { groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts, locations, elective_sets, elective_set_activities }
     },
 
     // durableElectiveSets (design §2) — the reuse-surface list, is_reusable=1
     // only, via the dedicated listDurableElectiveSets IPC seam. Never a
-    // client-side filter of loadSetupLists' elective_sets.
+    // client-side filter of loadSetupLists' elective_sets. Best-effort, same
+    // as loadSetupLists' elective fetch above: not a readiness prerequisite,
+    // must never fail the caller's load.
     async loadDurableElectiveSets() {
-      return (await localClient.listDurableElectiveSets()) || []
+      try {
+        return (await localClient.listDurableElectiveSets()) || []
+      } catch {
+        return []
+      }
+    },
+
+    // Fresh read of one elective_sets row (or null if it no longer exists —
+    // deleted by an intervening undo, or a cross-device race). Used both by
+    // the undo-time is_reusable check (fold-in B) and the redo-time
+    // existence check (re-create-with-fresh-ids fix) — both need a FRESH
+    // read, never a value captured in a closure at forward-write time.
+    async getElectiveSet(electiveSetId) {
+      const rows = await localClient.list('elective_sets')
+      return (rows || []).find(r => r.id === electiveSetId) ?? null
     },
 
     // Fresh read of a single elective set's is_reusable at undo time (T105
@@ -106,8 +135,7 @@ export function createScheduleRepository({
     // closure at forward-write time, so a set promoted/synced between the
     // forward write and the undo is never wrongly deleted.
     async readElectiveSetIsReusable(electiveSetId) {
-      const rows = await localClient.list('elective_sets')
-      const row = (rows || []).find(r => r.id === electiveSetId)
+      const row = await this.getElectiveSet(electiveSetId)
       return row ? row.is_reusable : null
     },
 

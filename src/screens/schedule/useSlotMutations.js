@@ -1073,10 +1073,21 @@ export function useSlotMutations({
     // rather than minting a duplicate.
     const durableMatch = durableElectiveSets.find(s => normalizeName(s.name) === normalizeName(trimmedSet))
     if (durableMatch) {
+      // Never deleted by our own undo (isFreshOneOff stays false) — redo's
+      // existence check will therefore always find it, so no recreate path
+      // ever fires for a durable-set placement. setName/memberActivityIds
+      // are unused in that case.
       await placeElectiveOnCell(durableMatch.id, target, targetRow)
       return
     }
 
+    // Member-activity creation below is NOT undoable — an Enter that mints N
+    // new activities has no single undo step that un-creates them. This
+    // mirrors createActivityFromCell's already-accepted posture (its own
+    // single-activity create is likewise not undone by undoing the
+    // placement), extended here to N members instead of one. Accepted,
+    // consistent, not a new gap this ticket introduces — flagged rather than
+    // silently inherited.
     const memberIds = []
     for (const rawName of memberNames ?? []) {
       const trimmed = String(rawName ?? '').trim()
@@ -1096,6 +1107,15 @@ export function useSlotMutations({
     }
     if (memberIds.length === 0) return // no valid members typed — do not write an empty elective
 
+    // Known latent limitation, accepted rather than fixed here: a colon
+    // inside the SET NAME itself (only reachable via a non-inline path —
+    // this cell's own grammar splits on the FIRST colon, so `trimmedSet`
+    // here can never itself contain one) would not round-trip through the
+    // durable-set exact-match reuse lookup in CellInlineEditor (which reads
+    // everything before ITS first colon as the query). Not exercised by any
+    // shipped authoring surface today; noted for whoever builds the
+    // management-screen create/rename path T103 left as its secondary
+    // surface.
     const electiveSetId = crypto.randomUUID()
     try {
       await repo.writeElectiveSetFields(electiveSetId, { name: trimmedSet, camp_id: campId, is_reusable: 0 })
@@ -1107,7 +1127,11 @@ export function useSlotMutations({
       return
     }
 
-    await placeElectiveOnCell(electiveSetId, target, targetRow, { isFreshOneOff: true })
+    // memberIds are passed through so a later redo (after an intervening
+    // undo deletes this one-off set) can re-create the SAME set — same name,
+    // same resolved member activity ids — without re-typing/re-resolving
+    // names, per design §1 Redo.
+    await placeElectiveOnCell(electiveSetId, target, targetRow, { isFreshOneOff: true, setName: trimmedSet, memberActivityIds: memberIds })
   }
 
   // Cell write for an elective (both the fresh-mint path and the reuse-a-
@@ -1115,8 +1139,13 @@ export function useSlotMutations({
   // collectSpanTails releases any covered tail rows in the same gesture
   // (design §3), and the whole write goes through the same claim/chain/
   // dispatch primitive as every other mutation.
-  async function placeElectiveOnCell(electiveSetId, target, targetRow, { isFreshOneOff = false } = {}) {
+  async function placeElectiveOnCell(electiveSetId, target, targetRow, { isFreshOneOff = false, setName = null, memberActivityIds = [] } = {}) {
     const claimId = crypto.randomUUID()
+    // Mutable across repeated undo/redo cycles on this ONE pushUndo entry:
+    // a redo that re-creates the set (below) mints a fresh id, and a LATER
+    // undo/redo of the SAME entry must act on that fresh id, not the
+    // original (now-deleted) one.
+    let liveElectiveSetId = electiveSetId
     const targetKey = cellKey(target.groupId, target.dayId, target.blockId)
 
     const freshSlots = slotsRef.current
@@ -1219,28 +1248,48 @@ export function useSlotMutations({
         // like any hand-created row), never a thrown/blocking error.
         if (isFreshOneOff) {
           try {
-            const currentIsReusable = await repo.readElectiveSetIsReusable(electiveSetId)
+            const currentIsReusable = await repo.readElectiveSetIsReusable(liveElectiveSetId)
             const stillOneOff = currentIsReusable === 0 || currentIsReusable === '0' || currentIsReusable === false || currentIsReusable == null
-            if (stillOneOff) await repo.deleteElectiveSet(electiveSetId)
+            if (stillOneOff) await repo.deleteElectiveSet(liveElectiveSetId)
           } catch {
             // best-effort — see comment above
           }
         }
       },
       redo: async () => {
-        // Redo re-applies the SAME electiveSetId/member rows the original
-        // forward write created — it never re-resolves member names or mints
-        // a new set id (design §1). If undo deleted the one-off set, the
-        // redo write below still targets the same id; a dangling
-        // elective_set_id renders 'Elective (removed)' rather than throwing,
-        // which is the documented asymmetry this design calls out explicitly.
+        // Redo re-applies the SAME memberActivityIds the original forward
+        // write resolved — it never re-resolves member NAMES (design §1).
+        // But the SET ROW itself may no longer exist: if undo deleted a
+        // not-yet-promoted one-off (the isFreshOneOff branch above), a fresh
+        // read here (never a value captured at forward-write or undo time)
+        // detects that and RE-CREATES the set + member rows with FRESH ids
+        // before writing the cell — replaying a write against the dangling
+        // original id would silently lose the director's elective (it would
+        // render 'Elective (removed)'), which is a real data-loss bug, not
+        // an accepted asymmetry.
+        if (isFreshOneOff) {
+          const existing = await repo.getElectiveSet(liveElectiveSetId)
+          if (!existing) {
+            const freshSetId = crypto.randomUUID()
+            try {
+              await repo.writeElectiveSetFields(freshSetId, { name: setName, camp_id: campId, is_reusable: 0 })
+              for (const activityId of memberActivityIds) {
+                await repo.writeElectiveSetActivityFields(crypto.randomUUID(), { elective_set_id: freshSetId, activity_id: activityId })
+              }
+            } catch (err) {
+              setActionError(describeWriteFailure(err, 'That elective could not be restored.'))
+              return
+            }
+            liveElectiveSetId = freshSetId
+          }
+        }
         let redoWriteError = null
         await runMutation({
           keys,
           claimId: crypto.randomUUID(),
           dispatch: async () => {
             try {
-              const writes = [repo.writeSlotFields(targetRow.id, { elective_set_id: electiveSetId, activity_id: null, flags: {} })]
+              const writes = [repo.writeSlotFields(targetRow.id, { elective_set_id: liveElectiveSetId, activity_id: null, flags: {} })]
               for (const tail of spanTailRows) {
                 writes.push(repo.writeSlotFields(tail.id, { activity_id: null, is_span_head: true, flags: {} }))
               }
@@ -1252,7 +1301,7 @@ export function useSlotMutations({
             setSlots(prev => {
               const next = prev.map(s => {
                 if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-                  return { ...s, elective_set_id: electiveSetId, activity_id: null, flags: {} }
+                  return { ...s, elective_set_id: liveElectiveSetId, activity_id: null, flags: {} }
                 if (spanTailRows.some(t => t.id === s.id))
                   return { ...s, activity_id: null, is_span_head: true, flags: {} }
                 return s
@@ -1262,7 +1311,7 @@ export function useSlotMutations({
             })
           },
           ownWriteKinds: {
-            [targetKey]: `elective:${electiveSetId}`,
+            [targetKey]: `elective:${liveElectiveSetId}`,
             ...Object.fromEntries(tailKeys.map(k => [k, 'empty'])),
           },
         })

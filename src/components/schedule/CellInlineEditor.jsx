@@ -43,23 +43,31 @@ export default function CellInlineEditor({
 
   function commitTop() {
     if (!query) return
-    committedRef.current = true
 
     // Exact-match-first colon guard (design §1, Red Hat round 1): the WHOLE
     // typed string, colon included, checked against real activity names
     // BEFORE any colon-splitting — so an activity literally named
     // "Free Time: Cabin Choice" is never misfiled as a one-member elective.
-    if (exact) { onPlace(exact.id); return }
+    if (exact) { committedRef.current = true; onPlace(exact.id); return }
 
-    if (hasColon && onCreateElective) {
+    if (hasColon) {
       const parsed = parseElectiveGrammar(value)
-      if (parsed && parsed.setName) {
+      if (parsed && parsed.setName && onCreateElective) {
+        committedRef.current = true
         onCreateElective(parsed.setName, parsed.memberNames, value.trim())
         return
       }
+      // Invalid elective grammar — a colon with nothing (or only
+      // whitespace) before it, e.g. ": Swimming" (Code Reviewer LOW). Do NOT
+      // fall through to onCreateNew, which would mint an activity literally
+      // named ": Swimming". committedRef stays false, so Enter is a no-op
+      // here and the director keeps editing — the same "nothing happens
+      // until the input is valid" behavior blur/Escape already give.
+      return
     }
 
-    if (matches.length > 0) { onPlace(matches[0].id); return }
+    if (matches.length > 0) { committedRef.current = true; onPlace(matches[0].id); return }
+    committedRef.current = true
     onCreateNew(value.trim())
   }
 

@@ -17,6 +17,7 @@ function makeRepo(overrides = {}) {
     writeElectiveSetFields: vi.fn(async () => ({ status: 'applied' })),
     writeElectiveSetActivityFields: vi.fn(async () => ({ status: 'applied' })),
     readElectiveSetIsReusable: vi.fn(async () => 0),
+    getElectiveSet: vi.fn(async () => ({ id: 'existing', is_reusable: 0 })),
     deleteElectiveSet: vi.fn(async () => ({ ok: true })),
     ...overrides,
   }
@@ -1694,5 +1695,65 @@ describe('useSlotMutations — ownWriteRef coverage (Red Hat fold-in A)', () => 
     })
     const entry = hook.result.current.ownWriteRef.current.get('manual|tid-manual|g1|d1|b2')
     expect(entry).toEqual(expect.objectContaining({ kind: 'empty' }))
+  })
+})
+
+// T105 review fix (Code Reviewer HIGH) — redo must RE-CREATE a one-off
+// elective set that an intervening undo deleted, with FRESH ids, rather than
+// replaying a write against the now-dangling original id (which would
+// silently lose the director's elective).
+describe('useSlotMutations — createElectiveFromCell undo-then-redo re-create (Code Reviewer HIGH fix)', () => {
+  it('undo deletes the one-off set; redo re-creates a NEW set + members and writes the cell to the NEW id', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: null, flags: {} },
+    ]
+    const setSlots = statefulSetSlots(slots)
+    // Sequence of ids: first createElectiveFromCell mints one for the member
+    // activity + one for the elective set; redo's re-create mints two more
+    // (member's writeElectiveSetActivityFields row id, elective set id).
+    let uuidCount = 0
+    vi.stubGlobal('crypto', { randomUUID: () => `uuid-${++uuidCount}` })
+
+    // getElectiveSet: "existing" until undo deletes it, then null (fresh
+    // read), simulated via a mutable flag flipped by deleteElectiveSet.
+    let deleted = false
+    const getElectiveSet = vi.fn(async (id) => (deleted ? null : { id, is_reusable: 0 }))
+    const deleteElectiveSet = vi.fn(async () => { deleted = true; return { ok: true } })
+    const readElectiveSetIsReusable = vi.fn(async () => 0)
+    const repo = makeRepo({ getElectiveSet, deleteElectiveSet, readElectiveSetIsReusable })
+
+    const { hook, props } = setup({ slots, repo, routeState: { setSlots: setSlots.fn } })
+
+    let undoFn, redoFn
+    props.pushUndo.mockImplementation(({ undo, redo }) => { undoFn = undo; redoFn = redo })
+
+    await act(async () => {
+      await hook.result.current.createElectiveFromCell('One-Off Set', ['New Activity'], { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    const originalSetId = setSlots.get().find(s => s.id === 'row-target').elective_set_id
+    expect(originalSetId).toBeTruthy()
+
+    await act(async () => { await undoFn() })
+    expect(deleteElectiveSet).toHaveBeenCalledWith(originalSetId)
+    expect(setSlots.get().find(s => s.id === 'row-target').elective_set_id).toBeNull()
+
+    const writeElectiveSetFieldsCallsBefore = repo.writeElectiveSetFields.mock.calls.length
+    await act(async () => { await redoFn() })
+
+    // A NEW set was minted (writeElectiveSetFields called again).
+    expect(repo.writeElectiveSetFields.mock.calls.length).toBe(writeElectiveSetFieldsCallsBefore + 1)
+    const newSetCall = repo.writeElectiveSetFields.mock.calls[writeElectiveSetFieldsCallsBefore]
+    const newSetId = newSetCall[0]
+    expect(newSetId).not.toBe(originalSetId)
+    expect(newSetCall[1]).toEqual({ name: 'One-Off Set', camp_id: 'camp-1', is_reusable: 0 })
+
+    // The member row was re-created against the NEW set id.
+    const memberCallsForNewSet = repo.writeElectiveSetActivityFields.mock.calls.filter(c => c[1].elective_set_id === newSetId)
+    expect(memberCallsForNewSet.length).toBe(1)
+
+    // The cell now points at the NEW id, not the dangling original.
+    const finalSlot = setSlots.get().find(s => s.id === 'row-target')
+    expect(finalSlot.elective_set_id).toBe(newSetId)
+    expect(finalSlot.elective_set_id).not.toBe(originalSetId)
   })
 })

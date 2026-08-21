@@ -323,6 +323,46 @@ describe('reads — fetch + normalize', () => {
     expect(rows).toEqual([{ id: 'es-1', name: 'Durable', is_reusable: 1 }])
   })
 
+  // T105 review fix (GATE RED #1): electives are NOT a readiness
+  // prerequisite. A failure fetching them (an entity a caller doesn't stub,
+  // an older schema, a rejected promise) must never fail the CORE setup
+  // lists (groups/days/timeBlocks/activities/...) that readiness/the grid
+  // depend on — it must default to [] instead.
+  it('loadSetupLists tolerates a rejecting elective_sets/elective_set_activities fetch — core lists still resolve', async () => {
+    const client = makeFakeClient()
+    client.setListStore({ groups: [{ id: 'g1' }], activities: [{ id: 'a1' }] })
+    client.list = vi.fn((entity) => {
+      if (entity === 'elective_sets' || entity === 'elective_set_activities') {
+        return Promise.reject(new Error('Unrecognized entity: elective_sets'))
+      }
+      return Promise.resolve(client.listStore[entity] ?? [])
+    })
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    const lists = await repo.loadSetupLists()
+    expect(lists.groups).toEqual([{ id: 'g1' }])
+    expect(lists.activities).toEqual([{ id: 'a1' }])
+    expect(lists.elective_sets).toEqual([])
+    expect(lists.elective_set_activities).toEqual([])
+  })
+
+  it('loadDurableElectiveSets tolerates a rejecting listDurableElectiveSets call — defaults to []', async () => {
+    const client = makeFakeClient()
+    client.listDurableElectiveSets = vi.fn(() => Promise.reject(new Error('not implemented')))
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    const rows = await repo.loadDurableElectiveSets()
+    expect(rows).toEqual([])
+  })
+
+  it('loadDurableElectiveSets tolerates a missing listDurableElectiveSets method entirely (older localClient/mock)', async () => {
+    const client = makeFakeClient()
+    // No listDurableElectiveSets property at all — calling it throws
+    // "is not a function", exactly the ScheduleScreenExclusions.test.jsx
+    // regression this fix closes.
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    const rows = await repo.loadDurableElectiveSets()
+    expect(rows).toEqual([])
+  })
+
   it('reloadSlots calls listByScope(template_slots, templateId) and normalizes the result', async () => {
     const client = makeFakeClient()
     client.setListStore({

@@ -114,10 +114,24 @@ const WEEK_CLOSED_ENTRY = {
   description: 'This activity or group is marked not to run this week',
 }
 
+// T105 §5, route-agnostic like WEEK_CLOSED (a concurrent edit is equally
+// possible on either route) — legend.test.js's "documents every per-slot flag
+// the engine can emit" holds CONTENT_RACE to the same bar as OVERLAP: it is
+// derived (never persisted), but it IS a real per-slot treatment a director
+// can see, so it belongs in the legend exactly like OVERLAP does.
+const CONTENT_RACE_ENTRY = {
+  flagKey: 'CONTENT_RACE',
+  label: 'Changed elsewhere',
+  shape: 'dot',
+  color: FLAG_COLORS.CONTENT_RACE,
+  description: 'Replaced by a concurrent edit on another device',
+}
+
 export const LEGEND_ENTRIES = [
   UNFILLABLE_ENTRY,
   OVERLAP_ENTRY,
   WEEK_CLOSED_ENTRY,
+  CONTENT_RACE_ENTRY,
   {
     flagKey: null,
     label: 'Locked',
