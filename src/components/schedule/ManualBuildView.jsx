@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import SlotCell from './SlotCell'
+import EmptyCell from './EmptyCell'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
-import { cellAccessibleName, blockNamesForSpan } from './cellLabel'
+import { blockNamesForSpan } from './cellLabel'
 import useGridKeyboardNav from './useGridKeyboardNav'
 import './scheduleGrid.css'
 
@@ -51,26 +52,6 @@ function firstMergeableCellKey({ selectedGroup, days, timeBlocks, geometry }) {
     }
   }
   return null
-}
-
-// No per-cell droppable: T58 moved hit resolution to the grid surface, and the
-// drop-target paint to `.cell[data-drag-over]` in scheduleGrid.css.
-function EmptyDropCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex, collapsed, blockNames, column }) {
-  return (
-    <div
-      role="gridcell"
-      className="cell"
-      data-empty=""
-      data-cell-key={`${groupId}|${dayId}|${blockId}`}
-      data-collapsed={collapsed ? '' : undefined}
-      aria-colindex={ariaColIndex}
-      // T59. An empty cell announces as empty, never as a blank cell.
-      aria-label={cellAccessibleName({ subject: 'Empty', blockNames, column })}
-      style={{ gridRow, gridColumn }}
-    >
-      <div className="cell-empty" />
-    </div>
-  )
 }
 
 // DndContext and the one grid-surface droppable live in ScheduleScreen (for
@@ -270,7 +251,7 @@ export default function ManualBuildView({
                       }
 
                       return (
-                        <EmptyDropCell
+                        <EmptyCell
                           key={day.id}
                           groupId={selectedGroup}
                           dayId={day.id}
@@ -279,6 +260,10 @@ export default function ManualBuildView({
                           collapsed={isCollapsed}
                           blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
                           column={day.label}
+                          eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
+                          onPlace={onPlace}
+                          onCreateNew={onCreateNew}
+                          onCreateElective={onCreateElective}
                           {...placeCell({ blockIndex, columnIndex: dayIndex })}
                         />
                       )
@@ -300,7 +285,7 @@ export default function ManualBuildView({
       )}
 
       <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'var(--font-sans)' }}>
-        Drag activities from the left panel onto any open cell, or click a cell to pick one. An empty cell just isn’t filled yet.
+        Drag activities from the left panel onto any open cell, or click an empty cell to type one in. An empty cell just isn’t filled yet.
       </div>
     </div>
   )

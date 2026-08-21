@@ -1,36 +1,15 @@
 import SlotCell from '../schedule/SlotCell'
+import EmptyCell from './EmptyCell'
 import OverlayCell from '../schedule/OverlayCell'
 import { decideCell } from '../../screens/schedule/gridGeometry'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
-import { cellAccessibleName, blockNamesForSpan } from './cellLabel'
+import { blockNamesForSpan } from './cellLabel'
 import useGridKeyboardNav from './useGridKeyboardNav'
 import './scheduleGrid.css'
 
 const NO_COLLAPSE = new Set()
-
-// No per-cell droppable: T58 moved hit resolution to the grid surface, and the
-// drop-target paint to `.cell[data-drag-over]` in scheduleGrid.css. data-cell-key
-// is what makes this cell findable from pointer coordinates.
-function EmptyCell({ groupId, dayId, blockId, gridRow, gridColumn, ariaColIndex, collapsed, blockNames, column }) {
-  return (
-    <div
-      role="gridcell"
-      className="cell"
-      data-empty=""
-      data-cell-key={`${groupId}|${dayId}|${blockId}`}
-      data-collapsed={collapsed ? '' : undefined}
-      aria-colindex={ariaColIndex}
-      // T59. An empty cell announces as empty, never as a blank cell.
-      aria-label={cellAccessibleName({ subject: 'Empty', blockNames, column })}
-      style={{ gridRow, gridColumn }}
-    >
-      <div className="cell-empty">Empty</div>
-    </div>
-  )
-}
-
 
 // DndContext and the one grid-surface droppable live in ScheduleScreen (they
 // cover sidebar + grid). Drag state is the FSM's and reaches cells as data
@@ -178,6 +157,16 @@ export default function ScheduleGroupView({
                               collapsed={isCollapsed}
                               blockNames={blockNamesForSpan(timeBlocks, blockIndex)}
                               column={day.label}
+                              eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
+                              onPlace={onPlace}
+                              onCreateNew={onCreateNew}
+                              onCreateElective={onCreateElective}
+                              // Three-way precedence (stamp > paste > edit): onCellClick
+                              // is only defined while stamp mode is active, mirroring the
+                              // SlotCell call below exactly.
+                              onCellClick={stampMode ? (() => handleStampClick(selectedGroup, day.id, block.id)) : undefined}
+                              pasteMode={pasteMode}
+                              onCellSelect={onCellSelect}
                               {...placeCell({ blockIndex, columnIndex: dayIndex })}
                             />
                           )

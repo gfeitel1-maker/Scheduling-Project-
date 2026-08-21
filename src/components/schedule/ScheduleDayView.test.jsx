@@ -145,6 +145,23 @@ describe('ScheduleDayView — CSS Grid conversion (T56)', () => {
     expect(overlay.textContent).toContain('Field trip')
   })
 
+  it('T112 — click on an empty cell opens the inline editor', () => {
+    const container = renderView()
+    const empty = cellAt(container, 'g1|d1|b2')
+    expect(empty.hasAttribute('data-empty')).toBe(true)
+    fireEvent.click(empty)
+    expect(empty.querySelector('.cell-inline-editor-input')).not.toBeNull()
+  })
+
+  it('T112 — stamp mode active: empty-cell click stamps, not edits (day view has no paste mode)', () => {
+    const stamped = []
+    const container = renderView({ stampMode: 'Field trip', handleStampClick: (g, d, b) => stamped.push([g, d, b]) })
+    const empty = cellAt(container, 'g1|d1|b2')
+    fireEvent.click(empty)
+    expect(stamped).toEqual([['g1', 'd1', 'b2']])
+    expect(empty.querySelector('.cell-inline-editor-input')).toBeNull()
+  })
+
   it('drives row tracks from buildRowTracks and keeps the view own minWidth', () => {
     const container = renderView()
     const body = container.querySelector('.schedule-grid--body')

@@ -1,7 +1,7 @@
 ---
 title: T112-empty-cell-click-opens-inline-editor
 document_type: ticket
-status: open
+status: in-progress
 created: 2026-08-21
 task_class: ui-ux-design
 governing_docs: [docs/adr/2026-08-20-in-context-knowledge-and-durability-tiers.md]

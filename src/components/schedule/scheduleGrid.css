@@ -336,7 +336,23 @@
   font-size: 11px;
   font-weight: 500;
   color: var(--text-secondary);
-  transition: background var(--motion-fast) var(--ease-out);
+  transition: background var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out);
+}
+
+/* T112. A discoverable click affordance — an empty cell now opens the inline
+   editor on click, and the click is worthless if nothing signals it responds.
+   CSS-only per the scheduleGrid.css exception (no React hover state, no new
+   design token): pointer cursor plus a subtle tint/border shift on hover or
+   keyboard focus. */
+.cell[data-empty] {
+  cursor: pointer;
+}
+
+.cell[data-empty]:hover .cell-empty,
+.cell[data-empty]:focus-within .cell-empty {
+  background: color-mix(in srgb, var(--primary) 6%, var(--surface));
+  border-color: var(--primary);
+  color: var(--text);
 }
 
 /* ---------- interaction pseudo-states (this is why §6 was relaxed) ---------- */
