@@ -1,11 +1,12 @@
 ---
 title: Camp Setup + Ingestion Program Brief
-document_type: program-brief
+document_type: plan
 status: draft
 authority: subordinate-to-constitution
-governing_docs: docs/governance/constitution/CONSTITUTION.md
+governing_docs: [docs/governance/constitution/CONSTITUTION.md]
 owner: Governor (session camp-setup-ingestion-0ce0e1)
 created: 2026-08-21
+archive_when: all eleven workstreams are resolved (shipped, deferred, or reassigned), or the program is superseded by a revised brief
 review_trigger: any workstream promoted to an ADR or spec; any change to the peer-session boundary
 related_sessions:
   - architecture-product-audit-d0340e (owns authoring UI + grid interaction + special-day/override render)
