@@ -58,3 +58,22 @@ so it inherits two guarantees Red Hat flagged (2026-08-20, T103 review):
 
 **Designer (if the cell affordance is UI-significant) → Maker (test-first) → Red Hat (engine-skip still
 holds under authored elective writes) → Code Reviewer → Tester (director-eye) → Verifier → Grader.**
+
+## Live verification outcome (2026-08-21)
+
+**T105 is functionally complete and correct** (Grader PASS 4.5, gate green). Verified LIVE in the dev app
+(dedicated port): right-click a filled cell → inline editor → typing `Chugim: Pottery, Soccer` parses the
+colon grammar, shows member chips, and `createElectiveFromCell` creates the new member activity + set +
+placement with no console errors.
+
+Two findings, neither a T105 code defect:
+- **Activation gesture is right-click / Enter on a FILLED cell** (left-click selects; empty cells are
+  drag-only). This is PRE-EXISTING and makes electives feel unreachable → spun off as **T112**
+  (empty-cell click opens the inline editor + fix the misleading hint). T112 is what actually delivers
+  the point-of-intent reachability the audit is built on.
+- **Mock-only label caveat:** in the browser mock the just-created elective renders "Elective (removed)"
+  because `localClient.mock.js` doesn't round-trip a newly-written one-off `elective_sets` row back into
+  `electiveSetsAll`. In real Electron, `onOpApplied → ScheduleScreen.reload()` re-fetches and the label
+  resolves to the set name ("Chugim (2)"). Read-verified in code, NOT live-verified (mock limitation) —
+  warrants a real-Electron/real-camp confirmation, and possibly a mock-parity fix so dev testing is
+  faithful (candidate follow-up).
