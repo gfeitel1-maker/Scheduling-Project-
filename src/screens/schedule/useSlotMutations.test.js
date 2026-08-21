@@ -13,6 +13,11 @@ function makeRepo(overrides = {}) {
     writeOverlayFields: vi.fn(async () => ({ status: 'applied' })),
     writeActivityFields: vi.fn(async () => ({ status: 'applied' })),
     deleteEntity: vi.fn(async () => ({ status: 'applied' })),
+    // T105
+    writeElectiveSetFields: vi.fn(async () => ({ status: 'applied' })),
+    writeElectiveSetActivityFields: vi.fn(async () => ({ status: 'applied' })),
+    readElectiveSetIsReusable: vi.fn(async () => 0),
+    deleteElectiveSet: vi.fn(async () => ({ ok: true })),
     ...overrides,
   }
 }
@@ -1521,5 +1526,173 @@ describe('useSlotMutations — per-cell write serialization (write-serialization
     await act(async () => { await Promise.all([pA, pB]) })
 
     expect(props.repo.writeSlotFields.mock.calls.length).toBeGreaterThan(0)
+  })
+})
+
+// T105 — createElectiveFromCell (docs/work/specs/2026-08-20-elective-authoring-render-design.md)
+describe('useSlotMutations — createElectiveFromCell', () => {
+  it('mints an elective_sets row + one elective_set_activities row per member + writes the cell atomically, one-off by default', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: null, flags: {} },
+    ]
+    const activities = [{ id: 'act-swim', name: 'Swimming' }]
+    const { hook, props } = setup({ slots, activities })
+
+    await act(async () => {
+      await hook.result.current.createElectiveFromCell('Afternoon Chugim', ['Swimming', 'Kayaking'], { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+
+    // One existing activity reused (Swimming), one new activity minted (Kayaking).
+    expect(props.repo.writeActivityFields).toHaveBeenCalledTimes(1)
+    expect(props.repo.writeActivityFields.mock.calls[0][1].name).toBe('Kayaking')
+
+    expect(props.repo.writeElectiveSetFields).toHaveBeenCalledTimes(1)
+    const [setId, setFields] = props.repo.writeElectiveSetFields.mock.calls[0]
+    expect(setFields).toEqual({ name: 'Afternoon Chugim', camp_id: 'camp-1', is_reusable: 0 })
+
+    expect(props.repo.writeElectiveSetActivityFields).toHaveBeenCalledTimes(2)
+    const memberActivityIds = props.repo.writeElectiveSetActivityFields.mock.calls.map(c => c[1].activity_id)
+    expect(memberActivityIds).toContain('act-swim')
+
+    // The cell write: elective_set_id set, activity_id cleared, same
+    // claim/chain/dispatch primitive as every other mutation.
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { elective_set_id: setId, activity_id: null, flags: {} })
+    expect(props.pushUndo).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not write an empty elective when every typed member name is blank', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({ slots })
+    await act(async () => {
+      await hook.result.current.createElectiveFromCell('Empty Set', ['', '   '], { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeElectiveSetFields).not.toHaveBeenCalled()
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+  })
+
+  it('an exact name match against a DURABLE (reusable) set places that set directly, never minting a duplicate', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} },
+    ]
+    const durableElectiveSets = [{ id: 'set-durable', name: 'Water Sports', is_reusable: 1 }]
+    const { hook, props } = setup({ slots, durableElectiveSets })
+    await act(async () => {
+      await hook.result.current.createElectiveFromCell('Water Sports', ['whatever'], { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeElectiveSetFields).not.toHaveBeenCalled()
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { elective_set_id: 'set-durable', activity_id: null, flags: {} })
+  })
+
+  it('converting a span HEAD to an elective releases its tail(s) atomically in the same gesture (T91/T105 §3)', async () => {
+    const slots = [
+      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-swim', is_span_head: true, flags: {} },
+      { id: 'row-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-swim', is_span_head: false, flags: {} },
+    ]
+    const timeBlocks = [{ id: 'b1', sort_order: 1 }, { id: 'b2', sort_order: 2 }]
+    const activities = [{ id: 'act-swim', name: 'Swimming' }]
+    const { hook, props } = setup({ slots, timeBlocks, activities })
+
+    await act(async () => {
+      await hook.result.current.createElectiveFromCell('Chugim', ['Kayaking'], { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { activity_id: null, is_span_head: true, flags: {} })
+    const headCall = props.repo.writeSlotFields.mock.calls.find(c => c[0] === 'row-head')
+    expect(headCall[1].activity_id).toBeNull()
+    expect(headCall[1]).toHaveProperty('elective_set_id')
+  })
+
+  it('undo cleans up a one-off elective set via a FRESH is_reusable read, not a value captured at forward-write time (Red Hat fold-in B)', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} },
+    ]
+    const setSlots = statefulSetSlots(slots)
+    const readElectiveSetIsReusable = vi.fn(async () => 0) // still one-off at undo time
+    const repo = makeRepo({ readElectiveSetIsReusable })
+    const { hook, props } = setup({ slots, repo, routeState: { setSlots: setSlots.fn } })
+
+    let undoFn
+    props.pushUndo.mockImplementation(({ undo }) => { undoFn = undo })
+
+    await act(async () => {
+      await hook.result.current.createElectiveFromCell('One-Off Set', ['New Activity'], { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    await act(async () => { await undoFn() })
+
+    expect(readElectiveSetIsReusable).toHaveBeenCalledTimes(1)
+    expect(repo.deleteElectiveSet).toHaveBeenCalledTimes(1)
+  })
+
+  it('undo does NOT delete a set that was promoted to reusable between the forward write and the undo (fresh read wins over the closure value)', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} },
+    ]
+    const setSlots = statefulSetSlots(slots)
+    // Forward write happened while one-off; by the time undo runs, a fresh
+    // read reports it has since been promoted (synced from another device,
+    // or promoted locally) — undo must NOT delete it.
+    const readElectiveSetIsReusable = vi.fn(async () => 1)
+    const repo = makeRepo({ readElectiveSetIsReusable })
+    const { hook, props } = setup({ slots, repo, routeState: { setSlots: setSlots.fn } })
+
+    let undoFn
+    props.pushUndo.mockImplementation(({ undo }) => { undoFn = undo })
+
+    await act(async () => {
+      await hook.result.current.createElectiveFromCell('Promoted Set', ['New Activity'], { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    await act(async () => { await undoFn() })
+
+    expect(readElectiveSetIsReusable).toHaveBeenCalledTimes(1)
+    expect(repo.deleteElectiveSet).not.toHaveBeenCalled()
+  })
+})
+
+// T105 §5 fold-in A — every runMutation call site that writes activity_id/
+// elective_set_id records into ownWriteRef, INCLUDING expandSlot and splitSlot
+// (the Red Hat round-2 fold-in — omitting them causes a false-negative when a
+// span merge/split races an elective conversion).
+describe('useSlotMutations — ownWriteRef coverage (Red Hat fold-in A)', () => {
+  it('createElectiveFromCell records an elective: kind into ownWriteRef', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {} },
+    ]
+    const { hook } = setup({ slots })
+    await act(async () => {
+      await hook.result.current.createElectiveFromCell('Chugim', ['Kayaking'], { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    const entry = hook.result.current.ownWriteRef.current.get('manual|tid-manual|g1|d1|b1')
+    expect(entry).toBeTruthy()
+    expect(entry.kind).toMatch(/^elective:/)
+  })
+
+  it('expandSlot records the tail cell\'s new own-write kind', async () => {
+    const slots = [
+      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {} },
+      { id: 'row-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, flags: {} },
+    ]
+    const activities = [{ id: 'act-1', name: 'Swim' }]
+    const { hook } = setup({ slots, activities })
+    await act(async () => {
+      await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', null, '', 'Block 2', 'Mon')
+    })
+    const entry = hook.result.current.ownWriteRef.current.get('manual|tid-manual|g1|d1|b2')
+    expect(entry).toBeTruthy()
+    expect(entry.kind).toBe('activity:act-1')
+  })
+
+  it('splitSlot records the released tail cell as empty', async () => {
+    const slots = [
+      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: { expanded: { from_block: 'b2' } } },
+      { id: 'row-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', flags: {} },
+    ]
+    const { hook } = setup({ slots })
+    await act(async () => {
+      await hook.result.current.splitSlot('g1', 'd1', 'b1')
+    })
+    const entry = hook.result.current.ownWriteRef.current.get('manual|tid-manual|g1|d1|b2')
+    expect(entry).toEqual(expect.objectContaining({ kind: 'empty' }))
   })
 })

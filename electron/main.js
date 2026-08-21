@@ -27,6 +27,7 @@ import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
 import { deleteElectiveSet } from './ops/deleteElectiveSet.js'
+import { listDurableElectiveSets } from './ops/durableElectiveSets.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
 import {
@@ -1250,6 +1251,22 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ...reportable, ops_written: ops.length }
   }
 
+  // T105 (docs/work/tickets/T105-elective-inline-authoring-and-render.md;
+  // docs/work/specs/2026-08-20-elective-authoring-render-design.md §2):
+  // listDurableElectiveSets (electron/ops/durableElectiveSets.js, T103) gets
+  // its first production caller here — the single sanctioned seam for
+  // "durable/reusable electives" (is_reusable = 1 only). Read-only, mirrors
+  // listUsers's shape exactly: requireAuthorized then one query, no
+  // client-mode delegation. Never substitute the generic `list('elective_sets')`
+  // handler for this — that returns one-offs unfiltered.
+  function listDurableElectiveSetsHandler(token) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'elective_sets.read' })
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) return []
+    return listDurableElectiveSets(db, camp.id)
+  }
+
   return {
     chooseMode,
     discoverHosts: discoverHostsHandler,
@@ -1261,6 +1278,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     duplicateWeek: duplicateWeekHandler,
     deleteWeek: deleteWeekHandler,
     deleteElectiveSet: deleteElectiveSetHandler,
+    listDurableElectiveSets: listDurableElectiveSetsHandler,
     listDeleted: listDeletedHandler,
     listPendingRestores: listPendingRestoresHandler,
     getEntityHistory: getEntityHistoryHandler,
@@ -1443,6 +1461,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:duplicate-week', (_event, args) => handlers.duplicateWeek(args))
     ipcMain.handle('shoresh:delete-week', (_event, args) => handlers.deleteWeek(args))
     ipcMain.handle('shoresh:delete-elective-set', (_event, args) => handlers.deleteElectiveSet(args))
+    ipcMain.handle('shoresh:list-durable-elective-sets', (_event, args) => handlers.listDurableElectiveSets(args && args.token))
   }
 
   /**

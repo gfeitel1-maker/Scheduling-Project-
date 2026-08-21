@@ -58,6 +58,9 @@ export default function ScheduleGroupView({
   // Neither implies the other, which is why both are written here.
   collapsedBlockIds = NO_COLLAPSE,
   onToggleBlockCollapsed,
+  // T105
+  electiveSetsAll = [], electiveMembersBySet, onCreateElective,
+  isContentRaced, onDismissContentRace,
 }) {
   const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
   const rowCells = days.map(d => ({ groupId: selectedGroup, dayId: d.id }))
@@ -235,6 +238,11 @@ export default function ScheduleGroupView({
                             eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
                             onPlace={onPlace}
                             onCreateNew={onCreateNew}
+                            onCreateElective={onCreateElective}
+                            electiveSetsAll={electiveSetsAll}
+                            electiveMembersBySet={electiveMembersBySet}
+                            isContentRaced={isContentRaced?.(selectedGroup, day.id, block.id)}
+                            onDismissContentRace={() => onDismissContentRace?.(`${selectedGroup}|${day.id}|${block.id}`)}
                             onRelease={s => releaseCell(s.id)}
                             isLocked={isLocked}
                             onSelect={!stampMode && !slot.is_anchor ? onCellSelect : undefined}

@@ -75,7 +75,7 @@ export function createScheduleRepository({
   return {
     // --- reads -------------------------------------------------------------
     async loadSetupLists() {
-      const [groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts, locations] =
+      const [groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts, locations, elective_sets, elective_set_activities] =
         await Promise.all([
           localClient.list('groups'),
           localClient.list('days_of_operation'),
@@ -85,8 +85,30 @@ export function createScheduleRepository({
           localClient.list('tiers'),
           localClient.list('cohorts'),
           localClient.list('locations'),
+          // electiveSetsAll (design §2) — the UNFILTERED render-surface list,
+          // via the same generic list() primitive every other setup list
+          // already uses. Never the reuse surface — see loadDurableElectiveSets.
+          localClient.list('elective_sets'),
+          localClient.list('elective_set_activities'),
         ])
-      return { groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts, locations }
+      return { groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts, locations, elective_sets, elective_set_activities }
+    },
+
+    // durableElectiveSets (design §2) — the reuse-surface list, is_reusable=1
+    // only, via the dedicated listDurableElectiveSets IPC seam. Never a
+    // client-side filter of loadSetupLists' elective_sets.
+    async loadDurableElectiveSets() {
+      return (await localClient.listDurableElectiveSets()) || []
+    },
+
+    // Fresh read of a single elective set's is_reusable at undo time (T105
+    // Red Hat fold-in B) — deliberately NOT a value captured in the undo
+    // closure at forward-write time, so a set promoted/synced between the
+    // forward write and the undo is never wrongly deleted.
+    async readElectiveSetIsReusable(electiveSetId) {
+      const rows = await localClient.list('elective_sets')
+      const row = (rows || []).find(r => r.id === electiveSetId)
+      return row ? row.is_reusable : null
     },
 
     async loadTemplateData() {
@@ -208,6 +230,21 @@ export function createScheduleRepository({
 
     async writeOverlayFields(overlayId, fields) {
       await writeFields('template_overlays', overlayId, fields)
+    },
+
+    async writeElectiveSetFields(electiveSetId, fields) {
+      await writeFields('elective_sets', electiveSetId, fields)
+    },
+
+    async writeElectiveSetActivityFields(memberId, fields) {
+      await writeFields('elective_set_activities', memberId, fields)
+    },
+
+    // Undo-time cleanup for a one-off elective the director never promoted
+    // (T105 design §1). Best-effort — callers accept a thrown error the same
+    // way every other undo write does.
+    async deleteElectiveSet(electiveSetId) {
+      return localClient.deleteElectiveSet({ electiveSetId })
     },
 
     async writeSnapshotFields(snapshotId, fields) {

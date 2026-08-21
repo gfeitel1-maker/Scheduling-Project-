@@ -40,6 +40,11 @@ export const FLAG_COLORS = {
   // token is the director's aesthetic call (like OVERLAP's); see
   // docs/work/specs/2026-08-16-manual-route-week-exclusions-design.md §5.
   WEEK_CLOSED: 'var(--secondary)',
+  // T105 §5 — a concurrent-edit notice (this device's own recent write to
+  // this cell no longer matches what it now holds), derived/render-time/
+  // locally-dismissible, never persisted. Reuses WEEK_CLOSED's slate rather
+  // than adding a new token.
+  CONTENT_RACE: 'var(--secondary)',
 }
 
 // Severity is a distinct lookup from FLAG_COLORS (hue) on purpose — kept
@@ -51,6 +56,7 @@ export const FLAG_SEVERITY = {
   WEEK_CLOSED: 'caution',
   UNDERSERVED: 'caution',
   DISTRIBUTION: 'info',
+  CONTENT_RACE: 'caution',
 }
 
 export const SEVERITY_BAR_COLOR = {

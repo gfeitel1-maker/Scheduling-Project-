@@ -85,6 +85,9 @@ export default function ManualBuildView({
   selectedSlotKeys, pasteMode, onCellSelect,
   collapsedBlockIds = NO_COLLAPSE,
   onToggleBlockCollapsed,
+  // T105
+  electiveSetsAll = [], electiveMembersBySet, onCreateElective,
+  isContentRaced, onDismissContentRace,
 }) {
   const gridTemplateColumns = columnTracks(days.length)
   const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
@@ -213,8 +216,8 @@ export default function ManualBuildView({
                         )
                       }
 
-                      if (slot?.activity_id) {
-                        const act = actMap.get(slot.activity_id)
+                      if (slot?.activity_id || slot?.elective_set_id) {
+                        const act = slot.activity_id ? actMap.get(slot.activity_id) : null
                         const isMerged = Boolean(slot.flags?.expanded)
                         const rowSpan = geometry.getActivityRowSpan(selectedGroup, day.id, block.id)
                         const isSelected = selectedSlotKeys?.has(cellKey) ?? false
@@ -241,6 +244,11 @@ export default function ManualBuildView({
                             eligibleActivities={eligibleActivitiesFor?.(selectedGroup) ?? []}
                             onPlace={onPlace}
                             onCreateNew={onCreateNew}
+                            onCreateElective={onCreateElective}
+                            electiveSetsAll={electiveSetsAll}
+                            electiveMembersBySet={electiveMembersBySet}
+                            isContentRaced={isContentRaced?.(selectedGroup, day.id, block.id)}
+                            onDismissContentRace={() => onDismissContentRace?.(`${selectedGroup}|${day.id}|${block.id}`)}
                             onSelect={onCellSelect}
                             isDndEnabled={true}
                             isSelected={isSelected}

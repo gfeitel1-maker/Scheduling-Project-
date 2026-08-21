@@ -118,6 +118,9 @@ export const localClient = {
   // deleteWeek above (T103, docs/adr/2026-08-20-electives-authoring.md).
   deleteElectiveSet: ({ electiveSetId }) =>
     shoresh.deleteElectiveSet({ token: currentToken(), electiveSetId }),
+  // T105 §2 — the sole reuse/durable-read seam. Never a client-side filter of
+  // the generic list('elective_sets') result.
+  listDurableElectiveSets: () => shoresh.listDurableElectiveSets(currentToken()),
   onPairingRequest: (cb) => shoresh.onPairingRequest && shoresh.onPairingRequest(cb),
   onPairingApproved: (cb) => shoresh.onPairingApproved && shoresh.onPairingApproved(cb),
   onPairingDenied: (cb) => shoresh.onPairingDenied && shoresh.onPairingDenied(cb),

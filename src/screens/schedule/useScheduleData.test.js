@@ -27,7 +27,10 @@ function makeRepo(overrides = {}) {
       anchor_activities: [],
       tiers: [{ id: 't1', camp_id: CAMP_ID, sort_order: 0 }],
       cohorts: [{ id: 'coh-1', camp_id: CAMP_ID }],
+      elective_sets: [],
+      elective_set_activities: [],
     })),
+    loadDurableElectiveSets: vi.fn(async () => ([])),
     loadWeeks: vi.fn(async () => ([
       { id: 'week-1', camp_id: CAMP_ID, name: 'Week 1', sort_order: 0, is_archived: 0 },
     ])),

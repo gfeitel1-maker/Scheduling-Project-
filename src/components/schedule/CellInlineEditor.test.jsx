@@ -59,4 +59,46 @@ describe('CellInlineEditor', () => {
     fireEvent.blur(screen.getByRole('textbox'))
     expect(onCancel).toHaveBeenCalled()
   })
+
+  // T105 §1 — colon-delimiter grammar
+  describe('elective authoring (colon grammar)', () => {
+    it('a typed "name: member, member" commits via onCreateElective, parsed', () => {
+      const onCreateElective = vi.fn()
+      const onPlace = vi.fn()
+      const onCreateNew = vi.fn()
+      render(<CellInlineEditor eligibleActivities={eligible} currentActivityName={null} onPlace={onPlace} onCreateNew={onCreateNew} onCreateElective={onCreateElective} onCancel={vi.fn()} />)
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Afternoon Chugim: Kayaking, Swimming' } })
+      fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+      expect(onCreateElective).toHaveBeenCalledWith('Afternoon Chugim', ['Kayaking', 'Swimming'], 'Afternoon Chugim: Kayaking, Swimming')
+      expect(onPlace).not.toHaveBeenCalled()
+      expect(onCreateNew).not.toHaveBeenCalled()
+    })
+
+    it('shows a live chip preview while typing elective grammar, distinguishing known vs new members', () => {
+      render(<CellInlineEditor eligibleActivities={eligible} currentActivityName={null} onPlace={vi.fn()} onCreateNew={vi.fn()} onCreateElective={vi.fn()} onCancel={vi.fn()} />)
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Chugim: Swimming, Kayaking' } })
+      expect(screen.getByText('Swimming')).toBeTruthy()
+      expect(screen.getByText('Kayaking')).toBeTruthy()
+    })
+
+    it('exact-match-first guard: a colon-containing string that exactly matches an existing activity name places that activity, not an elective', () => {
+      const withColonName = [...eligible, { id: 'act-3', name: 'Free Time: Cabin Choice', priority: 'normal' }]
+      const onCreateElective = vi.fn()
+      const onPlace = vi.fn()
+      render(<CellInlineEditor eligibleActivities={withColonName} currentActivityName={null} onPlace={onPlace} onCreateNew={vi.fn()} onCreateElective={onCreateElective} onCancel={vi.fn()} />)
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Free Time: Cabin Choice' } })
+      fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+      expect(onPlace).toHaveBeenCalledWith('act-3')
+      expect(onCreateElective).not.toHaveBeenCalled()
+    })
+
+    it('a colon with no set name (blank before the colon) does not commit an elective', () => {
+      const onCreateElective = vi.fn()
+      const onCreateNew = vi.fn()
+      render(<CellInlineEditor eligibleActivities={eligible} currentActivityName={null} onPlace={vi.fn()} onCreateNew={onCreateNew} onCreateElective={onCreateElective} onCancel={vi.fn()} />)
+      fireEvent.change(screen.getByRole('textbox'), { target: { value: ': Swimming' } })
+      fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter' })
+      expect(onCreateElective).not.toHaveBeenCalled()
+    })
+  })
 })

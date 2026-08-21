@@ -1,10 +1,30 @@
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet } from './exportSanitize.js'
 
-export function exportToExcel({ slots, activities, anchors, groups, days, timeBlocks }) {
+// T105 §6 — an elective cell exports as its set (member list), not blank.
+// Dangling-reference fallback label matches §4's render fallback exactly
+// (Red Hat fold-in C: cosmetic consistency between render and export).
+const ELECTIVE_REMOVED_LABEL = 'Elective (removed)'
+
+function electiveCellLabel(slot, electiveSetLookup, electiveMembersBySet, actLookup) {
+  const set = electiveSetLookup.get(slot.elective_set_id)
+  if (!set) return ELECTIVE_REMOVED_LABEL
+  const memberNames = (electiveMembersBySet.get(slot.elective_set_id) || [])
+    .map(activityId => actLookup.get(activityId))
+    .filter(Boolean)
+  return memberNames.length ? `${set.name} (${memberNames.join(', ')})` : set.name
+}
+
+export function exportToExcel({ slots, activities, anchors, groups, days, timeBlocks, electiveSets = [], electiveSetActivities = [] }) {
   const wb = XLSX.utils.book_new()
   const actLookup = new Map(activities.map(a => [a.id, a.name]))
   const anchorLookup = new Map(anchors.map(a => [a.id, a.name]))
+  const electiveSetLookup = new Map(electiveSets.map(s => [s.id, s]))
+  const electiveMembersBySet = new Map()
+  for (const m of electiveSetActivities) {
+    if (!electiveMembersBySet.has(m.elective_set_id)) electiveMembersBySet.set(m.elective_set_id, [])
+    electiveMembersBySet.get(m.elective_set_id).push(m.activity_id)
+  }
 
   // One sheet per day
   for (const day of days) {
@@ -15,6 +35,7 @@ export function exportToExcel({ slots, activities, anchors, groups, days, timeBl
         const slot = slots.find(s => s.group_id === group.id && s.day_id === day.id && s.time_block_id === block.id)
         if (!slot) { row.push(''); continue }
         if (slot.is_anchor) { row.push(anchorLookup.get(slot.anchor_id) || 'Anchor'); continue }
+        if (slot.elective_set_id) { row.push(electiveCellLabel(slot, electiveSetLookup, electiveMembersBySet, actLookup)); continue }
         if (slot.activity_id) { row.push(actLookup.get(slot.activity_id) || ''); continue }
         row.push('')
       }
@@ -36,7 +57,9 @@ export function exportToExcel({ slots, activities, anchors, groups, days, timeBl
         if (!slot) continue
         const actName = slot.is_anchor
           ? `[Anchor] ${anchorLookup.get(slot.anchor_id) || ''}`
-          : (actLookup.get(slot.activity_id) || '')
+          : slot.elective_set_id
+            ? electiveCellLabel(slot, electiveSetLookup, electiveMembersBySet, actLookup)
+            : (actLookup.get(slot.activity_id) || '')
         masterRows.push([group.name, day.label, block.name, actName])
       }
     }

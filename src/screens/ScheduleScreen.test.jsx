@@ -20,6 +20,9 @@ vi.mock('../localClient', () => ({
     bulkReplace: vi.fn(),
     onOpApplied: vi.fn((cb) => { opAppliedListeners.push(cb) }),
     getDeviceId: vi.fn(),
+    // T105 §2 — the durable-read seam, called once per load alongside
+    // loadSetupLists' generic list('elective_sets').
+    listDurableElectiveSets: vi.fn(),
   },
 }))
 
@@ -106,6 +109,7 @@ beforeEach(() => {
   localClient.bulkReplace.mockReset().mockResolvedValue({ status: 'applied' })
   localClient.onOpApplied.mockReset().mockImplementation((cb) => { opAppliedListeners.push(cb) })
   localClient.getDeviceId.mockReset().mockResolvedValue('device-local')
+  localClient.listDurableElectiveSets.mockReset().mockResolvedValue([])
   // Clear captured listeners before each test so one test's listener
   // callbacks can't fire in a later test's assertion window.
   opAppliedListeners.length = 0

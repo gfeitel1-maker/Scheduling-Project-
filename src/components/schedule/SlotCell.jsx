@@ -59,6 +59,12 @@ export default function SlotCell({
   // by the caller, ScheduleScreen's eligibleActivitiesFor); onPlace/onCreateNew
   // are called with (slot, ...) once the inline editor resolves.
   eligibleActivities = [], onPlace, onCreateNew,
+  // T105 — elective authoring/render. electiveSetsAll/electiveMembersBySet
+  // are the RENDER lookups (design §2 — the unfiltered list; a one-off must
+  // render). onCreateElective is CellInlineEditor's third commit path.
+  // isContentRaced/onDismissContentRace surface the CONTENT_RACE flag (§5).
+  electiveSetsAll = [], electiveMembersBySet, onCreateElective,
+  isContentRaced = false, onDismissContentRace,
   // Stamp mode (field-trip overlay tool) intercepts a plain click with its own
   // action instead of activating inline write — same precedence the old
   // `onEdit={cellClickHandler || ...}` gave it.
@@ -121,6 +127,7 @@ export default function SlotCell({
     // is now resolved from pointer coordinates, so "not a drop target" has to be
     // readable off the element itself — resolveHit reads exactly this.
     'data-drop-disabled': !isDndEnabled || isLocked ? '' : undefined,
+    'data-elective': slot?.elective_set_id ? '' : undefined,
   }
 
   function triggerPress() {
@@ -194,6 +201,16 @@ export default function SlotCell({
   // Manual route only. Slate dot in the top-LEFT corner (clear of the top-right
   // flag cluster) — the activity or its group is marked not to run this week.
   const isWeekClosed = Boolean(flags.WEEK_CLOSED)
+  // T105 §4 — dangling-reference fallback: slot.elective_set_id can point at
+  // a set deleted from another device (or a race with an in-flight delete).
+  // A missing set renders a plain, non-alarming placeholder rather than a
+  // blank cell (indistinguishable from "Unassigned") or a thrown lookup
+  // error — same `set ? ... : ''` shape §6's export uses.
+  const electiveSet = slot.elective_set_id ? electiveSetsAll.find(s => s.id === slot.elective_set_id) : null
+  const electiveMemberCount = slot.elective_set_id ? (electiveMembersBySet?.get(slot.elective_set_id)?.length ?? 0) : 0
+  const electiveLabel = slot.elective_set_id
+    ? (electiveSet ? `${electiveSet.name}${electiveMemberCount ? ` (${electiveMemberCount})` : ''}` : 'Elective (removed)')
+    : null
   const isOutdoor = Boolean(activity?.is_outdoor)
   const showOutdoorIcon = isOutdoor && !isUnfillable
   const isWeatherHighlight = weatherMode && showOutdoorIcon
@@ -335,17 +352,18 @@ export default function SlotCell({
         {editing ? (
           <CellInlineEditor
             eligibleActivities={eligibleActivities}
-            currentActivityName={activity?.name ?? null}
+            currentActivityName={activity?.name ?? electiveLabel ?? null}
             onPlace={(activityId) => { setEditing(false); onPlace?.(slot, activityId) }}
             onCreateNew={(name) => { setEditing(false); onCreateNew?.(slot, name) }}
+            onCreateElective={onCreateElective ? (setName, memberNames) => { setEditing(false); onCreateElective(slot, setName, memberNames) } : undefined}
             onCancel={() => setEditing(false)}
           />
         ) : (
-          <div className="cell-name" data-unassigned={!activity ? '' : undefined}>
+          <div className="cell-name" data-unassigned={!activity && !electiveLabel ? '' : undefined}>
             {showIdentityDot && activity && (
               <span className="identity-dot" style={{ background: color }} />
             )}
-            {activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned')}
+            {electiveLabel || activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned')}
           </div>
         )}
         {isOverlapping && (
@@ -366,6 +384,16 @@ export default function SlotCell({
           <div className="flag flag--unfillable" title="Unfillable">
             <UnfillableIcon />
           </div>
+        )}
+        {isContentRaced && (
+          <button
+            type="button"
+            className="flag flag--content-race"
+            style={{ background: FLAG_COLORS.CONTENT_RACE, border: 'none', padding: 0, cursor: 'pointer' }}
+            title="This cell was changed by another device — dismiss"
+            aria-label="This cell was changed by another device — dismiss"
+            onClick={e => { e.stopPropagation(); onDismissContentRace?.() }}
+          />
         )}
         {showOutdoorIcon && (
           <div className="flag flag--outdoor" title="Outdoor activity">

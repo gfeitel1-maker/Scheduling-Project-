@@ -68,6 +68,11 @@ export function useSlotMutations({
   days,
   timeBlocks,
   campId,
+  // T105 §2 — two distinct lists, never conflated: electiveSetsAll is the
+  // render surface (renders one-offs too), durableElectiveSets is the
+  // is_reusable=1 reuse surface (CellInlineEditor's exact-match lookup).
+  electiveSetsAll = [],
+  durableElectiveSets = [],
 }) {
   const {
     route,
@@ -147,6 +152,16 @@ export function useSlotMutations({
   // real leak. Do NOT reintroduce a clear-on-route-switch here.
   const cellQueueRef = useRef(new Map())
 
+  // T105 §5 — the shared choke point useContentRaceFlag reads from. Populated
+  // by runMutation's own onSuccess path (below), covering every forward/undo/
+  // redo write that touches a cell's activity_id/elective_set_id at one place
+  // rather than a separate hook-in per caller. `kind` is
+  // `activity:<id>` | `elective:<id>` | `empty`; `atWriteToken` is a
+  // Date.now() timestamp for useContentRaceFlag's RECENCY_WINDOW_MS check.
+  // Never cleared on route switch here — useContentRaceFlag owns its own
+  // reset (it reads this ref, it does not own its lifetime).
+  const ownWriteRef = useRef(new Map())
+
   function cellKey(groupId, dayId, blockId) {
     return `${route}|${templateId}|${groupId}|${dayId}|${blockId}`
   }
@@ -222,7 +237,13 @@ export function useSlotMutations({
   // finding 1/2's multi-cell atomicity: nothing fires for a dropped op),
   // `{ error }` when getError() reports one (onError fires, no onSuccess),
   // otherwise onSuccess fires with the dispatch's own result.
-  async function runMutation({ keys, claimId, dispatch, getError, onError, onSuccess }) {
+  // `ownWriteKinds` (T105 §5, Red Hat fold-in A): an optional
+  // `{ [cellKey]: kind }` map recorded into ownWriteRef immediately after a
+  // successful onSuccess — the ONE place every own-write is captured,
+  // regardless of which of the ~13 call sites below fired. A caller that
+  // doesn't touch activity_id/elective_set_id (dismissFlag, releaseCell's
+  // is_released, overlays) simply omits it.
+  async function runMutation({ keys, claimId, dispatch, getError, onError, onSuccess, ownWriteKinds }) {
     const outcome = await claimAndRun(keys, claimId, dispatch)
     const error = getError ? getError() : undefined
     if (error) {
@@ -231,6 +252,12 @@ export function useSlotMutations({
     }
     if (outcome.dropped) return { dropped: true }
     onSuccess?.(outcome.result)
+    if (ownWriteKinds) {
+      const atWriteToken = Date.now()
+      for (const [key, kind] of Object.entries(ownWriteKinds)) {
+        ownWriteRef.current.set(key, { kind, atWriteToken })
+      }
+    }
     return { dropped: false }
   }
 
@@ -340,6 +367,11 @@ export function useSlotMutations({
           return next
         })
       },
+      ownWriteKinds: {
+        [targetKey]: `activity:${incoming.activityId}`,
+        ...(sourceKey ? { [sourceKey]: 'empty' } : {}),
+        ...Object.fromEntries(tailRows.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), 'empty'])),
+      },
     })
     if (writeError || dropped) return // fully superseded before dispatch, or write failed: no setSlots, no pushUndo
 
@@ -393,6 +425,11 @@ export function useSlotMutations({
               return next
             })
           },
+          ownWriteKinds: {
+            [targetKey]: prevTargetActivityId ? `activity:${prevTargetActivityId}` : 'empty',
+            ...(sourceKey ? { [sourceKey]: prevSourceActivityId ? `activity:${prevSourceActivityId}` : 'empty' } : {}),
+            ...Object.fromEntries(tailRows.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), t.activity_id ? `activity:${t.activity_id}` : 'empty'])),
+          },
         })
       },
       redo: async () => {
@@ -424,6 +461,11 @@ export function useSlotMutations({
               slotsRef.current = next
               return next
             })
+          },
+          ownWriteKinds: {
+            [targetKey]: `activity:${incoming.activityId}`,
+            ...(sourceKey ? { [sourceKey]: 'empty' } : {}),
+            ...Object.fromEntries(tailRows.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), 'empty'])),
           },
         })
       },
@@ -476,6 +518,10 @@ export function useSlotMutations({
       return
     }
     setSlots(prev => prev.map(s => s.id === slotId ? { ...s, is_released: true } : s))
+    // releaseCell only unlocks (is_released), it never touches activity_id/
+    // elective_set_id — no ownWriteRef entry belongs here (T105 §5 table:
+    // releaseCell's 'empty' entry is for a FUTURE cell-clear action, not this
+    // one; unlocking a locked cell does not change its content).
   }
 
   async function addOverlay({ unitId, dayId, fromBlockOrder, toBlockOrder, label }) {
@@ -631,6 +677,7 @@ export function useSlotMutations({
           return next
         })
       },
+      ownWriteKinds: { [key]: `activity:${activityId}` },
     })
     if (writeError || dropped) return // fully superseded before dispatch, or write failed: no setSlots, no pushUndo
 
@@ -656,6 +703,7 @@ export function useSlotMutations({
               return next
             })
           },
+          ownWriteKinds: { [key]: prevActivityId ? `activity:${prevActivityId}` : 'empty' },
         })
       },
       redo: async () => {
@@ -676,6 +724,7 @@ export function useSlotMutations({
               return next
             })
           },
+          ownWriteKinds: { [key]: `activity:${activityId}` },
         })
       },
     })
@@ -747,6 +796,7 @@ export function useSlotMutations({
           return next
         })
       },
+      ownWriteKinds: { [tailKey]: headActivityId ? `activity:${headActivityId}` : 'empty' },
     })
     if (writeError || dropped) return // fully superseded before dispatch, or write failed: no setSlots, no pushUndo
 
@@ -777,6 +827,7 @@ export function useSlotMutations({
               return next
             })
           },
+          ownWriteKinds: { [tailKey]: prevTailActivityId ? `activity:${prevTailActivityId}` : 'empty' },
         })
       },
       redo: async () => {
@@ -804,6 +855,7 @@ export function useSlotMutations({
               return next
             })
           },
+          ownWriteKinds: { [tailKey]: headActivityId ? `activity:${headActivityId}` : 'empty' },
         })
       },
     })
@@ -865,6 +917,7 @@ export function useSlotMutations({
           return next
         })
       },
+      ownWriteKinds: { [tailKey]: 'empty' },
     })
     if (writeError || dropped) return // fully superseded before dispatch, or write failed: no setSlots, no pushUndo
 
@@ -901,6 +954,7 @@ export function useSlotMutations({
               return next
             })
           },
+          ownWriteKinds: { [tailKey]: prevTailActivityId ? `activity:${prevTailActivityId}` : 'empty' },
         })
       },
       redo: async () => {
@@ -928,6 +982,7 @@ export function useSlotMutations({
               return next
             })
           },
+          ownWriteKinds: { [tailKey]: 'empty' },
         })
       },
     })
@@ -940,19 +995,12 @@ export function useSlotMutations({
   // default. Re-checks for a normalized-name dup defensively — CellInlineEditor
   // already resolves an exact match to onPlace, not onCreateNew, but a second
   // inline-write could race the same name between typing and Enter.
-  async function createActivityFromCell(name, target) {
-    const trimmed = String(name ?? '').trim()
-    if (!trimmed) return
-
-    const dupe = activities.find(a => normalizeName(a.name) === normalizeName(trimmed))
-    if (dupe) {
-      await placeActivityManual(dupe.id, target.groupId, target.dayId, target.blockId)
-      return
-    }
-
-    const newId = crypto.randomUUID()
-    const fields = {
-      name: trimmed,
+  // Extracted so createElectiveFromCell's member-creation loop calls the
+  // SAME object builder createActivityFromCell already uses — not a
+  // duplicate literal (T105 design §1's "Reused vs. new").
+  function newActivityDefaultFields(trimmedName) {
+    return {
+      name: trimmedName,
       camp_id: campId,
       priority: null,
       is_locked: false,
@@ -973,6 +1021,20 @@ export function useSlotMutations({
       weather_alternative_id: null,
       notes: null,
     }
+  }
+
+  async function createActivityFromCell(name, target) {
+    const trimmed = String(name ?? '').trim()
+    if (!trimmed) return
+
+    const dupe = activities.find(a => normalizeName(a.name) === normalizeName(trimmed))
+    if (dupe) {
+      await placeActivityManual(dupe.id, target.groupId, target.dayId, target.blockId)
+      return
+    }
+
+    const newId = crypto.randomUUID()
+    const fields = newActivityDefaultFields(trimmed)
 
     setActionError(null)
     try {
@@ -987,6 +1049,227 @@ export function useSlotMutations({
     await placeActivityManual(newId, target.groupId, target.dayId, target.blockId, newRow)
   }
 
+  // T105 §1 — the elective-authoring commit path, sibling to
+  // createActivityFromCell rather than a rewrite of it. `memberNames` are
+  // resolved to activity ids by reusing createActivityFromCell's own
+  // dedupe-by-normalized-name check (not a second matcher); a name with no
+  // exact existing activity mints a new one via newActivityDefaultFields.
+  // Member creation + the elective_sets/elective_set_activities writes are
+  // sequential repo.write calls, the same granularity createActivityFromCell
+  // already accepts for the single-activity case — not a bigger transaction
+  // (design §1's "Ordering/atomicity note").
+  async function createElectiveFromCell(setName, memberNames, target) {
+    if (!existingTemplates[route]) return
+    const trimmedSet = String(setName ?? '').trim()
+    if (!trimmedSet) return
+
+    const targetRow = slots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+    if (!targetRow || targetRow.is_anchor) return
+
+    setActionError(null)
+
+    // Reuse-from-existing-durable-set (design §1): an exact name match against
+    // the DURABLE list (never electiveSetsAll) places that set directly,
+    // rather than minting a duplicate.
+    const durableMatch = durableElectiveSets.find(s => normalizeName(s.name) === normalizeName(trimmedSet))
+    if (durableMatch) {
+      await placeElectiveOnCell(durableMatch.id, target, targetRow)
+      return
+    }
+
+    const memberIds = []
+    for (const rawName of memberNames ?? []) {
+      const trimmed = String(rawName ?? '').trim()
+      if (!trimmed) continue
+      const dupe = activities.find(a => normalizeName(a.name) === normalizeName(trimmed))
+      if (dupe) { memberIds.push(dupe.id); continue }
+      const newId = crypto.randomUUID()
+      const fields = newActivityDefaultFields(trimmed)
+      try {
+        await repo.writeActivityFields(newId, fields)
+      } catch (err) {
+        setActionError(describeWriteFailure(err, 'That activity could not be created.'))
+        return
+      }
+      setActivities(prev => [...prev, { id: newId, ...fields }])
+      memberIds.push(newId)
+    }
+    if (memberIds.length === 0) return // no valid members typed — do not write an empty elective
+
+    const electiveSetId = crypto.randomUUID()
+    try {
+      await repo.writeElectiveSetFields(electiveSetId, { name: trimmedSet, camp_id: campId, is_reusable: 0 })
+      for (const activityId of memberIds) {
+        await repo.writeElectiveSetActivityFields(crypto.randomUUID(), { elective_set_id: electiveSetId, activity_id: activityId })
+      }
+    } catch (err) {
+      setActionError(describeWriteFailure(err, 'That elective could not be created.'))
+      return
+    }
+
+    await placeElectiveOnCell(electiveSetId, target, targetRow, { isFreshOneOff: true })
+  }
+
+  // Cell write for an elective (both the fresh-mint path and the reuse-a-
+  // durable-set path share this): span-head-aware exactly like replaceSlot —
+  // collectSpanTails releases any covered tail rows in the same gesture
+  // (design §3), and the whole write goes through the same claim/chain/
+  // dispatch primitive as every other mutation.
+  async function placeElectiveOnCell(electiveSetId, target, targetRow, { isFreshOneOff = false } = {}) {
+    const claimId = crypto.randomUUID()
+    const targetKey = cellKey(target.groupId, target.dayId, target.blockId)
+
+    const freshSlots = slotsRef.current
+    const freshTargetRow = freshSlots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId) ?? targetRow
+    const prevTargetActivityId = freshTargetRow.activity_id ?? null
+    const prevTargetElectiveSetId = freshTargetRow.elective_set_id ?? null
+    const prevTargetFlags = freshTargetRow.flags ?? {}
+
+    const spanTailRows = collectSpanTails(freshSlots, timeBlocks, target, freshTargetRow)
+    const tailKeys = spanTailRows.map(t => cellKey(t.group_id, t.day_id, t.time_block_id))
+    const keys = [...new Set([targetKey, ...tailKeys])].sort()
+
+    let writeError = null
+    const { dropped } = await runMutation({
+      keys,
+      claimId,
+      dispatch: async () => {
+        try {
+          const writes = [repo.writeSlotFields(targetRow.id, { elective_set_id: electiveSetId, activity_id: null, flags: {} })]
+          for (const tail of spanTailRows) {
+            writes.push(repo.writeSlotFields(tail.id, { activity_id: null, is_span_head: true, flags: {} }))
+          }
+          await Promise.all(writes)
+        } catch (err) {
+          writeError = err
+        }
+      },
+      getError: () => writeError,
+      onError: (err) => setActionError(describeWriteFailure(err, 'That elective could not be placed.')),
+      onSuccess: () => {
+        setSlots(prev => {
+          const next = prev.map(s => {
+            if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+              return { ...s, elective_set_id: electiveSetId, activity_id: null, flags: {} }
+            if (spanTailRows.some(t => t.id === s.id))
+              return { ...s, activity_id: null, is_span_head: true, flags: {} }
+            return s
+          })
+          recalcStats(next)
+          recalcFindings(next)
+          slotsRef.current = next
+          return next
+        })
+      },
+      ownWriteKinds: {
+        [targetKey]: `elective:${electiveSetId}`,
+        ...Object.fromEntries(tailKeys.map(k => [k, 'empty'])),
+      },
+    })
+    if (writeError || dropped) return
+
+    const set = electiveSetsAll.find(s => s.id === electiveSetId)
+    pushUndo({
+      description: `Placed ${set?.name ?? 'an elective'}`,
+      undo: async () => {
+        let undoWriteError = null
+        await runMutation({
+          keys,
+          claimId: crypto.randomUUID(),
+          dispatch: async () => {
+            try {
+              await Promise.all([
+                repo.writeSlotFields(targetRow.id, {
+                  elective_set_id: prevTargetElectiveSetId,
+                  activity_id: prevTargetActivityId,
+                  flags: prevTargetFlags,
+                }),
+                ...spanTailRows.map(tail => repo.writeSlotFields(tail.id, {
+                  activity_id: tail.activity_id,
+                  is_span_head: false,
+                  flags: tail.flags ?? {},
+                })),
+              ])
+            } catch (err) { undoWriteError = err }
+          },
+          getError: () => undoWriteError,
+          onSuccess: () => {
+            setSlots(prev => {
+              const next = prev.map(s => {
+                if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+                  return { ...s, elective_set_id: prevTargetElectiveSetId, activity_id: prevTargetActivityId, flags: prevTargetFlags }
+                const tail = spanTailRows.find(t => t.id === s.id)
+                if (tail) return { ...s, activity_id: tail.activity_id, is_span_head: false, flags: tail.flags ?? {} }
+                return s
+              })
+              slotsRef.current = next
+              return next
+            })
+          },
+          ownWriteKinds: {
+            [targetKey]: prevTargetElectiveSetId ? `elective:${prevTargetElectiveSetId}` : (prevTargetActivityId ? `activity:${prevTargetActivityId}` : 'empty'),
+            ...Object.fromEntries(spanTailRows.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), t.activity_id ? `activity:${t.activity_id}` : 'empty'])),
+          },
+        })
+        // Undo-time one-off cleanup (Red Hat fold-in B): a FRESH read of
+        // is_reusable, never the value captured at forward-write time — a set
+        // promoted or synced to reusable between the forward write and this
+        // undo must survive. Best-effort: a failure here leaves an orphaned
+        // one-off elective_sets row, which is harmless (findable/deletable
+        // like any hand-created row), never a thrown/blocking error.
+        if (isFreshOneOff) {
+          try {
+            const currentIsReusable = await repo.readElectiveSetIsReusable(electiveSetId)
+            const stillOneOff = currentIsReusable === 0 || currentIsReusable === '0' || currentIsReusable === false || currentIsReusable == null
+            if (stillOneOff) await repo.deleteElectiveSet(electiveSetId)
+          } catch {
+            // best-effort — see comment above
+          }
+        }
+      },
+      redo: async () => {
+        // Redo re-applies the SAME electiveSetId/member rows the original
+        // forward write created — it never re-resolves member names or mints
+        // a new set id (design §1). If undo deleted the one-off set, the
+        // redo write below still targets the same id; a dangling
+        // elective_set_id renders 'Elective (removed)' rather than throwing,
+        // which is the documented asymmetry this design calls out explicitly.
+        let redoWriteError = null
+        await runMutation({
+          keys,
+          claimId: crypto.randomUUID(),
+          dispatch: async () => {
+            try {
+              const writes = [repo.writeSlotFields(targetRow.id, { elective_set_id: electiveSetId, activity_id: null, flags: {} })]
+              for (const tail of spanTailRows) {
+                writes.push(repo.writeSlotFields(tail.id, { activity_id: null, is_span_head: true, flags: {} }))
+              }
+              await Promise.all(writes)
+            } catch (err) { redoWriteError = err }
+          },
+          getError: () => redoWriteError,
+          onSuccess: () => {
+            setSlots(prev => {
+              const next = prev.map(s => {
+                if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+                  return { ...s, elective_set_id: electiveSetId, activity_id: null, flags: {} }
+                if (spanTailRows.some(t => t.id === s.id))
+                  return { ...s, activity_id: null, is_span_head: true, flags: {} }
+                return s
+              })
+              slotsRef.current = next
+              return next
+            })
+          },
+          ownWriteKinds: {
+            [targetKey]: `elective:${electiveSetId}`,
+            ...Object.fromEntries(tailKeys.map(k => [k, 'empty'])),
+          },
+        })
+      },
+    })
+  }
+
   return {
     replaceSlot,
     dismissFlag,
@@ -999,5 +1282,7 @@ export function useSlotMutations({
     expandSlot,
     splitSlot,
     createActivityFromCell,
+    createElectiveFromCell,
+    ownWriteRef,
   }
 }

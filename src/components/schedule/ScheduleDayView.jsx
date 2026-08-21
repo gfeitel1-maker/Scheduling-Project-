@@ -51,6 +51,9 @@ export default function ScheduleDayView({
   highlightColor = 'var(--danger)',
   collapsedBlockIds = NO_COLLAPSE,
   onToggleBlockCollapsed,
+  // T105
+  electiveSetsAll = [], electiveMembersBySet, onCreateElective,
+  isContentRaced, onDismissContentRace,
 }) {
   const gridTemplateColumns = columnTracks(groups.length)
   const rowTracks = buildRowTracks({ timeBlocks, collapsedBlockIds })
@@ -202,6 +205,11 @@ export default function ScheduleDayView({
                           eligibleActivities={eligibleActivitiesFor?.(group.id) ?? []}
                           onPlace={onPlace}
                           onCreateNew={onCreateNew}
+                          onCreateElective={onCreateElective}
+                          electiveSetsAll={electiveSetsAll}
+                          electiveMembersBySet={electiveMembersBySet}
+                          isContentRaced={isContentRaced?.(group.id, selectedDay, block.id)}
+                          onDismissContentRace={() => onDismissContentRace?.(`${group.id}|${selectedDay}|${block.id}`)}
                           onRelease={s => releaseCell(s.id)}
                           isLocked={isLocked}
                           isDndEnabled={!isLocked && !stampMode}

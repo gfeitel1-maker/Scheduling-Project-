@@ -1156,6 +1156,12 @@ export const mockShoresh = {
     if (!key || !Array.isArray(state[entity])) return []
     return state[entity].filter((row) => row[key] === scopeId)
   },
+  // T105 §2 — mirrors listDurableElectiveSetsHandler (electron/main.js):
+  // is_reusable = 1 rows only, never the unfiltered list('elective_sets').
+  async listDurableElectiveSets() {
+    const state = loadState()
+    return (state.elective_sets || []).filter((s) => s.is_reusable === 1)
+  },
   async getDeviceId() {
     return 'mock-device'
   },

@@ -299,17 +299,28 @@ describe('reads — fetch + normalize', () => {
     expect(data.snapshots).toEqual([{ id: 'snap1', template_id: 'tid' }])
   })
 
-  it('loadSetupLists fetches the eight setup entities and keys them by entity name', async () => {
+  it('loadSetupLists fetches the ten setup entities and keys them by entity name (T105 adds electiveSetsAll\'s two)', async () => {
     const client = makeFakeClient()
     client.setListStore({ groups: [{ id: 'g1' }], activities: [{ id: 'a1' }], locations: [{ id: 'L1' }] })
     const repo = createScheduleRepository({ localClient: client, getToken })
     const lists = await repo.loadSetupLists()
     expect(client.calls.list).toEqual([
       'groups', 'days_of_operation', 'time_blocks', 'activities', 'anchor_activities', 'tiers', 'cohorts', 'locations',
+      'elective_sets', 'elective_set_activities',
     ])
     expect(lists.groups).toEqual([{ id: 'g1' }])
     expect(lists.activities).toEqual([{ id: 'a1' }])
     expect(lists.locations).toEqual([{ id: 'L1' }])
+  })
+
+  // T105 §2 — the durable-read seam is a SEPARATE call, never a client-side
+  // filter of loadSetupLists' elective_sets.
+  it('loadDurableElectiveSets calls the dedicated listDurableElectiveSets primitive, not list("elective_sets")', async () => {
+    const client = makeFakeClient()
+    client.listDurableElectiveSets = async () => [{ id: 'es-1', name: 'Durable', is_reusable: 1 }]
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    const rows = await repo.loadDurableElectiveSets()
+    expect(rows).toEqual([{ id: 'es-1', name: 'Durable', is_reusable: 1 }])
   })
 
   it('reloadSlots calls listByScope(template_slots, templateId) and normalizes the result', async () => {

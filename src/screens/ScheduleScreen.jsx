@@ -37,6 +37,7 @@ import { useSlotMutations } from './schedule/useSlotMutations'
 import { ROUTES, useRouteState } from './schedule/useRouteState'
 import { useScheduleData, recalcStats as recalcStatsPure, recalcFindings as recalcFindingsPure } from './schedule/useScheduleData'
 import { useFlagChangeAck } from './schedule/useFlagChangeAck'
+import { useContentRaceFlag } from './schedule/useContentRaceFlag'
 import ScheduleGroupView from '../components/schedule/ScheduleGroupView'
 import ScheduleDayView from '../components/schedule/ScheduleDayView'
 import ScheduleActivityView from '../components/schedule/ScheduleActivityView'
@@ -103,7 +104,17 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     weekId, weekDeletedBanner, setWeekDeletedBanner, exclusions,
     templateData, loading, loadError, templateError, reload,
   } = useScheduleData({ campId, weekId: preferredWeekId, repo, routes: ROUTES })
-  const { groups, days, timeBlocks, activities, anchors, tiers, cohorts, locations } = setupLists
+  const { groups, days, timeBlocks, activities, anchors, tiers, cohorts, locations, electiveSetsAll, electiveSetActivities, durableElectiveSets } = setupLists
+  // T105 §4/§6 render/export lookup — one member-id array per elective set,
+  // built once per electiveSetActivities change.
+  const electiveMembersBySet = useMemo(() => {
+    const map = new Map()
+    for (const m of electiveSetActivities || []) {
+      if (!map.has(m.elective_set_id)) map.set(m.elective_set_id, [])
+      map.get(m.elective_set_id).push(m.activity_id)
+    }
+    return map
+  }, [electiveSetActivities])
   const { activityExclusions, groupExclusions, locationExclusions } = exclusions
 
   // Keep `preferredWeekId` converged with the resolved week so the NEXT load
@@ -231,12 +242,17 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     recalcStats, recalcFindings,
     getSlot, setActivities,
     slots, groups, activities, locations, days, timeBlocks, campId,
+    electiveSetsAll, durableElectiveSets,
   })
   const {
     replaceSlot, dismissFlag, lockActivity, releaseCell,
     removeOverlay, placeActivityManual, expandSlot, splitSlot,
-    createActivityFromCell,
+    createActivityFromCell, createElectiveFromCell, ownWriteRef,
   } = slotMutations
+
+  // T105 §5 — CONTENT_RACE: derived, render-time, locally-dismissible.
+  const { racedKeys, dismiss: dismissContentRace } = useContentRaceFlag(slots, route, ownWriteRef)
+  const isContentRaced = (groupId, dayId, blockId) => racedKeys.includes(`${groupId}|${dayId}|${blockId}`)
 
   // Inline-write cell editor (replaces the removed EditModal picklist,
   // 2026-08-09): eligibleActivitiesFor consumes the same isActivityEligibleForGroup
@@ -272,6 +288,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     const dayId = slot.dayId ?? slot.day_id
     const blockId = slot.blockId ?? slot.time_block_id
     createActivityFromCell(name, { groupId, dayId, blockId })
+  }
+
+  function handleCellCreateElective(slot, setName, memberNames) {
+    const groupId = slot.groupId ?? slot.group_id
+    const dayId = slot.dayId ?? slot.day_id
+    const blockId = slot.blockId ?? slot.time_block_id
+    createElectiveFromCell(setName, memberNames, { groupId, dayId, blockId })
   }
 
   // addOverlay / updateOverlayRange are consumed by useOverlayFillStamp, which
@@ -752,7 +775,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const startRoute = { manual: placeAnchors, generated: generate }
 
   function exportRoute(r) {
-    exportToExcel({ slots: slotsByRoute[r], activities, anchors, groups, days, timeBlocks })
+    exportToExcel({ slots: slotsByRoute[r], activities, anchors, groups, days, timeBlocks, electiveSets: electiveSetsAll, electiveSetActivities })
   }
 
   // If only one route has been started there is no choice to make and nothing
@@ -1107,6 +1130,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 eligibleActivitiesFor={eligibleActivitiesFor}
                 onPlace={handleCellPlace}
                 onCreateNew={handleCellCreateNew}
+                onCreateElective={handleCellCreateElective}
+                electiveSetsAll={electiveSetsAll}
+                electiveMembersBySet={electiveMembersBySet}
+                isContentRaced={isContentRaced}
+                onDismissContentRace={dismissContentRace}
                 onExpandSlot={expandSlot}
                 onSplitSlot={splitSlot}
                 selectedSlotKeys={selectedSlotKeys}
@@ -1137,6 +1165,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 eligibleActivitiesFor={eligibleActivitiesFor}
                 onPlace={handleCellPlace}
                 onCreateNew={handleCellCreateNew}
+                onCreateElective={handleCellCreateElective}
+                electiveSetsAll={electiveSetsAll}
+                electiveMembersBySet={electiveMembersBySet}
+                isContentRaced={isContentRaced}
+                onDismissContentRace={dismissContentRace}
                 fillState={fillState}
                 onExpandSlot={expandSlot}
                 onSplitSlot={splitSlot}
@@ -1173,6 +1206,11 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 eligibleActivitiesFor={eligibleActivitiesFor}
                 onPlace={handleCellPlace}
                 onCreateNew={handleCellCreateNew}
+                onCreateElective={handleCellCreateElective}
+                electiveSetsAll={electiveSetsAll}
+                electiveMembersBySet={electiveMembersBySet}
+                isContentRaced={isContentRaced}
+                onDismissContentRace={dismissContentRace}
                 fillState={fillState}
                 showIdentityDot={isManual}
                 highlightMap={highlightMap}

@@ -287,6 +287,42 @@
   pointer-events: none;
 }
 
+/* T105 §5 — CONTENT_RACE: bottom-left corner, clear of the top clusters
+   above (overlap/week-closed top-left, unfillable/outdoor top-right). A
+   dismissible notice, not a hard failure — same dot shape as OVERLAP/
+   WEEK_CLOSED but a distinct corner so all three can co-occur legibly. */
+.flag--content-race {
+  bottom: 6px;
+  left: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px var(--surface);
+}
+
+/* T105 §4 — elective cell: diagonal-hatch background reads as "this cell
+   holds a GROUP of things" without picking a 7th activity hue (the
+   ACTIVITY_COLORS six-color/greyscale-legible constraint slotCellConstants.
+   test.js guards). Layered as a background-image so the activity-colour
+   identity dot / structural bars underneath are unaffected. */
+.cell[data-elective] .cell-inner {
+  background-image: repeating-linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--text) 6%, transparent) 0,
+    color-mix(in srgb, var(--text) 6%, transparent) 1px,
+    transparent 1px,
+    transparent 7px
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell[data-elective] .cell-inner {
+    background-image: none;
+    outline: 1px dashed color-mix(in srgb, var(--text) 25%, transparent);
+    outline-offset: -1px;
+  }
+}
+
 /* ---------- empty cells (spec §7 — visible, not invisible) ---------- */
 
 .cell-empty {
@@ -775,4 +811,34 @@
 .cell-inline-editor-suggestion--create {
   color: var(--primary);
   font-weight: 600;
+}
+
+/* T105 §1 — elective chip preview: rendered BELOW the input during editing
+   only (edit-time-only visual growth, not a permanent layout change), one
+   chip per parsed member token, live. */
+.cell-inline-editor-elective-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--border);
+}
+
+.cell-inline-editor-chip {
+  font-size: 11px;
+  font-family: var(--font-sans);
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+/* A chip with no exact-matching existing activity — will be created on
+   commit. Distinguished by border colour, the non-colour-alone channel is
+   the text itself ("will be created" is implicit from context, matching the
+   existing single-activity "Create ..." suggestion's own convention). */
+.cell-inline-editor-chip:not([data-known]) {
+  border-color: var(--primary);
+  color: var(--primary);
 }

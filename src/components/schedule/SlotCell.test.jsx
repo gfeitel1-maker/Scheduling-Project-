@@ -318,3 +318,64 @@ describe('shared cell components render placed gridcells (T56)', () => {
     expect(screen.queryByRole('textbox')).toBeNull()
   })
 })
+
+// T105 §4 — elective cell render (design's symmetric pair: a one-off never
+// leaks into the reuse surface (localClient.mock.electives.test.js), and never
+// FAILS to render on the render surface — this is the flip side).
+describe('SlotCell — elective render (T105)', () => {
+  const electiveSlot = {
+    id: 's3', groupId: 'g1', dayId: 'd1', blockId: 'b1',
+    type: 'activity', activity_id: null, elective_set_id: 'set-1', flags: {},
+  }
+
+  it('renders a ONE-OFF (is_reusable=0) elective set correctly from electiveSetsAll — the render surface must never be the durable-only list', () => {
+    const { container } = render(
+      <DndContext>
+        <SlotCell
+          slot={electiveSlot}
+          electiveSetsAll={[{ id: 'set-1', name: 'Afternoon Chugim', is_reusable: 0 }]}
+          electiveMembersBySet={new Map([['set-1', ['act-1', 'act-2']]])}
+          gridRow="1 / span 1"
+          gridColumn="2 / span 1"
+          ariaColIndex={2}
+          cellKey="g1|d1|b1"
+        />
+      </DndContext>
+    )
+    expect(screen.getByText('Afternoon Chugim (2)')).toBeTruthy()
+    expect(container.querySelector('[data-elective]')).toBeTruthy()
+  })
+
+  it('a dangling elective_set_id (set deleted from another device) renders "Elective (removed)", not blank or a thrown error', () => {
+    render(
+      <DndContext>
+        <SlotCell
+          slot={electiveSlot}
+          electiveSetsAll={[]}
+          electiveMembersBySet={new Map()}
+          gridRow="1 / span 1"
+          gridColumn="2 / span 1"
+          ariaColIndex={2}
+          cellKey="g1|d1|b1"
+        />
+      </DndContext>
+    )
+    expect(screen.getByText('Elective (removed)')).toBeTruthy()
+  })
+
+  it('a non-elective cell never carries the [data-elective] attribute', () => {
+    const { container } = render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          gridRow="1 / span 1"
+          gridColumn="2 / span 1"
+          ariaColIndex={2}
+          cellKey="g1|d1|b1"
+        />
+      </DndContext>
+    )
+    expect(container.querySelector('[data-elective]')).toBeNull()
+  })
+})
