@@ -80,19 +80,28 @@ a { text-decoration: none; color: inherit; }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* Roots woodcut-orb "lantern" nodes (RootMap) — the needs-attention orb gently
-   pulses its glow so a director's eye finds what needs them without lighting up
-   the whole screen (calm at a glance; DESIGN_STANDARD — motion explains state).
-   Hover/selection glow is applied inline on the orb's glow shape; only this
-   infinite pulse needs a keyframe, so it lives here beside the other global
-   animations rather than in a new stylesheet. Animates `opacity` only — the
-   glow shape's blur is painted once (RA-1, RootMap.jsx #rootmap-glow-blur),
-   never re-rasterized per frame. */
-@keyframes rootmapPulse {
-  0%, 100% { opacity: 0.22; }
-  50%      { opacity: 0.75; }
+/* Roots chip attention pulse (RootMap) — a needs-attention chip's box-shadow
+   breathes gently, so a director's eye finds it without lighting up the
+   whole screen. Governor consolidation (docs/work/specs/2026-08-21-roots-
+   metaphor-visual.md) scopes this to chips inside the currently focused/
+   selected domain layer only — RootMap.jsx sets [data-pulse="true"] just on
+   those, never on every attention chip at once. rgba is derived from
+   var(--accent) via color-mix so it stays token-derived, not a literal hex. */
+@keyframes chipAttentionPulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 0%, transparent); }
+  50%      { box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 14%, transparent), 0 0 14px 2px color-mix(in srgb, var(--accent) 18%, transparent); }
 }
-.rootmap-orb--pulse { animation: rootmapPulse 2400ms ease-in-out infinite; }
+[data-pulse="true"] { animation: chipAttentionPulse 2400ms ease-in-out infinite; }
+
+/* Roots "takes root" confirm micro-animation — the root-tick underline draws
+   in and fades on a chip's attention/changed -> understood transition. A
+   one-shot decorative accent (not a retargetable gesture, unlike the chip's
+   own transform/color settle, which is a plain CSS transition in RootMap.jsx). */
+@keyframes chipRootTick {
+  0%   { transform: scaleX(0); opacity: 0.9; }
+  70%  { transform: scaleX(1); opacity: 1; }
+  100% { transform: scaleX(1); opacity: 0; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .press-97, .press-98 { transition: none; }
@@ -107,7 +116,13 @@ a { text-decoration: none; color: inherit; }
   /* T73 — the auto-advance/mount animations degrade to an instant swap, or a
      reduced-motion user gets a freeze with no cue (design spec §6, §9). */
   [style*="importHeldIn"], [style*="importCardIn"] { animation: none !important; }
-  .rootmap-orb--pulse { animation: none !important; }
+  /* Reduced motion means gentler, never absent (apple-design §14) — the
+     pulse degrades to a static ring instead of vanishing. */
+  [data-pulse="true"] {
+    animation: none !important;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 22%, transparent) !important;
+  }
+  [data-rooting="true"] { animation: none !important; }
 }
 
 /* Activity card hover — gated to real pointers so a touch tap does not
