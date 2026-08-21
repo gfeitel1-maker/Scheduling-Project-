@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect, afterEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
+import { render, screen, fireEvent, act } from '@testing-library/react'
 import RootMap from './RootMap.jsx'
 
 // Design-polish finding 3: the canvas node must show a visible caption
@@ -212,5 +212,48 @@ describe('RootMap glow state (attention pulse, hover gating)', () => {
     fireEvent.focus(button)
     const glow = container.querySelector('circle[filter="url(#rootmap-glow-blur)"]')
     expect(glow.getAttribute('style') ?? '').toContain('opacity: 0.9')
+  })
+})
+
+// RA-4 — the hover label waits ~120ms so quick pointer sweeps don't flash it.
+describe('RootMap label show-delay (RA-4)', () => {
+  const originalMatchMedia = window.matchMedia
+  beforeEach(() => {
+    vi.useFakeTimers()
+    window.matchMedia = (q) => ({ matches: true, media: q, addEventListener: noop, removeEventListener: noop })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+    window.matchMedia = originalMatchMedia
+  })
+  const delayModel = () => ({
+    domains: [{ key: 'Facility', label: 'Facility', state: 'understood', x: 0.5, y: 0.5, children: [] }],
+  })
+
+  it('delays the hover label ~120ms and cancels it if the pointer leaves first', () => {
+    render(
+      <RootMap
+        model={delayModel()}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    const button = screen.getByRole('button', { name: /Resources/ })
+    act(() => { fireEvent.mouseEnter(button) })
+    expect(screen.queryByText('Resources')).toBeNull() // not shown immediately
+    act(() => { vi.advanceTimersByTime(130) })
+    expect(screen.queryByText('Resources')).not.toBeNull() // shown after the delay
+    act(() => { fireEvent.mouseLeave(button) })
+    expect(screen.queryByText('Resources')).toBeNull()
+    // a quick sweep (enter, leave before 120ms) never shows the label
+    act(() => {
+      fireEvent.mouseEnter(button)
+      vi.advanceTimersByTime(60)
+      fireEvent.mouseLeave(button)
+      vi.advanceTimersByTime(130)
+    })
+    expect(screen.queryByText('Resources')).toBeNull()
   })
 })
