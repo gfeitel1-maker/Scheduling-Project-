@@ -157,6 +157,34 @@ export function inferUnitFromCode(title) {
   return m ? m[1] : null
 }
 
+// W6: a group-column header with no "Unit - Bunk" hyphen still often carries a
+// division, spelled as a leading word (or words) followed by a trailing bunk
+// number — "Yeladim 1", "Tzofim 2", "Chalutzim 3A". The bunk keeps the FULL
+// header as its name (owner decision, 2026-08-21) rather than just the
+// number, because "1" is not a usable bunk name on its own. A header with no
+// trailing number ("CIT") returns null — the caller's job, not this one's, to
+// decide what a token with no number becomes.
+// Unicode-aware so an accented division name ("Café 1" -> "Café") is captured
+// too, not just ASCII. A division word that itself contains a digit ("K2 1")
+// is NOT handled here — deliberately ambiguous between "unit K2, bunk 1" and
+// "unit K, bunk 2 1" — and falls through to the lone-token branch below,
+// becoming its own division. Accepted limitation, surfaced at import review.
+function splitDivisionWord(title) {
+  const m = String(title ?? '').match(/^([\p{L}][\p{L}\s]*?)\s+(\d+[A-Za-z]?)$/u)
+  if (!m) return null
+  return { unit: m[1].trim(), group: String(title).trim() }
+}
+
+// W6 review — a metadata column ("Notes", "Lunch") is neither a division nor
+// a group, and must never be treated as one. Matched case-insensitively
+// against the TRIMMED full header, before the three-branch division
+// resolution runs at all.
+export const NON_GROUP_HEADERS = new Set([
+  'notes', 'note', 'staff', 'lunch', 'dinner', 'breakfast', 'snack',
+  'free', 'free time', 'break', 'total', 'totals', 'activity', 'activities',
+  'lineup', 'time', 'times', 'period', 'periods', 'location', 'room', 'tbd', 'n/a',
+])
+
 // "Adom 4's - Matzo Balls Schedule" -> "Adom 4's - Matzo Balls"
 // "Monday — All Camp" -> "Monday"
 // Exported so fixed-event detection keys a page title into groupNameByTitle the
@@ -315,18 +343,35 @@ export function extractEntities(parsed) {
       }
     } else {
       // Columns are group names on this layout. The header is the raw
-      // group/bunk name — try splitUnitAndGroup, the same "Unit - Bunk"
-      // heuristic the pages-orientation titles use above (ADR 2026-08-09
-      // Decision 2). The ADR also proposed inferUnitFromCode as a second
-      // fallback here, but Camp B's real "CIT" column header (a plain bunk
-      // name with no separator) matches inferUnitFromCode's positional-code
-      // regex and would mint a false unit "C" — exactly the false positive
-      // the ADR itself flagged as a stop-ship signal for this specific
-      // reuse (open question 2). So inferUnitFromCode is NOT reused on this
-      // orientation; a header with no "Unit - Bunk" separator stays
-      // unit: null, per "a wrong unit is worse than a blank one."
+      // group/bunk name. Three heuristics, tried in order, each only taken
+      // when the previous one found nothing (W6, owner-ratified 2026-08-21):
+      //
+      // 1. splitUnitAndGroup — the "Unit - Bunk" hyphen heuristic the
+      //    pages-orientation titles use above (ADR 2026-08-09 Decision 2).
+      // 2. splitDivisionWord — "Word Number" ("Yeladim 1", "Tzofim 2"): the
+      //    real Camp B fixture's actual shape. The bunk keeps the FULL
+      //    header as its name, not just the trailing number.
+      // 3. Lone-token fallback — no hyphen, no trailing number ("CIT"): the
+      //    header becomes its own division AND its own bunk. This
+      //    intentionally overturns the old guard against reusing
+      //    inferUnitFromCode here (which would have minted "C" from "CIT");
+      //    the guard's real intent — never mint "C" from "CIT" — still
+      //    holds, because this path always keeps the division as the WHOLE
+      //    token, never a prefix carved out of it.
+      //
+      // Accepted fork: a division that mixes numbered ("Yeladim 1") and
+      // non-numbered ("Yeladim Aleph") bunk headers forks into two divisions
+      // — "Yeladim" from rule 2, "Yeladim Aleph" from rule 3's lone-token
+      // fallback, since a no-number token is always its own division. Not
+      // reconciled here; surfaced to the director at import review instead.
       page.columns.forEach((c) => {
-        const { unit, group } = splitUnitAndGroup(c)
+        const trimmed = String(c ?? '').trim()
+        if (NON_GROUP_HEADERS.has(trimmed.toLowerCase())) return
+        const hyphen = splitUnitAndGroup(c)
+        const divisionWord = hyphen.unit ? null : splitDivisionWord(c)
+        const { unit, group } = hyphen.unit
+          ? hyphen
+          : divisionWord ?? { unit: trimmed, group: trimmed }
         groups.push({ title: c, unit, group })
         if (unit) units.push(unit)
       })
