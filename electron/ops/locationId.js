@@ -33,3 +33,39 @@
 export function deriveLocationId(campId, trimmedName) {
   return `location:${campId}:${trimmedName}`
 }
+
+// T101 (docs/work/tickets/T101-locations-deterministic-id-rename-recollide.md):
+// deriveLocationId alone reopens a silent-corruption hole once a location can
+// be RENAMED after creation — the row keeps its id, so a later create/import
+// of the ORIGINAL name derives the same base id, which now belongs to a
+// different-named row. resolveLocationCandidateId is the single source of the
+// disambiguation every deterministic location-create site must use instead of
+// minting deriveLocationId's result directly.
+//
+// `existingLocations` is the full {id, name} set of the camp's current
+// `locations` rows (a db-backed caller queries WHERE camp_id = ?; an
+// array-backed caller — ActivitiesScreen's T81 importer — already holds the
+// loaded `locations` list). Pure and side-effect-free: it never writes
+// anything, only computes which id a create at `trimmedName` should use.
+//
+//   - No row at the base id                       -> { id: base, isNew: true }
+//   - Row at base id, name === trimmedName          -> { id: base, isNew: false }  (normal reuse)
+//   - Row at base id, name differs (rename-recollide) -> scan `${base}:2`, `${base}:3`, ...
+//     for the smallest n whose slot is free (isNew: true, mint it) or already
+//     holds a row named trimmedName (isNew: false, reuse it).
+//
+// Deterministic and cross-device convergent: two devices independently
+// scanning the same synced state derive the same id, by construction — the
+// scan only reads existingLocations, never device-local state.
+export function resolveLocationCandidateId(campId, trimmedName, existingLocations) {
+  const byId = new Map(existingLocations.map((l) => [l.id, l.name]))
+  const base = deriveLocationId(campId, trimmedName)
+  if (!byId.has(base)) return { id: base, isNew: true }
+  if (byId.get(base) === trimmedName) return { id: base, isNew: false }
+
+  for (let n = 2; ; n++) {
+    const candidate = `${base}:${n}`
+    if (!byId.has(candidate)) return { id: candidate, isNew: true }
+    if (byId.get(candidate) === trimmedName) return { id: candidate, isNew: false }
+  }
+}

@@ -415,6 +415,40 @@ describe('ActivitiesScreen — import location resolve is deterministic and case
     expect(locationNamesWritten.sort()).toEqual(['Field', 'field'])
   })
 
+  // T101 (docs/work/tickets/T101-locations-deterministic-id-rename-recollide.md):
+  // a location created earlier (id = deriveLocationId(campId, 'Pool')) may
+  // since have been RENAMED — the row keeps its id, its name changes. A CSV
+  // re-import of the original name must not silently overwrite the renamed
+  // row; it must mint a distinct disambiguated row instead.
+  it('T101: importing "Pool" after a rename to "Swimming Pool" mints a distinct row, never overwrites the renamed one', async () => {
+    vi.stubGlobal('crypto', { randomUUID: vi.fn().mockReturnValueOnce('new-activity-id') })
+    const renamedRowId = deriveLocationId(CAMP_ID, 'Pool') // the row's id is frozen at creation
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([])
+      if (entity === 'locations') return Promise.resolve([{ id: renamedRowId, camp_id: CAMP_ID, name: 'Swimming Pool', capacity: 3, notes: null }])
+      return Promise.resolve([])
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('No activities yet')).not.toBeNull())
+
+    const file = new File(['dummy'], 'activities.xlsx')
+    const fileInput = document.querySelector('input[type="file"]')
+    XLSX.utils.sheet_to_json.mockReturnValue([
+      { name: 'Swim', location: 'Pool', is_outdoor: '', max_groups_per_slot: '', min_per_week: '', max_per_week: '', same_tier_only: '', priority: '', eligible_tiers: '', prefer_before_day: '', prefer_before_day_min: '', weather_alternative: '', notes: '' },
+    ])
+    await userEvent.upload(fileInput, file)
+    await waitFor(() => expect(screen.queryByText(/Import 1/)).not.toBeNull())
+    fireEvent.click(screen.getByText(/Import 1/))
+    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
+
+    // A distinct disambiguated row is minted for "Pool" — never the renamed row's id.
+    const disambiguatedId = `${renamedRowId}:2`
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'locations', disambiguatedId, 'name', 'Pool')
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'new-activity-id', 'location_id', disambiguatedId)
+    // The renamed row is never targeted by a locations write at all.
+    expect(localClient.write.mock.calls.some(c => c[1] === 'locations' && c[2] === renamedRowId)).toBe(false)
+  })
+
   it('cross-device determinism: the same CSV imported on two independent devices mints byte-identical location ids', async () => {
     // Two independent "devices" — separate localClient.write mocks, no shared
     // in-memory state — each importing the identical row from a blank camp.

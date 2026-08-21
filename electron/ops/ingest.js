@@ -23,6 +23,7 @@ import { normalizeName, recognitionKey } from '../../src/ingest/preview.js'
 import { buildPlan, CLEAR } from '../../src/ingest/buildPlan.js'
 import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor } from '../../src/ingest/fieldUpdate.js'
 import { deriveLocationId } from './locationId.js'
+import { resolveLocationCreateId } from './locationCreate.js'
 import { PROJECTIONS } from './projections.js'
 import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
 
@@ -939,12 +940,16 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // import is already live — and in locationIdByName — by the time this runs;
   // this is then a cache hit, not an actual create. Cross-device deterministic
   // (INV-1): the id is a pure function of (camp_id, trimmedName), same as D1a.
+  // T101: routed through resolveLocationCreateId rather than bare
+  // deriveLocationId, so a rename-then-recollide (the row that now owns
+  // deriveLocationId's id has since been renamed away from `trimmed`) mints a
+  // disambiguated `${base}:n` id instead of silently reusing the renamed row.
   const resolveOrCreateLocationId = (db, { camp_id, name, locationIdByName, author_user_id, device_id }) => {
     const trimmed = String(name ?? '').trim()
     if (!trimmed) return null
     const cached = locationIdByName.get(trimmed)
     if (cached) return cached
-    const id = deriveLocationId(camp_id, trimmed)
+    const id = resolveLocationCreateId(db, camp_id, trimmed)
     if (!db.prepare('SELECT 1 FROM locations WHERE id = ?').get(id)) {
       write(db, { entity: 'locations', entity_id: id, field: 'camp_id', value: camp_id, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
       write(db, { entity: 'locations', entity_id: id, field: 'name', value: trimmed, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, client_write_id: randomUUID(), source: IMPORT_SOURCE })
@@ -960,9 +965,12 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   const commitCreate = (item) => {
     const { entity, _name: name } = item
     // M4 §D1a: the ONE line that differs from every other entity's create —
-    // deriveLocationId, never randomUUID, so the id is a pure function of
-    // (camp_id, trimmedName) and identical across devices (INV-1).
-    const entityId = entity === 'locations' ? deriveLocationId(camp_id, name) : randomUUID()
+    // a deterministic location id, never randomUUID, so it is a pure function
+    // of (camp_id, trimmedName) and identical across devices (INV-1). T101:
+    // resolveLocationCreateId rather than bare deriveLocationId, so a create
+    // whose base id was recollided by a prior rename mints `${base}:n`
+    // instead of silently landing on (and later overwriting) the renamed row.
+    const entityId = entity === 'locations' ? resolveLocationCreateId(db, camp_id, name) : randomUUID()
     const fields = {}
     for (const [field, delta] of Object.entries(item.fields)) fields[field] = delta.to
 
