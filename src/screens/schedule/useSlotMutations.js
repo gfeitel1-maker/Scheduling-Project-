@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { normalizeName } from '../../ingest/preview.js'
 import { isActivityEligibleForGroup } from '../../engine/eligibility'
+import { createActivity } from './createActivityHelper'
 
 // T91: collect the covered tail rows of a span head being replaced, via a
 // single walk that covers BOTH span representations identically (owner
@@ -995,34 +996,10 @@ export function useSlotMutations({
   // default. Re-checks for a normalized-name dup defensively — CellInlineEditor
   // already resolves an exact match to onPlace, not onCreateNew, but a second
   // inline-write could race the same name between typing and Enter.
-  // Extracted so createElectiveFromCell's member-creation loop calls the
-  // SAME object builder createActivityFromCell already uses — not a
-  // duplicate literal (T105 design §1's "Reused vs. new").
-  function newActivityDefaultFields(trimmedName) {
-    return {
-      name: trimmedName,
-      camp_id: campId,
-      priority: null,
-      is_locked: false,
-      span_blocks: 1,
-      location_id: null,
-      is_outdoor: false,
-      max_groups_per_slot: 1,
-      // Usage-derived: this write IS the activity's first placement, so the
-      // target starts at 1 — never a spurious under-served flag on the week
-      // it was hand-created for.
-      min_per_week: 1,
-      max_per_week: null,
-      same_tier_only: false,
-      eligible_tier_ids: [],
-      eligible_group_ids: [],
-      prefer_before_day: null,
-      prefer_before_day_min: null,
-      weather_alternative_id: null,
-      notes: null,
-    }
-  }
-
+  // Object builder + dedupe/mint logic extracted to createActivityHelper.js
+  // (T106) so the weekly path below, createElectiveFromCell's member-creation
+  // loop, and the special-day adapter all mint through one shared function —
+  // not a duplicate literal (T105 design §1's "Reused vs. new").
   async function createActivityFromCell(name, target) {
     const trimmed = String(name ?? '').trim()
     if (!trimmed) return
@@ -1033,20 +1010,17 @@ export function useSlotMutations({
       return
     }
 
-    const newId = crypto.randomUUID()
-    const fields = newActivityDefaultFields(trimmed)
-
     setActionError(null)
+    let result
     try {
-      await repo.writeActivityFields(newId, fields)
+      result = await createActivity({ name: trimmed, groupId: target.groupId, campId, activities }, repo)
     } catch (err) {
       setActionError(describeWriteFailure(err, 'That activity could not be created.'))
       return
     }
 
-    const newRow = { id: newId, ...fields }
-    setActivities(prev => [...prev, newRow])
-    await placeActivityManual(newId, target.groupId, target.dayId, target.blockId, newRow)
+    setActivities(prev => [...prev, result.activity])
+    await placeActivityManual(result.activityId, target.groupId, target.dayId, target.blockId, result.activity)
   }
 
   // T105 §1 — the elective-authoring commit path, sibling to
@@ -1092,18 +1066,15 @@ export function useSlotMutations({
     for (const rawName of memberNames ?? []) {
       const trimmed = String(rawName ?? '').trim()
       if (!trimmed) continue
-      const dupe = activities.find(a => normalizeName(a.name) === normalizeName(trimmed))
-      if (dupe) { memberIds.push(dupe.id); continue }
-      const newId = crypto.randomUUID()
-      const fields = newActivityDefaultFields(trimmed)
+      let result
       try {
-        await repo.writeActivityFields(newId, fields)
+        result = await createActivity({ name: trimmed, groupId: target.groupId, campId, activities }, repo)
       } catch (err) {
         setActionError(describeWriteFailure(err, 'That activity could not be created.'))
         return
       }
-      setActivities(prev => [...prev, { id: newId, ...fields }])
-      memberIds.push(newId)
+      if (result.isNew) setActivities(prev => [...prev, result.activity])
+      memberIds.push(result.activityId)
     }
     if (memberIds.length === 0) return // no valid members typed — do not write an empty elective
 

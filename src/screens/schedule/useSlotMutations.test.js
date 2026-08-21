@@ -1178,6 +1178,89 @@ describe('useSlotMutations — createActivityFromCell', () => {
   })
 })
 
+// T106 Governor addendum (Red Hat round 2): MANDATORY characterization tests
+// pinning createActivityFromCell/createElectiveFromCell's weekly-path behavior
+// unchanged across the createActivityHelper extraction.
+describe('useSlotMutations — createActivityFromCell characterization (T106 extraction)', () => {
+  it('(a) dupe-path call-counts: NO writeActivityFields, NO setActivities append', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+    ]
+    const { hook, props } = setup({
+      slots, campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }],
+      activities: [{ id: 'act-existing', name: 'Kayaking', eligible_tier_ids: [], eligible_group_ids: [] }],
+    })
+    await act(async () => {
+      await hook.result.current.createActivityFromCell('  kayaking  ', { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeActivityFields).not.toHaveBeenCalled()
+    expect(props.setActivities).not.toHaveBeenCalled()
+  })
+
+  it('(b) new-path ordering: setActivities optimistic append happens before the placement write reaches repo.writeSlotFields', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+    ]
+    const order = []
+    const setActivities = vi.fn(() => { order.push('setActivities') })
+    const writeSlotFields = vi.fn(async (...args) => { order.push('writeSlotFields'); return { status: 'applied' } })
+    const repo = makeRepo({ writeSlotFields })
+    const { hook } = setup({ slots, campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }], activities: [], repo, setActivities })
+    await act(async () => {
+      await hook.result.current.createActivityFromCell('Kayaking', { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(order).toEqual(['setActivities', 'writeSlotFields'])
+  })
+
+  it('(c) placeActivityManual\'s 5th arg (activityOverride) is the full minted row, not just the id', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+    ]
+    // location_id/max_groups_per_slot on the override are read by placeActivityManual's
+    // capacity checks before the activity is in the `activities` prop array at all —
+    // if only the id were passed, activity lookup would fail (`activities.find` sees
+    // nothing yet) and the placement write would never fire, so a successful
+    // writeSlotFields call itself proves the full row reached placeActivityManual.
+    const { hook, props } = setup({ slots, campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }], activities: [] })
+    await act(async () => {
+      await hook.result.current.createActivityFromCell('Kayaking', { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    const [mintedId] = props.repo.writeActivityFields.mock.calls[0]
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', expect.objectContaining({ activity_id: mintedId }))
+  })
+
+  it('(d) field-default snapshot parity: min_per_week:1, max_per_week:null, same_tier_only:false, eligible_group_ids:[]', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false },
+    ]
+    const { hook, props } = setup({ slots, campId: 'camp-1', groups: [{ id: 'g1', tier_id: 't1' }], activities: [] })
+    await act(async () => {
+      await hook.result.current.createActivityFromCell('Kayaking', { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    const [, fields] = props.repo.writeActivityFields.mock.calls[0]
+    expect(fields).toEqual({
+      name: 'Kayaking', camp_id: 'camp-1', priority: null, is_locked: false, span_blocks: 1,
+      location_id: null, is_outdoor: false, max_groups_per_slot: 1, min_per_week: 1, max_per_week: null,
+      same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null,
+      prefer_before_day_min: null, weather_alternative_id: null, notes: null,
+    })
+  })
+
+  it('(e) createElectiveFromCell member-creation loop still gets identical defaults post-extraction', async () => {
+    const targetRow = { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, flags: {}, is_anchor: false }
+    const { hook, props } = setup({ slots: [targetRow], campId: 'camp-1', activities: [] })
+    await act(async () => {
+      await hook.result.current.createElectiveFromCell('Afternoon Chugim', ['Kayaking'], { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeActivityFields).toHaveBeenCalledTimes(1)
+    const [, fields] = props.repo.writeActivityFields.mock.calls[0]
+    expect(fields).toMatchObject({
+      name: 'Kayaking', camp_id: 'camp-1', min_per_week: 1, max_per_week: null,
+      same_tier_only: false, eligible_group_ids: [],
+    })
+  })
+})
+
 // 2026-07/2026-08 gesture-correlation ADR: fresh-read undo snapshots for
 // expandSlot/splitSlot. Unrelated to the write-serialization queue below
 // (that mechanism decides WHEN a write is sent; this one decides WHAT
