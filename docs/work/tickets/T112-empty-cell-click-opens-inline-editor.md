@@ -68,3 +68,11 @@ CellInlineEditor doesn't stopPropagation; the grid nav doesn't exclude editor-or
 Affects filled SlotCell editors too. Fix (in progress): early-return in useGridKeyboardNav when the
 event originates in `.cell-inline-editor`, + stopPropagation defense-in-depth, with focus-retention
 tests. Tab-not-committing left as-is (by-design).
+
+## Gate outcome (2026-08-21)
+
+Unit + lint + governance GREEN (3535 tests). Keyboard-leak fix Red Hat 5/5. Integration flaked
+26/27 on two `npm run verify` runs (LAN-pairing "waiting for pairing_request" / scenario 19 timeout)
+— CONFIRMED FLAKE: isolated `npm run test:integration` re-runs passed 27/27 twice. Failing scenarios
+are LAN pairing/sync, untouched by this pure-UI change; flake is the known getFreePort TOCTOU residual
+(T90), amplified by concurrent peer sessions. T112 functionally complete + live-verified working.
