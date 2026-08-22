@@ -145,6 +145,12 @@ function questionFor(decision) {
     const count = decision.count ?? 0
     return `Review priority for ${count} ${count === 1 ? 'activity' : 'activities'} carried over from an earlier import`
   }
+  // Slice 3a (docs/adr/2026-08-22-nested-schedules-electives-and-events.md §4
+  // addendum): the nudge's exact wording — a Confirm creates ONE empty
+  // elective_set via the existing authored create-path, never offerings.
+  if (decision.kind === 'elective_candidate') {
+    return `This period looks like electives — open the elective space?`
+  }
   return `Use the file's value for "${name}"?`
 }
 
@@ -155,6 +161,8 @@ function summaryOf(decision, answer) {
   if (answer.choice === 'keep') return 'Keeping the current value'
   if (answer.choice === 'existing') return 'Using your existing record'
   if (answer.choice === 'create') return 'Adding as new'
+  if (decision.kind === 'elective_candidate' && answer.choice === 'confirm') return 'Elective space will be created'
+  if (decision.kind === 'elective_candidate' && answer.choice === 'decline') return 'Not electives'
   if (answer.resolved) return 'Acknowledged'
   return 'Resolved'
 }
@@ -194,6 +202,18 @@ function ResolutionControls({ decision, onAnswer }) {
       <div style={{ marginTop: 10 }}>
         <RadioOption label={`Use the file's value${decision.proposedValue != null ? ` — "${JSON.stringify(decision.proposedValue)}"` : ''}`} description="Overwrites what's in Shoresh now." onClick={() => onAnswer({ choice: 'accept' })} />
         <RadioOption label="Keep the current value" description="Ignores this file's value going forward for this field." onClick={() => onAnswer({ choice: 'keep' })} />
+      </div>
+    )
+  }
+
+  // Slice 3a — Confirm creates ONE empty elective_set (named the header text
+  // verbatim, editable afterward on the Electives screen); Not electives
+  // writes nothing.
+  if (decision.kind === 'elective_candidate') {
+    return (
+      <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+        <button className="press-97" onClick={() => onAnswer({ choice: 'confirm' })} style={cardStyles.btnCompactPrimary}>Confirm</button>
+        <button className="press-97" onClick={() => onAnswer({ choice: 'decline' })} style={cardStyles.btnCompactSecondary}>Not electives</button>
       </div>
     )
   }

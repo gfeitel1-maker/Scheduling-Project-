@@ -1432,3 +1432,48 @@ describe('per-field UNKNOWN evidence at import (2026-08-20 ADR)', () => {
     expect(evidenceRows('activities', activityId).find((r) => r.field === 'min_per_week').tag).toBe('unknown')
   })
 })
+
+// Slice 3a (docs/adr/2026-08-22-nested-schedules-electives-and-events.md §4
+// addendum): a confirmed elective_candidate nudge creates ONE empty
+// elective_set via the same appendOp mechanism every other entity's create
+// uses (PROJECTIONS.js replays it into the table) — never a raw INSERT,
+// never elective_set_activities.
+describe('confirmedElectiveSets (Slice 3a)', () => {
+  it('creates exactly one empty elective_set, named the header text verbatim', () => {
+    const result = commitIngest(db, {
+      approved: {},
+      camp_id: campId, device_id: deviceId,
+      confirmedElectiveSets: [{ name: 'Chugim' }],
+    })
+    expect(result.held).toBe(false)
+    expect(count('elective_sets')).toBe(1)
+    expect(count('elective_set_activities')).toBe(0)
+    const row = db.prepare('SELECT * FROM elective_sets WHERE camp_id = ?').get(campId)
+    expect(row.name).toBe('Chugim')
+  })
+
+  it('is idempotent — confirming the same name twice creates only one row', () => {
+    commitIngest(db, {
+      approved: {}, camp_id: campId, device_id: deviceId,
+      confirmedElectiveSets: [{ name: 'Chugim' }],
+    })
+    commitIngest(db, {
+      approved: {}, camp_id: campId, device_id: deviceId,
+      confirmedElectiveSets: [{ name: 'Chugim' }],
+    })
+    expect(count('elective_sets')).toBe(1)
+  })
+
+  it('writes nothing when no candidate is confirmed (declined/absent)', () => {
+    commitIngest(db, { approved: {}, camp_id: campId, device_id: deviceId })
+    expect(count('elective_sets')).toBe(0)
+  })
+
+  it('never writes an elective_set on a dry run', () => {
+    commitIngest(db, {
+      approved: {}, camp_id: campId, device_id: deviceId,
+      confirmedElectiveSets: [{ name: 'Chugim' }], dryRun: true,
+    })
+    expect(count('elective_sets')).toBe(0)
+  })
+})

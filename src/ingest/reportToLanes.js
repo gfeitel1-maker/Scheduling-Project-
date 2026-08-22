@@ -29,6 +29,14 @@ function laneFor(decision) {
     case 'review_legacy_priority':
       return 'standard'
 
+    // Slice 3a (docs/adr/2026-08-22-nested-schedules-electives-and-events.md
+    // §4 addendum): a detected elective period/column is ALWAYS hold,
+    // regardless of confidence band — "never silent" is the whole point of
+    // the nudge. A confirmed-band header finding still asks, it never
+    // auto-creates.
+    case 'elective_candidate':
+      return 'hold'
+
     default:
       throw new Error(`reportToLanes: unrecognized decision.kind "${decision.kind}"`)
   }

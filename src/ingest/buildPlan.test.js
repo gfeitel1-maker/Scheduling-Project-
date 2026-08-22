@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildPlan, looksLikeAMerge, createConfidenceTier } from './buildPlan.js'
+import { buildPlan, looksLikeAMerge, createConfidenceTier, buildElectiveCandidates } from './buildPlan.js'
 
 // S1a — buildPlan RECOGNITION + AMBIGUITY (ADR 2026-08-08-s1a §1, §3).
 //
@@ -265,5 +265,57 @@ describe('buildPlan create confidence (§1)', () => {
       null,
     )
     expect(plan.items[0].evidence.tier).toBe('low')
+  })
+})
+
+// Slice 3a content-shape detector.
+describe('buildElectiveCandidates (Slice 3a content-shape detector)', () => {
+  it('fires on an unresolved blob that survived isActivityLike but matches no live activity, outside a header-flagged period', () => {
+    const source = {
+      electiveHeaderFindings: [],
+      activityPeriods: { 'arts/crafts, sports, music': [false, false] },
+      approved: { activities: ['Arts/Crafts, Sports, Music'] },
+    }
+    const candidates = buildElectiveCandidates(source, { activities: [] })
+    expect(candidates).toHaveLength(1)
+    expect(candidates[0]).toMatchObject({
+      detector: 'shape', band: 'inferred', sourceExcerpt: 'Arts/Crafts, Sports, Music',
+    })
+  })
+
+  it('does NOT fire on a token that resolves 1:1 to an existing activity (false-positive guard)', () => {
+    const source = {
+      electiveHeaderFindings: [],
+      activityPeriods: { swim: [false] },
+      approved: { activities: ['Swim'] },
+    }
+    const candidates = buildElectiveCandidates(source, { activities: [{ id: 'a1', name: 'Swim' }] })
+    expect(candidates).toEqual([])
+  })
+
+  it('does not double-fire a shape finding for a name whose every occurrence already sat under a header finding', () => {
+    const source = {
+      electiveHeaderFindings: [
+        { detector: 'header', band: 'confirmed', sourceExcerpt: 'Chugim', row: 3, column: null },
+      ],
+      activityPeriods: { chugim: [true, true] },
+      approved: { activities: ['Chugim'] },
+    }
+    const candidates = buildElectiveCandidates(source, { activities: [] })
+    expect(candidates).toHaveLength(1)
+    expect(candidates[0].detector).toBe('header')
+  })
+
+  it('dedups by column-signature — the same header finding text does not produce two candidates', () => {
+    const source = {
+      electiveHeaderFindings: [
+        { detector: 'header', band: 'confirmed', sourceExcerpt: 'Indoor Elective', row: 8, column: 'Monday' },
+        { detector: 'header', band: 'confirmed', sourceExcerpt: 'Indoor Elective', row: 8, column: 'Monday' },
+      ],
+      activityPeriods: {},
+      approved: { activities: [] },
+    }
+    const candidates = buildElectiveCandidates(source, { activities: [] })
+    expect(candidates).toHaveLength(1)
   })
 })

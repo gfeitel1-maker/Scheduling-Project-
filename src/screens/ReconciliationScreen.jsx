@@ -219,6 +219,7 @@ export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, 
         evidenceSupport: result?.evidenceSupport,
         blastRadiusIndex,
         unknownFieldEvidence: new Map(Object.entries(result?.unknownFieldEvidence ?? {})),
+        electiveCandidates: result?.electiveCandidates,
       })
       if (requestGenRef.current !== myGen) return
       lastGoodReportRef.current = nextReport

@@ -104,7 +104,23 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
     }
   }
 
-  return { ...baseInputs, approved, fixedEvents, resolutions: [...(baseInputs.resolutions ?? []), ...resolutions] }
+  // Slice 3a (docs/adr/2026-08-22-nested-schedules-electives-and-events.md §4
+  // addendum): a confirmed nudge folds into a NEW top-level input,
+  // `confirmedElectiveSets` — never into `approved` (there is no ingestible
+  // entity here; INGESTIBLE_ENTITIES stays closed). Declining writes
+  // nothing — the answer just resolves the decision locally.
+  const confirmedElectiveSets = []
+  for (const d of decisions) {
+    if (d.kind !== 'elective_candidate') continue
+    const a = answers[d.id]
+    if (a?.choice === 'confirm') confirmedElectiveSets.push({ name: d.entityName })
+  }
+
+  return {
+    ...baseInputs, approved, fixedEvents,
+    resolutions: [...(baseInputs.resolutions ?? []), ...resolutions],
+    confirmedElectiveSets: [...(baseInputs.confirmedElectiveSets ?? []), ...confirmedElectiveSets],
+  }
 }
 
 // S1b's "Remember this" alias-confirmation, restored from ImportScreen's old
@@ -154,5 +170,8 @@ export function isDecisionResolvedFor(decision, answers, dismissedGaps = new Set
   if (decision.kind === 'confirm_value') return a.action === 'looks_right' || a.action === 'edited'
   if (decision.kind === 'confirm_change') return a.choice === 'accept' || a.choice === 'keep' || a.ack === true
   if (decision.kind === 'review_legacy_priority') return a.resolved === true
+  // Slice 3a — either answer resolves the card; only 'confirm' folds into
+  // confirmedElectiveSets above.
+  if (decision.kind === 'elective_candidate') return a.choice === 'confirm' || a.choice === 'decline'
   return false
 }

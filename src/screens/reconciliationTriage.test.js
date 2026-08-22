@@ -90,6 +90,26 @@ describe('foldTriageInputs', () => {
     const { resolutions } = foldTriageInputs(baseInputs, decisions, { [decisions[0].id]: { choice: 'skip' } })
     expect(resolutions).toEqual([])
   })
+
+  // Slice 3a (docs/adr/2026-08-22-nested-schedules-electives-and-events.md §4
+  // addendum).
+  it('a confirmed elective_candidate folds into confirmedElectiveSets, named verbatim', () => {
+    const decisions = [{ id: 'e1', kind: 'elective_candidate', entity: 'elective_sets', entityName: 'Chugim' }]
+    const { confirmedElectiveSets } = foldTriageInputs(baseInputs, decisions, { e1: { choice: 'confirm' } })
+    expect(confirmedElectiveSets).toEqual([{ name: 'Chugim' }])
+  })
+
+  it('a declined elective_candidate folds into nothing — no write', () => {
+    const decisions = [{ id: 'e1', kind: 'elective_candidate', entity: 'elective_sets', entityName: 'Chugim' }]
+    const { confirmedElectiveSets } = foldTriageInputs(baseInputs, decisions, { e1: { choice: 'decline' } })
+    expect(confirmedElectiveSets).toEqual([])
+  })
+
+  it('an unanswered elective_candidate folds into nothing (never auto-confirmed)', () => {
+    const decisions = [{ id: 'e1', kind: 'elective_candidate', entity: 'elective_sets', entityName: 'Chugim' }]
+    const { confirmedElectiveSets } = foldTriageInputs(baseInputs, decisions, {})
+    expect(confirmedElectiveSets).toEqual([])
+  })
 })
 
 describe('identityRememberCalls', () => {
@@ -177,6 +197,14 @@ describe('isDecisionResolvedFor', () => {
     expect(isDecisionResolvedFor(d, {}, new Set())).toBe(false)
     expect(isDecisionResolvedFor(d, { 'readiness:tiers': { action: 'looks_right' } })).toBe(false)
     expect(isDecisionResolvedFor(d, {}, new Set(['readiness:tiers']))).toBe(true)
+  })
+
+  it('elective_candidate resolves on either confirm or decline, never a blank answer', () => {
+    const d = { id: 'e1', kind: 'elective_candidate' }
+    expect(isDecisionResolvedFor(d, {})).toBe(false)
+    expect(isDecisionResolvedFor(d, { e1: {} })).toBe(false)
+    expect(isDecisionResolvedFor(d, { e1: { choice: 'confirm' } })).toBe(true)
+    expect(isDecisionResolvedFor(d, { e1: { choice: 'decline' } })).toBe(true)
   })
 })
 

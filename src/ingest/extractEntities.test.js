@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest'
 import fs from 'node:fs'
 import path from 'node:path'
 import { parseTextGrid } from './textGrid'
-import { extractEntities, detectOrientation, INGESTIBLE_ENTITIES } from './extractEntities'
+import {
+  extractEntities, detectOrientation, INGESTIBLE_ENTITIES,
+  isElectiveHeaderText, ELECTIVE_HEADER_TERMS,
+} from './extractEntities'
 
 // docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md §2, §7.
 
@@ -479,5 +482,58 @@ describe('days are the calendar\'s words, not the camp\'s', () => {
       { title: 'Bunk B', columns: ['Monday'], rows: [{ label: '9:00', cells: ['Art'] }] },
     ] }
     expect(extractEntities(grid).entities.days_of_operation).toEqual(['Monday'])
+  })
+})
+
+// Slice 3a (docs/adr/2026-08-22-nested-schedules-electives-and-events.md §4
+// addendum; docs/work/specs/2026-08-22-electives-nested-schedule-slices.md).
+describe('elective header-label detector (Slice 3a)', () => {
+  it('flags every controlled term, case-insensitively', () => {
+    for (const term of ELECTIVE_HEADER_TERMS) {
+      expect(isElectiveHeaderText(term.toUpperCase())).toBe(true)
+    }
+  })
+
+  it('does not flag a normal activity column header', () => {
+    for (const term of ['Swim', 'Drama', 'Free Choice', 'Studio Art', 'Sports']) {
+      expect(isElectiveHeaderText(term)).toBe(false)
+    }
+  })
+
+  it('fires on the real Camp A file, which prints "Indoor Elective"/"Outdoor Elective"/"Chugim" as period content', () => {
+    const { electiveHeaderFindings } = extractEntities(campA)
+    const excerpts = new Set(electiveHeaderFindings.map((f) => f.sourceExcerpt))
+    expect(excerpts.has('Indoor Elective')).toBe(true)
+    expect(excerpts.has('Outdoor Elective')).toBe(true)
+    expect(excerpts.has('Chugim')).toBe(true)
+    for (const f of electiveHeaderFindings) {
+      expect(f.detector).toBe('header')
+      expect(f.band).toBe('confirmed')
+    }
+  })
+
+  it('raises no header findings on the real Camp B file, which has no elective period', () => {
+    const { electiveHeaderFindings } = extractEntities(campB)
+    expect(electiveHeaderFindings).toEqual([])
+  })
+
+  it('a group/bunk column titled "Chugim" is flagged and skipped as a group, not proposed as a bunk', () => {
+    const grid = {
+      pages: [{
+        title: 'Monday',
+        columns: ['Adom 1', 'Chugim'],
+        rows: [{ label: '9:00', cells: ['Swim', 'Ceramics'] }],
+      }],
+    }
+    const { entities, electiveHeaderFindings } = extractEntities(grid)
+    expect(entities.groups).toEqual(['Adom 1'])
+    expect(electiveHeaderFindings.some((f) => f.column === 'Chugim')).toBe(true)
+  })
+
+  it('exempts a token that resolves 1:1 to an existing activity by construction (false-positive guard)', () => {
+    // "Free Choice" is a real, plain activity name — never in ELECTIVE_HEADER_TERMS
+    // — and must never be misread as an elective nudge just because it names
+    // an unstructured-choice period informally.
+    expect(isElectiveHeaderText('Free Choice')).toBe(false)
   })
 })

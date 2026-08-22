@@ -568,6 +568,40 @@ export function buildReconciliationReport(input) {
   }
   buckets.understood += asArray(unchanged).length
 
+  // Slice 3a (docs/adr/2026-08-22-nested-schedules-electives-and-events.md §4
+  // addendum): buildPlan's electiveCandidates, a create-shaped side channel
+  // (no entity_id, no plan `items` row — no elective_set exists yet), same
+  // pattern fixedEventsReport uses above. Every candidate is needsAttention
+  // and lands in hold via reportToLanes regardless of band — "never silent".
+  // Dedup id is buildPlan's own column-signature id (candidate.id), already
+  // stable across re-imports of an unchanged file.
+  const electiveCandidates = asArray(input?.electiveCandidates)
+  for (const candidate of electiveCandidates) {
+    buckets.needsAttention += 1
+    const id = `elective_candidate:${candidate.id}`
+    if (decisionsByKey.has(id)) continue
+    decisionsByKey.set(id, {
+      id,
+      kind: 'elective_candidate',
+      entity: 'elective_sets',
+      entityId: null,
+      entityName: candidate.sourceExcerpt ?? null,
+      field: null,
+      confidence: candidate.band ?? 'inferred',
+      proposedValue: null,
+      unknowns: [],
+      evidence: {
+        detector: candidate.detector ?? null,
+        sourceExcerpt: candidate.sourceExcerpt ?? null,
+        row: candidate.row ?? null,
+        column: candidate.column ?? null,
+      },
+      reason: candidate.detector === 'header'
+        ? `This period is labeled "${candidate.sourceExcerpt}" — it looks like electives.`
+        : `This looks like an elective period — the cell doesn't match a known activity.`,
+    })
+  }
+
   // C2b, rule 7. Owner-resolved OQ3 (ADR "Resolved 2026-08-11"): BATCH — one
   // consolidated "N priorities need review" decision, never one-per-activity.
   // source='import' cannot distinguish a manufactured default from a

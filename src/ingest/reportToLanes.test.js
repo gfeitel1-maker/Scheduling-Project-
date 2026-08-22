@@ -87,6 +87,27 @@ describe('reportToLanes', () => {
     expect(lanes.standard).toEqual([legacy])
   })
 
+  // Slice 3a — "never silent" means hold, regardless of band.
+  it('elective_candidate sorts into hold at confirmed band', () => {
+    const nudge = d({
+      id: 'elective_candidate:header::Chugim', kind: 'elective_candidate', entity: 'elective_sets',
+      entityId: null, field: null, confidence: 'confirmed', proposedValue: null,
+    })
+    const lanes = reportToLanes(report([nudge], { needsAttention: 1 }))
+    expect(lanes.hold).toEqual([nudge])
+    expect(lanes.standard).toEqual([])
+    expect(lanes.express).toEqual([])
+  })
+
+  it('elective_candidate sorts into hold at inferred band too — never express, never standard', () => {
+    const nudge = d({
+      id: 'elective_candidate:shape::Blob', kind: 'elective_candidate', entity: 'elective_sets',
+      entityId: null, field: null, confidence: 'inferred', proposedValue: null,
+    })
+    const lanes = reportToLanes(report([nudge], { needsAttention: 1 }))
+    expect(lanes.hold).toEqual([nudge])
+  })
+
   it('preserves report.decisions array order within a lane — never re-sorts', () => {
     const first = d({ id: 'a', confidence: 'low' })
     const second = d({ id: 'b', confidence: 'medium' })

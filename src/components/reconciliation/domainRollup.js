@@ -13,6 +13,10 @@ export const DOMAIN_OF = {
   locations: 'Facility',
   activities: 'Scheduling',
   anchor_activities: 'Scheduling',
+  // Slice 3a — an elective_candidate nudge carries entity: 'elective_sets'
+  // (reconciliationReport.js); electives are a schedule concept, same domain
+  // as activities/anchor_activities.
+  elective_sets: 'Scheduling',
 }
 // Root-map port (docs/adr/2026-08-18-rootmap-screen-port.md §3) widens this
 // from four domains to five. 'Context' intentionally has NO entry in

@@ -1383,3 +1383,34 @@ describe('buildReconciliationReport — unknownFieldEvidence (per-field UNKNOWN 
     expect(report.decisions[0].kind).toBe('confirm_value')
   })
 })
+
+// Slice 3a (docs/adr/2026-08-22-nested-schedules-electives-and-events.md §4
+// addendum): buildPlan.electiveCandidates side channel -> elective_candidate
+// decisions, same pattern C2a's fixedEventsReport uses.
+describe('buildReconciliationReport — electiveCandidates (Slice 3a)', () => {
+  it('turns a header-band candidate into a needsAttention elective_candidate decision', () => {
+    const electiveCandidates = [
+      { id: 'header::Chugim', detector: 'header', band: 'confirmed', sourceExcerpt: 'Chugim', row: 3, column: null },
+    ]
+    const report = buildReconciliationReport({ planItems: [], readiness: [], electiveCandidates })
+    expect(report.buckets.needsAttention).toBe(1)
+    expect(report.decisions).toHaveLength(1)
+    expect(report.decisions[0]).toMatchObject({
+      kind: 'elective_candidate', entity: 'elective_sets', entityId: null, confidence: 'confirmed',
+    })
+  })
+
+  it('dedups by the candidate id across repeated entries', () => {
+    const electiveCandidates = [
+      { id: 'header:Monday:Indoor Elective', detector: 'header', band: 'confirmed', sourceExcerpt: 'Indoor Elective' },
+      { id: 'header:Monday:Indoor Elective', detector: 'header', band: 'confirmed', sourceExcerpt: 'Indoor Elective' },
+    ]
+    const report = buildReconciliationReport({ planItems: [], readiness: [], electiveCandidates })
+    expect(report.decisions).toHaveLength(1)
+  })
+
+  it('degrades to zero elective decisions when the caller omits electiveCandidates (additive)', () => {
+    const report = buildReconciliationReport({ planItems: [], readiness: [] })
+    expect(report.decisions).toEqual([])
+  })
+})

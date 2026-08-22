@@ -276,7 +276,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // device's sync mode — and the guard below reads it; a shadowing parameter
   // would silently turn the Host check into a comparison against the import
   // mode instead.
-  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse } = {}) {
+  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // Admin only. Staff may edit setup records one at a time; creating a
     // camp's whole structure in one action is a different kind of authority,
@@ -339,6 +339,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // create tier:'new', unchanged.
       seenCounts: seenCounts ?? null,
       pinOnlyActivityNames: pinOnlyActivityNames ?? [],
+      // Slice 3a — plain data extractEntities computed client-side, carried
+      // through unchanged to buildPlan's buildElectiveCandidates.
+      electiveHeaderFindings: electiveHeaderFindings ?? [],
+      activityPeriods: activityPeriods ?? {},
+      confirmedElectiveSets: confirmedElectiveSets ?? [],
       // U1 — additive, opt-in. Absent/false for every existing caller, same
       // behavior as before (docs/adr/2026-08-17-onescreen-reconciliation-undo.md).
       captureInverse: captureInverse === true,
@@ -350,7 +355,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // guard above — a dry run commits nothing anywhere, on any device, so there
   // is no fork-the-camp risk to guard against. Also does not push any
   // onOpApplied/sync broadcast: nothing was written for a peer to learn about.
-  function ingestReconcile({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames } = {}) {
+  function ingestReconcile({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'groups.import' })
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
@@ -371,6 +376,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       base_generation: base_generation ?? 0,
       seenCounts: seenCounts ?? null,
       pinOnlyActivityNames: pinOnlyActivityNames ?? [],
+      electiveHeaderFindings: electiveHeaderFindings ?? [],
+      activityPeriods: activityPeriods ?? {},
       dryRun: true,
     })
     return {
@@ -391,6 +398,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       legacyPriorityActivities: outcome.legacyPriorityActivities ?? [],
       evidenceSupport: outcome.evidenceSupport ?? {},
       unknownFieldEvidence: outcome.unknownFieldEvidence ?? {},
+      electiveCandidates: outcome.electiveCandidates ?? [],
     }
   }
 
