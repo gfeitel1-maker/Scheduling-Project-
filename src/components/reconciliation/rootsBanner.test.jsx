@@ -49,10 +49,10 @@ describe('RootsBanner', () => {
     expect(screen.getByText('Ready to build a week.')).toBeTruthy()
   })
 
-  it('the Import control calls onNavigate("import")', async () => {
+  it('the Import control calls onNavigate("import") when brand new', async () => {
     const readiness = getReadiness(READY_COLLECTIONS)
     const onNavigate = vi.fn()
-    render(<RootsBanner readiness={readiness} brandNew={false} onNavigate={onNavigate} onDownloadWorksheet={vi.fn()} />)
+    render(<RootsBanner readiness={readiness} brandNew={true} onNavigate={onNavigate} onDownloadWorksheet={vi.fn()} />)
 
     await userEvent.click(screen.getByText('Import last year'))
     expect(onNavigate).toHaveBeenCalledWith('import')
@@ -76,7 +76,7 @@ describe('RootsBanner', () => {
     expect(onNavigate).toHaveBeenCalledWith('locations')
   })
 
-  it('when brandNew, the Import control is primary (S.btnPrimary background)', () => {
+  it('when brandNew, the Import control is shown and primary (S.btnPrimary background)', () => {
     const readiness = getReadiness(BLOCKED_COLLECTIONS)
     render(<RootsBanner readiness={readiness} brandNew={true} onNavigate={vi.fn()} onDownloadWorksheet={vi.fn()} />)
 
@@ -84,11 +84,10 @@ describe('RootsBanner', () => {
     expect(importBtn.style.background).toBe('var(--primary)')
   })
 
-  it('when not brandNew, the Import control is secondary, not primary', () => {
+  it('when not brandNew, the Import control is not rendered in the banner (Slice C: it recedes to Settings)', () => {
     const readiness = getReadiness(READY_COLLECTIONS)
     render(<RootsBanner readiness={readiness} brandNew={false} onNavigate={vi.fn()} onDownloadWorksheet={vi.fn()} />)
 
-    const importBtn = screen.getByText('Import last year')
-    expect(importBtn.style.background).not.toBe('var(--primary)')
+    expect(screen.queryByText('Import last year')).toBeNull()
   })
 })

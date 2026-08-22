@@ -698,7 +698,9 @@ describe('inspect mode (persistent inspector, mode="inspect")', () => {
     const { blocking } = describeReadiness(expectedReadiness)
 
     await screen.findByText(blocking)
-    expect(screen.getByText('Import last year')).toBeTruthy()
+    // Not brand new (most areas already have data) — Import recedes to
+    // Settings (Slice C); the banner still carries the other two actions.
+    expect(screen.queryByText('Import last year')).toBeNull()
     expect(screen.getByText('Download worksheet')).toBeTruthy()
     expect(screen.getByText('Facility map')).toBeTruthy()
   })
@@ -888,7 +890,7 @@ describe('inspect mode (persistent inspector, mode="inspect")', () => {
     localClient.list.mockResolvedValue([{ id: 'x' }])
     render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
 
-    await screen.findByText('Import last year')
+    await screen.findByText('Download worksheet')
     expect(screen.queryByText(/Imported .* records/)).toBeNull()
     expect(screen.queryByText('Go to Schedule')).toBeNull()
     expect(screen.queryByText('Undo this import')).toBeNull()

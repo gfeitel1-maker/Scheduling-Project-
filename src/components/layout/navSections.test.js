@@ -30,8 +30,8 @@ describe('NAV_SECTIONS setup items (Slice B)', () => {
     }
   })
 
-  it('keeps import last year as a top-level row (Slice C consolidates it)', () => {
-    expect(setupItems.some(i => i.key === 'import')).toBe(true)
+  it('does not list import as a top-level row (Slice C: single state-aware entry point)', () => {
+    expect(setupItems.some(i => i.key === 'import')).toBe(false)
   })
 })
 
@@ -55,11 +55,13 @@ describe('NAV_SECTIONS: no third "system" nav section', () => {
 })
 
 describe('Settings-gear item lists', () => {
-  it('lists Camp, Conflicts (with its badge key) and Trash', () => {
+  it('lists Camp, Re-import last year, Conflicts (with its badge key) and Trash', () => {
     const keys = ADMIN_MENU_ITEMS.map(i => i.key)
-    expect(keys).toEqual(['camp', 'conflicts', 'trash'])
+    expect(keys).toEqual(['camp', 'import', 'conflicts', 'trash'])
     const conflicts = ADMIN_MENU_ITEMS.find(i => i.key === 'conflicts')
     expect(conflicts.badgeKey).toBe('conflicts')
+    const reimport = ADMIN_MENU_ITEMS.find(i => i.key === 'import')
+    expect(reimport.label).toBe('Re-import last year')
   })
 
   it('gates LAN & Devices to admin-only items', () => {

@@ -172,6 +172,20 @@ describe('Sidebar: System items live behind the Settings gear', () => {
     expect(screen.getByText('LAN & Devices')).toBeTruthy()
   })
 
+  it('lists Re-import last year in the Settings gear (Slice C: import recedes here once a camp has data)', () => {
+    renderSidebar()
+    fireEvent.click(screen.getByTitle('Settings'))
+    expect(screen.getByText('Re-import last year')).toBeTruthy()
+  })
+
+  it('navigating to Re-import last year from the gear routes to the import screen', () => {
+    const onNavigate = vi.fn()
+    renderSidebar({ onNavigate })
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Re-import last year'))
+    expect(onNavigate).toHaveBeenCalledWith('import')
+  })
+
   it('hides LAN & Devices from a non-admin role', () => {
     renderSidebar({ role: 'staff' })
     fireEvent.click(screen.getByTitle('Settings'))
