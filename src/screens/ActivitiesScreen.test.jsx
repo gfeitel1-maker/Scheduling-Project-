@@ -889,3 +889,131 @@ describe('ActivitiesScreen — rule provenance (Slice D)', () => {
     }
   })
 })
+
+// Slice E (motion + depth pass) — confirm feedback, hover ring, tier shape.
+describe('ActivitiesScreen — motion + depth pass (Slice E)', () => {
+  function evidenceRow(overrides = {}) {
+    return {
+      id: 'ev-1', camp_id: CAMP_ID, entity_type: 'activities', entity_id: 'act-1',
+      field: 'min_per_week', tag: 'inferred', confidence: 'low', support: {},
+      import_run_id: 'run-1', committed_at: '2026-08-01T00:00:00Z',
+      ...overrides,
+    }
+  }
+
+  it('Confirm highlights the row, then the highlight self-clears after 700ms', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      const act1 = activity({ min_per_week: 2, max_per_week: 4 })
+      localClient.list.mockImplementation(entity => {
+        if (entity === 'activities') return Promise.resolve([act1])
+        return Promise.resolve([])
+      })
+      localClient.listImportEvidence.mockResolvedValue({
+        evidence: [evidenceRow()],
+        fieldSources: { 'act-1': { min_per_week: 'import', max_per_week: 'import', eligible_group_ids: null, location_id: null } },
+      })
+      render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+      await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+      const row = screen.getByText('Archery').closest('tr')
+      expect(row.style.background).toBe('transparent')
+
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+      await user.click(screen.getByRole('button', { name: /Provenance:/ }))
+      const dialog = await screen.findByRole('dialog')
+      await user.click(within(dialog).getByRole('button', { name: 'Confirm' }))
+
+      await waitFor(() => expect(row.style.background).toBe('color-mix(in srgb, var(--secondary) 10%, transparent)'))
+
+      await vi.advanceTimersByTimeAsync(700)
+      await waitFor(() => expect(row.style.background).toBe('transparent'))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reduced motion: the confirmed row has no background transition', async () => {
+    const originalMatchMedia = window.matchMedia
+    window.matchMedia = (query) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} })
+    try {
+      localClient.list.mockImplementation(entity => {
+        if (entity === 'activities') return Promise.resolve([activity()])
+        return Promise.resolve([])
+      })
+      localClient.listImportEvidence.mockResolvedValue({
+        evidence: [evidenceRow()],
+        fieldSources: { 'act-1': { min_per_week: 'import', max_per_week: 'import', eligible_group_ids: null, location_id: null } },
+      })
+      render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+      await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+      const row = screen.getByText('Archery').closest('tr')
+      expect(row.style.transition).toBe('none')
+    } finally {
+      window.matchMedia = originalMatchMedia
+    }
+  })
+
+  it('tier shape: confirmed is a filled dot, observed is a ring, inferred is an outlined fill', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([activity()])
+      return Promise.resolve([])
+    })
+    // min_per_week: source 'import' + evidence tag 'inferred' -> tier inferred.
+    // eligible_group_ids/location_id: source 'import' + evidence tag 'observed' -> tier observed.
+    localClient.listImportEvidence.mockResolvedValue({
+      evidence: [
+        evidenceRow({ field: 'min_per_week', tag: 'inferred', confidence: 'low', support: {} }),
+        evidenceRow({ id: 'ev-2', field: 'location', tag: 'observed', confidence: 'high', support: {} }),
+      ],
+      fieldSources: { 'act-1': { min_per_week: 'import', max_per_week: 'import', eligible_group_ids: null, location_id: 'import' } },
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: /Provenance:/ }))
+    const dialog = await screen.findByRole('dialog')
+
+    // Locate the small tier dots (6x6) rendered before each field label.
+    const dots = dialog.querySelectorAll('span')
+    const tierDots = Array.from(dots).filter(d => d.style.width === '6px' && d.style.height === '6px')
+    expect(tierDots.length).toBe(3)
+
+    // eligible_group_ids: source null -> confirmed -> filled solid, no border/box-shadow.
+    const confirmedDot = tierDots.find(d => d.style.background === 'var(--secondary)')
+    // location_id: observed -> ring, transparent fill, --primary border.
+    const observedDot = tierDots.find(d => d.style.border && d.style.border.includes('var(--primary)'))
+    // min_per_week: inferred -> outlined fill, --accent double box-shadow.
+    const inferredDot = tierDots.find(d => d.style.boxShadow && d.style.boxShadow.includes('var(--accent)'))
+
+    expect(confirmedDot).toBeTruthy()
+    expect(observedDot).toBeTruthy()
+    expect(inferredDot).toBeTruthy()
+    expect(confirmedDot.style.borderStyle).toBe('none')
+    expect(observedDot.style.background).toBe('transparent')
+    expect(inferredDot.style.background).toBe('var(--accent)')
+  })
+
+  it('provenance dot shows a hover ring on mouse enter, and clears it on mouse leave', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([activity()])
+      return Promise.resolve([])
+    })
+    localClient.listImportEvidence.mockResolvedValue({
+      evidence: [evidenceRow()],
+      fieldSources: { 'act-1': { min_per_week: 'import', max_per_week: 'import', eligible_group_ids: null, location_id: null } },
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    const dot = screen.getByRole('button', { name: /Provenance:/ })
+    expect(dot.style.boxShadow).not.toContain('color-mix(in srgb, var(--text) 10%, transparent)')
+
+    fireEvent.mouseEnter(dot)
+    expect(dot.style.boxShadow).toBe('0 0 0 3px color-mix(in srgb, var(--text) 10%, transparent)')
+
+    fireEvent.mouseLeave(dot)
+    expect(dot.style.boxShadow).not.toBe('0 0 0 3px color-mix(in srgb, var(--text) 10%, transparent)')
+  })
+})

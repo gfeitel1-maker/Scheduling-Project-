@@ -388,6 +388,7 @@ const cardStyles = {
     borderLeft: '4px solid var(--accent)',
     padding: 16,
     marginBottom: 12,
+    boxShadow: '0 1px 3px color-mix(in srgb, var(--text) 8%, transparent)',
   },
   cardStandard: {
     background: 'var(--surface)',
@@ -396,6 +397,7 @@ const cardStyles = {
     borderLeft: '4px solid var(--border)',
     padding: 12,
     marginBottom: 6,
+    boxShadow: '0 1px 3px color-mix(in srgb, var(--text) 8%, transparent)',
   },
   radioOption: {
     display: 'flex',

@@ -53,6 +53,7 @@ const styles = {
     background: 'var(--surface)',
     border: '1px solid var(--border)',
     borderRadius: 8,
+    boxShadow: '0 1px 3px color-mix(in srgb, var(--text) 8%, transparent)',
   },
   verdict: {
     minWidth: 0,
