@@ -22,6 +22,13 @@
 // the screens themselves and REQUIRED_AREAS in src/engine/readiness.js. Those
 // orders must agree; a director following Next buttons and a director reading
 // down Roots's children is taking the same path.
+//
+// Slice C: import is one state-aware entry point, not two fixed rows. An
+// empty camp sees it as the prominent action on the Roots banner
+// (rootsBanner.jsx, brandNew ? primary). A populated camp reaches it here,
+// in ADMIN_MENU_ITEMS as "Re-import last year" — it recedes rather than
+// disappearing, so it stays reachable without competing for space every
+// session.
 
 export const NAV_SECTIONS = [
   {
@@ -72,11 +79,6 @@ export const NAV_SECTIONS = [
           { key: 'specialdays',  label: 'Special Days',  area: 'specialdays',  optional: true },
         ],
       },
-      // Sits below Roots because it is what a returning camp does first, once
-      // they've seen the home base. Slice C consolidates this into a single
-      // state-aware entry point; kept as its own row here. It carries no
-      // mark: importing is not a step that can be complete.
-      { key: 'import', label: 'Import last year' },
     ],
   },
   {
@@ -104,6 +106,10 @@ export const ADMIN_MENU_ITEMS = [
   // Not a setup pathway — one setting, which had nowhere else to live once
   // the Camp Setup screen was retired.
   { key: 'camp',      label: 'Camp' },
+  // Slice C: import is a single state-aware entry point. Empty camps see it
+  // as the prominent Roots banner action; once a camp has data, it recedes
+  // here so it stays reachable without competing for space every session.
+  { key: 'import',    label: 'Re-import last year' },
   // Sync conflict resolution — LAN collisions and post-reconnection
   // upserts — not schedule conflicts. Product owner confirmed 2026-07-31.
   // Keeps its badge here (ADR §4) so nothing time-sensitive hides behind
