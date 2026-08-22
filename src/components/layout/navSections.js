@@ -65,6 +65,11 @@ export const NAV_SECTIONS = [
           // own required Next button.
           { key: 'locations',    label: 'Locations',     area: 'locations',    optional: true },
           { key: 'anchors',      label: 'Fixed Events',  area: 'anchors',      optional: true },
+          // Electives Slice 1 (docs/adr/2026-08-22-nested-schedules-electives-
+          // and-events.md §2): the "schedule within a schedule" — a director
+          // builds elective sets/offerings here, off the campwide grid, which
+          // stays opaque ("Electives"). Optional, like Locations/Fixed Events.
+          { key: 'electives',    label: 'Electives',     area: 'electives',    optional: true },
           // T108 Phase 2 (design §10 "Removed") — the standalone Day Overrides
           // CRUD screen/nav entry is retired: overrides are now authored in
           // place on the rendered day via "Override this day" mode
@@ -136,4 +141,5 @@ export const AREA_TABLE = {
   locations: 'locations',
   anchors: 'anchor_activities',
   specialdays: 'special_days',
+  electives: 'elective_sets',
 }

@@ -78,7 +78,6 @@ describe('migration v38: fresh vs migrated equivalence', () => {
   it('declares schema version 38 on a fresh db, creates day_overrides, and adds schedule_snapshots.day_overrides_json', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(38)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 38').get().c).toBe(1)
     expect(db.prepare('SELECT COUNT(*) c FROM day_overrides').get().c).toBe(0)
     expect(db.pragma('table_info(schedule_snapshots)').map((c) => c.name)).toContain('day_overrides_json')

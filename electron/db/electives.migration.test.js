@@ -134,8 +134,11 @@ describe('migration v35: fresh vs migrated equivalence', () => {
     expect(db.pragma('table_info(elective_sets)').map((c) => c.name)).toEqual([
       'id', 'camp_id', 'name', 'sort_order', 'is_reusable',
     ])
+    // camper_headcount arrived in v39 (Electives Slice 1,
+    // docs/work/specs/2026-08-22-electives-nested-schedule-slices.md) — this
+    // v35 test runs against the CURRENT schema too, so it must expect it.
     expect(db.pragma('table_info(elective_set_activities)').map((c) => c.name)).toEqual([
-      'id', 'elective_set_id', 'activity_id',
+      'id', 'elective_set_id', 'activity_id', 'camper_headcount',
     ])
     db.close()
   })

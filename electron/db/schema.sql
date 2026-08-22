@@ -761,10 +761,20 @@ CREATE TABLE IF NOT EXISTS elective_sets (
 -- deliberately NOT given a SQL REFERENCES clause — it points at a live camp
 -- `activities` row the same soft way template_slots.activity_id's sibling
 -- columns do (render resolves by id), consistent with the app's op-log model.
+-- camper_headcount (schema v39, Electives Slice 1, docs/adr/2026-08-22-
+-- nested-schedules-electives-and-events.md §2, docs/work/specs/2026-08-22-
+-- electives-nested-schedule-slices.md Slice 1): the per-offering capacity T41
+-- explicitly deferred. Nullable — NULL means no cap, never "zero campers".
+-- Counts only, never a roster (owner: no `campers` entity). MUST be the LAST
+-- column: it is ALTER-added on a migrated db (localDb.js v39), which always
+-- appends, so declaring it last here keeps a fresh install's column order
+-- byte-identical to a migrated one (same column-order-trap precedent as
+-- elective_sets.is_reusable / activities.location_id).
 CREATE TABLE IF NOT EXISTS elective_set_activities (
   id TEXT PRIMARY KEY,
   elective_set_id TEXT NOT NULL REFERENCES elective_sets(id),
   activity_id TEXT NOT NULL,
+  camper_headcount INTEGER,
   UNIQUE(elective_set_id, activity_id)
 );
 

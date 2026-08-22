@@ -13,6 +13,7 @@ const TITLES = {
   timeblocks:   'Time Blocks',
   activities:   'Activities',
   anchors:      'Fixed Events',
+  electives:    'Electives',
   schedule:              'Schedule',
   'schedule:generated':  'Generated Schedule',
   'schedule:manual':     'Manual Build',
