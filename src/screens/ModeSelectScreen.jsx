@@ -1,9 +1,11 @@
 import { S } from '../styles/shared'
+import rootPattern from '../assets/brand/root-pattern-bg.jpg'
 
 export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
   return (
-    <div style={S.authPage}>
-      <div style={S.authCard}>
+    <div style={{ ...S.authPage, position: 'relative', overflow: 'hidden' }}>
+      <div style={modeSelectStyles.watermark} aria-hidden="true" />
+      <div style={{ ...S.authCard, position: 'relative', zIndex: 1 }}>
         <div style={S.authLogoBlock}>
           <div style={S.authLogo}>Shoresh</div>
           <div style={S.authLogoSub}>Camp activity scheduling</div>
@@ -52,4 +54,18 @@ export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
       </div>
     </div>
   )
+}
+
+const modeSelectStyles = {
+  watermark: {
+    position: 'absolute',
+    inset: 0,
+    backgroundImage: `url(${rootPattern})`,
+    backgroundSize: 'cover',
+    backgroundPosition: 'center',
+    backgroundRepeat: 'no-repeat',
+    opacity: 0.06,
+    pointerEvents: 'none',
+    zIndex: 0,
+  },
 }
