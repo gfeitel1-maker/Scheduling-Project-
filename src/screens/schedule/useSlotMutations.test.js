@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-import { useSlotMutations } from './useSlotMutations'
+import { useSlotMutations, collectSpanTails, spanStopsAt, repairOrphanSpanTails } from './useSlotMutations'
 import { getSlot } from './gridGeometry'
 
 // A fake repo capturing exactly the fields handed to each write — no React, no
@@ -643,66 +643,124 @@ describe('useSlotMutations — route-pinned redo closure', () => {
   })
 })
 
+// ADR 2026-08-21: arbitrary-length spans — flags.expanded is retired as a
+// structural pointer; the is_span_head chain is the sole representation,
+// and a newly-covered tail carries flags.displaced (not the head).
+const spanTimeBlocks = [
+  { id: 'b1', name: 'Block 1', sort_order: 1 },
+  { id: 'b2', name: 'Block 2', sort_order: 2 },
+  { id: 'b3', name: 'Block 3', sort_order: 3 },
+  { id: 'b4', name: 'Block 4', sort_order: 4 },
+]
+
 describe('useSlotMutations — expandSlot', () => {
   // b1 (head, "Swim") is stretched over b2 (tail, "Archery"); Archery is displaced.
   const headSlot = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', flags: {}, is_span_head: true }
   const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actTail', flags: {}, is_span_head: true }
   const activities = [{ id: 'actHead', name: 'Swim' }, { id: 'actTail', name: 'Archery' }]
-  const expandedFlags = { expanded: { displacedActivityId: 'actTail', displacedActivityName: 'Archery', from_block: 'b2' } }
 
   function expand(hook) {
     return hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', 'actTail', 'Archery', 'Block 2', 'Mon')
   }
 
-  it('merges the two cells (tail owned by head + span flag, head gets the expanded flag) and updates state', async () => {
-    const { hook, props } = setup({ slots: [headSlot, tailSlot], activities })
+  it('merges the two cells (tail owned by head, carries its own displaced record) and updates state', async () => {
+    const { hook, props } = setup({ slots: [headSlot, tailSlot], activities, timeBlocks: spanTimeBlocks })
     await act(async () => { await expand(hook) })
 
-    // Tail cell now belongs to the head activity and is a tail (is_span_head:false).
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: 'actHead', is_span_head: false })
-    // Head cell records the merge in its flags.
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('h1', { flags: expandedFlags })
-    // Optimistic setSlots + one undo entry.
+    // Tail cell now belongs to the head activity, is a tail (is_span_head:
+    // false), and carries what it displaced on its OWN flags — the head is
+    // never written (flags.expanded is retired, ADR §1).
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', {
+      activity_id: 'actHead', is_span_head: false,
+      flags: { displaced: { displaced_activity_id: 'actTail', displaced_activity_name: 'Archery' } },
+    })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalledWith('h1', expect.anything())
+    // Optimistic setSlots + one undo entry (one newly-covered tail).
     expect(props.routeState.setSlots).toHaveBeenCalledTimes(1)
     expect(props.pushUndo).toHaveBeenCalledTimes(1)
   })
 
-  it('undo() reverses both writes', async () => {
-    const { hook, props } = setup({ slots: [headSlot, tailSlot], activities })
+  it('undo() releases the tail back to an empty span head', async () => {
+    const setSlots = statefulSetSlots([headSlot, tailSlot])
+    const { hook, props } = setup({ slots: [headSlot, tailSlot], activities, timeBlocks: spanTimeBlocks, routeState: { setSlots: setSlots.fn } })
     await act(async () => { await expand(hook) })
     const entry = props.pushUndo.mock.calls[0][0]
 
     props.repo.writeSlotFields.mockClear()
     await act(async () => { await entry.undo() })
 
-    // Tail restored to its own activity as a span head; head's flags restored.
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: 'actTail', is_span_head: true })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('h1', { flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: 'actTail', is_span_head: true, flags: {} })
+  })
+
+  it('extends N=2 to N=4 in one gesture: both new tails written under one claim, one undo frame per new tail', async () => {
+    const slots = [
+      headSlot,
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actHead', is_span_head: false, flags: {} },
+      { id: 't2', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: null, is_span_head: true, flags: {} },
+      { id: 't3', group_id: 'g1', day_id: 'd1', time_block_id: 'b4', activity_id: null, is_span_head: true, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities, timeBlocks: spanTimeBlocks })
+    await act(async () => { await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b4') })
+
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t2', { activity_id: 'actHead', is_span_head: false, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t3', { activity_id: 'actHead', is_span_head: false, flags: {} })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalledWith('t1', expect.anything()) // already a tail, no re-write
+    expect(props.pushUndo).toHaveBeenCalledTimes(2) // one frame per newly-covered block
+  })
+
+  it('shrink-via-drag from N=4 to N=2: dropped tails are released to empty fresh heads', async () => {
+    const slots = [
+      headSlot,
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actHead', is_span_head: false, flags: {} },
+      { id: 't2', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'actHead', is_span_head: false, flags: {} },
+      { id: 't3', group_id: 'g1', day_id: 'd1', time_block_id: 'b4', activity_id: 'actHead', is_span_head: false, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities, timeBlocks: spanTimeBlocks })
+    await act(async () => { await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2') })
+
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t2', { activity_id: null, is_span_head: true, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t3', { activity_id: null, is_span_head: true, flags: {} })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalledWith('t1', expect.anything()) // stays a tail, untouched
+    expect(props.pushUndo).toHaveBeenCalledTimes(2) // one frame per released block
+  })
+
+  it('multi-cell atomicity: an extend superseded before dispatch writes to NEITHER new tail', async () => {
+    const slots = [
+      headSlot,
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, is_span_head: true, flags: {} },
+      { id: 't2', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: null, is_span_head: true, flags: {} },
+      { id: 't3', group_id: 'g1', day_id: 'd1', time_block_id: 'b4', activity_id: null, is_span_head: true, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities, timeBlocks: spanTimeBlocks })
+    const p1 = hook.result.current.expandSlot('g1', 'd1', 'b1', 'b4', null, '', '', '', 'g1')
+    const p2 = hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', null, '', '', '', 'g2')
+    await act(async () => { await Promise.all([p1, p2]) })
+
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalledWith('t3', expect.anything())
+    expect(props.pushUndo).toHaveBeenCalledTimes(1) // only g2's (1 new tail)
   })
 })
 
 describe('useSlotMutations — splitSlot', () => {
   // b1 is a merged head whose span covers b2; splitting frees b2 again.
-  const headSlot = {
-    id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', is_span_head: true,
-    flags: { expanded: { displacedActivityId: 'actTail', displacedActivityName: 'Archery', from_block: 'b2' } },
-  }
-  const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actHead', is_span_head: false }
-  const timeBlocks = [{ id: 'b1', name: 'Block 1', sort_order: 1 }, { id: 'b2', name: 'Block 2', sort_order: 2 }]
+  const headSlot = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', is_span_head: true, flags: {} }
+  const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actHead', is_span_head: false, flags: {} }
+  const timeBlocks = spanTimeBlocks
   const days = [{ id: 'd1', label: 'Mon' }]
 
-  it('splits the merged span back into two (tail cleared to a fresh span head, head flags cleaned)', async () => {
+  it('splits the merged span back into two (tail cleared to a fresh span head)', async () => {
     const { hook, props } = setup({ slots: [headSlot, tailSlot], timeBlocks, days })
     await act(async () => { await hook.result.current.splitSlot('g1', 'd1', 'b1') })
 
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: null, is_span_head: true, flags: {} })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('h1', { flags: {} })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalledWith('h1', expect.anything())
     expect(props.routeState.setSlots).toHaveBeenCalledTimes(1)
     expect(props.pushUndo).toHaveBeenCalledTimes(1)
   })
 
-  it('undo() restores the merged span (tail back to the head activity as a tail, head expanded flag back)', async () => {
-    const { hook, props } = setup({ slots: [headSlot, tailSlot], timeBlocks, days })
+  it('undo() restores the merged span (tail back to the head activity as a tail)', async () => {
+    const setSlots = statefulSetSlots([headSlot, tailSlot])
+    const { hook, props } = setup({ slots: [headSlot, tailSlot], timeBlocks, days, routeState: { setSlots: setSlots.fn } })
     await act(async () => { await hook.result.current.splitSlot('g1', 'd1', 'b1') })
     const entry = props.pushUndo.mock.calls[0][0]
 
@@ -710,7 +768,178 @@ describe('useSlotMutations — splitSlot', () => {
     await act(async () => { await entry.undo() })
 
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: 'actHead', is_span_head: false, flags: {} })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('h1', { flags: headSlot.flags })
+  })
+
+  it('splits at an interior block of N=4: blocks before the cut keep the chain, the cut block and after become independent empty heads', async () => {
+    const slots = [
+      headSlot,
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actHead', is_span_head: false, flags: {} },
+      { id: 't2', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'actHead', is_span_head: false, flags: {} },
+      { id: 't3', group_id: 'g1', day_id: 'd1', time_block_id: 'b4', activity_id: 'actHead', is_span_head: false, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, timeBlocks, days })
+    await act(async () => { await hook.result.current.splitSlot('g1', 'd1', 'b1', undefined, 'b3') })
+
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t2', { activity_id: null, is_span_head: true, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t3', { activity_id: null, is_span_head: true, flags: {} })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalledWith('t1', expect.anything()) // before the cut: stays in the span
+    expect(props.pushUndo).toHaveBeenCalledTimes(2) // one frame per released block
+  })
+})
+
+// ADR 2026-08-21 test-first seam list items 1, 5, 7, 10, 13.
+describe('useSlotMutations — collectSpanTails characterization (arbitrary N)', () => {
+  it('walks a chain of N=3 tails', () => {
+    const headRow = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_span_head: true }
+    const slots = [
+      headRow,
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', is_span_head: false },
+      { id: 't2', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'act-1', is_span_head: false },
+      { id: 't3', group_id: 'g1', day_id: 'd1', time_block_id: 'b4', activity_id: 'act-1', is_span_head: false },
+    ]
+    const tails = collectSpanTails(slots, spanTimeBlocks, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, headRow)
+    expect(tails.map(t => t.id)).toEqual(['t1', 't2', 't3'])
+  })
+
+  it('walks a chain of N=4 tails (one more block than N=3)', () => {
+    const fiveBlocks = [...spanTimeBlocks, { id: 'b5', name: 'Block 5', sort_order: 5 }]
+    const headRow = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_span_head: true }
+    const slots = [
+      headRow,
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', is_span_head: false },
+      { id: 't2', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'act-1', is_span_head: false },
+      { id: 't3', group_id: 'g1', day_id: 'd1', time_block_id: 'b4', activity_id: 'act-1', is_span_head: false },
+      { id: 't4', group_id: 'g1', day_id: 'd1', time_block_id: 'b5', activity_id: 'act-1', is_span_head: false },
+    ]
+    const tails = collectSpanTails(slots, fiveBlocks, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, headRow)
+    expect(tails.map(t => t.id)).toEqual(['t1', 't2', 't3', 't4'])
+  })
+})
+
+describe('useSlotMutations — spanStopsAt (ADR §3 ordered stop conditions)', () => {
+  const activities = [{ id: 'act-1', name: 'Swim' }, { id: 'act-locked', name: 'Locked', is_locked: true }]
+
+  it('day end / deleted block: an undefined row stops', () => {
+    expect(spanStopsAt(undefined, 'act-1', activities)).toBe(true)
+  })
+  it('an anchor stops', () => {
+    expect(spanStopsAt({ is_anchor: true }, 'act-1', activities)).toBe(true)
+  })
+  it('a WEEK_CLOSED block stops', () => {
+    expect(spanStopsAt({ flags: { WEEK_CLOSED: true } }, 'act-1', activities)).toBe(true)
+  })
+  it('an overridden cell stops', () => {
+    expect(spanStopsAt({ is_overridden: true }, 'act-1', activities)).toBe(true)
+  })
+  it('a different LOCKED activity stops', () => {
+    expect(spanStopsAt({ activity_id: 'act-locked' }, 'act-1', activities)).toBe(true)
+  })
+  it('an empty cell does not stop (absorbed)', () => {
+    expect(spanStopsAt({ activity_id: null }, 'act-1', activities)).toBe(false)
+  })
+  it('a different UNLOCKED activity does not stop (absorbed, displacing it)', () => {
+    expect(spanStopsAt({ activity_id: 'act-other' }, 'act-1', [{ id: 'act-other', name: 'Other' }])).toBe(false)
+  })
+})
+
+describe('useSlotMutations — expandSlot boundary-crossing stop conditions (ADR §3)', () => {
+  const headSlot = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', flags: {}, is_span_head: true }
+  const activities = [{ id: 'actHead', name: 'Swim' }, { id: 'actLocked', name: 'Locked', is_locked: true }]
+
+  it('caps a drag at the day\'s last block: toBlockId beyond the last block is invalid, no dispatch', async () => {
+    const { hook, props } = setup({ slots: [headSlot], activities, timeBlocks: spanTimeBlocks })
+    await act(async () => { await hook.result.current.expandSlot('g1', 'd1', 'b1', 'no-such-block') })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+  })
+
+  it('a path containing an anchor stops before it (R1: truncates, does not abort)', async () => {
+    const slots = [
+      headSlot,
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, is_span_head: true, flags: {} },
+      { id: 'anchor1', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', is_anchor: true },
+    ]
+    const { hook, props } = setup({ slots, activities, timeBlocks: spanTimeBlocks })
+    await act(async () => { await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b3') })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: 'actHead', is_span_head: false, flags: {} })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalledWith('anchor1', expect.anything())
+  })
+
+  it('a locked cell stops the extend before it (R1: truncates the valid prefix)', async () => {
+    const slots = [
+      headSlot,
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, is_span_head: true, flags: {} },
+      { id: 'locked1', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'actLocked', is_span_head: true, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities, timeBlocks: spanTimeBlocks })
+    await act(async () => { await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b3') })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: 'actHead', is_span_head: false, flags: {} })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalledWith('locked1', expect.anything())
+  })
+
+  it('a WEEK_CLOSED block stops the extend before it', async () => {
+    const slots = [
+      headSlot,
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, is_span_head: true, flags: { WEEK_CLOSED: true } },
+    ]
+    const { hook, props } = setup({ slots, activities, timeBlocks: spanTimeBlocks })
+    await act(async () => { await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2') })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+  })
+
+  it('R4: a since-deleted targeted block is dropped gracefully, no write to a dead id', async () => {
+    const slots = [
+      headSlot,
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, is_span_head: true, flags: {} },
+    ]
+    // timeBlocks no longer contains b3/b4 (deleted mid-gesture) — the extend
+    // still succeeds up to b2, the last surviving block in range.
+    const shrunkBlocks = spanTimeBlocks.filter(b => b.id !== 'b3' && b.id !== 'b4')
+    const { hook, props } = setup({ slots, activities, timeBlocks: shrunkBlocks })
+    await act(async () => { await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2') })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: 'actHead', is_span_head: false, flags: {} })
+  })
+
+  it('an identical-range double-fired extend is idempotent: the second call is a no-op (no data loss, no re-write)', async () => {
+    const slots = [
+      headSlot,
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, is_span_head: true, flags: {} },
+    ]
+    const setSlots = statefulSetSlots(slots)
+    const { hook, props } = setup({ slots, activities, timeBlocks: spanTimeBlocks, routeState: { setSlots: setSlots.fn } })
+    await act(async () => { await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2') })
+    props.repo.writeSlotFields.mockClear()
+    // Second identical-range call: t1 now reflects (via slotsRef, kept
+    // current by the stateful setSlots above) the first call's result, so
+    // this is a no-op — no second write, no second undo frame.
+    await act(async () => { await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2') })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+  })
+})
+
+describe('useSlotMutations — repairOrphanSpanTails (ADR §4, pure function)', () => {
+  it('flags a tail whose predecessor is not a valid head/prior-tail of the same activity', () => {
+    const slots = [
+      { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, is_span_head: true },
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', is_span_head: false },
+    ]
+    const orphans = repairOrphanSpanTails(slots, spanTimeBlocks)
+    expect(orphans.map(o => o.id)).toEqual(['t1'])
+  })
+
+  it('does not flag a valid chain', () => {
+    const slots = [
+      { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_span_head: true },
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', is_span_head: false },
+      { id: 't2', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'act-1', is_span_head: false },
+    ]
+    expect(repairOrphanSpanTails(slots, spanTimeBlocks)).toEqual([])
+  })
+
+  it('does not flag a plain (non-span) slot', () => {
+    const slots = [
+      { id: 's1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_span_head: true },
+    ]
+    expect(repairOrphanSpanTails(slots, spanTimeBlocks)).toEqual([])
   })
 })
 
@@ -1038,8 +1267,9 @@ describe('useSlotMutations — T82 characterization: write-error short-circuits'
     const headSlot = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', flags: {}, is_span_head: true }
     const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actTail', flags: {}, is_span_head: true }
     const activities = [{ id: 'actHead', name: 'Swim' }, { id: 'actTail', name: 'Archery' }]
+    const timeBlocks = [{ id: 'b1', name: 'Block 1', sort_order: 1 }, { id: 'b2', name: 'Block 2', sort_order: 2 }]
     const repo = makeRepo({ writeSlotFields: vi.fn(async () => { throw new Error('boom') }) })
-    const { hook, props } = setup({ slots: [headSlot, tailSlot], activities, repo })
+    const { hook, props } = setup({ slots: [headSlot, tailSlot], activities, timeBlocks, repo })
     await act(async () => {
       await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', 'actTail', 'Archery', 'Block 2', 'Mon')
     })
@@ -1116,8 +1346,9 @@ describe('useSlotMutations — T82 characterization: undo -> redo -> undo round 
     const headSlot = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', flags: {}, is_span_head: true }
     const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actTail', flags: {}, is_span_head: true }
     const activities = [{ id: 'actHead', name: 'Swim' }, { id: 'actTail', name: 'Archery' }]
+    const timeBlocks = [{ id: 'b1', name: 'Block 1', sort_order: 1 }, { id: 'b2', name: 'Block 2', sort_order: 2 }]
     const setSlots = statefulSetSlots([headSlot, tailSlot])
-    const { hook, props } = setup({ slots: [headSlot, tailSlot], activities, routeState: { setSlots: setSlots.fn } })
+    const { hook, props } = setup({ slots: [headSlot, tailSlot], activities, timeBlocks, routeState: { setSlots: setSlots.fn } })
 
     await act(async () => {
       await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', 'actTail', 'Archery', 'Block 2', 'Mon')
@@ -1127,13 +1358,11 @@ describe('useSlotMutations — T82 characterization: undo -> redo -> undo round 
 
     await act(async () => { await entry.undo() })
     expect(setSlots.get().find(s => s.id === 't1').is_span_head).toBe(true)
-    expect(setSlots.get().find(s => s.id === 'h1').flags).toEqual({})
+    expect(setSlots.get().find(s => s.id === 't1').activity_id).toBe('actTail')
 
     await act(async () => { await entry.redo() })
     expect(setSlots.get().find(s => s.id === 't1').is_span_head).toBe(false)
-    expect(setSlots.get().find(s => s.id === 'h1').flags).toEqual({
-      expanded: { displacedActivityId: 'actTail', displacedActivityName: 'Archery', from_block: 'b2' },
-    })
+    expect(setSlots.get().find(s => s.id === 't1').activity_id).toBe('actHead')
 
     await act(async () => { await entry.undo() })
     expect(setSlots.get().find(s => s.id === 't1').is_span_head).toBe(true)
@@ -1304,63 +1533,52 @@ describe('useSlotMutations — createActivityFromCell characterization (T106 ext
 // "previous" value an undo entry captures) — kept as its own describe block
 // so it stays independent of whichever write-ordering mechanism is current.
 describe('useSlotMutations — fresh-read undo snapshot (gesture-correlation ADR)', () => {
-  it('facet 2 fixed for expandSlot: two racing same-head-cell calls with no re-render between them — the second undo entry captures the FIRST call\'s actual result, not a shared stale snapshot', async () => {
+  it('facet 2 fixed for expandSlot: a second racing extend on the same head reads g1\'s ACTUAL result, not the stale closed-over slots prop', async () => {
     const headSlot = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', flags: {}, is_span_head: true }
     const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actTail', flags: {}, is_span_head: true }
+    const tail2Slot = { id: 't2', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: null, flags: {}, is_span_head: true }
     const activities = [{ id: 'actHead', name: 'Swim' }, { id: 'actTail', name: 'Archery' }]
-    const setSlots = statefulSetSlots([headSlot, tailSlot])
-    const { hook, props } = setup({ slots: [headSlot, tailSlot], activities, routeState: { setSlots: setSlots.fn } })
+    const setSlots = statefulSetSlots([headSlot, tailSlot, tail2Slot])
+    const { hook, props } = setup({ slots: [headSlot, tailSlot, tail2Slot], activities, timeBlocks: spanTimeBlocks, routeState: { setSlots: setSlots.fn } })
 
     // Gesture g1 expands b1 over b2 first.
     await act(async () => {
       await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', 'actTail', 'Archery', 'Block 2', 'Mon', 'g1')
     })
-    // Gesture g2 does the same expand call again, still closed over the same
-    // stale `slots` prop (no re-render happened) — mirrors the replaceSlot
-    // fresh-read regression test's structure, applied to expandSlot.
-    await act(async () => {
-      await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', 'actTail', 'Archery', 'Block 2', 'Mon', 'g2')
-    })
-    const g2Entry = props.pushUndo.mock.calls[1][0]
-
-    // g2's undo must restore what g1 ACTUALLY left behind (head flags carrying
-    // g1's own `expanded` marker), not the pre-either-call state both calls'
-    // stale `slots` closure would agree on without the fresh-read fix.
+    // Gesture g2, still closed over the same stale `slots` prop (no
+    // re-render happened), now extends FURTHER to b3 — its diff must be
+    // computed against what g1 ACTUALLY left (b2 already a tail), so it
+    // writes ONLY b3, never re-writing b2.
     props.repo.writeSlotFields.mockClear()
-    await act(async () => { await g2Entry.undo() })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('h1', {
-      flags: { expanded: { displacedActivityId: 'actTail', displacedActivityName: 'Archery', from_block: 'b2' } },
+    await act(async () => {
+      await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b3', null, '', '', '', 'g2')
     })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t2', { activity_id: 'actHead', is_span_head: false, flags: {} })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalledWith('t1', expect.anything())
   })
 
-  it('facet 2 fixed for splitSlot: same shape as expandSlot, applied to the head/tail snapshot', async () => {
-    const headSlot = {
-      id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', is_span_head: true,
-      flags: { expanded: { displacedActivityId: 'actTail', displacedActivityName: 'Archery', from_block: 'b2' } },
-    }
-    const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actHead', is_span_head: false }
-    const timeBlocks = [{ id: 'b1', name: 'Block 1', sort_order: 1 }, { id: 'b2', name: 'Block 2', sort_order: 2 }]
+  it('facet 2 fixed for splitSlot: a second racing split on the same head reads g1\'s ACTUAL remaining tail chain, not the stale closed-over slots prop', async () => {
+    const headSlot = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', is_span_head: true, flags: {} }
+    const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actHead', is_span_head: false, flags: {} }
+    const tail2Slot = { id: 't2', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'actHead', is_span_head: false, flags: {} }
+    const timeBlocks = spanTimeBlocks
     const days = [{ id: 'd1', label: 'Mon' }]
-    const setSlots = statefulSetSlots([headSlot, tailSlot])
-    const { hook, props } = setup({ slots: [headSlot, tailSlot], timeBlocks, days, routeState: { setSlots: setSlots.fn } })
+    const setSlots = statefulSetSlots([headSlot, tailSlot, tail2Slot])
+    const { hook, props } = setup({ slots: [headSlot, tailSlot, tail2Slot], timeBlocks, days, routeState: { setSlots: setSlots.fn } })
 
-    // g1 splits first — tail is freed (activity_id: null, is_span_head: true).
+    // g1 cuts at b3 first — only b3 is released, b2 stays a tail.
     await act(async () => {
-      await hook.result.current.splitSlot('g1', 'd1', 'b1', 'g1')
+      await hook.result.current.splitSlot('g1', 'd1', 'b1', 'g1', 'b3')
     })
-    // g2 splits "again", still closed over the original (unsplit) `slots` prop.
+    // g2, still closed over the original (un-split) `slots` prop, splits
+    // "everything" (no cutBlockId) — its collectSpanTails walk must read
+    // g1's ACTUAL remaining chain (just b2), never re-releasing b3.
+    props.repo.writeSlotFields.mockClear()
     await act(async () => {
       await hook.result.current.splitSlot('g1', 'd1', 'b1', 'g2')
     })
-    const g2Entry = props.pushUndo.mock.calls[1][0]
-
-    // g2's undo must restore the tail to what g1's split ACTUALLY left it as
-    // (freed: null / is_span_head true) — not the stale pre-split values
-    // (owned by the head activity / is_span_head false) both calls' shared
-    // `slots` closure would otherwise agree on.
-    props.repo.writeSlotFields.mockClear()
-    await act(async () => { await g2Entry.undo() })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: null, is_span_head: true, flags: {} })
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalledWith('t2', expect.anything())
   })
 })
 
@@ -1532,7 +1750,7 @@ describe('useSlotMutations — per-cell write serialization (write-serialization
     const activities = [{ id: 'actHead', name: 'Swim' }, { id: 'actTail', name: 'Archery' }, { id: 'actOther', name: 'Other' }]
     const slots = [headSlot, tailSlot]
     const setSlots = statefulSetSlots(slots)
-    const { hook, props } = setup({ slots, activities, routeState: { setSlots: setSlots.fn } })
+    const { hook, props } = setup({ slots, activities, timeBlocks: spanTimeBlocks, routeState: { setSlots: setSlots.fn } })
 
     // g1's expand claims BOTH the head (b1) and tail (b2) cells atomically.
     const p1 = hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', 'actTail', 'Archery', 'Block 2', 'Mon', 'g1')
@@ -1814,13 +2032,15 @@ describe('useSlotMutations — ownWriteRef coverage (Red Hat fold-in A)', () => 
     expect(entry.kind).toMatch(/^elective:/)
   })
 
+  const spanTimeBlocks = [{ id: 'b1', name: 'Block 1', sort_order: 1 }, { id: 'b2', name: 'Block 2', sort_order: 2 }]
+
   it('expandSlot records the tail cell\'s new own-write kind', async () => {
     const slots = [
-      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {} },
-      { id: 'row-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, flags: {} },
+      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: {}, is_span_head: true },
+      { id: 'row-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, flags: {}, is_span_head: true },
     ]
     const activities = [{ id: 'act-1', name: 'Swim' }]
-    const { hook } = setup({ slots, activities })
+    const { hook } = setup({ slots, activities, timeBlocks: spanTimeBlocks })
     await act(async () => {
       await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', null, '', 'Block 2', 'Mon')
     })
@@ -1831,10 +2051,10 @@ describe('useSlotMutations — ownWriteRef coverage (Red Hat fold-in A)', () => 
 
   it('splitSlot records the released tail cell as empty', async () => {
     const slots = [
-      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', flags: { expanded: { from_block: 'b2' } } },
-      { id: 'row-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', flags: {} },
+      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', is_span_head: true, flags: {} },
+      { id: 'row-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', is_span_head: false, flags: {} },
     ]
-    const { hook } = setup({ slots })
+    const { hook } = setup({ slots, timeBlocks: spanTimeBlocks, days: [{ id: 'd1', label: 'Mon' }] })
     await act(async () => {
       await hook.result.current.splitSlot('g1', 'd1', 'b1')
     })
