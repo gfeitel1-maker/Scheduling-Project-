@@ -190,6 +190,112 @@ export function fieldsFor(entity, name, campId, index, cohortId) {
  *     "the same name" (ADR §2).
  *   @returns {ReconciliationPlan}
  */
+// Slice 3a content-shape detector (docs/adr/2026-08-22-nested-schedules-
+// electives-and-events.md §4 addendum; docs/work/specs/2026-08-22-electives-
+// nested-schedule-slices.md). Create-shaped: no `{from,to}` field diff — no
+// elective_set exists yet — so this is a distinct branch from emitCreate/
+// fieldsFor above, not an extension of either. PURE: takes the header
+// findings + per-activity period flags extractEntities.js already computed
+// (both plain data, no DB), plus the live `activities` snapshot buildPlan
+// already receives as `existing.activities` for every other entity's
+// recognition.
+//
+// A candidate fires for an activity name that:
+//   - survived isActivityLike (it is already in proposal entities.activities
+//     — extractEntities only ever tallies names that passed that gate), AND
+//   - matches NO live activities row via recognitionKey (the false-positive
+//     guard: a name that resolves 1:1 to an existing catalog activity is
+//     exempt by construction, no separate blocklist), AND
+//   - every occurrence of it sat in a period/column the header detector did
+//     NOT already flag (an occurrence already explained by a header finding
+//     would otherwise double-nudge for the same period).
+//
+// Recorded as ONE opaque finding per name (the raw text), never split into
+// fake offerings — ingest never invents an elective's roster of offerings.
+export function buildElectiveCandidates(source, existing) {
+  const headerFindings = Array.isArray(source?.electiveHeaderFindings) ? source.electiveHeaderFindings : []
+  const activityPeriods = source?.activityPeriods && typeof source.activityPeriods === 'object' ? source.activityPeriods : {}
+  // S2c: `approved.activities` is a list of records `{ name, fields?, clears? }`
+  // (a bare string back-compat-normalizes to `{ name }`) — the SAME shape the
+  // main buildPlan loop below reads, not the raw extractEntities `entities.
+  // activities` tally (this function is called with the S2c-folded `source`,
+  // never the raw proposal).
+  const rawActivities = Array.isArray(source?.approved?.activities) ? source.approved.activities : []
+  const proposedActivityNames = rawActivities
+    .map((r) => String((r && typeof r === 'object' ? r.name : r) ?? '').trim())
+    .filter(Boolean)
+
+  const liveActivityKeys = new Set(
+    (Array.isArray(existing?.activities) ? existing.activities : [])
+      .filter((r) => r?.name)
+      .map((r) => recognitionKey('activities', r.name))
+  )
+
+  // fix, panel round 2 (Red Hat + Code Reviewer) — the SAME false-positive
+  // guard the shape detector below already applies, extended to the header
+  // detector's cell-VALUE findings (extractEntities.js's `source: 'cell'`
+  // tag): a cell value equal to an existing catalog activity's name (e.g. a
+  // camp with a real, plain activity actually named "Electives") must never
+  // nudge just because the text also matches ELECTIVE_HEADER_TERMS. A
+  // row/column-LABEL finding (`source: 'label'`) never names an activity and
+  // is exempt from this filter by construction — it always passes through.
+  const headerFindingsFiltered = headerFindings.filter((f) => {
+    if (f.source !== 'cell') return true
+    return !liveActivityKeys.has(recognitionKey('activities', f.sourceExcerpt))
+  })
+
+  const shapeFindings = []
+  for (const name of proposedActivityNames) {
+    const key = normalizeName(name)
+    const flags = activityPeriods[key]
+    if (!Array.isArray(flags) || flags.length === 0) continue
+    // Header-flagged in EVERY occurrence -> already fully explained by a
+    // header finding; a name that shows up under an electives period AND
+    // elsewhere still deserves its own shape finding for the unexplained rest.
+    if (flags.every(Boolean)) continue
+    if (liveActivityKeys.has(recognitionKey('activities', name))) continue // false-positive guard
+    shapeFindings.push({ detector: 'shape', band: 'inferred', sourceExcerpt: name, row: null, column: null })
+  }
+
+  // Dedup the decision id by column-signature (ADR §4 addendum) so a prior
+  // decline doesn't re-surface across a re-import of the same file: the
+  // signature is the detector + the exact text the file printed, which is
+  // stable across re-imports of an unchanged source and distinct for two
+  // different periods/columns.
+  // fix, panel round 2 (Red Hat) — dedup CASE-INSENSITIVELY: "Chugim" and
+  // "CHUGIM" are the same period spelled two ways, not two candidates (and,
+  // downstream, must not become two elective_sets — see
+  // commitElectiveCandidates' matching normalization). The signature key is
+  // normalized for comparison only; the id itself, and the stored
+  // sourceExcerpt, keep the FIRST-seen raw casing (a decline/re-import
+  // dedup id must still stay stable across an unchanged file).
+  const all = [...headerFindingsFiltered, ...shapeFindings]
+  const seenKeys = new Set()
+  const candidates = []
+  for (const finding of all) {
+    const key = `${finding.detector}:${normalizeName(finding.column ?? '')}:${normalizeName(finding.sourceExcerpt)}`
+    if (seenKeys.has(key)) continue
+    seenKeys.add(key)
+    const id = `${finding.detector}:${finding.column ?? ''}:${finding.sourceExcerpt}`
+    candidates.push({ id, ...finding })
+  }
+
+  // fix, panel round 2 (Red Hat, "unbounded nudges") — a pathological file
+  // can produce hundreds of shape-detector hits (every unrecognized activity
+  // name is a candidate). Cap at a sane limit rather than silently truncating
+  // (house rule: never silent): the excess is dropped, but `.truncated` on
+  // the returned array says so — reconciliationReport.js turns it into one
+  // acknowledgeable decision, never a phantom elective-candidate card (a cap
+  // note is not itself a period to create a set for).
+  const ELECTIVE_CANDIDATE_CAP = 25
+  if (candidates.length > ELECTIVE_CANDIDATE_CAP) {
+    const kept = candidates.slice(0, ELECTIVE_CANDIDATE_CAP)
+    kept.truncated = { total: candidates.length, shown: ELECTIVE_CANDIDATE_CAP }
+    return kept
+  }
+  return candidates
+}
+
 export function buildPlan(source, existing = null, resolutions = []) {
   const approved = source?.approved ?? {}
   const links = source?.links ?? {}
@@ -585,5 +691,8 @@ export function buildPlan(source, existing = null, resolutions = []) {
     // S0 commit directives carried as data (the plan is the whole commit input).
     mode: source?.mode ?? 'add',
     fixedEvents: Array.isArray(source?.fixedEvents) ? source.fixedEvents : [],
+    // Slice 3a — create-shaped elective nudges, never entity `items` (no
+    // elective_set exists yet to diff fields against).
+    electiveCandidates: buildElectiveCandidates(source, existing),
   }
 }

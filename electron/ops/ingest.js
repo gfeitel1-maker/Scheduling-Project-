@@ -552,7 +552,71 @@ function buildExistingSnapshot(db, camp_id, cohort_id, mode) {
  * that DOES hold returns the normal `{ held: true, conflicts, ... }` shape,
  * with none of these three fields present — same as a real held commit.
  */
-export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false }) {
+// Slice 3a (docs/adr/2026-08-22-nested-schedules-electives-and-events.md §4
+// addendum): the standing invariant — "electives are authored, never
+// reconstructed from a file" (electron/ops/durableElectiveSets.js) — is
+// honored, not broken, by pre-filling this SAME low-level create mechanism
+// commitPlan's commitCreate uses for every other entity: appendOp per field,
+// which PROJECTIONS.js (registered for 'elective_sets') replays into the
+// table. Never a raw INSERT, never elective_set_activities (ingest creates
+// the empty set only — offerings stay a director-authored step on the
+// Electives screen).
+//
+// Idempotent on repeat: if a live elective_sets row already carries this
+// name for the camp — compared CASE/WHITESPACE-INSENSITIVELY (fix, panel
+// round 2, Red Hat "case-insensitive dedup": "Chugim" and "CHUGIM" are the
+// same period spelled two ways, not two elective_sets) — nothing is written.
+// Covers both a re-confirm of the same nudge and a re-import of a file whose
+// header nudge was already fulfilled (the confirmed-decision half of "don't
+// re-surface"; see the ticket's dedup note for the declined half, which is
+// NOT solved here — no schema exists to record a decline, and none is added
+// silently). The stored name keeps whatever casing this camp's row already
+// has (never renamed by a later re-import spelling it differently).
+//
+// fix, panel round 2 (Red Hat, "non-atomic create can fail a durable
+// import") — this runs AFTER commitPlan's own transaction has already
+// committed (see the call site's comment: an elective_set create never
+// participates in commitPlan's conflict/staleness gates). A failure here
+// (a UNIQUE(camp_id, name) collision the dedup check above raced with, or
+// any other write error) must NEVER read back to the director as "the
+// import failed" — the main reconciliation already committed durably. Each
+// candidate is therefore isolated in its own try/catch: a failure is
+// collected as a soft `failed` entry, never thrown, never allowed to abort
+// a candidate after it in the same list.
+function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, author_user_id, device_id }) {
+  const created = []
+  const failed = []
+  // Loaded once and updated in-memory as this call creates rows, so two
+  // same-period candidates (differing only by case) in the SAME
+  // confirmedElectiveSets array are caught too, not just across calls.
+  const liveNormalizedNames = new Set(
+    db.prepare('SELECT name FROM elective_sets WHERE camp_id = ?').all(camp_id)
+      .map((r) => normalizeName(r.name))
+  )
+  for (const candidate of confirmedElectiveSets) {
+    const name = String(candidate?.name ?? '').trim()
+    if (!name) continue
+    const key = normalizeName(name)
+    if (liveNormalizedNames.has(key)) continue
+    try {
+      const id = randomUUID()
+      const commonOp = { entity: 'elective_sets', entity_id: id, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, source: 'human' }
+      // name FIRST — elective_sets is UNIQUE_FIRST_FIELD-registered (Red Hat, 2026-08-22):
+      // writing the unique `name` before `camp_id` means a cross-device collision on
+      // `name` is rejected BEFORE a blank-name row is materialized, so the loser never
+      // ends up with an orphaned camp_id-only row. Matches the manual-create ordering.
+      appendOp(db, { ...commonOp, field: 'name', value: name, client_write_id: randomUUID() })
+      appendOp(db, { ...commonOp, field: 'camp_id', value: camp_id, client_write_id: randomUUID() })
+      created.push({ id, name })
+      liveNormalizedNames.add(key)
+    } catch (err) {
+      failed.push({ name, message: `Couldn't open the "${name}" elective space: ${err.message}` })
+    }
+  }
+  return { created, failed }
+}
+
+export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [] }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -589,7 +653,7 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
     // create confidence) and pinOnlyActivityNames (the A3 guard) flow straight
     // through the same way — additive, absent for any caller/fixture that
     // predates this change (S4b workbook re-import included — Risk 2/A4).
-    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode, base_generation, humanEditedFields, seenCounts, pinOnlyActivityNames },
+    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode, base_generation, humanEditedFields, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods },
     existing,
     // T73: a director's per-conflict decisions from a prior held commit. buildPlan
     // consumes only the ambiguous_identity picks; stale picks flow to commitPlan.
@@ -613,6 +677,26 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
     outcome.legacyPriorityActivities = listLegacyPriorityActivities(db, camp_id)
     outcome.unknownFieldEvidence = Object.fromEntries(buildUnknownFieldEvidenceMap(db, camp_id, plan.items))
     outcome.planItems = plan.items
+    // Slice 3a — create-shaped elective nudges (no plan.items row exists for
+    // them; see buildElectiveCandidates in buildPlan.js).
+    outcome.electiveCandidates = plan.electiveCandidates
+  }
+
+  // Slice 3a — the real (non-dry-run, non-held) commit is where a confirmed
+  // nudge actually mints its empty elective_set. Deliberately AFTER
+  // commitPlan's own transaction, not inside it: an elective_set create
+  // never participates in commitPlan's conflict/staleness gates (there is no
+  // existing row it could collide with — the dedup check above is its own
+  // narrower guard), so it does not need that transaction's atomicity.
+  if (!dryRun && !outcome.held && confirmedElectiveSets.length > 0) {
+    const { created: electiveSetsCreated, failed: electiveSetsFailed } = commitElectiveCandidates(db, {
+      confirmedElectiveSets, camp_id, author_user_id: author_user_id ?? null, device_id,
+    })
+    outcome.electiveSetsCreated = electiveSetsCreated
+    // Soft warning, never a thrown error — see commitElectiveCandidates'
+    // own comment. The main commit above already succeeded; this only ever
+    // narrows what the director is told, never what actually happened.
+    if (electiveSetsFailed.length > 0) outcome.electiveSetsFailed = electiveSetsFailed
   }
 
   return outcome

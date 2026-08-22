@@ -1432,3 +1432,115 @@ describe('per-field UNKNOWN evidence at import (2026-08-20 ADR)', () => {
     expect(evidenceRows('activities', activityId).find((r) => r.field === 'min_per_week').tag).toBe('unknown')
   })
 })
+
+// Slice 3a (docs/adr/2026-08-22-nested-schedules-electives-and-events.md §4
+// addendum): a confirmed elective_candidate nudge creates ONE empty
+// elective_set via the same appendOp mechanism every other entity's create
+// uses (PROJECTIONS.js replays it into the table) — never a raw INSERT,
+// never elective_set_activities.
+describe('confirmedElectiveSets (Slice 3a)', () => {
+  it('creates exactly one empty elective_set, named the header text verbatim', () => {
+    const result = commitIngest(db, {
+      approved: {},
+      camp_id: campId, device_id: deviceId,
+      confirmedElectiveSets: [{ name: 'Chugim' }],
+    })
+    expect(result.held).toBe(false)
+    expect(count('elective_sets')).toBe(1)
+    expect(count('elective_set_activities')).toBe(0)
+    const row = db.prepare('SELECT * FROM elective_sets WHERE camp_id = ?').get(campId)
+    expect(row.name).toBe('Chugim')
+  })
+
+  it('writes the unique name field BEFORE camp_id (UNIQUE_FIRST_FIELD orphan-row guard)', () => {
+    commitIngest(db, {
+      approved: {}, camp_id: campId, device_id: deviceId,
+      confirmedElectiveSets: [{ name: 'Chugim' }],
+    })
+    const row = db.prepare('SELECT id FROM elective_sets WHERE camp_id = ?').get(campId)
+    const ops = db.prepare(
+      "SELECT field, seq FROM operations WHERE entity = 'elective_sets' AND entity_id = ? ORDER BY seq"
+    ).all(row.id)
+    const nameSeq = ops.find((o) => o.field === 'name')?.seq
+    const campSeq = ops.find((o) => o.field === 'camp_id')?.seq
+    // name-first so a cross-device collision on name is rejected before a
+    // blank-name row is materialized (Red Hat, 2026-08-22).
+    expect(nameSeq).toBeLessThan(campSeq)
+  })
+
+  it('is idempotent — confirming the same name twice creates only one row', () => {
+    commitIngest(db, {
+      approved: {}, camp_id: campId, device_id: deviceId,
+      confirmedElectiveSets: [{ name: 'Chugim' }],
+    })
+    commitIngest(db, {
+      approved: {}, camp_id: campId, device_id: deviceId,
+      confirmedElectiveSets: [{ name: 'Chugim' }],
+    })
+    expect(count('elective_sets')).toBe(1)
+  })
+
+  it('writes nothing when no candidate is confirmed (declined/absent)', () => {
+    commitIngest(db, { approved: {}, camp_id: campId, device_id: deviceId })
+    expect(count('elective_sets')).toBe(0)
+  })
+
+  it('never writes an elective_set on a dry run', () => {
+    commitIngest(db, {
+      approved: {}, camp_id: campId, device_id: deviceId,
+      confirmedElectiveSets: [{ name: 'Chugim' }], dryRun: true,
+    })
+    expect(count('elective_sets')).toBe(0)
+  })
+
+  // fix, panel round 2 (Red Hat, "case-insensitive dedup").
+  it('dedups case-insensitively — confirming "Chugim" then "CHUGIM" creates only one row', () => {
+    commitIngest(db, {
+      approved: {}, camp_id: campId, device_id: deviceId,
+      confirmedElectiveSets: [{ name: 'Chugim' }],
+    })
+    commitIngest(db, {
+      approved: {}, camp_id: campId, device_id: deviceId,
+      confirmedElectiveSets: [{ name: 'CHUGIM' }],
+    })
+    expect(count('elective_sets')).toBe(1)
+    // First-seen casing wins — the second confirm does not rename it.
+    expect(db.prepare('SELECT name FROM elective_sets WHERE camp_id = ?').get(campId).name).toBe('Chugim')
+  })
+
+  // fix, panel round 2 (Red Hat, "non-atomic create can fail a durable
+  // import"). Forces a write failure inside commitElectiveCandidates without
+  // touching production code: intercepting the exact 'INSERT OR IGNORE INTO
+  // elective_sets' statement its projection uses (ensureExists,
+  // electron/ops/projections.js), simulating any unexpected write error
+  // (e.g. a UNIQUE collision the dedup check raced with). The activities
+  // create in the SAME commitIngest call must still succeed — that is the
+  // whole bug this fixes: an elective_set failure used to fail the entire
+  // (already-durable) import.
+  it('a forced elective-create failure leaves the main commit outcome successful and surfaces a soft warning', () => {
+    const originalPrepare = db.prepare.bind(db)
+    db.prepare = (sql) => {
+      if (sql.includes('elective_sets') && sql.includes('INSERT OR IGNORE')) {
+        throw new Error('simulated write failure')
+      }
+      return originalPrepare(sql)
+    }
+    let result
+    try {
+      result = commitIngest(db, {
+        approved: { activities: ['Swim'] },
+        camp_id: campId, device_id: deviceId,
+        confirmedElectiveSets: [{ name: 'Chugim' }],
+      })
+    } finally {
+      db.prepare = originalPrepare
+    }
+    expect(result.held).toBe(false)
+    expect(result.total).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) c FROM activities').get().c).toBe(1)
+    expect(count('elective_sets')).toBe(0)
+    expect(result.electiveSetsCreated).toEqual([])
+    expect(result.electiveSetsFailed).toHaveLength(1)
+    expect(result.electiveSetsFailed[0].name).toBe('Chugim')
+  })
+})

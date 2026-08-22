@@ -52,7 +52,58 @@ real delta (don't rebuild what exists).
   one click away; both schedule routes (Manual/Generated) render the opaque cell
   consistently (engine never assigns into it — T41 posture).
 
-## Slice 3 — Ingest + nudge (discovery-first)
+## Slice 3a — Detect + nudge + create-empty-set (SHIPPABLE CORE)
+
+**Scoped by the 2026-08-22 Slice 3 architecture pass (ADR §4 addendum).** Honors the
+"electives are authored, never reconstructed" invariant by pre-filling the authored
+create-path, not bypassing it. Catalog offering-recognition + rule-parsing (former
+Slice 3 stretch) **folds into T114** (owner, 2026-08-22).
+
+- **Two detectors** (both log a traceable `{detector, band, sourceExcerpt, row, column}`
+  fact; neither writes silently):
+  - *Header-label*: a new `ELECTIVE_HEADER_TERMS` controlled vocabulary in
+    `extractEntities.js` (chugim/bechirot/electives/indoor elective/elective,
+    case-insensitive) — mirrored from `NON_GROUP_HEADERS`'s matching but with the
+    OPPOSITE semantics (flag the column, don't drop it). `confirmed` band.
+  - *Content-shape*: a cell token that survives `isActivityLike` but matches NO
+    existing `activities` row via `recognitionKey`, in a non-header-flagged column →
+    `inferred` band. Record as ONE opaque unresolved finding with raw text; do NOT
+    delimiter-split into fake offerings.
+  - *False-positive guard*: a token resolving 1:1 to an existing activity is exempt by
+    construction (no name blocklist).
+- **The nudge = a new `elective_candidate` decision kind**, added to
+  `reportToLanes.js`'s closed `laneFor()` switch, routed to **hold** (never
+  auto-accepts). Create-shaped (no field diff — no elective_set exists yet). Dedup the
+  decision id by column-signature so a prior decline doesn't re-surface (verify whether
+  a generic dismissed-decision mechanism exists before adding a table).
+- **Confirm → create ONE empty `elective_set`** via the EXISTING
+  `campScopedEntities.js` authored-write path (not a new INSERT), named the **header
+  text verbatim** (editable). Ingest never writes `elective_set_activities`.
+- **Success (Tester, real files):** uploading a schedule with a "Chugim"/"Electives"
+  period surfaces a hold-lane nudge; confirming it creates an empty "Chugim" elective
+  set the director then fills on the Slice 1 screen; declining writes nothing.
+  Verified against real fixtures.
+- **Decline dedup is session-local (ruled 2026-08-22).** A *confirmed* nudge is
+  durably idempotent (re-import is a no-op — the named `elective_sets` row already
+  exists). A *declined* nudge re-surfaces on a fresh re-import in a new session —
+  **consistent with the app's existing dismissal posture** (F3 `dismissedGaps` in
+  `ReconciliationScreen.jsx` are explicitly session-local too). Persistent
+  "director dismissed this, never re-ask" is a **generic reconciliation mechanism**
+  (would serve F3 gaps as well), deferred to its own future ticket — NOT an electives
+  special-case table.
+- **Smallest first step (Architect):** implement the header-label detector alone as a
+  plan-item annotation and eyeball it against the real files BEFORE touching `laneFor`
+  or the write path.
+
+## Slice 3b — catalog offering-recognition + narrow rule-parsing (FOLDED INTO T114)
+
+Not built here. Catalog activity-name matching (`recognitionKey`/`normalizeName`) +
+narrow verbatim-quotable phrase parsing (DOUBLE PERIOD→span; sign-up-for-both→linked)
+with per-field `import_evidence` provenance (needs a new `entity_type` value). Freeform
+eligibility prose stays a manual field — no NLP promise. Tracked in
+`docs/work/tickets/T114-infer-outdoor-coschedule-alt-activity-rules.md`.
+
+## Slice 3 — Ingest + nudge (superseded by 3a/3b above)
 - **Detect:** when an uploaded schedule shows electives in any form — a
   Chugim/Bechirot/"Electives" period label, or a flattened opaque activity cell —
   reconciliation raises a **nudge** ("this looks like an elective period — open the

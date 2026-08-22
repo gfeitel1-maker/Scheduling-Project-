@@ -338,7 +338,10 @@ export default function ElectivesScreen({ campId, role, initialElectiveSetId = n
     localClient,
     repository,
     scopeFilter: setScopeFilter,
-    buildCreateFields: ({ name }) => ({ camp_id: campId, name }),
+    // name FIRST — elective_sets is UNIQUE_FIRST_FIELD-registered (UNIQUE(camp_id,
+    // name)); the unique field must write first so a collision is detectable and
+    // no orphaned blank-name row can be materialized. See setupCrudRepository.
+    buildCreateFields: ({ name }) => ({ name, camp_id: campId }),
     addFailedText: 'That elective set could not be added.',
     saveFailedText: 'That elective set could not be saved.',
   })

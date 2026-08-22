@@ -99,11 +99,95 @@ pattern proven on electives carries over.
 ### 4. Ingest + nudge (discovery-first)
 When an uploaded schedule shows electives **in any form** — a Chugim / Bechirot /
 "Electives" period, or a flattened opaque cell — reconciliation **detects it and
-nudges the elective space open**, recognizing offerings from activity catalogs and
-parsing embedded rules (eligibility, double-period, capacity) with the **Slice D
-inferred-rule machinery** (`import_evidence`, `CONFIDENCE_COPY`,
-`plainEvidenceSentence`). Populating an elective set is a set of reconciliation
-**decisions the director confirms** — never silent.
+nudges the elective space open**, and populating an elective set is a set of
+reconciliation **decisions the director confirms** — never silent.
+
+**Addendum (2026-08-22, Slice 3 architecture) — invariant resolution + split.**
+The Slice 3 architecture pass established the concrete shape and split it:
+- **Standing invariant honored, not broken.** `electron/ops/durableElectiveSets.js`
+  states "electives are authored, never reconstructed from a file." Ingest does NOT
+  gain a bypass: a confirmed nudge **pre-fills the existing authored create-path**
+  (`campScopedEntities.js`) to create ONE empty `elective_set`. It is still authored
+  — just seeded from a director-confirmed decision. **Ingest never writes
+  `elective_set_activities` directly.**
+- **New decision kind, deliberately routed.** `elective_candidate` is added to
+  `reportToLanes.js`'s closed `laneFor()` switch, routed to the **hold** lane
+  (never auto-accepts), regardless of confidence band — enforcing "never silent".
+- **Two detectors:** a header-label detector (a controlled `ELECTIVE_HEADER_TERMS`
+  vocabulary — Chugim/Bechirot/Electives/Indoor Elective, mirrored from
+  `NON_GROUP_HEADERS` but with the *opposite* semantics: flag, don't drop) and a
+  content-shape detector (an unresolved multi-activity blob → inferred band). A cell
+  that resolves 1:1 to an existing activity is exempt by construction (no name
+  blocklist), guarding the "Free Choice" false positive.
+- **Created set name = the header text verbatim** (owner, 2026-08-22): e.g. "Chugim";
+  editable afterward on the Electives screen. No app-invented name.
+- **SPLIT — Slice 3a ships now, 3b folds into T114.** Slice 3a = detect + nudge +
+  create-empty-set. Slice 3b (catalog offering name-matching via the existing
+  `recognitionKey`/`normalizeName`, plus *narrow, verbatim-quotable* phrase parsing —
+  "DOUBLE PERIOD"→span, "sign up for both"→linked) **folds into T114** (same
+  prose→confidence-banded-rule problem). **Freeform eligibility prose** ("Available
+  for ARAD CAMPERS Th 3rd/4th…") is NOT honestly parseable into structured rules and
+  stays a **manual field** on the Electives screen — no NLP promise. Writing offering
+  provenance requires a new `import_evidence.entity_type` value; deferred to 3b/T114.
+- **`CONFIDENCE_COPY`/`plainEvidenceSentence` live in
+  `src/components/reconciliation/reconciliationCards.jsx`** (not `confidence.js`) —
+  correction to §4's original reference.
+
+**Addendum (2026-08-22, panel round 2 — fixes + known limitations).**
+- **Header detection is exact-term, not substring.** `isElectiveHeaderText`
+  originally matched any text CONTAINING a term (`.includes()`), which fired on
+  "Selective Sports" and "Elective A: Ceramics" — a real activity's own name,
+  not the period's header. Matching is now exact (`ELECTIVE_HEADER_TERMS.includes(t)`),
+  with "outdoor elective" added alongside "indoor elective" so both of the real
+  Camp A file's qualified forms stay recognized. The false-positive exemption
+  (a name that resolves 1:1 to a live activity) now also applies to the
+  header detector's cell-VALUE findings, not just the shape detector — a
+  `source: 'cell'` vs `source: 'label'` tag on each header finding
+  (`extractEntities.js`) distinguishes the two, since a row/column LABEL never
+  doubles as a proposed activity name and stays exempt from this filter by
+  construction.
+- **Elective-set create is non-atomic by design, and now fails soft.** The
+  create runs after `commitPlan`'s own transaction (deliberately — see the
+  code comment on why it doesn't need that transaction's atomicity), so a
+  failure there (a UNIQUE collision, or any other write error) used to throw
+  out of `commitIngest` and read back as "the whole import failed" even
+  though the main reconciliation had already committed durably.
+  `commitElectiveCandidates` now isolates each candidate in its own
+  try/catch and returns `{ created, failed }`; `commitIngest` surfaces
+  `failed` as `outcome.electiveSetsFailed`, a soft warning that never
+  propagates as a whole-commit failure.
+- **Known limitation — rename breaks the dedup match.** The confirmed-decision
+  dedup (both `buildElectiveCandidates`'s finding dedup and
+  `commitElectiveCandidates`'s existing-row check) now compares
+  case/whitespace-normalized names, but the match is still purely
+  **name-based**. A director who renames a created elective_set (e.g.
+  "Chugim" → "Afternoon Chugim") and then re-imports the same file gets the
+  header nudge again, because the live row no longer carries a name the
+  normalized check recognizes. With the clearer confirm/decline copy this is
+  a decline-able soft suggestion, not a silent duplicate (declining writes
+  nothing; confirming again is also harmless — a re-confirm just proposes a
+  differently-named set rather than duplicating the renamed one). A real fix
+  is a source-signature link between the finding and the created set (e.g. a
+  hidden `source_aliases`-style row), tracked as future work, not built now —
+  no schema column is added for this in this pass.
+- **Cross-device UNIQUE-collision handling — FIXED (2026-08-22, Governor).**
+  `elective_sets` has `UNIQUE(camp_id, name)`, so two devices independently
+  confirming the same header nudge (or two directors authoring the same-named
+  set) before syncing would produce two rows with the same `(camp_id, name)`,
+  and replaying one device's `name` op onto the other hits the constraint and
+  throws ungracefully in `applyProjection`. **Resolved by registering
+  `elective_sets` in `UNIQUE_FIELD_ENTITIES`** (`electron/ops/operations.js`),
+  mirroring `locations` (docs/adr/2026-08-15-locations-concurrent-create-
+  collision.md). This routes the collision through the same
+  `detectUniqueFieldCollision` conflict-resolution path the pre-check at both
+  sync write-entry points already uses — and closes the same gap for the
+  pre-existing authored elective-set create, not just the Slice 3a nudge.
+  **Both create paths write `name` first** (the authored `ElectivesScreen`
+  create AND the ingest `commitElectiveCandidates`, reordered per Red Hat's
+  re-review) so a cross-device `name` collision is rejected before a blank-name
+  row is materialized — no orphaned camp_id-only row. Sibling note: the
+  *locations* ingest-create still writes camp_id-first (`ingest.js` ~L1087) — a
+  pre-existing instance of the same pattern, tracked in T115.
 
 ### 5. Ownership
 The peer sessions that previously held the elective authoring UI (T105/T110/T111)

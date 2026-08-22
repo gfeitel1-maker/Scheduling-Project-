@@ -185,6 +185,28 @@ export const NON_GROUP_HEADERS = new Set([
   'lineup', 'time', 'times', 'period', 'periods', 'location', 'room', 'tbd', 'n/a',
 ])
 
+// Slice 3a (docs/adr/2026-08-22-nested-schedules-electives-and-events.md §4
+// addendum; docs/work/specs/2026-08-22-electives-nested-schedule-slices.md).
+// Mirrors NON_GROUP_HEADERS' matching (a controlled vocabulary tested against
+// a column/period header) but with the OPPOSITE semantics: NON_GROUP_HEADERS
+// drops a matching column from the group proposal; this one FLAGS a matching
+// column/period as an elective candidate for reconciliation to nudge on.
+//
+// EXACT match only (fix, panel round 2 — Red Hat + Code Reviewer): a prior
+// `.includes()` substring match fired on "Selective Sports" (contains
+// "elective") and "Elective A: Ceramics" (a specific offering's own name, not
+// the period's header). Real files print the period as the bare term or a
+// short qualifier + term — "Chugim", "Indoor Elective", "Outdoor Elective" —
+// so both qualified forms are enumerated explicitly rather than matched by
+// substring.
+export const ELECTIVE_HEADER_TERMS = ['chugim', 'bechirot', 'electives', 'indoor elective', 'outdoor elective', 'elective']
+
+export function isElectiveHeaderText(text) {
+  const t = String(text ?? '').trim().toLowerCase()
+  if (!t) return false
+  return ELECTIVE_HEADER_TERMS.includes(t)
+}
+
 // "Adom 4's - Matzo Balls Schedule" -> "Adom 4's - Matzo Balls"
 // "Monday — All Camp" -> "Monday"
 // Exported so fixed-event detection keys a page title into groupNameByTitle the
@@ -293,6 +315,17 @@ export function extractEntities(parsed) {
 
   const groups = []
   const activityPages = new Map()
+  // Slice 3a: which period (row.label) each activity occurrence sat under,
+  // keyed the same way activityPages is (normalized activity name -> Set of
+  // period labels). Feeds the content-shape detector below: an activity that
+  // ONLY ever appeared under a header-flagged period is already explained by
+  // the header finding, not a second, redundant shape finding.
+  const activityPeriods = new Map()
+  // Slice 3a — a traceable fact per detector hit, never silent (ADR §4
+  // addendum). Sibling output; activityNamesFromCell's own return contract is
+  // untouched.
+  const electiveHeaderFindings = []
+  const electiveHeaderColumns = new Set()
   // Which unit each group belongs to, where the file says so.
   const groupUnits = new Map()
   const units = []
@@ -367,6 +400,16 @@ export function extractEntities(parsed) {
       page.columns.forEach((c) => {
         const trimmed = String(c ?? '').trim()
         if (NON_GROUP_HEADERS.has(trimmed.toLowerCase())) return
+        // Slice 3a header-label detector: a column titled "Chugim"/"Bechirot"/
+        // "Electives" etc. is not a group either — flag it (opposite of
+        // NON_GROUP_HEADERS' drop) and skip proposing it as a bunk.
+        if (isElectiveHeaderText(trimmed)) {
+          electiveHeaderFindings.push({
+            detector: 'header', band: 'confirmed', sourceExcerpt: trimmed, row: null, column: trimmed, source: 'label',
+          })
+          electiveHeaderColumns.add(trimmed)
+          return
+        }
         const hyphen = splitUnitAndGroup(c)
         const divisionWord = hyphen.unit ? null : splitDivisionWord(c)
         const { unit, group } = hyphen.unit
@@ -392,11 +435,21 @@ export function extractEntities(parsed) {
     // that already exists for this branch.
     const pageKey = orientation.columns === 'days' ? title : null
 
-    for (const row of page.rows) {
+    for (const [rowIndex, row] of page.rows.entries()) {
       // A row label is the period it covers. Rows with no label are banners
       // ("Opening") rather than periods.
       if (row.label && /^\d{1,2}[:.]\d{2}/.test(row.label.trim())) {
         timeBlocks.push(row.label.trim())
+      }
+      // Slice 3a header-label detector, period form: "Chugim"/"Bechirot" etc.
+      // as the row's own label (the common shape — an elective PERIOD, not an
+      // elective COLUMN). Recorded once per row, not per cell.
+      const rowLabelTrimmed = String(row.label ?? '').trim()
+      const rowIsElectiveHeader = isElectiveHeaderText(rowLabelTrimmed)
+      if (rowIsElectiveHeader) {
+        electiveHeaderFindings.push({
+          detector: 'header', band: 'confirmed', sourceExcerpt: rowLabelTrimmed, row: rowIndex, column: null, source: 'label',
+        })
       }
       row.cells.forEach((cell, cellIndex) => {
         const names = activityNamesFromCell(cell)
@@ -421,14 +474,42 @@ export function extractEntities(parsed) {
           const cleaned = cleanCellValue(cell)
           if (cleaned && !/^-+$/.test(cleaned)) residualCellValues.push(cleaned)
         }
+        // Slice 3a content-shape detector input: is THIS occurrence sitting
+        // under an elective-flagged period/column? Either the row's own
+        // label matched ELECTIVE_HEADER_TERMS, (groups-layout) this cell's
+        // column header did, or the cell VALUE itself names the period — the
+        // shape real files actually use (Camp A: "Indoor Elective"/
+        // "Chugim" printed as the activity, repeated across every bunk/day
+        // for that block, not as a separate header row).
+        const columnHeader = String(page.columns[cellIndex] ?? '').trim()
+        const rowOrColumnIsElectiveHeader = rowIsElectiveHeader || electiveHeaderColumns.has(columnHeader)
         for (const value of names) {
           activities.push(value)
           const cellKey = pageKey ?? page.columns[cellIndex] ?? null
+          const key = value.toLowerCase().replace(/\s+/g, ' ')
           if (cellKey) {
-            const key = value.toLowerCase().replace(/\s+/g, ' ')
             if (!activityPages.has(key)) activityPages.set(key, new Set())
             activityPages.get(key).add(cellKey)
           }
+          // Flag, don't drop (opposite of NON_GROUP_HEADERS): the value still
+          // becomes a normal activity candidate above; this ADDITIONALLY
+          // raises a traceable header finding when the cell's own text names
+          // the elective period.
+          const valueIsElectiveHeader = isElectiveHeaderText(value)
+          if (valueIsElectiveHeader) {
+            // 'cell' (not 'label'): this finding's sourceExcerpt is a cell
+            // VALUE — the same text that also became an ordinary activity
+            // candidate above — so it is eligible for buildElectiveCandidates'
+            // liveActivityKeys exemption (fix, panel round 2): a row/column
+            // LABEL never doubles as a proposed activity name and is exempt
+            // from that check by construction.
+            electiveHeaderFindings.push({
+              detector: 'header', band: 'confirmed', sourceExcerpt: value, row: rowIndex, column: columnHeader || null, source: 'cell',
+            })
+          }
+          const cellIsUnderElectiveHeader = rowOrColumnIsElectiveHeader || valueIsElectiveHeader
+          if (!activityPeriods.has(key)) activityPeriods.set(key, [])
+          activityPeriods.get(key).push(cellIsUnderElectiveHeader)
         }
         // Q8: textGrid.js only captures a location line on `!labeled` pages, so
         // `row.locations` is undefined on the two labelled camp families —
@@ -554,6 +635,13 @@ export function extractEntities(parsed) {
     groupNameByTitle: Object.fromEntries(groupNameByTitleMap),
     activityPages: activityPagesOut,
     activityLocations,
+    // Slice 3a — findings the header-label detector raised, plus per-activity
+    // "was every occurrence under an already-flagged period?" flags the
+    // content-shape detector (buildPlan.js's buildElectiveCandidates) uses to
+    // avoid a redundant second finding for content the header already
+    // explains. Neither array changes any existing return field.
+    electiveHeaderFindings,
+    activityPeriods: Object.fromEntries(activityPeriods),
     seenCounts,
     counts: Object.fromEntries(Object.entries(entities).map(([k, v]) => [k, v.length])),
     // T36 — most-seen first, same convention tally() uses for activities, so a

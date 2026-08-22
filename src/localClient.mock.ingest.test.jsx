@@ -178,3 +178,32 @@ describe('mock ingestCommit — ambiguous identity (S1a §3 / T73)', () => {
     expect((await mockShoresh.list(null, 'activities')).length).toBe(3)
   })
 })
+
+// fix, panel round 2 (Code Reviewer, "mock parity") — ingestCommit's dry-run
+// branch computed plan.electiveCandidates but never set it on `outcome`, so
+// ingestReconcile (which reads outcome.electiveCandidates) always saw `[]`
+// and the elective nudge never surfaced at :5200 (browser-dev). Pinned here
+// against the SAME buildPlan the real electron path uses, so a future
+// regression on either side of this seam is caught.
+describe('mock ingestReconcile — electiveCandidates surface (Slice 3a, mock parity)', () => {
+  it('surfaces a header-detector elective candidate from a dry-run reconcile', async () => {
+    await bootstrap()
+    const report = await mockShoresh.ingestReconcile({
+      approved: {},
+      electiveHeaderFindings: [
+        { detector: 'header', band: 'confirmed', sourceExcerpt: 'Chugim', row: 3, column: null, source: 'label' },
+      ],
+      activityPeriods: {},
+    })
+    expect(report.dryRun).toBe(true)
+    expect(report.held).toBeFalsy()
+    expect(report.electiveCandidates).toHaveLength(1)
+    expect(report.electiveCandidates[0]).toMatchObject({ detector: 'header', sourceExcerpt: 'Chugim' })
+  })
+
+  it('reports no elective candidates when the file has no elective period', async () => {
+    await bootstrap()
+    const report = await mockShoresh.ingestReconcile({ approved: { activities: ['Swim'] } })
+    expect(report.electiveCandidates).toEqual([])
+  })
+})

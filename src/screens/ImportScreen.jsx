@@ -502,6 +502,10 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
       // §1 — real create confidence input, and A3's pin-only carry-over.
       seenCounts: proposal?.seenCounts ?? null,
       pinOnlyActivityNames: [...pinOnlyActivityNames],
+      // Slice 3a — plain data extractEntities already computed, carried
+      // through unchanged to buildPlan's buildElectiveCandidates.
+      electiveHeaderFindings: proposal?.electiveHeaderFindings ?? [],
+      activityPeriods: proposal?.activityPeriods ?? {},
     }
   }
 

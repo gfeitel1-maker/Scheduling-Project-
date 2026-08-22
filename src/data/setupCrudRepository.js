@@ -23,7 +23,7 @@
 // is added to one registry without the other, the same duplication
 // discipline MOCK_WRITE_ALLOWLIST (src/localClient.mock.js) already uses
 // against electron/ops/projections.js.
-export const UNIQUE_FIRST_FIELD = { locations: 'name' }
+export const UNIQUE_FIRST_FIELD = { locations: 'name', elective_sets: 'name' }
 
 export function createSetupCrudRepository({
   localClient,
