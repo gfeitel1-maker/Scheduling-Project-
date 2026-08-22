@@ -19,32 +19,30 @@ const TWO_GAPS = [{ key: 'days' }, { key: 'activities' }]
 
 describe('sectionRollup', () => {
   it('says nothing while a section is open — the rows speak for themselves', () => {
-    expect(sectionRollup({ section: 'setup', open: true, gaps: TWO_GAPS, badges: {} })).toBeNull()
+    expect(sectionRollup({ section: 'setup', open: true, gaps: TWO_GAPS })).toBeNull()
   })
 
   it('carries the unmet count out to a collapsed Camp Set Up header', () => {
-    const rollup = sectionRollup({ section: 'setup', open: false, gaps: TWO_GAPS, badges: {} })
+    const rollup = sectionRollup({ section: 'setup', open: false, gaps: TWO_GAPS })
     expect(rollup).toEqual({ mark: '!', text: '3 / 5', tone: 'danger' })
   })
 
   it('shows a complete setup as complete, not as silence', () => {
-    const rollup = sectionRollup({ section: 'setup', open: false, gaps: NO_GAPS, badges: {} })
+    const rollup = sectionRollup({ section: 'setup', open: false, gaps: NO_GAPS })
     expect(rollup).toEqual({ mark: '✓', text: '5 / 5', tone: 'success' })
   })
 
-  it('rolls the conflicts badge up to a collapsed System header', () => {
-    const rollup = sectionRollup({ section: 'system', open: false, gaps: NO_GAPS, badges: { conflicts: 2 } })
-    expect(rollup).toEqual({ mark: null, text: '2', tone: 'warning' })
-  })
-
+  // Roots-as-Hub Slice B: 'system' is no longer a foldable nav section —
+  // Camp/Conflicts/Trash/LAN & Devices live in the Settings gear instead,
+  // which is a popup with no persisted rollup of its own (the gear button
+  // itself carries the conflicts badge — see Sidebar.jsx).
   it('rolls up nothing — never a zero — when a collapsed section has nothing to report', () => {
     // "0" reads as a value worth looking at. Absence is the honest rendering.
-    expect(sectionRollup({ section: 'system', open: false, gaps: NO_GAPS, badges: { conflicts: 0 } })).toBeNull()
-    expect(sectionRollup({ section: 'schedule', open: false, gaps: NO_GAPS, badges: {} })).toBeNull()
+    expect(sectionRollup({ section: 'schedule', open: false, gaps: NO_GAPS })).toBeNull()
   })
 
   it('counts started weeks on a collapsed Schedule header', () => {
-    expect(sectionRollup({ section: 'schedule', open: false, gaps: NO_GAPS, badges: {}, startedRoutes: 2 }))
+    expect(sectionRollup({ section: 'schedule', open: false, gaps: NO_GAPS, startedRoutes: 2 }))
       .toEqual({ mark: null, text: '2', tone: 'secondary' })
   })
 })
@@ -93,10 +91,16 @@ describe('loadSidebarState', () => {
   })
 
   it('restores what the director chose last time', () => {
-    const saved = JSON.stringify({ sections: { setup: false, schedule: true, system: true }, offered: true })
+    const saved = JSON.stringify({ sections: { setup: false, schedule: true }, offered: true })
     const state = loadSidebarState(storage(saved))
     expect(state.sections.setup).toBe(false)
     expect(state.offered).toBe(true)
+  })
+
+  it('opens roots by default, and restores a persisted collapse', () => {
+    expect(loadSidebarState(storage(null)).rootsOpen).toBe(true)
+    const saved = JSON.stringify({ sections: { setup: true, schedule: true }, offered: false, rootsOpen: false })
+    expect(loadSidebarState(storage(saved)).rootsOpen).toBe(false)
   })
 
   it('falls back to defaults on malformed state instead of throwing', () => {
@@ -110,8 +114,9 @@ describe('loadSidebarState', () => {
   it('ignores a persisted section that no longer exists', () => {
     const saved = JSON.stringify({ sections: { setup: false, operations: false }, offered: false })
     const state = loadSidebarState(storage(saved))
-    expect(state.sections).toEqual({ setup: false, schedule: true, system: true })
+    expect(state.sections).toEqual({ setup: false, schedule: true })
     expect('operations' in state.sections).toBe(false)
+    expect('system' in state.sections).toBe(false)
   })
 
   it('survives storage that throws', () => {

@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useEffect, forwardRef } from 'react'
 
-import { NAV_SECTIONS } from './navSections'
+import { NAV_SECTIONS, ADMIN_MENU_ITEMS, ADMIN_ONLY_MENU_ITEMS } from './navSections'
 import { getSetupGaps } from '../../engine/readiness'
 import { loadSidebarState, saveSidebarState, sectionRollup, nextFoldStateAfterAnswer, syncStatusLabel } from './sidebarState'
+import { useEnterTransition } from '../../styles/shared'
 
 // Marks are fixed-width whether or not one is present, so labels stay aligned
 // as ticks appear. Colour is never the only carrier: `!` is a distinct glyph
@@ -25,6 +26,16 @@ const TONE_COLOR = {
   danger: 'var(--danger)', success: 'var(--success)',
   warning: 'var(--warning)', secondary: 'var(--text-secondary)',
 }
+// Shared shape for every count pill in the sidebar (nav-row badges, the
+// gear button's conflicts count, gear-menu item badges) so the three stay
+// visually identical rather than drifting through copy-paste.
+const BADGE_PILL = {
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  minWidth: 16, height: 16, padding: '0 5px', borderRadius: 99,
+  background: 'var(--warning)', color: '#fff',
+  fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
+  lineHeight: '16px', flexShrink: 0,
+}
 
 export default function Sidebar({
   current, onNavigate, role, badges = {},
@@ -34,10 +45,41 @@ export default function Sidebar({
   offerShown, setOfferShown,
 }) {
   const [sidebar, setSidebar] = useState(() => loadSidebarState(globalThis.localStorage))
+  const [gearOpen, setGearOpen] = useState(false)
+  const gearBtnRef = useRef(null)
+  const gearMenuRef = useRef(null)
 
   const gaps = counts ? countGaps(counts) : []
   const gapAreas = new Set(gaps.map((g) => g.key))
   const offerOpen = offerShown && !sidebar.offered
+  const conflictsCount = Number(badges.conflicts) || 0
+  const adminMenuItems = [...ADMIN_MENU_ITEMS, ...(role === 'admin' ? ADMIN_ONLY_MENU_ITEMS : [])]
+  const rootsOpen = sidebar.rootsOpen !== false
+
+  // Closing on outside click / Escape, and returning focus to the gear
+  // button on close, are both required for a popup menu to be keyboard- and
+  // screen-reader-usable (WAI-ARIA menu button pattern) — a menu that traps
+  // focus inside itself with no way out but a mouse click elsewhere is not
+  // actually keyboard-accessible.
+  useEffect(() => {
+    if (!gearOpen) return
+    function handlePointerDown(e) {
+      if (gearMenuRef.current?.contains(e.target) || gearBtnRef.current?.contains(e.target)) return
+      setGearOpen(false)
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [gearOpen])
+
+  function closeGearMenu() {
+    setGearOpen(false)
+    gearBtnRef.current?.focus()
+  }
+
+  function navigateFromGear(key) {
+    setGearOpen(false)
+    onNavigate(key)
+  }
 
   const persist = useCallback((next) => {
     setSidebar(next)
@@ -48,9 +90,75 @@ export default function Sidebar({
     persist({ ...sidebar, sections: { ...sidebar.sections, [key]: !sidebar.sections[key] } })
   }
 
+  function toggleRoots() {
+    persist({ ...sidebar, rootsOpen: !rootsOpen })
+  }
+
   function answerOffer(answer) {
     setOfferShown(false)
     persist({ ...sidebar, ...nextFoldStateAfterAnswer(sidebar.sections, answer) })
+  }
+
+  // One row renderer for both a top-level item and a Roots child — the
+  // green ✓ / count / "optional" affordances must read identically at
+  // either depth.
+  function renderItem(item, { indent = false } = {}) {
+    const lan = item.key === 'devices' && syncStatus ? syncStatusLabel(syncStatus) : null
+    const count = item.area ? counts?.[item.area] : undefined
+    const isBlocking = item.area ? gapAreas.has(item.area) : false
+    const mark = !item.area ? null : isBlocking ? '!' : (count > 0 ? '✓' : '·')
+    const meta = !item.area
+      ? null
+      : count > 0 ? String(count)
+      : item.optional ? 'optional'
+      : 'needed'
+
+    return (
+      <button
+        key={item.key}
+        onClick={() => onNavigate(item.key)}
+        style={{
+          display: 'flex', alignItems: 'center', width: '100%', textAlign: 'left',
+          padding: indent ? '8px 12px 8px 33px' : '8px 12px', border: 'none', background: 'none',
+          fontSize: 13, fontWeight: current === item.key ? 600 : 400,
+          color: current === item.key ? 'var(--primary)' : 'var(--text)',
+          borderLeft: current === item.key
+            ? '3px solid var(--primary)'
+            : '3px solid transparent',
+          transition: 'background 0.1s',
+        }}
+        onMouseEnter={e => { if (current !== item.key) e.currentTarget.style.background = 'var(--bg)' }}
+        onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+      >
+        {/* Fixed width whether or not a mark is present, so labels
+            do not shift as ticks appear. */}
+        <span style={{
+          width: 13, flexShrink: 0, fontSize: 11, fontWeight: 700,
+          color: mark ? MARK_COLOR[mark] : 'transparent',
+          opacity: mark === '·' ? 0.5 : 1,
+        }}>{mark ?? ''}</span>
+        <span style={{ flex: 1, minWidth: 0, marginLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {item.label}
+        </span>
+        {lan && (
+          <span title={lan.title} style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0,
+            color: TONE_COLOR[lan.tone],
+          }}>{lan.text}</span>
+        )}
+        {meta && (
+          <span style={{
+            fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0,
+            color: isBlocking ? 'var(--danger)' : 'var(--text-secondary)',
+          }}>{meta}</span>
+        )}
+        {Boolean(badges[item.key]) && (
+          <span style={{ ...BADGE_PILL, marginLeft: 6 }}>
+            {badges[item.key]}
+          </span>
+        )}
+      </button>
+    )
   }
 
   return (
@@ -73,13 +181,10 @@ export default function Sidebar({
 
       <nav style={{ flex: 1, padding: '8px 0', overflowY: 'auto' }}>
         {NAV_SECTIONS.map((section, sIdx) => {
-          const items = [
-            ...section.items,
-            ...(role === 'admin' && section.adminItems ? section.adminItems : []),
-          ]
+          const items = section.items
           const open = sidebar.sections[section.key] !== false
           const rollup = sectionRollup({
-            section: section.key, open, gaps, badges, startedRoutes,
+            section: section.key, open, gaps, startedRoutes,
           })
 
           return (
@@ -150,73 +255,76 @@ export default function Sidebar({
               )}
 
               {open && items.map(item => {
-                const lan = item.key === 'devices' && syncStatus ? syncStatusLabel(syncStatus) : null
-                const count = item.area ? counts?.[item.area] : undefined
-                const isBlocking = item.area ? gapAreas.has(item.area) : false
-                const mark = !item.area ? null : isBlocking ? '!' : (count > 0 ? '✓' : '·')
-                const meta = !item.area
-                  ? null
-                  : count > 0 ? String(count)
-                  : item.optional ? 'optional'
-                  : 'needed'
+                if (!item.children) return renderItem(item)
 
+                // Roots — the parent row navigates on click same as any
+                // other row; a separate chevron button toggles its child
+                // list, independent of the "Camp Set Up" section fold above.
                 return (
-                  <button
-                    key={item.key}
-                    onClick={() => onNavigate(item.key)}
-                    style={{
-                      display: 'flex', alignItems: 'center', width: '100%', textAlign: 'left',
-                      padding: '8px 12px', border: 'none', background: 'none',
-                      fontSize: 13, fontWeight: current === item.key ? 600 : 400,
-                      color: current === item.key ? 'var(--primary)' : 'var(--text)',
-                      borderLeft: current === item.key
-                        ? '3px solid var(--primary)'
-                        : '3px solid transparent',
-                      transition: 'background 0.1s',
-                    }}
-                    onMouseEnter={e => { if (current !== item.key) e.currentTarget.style.background = 'var(--bg)' }}
-                    onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
-                  >
-                    {/* Fixed width whether or not a mark is present, so labels
-                        do not shift as ticks appear. */}
-                    <span style={{
-                      width: 13, flexShrink: 0, fontSize: 11, fontWeight: 700,
-                      color: mark ? MARK_COLOR[mark] : 'transparent',
-                      opacity: mark === '·' ? 0.5 : 1,
-                    }}>{mark ?? ''}</span>
-                    <span style={{ flex: 1, minWidth: 0, marginLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {item.label}
-                    </span>
-                    {lan && (
-                      <span title={lan.title} style={{
-                        fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0,
-                        color: TONE_COLOR[lan.tone],
-                      }}>{lan.text}</span>
-                    )}
-                    {meta && (
-                      <span style={{
-                        fontFamily: 'var(--font-mono)', fontSize: 10, flexShrink: 0,
-                        color: isBlocking ? 'var(--danger)' : 'var(--text-secondary)',
-                      }}>{meta}</span>
-                    )}
-                    {Boolean(badges[item.key]) && (
-                      <span style={{
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        minWidth: 16, height: 16, padding: '0 5px', borderRadius: 99,
-                        background: 'var(--warning)', color: '#fff', marginLeft: 6,
-                        fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
-                        lineHeight: '16px', flexShrink: 0,
-                      }}>
-                        {badges[item.key]}
-                      </span>
-                    )}
-                  </button>
+                  <div key={item.key}>
+                    <div style={{ display: 'flex', alignItems: 'center' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>{renderItem(item)}</div>
+                      <button
+                        onClick={toggleRoots}
+                        aria-expanded={rootsOpen}
+                        title={rootsOpen ? `Collapse ${item.label}` : `Expand ${item.label}`}
+                        style={{
+                          flexShrink: 0, width: 24, height: 24, marginRight: 6,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          color: 'var(--text-secondary)', opacity: 0.75, fontSize: 9,
+                          transform: rootsOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+                          transition: 'transform var(--motion-base, 0.15s) var(--ease-out, ease)',
+                        }}
+                      >▶</button>
+                    </div>
+                    {rootsOpen && item.children.map(child => renderItem(child, { indent: true }))}
+                  </div>
                 )
               })}
             </div>
           )
         })}
       </nav>
+
+      {/* Roots-as-Hub Slice B — Camp, Conflicts, Trash and (admin-only) LAN
+          & Devices live here instead of an always-open third nav section, so
+          the day-to-day sidebar is just Roots + Schedule. Pinned at the
+          bottom: it's the one row a director reaches for rarely, not the one
+          they scan past every time. */}
+      <div style={{ position: 'relative', padding: '6px 12px', borderTop: '1px solid var(--border)' }}>
+        <button
+          ref={gearBtnRef}
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={gearOpen}
+          title="Settings"
+          onClick={() => setGearOpen(o => !o)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+            padding: '8px 6px', border: 'none', background: 'none', cursor: 'pointer',
+            fontFamily: 'inherit', fontSize: 13, color: 'var(--text-secondary)',
+            borderRadius: 6,
+          }}
+        >
+          <span aria-hidden="true" style={{ fontSize: 14 }}>⚙</span>
+          <span style={{ flex: 1, textAlign: 'left' }}>Settings</span>
+          {conflictsCount > 0 && (
+            <span style={BADGE_PILL}>{conflictsCount}</span>
+          )}
+        </button>
+
+        {gearOpen && (
+          <GearMenu
+            ref={gearMenuRef}
+            items={adminMenuItems}
+            current={current}
+            badges={badges}
+            onSelect={navigateFromGear}
+            onClose={closeGearMenu}
+          />
+        )}
+      </div>
 
       <div style={{
         padding: '10px 20px', borderTop: '1px solid var(--border)',
@@ -288,6 +396,70 @@ export default function Sidebar({
     </aside>
   )
 }
+
+// The Settings popup — WAI-ARIA menu-button pattern. Opens focused on its
+// first item, closes and returns focus to the gear button on Escape or a
+// click outside, and never designates one item as more important than the
+// others (same "no visual difference" instinct as the two schedule rows,
+// applied here to admin destinations instead).
+const GearMenu = forwardRef(function GearMenu({ items, current, badges, onSelect, onClose }, ref) {
+  const transition = useEnterTransition('popFade', { transformOrigin: 'bottom left' })
+  const firstItemRef = useRef(null)
+
+  useEffect(() => {
+    firstItemRef.current?.focus()
+  }, [])
+
+  function handleKeyDown(e) {
+    if (e.key === 'Escape') {
+      e.stopPropagation()
+      onClose()
+    }
+  }
+
+  return (
+    <div
+      ref={ref}
+      role="menu"
+      aria-label="Settings"
+      onKeyDown={handleKeyDown}
+      style={{
+        position: 'absolute', left: 12, right: 12, bottom: '100%', marginBottom: 6,
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8,
+        boxShadow: '0 4px 16px rgba(0,0,0,0.12)', padding: 4, zIndex: 10,
+        ...transition,
+      }}
+    >
+      {items.map((item, idx) => {
+        const count = item.badgeKey ? Number(badges[item.badgeKey]) || 0 : 0
+        return (
+          <button
+            key={item.key}
+            ref={idx === 0 ? firstItemRef : undefined}
+            role="menuitem"
+            onClick={() => onSelect(item.key)}
+            style={{
+              display: 'flex', alignItems: 'center', width: '100%', textAlign: 'left',
+              padding: '8px 10px', border: 'none', borderRadius: 5,
+              background: current === item.key ? 'var(--bg)' : 'none',
+              fontSize: 13, fontFamily: 'inherit',
+              fontWeight: current === item.key ? 600 : 400,
+              color: current === item.key ? 'var(--primary)' : 'var(--text)',
+              cursor: 'pointer',
+            }}
+            onMouseEnter={e => { if (current !== item.key) e.currentTarget.style.background = 'var(--bg)' }}
+            onMouseLeave={e => { e.currentTarget.style.background = current === item.key ? 'var(--bg)' : 'none' }}
+          >
+            <span style={{ flex: 1 }}>{item.label}</span>
+            {count > 0 && (
+              <span style={{ ...BADGE_PILL, marginLeft: 6 }}>{count}</span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+})
 
 const offerButton = {
   flex: 1, padding: '5px 8px', fontSize: 11,
