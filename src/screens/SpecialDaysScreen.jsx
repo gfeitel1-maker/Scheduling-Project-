@@ -71,7 +71,7 @@ export default function SpecialDaysScreen({ campId, role }) {
       setSlots(slotsData || [])
       setGroups((groupsData || []).filter((g) => g.camp_id === campId))
     } catch {
-      setError('Failed to load data — check your connection and refresh')
+      setError("Couldn't load your camp setup — check your connection and refresh.")
     } finally {
       setLoading(false)
     }

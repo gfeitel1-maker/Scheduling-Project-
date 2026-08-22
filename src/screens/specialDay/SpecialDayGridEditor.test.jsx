@@ -90,9 +90,9 @@ describe('SpecialDayGridEditor — placement path isolation (Red Hat-relevant)',
   it('writes special_day_slots.activity_id directly and never touches template_slots/schedule_templates', async () => {
     baseFixtures({ slots: [] })
     render(<SpecialDayGridEditor campId={CAMP_ID} specialDayId={SD_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
-    await waitFor(() => expect(screen.getAllByText('Empty').length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByText('Open').length).toBeGreaterThan(0))
 
-    fireEvent.click(screen.getAllByText('Empty')[0])
+    fireEvent.click(screen.getAllByText('Open')[0])
     const box = await screen.findByPlaceholderText('Type an activity…')
     fireEvent.change(box, { target: { value: 'Capture the Flag' } })
     fireEvent.keyDown(box, { key: 'Enter' })
@@ -136,7 +136,7 @@ describe('SpecialDayGridEditor — live-delete-while-editing (Red Hat/Code Revie
         onDeletedElsewhere={onDeletedElsewhere}
       />
     )
-    await waitFor(() => expect(screen.getAllByText('Empty').length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByText('Open').length).toBeGreaterThan(0))
 
     expect(localClient.onOpApplied).toHaveBeenCalled()
     const opHandler = localClient.onOpApplied.mock.calls[0][0]
@@ -157,7 +157,7 @@ describe('SpecialDayGridEditor — live-delete-while-editing (Red Hat/Code Revie
         onDeletedElsewhere={onDeletedElsewhere}
       />
     )
-    await waitFor(() => expect(screen.getAllByText('Empty').length).toBeGreaterThan(0))
+    await waitFor(() => expect(screen.getAllByText('Open').length).toBeGreaterThan(0))
 
     const opHandler = localClient.onOpApplied.mock.calls[0][0]
     opHandler({ entity: 'special_day_time_blocks', entity_id: 'tb1', field: '__deleted__', value: 1 })

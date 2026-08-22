@@ -275,7 +275,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
         .filter(g => g.camp_id === campId)
         .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''))))
     } catch {
-      setError('Failed to load data — check your connection and refresh')
+      setError("Couldn't load your camp setup — check your connection and refresh.")
     } finally {
       setLoading(false)
     }

@@ -67,8 +67,8 @@ export default function EmptyCell({
       data-cell-key={cellKey}
       data-collapsed={collapsed ? '' : undefined}
       aria-colindex={ariaColIndex}
-      // T59. An empty cell announces as empty, never as a blank cell.
-      aria-label={cellAccessibleName({ subject: 'Empty', blockNames, column })}
+      // T59. An open cell announces as open, never as a blank cell.
+      aria-label={cellAccessibleName({ subject: 'Open', blockNames, column })}
       style={{ gridRow, gridColumn }}
       onClick={handleClick}
       onKeyDown={e => { if (e.key === 'Enter') handleEnterKeyDown(e) }}
@@ -83,11 +83,11 @@ export default function EmptyCell({
           onCancel={() => setEditing(false)}
         />
       ) : (
-        // "Empty" is deliberately visible text, not a blank box — matches
+        // "Open" is deliberately visible text, not a blank box — matches
         // scheduleGrid.css's "visible, not invisible" empty-cell philosophy
         // (design addendum decision 5: a conscious, consistent choice across
-        // all three views, not a merge artifact).
-        <div className="cell-empty">Empty</div>
+        // all three views, not a merge artifact). Reads as "open time" (W7 voice).
+        <div className="cell-empty">Open</div>
       )}
     </div>
   )

@@ -33,7 +33,7 @@ describe('EmptyCell — click opens the inline editor (T112)', () => {
     const cell = container.querySelector('[role="gridcell"]')
     expect(cell.hasAttribute('data-empty')).toBe(true)
     expect(cell.getAttribute('data-cell-key')).toBe('g1|d1|b1')
-    expect(cell.getAttribute('aria-label')).toBe('Empty, Block 1, Mon')
+    expect(cell.getAttribute('aria-label')).toBe('Open, Block 1, Mon')
     expect(container.querySelector('.cell-inline-editor-input')).toBeNull()
   })
 

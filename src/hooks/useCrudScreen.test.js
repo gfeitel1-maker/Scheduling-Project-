@@ -57,7 +57,7 @@ describe('useCrudScreen — load', () => {
       useCrudScreen({ entity: 'days_of_operation', campId: 'camp-1', localClient, repository, scopeFilter, buildCreateFields: (f) => f })
     )
     await waitFor(() => expect(result.current.loading).toBe(false))
-    expect(result.current.error).toMatch(/Failed to load data/)
+    expect(result.current.error).toMatch(/Couldn't load your camp setup/)
   })
 })
 

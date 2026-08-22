@@ -152,7 +152,7 @@ describe('DaysScreen', () => {
     localClient.list.mockRejectedValue(new Error('boom'))
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() =>
-      expect(screen.queryByText(/Failed to load data/)).not.toBeNull()
+      expect(screen.queryByText(/Couldn't load your camp setup/)).not.toBeNull()
     )
   })
 

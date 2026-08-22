@@ -328,7 +328,7 @@ describe('LocationsScreen', () => {
     })
     render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
-    await waitFor(() => expect(screen.queryByText(/Failed to load data/)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText(/Couldn't load your camp setup/)).not.toBeNull())
   })
 })
 
