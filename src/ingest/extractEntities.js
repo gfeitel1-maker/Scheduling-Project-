@@ -190,16 +190,21 @@ export const NON_GROUP_HEADERS = new Set([
 // Mirrors NON_GROUP_HEADERS' matching (a controlled vocabulary tested against
 // a column/period header) but with the OPPOSITE semantics: NON_GROUP_HEADERS
 // drops a matching column from the group proposal; this one FLAGS a matching
-// column/period as an elective candidate for reconciliation to nudge on. A
-// header containing one of these terms counts too ("Indoor Elective") — not
-// only an exact match — since real files title the period, not label it with
-// the bare term alone.
-export const ELECTIVE_HEADER_TERMS = ['chugim', 'bechirot', 'electives', 'indoor elective', 'elective']
+// column/period as an elective candidate for reconciliation to nudge on.
+//
+// EXACT match only (fix, panel round 2 — Red Hat + Code Reviewer): a prior
+// `.includes()` substring match fired on "Selective Sports" (contains
+// "elective") and "Elective A: Ceramics" (a specific offering's own name, not
+// the period's header). Real files print the period as the bare term or a
+// short qualifier + term — "Chugim", "Indoor Elective", "Outdoor Elective" —
+// so both qualified forms are enumerated explicitly rather than matched by
+// substring.
+export const ELECTIVE_HEADER_TERMS = ['chugim', 'bechirot', 'electives', 'indoor elective', 'outdoor elective', 'elective']
 
 export function isElectiveHeaderText(text) {
   const t = String(text ?? '').trim().toLowerCase()
   if (!t) return false
-  return ELECTIVE_HEADER_TERMS.some((term) => t === term || t.includes(term))
+  return ELECTIVE_HEADER_TERMS.includes(t)
 }
 
 // "Adom 4's - Matzo Balls Schedule" -> "Adom 4's - Matzo Balls"
@@ -400,7 +405,7 @@ export function extractEntities(parsed) {
         // NON_GROUP_HEADERS' drop) and skip proposing it as a bunk.
         if (isElectiveHeaderText(trimmed)) {
           electiveHeaderFindings.push({
-            detector: 'header', band: 'confirmed', sourceExcerpt: trimmed, row: null, column: trimmed,
+            detector: 'header', band: 'confirmed', sourceExcerpt: trimmed, row: null, column: trimmed, source: 'label',
           })
           electiveHeaderColumns.add(trimmed)
           return
@@ -443,7 +448,7 @@ export function extractEntities(parsed) {
       const rowIsElectiveHeader = isElectiveHeaderText(rowLabelTrimmed)
       if (rowIsElectiveHeader) {
         electiveHeaderFindings.push({
-          detector: 'header', band: 'confirmed', sourceExcerpt: rowLabelTrimmed, row: rowIndex, column: null,
+          detector: 'header', band: 'confirmed', sourceExcerpt: rowLabelTrimmed, row: rowIndex, column: null, source: 'label',
         })
       }
       row.cells.forEach((cell, cellIndex) => {
@@ -492,8 +497,14 @@ export function extractEntities(parsed) {
           // the elective period.
           const valueIsElectiveHeader = isElectiveHeaderText(value)
           if (valueIsElectiveHeader) {
+            // 'cell' (not 'label'): this finding's sourceExcerpt is a cell
+            // VALUE — the same text that also became an ordinary activity
+            // candidate above — so it is eligible for buildElectiveCandidates'
+            // liveActivityKeys exemption (fix, panel round 2): a row/column
+            // LABEL never doubles as a proposed activity name and is exempt
+            // from that check by construction.
             electiveHeaderFindings.push({
-              detector: 'header', band: 'confirmed', sourceExcerpt: value, row: rowIndex, column: columnHeader || null,
+              detector: 'header', band: 'confirmed', sourceExcerpt: value, row: rowIndex, column: columnHeader || null, source: 'cell',
             })
           }
           const cellIsUnderElectiveHeader = rowOrColumnIsElectiveHeader || valueIsElectiveHeader

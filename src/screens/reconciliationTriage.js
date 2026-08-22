@@ -173,5 +173,6 @@ export function isDecisionResolvedFor(decision, answers, dismissedGaps = new Set
   // Slice 3a — either answer resolves the card; only 'confirm' folds into
   // confirmedElectiveSets above.
   if (decision.kind === 'elective_candidate') return a.choice === 'confirm' || a.choice === 'decline'
+  if (decision.kind === 'elective_candidates_truncated') return a.resolved === true
   return false
 }

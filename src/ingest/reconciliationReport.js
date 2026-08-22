@@ -602,6 +602,30 @@ export function buildReconciliationReport(input) {
     })
   }
 
+  // fix, panel round 2 (Red Hat, "unbounded nudges") — buildPlan's cap note
+  // (`.truncated` on the electiveCandidates array), surfaced as ONE
+  // acknowledgeable decision, same shape/UI as review_legacy_priority's
+  // batch note below — never a phantom elective-candidate card.
+  if (electiveCandidates.truncated) {
+    const { total, shown } = electiveCandidates.truncated
+    buckets.needsAttention += 1
+    decisionsByKey.set('elective_candidates:truncated', {
+      id: 'elective_candidates:truncated',
+      kind: 'elective_candidates_truncated',
+      entity: 'elective_sets',
+      entityId: null,
+      entityName: null,
+      field: null,
+      confidence: 'low',
+      proposedValue: null,
+      count: total - shown,
+      unknowns: [],
+      evidence: null,
+      reason: `${total} possible elective periods were found in this file — only the first ${shown} are shown here. `
+        + `The rest (${total - shown}) were not shown; nothing was skipped from the import itself, only from this review list.`,
+    })
+  }
+
   // C2b, rule 7. Owner-resolved OQ3 (ADR "Resolved 2026-08-11"): BATCH — one
   // consolidated "N priorities need review" decision, never one-per-activity.
   // source='import' cannot distinguish a manufactured default from a

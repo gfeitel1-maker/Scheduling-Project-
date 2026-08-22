@@ -318,4 +318,67 @@ describe('buildElectiveCandidates (Slice 3a content-shape detector)', () => {
     const candidates = buildElectiveCandidates(source, { activities: [] })
     expect(candidates).toHaveLength(1)
   })
+
+  // fix, panel round 2 (Red Hat + Code Reviewer, HIGH) — the cell-VALUE
+  // header path never applied the false-positive exemption the shape
+  // detector already had. A camp with a real, plain activity actually named
+  // "Chugim" would otherwise get nudged every re-import forever.
+  it('exempts a cell-VALUE header finding whose text resolves 1:1 to an existing activity', () => {
+    const source = {
+      electiveHeaderFindings: [
+        { detector: 'header', band: 'confirmed', sourceExcerpt: 'Chugim', row: 3, column: null, source: 'cell' },
+      ],
+      activityPeriods: {},
+      approved: { activities: [] },
+    }
+    const candidates = buildElectiveCandidates(source, { activities: [{ id: 'a1', name: 'Chugim' }] })
+    expect(candidates).toEqual([])
+  })
+
+  it('does NOT exempt a row/column-LABEL header finding even if the text matches a live activity name', () => {
+    // A label never doubles as a proposed activity — exempting it would let
+    // a genuine "column literally titled Chugim" period slip through
+    // unnudged just because some unrelated activity happens to share the name.
+    const source = {
+      electiveHeaderFindings: [
+        { detector: 'header', band: 'confirmed', sourceExcerpt: 'Chugim', row: null, column: 'Chugim', source: 'label' },
+      ],
+      activityPeriods: {},
+      approved: { activities: [] },
+    }
+    const candidates = buildElectiveCandidates(source, { activities: [{ id: 'a1', name: 'Chugim' }] })
+    expect(candidates).toHaveLength(1)
+  })
+
+  // fix, panel round 2 (Red Hat, "case-insensitive dedup") — "Chugim" and
+  // "CHUGIM" are the same period spelled two ways, not two candidates.
+  it('dedups header findings case-insensitively, keeping the first-seen casing', () => {
+    const source = {
+      electiveHeaderFindings: [
+        { detector: 'header', band: 'confirmed', sourceExcerpt: 'Chugim', row: 3, column: null, source: 'label' },
+        { detector: 'header', band: 'confirmed', sourceExcerpt: 'CHUGIM', row: 9, column: null, source: 'label' },
+      ],
+      activityPeriods: {},
+      approved: { activities: [] },
+    }
+    const candidates = buildElectiveCandidates(source, { activities: [] })
+    expect(candidates).toHaveLength(1)
+    expect(candidates[0].sourceExcerpt).toBe('Chugim')
+  })
+
+  // fix, panel round 2 (Red Hat, "unbounded nudges") — a pathological file
+  // is capped, never silently truncated: the returned array carries a
+  // `.truncated` note so a caller can surface it.
+  it('caps candidates at 25 and marks the array truncated, never silently drops', () => {
+    const source = {
+      electiveHeaderFindings: Array.from({ length: 30 }, (_, i) => ({
+        detector: 'header', band: 'confirmed', sourceExcerpt: `Period ${i}`, row: i, column: null, source: 'label',
+      })),
+      activityPeriods: {},
+      approved: { activities: [] },
+    }
+    const candidates = buildElectiveCandidates(source, { activities: [] })
+    expect(candidates).toHaveLength(25)
+    expect(candidates.truncated).toEqual({ total: 30, shown: 25 })
+  })
 })

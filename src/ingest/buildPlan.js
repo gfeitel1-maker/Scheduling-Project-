@@ -231,6 +231,19 @@ export function buildElectiveCandidates(source, existing) {
       .map((r) => recognitionKey('activities', r.name))
   )
 
+  // fix, panel round 2 (Red Hat + Code Reviewer) — the SAME false-positive
+  // guard the shape detector below already applies, extended to the header
+  // detector's cell-VALUE findings (extractEntities.js's `source: 'cell'`
+  // tag): a cell value equal to an existing catalog activity's name (e.g. a
+  // camp with a real, plain activity actually named "Electives") must never
+  // nudge just because the text also matches ELECTIVE_HEADER_TERMS. A
+  // row/column-LABEL finding (`source: 'label'`) never names an activity and
+  // is exempt from this filter by construction — it always passes through.
+  const headerFindingsFiltered = headerFindings.filter((f) => {
+    if (f.source !== 'cell') return true
+    return !liveActivityKeys.has(recognitionKey('activities', f.sourceExcerpt))
+  })
+
   const shapeFindings = []
   for (const name of proposedActivityNames) {
     const key = normalizeName(name)
@@ -249,14 +262,36 @@ export function buildElectiveCandidates(source, existing) {
   // signature is the detector + the exact text the file printed, which is
   // stable across re-imports of an unchanged source and distinct for two
   // different periods/columns.
-  const all = [...headerFindings, ...shapeFindings]
-  const seen = new Set()
+  // fix, panel round 2 (Red Hat) — dedup CASE-INSENSITIVELY: "Chugim" and
+  // "CHUGIM" are the same period spelled two ways, not two candidates (and,
+  // downstream, must not become two elective_sets — see
+  // commitElectiveCandidates' matching normalization). The signature key is
+  // normalized for comparison only; the id itself, and the stored
+  // sourceExcerpt, keep the FIRST-seen raw casing (a decline/re-import
+  // dedup id must still stay stable across an unchanged file).
+  const all = [...headerFindingsFiltered, ...shapeFindings]
+  const seenKeys = new Set()
   const candidates = []
   for (const finding of all) {
+    const key = `${finding.detector}:${normalizeName(finding.column ?? '')}:${normalizeName(finding.sourceExcerpt)}`
+    if (seenKeys.has(key)) continue
+    seenKeys.add(key)
     const id = `${finding.detector}:${finding.column ?? ''}:${finding.sourceExcerpt}`
-    if (seen.has(id)) continue
-    seen.add(id)
     candidates.push({ id, ...finding })
+  }
+
+  // fix, panel round 2 (Red Hat, "unbounded nudges") — a pathological file
+  // can produce hundreds of shape-detector hits (every unrecognized activity
+  // name is a candidate). Cap at a sane limit rather than silently truncating
+  // (house rule: never silent): the excess is dropped, but `.truncated` on
+  // the returned array says so — reconciliationReport.js turns it into one
+  // acknowledgeable decision, never a phantom elective-candidate card (a cap
+  // note is not itself a period to create a set for).
+  const ELECTIVE_CANDIDATE_CAP = 25
+  if (candidates.length > ELECTIVE_CANDIDATE_CAP) {
+    const kept = candidates.slice(0, ELECTIVE_CANDIDATE_CAP)
+    kept.truncated = { total: candidates.length, shown: ELECTIVE_CANDIDATE_CAP }
+    return kept
   }
   return candidates
 }

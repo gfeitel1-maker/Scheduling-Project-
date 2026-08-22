@@ -133,6 +133,21 @@ function isIdentityDecision(decision) {
   return decision.kind === 'resolve_conflict' && (decision._held ? decision._heldKind === 'identity' : true)
 }
 
+// fix, panel round 2 (Tester, "metadata jargon") — the card subtitle used to
+// render raw schema names (`elective_sets · Chugim · Structure`) for the
+// electives nudge. A per-kind override in camp vocabulary; every other kind
+// keeps the existing entity/domain rendering unchanged.
+const KIND_SUBTITLE = {
+  elective_candidate: (decision) => `Electives${decision.entityName ? ` · ${decision.entityName}` : ''}`,
+  elective_candidates_truncated: () => 'Electives',
+}
+
+function subtitleFor(decision) {
+  const override = KIND_SUBTITLE[decision.kind]
+  if (override) return override(decision)
+  return `${decision.entity} · ${decision.entityName ?? 'unnamed'} · ${DOMAIN_OF[decision.entity] ?? 'Structure'}`
+}
+
 function questionFor(decision) {
   const name = decision.entityName ?? 'this record'
   if (decision.kind === 'resolve_conflict') {
@@ -146,11 +161,18 @@ function questionFor(decision) {
     return `Review priority for ${count} ${count === 1 ? 'activity' : 'activities'} carried over from an earlier import`
   }
   // Slice 3a (docs/adr/2026-08-22-nested-schedules-electives-and-events.md §4
-  // addendum): the nudge's exact wording — a Confirm creates ONE empty
-  // elective_set via the existing authored create-path, never offerings.
+  // addendum). Reworded (fix, panel round 2 — Tester "mental-model trap"):
+  // the ORIGINAL wording ("open the elective space?") let a director expect
+  // the file's activities to come along for the ride. Confirming only ever
+  // creates an EMPTY elective_set (the standing invariant — electives are
+  // authored, never reconstructed from a file); the copy now says so
+  // explicitly, names the header text verbatim, and says where offerings
+  // actually come from.
   if (decision.kind === 'elective_candidate') {
-    return `This period looks like electives — open the elective space?`
+    return `This looks like an elective period. Create an empty "${decision.entityName ?? 'Electives'}" elective set? `
+      + `(You'll add the activities on the Electives screen.)`
   }
+  if (decision.kind === 'elective_candidates_truncated') return decision.reason
   return `Use the file's value for "${name}"?`
 }
 
@@ -161,8 +183,8 @@ function summaryOf(decision, answer) {
   if (answer.choice === 'keep') return 'Keeping the current value'
   if (answer.choice === 'existing') return 'Using your existing record'
   if (answer.choice === 'create') return 'Adding as new'
-  if (decision.kind === 'elective_candidate' && answer.choice === 'confirm') return 'Elective space will be created'
-  if (decision.kind === 'elective_candidate' && answer.choice === 'decline') return 'Not electives'
+  if (decision.kind === 'elective_candidate' && answer.choice === 'confirm') return 'Empty elective set created'
+  if (decision.kind === 'elective_candidate' && answer.choice === 'decline') return 'Not an elective period — left as-is'
   if (answer.resolved) return 'Acknowledged'
   return 'Resolved'
 }
@@ -189,7 +211,7 @@ function ResolutionControls({ decision, onAnswer }) {
     )
   }
 
-  if (decision.kind === 'review_legacy_priority') {
+  if (decision.kind === 'review_legacy_priority' || decision.kind === 'elective_candidates_truncated') {
     return (
       <div style={{ marginTop: 10 }}>
         <button className="press-97" onClick={() => onAnswer({ resolved: true })} style={cardStyles.btnCompactSecondary}>Acknowledge</button>
@@ -212,7 +234,7 @@ function ResolutionControls({ decision, onAnswer }) {
   if (decision.kind === 'elective_candidate') {
     return (
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-        <button className="press-97" onClick={() => onAnswer({ choice: 'confirm' })} style={cardStyles.btnCompactPrimary}>Confirm</button>
+        <button className="press-97" onClick={() => onAnswer({ choice: 'confirm' })} style={cardStyles.btnCompactPrimary}>Create elective set</button>
         <button className="press-97" onClick={() => onAnswer({ choice: 'decline' })} style={cardStyles.btnCompactSecondary}>Not electives</button>
       </div>
     )
@@ -271,7 +293,7 @@ export function DecisionCard({ decision, rank, answer, onAnswer, expanded, onTog
     <div style={{ ...cardStyle, opacity: resolved ? 0.6 : 1, transition: 'opacity var(--motion-fast) var(--ease-out)' }}>
       <div style={{ fontWeight: 600, fontSize: rank === 'hold' ? 14 : 13, color: 'var(--text)' }}>{question}</div>
       <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>
-        {decision.entity} · {decision.entityName ?? 'unnamed'} · {DOMAIN_OF[decision.entity] ?? 'Structure'}
+        {subtitleFor(decision)}
       </div>
 
       <div style={contentFade}>

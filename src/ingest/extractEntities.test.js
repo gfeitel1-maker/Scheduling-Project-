@@ -536,4 +536,20 @@ describe('elective header-label detector (Slice 3a)', () => {
     // an unstructured-choice period informally.
     expect(isElectiveHeaderText('Free Choice')).toBe(false)
   })
+
+  // fix, panel round 2 (Red Hat + Code Reviewer, HIGH) — a prior `.includes()`
+  // substring match fired on any text CONTAINING a term, so "Selective Sports"
+  // (contains "elective") and "Elective A: Ceramics" (a specific offering
+  // named after the period, not the period's own header) both wrongly nudged.
+  it('does not flag text that merely CONTAINS a controlled term as a substring', () => {
+    for (const text of ['Selective Sports', 'Elective A: Ceramics', 'Non-Elective Study Hall', 'Selectives']) {
+      expect(isElectiveHeaderText(text)).toBe(false)
+    }
+  })
+
+  it('still flags the exact qualified real-world forms', () => {
+    for (const text of ['Chugim', 'Electives', 'Indoor Elective', 'Outdoor Elective', 'chugim', 'INDOOR ELECTIVE']) {
+      expect(isElectiveHeaderText(text)).toBe(true)
+    }
+  })
 })

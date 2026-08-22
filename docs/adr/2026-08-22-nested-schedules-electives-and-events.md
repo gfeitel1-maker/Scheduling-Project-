@@ -133,6 +133,62 @@ The Slice 3 architecture pass established the concrete shape and split it:
   `src/components/reconciliation/reconciliationCards.jsx`** (not `confidence.js`) —
   correction to §4's original reference.
 
+**Addendum (2026-08-22, panel round 2 — fixes + known limitations).**
+- **Header detection is exact-term, not substring.** `isElectiveHeaderText`
+  originally matched any text CONTAINING a term (`.includes()`), which fired on
+  "Selective Sports" and "Elective A: Ceramics" — a real activity's own name,
+  not the period's header. Matching is now exact (`ELECTIVE_HEADER_TERMS.includes(t)`),
+  with "outdoor elective" added alongside "indoor elective" so both of the real
+  Camp A file's qualified forms stay recognized. The false-positive exemption
+  (a name that resolves 1:1 to a live activity) now also applies to the
+  header detector's cell-VALUE findings, not just the shape detector — a
+  `source: 'cell'` vs `source: 'label'` tag on each header finding
+  (`extractEntities.js`) distinguishes the two, since a row/column LABEL never
+  doubles as a proposed activity name and stays exempt from this filter by
+  construction.
+- **Elective-set create is non-atomic by design, and now fails soft.** The
+  create runs after `commitPlan`'s own transaction (deliberately — see the
+  code comment on why it doesn't need that transaction's atomicity), so a
+  failure there (a UNIQUE collision, or any other write error) used to throw
+  out of `commitIngest` and read back as "the whole import failed" even
+  though the main reconciliation had already committed durably.
+  `commitElectiveCandidates` now isolates each candidate in its own
+  try/catch and returns `{ created, failed }`; `commitIngest` surfaces
+  `failed` as `outcome.electiveSetsFailed`, a soft warning that never
+  propagates as a whole-commit failure.
+- **Known limitation — rename breaks the dedup match.** The confirmed-decision
+  dedup (both `buildElectiveCandidates`'s finding dedup and
+  `commitElectiveCandidates`'s existing-row check) now compares
+  case/whitespace-normalized names, but the match is still purely
+  **name-based**. A director who renames a created elective_set (e.g.
+  "Chugim" → "Afternoon Chugim") and then re-imports the same file gets the
+  header nudge again, because the live row no longer carries a name the
+  normalized check recognizes. With the clearer confirm/decline copy this is
+  a decline-able soft suggestion, not a silent duplicate (declining writes
+  nothing; confirming again is also harmless — a re-confirm just proposes a
+  differently-named set rather than duplicating the renamed one). A real fix
+  is a source-signature link between the finding and the created set (e.g. a
+  hidden `source_aliases`-style row), tracked as future work, not built now —
+  no schema column is added for this in this pass.
+- **Known limitation — elective_sets has no cross-device UNIQUE-collision
+  handling.** Every other durable-create path that shares a name-uniqueness
+  constraint reachable from two devices concurrently (`locations`) is
+  registered in `UNIQUE_FIELD_ENTITIES`/`detectUniqueFieldCollision`
+  (`electron/ops/operations.js`, docs/adr/2026-08-15-locations-concurrent-
+  create-collision.md) and pre-checked at both sync write-entry points
+  (`syncServer.js`, `syncClient.js`) before the write is attempted.
+  `elective_sets` is **not** registered there. If two devices independently
+  confirm the same header nudge before syncing (each device's own local
+  dedup check sees no live row and proceeds), the two locally-created
+  `elective_sets` rows carry the same `(camp_id, name)` but different ids;
+  replaying one device's `name` op onto the other during sync hits SQLite's
+  `UNIQUE(camp_id, name)` constraint and throws, ungracefully, inside
+  `applyProjection`. This is a genuine gap in the same class the D2 ADR
+  exists to close, surfaced here rather than silently worked around —
+  registering `elective_sets` in `UNIQUE_FIELD_ENTITIES` (mirroring
+  `locations`) is the fix, and is flagged as follow-up work, not attempted in
+  this fix pass.
+
 ### 5. Ownership
 The peer sessions that previously held the elective authoring UI (T105/T110/T111)
 and special-day author UI (T106) are **closed**; the owner consolidated ownership

@@ -37,6 +37,12 @@ function laneFor(decision) {
     case 'elective_candidate':
       return 'hold'
 
+    // fix, panel round 2 — the "N more not shown" cap note is informational,
+    // not a director decision blocking anything; standard (not hold, not
+    // express-silent) matches review_legacy_priority's own batch-note lane.
+    case 'elective_candidates_truncated':
+      return 'standard'
+
     default:
       throw new Error(`reportToLanes: unrecognized decision.kind "${decision.kind}"`)
   }

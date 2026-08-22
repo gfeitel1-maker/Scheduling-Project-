@@ -563,27 +563,53 @@ function buildExistingSnapshot(db, camp_id, cohort_id, mode) {
 // Electives screen).
 //
 // Idempotent on repeat: if a live elective_sets row already carries this
-// EXACT verbatim name for the camp, nothing is written — covers both a
-// re-confirm of the same nudge and a re-import of a file whose header nudge
-// was already fulfilled (the confirmed-decision half of "don't re-surface";
-// see the ticket's dedup note for the declined half, which is NOT solved
-// here — no schema exists to record a decline, and none is added silently).
+// name for the camp — compared CASE/WHITESPACE-INSENSITIVELY (fix, panel
+// round 2, Red Hat "case-insensitive dedup": "Chugim" and "CHUGIM" are the
+// same period spelled two ways, not two elective_sets) — nothing is written.
+// Covers both a re-confirm of the same nudge and a re-import of a file whose
+// header nudge was already fulfilled (the confirmed-decision half of "don't
+// re-surface"; see the ticket's dedup note for the declined half, which is
+// NOT solved here — no schema exists to record a decline, and none is added
+// silently). The stored name keeps whatever casing this camp's row already
+// has (never renamed by a later re-import spelling it differently).
+//
+// fix, panel round 2 (Red Hat, "non-atomic create can fail a durable
+// import") — this runs AFTER commitPlan's own transaction has already
+// committed (see the call site's comment: an elective_set create never
+// participates in commitPlan's conflict/staleness gates). A failure here
+// (a UNIQUE(camp_id, name) collision the dedup check above raced with, or
+// any other write error) must NEVER read back to the director as "the
+// import failed" — the main reconciliation already committed durably. Each
+// candidate is therefore isolated in its own try/catch: a failure is
+// collected as a soft `failed` entry, never thrown, never allowed to abort
+// a candidate after it in the same list.
 function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, author_user_id, device_id }) {
   const created = []
+  const failed = []
+  // Loaded once and updated in-memory as this call creates rows, so two
+  // same-period candidates (differing only by case) in the SAME
+  // confirmedElectiveSets array are caught too, not just across calls.
+  const liveNormalizedNames = new Set(
+    db.prepare('SELECT name FROM elective_sets WHERE camp_id = ?').all(camp_id)
+      .map((r) => normalizeName(r.name))
+  )
   for (const candidate of confirmedElectiveSets) {
     const name = String(candidate?.name ?? '').trim()
     if (!name) continue
-    const already = db
-      .prepare('SELECT id FROM elective_sets WHERE camp_id = ? AND name = ?')
-      .get(camp_id, name)
-    if (already) continue
-    const id = randomUUID()
-    const commonOp = { entity: 'elective_sets', entity_id: id, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, source: 'human' }
-    appendOp(db, { ...commonOp, field: 'camp_id', value: camp_id, client_write_id: randomUUID() })
-    appendOp(db, { ...commonOp, field: 'name', value: name, client_write_id: randomUUID() })
-    created.push({ id, name })
+    const key = normalizeName(name)
+    if (liveNormalizedNames.has(key)) continue
+    try {
+      const id = randomUUID()
+      const commonOp = { entity: 'elective_sets', entity_id: id, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, source: 'human' }
+      appendOp(db, { ...commonOp, field: 'camp_id', value: camp_id, client_write_id: randomUUID() })
+      appendOp(db, { ...commonOp, field: 'name', value: name, client_write_id: randomUUID() })
+      created.push({ id, name })
+      liveNormalizedNames.add(key)
+    } catch (err) {
+      failed.push({ name, message: `Couldn't open the "${name}" elective space: ${err.message}` })
+    }
   }
-  return created
+  return { created, failed }
 }
 
 export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [] }) {
@@ -659,9 +685,14 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
   // existing row it could collide with — the dedup check above is its own
   // narrower guard), so it does not need that transaction's atomicity.
   if (!dryRun && !outcome.held && confirmedElectiveSets.length > 0) {
-    outcome.electiveSetsCreated = commitElectiveCandidates(db, {
+    const { created: electiveSetsCreated, failed: electiveSetsFailed } = commitElectiveCandidates(db, {
       confirmedElectiveSets, camp_id, author_user_id: author_user_id ?? null, device_id,
     })
+    outcome.electiveSetsCreated = electiveSetsCreated
+    // Soft warning, never a thrown error — see commitElectiveCandidates'
+    // own comment. The main commit above already succeeded; this only ever
+    // narrows what the director is told, never what actually happened.
+    if (electiveSetsFailed.length > 0) outcome.electiveSetsFailed = electiveSetsFailed
   }
 
   return outcome

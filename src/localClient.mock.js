@@ -1016,7 +1016,7 @@ export const mockShoresh = {
     const outcome = { held: false, conflicts: [], created, total, updated, fixedEvents: { created: fixedCreatedIds.length, skipped: fixedSkipped, partial: fixedPartial, moved: [] } }
     if (electiveSetsCreated.length > 0) outcome.electiveSetsCreated = electiveSetsCreated
     if (replaced) outcome.replaced = replaced
-    if (dryRun) { outcome.dryRun = true; outcome.planItems = plan.items }
+    if (dryRun) { outcome.dryRun = true; outcome.planItems = plan.items; outcome.electiveCandidates = plan.electiveCandidates }
     if (captureInverse) { outcome.invertibleOps = invertibleOps; outcome.createdEntityIds = createdEntityIds }
     return outcome
   },
