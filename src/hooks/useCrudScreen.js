@@ -37,7 +37,7 @@ export function useCrudScreen({
       const data = await localClient.list(entity)
       setRows((data || []).filter((row) => scopeFilter(row, campId)))
     } catch {
-      setError('Failed to load data — check your connection and refresh')
+      setError("Couldn't load your camp setup — check your connection and refresh.")
     }
     setLoading(false)
   }

@@ -1,0 +1,29 @@
+{
+  "task_id": "W3",
+  "round": 1,
+  "verifier_pass": true,
+  "gate_scores": {
+    "security": null,
+    "red_hat": null,
+    "tester": 4,
+    "code_reviewer": 5
+  },
+  "overall_score": 4.5,
+  "lowest_dimension": 4,
+  "blocking_findings": [],
+  "incomplete": false,
+  "gap": [],
+  "cross_gate_flags": [],
+  "decision_eligibility": "PASS_ELIGIBLE",
+  "malformed": [],
+  "self_declared_na": [
+    {
+      "gate_name": "security",
+      "na_reason": "Presentational rebuild only — no new authentication, secret, or protocol handling. RootMap.jsx rewrite and info layer are read-only presentation of existing decision data. No auth/secret/protocol surface added."
+    },
+    {
+      "gate_name": "red_hat",
+      "na_reason": "Presentational rebuild only — no data model, op-log, sync, or migration changes. buildRootMapModel schema untouched; info layer reads existing decision data read-only. No infra/data-shape/sync change."
+    }
+  ]
+}

@@ -525,7 +525,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       setGroups((gData || []).filter(g => g.camp_id === campId))
       setLocations((lData || []).filter(l => l.camp_id === campId))
     } catch {
-      setError('Failed to load data — check your connection and refresh')
+      setError("Couldn't load your camp setup — check your connection and refresh.")
     } finally {
       setLoading(false)
     }

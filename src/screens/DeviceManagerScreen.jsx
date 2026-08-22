@@ -46,7 +46,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
       setPending(p || [])
       setAllDevices(d || [])
     } catch (err) {
-      setError(err?.message || 'Failed to load devices')
+      setError(err?.message || "Couldn't load your devices — check your connection and refresh.")
     }
   }
 
@@ -155,7 +155,7 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
       <section style={styles.section}>
         <h2 style={styles.sectionTitle}>All Devices</h2>
         {allDevices.length === 0 ? (
-          <div style={styles.empty}>No devices found.</div>
+          <div style={styles.empty}>No devices connected yet.</div>
         ) : (
           <table style={styles.table}>
             <thead>

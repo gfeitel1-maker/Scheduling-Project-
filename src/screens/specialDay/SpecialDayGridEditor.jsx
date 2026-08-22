@@ -105,7 +105,7 @@ export default function SpecialDayGridEditor({ campId, specialDayId, onBack, onD
           .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? '')))
       )
     } catch {
-      setError('Failed to load data — check your connection and refresh')
+      setError("Couldn't load your camp setup — check your connection and refresh.")
     } finally {
       setLoading(false)
     }

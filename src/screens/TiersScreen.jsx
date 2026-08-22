@@ -154,7 +154,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
       setGroupCounts(counts)
     } catch {
       if (requestId !== loadRequestRef.current) return
-      setError('Failed to load data — check your connection and refresh')
+      setError("Couldn't load your camp setup — check your connection and refresh.")
     } finally {
       if (requestId === loadRequestRef.current) setLoading(false)
     }

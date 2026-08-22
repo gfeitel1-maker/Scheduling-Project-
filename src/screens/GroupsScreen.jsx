@@ -130,7 +130,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       setGroups(gList)
       setTiers(tList)
     } catch {
-      setError('Failed to load data — check your connection and refresh')
+      setError("Couldn't load your camp setup — check your connection and refresh.")
     } finally {
       setLoading(false)
     }
