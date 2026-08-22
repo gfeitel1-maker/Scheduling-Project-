@@ -670,6 +670,11 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   // Slice E, Target 3 — a single-shot row settle highlight after a
   // provenance field is confirmed; self-clears after 700ms.
   const [justConfirmed, setJustConfirmed] = useState(null) // null | { activityId, field }
+  // Row hover is declarative (single hovered-row id) so it shares the one
+  // `background` slot with justConfirmed instead of imperatively mutating it —
+  // a just-confirmed row stays highlighted even while hovered (Slice E review
+  // fix: the old imperative onMouseEnter/Leave silently cancelled the settle).
+  const [hoveredRow, setHoveredRow] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
@@ -1257,11 +1262,16 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                     {rows.map(a => (
                       <tr key={a.id} style={{
                           borderBottom: '1px solid var(--border)',
-                          background: justConfirmed?.activityId === a.id ? 'color-mix(in srgb, var(--secondary) 10%, transparent)' : 'transparent',
-                          transition: prefersReducedMotion() ? 'none' : 'background-color var(--motion-settle) var(--ease-out)',
+                          // justConfirmed wins over hover so the settle survives a hover.
+                          background: justConfirmed?.activityId === a.id
+                            ? 'color-mix(in srgb, var(--secondary) 10%, transparent)'
+                            : hoveredRow === a.id ? 'var(--bg)' : 'transparent',
+                          // Transition only the confirm settle; hover stays instant.
+                          transition: (justConfirmed?.activityId === a.id && !prefersReducedMotion())
+                            ? 'background-color var(--motion-settle) var(--ease-out)' : 'none',
                         }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
-                        onMouseLeave={e => e.currentTarget.style.background = ''}
+                        onMouseEnter={() => setHoveredRow(a.id)}
+                        onMouseLeave={() => setHoveredRow(null)}
                       >
                         <td style={{ ...S.td, fontWeight: 500 }}>
                           {a.name}

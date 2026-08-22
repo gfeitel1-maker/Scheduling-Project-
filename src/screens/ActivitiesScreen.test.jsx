@@ -927,10 +927,40 @@ describe('ActivitiesScreen — motion + depth pass (Slice E)', () => {
       await waitFor(() => expect(row.style.background).toBe('color-mix(in srgb, var(--secondary) 10%, transparent)'))
 
       await vi.advanceTimersByTimeAsync(700)
+      // The settle green is gone; clicking the in-row dot left the row hovered
+      // (declarative hover → var(--bg)), so move the pointer off before
+      // asserting the fully-cleared 'transparent' resting state.
+      fireEvent.mouseLeave(row)
       await waitFor(() => expect(row.style.background).toBe('transparent'))
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('hovering a just-confirmed row does NOT cancel the settle highlight (review-fix regression)', async () => {
+    const act1 = activity({ min_per_week: 2, max_per_week: 4 })
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([act1])
+      return Promise.resolve([])
+    })
+    localClient.listImportEvidence.mockResolvedValue({
+      evidence: [evidenceRow()],
+      fieldSources: { 'act-1': { min_per_week: 'import', max_per_week: 'import', eligible_group_ids: null, location_id: null } },
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    const row = screen.getByText('Archery').closest('tr')
+    await userEvent.click(screen.getByRole('button', { name: /Provenance:/ }))
+    const dialog = await screen.findByRole('dialog')
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(row.style.background).toBe('color-mix(in srgb, var(--secondary) 10%, transparent)'))
+
+    // Hovering the row while the settle is active must not overwrite the green.
+    fireEvent.mouseEnter(row)
+    expect(row.style.background).toBe('color-mix(in srgb, var(--secondary) 10%, transparent)')
+    fireEvent.mouseLeave(row)
+    expect(row.style.background).toBe('color-mix(in srgb, var(--secondary) 10%, transparent)')
   })
 
   it('reduced motion: the confirmed row has no background transition', async () => {
