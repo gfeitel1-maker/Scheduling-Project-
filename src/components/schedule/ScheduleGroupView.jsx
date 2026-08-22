@@ -45,6 +45,8 @@ export default function ScheduleGroupView({
   onToggleBlockCollapsed,
   // T105
   electiveSetsAll = [], electiveMembersBySet, onCreateElective, onOpenElective,
+  // Events overlay placement Slice 1
+  eventsAll = [], onPlaceEvent, onOpenEvent,
   isContentRaced, onDismissContentRace,
   // T108 Phase 2 (design §6, Designer spec §1.1) — each day COLUMN is its
   // own (week, day) binding here, so the toggle lives once per column, in
@@ -194,6 +196,8 @@ export default function ScheduleGroupView({
                               onPlace={onPlace}
                               onCreateNew={onCreateNew}
                               onCreateElective={onCreateElective}
+                              eligibleEvents={eventsAll}
+                              onPlaceEvent={onPlaceEvent}
                               // Three-way precedence (stamp > paste > edit): onCellClick
                               // is only defined while stamp mode is active, mirroring the
                               // SlotCell call below exactly.
@@ -281,6 +285,9 @@ export default function ScheduleGroupView({
                             electiveSetsAll={electiveSetsAll}
                             electiveMembersBySet={electiveMembersBySet}
                             onOpenElective={onOpenElective}
+                            eventsAll={eventsAll}
+                            onOpenEvent={onOpenEvent}
+                            onPlaceEvent={onPlaceEvent}
                             isContentRaced={isContentRaced?.(selectedGroup, day.id, block.id)}
                             onDismissContentRace={() => onDismissContentRace?.(`${selectedGroup}|${day.id}|${block.id}`)}
                             onRelease={s => releaseCell(s.id)}

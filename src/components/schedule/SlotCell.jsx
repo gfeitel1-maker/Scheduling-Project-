@@ -86,6 +86,10 @@ export default function SlotCell({
   // electiveSetsAll); onOpenEvent is the drill-in affordance to EventScreen,
   // mirroring onOpenElective exactly (called with the event_id).
   eventsAll = [], onOpenEvent,
+  // Step 4 — CellInlineEditor's event-placement commit path, mirroring
+  // onPlace exactly (called with the event_id once an exact-name match
+  // against eventsAll resolves).
+  onPlaceEvent,
   // Stamp mode (field-trip overlay tool) intercepts a plain click with its own
   // action instead of activating inline write — same precedence the old
   // `onEdit={cellClickHandler || ...}` gave it.
@@ -477,10 +481,12 @@ export default function SlotCell({
         {editing ? (
           <CellInlineEditor
             eligibleActivities={eligibleActivities}
+            eligibleEvents={eventsAll}
             currentActivityName={activity?.name ?? electiveLabel ?? eventLabel ?? null}
             onPlace={(activityId) => { setEditing(false); onPlace?.(slot, activityId) }}
             onCreateNew={(name) => { setEditing(false); onCreateNew?.(slot, name) }}
             onCreateElective={onCreateElective ? (setName, memberNames) => { setEditing(false); onCreateElective(slot, setName, memberNames) } : undefined}
+            onPlaceEvent={onPlaceEvent ? (eventId) => { setEditing(false); onPlaceEvent(slot, eventId) } : undefined}
             onCancel={() => setEditing(false)}
           />
         ) : (

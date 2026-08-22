@@ -24,6 +24,10 @@ export default function EmptyCell({
   // label (currentActivityName is always null below), so they are not part
   // of this component's prop surface.
   eligibleActivities = [], onPlace, onCreateNew, onCreateElective,
+  // Events overlay placement Slice 1 — same posture as eligibleActivities/
+  // onCreateElective above: eligibleEvents is CellInlineEditor's typeahead
+  // source, onPlaceEvent its commit path for an exact-name match.
+  eligibleEvents = [], onPlaceEvent,
   // Stamp mode (field-trip overlay tool, generated route only) wins over
   // opening the editor — mirrors SlotCell's onCellClick-before-setEditing
   // gating. ManualBuildView never passes this (no stamp mode there).
@@ -76,10 +80,12 @@ export default function EmptyCell({
       {editing ? (
         <CellInlineEditor
           eligibleActivities={eligibleActivities}
+          eligibleEvents={eligibleEvents}
           currentActivityName={null}
           onPlace={(activityId) => { setEditing(false); onPlace?.(slot, activityId) }}
           onCreateNew={(name) => { setEditing(false); onCreateNew?.(slot, name) }}
           onCreateElective={onCreateElective ? (setName, memberNames) => { setEditing(false); onCreateElective(slot, setName, memberNames) } : undefined}
+          onPlaceEvent={onPlaceEvent ? (eventId) => { setEditing(false); onPlaceEvent(slot, eventId) } : undefined}
           onCancel={() => setEditing(false)}
         />
       ) : (

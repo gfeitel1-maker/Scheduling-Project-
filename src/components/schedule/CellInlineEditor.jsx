@@ -18,6 +18,12 @@ function parseElectiveGrammar(value) {
 // substring) and splitting it out would be an abstraction with one caller.
 export default function CellInlineEditor({
   eligibleActivities, currentActivityName, onPlace, onCreateNew, onCreateElective, onCancel,
+  // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+  // placement.md §5) — eligibleEvents is a second typeahead source, sibling
+  // to eligibleActivities; onPlaceEvent is its commit path. An event has no
+  // "create new" grammar in Slice 1 (only existing events are placeable, same
+  // posture as an exact activity match) — no colon grammar, no create branch.
+  eligibleEvents = [], onPlaceEvent,
 }) {
   const [value, setValue] = useState('')
   const inputRef = useRef(null)
@@ -31,9 +37,24 @@ export default function CellInlineEditor({
     return eligibleActivities.filter(a => normalizeName(a.name).includes(query))
   }, [eligibleActivities, query])
 
+  const eventMatches = useMemo(() => {
+    if (!query) return []
+    return eligibleEvents.filter(e => normalizeName(e.name).includes(query))
+  }, [eligibleEvents, query])
+
   const exact = useMemo(
     () => eligibleActivities.find(a => normalizeName(a.name) === query) ?? null,
     [eligibleActivities, query]
+  )
+
+  // Exact-match-first, same precedence discipline as the activity `exact`
+  // above — checked only when no activity claimed the exact match, so an
+  // activity literally sharing a name with an event resolves to the
+  // activity (activity_id survives event_id in the exclusivity precedence
+  // order, ADR §3).
+  const exactEvent = useMemo(
+    () => (exact ? null : eligibleEvents.find(e => normalizeName(e.name) === query) ?? null),
+    [eligibleEvents, query, exact]
   )
 
   // Live-typing render only — provisional, harmless (no write). The
@@ -49,6 +70,12 @@ export default function CellInlineEditor({
     // BEFORE any colon-splitting — so an activity literally named
     // "Free Time: Cabin Choice" is never misfiled as a one-member elective.
     if (exact) { committedRef.current = true; onPlace(exact.id); return }
+
+    // Events overlay placement Slice 1 — an exact event-name match places
+    // the event, same precedence slot as the activity exact-match above
+    // (checked before the colon grammar, so an event literally named with a
+    // colon in it is never misfiled as elective grammar either).
+    if (exactEvent && onPlaceEvent) { committedRef.current = true; onPlaceEvent(exactEvent.id); return }
 
     if (hasColon) {
       const parsed = parseElectiveGrammar(value)
@@ -67,6 +94,7 @@ export default function CellInlineEditor({
     }
 
     if (matches.length > 0) { committedRef.current = true; onPlace(matches[0].id); return }
+    if (eventMatches.length > 0 && onPlaceEvent) { committedRef.current = true; onPlaceEvent(eventMatches[0].id); return }
     committedRef.current = true
     onCreateNew(value.trim())
   }
@@ -111,7 +139,7 @@ export default function CellInlineEditor({
           })}
         </div>
       )}
-      {query && !exact && !hasColon && (
+      {query && !exact && !exactEvent && !hasColon && (
         <div className="cell-inline-editor-suggestions">
           {matches.map(a => (
             <div
@@ -122,7 +150,16 @@ export default function CellInlineEditor({
               {a.name}
             </div>
           ))}
-          {matches.length === 0 && (
+          {onPlaceEvent && eventMatches.map(e => (
+            <div
+              key={e.id}
+              className="cell-inline-editor-suggestion"
+              onMouseDown={() => { committedRef.current = true; onPlaceEvent(e.id) }}
+            >
+              {e.name}
+            </div>
+          ))}
+          {matches.length === 0 && eventMatches.length === 0 && (
             <div
               className="cell-inline-editor-suggestion cell-inline-editor-suggestion--create"
               onMouseDown={() => { committedRef.current = true; onCreateNew(value.trim()) }}

@@ -559,3 +559,145 @@ describe('SlotCell — elective drill-in button (Slice 2)', () => {
     expect(screen.queryByRole('button', { name: /Open .* in Electives/ })).toBeNull()
   })
 })
+
+// Events overlay placement Slice 1 — drill-in button, mirrors the elective
+// drill-in block above exactly.
+describe('SlotCell — event drill-in button (Slice 1)', () => {
+  const eventSlot = {
+    id: 's4', groupId: 'g1', dayId: 'd1', blockId: 'b1',
+    type: 'activity', activity_id: null, event_id: 'ev-1', flags: {},
+  }
+
+  it('renders an "open in Events" button on a resolved event cell, and clicking it calls onOpenEvent with the event id without opening the inline editor', () => {
+    const onOpenEvent = vi.fn()
+    const onSelect = vi.fn()
+    render(
+      <DndContext>
+        <SlotCell
+          slot={eventSlot}
+          eventsAll={[{ id: 'ev-1', name: 'Color War' }]}
+          onOpenEvent={onOpenEvent}
+          onSelect={onSelect}
+          gridRow="1 / span 1"
+          gridColumn="2 / span 1"
+          ariaColIndex={2}
+          cellKey="g1|d1|b1"
+        />
+      </DndContext>
+    )
+    const button = screen.getByRole('button', { name: 'Open Color War in Events' })
+    fireEvent.click(button)
+    expect(onOpenEvent).toHaveBeenCalledWith('ev-1')
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('renders no drill-in button when the reference is dangling (no resolved event to open)', () => {
+    render(
+      <DndContext>
+        <SlotCell
+          slot={eventSlot}
+          eventsAll={[]}
+          onOpenEvent={vi.fn()}
+          gridRow="1 / span 1"
+          gridColumn="2 / span 1"
+          ariaColIndex={2}
+          cellKey="g1|d1|b1"
+        />
+      </DndContext>
+    )
+    expect(screen.queryByRole('button', { name: /Open .* in Events/ })).toBeNull()
+  })
+})
+
+// Real-user-path coverage (Tester finding, review round): every prior events
+// test builds a fixture row with event_id already set. This test instead
+// drives the ACTUAL path a director uses — create an event, place it on a
+// cell via the real placement write (useSlotMutations' placeEventOnCell),
+// then render the resulting slot through SlotCell and confirm it shows the
+// event NAME (not the dangling-reference fallback), and that the drill-in
+// affordance calls onOpenEvent. This is the coverage that would have caught
+// Step 4's read/render wiring gap (before this fix, a placed event rendered
+// as "Event (removed)" because ScheduleScreen never threaded eventsAll into
+// SlotCell at all).
+describe('Events overlay Slice 1 — real placement path (create -> place -> render -> drill-in)', () => {
+  it('placing a real event via placeEventOnCell, then rendering the resulting slot through SlotCell, shows the event name and wires the drill-in', async () => {
+    const { renderHook, act } = await import('@testing-library/react')
+    const { useSlotMutations } = await import('../../screens/schedule/useSlotMutations')
+    const { getSlot } = await import('../../screens/schedule/gridGeometry')
+
+    // "Create an event" — the director's real EventScreen action, modeled
+    // here as the same write the setupCrudRepository createRecord path
+    // makes: a fresh events row, held in the setup-lists render surface
+    // (eventsAll) exactly as useScheduleData would expose it after reload.
+    const createdEvent = { id: 'ev-color-war', camp_id: 'camp-1', name: 'Color War', sort_order: null, notes: null }
+
+    const targetSlot = { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: null, event_id: null, flags: {} }
+    const repo = {
+      writeSlotFields: async () => ({ status: 'applied' }),
+      writeOverlayFields: async () => ({ status: 'applied' }),
+      writeActivityFields: async () => ({ status: 'applied' }),
+      deleteEntity: async () => ({ status: 'applied' }),
+      writeElectiveSetFields: async () => ({ status: 'applied' }),
+      writeElectiveSetActivityFields: async () => ({ status: 'applied' }),
+      readElectiveSetIsReusable: async () => 0,
+      getElectiveSet: async () => null,
+      deleteElectiveSet: async () => ({ ok: true }),
+      writeDayOverrideFields: async () => ({ status: 'applied' }),
+    }
+    const routeState = {
+      route: 'manual',
+      existingTemplates: { generated: true, manual: true },
+      templateId: 'tid-manual',
+      setSlots: () => {},
+      setOverlays: () => {},
+    }
+
+    const hook = renderHook(
+      (p) => useSlotMutations(p),
+      {
+        initialProps: {
+          routeState, repo, pushUndo: vi.fn(), setActionError: vi.fn(),
+          recalcStats: vi.fn(), recalcFindings: vi.fn(), getSlot, setActivities: vi.fn(),
+          slots: [targetSlot], groups: [], activities: [], days: [], timeBlocks: [], campId: 'camp-1',
+          eventsAll: [createdEvent],
+        },
+      }
+    )
+
+    // "Place it on a cell" — the real write path a click-to-write commit in
+    // CellInlineEditor triggers (handleCellPlaceEvent in ScheduleScreen.jsx).
+    await act(async () => {
+      await hook.result.current.placeEventOnCell('ev-color-war', { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, targetSlot)
+    })
+
+    // The resulting row, as it would come back from a real reload — this is
+    // what SlotCell actually renders on screen.
+    const placedRow = {
+      id: 'row-target', groupId: 'g1', dayId: 'd1', blockId: 'b1',
+      type: 'activity', activity_id: null, elective_set_id: null, event_id: 'ev-color-war', flags: {},
+    }
+    const onOpenEvent = vi.fn()
+
+    render(
+      <DndContext>
+        <SlotCell
+          slot={placedRow}
+          eventsAll={[createdEvent]}
+          onOpenEvent={onOpenEvent}
+          gridRow="1 / span 1"
+          gridColumn="2 / span 1"
+          ariaColIndex={2}
+          cellKey="g1|d1|b1"
+        />
+      </DndContext>
+    )
+
+    // Renders the real name, never the dangling-reference fallback.
+    expect(screen.getByText('Color War')).toBeTruthy()
+    expect(screen.queryByText('Event (removed)')).toBeNull()
+
+    // The drill-in affordance calls onOpenEvent with the placed event's id.
+    fireEvent.click(screen.getByRole('button', { name: 'Open Color War in Events' }))
+    expect(onOpenEvent).toHaveBeenCalledWith('ev-color-war')
+  })
+})

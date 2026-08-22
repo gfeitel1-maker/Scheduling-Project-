@@ -311,18 +311,35 @@ describe('reads — fetch + normalize', () => {
     expect(data.snapshots).toEqual([{ id: 'snap1', template_id: 'tid' }])
   })
 
-  it('loadSetupLists fetches the ten setup entities and keys them by entity name (T105 adds electiveSetsAll\'s two)', async () => {
+  it('loadSetupLists fetches the eleven setup entities and keys them by entity name (T105 adds electiveSetsAll\'s two; Events overlay Slice 1 adds events)', async () => {
     const client = makeFakeClient()
     client.setListStore({ groups: [{ id: 'g1' }], activities: [{ id: 'a1' }], locations: [{ id: 'L1' }] })
     const repo = createScheduleRepository({ localClient: client, getToken })
     const lists = await repo.loadSetupLists()
     expect(client.calls.list).toEqual([
       'groups', 'days_of_operation', 'time_blocks', 'activities', 'anchor_activities', 'tiers', 'cohorts', 'locations',
-      'elective_sets', 'elective_set_activities',
+      'elective_sets', 'elective_set_activities', 'events',
     ])
     expect(lists.groups).toEqual([{ id: 'g1' }])
     expect(lists.activities).toEqual([{ id: 'a1' }])
     expect(lists.locations).toEqual([{ id: 'L1' }])
+    expect(lists.events).toEqual([])
+  })
+
+  // Events overlay placement Slice 1 — best-effort posture, same as
+  // elective_sets: a failure fetching events must never fail the core
+  // setup-lists load (getSetupGaps/readiness/grid all depend on it).
+  it('loadSetupLists tolerates a failing events fetch, defaulting to []', async () => {
+    const client = makeFakeClient()
+    const originalList = client.list.bind(client)
+    client.list = async (entity) => {
+      if (entity === 'events') throw new Error('boom')
+      return originalList(entity)
+    }
+    const repo = createScheduleRepository({ localClient: client, getToken })
+    const lists = await repo.loadSetupLists()
+    expect(lists.events).toEqual([])
+    expect(lists.groups).toEqual([])
   })
 
   // T105 §2 — the durable-read seam is a SEPARATE call, never a client-side

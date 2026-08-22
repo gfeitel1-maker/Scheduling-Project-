@@ -966,6 +966,9 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     // parent.
     elective_sets: 'name',
     elective_set_activities: 'activity_id',
+    // Events overlay placement Slice 1: a plain camp-scoped entity, same
+    // shape as groups/locations/elective_sets above.
+    events: 'name',
   }
 
   // Login is scoped to the single camp in this db (`SELECT id FROM camps

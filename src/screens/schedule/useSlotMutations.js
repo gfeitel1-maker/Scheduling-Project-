@@ -28,6 +28,18 @@ function refField(row) {
   return null
 }
 
+// ADR 2026-08-22 §4 — the ownWriteKinds tag for a span-chain cell must be
+// keyed on whichever field the chain actually carries (activity_id or
+// event_id), not a hardcoded 'activity:' prefix. A wrong tag here doesn't
+// break persistence, but it does defeat useContentRaceFlag.js's own-write
+// suppression (its contentKind() computes the real `event:${id}` kind), so
+// an event-headed extend/shorten/replace would spuriously fire the
+// cross-device "changed elsewhere" warning on the device's own write.
+function ownWriteKindFor(field, value) {
+  if (value == null) return 'empty'
+  return field === 'event_id' ? `event:${value}` : `activity:${value}`
+}
+
 function collectSpanTails(slots, timeBlocks, target, headRow) {
   if (!headRow || headRow.is_span_head === false) return []
   const field = refField(headRow)
@@ -171,6 +183,9 @@ export function useSlotMutations({
   // is_reusable=1 reuse surface (CellInlineEditor's exact-match lookup).
   electiveSetsAll = [],
   durableElectiveSets = [],
+  // Events overlay placement Slice 1 — the render/undo-description lookup,
+  // mirroring electiveSetsAll.
+  eventsAll = [],
   // T108 Phase 2 (design §6.1/§6) — overrideModeDayId is the one (week, day)
   // currently in override-authoring mode (ScheduleScreen's toggle), or null.
   // A per-cell check (dayId === overrideModeDayId), not a screen-wide
@@ -1077,7 +1092,7 @@ export function useSlotMutations({
       if (!block) break // R4: a targeted block no longer exists
       const row = freshSlots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === block.id)
       if (currentTailBlockIds.has(block.id)) { desiredRange.push({ block, row }); continue }
-      if (spanStopsAt(row, headActivityId, activities)) break
+      if (spanStopsAt(row, headFieldValue, activities)) break
       desiredRange.push({ block, row })
     }
     if (desiredRange.length === 0) return
@@ -1131,7 +1146,7 @@ export function useSlotMutations({
         })
       },
       ownWriteKinds: {
-        ...Object.fromEntries(newTails.map(t => [cellKey(groupId, dayId, t.block.id), headActivityId ? `activity:${headActivityId}` : 'empty'])),
+        ...Object.fromEntries(newTails.map(t => [cellKey(groupId, dayId, t.block.id), ownWriteKindFor(headField, headFieldValue)])),
         ...Object.fromEntries(releasedTails.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), 'empty'])),
       },
     })
@@ -1157,9 +1172,9 @@ export function useSlotMutations({
         isForwardState: (current) => current[headField] === headFieldValue && current.is_span_head === false,
         mismatchMessage: 'This block changed since you extended it — undo skipped for that cell.',
         backwardFields: { [headField]: prevFieldValue, is_span_head: prevIsSpanHead, flags: prevFlags },
-        backwardOwnWriteKind: prevFieldValue ? `activity:${prevFieldValue}` : 'empty',
+        backwardOwnWriteKind: ownWriteKindFor(headField, prevFieldValue),
         forwardFields: { [headField]: headFieldValue, is_span_head: false, flags: displacedFlagFor(t.row) },
-        forwardOwnWriteKind: `activity:${headFieldValue}`,
+        forwardOwnWriteKind: ownWriteKindFor(headField, headFieldValue),
       })
     }
     for (const t of releasedTails) {
@@ -1174,7 +1189,7 @@ export function useSlotMutations({
         isForwardState: (current) => current[headField] == null && current.is_span_head === true,
         mismatchMessage: 'This block changed since you shortened it — undo skipped for that cell.',
         backwardFields: { [headField]: prevFieldValue, is_span_head: false, flags: prevFlags },
-        backwardOwnWriteKind: prevFieldValue ? `activity:${prevFieldValue}` : 'empty',
+        backwardOwnWriteKind: ownWriteKindFor(headField, prevFieldValue),
         forwardFields: { [headField]: null, is_span_head: true, flags: {} },
         forwardOwnWriteKind: 'empty',
       })
@@ -1489,11 +1504,14 @@ export function useSlotMutations({
                   activity_id: prevTargetActivityId,
                   flags: prevTargetFlags,
                 }),
-                ...spanTailRows.map(tail => repo.writeSlotFields(tail.id, {
-                  activity_id: tail.activity_id,
-                  is_span_head: false,
-                  flags: tail.flags ?? {},
-                })),
+                ...spanTailRows.map(tail => {
+                  const tailField = refField(tail) ?? 'activity_id'
+                  return repo.writeSlotFields(tail.id, {
+                    [tailField]: tail[tailField],
+                    is_span_head: false,
+                    flags: tail.flags ?? {},
+                  })
+                }),
               ])
             } catch (err) { undoWriteError = err }
           },
@@ -1504,7 +1522,10 @@ export function useSlotMutations({
                 if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
                   return { ...s, elective_set_id: prevTargetElectiveSetId, activity_id: prevTargetActivityId, flags: prevTargetFlags }
                 const tail = spanTailRows.find(t => t.id === s.id)
-                if (tail) return { ...s, activity_id: tail.activity_id, is_span_head: false, flags: tail.flags ?? {} }
+                if (tail) {
+                  const tailField = refField(tail) ?? 'activity_id'
+                  return { ...s, [tailField]: tail[tailField], is_span_head: false, flags: tail.flags ?? {} }
+                }
                 return s
               })
               slotsRef.current = next
@@ -1512,8 +1533,8 @@ export function useSlotMutations({
             })
           },
           ownWriteKinds: {
-            [targetKey]: prevTargetElectiveSetId ? `elective:${prevTargetElectiveSetId}` : (prevTargetActivityId ? `activity:${prevTargetActivityId}` : 'empty'),
-            ...Object.fromEntries(spanTailRows.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), t.activity_id ? `activity:${t.activity_id}` : 'empty'])),
+            [targetKey]: prevTargetElectiveSetId ? `elective:${prevTargetElectiveSetId}` : ownWriteKindFor('activity_id', prevTargetActivityId),
+            ...Object.fromEntries(spanTailRows.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), ownWriteKindFor(refField(t) ?? 'activity_id', t[refField(t) ?? 'activity_id'])])),
           },
         })
         // Undo-time one-off cleanup (Red Hat fold-in B): a FRESH read of
@@ -1595,6 +1616,162 @@ export function useSlotMutations({
     })
   }
 
+  // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+  // placement.md §4/§5) — the event counterpart of placeElectiveOnCell
+  // above, same span-head-aware/claim/chain/dispatch shape. Simpler than the
+  // elective path: an event is always an EXISTING row (Slice 1 has no
+  // create-new-event grammar from the grid, ADR §5 — events are authored on
+  // EventScreen), so there is no fresh-mint/durable-reuse branching, only
+  // "place this event id". Explicit triple-null on write (elective_set_id
+  // included, not just activity_id) per the ADR's belt-and-suspenders
+  // posture, matching other mutation call sites rather than relying solely
+  // on the projections-layer sanitizer.
+  async function placeEventOnCell(eventId, target, targetRow) {
+    const claimId = crypto.randomUUID()
+    const targetKey = cellKey(target.groupId, target.dayId, target.blockId)
+
+    const freshSlots = slotsRef.current
+    const freshTargetRow = freshSlots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId) ?? targetRow
+    const prevTargetActivityId = freshTargetRow.activity_id ?? null
+    const prevTargetElectiveSetId = freshTargetRow.elective_set_id ?? null
+    const prevTargetEventId = freshTargetRow.event_id ?? null
+    const prevTargetFlags = freshTargetRow.flags ?? {}
+
+    const spanTailRows = collectSpanTails(freshSlots, timeBlocks, target, freshTargetRow)
+    const tailKeys = spanTailRows.map(t => cellKey(t.group_id, t.day_id, t.time_block_id))
+    const keys = [...new Set([targetKey, ...tailKeys])].sort()
+
+    let writeError = null
+    const { dropped } = await runMutation({
+      keys,
+      claimId,
+      dispatch: async () => {
+        try {
+          const writes = [repo.writeSlotFields(targetRow.id, { event_id: eventId, activity_id: null, elective_set_id: null, flags: {} })]
+          for (const tail of spanTailRows) {
+            writes.push(repo.writeSlotFields(tail.id, { activity_id: null, is_span_head: true, flags: {} }))
+          }
+          await Promise.all(writes)
+        } catch (err) {
+          writeError = err
+        }
+      },
+      getError: () => writeError,
+      onError: (err) => setActionError(describeWriteFailure(err, 'That event could not be placed.')),
+      onSuccess: () => {
+        setSlots(prev => {
+          const next = prev.map(s => {
+            if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+              return { ...s, event_id: eventId, activity_id: null, elective_set_id: null, flags: {} }
+            if (spanTailRows.some(t => t.id === s.id))
+              return { ...s, activity_id: null, is_span_head: true, flags: {} }
+            return s
+          })
+          recalcStats(next)
+          recalcFindings(next)
+          slotsRef.current = next
+          return next
+        })
+      },
+      ownWriteKinds: {
+        [targetKey]: `event:${eventId}`,
+        ...Object.fromEntries(tailKeys.map(k => [k, 'empty'])),
+      },
+    })
+    if (writeError || dropped) return
+
+    const event = eventsAll.find(e => e.id === eventId)
+    pushUndo({
+      description: `Placed ${event?.name ?? 'an event'}`,
+      undo: async () => {
+        let undoWriteError = null
+        await runMutation({
+          keys,
+          claimId: crypto.randomUUID(),
+          dispatch: async () => {
+            try {
+              await Promise.all([
+                repo.writeSlotFields(targetRow.id, {
+                  event_id: prevTargetEventId,
+                  elective_set_id: prevTargetElectiveSetId,
+                  activity_id: prevTargetActivityId,
+                  flags: prevTargetFlags,
+                }),
+                ...spanTailRows.map(tail => {
+                  const tailField = refField(tail) ?? 'activity_id'
+                  return repo.writeSlotFields(tail.id, {
+                    [tailField]: tail[tailField],
+                    is_span_head: false,
+                    flags: tail.flags ?? {},
+                  })
+                }),
+              ])
+            } catch (err) { undoWriteError = err }
+          },
+          getError: () => undoWriteError,
+          onSuccess: () => {
+            setSlots(prev => {
+              const next = prev.map(s => {
+                if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+                  return { ...s, event_id: prevTargetEventId, elective_set_id: prevTargetElectiveSetId, activity_id: prevTargetActivityId, flags: prevTargetFlags }
+                const tail = spanTailRows.find(t => t.id === s.id)
+                if (tail) {
+                  const tailField = refField(tail) ?? 'activity_id'
+                  return { ...s, [tailField]: tail[tailField], is_span_head: false, flags: tail.flags ?? {} }
+                }
+                return s
+              })
+              slotsRef.current = next
+              return next
+            })
+          },
+          ownWriteKinds: {
+            [targetKey]: prevTargetEventId
+              ? `event:${prevTargetEventId}`
+              : prevTargetElectiveSetId
+                ? `elective:${prevTargetElectiveSetId}`
+                : ownWriteKindFor('activity_id', prevTargetActivityId),
+            ...Object.fromEntries(spanTailRows.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), ownWriteKindFor(refField(t) ?? 'activity_id', t[refField(t) ?? 'activity_id'])])),
+          },
+        })
+      },
+      redo: async () => {
+        let redoWriteError = null
+        await runMutation({
+          keys,
+          claimId: crypto.randomUUID(),
+          dispatch: async () => {
+            try {
+              const writes = [repo.writeSlotFields(targetRow.id, { event_id: eventId, activity_id: null, elective_set_id: null, flags: {} })]
+              for (const tail of spanTailRows) {
+                writes.push(repo.writeSlotFields(tail.id, { activity_id: null, is_span_head: true, flags: {} }))
+              }
+              await Promise.all(writes)
+            } catch (err) { redoWriteError = err }
+          },
+          getError: () => redoWriteError,
+          onSuccess: () => {
+            setSlots(prev => {
+              const next = prev.map(s => {
+                if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
+                  return { ...s, event_id: eventId, activity_id: null, elective_set_id: null, flags: {} }
+                if (spanTailRows.some(t => t.id === s.id))
+                  return { ...s, activity_id: null, is_span_head: true, flags: {} }
+                return s
+              })
+              slotsRef.current = next
+              return next
+            })
+          },
+          ownWriteKinds: {
+            [targetKey]: `event:${eventId}`,
+            ...Object.fromEntries(tailKeys.map(k => [k, 'empty'])),
+          },
+        })
+      },
+    })
+  }
+
   // T108 (design §6.1): the "pull" override-authoring action — a group is
   // intentionally taken off programming for this cell. Only meaningful in
   // override-authoring mode; the guard still applies so a pull can't silently
@@ -1646,6 +1823,7 @@ export function useSlotMutations({
     splitSlot,
     createActivityFromCell,
     createElectiveFromCell,
+    placeEventOnCell,
     pullOverrideCell,
     ownWriteRef,
     hasInFlightClaim,

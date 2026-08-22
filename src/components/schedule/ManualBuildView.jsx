@@ -74,6 +74,8 @@ export default function ManualBuildView({
   onToggleBlockCollapsed,
   // T105
   electiveSetsAll = [], electiveMembersBySet, onCreateElective, onOpenElective,
+  // Events overlay placement Slice 1
+  eventsAll = [], onPlaceEvent, onOpenEvent,
   isContentRaced, onDismissContentRace,
 }) {
   const gridTemplateColumns = columnTracks(days.length)
@@ -222,7 +224,7 @@ export default function ManualBuildView({
                         )
                       }
 
-                      if (slot?.activity_id || slot?.elective_set_id) {
+                      if (slot?.activity_id || slot?.elective_set_id || slot?.event_id) {
                         const act = slot.activity_id ? actMap.get(slot.activity_id) : null
                         const rowSpan = geometry.getActivityRowSpan(selectedGroup, day.id, block.id)
                         const isSelected = selectedSlotKeys?.has(cellKey) ?? false
@@ -254,6 +256,9 @@ export default function ManualBuildView({
                             electiveSetsAll={electiveSetsAll}
                             electiveMembersBySet={electiveMembersBySet}
                             onOpenElective={onOpenElective}
+                            eventsAll={eventsAll}
+                            onOpenEvent={onOpenEvent}
+                            onPlaceEvent={onPlaceEvent}
                             isContentRaced={isContentRaced?.(selectedGroup, day.id, block.id)}
                             onDismissContentRace={() => onDismissContentRace?.(`${selectedGroup}|${day.id}|${block.id}`)}
                             onSelect={onCellSelect}
@@ -294,6 +299,8 @@ export default function ManualBuildView({
                           onPlace={onPlace}
                           onCreateNew={onCreateNew}
                           onCreateElective={onCreateElective}
+                          eligibleEvents={eventsAll}
+                          onPlaceEvent={onPlaceEvent}
                           {...placeCell({ blockIndex, columnIndex: dayIndex })}
                         />
                       )

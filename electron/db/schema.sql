@@ -318,7 +318,7 @@ CREATE TABLE IF NOT EXISTS activities (
 --     event cell (activity_id/elective_set_id ignored); all three are
 --     mutually exclusive as a precedence-ordered group (see
 --     MUTUALLY_EXCLUSIVE_FIELDS, electron/ops/projections.js).
--- Use PRAGMA table_info(template_slots) against a migrated db to see all 12.
+-- Use PRAGMA table_info(template_slots) against a migrated db to see all 13.
 CREATE TABLE IF NOT EXISTS template_slots (
   id TEXT PRIMARY KEY,
   template_id TEXT NOT NULL,
