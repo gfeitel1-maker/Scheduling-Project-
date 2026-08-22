@@ -551,6 +551,12 @@ export function detectConflict(db, incomingOp) {
 // sanitizeOpForIpc/IPC_PIN_FIELDS already work.
 export const UNIQUE_FIELD_ENTITIES = {
   locations: { table: 'locations', field: 'name', scopeColumn: 'camp_id' },
+  // elective_sets has UNIQUE(camp_id, name). Two devices creating the same-named
+  // set concurrently (a director on each, or both confirming the same ingest
+  // nudge before sync) would otherwise throw ungracefully on replay. Registering
+  // it here routes the collision through the same conflict-resolution path
+  // locations uses — covers both the authored-create and the Slice 3a nudge path.
+  elective_sets: { table: 'elective_sets', field: 'name', scopeColumn: 'camp_id' },
 }
 
 // Returns the colliding row's current { id, ...fields } if `op` would

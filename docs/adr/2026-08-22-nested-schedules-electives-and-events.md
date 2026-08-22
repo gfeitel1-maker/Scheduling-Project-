@@ -170,24 +170,18 @@ The Slice 3 architecture pass established the concrete shape and split it:
   is a source-signature link between the finding and the created set (e.g. a
   hidden `source_aliases`-style row), tracked as future work, not built now —
   no schema column is added for this in this pass.
-- **Known limitation — elective_sets has no cross-device UNIQUE-collision
-  handling.** Every other durable-create path that shares a name-uniqueness
-  constraint reachable from two devices concurrently (`locations`) is
-  registered in `UNIQUE_FIELD_ENTITIES`/`detectUniqueFieldCollision`
-  (`electron/ops/operations.js`, docs/adr/2026-08-15-locations-concurrent-
-  create-collision.md) and pre-checked at both sync write-entry points
-  (`syncServer.js`, `syncClient.js`) before the write is attempted.
-  `elective_sets` is **not** registered there. If two devices independently
-  confirm the same header nudge before syncing (each device's own local
-  dedup check sees no live row and proceeds), the two locally-created
-  `elective_sets` rows carry the same `(camp_id, name)` but different ids;
-  replaying one device's `name` op onto the other during sync hits SQLite's
-  `UNIQUE(camp_id, name)` constraint and throws, ungracefully, inside
-  `applyProjection`. This is a genuine gap in the same class the D2 ADR
-  exists to close, surfaced here rather than silently worked around —
-  registering `elective_sets` in `UNIQUE_FIELD_ENTITIES` (mirroring
-  `locations`) is the fix, and is flagged as follow-up work, not attempted in
-  this fix pass.
+- **Cross-device UNIQUE-collision handling — FIXED (2026-08-22, Governor).**
+  `elective_sets` has `UNIQUE(camp_id, name)`, so two devices independently
+  confirming the same header nudge (or two directors authoring the same-named
+  set) before syncing would produce two rows with the same `(camp_id, name)`,
+  and replaying one device's `name` op onto the other hits the constraint and
+  throws ungracefully in `applyProjection`. **Resolved by registering
+  `elective_sets` in `UNIQUE_FIELD_ENTITIES`** (`electron/ops/operations.js`),
+  mirroring `locations` (docs/adr/2026-08-15-locations-concurrent-create-
+  collision.md). This routes the collision through the same
+  `detectUniqueFieldCollision` conflict-resolution path the pre-check at both
+  sync write-entry points already uses — and closes the same gap for the
+  pre-existing authored elective-set create, not just the Slice 3a nudge.
 
 ### 5. Ownership
 The peer sessions that previously held the elective authoring UI (T105/T110/T111)
