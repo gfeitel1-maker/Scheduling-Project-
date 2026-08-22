@@ -41,11 +41,6 @@ function readinessCollectionsFromCensus(snapshot) {
 }
 
 // T94. Device-local UI chrome, not camp data — same rationale as T92's
-// MERGE_HINT_KEY (ManualBuildView.jsx). localStorage can throw (private
-// browsing, disabled storage); treat that as "already seen" so the app
-// never crashes over a hint, and the caption just fails quiet-by-default.
-const ROOTS_FIRSTTIMER_CAPTION_KEY = 'shoresh:rootsFirstTimerCaptionSeen'
-
 // RA-10 (docs/adr/2026-08-21-roots-tree-as-primary.md §(c)) — comfortably
 // above the maxWidth: 920 column this screen is already capped at, so "wide"
 // in practice means the column is at or near its own max width. Two
@@ -60,28 +55,6 @@ const ROOT_MAP_PANEL_WIDE_EXIT = 880
 // the canvas itself is short.
 const ROOT_MAP_PANEL_TOP_FRACTION = 0.47
 const ROOT_MAP_PANEL_MIN_HEIGHT = 320
-
-function readFirstTimerCaptionSeen() {
-  try {
-    return localStorage.getItem(ROOTS_FIRSTTIMER_CAPTION_KEY) === '1'
-  } catch {
-    return true
-  }
-}
-
-function writeFirstTimerCaptionSeen() {
-  try {
-    localStorage.setItem(ROOTS_FIRSTTIMER_CAPTION_KEY, '1')
-  } catch {
-    // Storage unavailable — nothing to persist, nothing to crash over.
-  }
-}
-
-// PLACEHOLDER — final copy pending owner's /didwemenshion language pass.
-// Structure (one sentence, quiet, under understoodRow's 13px/--text-secondary
-// styling) is locked; wording is not.
-const FIRST_TIMER_CAPTION_TEXT =
-  'Each part of your camp is a root — click one to see what Shoresh found.'
 
 // docs/work/specs/2026-08-17-reconciliation-onescreen-design.md — the one
 // continuous surface that replaces ImportScreen's six-gate reconciliation
@@ -204,21 +177,6 @@ export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, 
     prefersReducedMotion: prefersReducedMotion(),
   }))
   const [momentSettled, setMomentSettled] = useState(false)
-  // T94 — first-timer orientation caption under the Roots canvas. Entrance-
-  // only opacity fade (spec: no exit animation — the row simply disappears
-  // on dismiss, matching understoodRow's own plain conditional render).
-  const [showFirstTimerCaption, setShowFirstTimerCaption] = useState(() => !readFirstTimerCaptionSeen())
-  const [firstTimerCaptionEntered, setFirstTimerCaptionEntered] = useState(prefersReducedMotion())
-  useEffect(() => {
-    if (!showFirstTimerCaption || firstTimerCaptionEntered) return
-    const id = requestAnimationFrame(() => setFirstTimerCaptionEntered(true))
-    return () => cancelAnimationFrame(id)
-  }, [showFirstTimerCaption, firstTimerCaptionEntered])
-  function dismissFirstTimerCaption() {
-    writeFirstTimerCaptionSeen()
-    setShowFirstTimerCaption(false)
-  }
-
   async function runDryRun(answersForRun) {
     const myGen = ++requestGenRef.current
     setLoading(true)
@@ -620,24 +578,6 @@ export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, 
           decisionsById={decisionsById}
         />
 
-        {mode === 'inspect' && showFirstTimerCaption && (
-          <div
-            style={{ ...styles.firstTimerCaption, opacity: firstTimerCaptionEntered ? 1 : 0 }}
-            data-testid="roots-firsttimer-caption"
-          >
-            <span>{FIRST_TIMER_CAPTION_TEXT}</span>
-            <button
-              type="button"
-              className="press-97"
-              onClick={dismissFirstTimerCaption}
-              aria-label="Dismiss hint"
-              style={styles.firstTimerCaptionDismiss}
-            >
-              ×
-            </button>
-          </div>
-        )}
-
         <div style={rootMapPanelWrapperStyle}>
           <RootMapPanel
             model={rootMapModel}
@@ -763,29 +703,6 @@ const styles = {
     padding: '10px 4px',
     color: 'var(--text-secondary)',
     fontSize: 13,
-  },
-  // T94 — a separate style object from understoodRow (different lifecycle:
-  // dismissible one-time hint vs. permanent conditional summary) that
-  // happens to share the same token values.
-  firstTimerCaption: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
-    padding: '10px 4px',
-    color: 'var(--text-secondary)',
-    fontSize: 13,
-    transition: 'opacity var(--motion-base) var(--ease-out)',
-  },
-  firstTimerCaptionDismiss: {
-    background: 'none',
-    border: 'none',
-    color: 'var(--text-secondary)',
-    fontSize: 15,
-    lineHeight: 1,
-    cursor: 'pointer',
-    padding: '2px 4px',
-    fontFamily: 'inherit',
   },
   filterRow: {
     display: 'flex',
