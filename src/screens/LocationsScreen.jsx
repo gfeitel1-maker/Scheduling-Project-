@@ -6,7 +6,6 @@ import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
-import ScreenIntro from '../components/ScreenIntro'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import WeekContextBar from '../components/schedule/WeekContextBar'
@@ -878,7 +877,6 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
 
   return (
     <div style={{ maxWidth: 720 }}>
-      <ScreenIntro screen="locations" />
       <ListMapToggle tab={tab} onChange={setTab} />
       {error && (
         <div style={S.errorBanner}>

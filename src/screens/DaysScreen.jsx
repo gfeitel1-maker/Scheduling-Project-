@@ -8,7 +8,6 @@ import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
-import ScreenIntro from '../components/ScreenIntro'
 
 const repository = createSetupCrudRepository({ localClient })
 const scopeFilter = (row, campId) => row.camp_id === campId
@@ -202,7 +201,6 @@ export default function DaysScreen({ campId, role, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 680 }}>
-      <ScreenIntro screen="days" />
       {error && (
         <div style={S.errorBanner}>
           {error}

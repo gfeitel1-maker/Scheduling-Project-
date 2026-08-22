@@ -769,7 +769,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     manual: {
       label: 'Manual',
       caption: 'The week you\u2019re building',
-      captionSub: 'You place everything. The app just watches for clashes.',
       offerTitle: 'Build it myself',
       offerBody: 'Start from a blank week with your meals and fixed events already in place. You place every activity yourself \u2014 the way you would in a spreadsheet, but it watches for clashes and tells you what each group still needs.',
       offerAction: 'Start a blank week',
@@ -777,7 +776,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     generated: {
       label: 'Generated',
       caption: 'The week the app proposed',
-      captionSub: 'Drag anything to move it.',
       offerTitle: 'Let the app propose one',
       offerBody: 'The app fills the week from your activity targets. You then move things around by dragging.',
       offerAction: 'Generate a schedule',
@@ -1159,7 +1157,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             {hasSchedule && (
               <div style={{ marginBottom: 12 }}>
                 <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{ROUTE_COPY[route].caption}</span>
-                <span style={{ fontSize: 12, color: 'var(--text-secondary)', marginLeft: 8 }}>{ROUTE_COPY[route].captionSub}</span>
               </div>
             )}
 

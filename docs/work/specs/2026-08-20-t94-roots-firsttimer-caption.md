@@ -1,15 +1,22 @@
 ---
 title: "T94 — Roots first-timer orientation caption"
 document_type: spec
-status: active
+status: superseded
 created: 2026-08-20
+superseded_by: docs/adr/2026-08-22-roots-as-hub-setup-ia.md
 task_class: ui-ux-design
 governing_docs: [docs/governance/GOVERNANCE_INDEX.md, docs/governance/standards/DESIGN_STANDARD.md]
 related_docs:
   - docs/work/tickets/T94-roots-first-timer-orientation-caption.md
   - docs/work/specs/2026-08-19-roots-dashboard-spine-design.md
-archive_when: the caption ships with final owner-authored copy, or T94 is closed as unnecessary
+archive_when: superseded — removed in Slice A of the Roots-as-hub IA (2026-08-22)
 ---
+
+> **Superseded 2026-08-22.** The first-timer caption was removed in Slice A of the
+> Roots-as-hub setup IA (`docs/adr/2026-08-22-roots-as-hub-setup-ia.md` §5): a
+> screen-purpose/onboarding explainer is evidence the interface isn't self-evident;
+> root-click discoverability is addressed in the visual/motion pass, not a caption.
+> This spec is retained for history only.
 
 # T94 — Roots first-timer orientation caption
 

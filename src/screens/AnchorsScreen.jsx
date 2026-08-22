@@ -6,7 +6,6 @@ import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
-import ScreenIntro from '../components/ScreenIntro'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 
@@ -578,7 +577,6 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 760 }}>
-      <ScreenIntro screen="anchors" />
       <CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />
       {error && (
         <div style={S.errorBanner}>

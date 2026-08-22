@@ -12,7 +12,6 @@ import { Fragment, useEffect, useState } from 'react'
 import { localClient } from '../localClient'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { S, useEnterTransition } from '../styles/shared'
-import ScreenIntro from '../components/ScreenIntro'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import SpecialDayGridEditor from './specialDay/SpecialDayGridEditor'
 import { seedFailureMessage } from './specialDay/seedFailureMessage'
@@ -171,7 +170,6 @@ export default function SpecialDaysScreen({ campId, role }) {
 
   return (
     <div style={{ maxWidth: 760 }}>
-      <ScreenIntro screen="specialdays" />
       {toast && (
         <div style={{ ...S.errorBanner, background: 'var(--surface)', marginBottom: 16 }}>{toast}</div>
       )}
