@@ -1175,6 +1175,15 @@ export const mockShoresh = {
     const state = loadState()
     return (state.elective_sets || []).filter((s) => s.is_reusable === 1)
   },
+  // Slice D — mirrors listImportEvidenceHandler's shape (electron/main.js),
+  // but the mock has no import_evidence table and no op-log source per field
+  // (same additive-degradation discipline as ingestReconcile's fieldProvenance
+  // stub above): every activity reads as having no evidence, so the
+  // provenance dot never renders in browser-dev — real fidelity for this
+  // slice is `electron:dev`, per this file's own header discipline.
+  async listImportEvidence() {
+    return { evidence: [], fieldSources: {} }
+  },
   async getDeviceId() {
     return 'mock-device'
   },

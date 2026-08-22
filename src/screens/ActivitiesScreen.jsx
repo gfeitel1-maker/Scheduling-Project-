@@ -12,6 +12,8 @@ import { createScheduleRepository } from '../data/scheduleRepository'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { CapacityStepper } from './LocationsScreen'
 import { resolveLocationCandidateId } from '../../electron/ops/locationId.js'
+import { CONFIDENCE_COPY, plainEvidenceSentence } from '../components/reconciliation/reconciliationCards.jsx'
+import { deriveActivityProvenance, hasAnyEvidence, worstTier } from '../utils/ruleProvenance.js'
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
@@ -250,6 +252,146 @@ function LocationPicker({ value, locations, onChange, onCreate, onUpdateCapacity
         <div style={pickerStyles.emptyHint}>Leaving it blank is fine. Not every activity has a room.</div>
       )}
     </div>
+  )
+}
+
+// Slice D (docs/adr/2026-08-22-roots-as-hub-setup-ia.md §7): the row-level
+// provenance dot + popover for the 3 owner-locked inferred-rule fields
+// (min/max-per-week, eligible groups, location). Renders nothing when the
+// activity has no import_evidence at all — hand-created activities stay
+// quiet, per the ADR's "not framed as what Shoresh learned".
+const TIER_LABEL = { confirmed: 'Confirmed', observed: 'Observed', inferred: 'Inferred' }
+// Contrast guard (spec's "Contrast guard"): --accent (#B8833A) on --surface
+// (#FCFBF8) at 11px text measures ~3.2:1, under the 4.5:1 AA floor for small
+// text. The tier TEXT label always renders in --text; only the dot itself
+// carries the tier hue (ADR §8's "colors are unchanged" + WCAG 1.4.1 — the
+// dot is never the only signal, the label always accompanies it).
+const TIER_DOT_COLOR = { confirmed: 'var(--secondary)', observed: 'var(--primary)', inferred: 'var(--accent)' }
+
+function useProvenancePopover(open, onClose) {
+  const popRef = useRef(null)
+  useEffect(() => {
+    if (!open) return
+    const firstFocusable = popRef.current?.querySelector('button:not([disabled])')
+    firstFocusable?.focus()
+
+    function onKeyDown(e) {
+      if (e.key === 'Escape') { onClose(); return }
+      if (e.key !== 'Tab') return
+      const focusables = popRef.current?.querySelectorAll('button:not([disabled])')
+      if (!focusables || focusables.length === 0) return
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+    }
+    function onPointerDown(e) {
+      if (popRef.current && !popRef.current.contains(e.target)) onClose()
+    }
+    document.addEventListener('keydown', onKeyDown)
+    document.addEventListener('mousedown', onPointerDown)
+    return () => {
+      document.removeEventListener('keydown', onKeyDown)
+      document.removeEventListener('mousedown', onPointerDown)
+    }
+  }, [open, onClose])
+  return popRef
+}
+
+function ProvenancePopoverRow({ row, onConfirm, onChange }) {
+  const disclosureText = row.evidence
+    ? [
+        row.evidence.confidence ? `From this file — ${CONFIDENCE_COPY[row.evidence.confidence] ?? row.evidence.confidence}.` : null,
+        plainEvidenceSentence(row.evidence.support),
+      ].filter(Boolean).join(' ')
+    : null
+  return (
+    <div style={dotStyles.row}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ ...dotStyles.rowDot, background: TIER_DOT_COLOR[row.tier] }} />
+        <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{row.label}</span>
+        <span style={dotStyles.tierLabel}>{TIER_LABEL[row.tier]}</span>
+      </div>
+      {disclosureText && <div style={dotStyles.rowSentence}>{disclosureText}</div>}
+      <div style={dotStyles.rowActions}>
+        {row.tier === 'confirmed' ? (
+          <span style={dotStyles.confirmedLabel}>Confirmed</span>
+        ) : (
+          <button type="button" className="press-97" onClick={onConfirm} style={dotStyles.confirmBtn}>Confirm</button>
+        )}
+        <button type="button" className="press-97" onClick={onChange} style={dotStyles.changeBtn}>Change</button>
+      </div>
+    </div>
+  )
+}
+
+// Mounted only while the popover is open — its own mount effect (never a
+// setState branch keyed off a prop toggling to false, which React flags as a
+// cascading-render effect) is what gives the fade + 4px slide-down its "from"
+// frame, same pattern as useEnterTransition (src/styles/shared.js).
+function ProvenancePopover({ activity, rows, popRef, onConfirmField, onChange }) {
+  const reduced = prefersReducedMotion()
+  const [entered, setEntered] = useState(false)
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setEntered(true))
+    return () => cancelAnimationFrame(id)
+  }, [])
+
+  const motion = reduced
+    ? { opacity: entered ? 1 : 0, transition: 'opacity var(--motion-fast) var(--ease-out)' }
+    : { opacity: entered ? 1 : 0, transform: entered ? 'none' : 'translateY(-4px)', transition: 'opacity var(--motion-fast) var(--ease-out), transform var(--motion-fast) var(--ease-out)' }
+
+  return (
+    <div ref={popRef} role="dialog" aria-label={`Provenance for ${activity.name}`} tabIndex={-1} style={{ ...dotStyles.popover, ...motion }}>
+      {rows.map(row => (
+        <ProvenancePopoverRow
+          key={row.key}
+          row={row}
+          onConfirm={() => onConfirmField(activity, row)}
+          onChange={() => onChange(activity)}
+        />
+      ))}
+    </div>
+  )
+}
+
+function RuleProvenanceDot({ activity, evidenceByField, fieldSources, onConfirmField, onChange }) {
+  const [open, setOpen] = useState(false)
+  const btnRef = useRef(null)
+  const close = () => { setOpen(false); btnRef.current?.focus() }
+  const popRef = useProvenancePopover(open, close)
+  const reduced = prefersReducedMotion()
+
+  if (!hasAnyEvidence(evidenceByField)) return null
+
+  const rows = deriveActivityProvenance(fieldSources, evidenceByField)
+  const worst = worstTier(rows.map(r => r.tier))
+  const needsReview = rows.filter(r => r.tier !== 'confirmed').length
+  const ariaLabel = needsReview > 0
+    ? `Provenance: ${worst}, ${needsReview} of 3 fields need review`
+    : 'Provenance: all confirmed'
+
+  return (
+    <span style={{ position: 'relative', display: 'inline-block', marginLeft: 6 }}>
+      <button
+        ref={btnRef}
+        type="button"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        onClick={() => setOpen(v => !v)}
+        style={{ ...dotStyles.dot, background: TIER_DOT_COLOR[worst], transition: reduced ? 'none' : 'background-color var(--motion-fast) var(--ease-out)' }}
+      />
+      {open && (
+        <ProvenancePopover
+          activity={activity}
+          rows={rows}
+          popRef={popRef}
+          onConfirmField={onConfirmField}
+          onChange={(a) => { close(); onChange(a) }}
+        />
+      )}
+    </span>
   )
 }
 
@@ -497,6 +639,8 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   const [pendingExclusion, setPendingExclusion] = useState(null) // { activity, slotCount }
   const [quickName, setQuickName] = useState('')
   const [quickAdding, setQuickAdding] = useState(false)
+  // Slice D: { evidence: importEvidenceRow[], fieldSources: { [activityId]: { [opField]: source|null } } }
+  const [provenance, setProvenance] = useState({ evidence: [], fieldSources: {} })
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
@@ -506,12 +650,14 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
     setLoading(true)
     setError(null)
     try {
-      const [aData, tData, gData, lData] = await Promise.all([
+      const [aData, tData, gData, lData, provenanceData] = await Promise.all([
         localClient.list('activities'),
         localClient.list('tiers'),
         localClient.list('groups'),
         localClient.list('locations'),
+        localClient.listImportEvidence(),
       ])
+      setProvenance(provenanceData || { evidence: [], fieldSources: {} })
       const list = (aData || [])
         .filter(a => a.camp_id === campId)
         .map(normalizeActivity)
@@ -981,6 +1127,27 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
     }
   }
 
+  // Slice D: group the batched evidence rows by activity id -> evidence field.
+  const evidenceByActivity = {}
+  for (const row of provenance.evidence || []) {
+    if (!evidenceByActivity[row.entity_id]) evidenceByActivity[row.entity_id] = {}
+    evidenceByActivity[row.entity_id][row.field] = row
+  }
+
+  // Silent re-write of the SAME current value through the existing write
+  // path (source defaults to null = human/confirmed, see appendOp) — no new
+  // write primitive. min_per_week's row confirms BOTH min_per_week AND
+  // max_per_week since they're one logical field (one evidence record).
+  async function confirmProvenanceField(activity, row) {
+    const fields = Object.fromEntries(row.opFields.map(f => [f, activity[f]]))
+    try {
+      await writeFields(activity.id, fields)
+      await load()
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That could not be confirmed.'))
+    }
+  }
+
   const highPriority = activities.filter(a => a.priority === 'high')
   const lowPriority = activities.filter(a => a.priority === 'low')
   const readyRows = importRows.filter(r => r.name && !r.warning)
@@ -1061,7 +1228,16 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                         onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
                         onMouseLeave={e => e.currentTarget.style.background = ''}
                       >
-                        <td style={{ ...S.td, fontWeight: 500 }}>{a.name}</td>
+                        <td style={{ ...S.td, fontWeight: 500 }}>
+                          {a.name}
+                          <RuleProvenanceDot
+                            activity={a}
+                            evidenceByField={evidenceByActivity[a.id] || {}}
+                            fieldSources={provenance.fieldSources?.[a.id] || {}}
+                            onConfirmField={confirmProvenanceField}
+                            onChange={(activity) => setModal({ activity })}
+                          />
+                        </td>
                         <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{a.location_id ? locMap[a.location_id] || '—' : '—'}</td>
                         <td style={{ ...S.td, fontSize: 12 }}>{a.is_outdoor ? '🌤' : '—'}</td>
                         <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>
@@ -1304,4 +1480,83 @@ const importAnnotationBase = { marginLeft: 6, fontFamily: 'var(--font-mono)', fo
 const importAnnotation = {
   newPlace: { ...importAnnotationBase, color: 'var(--secondary)' },
   reuse: { ...importAnnotationBase, color: 'var(--text-secondary)' },
+}
+
+// Slice D — row-level provenance dot + popover (spec docs/work/specs/
+// 2026-08-22-roots-as-hub-setup-ia-slices.md, Slice D).
+const dotStyles = {
+  dot: {
+    display: 'inline-block',
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    border: 'none',
+    padding: 0,
+    cursor: 'pointer',
+    verticalAlign: 'middle',
+  },
+  popover: {
+    position: 'absolute',
+    top: 'calc(100% + 6px)',
+    left: 0,
+    zIndex: 40,
+    minWidth: 260,
+    padding: 12,
+    background: 'var(--surface)',
+    border: '1px solid var(--border)',
+    borderRadius: 8,
+    boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+  },
+  row: {
+    padding: '8px 0',
+    borderBottom: '1px solid var(--border)',
+  },
+  rowDot: {
+    display: 'inline-block',
+    width: 6,
+    height: 6,
+    borderRadius: '50%',
+    flexShrink: 0,
+  },
+  tierLabel: {
+    fontSize: 11,
+    fontFamily: 'var(--font-mono)',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    color: 'var(--text-secondary)',
+  },
+  rowSentence: {
+    fontSize: 12,
+    color: 'var(--text-secondary)',
+    marginTop: 4,
+  },
+  rowActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: 12,
+    marginTop: 6,
+  },
+  confirmedLabel: {
+    fontSize: 12,
+    color: 'var(--text-secondary)',
+  },
+  confirmBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'var(--primary)',
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: 'pointer',
+    padding: 0,
+    fontFamily: 'inherit',
+  },
+  changeBtn: {
+    background: 'none',
+    border: 'none',
+    color: 'var(--text-secondary)',
+    fontSize: 12,
+    cursor: 'pointer',
+    padding: 0,
+    fontFamily: 'inherit',
+  },
 }

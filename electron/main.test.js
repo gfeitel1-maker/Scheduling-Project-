@@ -2272,3 +2272,46 @@ describe('listMigrationReviews / dismissMigrationReviews handlers — local-only
     expect(db.prepare('SELECT 1 FROM location_migration_reviews WHERE id = ?').get('review-1')).toBeFalsy()
   })
 })
+
+// Slice D (docs/adr/2026-08-22-roots-as-hub-setup-ia.md §7): the batched
+// provenance read backing the Activities screen's row-level dot.
+describe('listImportEvidence handler (activities.read, staff+admin)', () => {
+  it('rejects with no token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.listImportEvidence(undefined)).toThrow('token is required')
+  })
+
+  it('returns the camp\'s activity evidence rows plus a per-activity, per-field last-op source', async () => {
+    await seedCampAndUser({ name: 'ProvenanceReader', pin: '1234', role: 'staff' })
+    const handlers = makeHandlers(db, deviceId, {})
+    const { token } = await handlers.login({ name: 'ProvenanceReader', pin: '1234' })
+
+    const campId = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    const activityId = randomUUID()
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)').run(activityId, campId, 'Archery')
+
+    // min_per_week imported (source: 'import') WITH an evidence row (inferred).
+    appendOp(db, {
+      entity: 'activities', entity_id: activityId, field: 'min_per_week', value: '2',
+      author_user_id: null, device_id: deviceId, parent_op_id: null, source: 'import',
+    })
+    db.prepare(
+      `INSERT INTO import_evidence (id, camp_id, entity_type, entity_id, field, tag, confidence, support, import_run_id, committed_at)
+       VALUES (?, ?, 'activities', ?, 'min_per_week', 'inferred', 'low', '{}', 'run-1', ?)`
+    ).run(randomUUID(), campId, activityId, new Date().toISOString())
+
+    // eligible_group_ids written by hand (source: null -> confirmed), no evidence row.
+    appendOp(db, {
+      entity: 'activities', entity_id: activityId, field: 'eligible_group_ids', value: '[]',
+      author_user_id: null, device_id: deviceId, parent_op_id: null, source: null,
+    })
+
+    const result = handlers.listImportEvidence(token)
+    expect(result.evidence).toHaveLength(1)
+    expect(result.evidence[0]).toMatchObject({ entity_id: activityId, field: 'min_per_week', tag: 'inferred' })
+    expect(result.fieldSources[activityId]).toEqual({
+      min_per_week: 'import', max_per_week: null, eligible_group_ids: null, location_id: null,
+    })
+  })
+
+})

@@ -75,6 +75,9 @@ export const localClient = {
   // docs/adr/2026-08-15-locations-concurrent-create-collision.md
   onOpRejected: (cb) => shoresh.onOpRejected(cb),
   getCamp: () => shoresh.getCamp(),
+  // Slice D (docs/adr/2026-08-22-roots-as-hub-setup-ia.md §7) — batched
+  // provenance read for the Activities screen's row-level dot.
+  listImportEvidence: () => shoresh.listImportEvidence(currentToken()),
   listUsers: () => shoresh.listUsers(currentToken()),
   getDeviceId: () => shoresh.getDeviceId(currentToken()),
   list: (entity) => shoresh.list(currentToken(), entity),
