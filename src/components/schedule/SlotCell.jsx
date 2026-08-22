@@ -389,6 +389,12 @@ export default function SlotCell({
                     height: `${bandHeight}%`,
                   }}
                   title={`Split before this block`}
+                  // Pointer guard (Red Hat 2026-08-21): stop pointerdown before
+                  // it reaches the cell's dnd-kit listeners, or a tap-with-drift
+                  // (≥8px, common on touch/trackpad) on a split band activates a
+                  // whole-span drag instead of splitting. Mirrors the
+                  // span-extend-handle's guard below.
+                  onPointerDown={e => e.stopPropagation()}
                   onClick={e => { e.stopPropagation(); onSplitAt?.(blockId) }}
                 >
                   <div className="span-cut-line" />

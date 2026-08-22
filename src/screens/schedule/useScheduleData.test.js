@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, waitFor } from '@testing-library/react'
 import { useScheduleData, recalcStats, recalcFindings } from './useScheduleData'
 import { deriveScheduleTemplateId } from '../../../electron/ops/scheduleTemplateId'
@@ -239,6 +239,17 @@ describe('useScheduleData', () => {
     // repairOrphanSpanTails' rule.
     const orphanRow = { id: 'orphan-1', template_id: 'tid-manual', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-1', is_span_head: false, flags: {} }
 
+    // Controllable clock (Red Hat 2026-08-21): the repair pass gates healing on
+    // REPAIR_QUIESCENCE_MS (750ms) of wall-clock idle between load starts, so a
+    // sync burst can't trip it. Real Date.now() would put two test reloads
+    // milliseconds apart (never "settled"), so we drive the clock explicitly:
+    // advance it past the window to model a settled state, leave it inside the
+    // window to model a burst.
+    let nowMs
+    beforeEach(() => { nowMs = 100000; vi.spyOn(Date, 'now').mockImplementation(() => nowMs) })
+    afterEach(() => { vi.restoreAllMocks() })
+    const advancePastQuiescence = () => { nowMs += 1000 }
+
     function makeOrphanRepo() {
       return makeRepo({
         loadSetupLists: vi.fn(async () => ({
@@ -275,10 +286,30 @@ describe('useScheduleData', () => {
       await waitFor(() => expect(result.current.loading).toBe(false))
       expect(repo.writeSlotFields).not.toHaveBeenCalled() // first sight, still un-healed
 
+      advancePastQuiescence() // a settled read, not a same-burst reload
       await result.current.reload()
       await waitFor(() => expect(result.current.loading).toBe(false))
 
       expect(repo.writeSlotFields).toHaveBeenCalledWith('orphan-1', { activity_id: null, is_span_head: true, flags: {} })
+    })
+
+    it('does NOT heal when the second sighting lands within a sync burst (Red Hat R2 quiescence)', async () => {
+      const repo = makeOrphanRepo()
+      const { result } = renderHook(() =>
+        useScheduleData({ campId: CAMP_ID, weekId: 'week-1', repo, routes: ['manual'] })
+      )
+      await waitFor(() => expect(result.current.loading).toBe(false))
+      expect(repo.writeSlotFields).not.toHaveBeenCalled() // first sight
+
+      // Second load lands < REPAIR_QUIESCENCE_MS after the first (an unbatched
+      // per-op reload storm, e.g. a Generate/bulkReplace replicating): the
+      // orphan is "seen twice" but the state has NOT settled, so a
+      // legitimately in-flight span mid-replication must NOT be truncated.
+      nowMs += 100
+      await result.current.reload()
+      await waitFor(() => expect(result.current.loading).toBe(false))
+
+      expect(repo.writeSlotFields).not.toHaveBeenCalled()
     })
 
     it('does NOT heal while an in-flight local claim covers the orphan\'s group/day', async () => {
@@ -289,6 +320,7 @@ describe('useScheduleData', () => {
       )
       await waitFor(() => expect(result.current.loading).toBe(false))
 
+      advancePastQuiescence() // settled, so the ONLY reason not to heal is the claim
       await result.current.reload()
       await waitFor(() => expect(result.current.loading).toBe(false))
 
@@ -302,6 +334,7 @@ describe('useScheduleData', () => {
         useScheduleData({ campId: CAMP_ID, weekId: 'week-1', repo, routes: ['manual'] })
       )
       await waitFor(() => expect(result.current.loading).toBe(false))
+      advancePastQuiescence()
       await result.current.reload()
       await waitFor(() => expect(result.current.loading).toBe(false))
       expect(repo.writeSlotFields).toHaveBeenCalledTimes(1)
@@ -315,6 +348,7 @@ describe('useScheduleData', () => {
         overlays: [], snapshots: [],
       })
       repo.writeSlotFields.mockClear()
+      advancePastQuiescence() // settled, so a lingering orphan WOULD heal — proving it's the no-longer-orphan state, not the gate, that stays the hand
       await result.current.reload()
       await waitFor(() => expect(result.current.loading).toBe(false))
 

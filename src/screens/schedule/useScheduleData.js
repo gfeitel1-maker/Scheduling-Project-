@@ -68,6 +68,10 @@ const EMPTY_EXCLUSIONS = { activityExclusions: [], groupExclusions: [], location
 // as exclusions: applyDayOverrides (the composition stage) then filters to
 // the current (weekId, dayId) at render time client-side.
 const EMPTY_DAY_OVERRIDES = []
+// See the R2-quiescence comment on lastLoadStartedAtRef below for why this
+// is a wall-clock gate, not a load-count one.
+const REPAIR_QUIESCENCE_MS = 750
+
 const EMPTY_TEMPLATE_DATA = {
   existingTemplates: {}, templateIdByRoute: {},
   slotsByRoute: {}, overlaysByRoute: {}, snapshotsByRoute: {}, statsByRoute: {}, findingsByRoute: {},
@@ -110,6 +114,19 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
   // below. Never heals on first sight, by construction: a fresh id is never
   // in this Set yet.
   const orphanSightingsRef = useRef({})
+  // Red Hat finding (2026-08-21, "R2 self-heal fires during sync bursts") —
+  // "seen on two consecutive loads" alone is not a settle signal: a
+  // Generate/bulkReplace sync burst can trivially produce two (or many)
+  // reloads within milliseconds of each other (onOpApplied fires once per
+  // remote op, unbatched), so a multi-block span whose tail op replicates
+  // before its head op can read as "orphaned" on two loads that are really
+  // the SAME in-flight burst, not a settled state. REPAIR_QUIESCENCE_MS gates
+  // the heal on wall-clock idle time since the previous load STARTED, not
+  // merely load count. 750ms is comfortably above realistic intra-burst
+  // reload spacing (op-applied events during a bulkReplace land well under
+  // 100ms apart) and comfortably below the point a director would notice a
+  // genuinely-orphaned tail taking a moment longer to clean up.
+  const lastLoadStartedAtRef = useRef(0)
   // Which weekId the last COMPLETED load actually resolved to. The mount/
   // reload effect below re-fires whenever `preferredWeekId` changes, and the
   // screen feeds its own state back in as `preferredWeekId` once a load
@@ -122,6 +139,13 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
 
   const load = async () => {
     const gen = ++generationRef.current
+    const loadStartedAt = Date.now()
+    // Idle time since the PREVIOUS load started — the settle signal the
+    // repair pass gates on below. Recorded before the previous value is
+    // overwritten so it measures the gap between consecutive load starts,
+    // not this load's own duration.
+    const idleSinceLastLoad = loadStartedAt - lastLoadStartedAtRef.current
+    lastLoadStartedAtRef.current = loadStartedAt
     setLoading(true)
     setLoadError(null)
     setTemplateError(null)
@@ -274,17 +298,32 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
         // T107 item 3 / ADR §4 + Red Hat R2 — repair-on-read, quiescence-
         // guarded. Heal an orphan only if it also showed up on the load
         // immediately before this one (persists across a read cycle) AND
-        // this device has no in-flight local write claim on its group/day
-        // (a mid-sync tail whose head hasn't arrived yet must not be healed
-        // out from under a legitimate in-flight extend). Healing writes
+        // this device has no in-flight local write CLAIM on its group/day.
+        // Note the precise scope of hasInFlightClaim (Red Hat 2026-08-21): it
+        // covers the WRITE-COMMIT window only (a pending cellQueueRef entry
+        // from claimAndRun), NOT the live-drag preview phase of an extend
+        // gesture, which never touches the queue until drop. The live-drag
+        // phase is instead protected by the REPAIR_QUIESCENCE_MS wall-clock
+        // gate below: a heal cannot fire mid-burst/mid-gesture because a fresh
+        // load < that idle window away is treated as unsettled. Even if a heal
+        // did land mid-drag, expandSlot re-derives its range from fresh state
+        // at drop (R1), so it would absorb the healed-empty block harmlessly —
+        // worst case a cosmetic flicker, never data loss. Healing writes
         // through the normal repo path — journalled, never a silent
         // render-layer drop — and is fire-and-forget: it is a background
         // correction, not something this load waits on.
         try {
           const orphans = repairOrphanSpanTails(saved, b)
           const prevOrphanIds = orphanSightingsRef.current[r] || new Set()
+          // Wall-clock settle gate (Red Hat "R2 self-heal fires during sync
+          // bursts") — two consecutive SIGHTINGS is necessary but no longer
+          // sufficient: a sync burst can produce both sightings within the
+          // same reload storm. Only heal once this load started at least
+          // REPAIR_QUIESCENCE_MS after the previous one did.
+          const settled = idleSinceLastLoad >= REPAIR_QUIESCENCE_MS
           for (const orphan of orphans) {
             if (!prevOrphanIds.has(orphan.id)) continue
+            if (!settled) continue
             if (hasInFlightClaim(orphan.group_id, orphan.day_id)) continue
             repo.writeSlotFields?.(orphan.id, { activity_id: null, is_span_head: true, flags: {} })?.catch(() => {})
           }

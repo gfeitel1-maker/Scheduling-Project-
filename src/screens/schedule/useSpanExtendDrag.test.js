@@ -104,6 +104,44 @@ describe('useSpanExtendDrag', () => {
     expect(expandSlot).not.toHaveBeenCalled()
   })
 
+  it('commit follows FRESH state, not a stale preview: a block that becomes ineligible mid-drag is dropped from the drop range (Red Hat divergence)', () => {
+    const b1 = makeCell('g1', 'd1', 'b1')
+    makeCell('g1', 'd1', 'b2')
+    const b3 = makeCell('g1', 'd1', 'b3')
+    document.elementFromPoint = () => b3
+
+    const expandSlot = vi.fn()
+    // Initially b2 and b3 are both empty/eligible — a drag to b3 covers both.
+    const slotsBefore = [
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null },
+      { id: 't2', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: null },
+    ]
+    const { result, rerender } = renderHook(
+      (props) => useSpanExtendDrag(props),
+      { initialProps: { slots: slotsBefore, timeBlocks, activities, expandSlot } }
+    )
+
+    act(() => { result.current.startExtend('g1', 'd1', 'b1', 'actHead') })
+    act(() => { window.dispatchEvent(new MouseEvent('pointermove', { clientX: 0, clientY: 0 })) })
+    expect(b3.getAttribute('data-drag-over')).toBe('') // preview reached b3
+
+    // A remote op lands mid-drag: b3 is now locked by another device. The hook
+    // re-reads slotsRef (updated via its own effect) on the next pointermove.
+    const slotsAfter = [
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null },
+      { id: 'locked', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'actLocked' },
+    ]
+    act(() => { rerender({ slots: slotsAfter, timeBlocks, activities, expandSlot }) })
+    act(() => { window.dispatchEvent(new MouseEvent('pointermove', { clientX: 0, clientY: 0 })) })
+
+    act(() => { window.dispatchEvent(new MouseEvent('pointerup', { clientX: 0, clientY: 0 })) })
+    // Drop commits the fresh furthest-valid block (b2), NOT the stale b3 the
+    // first preview painted. expandSlot re-validates again at dispatch (R1),
+    // so this is authoritative even if the preview had lagged.
+    expect(expandSlot).toHaveBeenCalledWith('g1', 'd1', 'b1', 'b2')
+    expect(b1.hasAttribute('data-span-dragging')).toBe(false)
+  })
+
   it('a pointer that never leaves the head (no valid covered block) calls expandSlot on nothing', () => {
     const b1 = makeCell('g1', 'd1', 'b1')
     document.elementFromPoint = () => b1
