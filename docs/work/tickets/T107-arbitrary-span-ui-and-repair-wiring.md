@@ -55,3 +55,13 @@ Until wired, the function is exported + tested but unused; the cross-device
 orphan risk it addresses is rare (two devices editing the same span
 simultaneously during setup) and unmitigated. Ship-now vs wire-now is an owner
 call recorded on the parent spec.
+
+## Deferred item 4 — unit test the R3 undo re-read guard
+
+Grader (2026-08-21) noted the R3 guard in `expandSlot`/`splitSlot` undo
+closures (re-read the target row, no-op + notice if it was repurposed since
+extend) is implemented and correct but has no dedicated unit test — it is only
+exercised indirectly. Add a test that pushes an undo frame, mutates the target
+row's activity_id/is_span_head out from under it, and asserts the pop no-ops
+with a describeWriteFailure notice instead of clobbering. Small, do it alongside
+the R2 integration test.
