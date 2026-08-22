@@ -154,8 +154,10 @@ export function decideCell(geometry, groupId, dayId, blockId) {
   const isUnfillable = Boolean(slot.flags?.UNFILLABLE) && !slot.flags?.UNFILLABLE_dismissed
   // T105 — an elective cell (elective_set_id set, activity_id null under
   // T111's MUTUALLY_EXCLUSIVE_FIELDS invariant) has real content and must
-  // render as a slot, never fall into the 'empty' droppable branch.
-  const hasContent = Boolean(slot.activity_id) || Boolean(slot.elective_set_id)
+  // render as a slot, never fall into the 'empty' droppable branch. Events
+  // overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+  // placement.md §3) extends this with event_id, same posture.
+  const hasContent = Boolean(slot.activity_id) || Boolean(slot.elective_set_id) || Boolean(slot.event_id)
   if (!hasContent && !slot.is_anchor && !isUnfillable) return { kind: 'empty' }
 
   const cellType = !hasContent && !isUnfillable ? 'unavailable' : 'activity'

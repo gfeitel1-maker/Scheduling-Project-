@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-import { useSlotMutations, collectSpanTails, spanStopsAt, repairOrphanSpanTails, computeSpanExtendPreview } from './useSlotMutations'
+import { useSlotMutations, collectSpanTails, spanStopsAt, repairOrphanSpanTails, computeSpanExtendPreview, refField } from './useSlotMutations'
 import { getSlot } from './gridGeometry'
 
 // A fake repo capturing exactly the fields handed to each write — no React, no
@@ -869,6 +869,47 @@ describe('useSlotMutations — collectSpanTails characterization (arbitrary N)',
     ]
     const tails = collectSpanTails(slots, fiveBlocks, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, headRow)
     expect(tails.map(t => t.id)).toEqual(['t1', 't2', 't3', 't4'])
+  })
+})
+
+// Step 3 (Events overlay placement Slice 1, docs/adr/2026-08-22-events-
+// overlay-placement.md §4) — refField discriminator + collectSpanTails
+// generalized off the activity_id-only hardcode.
+describe('useSlotMutations — refField (ADR §4 discriminator)', () => {
+  it('returns activity_id when activity_id is set', () => {
+    expect(refField({ activity_id: 'act-1', event_id: null })).toBe('activity_id')
+  })
+  it('returns event_id when only event_id is set', () => {
+    expect(refField({ activity_id: null, event_id: 'ev-1' })).toBe('event_id')
+  })
+  it('prefers activity_id when both are (invalidly) set', () => {
+    expect(refField({ activity_id: 'act-1', event_id: 'ev-1' })).toBe('activity_id')
+  })
+  it('returns null when neither is set (e.g. an elective-only row)', () => {
+    expect(refField({ activity_id: null, event_id: null, elective_set_id: 'set-1' })).toBeNull()
+  })
+})
+
+describe('useSlotMutations — collectSpanTails generalized (event-headed spans)', () => {
+  it('walks an event-headed span the same way it walks an activity-headed one', () => {
+    const headRow = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, event_id: 'ev-1', is_span_head: true }
+    const slots = [
+      headRow,
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, event_id: 'ev-1', is_span_head: false },
+      { id: 't2', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: null, event_id: 'ev-1', is_span_head: false },
+    ]
+    const tails = collectSpanTails(slots, spanTimeBlocks, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, headRow)
+    expect(tails.map(t => t.id)).toEqual(['t1', 't2'])
+  })
+
+  it('an elective-only row (never spans) still returns [] — provably unaffected by the generalization', () => {
+    const headRow = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: 'set-1', is_span_head: true }
+    const slots = [
+      headRow,
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, elective_set_id: 'set-1', is_span_head: false },
+    ]
+    const tails = collectSpanTails(slots, spanTimeBlocks, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, headRow)
+    expect(tails).toEqual([])
   })
 })
 
@@ -2129,6 +2170,93 @@ describe('useSlotMutations — createElectiveFromCell', () => {
 
     expect(readElectiveSetIsReusable).toHaveBeenCalledTimes(1)
     expect(repo.deleteElectiveSet).not.toHaveBeenCalled()
+  })
+})
+
+// Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+// placement.md §4/§5) — placeEventOnCell mirrors placeElectiveOnCell's shape
+// exactly, minus the fresh-mint branching (an event is always an existing
+// row in Slice 1).
+describe('useSlotMutations — placeEventOnCell', () => {
+  it('writes event_id + explicit triple-null (activity_id, elective_set_id) atomically and pushes undo', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: null, event_id: null, flags: {} },
+    ]
+    const events = [{ id: 'ev-1', name: 'Color War' }]
+    const { hook, props } = setup({ slots, eventsAll: events })
+
+    await act(async () => {
+      await hook.result.current.placeEventOnCell('ev-1', { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, slots[0])
+    })
+
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', {
+      event_id: 'ev-1', activity_id: null, elective_set_id: null, flags: {},
+    })
+    expect(props.pushUndo).toHaveBeenCalledTimes(1)
+    expect(props.pushUndo.mock.calls[0][0].description).toBe('Placed Color War')
+  })
+
+  it('converting a span HEAD to an event releases its tail(s) atomically in the same gesture (mirrors the elective case)', async () => {
+    const slots = [
+      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-swim', is_span_head: true, flags: {} },
+      { id: 'row-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'act-swim', is_span_head: false, flags: {} },
+    ]
+    const timeBlocks = [{ id: 'b1', sort_order: 1 }, { id: 'b2', sort_order: 2 }]
+    const activities = [{ id: 'act-swim', name: 'Swimming' }]
+    const events = [{ id: 'ev-1', name: 'Color War' }]
+    const { hook, props } = setup({ slots, timeBlocks, activities, eventsAll: events })
+
+    await act(async () => {
+      await hook.result.current.placeEventOnCell('ev-1', { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, slots[0])
+    })
+
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { activity_id: null, is_span_head: true, flags: {} })
+    const headCall = props.repo.writeSlotFields.mock.calls.find(c => c[0] === 'row-head')
+    expect(headCall[1]).toEqual({ event_id: 'ev-1', activity_id: null, elective_set_id: null, flags: {} })
+  })
+
+  it('releasing an EVENT-headed span tail clears the tail\'s event_id, not activity_id (refField generalization)', async () => {
+    // Regression pin: the released-tail write used to hardcode activity_id:null,
+    // so an event-headed span (tail carries event_id) kept a stale event_id
+    // after release. refField(tail) must clear whatever ref the tail held.
+    const slots = [
+      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, event_id: 'ev-old', is_span_head: true, flags: {} },
+      { id: 'row-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, event_id: 'ev-old', is_span_head: false, flags: {} },
+    ]
+    const timeBlocks = [{ id: 'b1', sort_order: 1 }, { id: 'b2', sort_order: 2 }]
+    const events = [{ id: 'ev-old', name: 'Old Event' }, { id: 'ev-1', name: 'Color War' }]
+    const { hook, props } = setup({ slots, timeBlocks, eventsAll: events })
+
+    await act(async () => {
+      await hook.result.current.placeEventOnCell('ev-1', { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, slots[0])
+    })
+
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { event_id: null, is_span_head: true, flags: {} })
+    // it must NOT clear activity_id (which was already null) as the ref field
+    const tailCall = props.repo.writeSlotFields.mock.calls.find(c => c[0] === 'row-tail')
+    expect('activity_id' in tailCall[1]).toBe(false)
+  })
+
+  it('undo restores the cell\'s previous content (activity) and the released tail', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-swim', elective_set_id: null, event_id: null, flags: { foo: 1 } },
+    ]
+    const setSlots = statefulSetSlots(slots)
+    const events = [{ id: 'ev-1', name: 'Color War' }]
+    const { hook, props } = setup({ slots, eventsAll: events, routeState: { setSlots: setSlots.fn } })
+
+    let undoFn
+    props.pushUndo.mockImplementation(({ undo }) => { undoFn = undo })
+
+    await act(async () => {
+      await hook.result.current.placeEventOnCell('ev-1', { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, slots[0])
+    })
+    await act(async () => { await undoFn() })
+
+    const undoCall = props.repo.writeSlotFields.mock.calls.find(
+      c => c[0] === 'row-target' && c[1].activity_id === 'act-swim'
+    )
+    expect(undoCall[1]).toEqual({ event_id: null, elective_set_id: null, activity_id: 'act-swim', flags: { foo: 1 } })
   })
 })
 

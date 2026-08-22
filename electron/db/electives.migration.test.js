@@ -143,12 +143,16 @@ describe('migration v35: fresh vs migrated equivalence', () => {
     db.close()
   })
 
-  it('template_slots gains elective_set_id as its 11th column', () => {
+  it('template_slots gains elective_set_id as its 11th column (event_id, v40, follows as the 12th)', () => {
     const db = freshDb()
     const cols = db.pragma('table_info(template_slots)').map((c) => c.name)
+    // event_id (Events overlay placement Slice 1, docs/adr/2026-08-22-events-
+    // overlay-placement.md) is ALTER-added after elective_set_id in v40 — this
+    // v35 test runs against the CURRENT schema (freshDb migrates all the way
+    // up), so it must expect that trailing column too.
     expect(cols).toEqual([
       'id', 'template_id', 'group_id', 'activity_id', 'day_id', 'time_block_id',
-      'flags', 'is_released', 'is_span_head', 'anchor_id', 'is_anchor', 'elective_set_id',
+      'flags', 'is_released', 'is_span_head', 'anchor_id', 'is_anchor', 'elective_set_id', 'event_id',
     ])
     db.close()
   })

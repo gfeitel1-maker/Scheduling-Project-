@@ -155,9 +155,17 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   // through preplacedSlots entries carrying an electiveSetId (rather than an
   // activityId) so callers don't need a third top-level array.
   const electiveLookup = new Map() // "groupId|dayId|blockId" → electiveSetId
+  // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+  // placement.md §6): same posture as electiveLookup above — a
+  // template_slots cell carrying event_id is authored content, never engine
+  // output, threaded through preplacedSlots entries carrying an eventId.
+  const eventLookup = new Map() // "groupId|dayId|blockId" → eventId
   for (const pre of (preplacedSlots || [])) {
     if (pre.electiveSetId != null) {
       electiveLookup.set(`${pre.groupId}|${pre.dayId}|${pre.blockId}`, pre.electiveSetId)
+    }
+    if (pre.eventId != null) {
+      eventLookup.set(`${pre.groupId}|${pre.dayId}|${pre.blockId}`, pre.eventId)
     }
   }
 
@@ -179,6 +187,15 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
         // more constrained mechanism).
         if (anchor) {
           slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'anchor', activityId: null, anchorId: anchor.id, is_span_head: anchor._isSpanHead !== false, flags: {} })
+          continue
+        }
+
+        // Precedence anchor → event → elective → open (ADR §6) — only one of
+        // these is ever populated on real data by write-path convention
+        // (MUTUALLY_EXCLUSIVE_FIELDS), this order is the documented tie-break.
+        const eventId = eventLookup.get(key)
+        if (eventId != null) {
+          slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'event', activityId: null, anchorId: null, eventId, is_span_head: true, flags: {} })
           continue
         }
 
@@ -280,7 +297,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
         // phantom bookkeeping (assigned/usageCount/placeUsage/activityUsage)
         // at the elective coordinate, corrupting session credit and capacity
         // even though the visible schedule still renders the elective.
-        if (assigned.has(nextKey) || anchorLookup.has(nextKey) || electiveLookup.has(nextKey)) return false
+        if (assigned.has(nextKey) || anchorLookup.has(nextKey) || electiveLookup.has(nextKey) || eventLookup.has(nextKey)) return false
         // Tail block must also be within the group's available part of day
         if (avail !== 'all' && avail !== nextBlock.part_of_day) return false
         // Tail block occupies the place too — same capacity + same_tier_only
@@ -348,7 +365,7 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     // coordinate, but a future write path or a sync race shouldn't be able
     // to silently corrupt bookkeeping if it ever does — mirrors the same
     // guard anchorLookup effectively gets via the openSlots exclusion above.
-    if (!assigned.has(key) && !electiveLookup.has(key)) {
+    if (!assigned.has(key) && !electiveLookup.has(key) && !eventLookup.has(key)) {
       const act = activities.find(a => a.id === pre.activityId)
       if (act) place(act, pre.groupId, pre.dayId, pre.blockId)
     }

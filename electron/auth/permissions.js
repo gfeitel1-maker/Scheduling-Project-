@@ -62,6 +62,10 @@ export const ENTITIES = [
   // stays admin-only via default-deny (no explicit staff grant below),
   // matching the special_days/elective_sets posture above.
   'day_overrides',
+  // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+  // placement.md §1): same posture as elective_sets above — staff
+  // read/write, delete/bulk_replace admin-only via default-deny.
+  'events',
 ]
 
 const staffReadWrite = ENTITIES.flatMap((entity) => [`${entity}.read`, `${entity}.write`])

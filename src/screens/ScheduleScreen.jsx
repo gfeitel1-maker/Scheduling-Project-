@@ -116,7 +116,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     campId, weekId: preferredWeekId, repo, routes: ROUTES,
     hasInFlightClaim: (groupId, dayId) => hasInFlightClaimRef.current(groupId, dayId),
   })
-  const { groups, days, timeBlocks, activities, anchors, tiers, cohorts, locations, electiveSetsAll, electiveSetActivities, durableElectiveSets } = setupLists
+  const { groups, days, timeBlocks, activities, anchors, tiers, cohorts, locations, electiveSetsAll, electiveSetActivities, durableElectiveSets, eventsAll } = setupLists
   // T105 §4/§6 render/export lookup — one member-id array per elective set,
   // built once per electiveSetActivities change.
   const electiveMembersBySet = useMemo(() => {
@@ -285,6 +285,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     getSlot, setActivities,
     slots, groups, activities, locations, days, timeBlocks, campId,
     electiveSetsAll, durableElectiveSets,
+    eventsAll,
     // T108 Phase 2 (design §6.1) — overrideModeDayId is the one (week, day)
     // currently in override-authoring mode, or null. The mutation layer
     // compares it against each target cell's own dayId, so a cell on any
@@ -303,7 +304,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const {
     replaceSlot, dismissFlag, lockActivity, releaseCell,
     removeOverlay, placeActivityManual, expandSlot, splitSlot,
-    createActivityFromCell, createElectiveFromCell, ownWriteRef,
+    createActivityFromCell, createElectiveFromCell, placeEventOnCell, ownWriteRef,
     pullOverrideDay, hasInFlightClaim,
   } = slotMutations
   // T107 item 3 — point the ref useScheduleData's repair pass reads through
@@ -367,12 +368,32 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     createElectiveFromCell(setName, memberNames, { groupId, dayId, blockId })
   }
 
+  // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+  // placement.md §5) — mirrors handleCellPlace exactly, but always a
+  // placement (an event cell is always an existing row; Slice 1 has no
+  // create-new-event grammar from the grid).
+  function handleCellPlaceEvent(slot, eventId) {
+    const groupId = slot.groupId ?? slot.group_id
+    const dayId = slot.dayId ?? slot.day_id
+    const blockId = slot.blockId ?? slot.time_block_id
+    const targetSlot = getSlot(slots, groupId, dayId, blockId)
+    if (!targetSlot) return
+    placeEventOnCell(eventId, { groupId, dayId, blockId }, targetSlot)
+  }
+
   // Slice 2 drill-in (docs/work/specs/2026-08-22-electives-nested-schedule-
   // slices.md) — an elective cell's own button hands its set id up here,
   // which just forwards it to onNavigate as a second arg for AppShell to
   // carry across the screen swap (App.jsx's navigate/electiveFocusSetId).
   function openElective(electiveSetId) {
     onNavigate?.('electives', { electiveSetId })
+  }
+
+  // Events overlay placement Slice 1 — an event cell's own drill-in button
+  // hands its event id up here, mirroring openElective exactly (App.jsx's
+  // navigate/eventFocusId).
+  function openEvent(eventId) {
+    onNavigate?.('events', { eventId })
   }
 
   // addOverlay / updateOverlayRange are consumed by useOverlayFillStamp, which
@@ -854,7 +875,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const startRoute = { manual: placeAnchors, generated: generate }
 
   function exportRoute(r) {
-    exportToExcel({ slots: slotsByRoute[r], activities, anchors, groups, days, timeBlocks, electiveSets: electiveSetsAll, electiveSetActivities })
+    exportToExcel({ slots: slotsByRoute[r], activities, anchors, groups, days, timeBlocks, electiveSets: electiveSetsAll, electiveSetActivities, events: eventsAll })
   }
 
   // If only one route has been started there is no choice to make and nothing
@@ -1231,6 +1252,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onOpenElective={openElective}
                 electiveSetsAll={electiveSetsAll}
                 electiveMembersBySet={electiveMembersBySet}
+                onPlaceEvent={handleCellPlaceEvent}
+                onOpenEvent={openEvent}
+                eventsAll={eventsAll}
                 isContentRaced={isContentRaced}
                 onDismissContentRace={dismissContentRace}
                 onExpandSlot={expandSlot}
@@ -1268,6 +1292,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onOpenElective={openElective}
                 electiveSetsAll={electiveSetsAll}
                 electiveMembersBySet={electiveMembersBySet}
+                onPlaceEvent={handleCellPlaceEvent}
+                onOpenEvent={openEvent}
+                eventsAll={eventsAll}
                 isContentRaced={isContentRaced}
                 onDismissContentRace={dismissContentRace}
                 fillState={fillState}
@@ -1317,6 +1344,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onOpenElective={openElective}
                 electiveSetsAll={electiveSetsAll}
                 electiveMembersBySet={electiveMembersBySet}
+                onPlaceEvent={handleCellPlaceEvent}
+                onOpenEvent={openEvent}
+                eventsAll={eventsAll}
                 isContentRaced={isContentRaced}
                 onDismissContentRace={dismissContentRace}
                 fillState={fillState}

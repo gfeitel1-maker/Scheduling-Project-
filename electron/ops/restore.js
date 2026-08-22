@@ -61,6 +61,12 @@ export const RESTORE_DECISIONS = Object.freeze({
   // setup-CRUD follow-on slice (slice 2).
   elective_sets: 'refused: no setup UI yet (T41 slice 1 is data-shape only) — revisit with the setup-CRUD follow-on',
   elective_set_activities: 'refused: rebuilt with its parent elective set, not on its own',
+
+  // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+  // placement.md): same posture as elective_sets/special_days above — no
+  // trash-can delete UI on EventScreen in this slice (create/edit
+  // name+notes only), so there is no restore entry point to build for yet.
+  events: 'refused: no delete UI yet (Slice 1 is create/edit only) — revisit if a delete affordance is added',
 })
 
 export const RESTORABLE_ENTITIES = Object.freeze(

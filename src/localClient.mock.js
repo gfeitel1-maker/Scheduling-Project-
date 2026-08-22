@@ -218,6 +218,7 @@ const UNIQUE_KEYS = {
   locations:   ['camp_id', 'name'],
   special_days: ['camp_id', 'name'],
   elective_sets: ['camp_id', 'name'],
+  events: ['camp_id', 'name'],
   day_overrides: ['schedule_week_id', 'day_id', 'group_id', 'time_block_id'],
 }
 
@@ -359,7 +360,13 @@ export const MOCK_WRITE_ALLOWLIST = {
     'flags',
     // v35 (T41 slice 1, docs/work/specs/2026-08-20-group-electives-design.md)
     'elective_set_id',
+    // v40 (Events overlay placement Slice 1, docs/adr/2026-08-22-events-
+    // overlay-placement.md)
+    'event_id',
   ],
+  // Events overlay placement Slice 1 — hand-transcribed mirror of
+  // PROJECTIONS.events.fields, same discipline as T40/T41 above.
+  events: ['camp_id', 'name', 'sort_order', 'notes'],
   conflicts: [],
 }
 

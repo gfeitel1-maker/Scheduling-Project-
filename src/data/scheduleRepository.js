@@ -104,7 +104,16 @@ export function createScheduleRepository({
       } catch {
         // best-effort — see comment above
       }
-      return { groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts, locations, elective_sets, elective_set_activities }
+      // events (Events overlay placement Slice 1, docs/adr/2026-08-22-events-
+      // overlay-placement.md §5) — same best-effort posture as elective_sets
+      // above, own try/catch, never a readiness prerequisite.
+      let events = []
+      try {
+        events = await localClient.list('events')
+      } catch {
+        // best-effort — see comment above
+      }
+      return { groups, days_of_operation, time_blocks, activities, anchor_activities, tiers, cohorts, locations, elective_sets, elective_set_activities, events }
     },
 
     // durableElectiveSets (design §2) — the reuse-surface list, is_reusable=1

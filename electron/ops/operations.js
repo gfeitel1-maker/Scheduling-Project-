@@ -259,6 +259,12 @@ export const BULK_REPLACE_ENTITIES = {
       'flags',
       // v35 (T41 slice 1, docs/work/specs/2026-08-20-group-electives-design.md)
       'elective_set_id',
+      // v40 (Events overlay placement Slice 1, docs/adr/2026-08-22-events-
+      // overlay-placement.md) — without this entry every bulk_replace write
+      // (generate/placeAnchors/restoreSnapshot in ScheduleScreen.jsx) that
+      // includes an event_id value is rejected by validateBulkReplaceRows
+      // before it reaches the DB.
+      'event_id',
     ],
     requiredColumns: ['id', 'template_id'],
   },
@@ -557,6 +563,10 @@ export const UNIQUE_FIELD_ENTITIES = {
   // it here routes the collision through the same conflict-resolution path
   // locations uses — covers both the authored-create and the Slice 3a nudge path.
   elective_sets: { table: 'elective_sets', field: 'name', scopeColumn: 'camp_id' },
+  // events has UNIQUE(camp_id, name) — same cross-device same-named-create
+  // collision class as elective_sets/locations (docs/adr/2026-08-15-
+  // locations-concurrent-create-collision.md), covered the same way.
+  events: { table: 'events', field: 'name', scopeColumn: 'camp_id' },
 }
 
 // Returns the colliding row's current { id, ...fields } if `op` would

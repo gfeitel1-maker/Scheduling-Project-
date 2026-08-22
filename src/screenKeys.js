@@ -12,7 +12,7 @@
 export const SCREEN_KEYS = new Set([
   'camp', 'import', 'roots', 'conflicts', 'trash',
   'cohorts', 'tiers', 'groups', 'days', 'timeblocks', 'activities',
-  'locations', 'anchors', 'electives', 'specialdays',
+  'locations', 'anchors', 'electives', 'events', 'specialdays',
   'schedule', 'schedule:manual', 'schedule:generated',
   'devices',
 ])

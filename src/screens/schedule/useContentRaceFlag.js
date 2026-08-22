@@ -17,6 +17,10 @@ function cellKeyFor(slot) {
 }
 
 function contentKind(slot) {
+  // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+  // placement.md §3) — event_id checked ahead of elective_set_id, matching
+  // the activity/elective/event precedence order.
+  if (slot.event_id) return `event:${slot.event_id}`
   if (slot.elective_set_id) return `elective:${slot.elective_set_id}`
   if (slot.activity_id) return `activity:${slot.activity_id}`
   return 'empty'

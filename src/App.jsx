@@ -15,6 +15,7 @@ import ActivitiesScreen from './screens/ActivitiesScreen'
 import LocationsScreen from './screens/LocationsScreen'
 import AnchorsScreen from './screens/AnchorsScreen'
 import ElectivesScreen from './screens/ElectivesScreen'
+import EventScreen from './screens/EventScreen'
 import DaysScreen from './screens/DaysScreen'
 import CohortsScreen from './screens/CohortsScreen'
 import SpecialDaysScreen from './screens/SpecialDaysScreen'
@@ -56,6 +57,7 @@ const SCREENS = {
   locations:    LocationsScreen,
   anchors:      AnchorsScreen,
   electives:    ElectivesScreen,
+  events:       EventScreen,
   specialdays:  SpecialDaysScreen,
   // Two routes to a week, two sidebar destinations, one screen. Neither is the
   // camp's "real" schedule — the director makes that call, never the app
@@ -101,6 +103,11 @@ export function AppShell({ campId, role, mode, onLogout }) {
   // carries the post-import outcome: lifted above the screen swap, cleared
   // whenever navigation heads anywhere other than 'electives'.
   const [electiveFocusSetId, setElectiveFocusSetId] = useState(null)
+  // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+  // placement.md §5) — the event_id an event cell's drill-in button wants
+  // EventScreen to open focused on, carried the same way electiveFocusSetId
+  // carries the elective drill-in target.
+  const [eventFocusId, setEventFocusId] = useState(null)
   // Every in-session navigation goes through this: it clears the carried
   // import outcome the moment the director leaves Roots, so the post-import
   // banner belongs to the landing, not to every later visit. Clearing at the
@@ -114,6 +121,8 @@ export function AppShell({ campId, role, mode, onLogout }) {
     if (target !== 'roots') setJustImported(null)
     if (target !== 'electives') setElectiveFocusSetId(null)
     if (opts?.electiveSetId) setElectiveFocusSetId(opts.electiveSetId)
+    if (target !== 'events') setEventFocusId(null)
+    if (opts?.eventId) setEventFocusId(opts.eventId)
     setScreen(next)
   }
   // Single instance of the pending-conflicts source for this whole shell —
@@ -206,6 +215,7 @@ export function AppShell({ campId, role, mode, onLogout }) {
         ...(resolvedScreen === 'import' ? { onImported: setJustImported } : {}),
         // Slice 2 — the set id a schedule cell's drill-in wants focused.
         ...(resolvedScreen === 'electives' ? { initialElectiveSetId: electiveFocusSetId } : {}),
+        ...(resolvedScreen === 'events' ? { initialEventId: eventFocusId } : {}),
       }
 
   return (

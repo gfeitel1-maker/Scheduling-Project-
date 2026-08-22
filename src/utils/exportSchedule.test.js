@@ -62,3 +62,30 @@ describe('exportToExcel — T105 §6 elective branch', () => {
     expect(dayRows[1][1]).toBe('Swimming')
   })
 })
+
+// Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+// placement.md §3) — exportSchedule.js gets an event_id branch parallel to
+// the existing elective_set_id branch.
+describe('exportToExcel — events overlay branch', () => {
+  it('renders an event cell as its event name, not blank', () => {
+    const slots = [{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', event_id: 'ev-1', activity_id: null, elective_set_id: null }]
+    const events = [{ id: 'ev-1', name: 'Color War' }]
+    const wb = capturedWorkbook({ slots, activities, anchors, groups, days, timeBlocks, events })
+
+    const dayRows = sheetRows(wb, 'Monday')
+    expect(dayRows[1][1]).toBe('Color War')
+
+    const masterRows = sheetRows(wb, 'All Groups')
+    expect(masterRows[1][3]).toBe('Color War')
+  })
+
+  it('a dangling event_id (event deleted) renders "Event (removed)"', () => {
+    const slots = [{ group_id: 'g1', day_id: 'd1', time_block_id: 'b1', event_id: 'ev-gone', activity_id: null, elective_set_id: null }]
+    const wb = capturedWorkbook({ slots, activities, anchors, groups, days, timeBlocks, events: [] })
+
+    const dayRows = sheetRows(wb, 'Monday')
+    expect(dayRows[1][1]).toBe('Event (removed)')
+    const masterRows = sheetRows(wb, 'All Groups')
+    expect(masterRows[1][3]).toBe('Event (removed)')
+  })
+})

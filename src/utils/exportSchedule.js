@@ -5,6 +5,10 @@ import { aoaToSanitizedSheet } from './exportSanitize.js'
 // Dangling-reference fallback label matches §4's render fallback exactly
 // (Red Hat fold-in C: cosmetic consistency between render and export).
 const ELECTIVE_REMOVED_LABEL = 'Elective (removed)'
+// Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+// placement.md §3) — dangling-reference fallback matches SlotCell's render
+// fallback, mirroring ELECTIVE_REMOVED_LABEL above.
+const EVENT_REMOVED_LABEL = 'Event (removed)'
 
 function electiveCellLabel(slot, electiveSetLookup, electiveMembersBySet, actLookup) {
   const set = electiveSetLookup.get(slot.elective_set_id)
@@ -15,11 +19,17 @@ function electiveCellLabel(slot, electiveSetLookup, electiveMembersBySet, actLoo
   return memberNames.length ? `${set.name} (${memberNames.join(', ')})` : set.name
 }
 
-export function exportToExcel({ slots, activities, anchors, groups, days, timeBlocks, electiveSets = [], electiveSetActivities = [] }) {
+function eventCellLabel(slot, eventLookup) {
+  const event = eventLookup.get(slot.event_id)
+  return event ? event.name : EVENT_REMOVED_LABEL
+}
+
+export function exportToExcel({ slots, activities, anchors, groups, days, timeBlocks, electiveSets = [], electiveSetActivities = [], events = [] }) {
   const wb = XLSX.utils.book_new()
   const actLookup = new Map(activities.map(a => [a.id, a.name]))
   const anchorLookup = new Map(anchors.map(a => [a.id, a.name]))
   const electiveSetLookup = new Map(electiveSets.map(s => [s.id, s]))
+  const eventLookup = new Map(events.map(e => [e.id, e]))
   const electiveMembersBySet = new Map()
   for (const m of electiveSetActivities) {
     if (!electiveMembersBySet.has(m.elective_set_id)) electiveMembersBySet.set(m.elective_set_id, [])
@@ -35,6 +45,7 @@ export function exportToExcel({ slots, activities, anchors, groups, days, timeBl
         const slot = slots.find(s => s.group_id === group.id && s.day_id === day.id && s.time_block_id === block.id)
         if (!slot) { row.push(''); continue }
         if (slot.is_anchor) { row.push(anchorLookup.get(slot.anchor_id) || 'Anchor'); continue }
+        if (slot.event_id) { row.push(eventCellLabel(slot, eventLookup)); continue }
         if (slot.elective_set_id) { row.push(electiveCellLabel(slot, electiveSetLookup, electiveMembersBySet, actLookup)); continue }
         if (slot.activity_id) { row.push(actLookup.get(slot.activity_id) || ''); continue }
         row.push('')
@@ -57,9 +68,11 @@ export function exportToExcel({ slots, activities, anchors, groups, days, timeBl
         if (!slot) continue
         const actName = slot.is_anchor
           ? `[Anchor] ${anchorLookup.get(slot.anchor_id) || ''}`
-          : slot.elective_set_id
-            ? electiveCellLabel(slot, electiveSetLookup, electiveMembersBySet, actLookup)
-            : (actLookup.get(slot.activity_id) || '')
+          : slot.event_id
+            ? eventCellLabel(slot, eventLookup)
+            : slot.elective_set_id
+              ? electiveCellLabel(slot, electiveSetLookup, electiveMembersBySet, actLookup)
+              : (actLookup.get(slot.activity_id) || '')
         masterRows.push([group.name, day.label, block.name, actName])
       }
     }

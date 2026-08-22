@@ -36,6 +36,8 @@ export default function ScheduleDayView({
   onToggleBlockCollapsed,
   // T105
   electiveSetsAll = [], electiveMembersBySet, onCreateElective, onOpenElective,
+  // Events overlay placement Slice 1
+  eventsAll = [], onPlaceEvent, onOpenEvent,
   isContentRaced, onDismissContentRace,
   // T108 Phase 2 (design §6, Designer spec §1.1) — the day view IS one
   // (week, day), so the toggle lives once in the toolbar, not per-column.
@@ -156,6 +158,8 @@ export default function ScheduleDayView({
                             onPlace={onPlace}
                             onCreateNew={onCreateNew}
                             onCreateElective={onCreateElective}
+                            eligibleEvents={eventsAll}
+                            onPlaceEvent={onPlaceEvent}
                             // Stamp mode wins over opening the editor, mirroring the
                             // SlotCell call below. Day view has no paste mode.
                             onCellClick={stampMode ? (() => handleStampClick(group.id, selectedDay, block.id)) : undefined}
@@ -228,6 +232,9 @@ export default function ScheduleDayView({
                           electiveSetsAll={electiveSetsAll}
                           electiveMembersBySet={electiveMembersBySet}
                           onOpenElective={onOpenElective}
+                          eventsAll={eventsAll}
+                          onOpenEvent={onOpenEvent}
+                          onPlaceEvent={onPlaceEvent}
                           isContentRaced={isContentRaced?.(group.id, selectedDay, block.id)}
                           onDismissContentRace={() => onDismissContentRace?.(`${group.id}|${selectedDay}|${block.id}`)}
                           onRelease={s => releaseCell(s.id)}

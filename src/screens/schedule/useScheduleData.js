@@ -62,6 +62,9 @@ const EMPTY_SETUP_LISTS = {
   // is the unfiltered render surface, durableElectiveSets is the is_reusable=1
   // reuse surface.
   electiveSetsAll: [], electiveSetActivities: [], durableElectiveSets: [],
+  // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+  // placement.md §5) — the render/drill-in lookup, mirroring electiveSetsAll.
+  eventsAll: [],
 }
 const EMPTY_EXCLUSIONS = { activityExclusions: [], groupExclusions: [], locationExclusions: [] }
 // T108 Phase 2 (design §5.2) — day_overrides load at whole-week grain, same
@@ -159,6 +162,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
         groups: gd, days_of_operation: td, time_blocks: bd, activities: ad,
         anchor_activities: ancd, tiers: tierd, cohorts: cohd, locations: locd,
         elective_sets: esd, elective_set_activities: esad,
+        events: evd,
       } = await repo.loadSetupLists()
       const durableElectiveSets = await repo.loadDurableElectiveSets()
       if (gen !== generationRef.current) return
@@ -184,10 +188,12 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes,
       const loc = (locd || []).filter(x => x.camp_id === campId)
       const electiveSetsAll = (esd || []).filter(x => x.camp_id === campId)
       const electiveSetActivities = esad || []
+      const eventsAll = (evd || []).filter(x => x.camp_id === campId)
       if (gen !== generationRef.current) return
       setSetupLists({
         groups: sortedG, days: d, timeBlocks: b, activities: a, anchors: anc, tiers: t, cohorts: coh, locations: loc,
         electiveSetsAll, electiveSetActivities, durableElectiveSets: durableElectiveSets || [],
+        eventsAll,
       })
     } catch {
       if (gen !== generationRef.current) return

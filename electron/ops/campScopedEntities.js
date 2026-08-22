@@ -39,6 +39,10 @@ export const DIRECT_CAMP_ENTITIES = new Set([
   // special_days, NOT parent-scoped through a join like
   // week_activity_exclusions (which has no camp_id column of its own).
   'day_overrides',
+  // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+  // placement.md §1): camp-scoped, mirroring elective_sets exactly — no
+  // children of its own (no offerings table in Slice 1).
+  'events',
 ])
 
 export const PARENT_SCOPED_ENTITIES = {
@@ -147,6 +151,7 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   'special_day_slots', // references special_days.id NOT NULL; group_id/time_block_id/activity_id/location_id have no declared FK
   'elective_sets', // T41 slice 1; references camps.id only
   'elective_set_activities', // references elective_sets.id NOT NULL; activity_id has no declared FK
+  'events', // Events overlay placement Slice 1; references camps.id only
 ]
 
 // The subset of DOMAIN_SNAPSHOT_ORDER that is parent-scoped (joined through
