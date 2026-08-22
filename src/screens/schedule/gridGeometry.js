@@ -5,6 +5,8 @@
 // closure over component state — every input is an explicit argument, which is
 // what makes it directly unit-testable.
 
+import { getSpanTailBlockIds } from '../../components/schedule/cellLabel'
+
 export function getSlot(slots, groupId, dayId, blockId) {
   return slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId)
 }
@@ -158,4 +160,40 @@ export function decideCell(geometry, groupId, dayId, blockId) {
 
   const cellType = !hasContent && !isUnfillable ? 'unavailable' : 'activity'
   return { kind: 'slot', slot, rowSpan, cellType }
+}
+
+// T107 cleanup — ManualBuildView and ScheduleGroupView each computed this same
+// span-interaction data per activity cell (identical in both, per Maker's
+// comparison). isMerged/hasMergeDown/spanTailBlockIds/onSplitAt/onExtendGrab
+// are pure derivations of geometry + timeBlocks; onMergeDown is NOT included
+// here because the two call sites differ (ManualBuildView also clears the
+// T92 merge-hint flag) — callers build it themselves from the returned
+// nextBlock/nextSlot.
+//
+// ADR 2026-08-21 §1/R-HIGH: flags.expanded is retired as a structural
+// pointer — isMerged is "this row is a span head with >=1 tail", read off
+// the chain, not a head-owned flag.
+export function computeSpanCellProps({ geometry, selectedGroup, day, block, blockIndex, timeBlocks, rowSpan, slot, onSplitSlot, onSpanExtendStart }) {
+  const immediateNextBlock = timeBlocks.find(b => b.sort_order === block.sort_order + 1)
+  const immediateNextSlot = immediateNextBlock ? geometry.getSlot(selectedGroup, day.id, immediateNextBlock.id) : null
+  const isMerged = immediateNextSlot?.is_span_head === false && immediateNextSlot?.activity_id === slot.activity_id
+
+  // Merge-down always targets the block AFTER the span's current end
+  // (rowSpan-chain-based) so a director can keep extending an already-merged
+  // span to arbitrary N, not just once.
+  const nextBlock = timeBlocks[blockIndex + rowSpan]
+  const nextSlot = nextBlock ? geometry.getSlot(selectedGroup, day.id, nextBlock.id) : null
+  const hasMergeDown = Boolean(nextBlock) && !nextSlot?.is_anchor && nextSlot?.is_span_head !== false
+
+  const spanTailBlockIds = getSpanTailBlockIds(timeBlocks, blockIndex, rowSpan)
+
+  const onSplit = isMerged && onSplitSlot ? () => onSplitSlot(selectedGroup, day.id, block.id) : undefined
+  const onSplitAt = onSplitSlot
+    ? (cutBlockId) => onSplitSlot(selectedGroup, day.id, block.id, undefined, cutBlockId)
+    : undefined
+  const onExtendGrab = hasMergeDown && onSpanExtendStart
+    ? () => onSpanExtendStart(selectedGroup, day.id, block.id, slot.activity_id)
+    : undefined
+
+  return { isMerged, nextBlock, nextSlot, hasMergeDown, spanTailBlockIds, onSplit, onSplitAt, onExtendGrab }
 }

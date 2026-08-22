@@ -6,6 +6,7 @@ import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
 import { blockNamesForSpan } from './cellLabel'
+import { computeSpanCellProps } from '../../screens/schedule/gridGeometry'
 import useGridKeyboardNav from './useGridKeyboardNav'
 import './scheduleGrid.css'
 
@@ -224,45 +225,20 @@ export default function ManualBuildView({
                       if (slot?.activity_id || slot?.elective_set_id) {
                         const act = slot.activity_id ? actMap.get(slot.activity_id) : null
                         const rowSpan = geometry.getActivityRowSpan(selectedGroup, day.id, block.id)
-                        // ADR 2026-08-21 §1/R-HIGH: flags.expanded is retired
-                        // as a structural pointer — isMerged is now "this row
-                        // is a span head with >=1 tail", read off the chain,
-                        // not a head-owned flag.
-                        const immediateNextBlock = timeBlocks.find(b => b.sort_order === block.sort_order + 1)
-                        const immediateNextSlot = immediateNextBlock ? geometry.getSlot(selectedGroup, day.id, immediateNextBlock.id) : null
-                        const isMerged = immediateNextSlot?.is_span_head === false && immediateNextSlot?.activity_id === slot.activity_id
                         const isSelected = selectedSlotKeys?.has(cellKey) ?? false
                         const isMultiSelected = isSelected && (selectedSlotKeys?.size ?? 0) > 1
-                        // Merge-down always targets the block AFTER the
-                        // span's current end (rowSpan-chain-based) so a
-                        // director can keep extending an already-merged span
-                        // to arbitrary N, not just once.
-                        const nextBlock = timeBlocks[blockIndex + rowSpan]
-                        const nextSlot = nextBlock ? geometry.getSlot(selectedGroup, day.id, nextBlock.id) : null
-                        const hasMergeDown = Boolean(nextBlock) && !nextSlot?.is_anchor && nextSlot?.is_span_head !== false
+                        const {
+                          isMerged, nextBlock, hasMergeDown, spanTailBlockIds,
+                          onSplit, onSplitAt, onExtendGrab,
+                        } = computeSpanCellProps({
+                          geometry, selectedGroup, day, block, blockIndex, timeBlocks, rowSpan, slot,
+                          onSplitSlot, onSpanExtendStart,
+                        })
                         const onMergeDown = hasMergeDown && onExpandSlot ? () => {
                           clearMergeHint()
-                          const tailAct = nextSlot?.activity_id ? actMap.get(nextSlot.activity_id) : null
-                          const dayObj = days.find(d => d.id === day.id)
-                          onExpandSlot(selectedGroup, day.id, block.id, nextBlock.id, nextSlot?.activity_id ?? null, tailAct?.name ?? '', nextBlock.name, dayObj?.label ?? day.id)
+                          onExpandSlot(selectedGroup, day.id, block.id, nextBlock.id)
                         } : undefined
-                        const onSplit = isMerged && onSplitSlot ? () => onSplitSlot(selectedGroup, day.id, block.id) : undefined
                         const showMergeHint = hasMergeDown && cellKey === hintTargetKey
-                        // T107 item 2 — the ordered tail block ids this span
-                        // currently covers, for the interior-split bands
-                        // (rowSpan is already chain-based via
-                        // getActivityRowSpan, so this is a render-only slice
-                        // of the already-known timeBlocks array — no new
-                        // geometry function, per Maker note #4).
-                        const spanTailBlockIds = rowSpan > 1
-                          ? timeBlocks.slice(blockIndex + 1, blockIndex + rowSpan).map(b => b.id)
-                          : []
-                        const onSplitAt = onSplitSlot
-                          ? (cutBlockId) => onSplitSlot(selectedGroup, day.id, block.id, undefined, cutBlockId)
-                          : undefined
-                        const onExtendGrab = hasMergeDown && onSpanExtendStart
-                          ? () => onSpanExtendStart(selectedGroup, day.id, block.id, slot.activity_id)
-                          : undefined
                         return (
                           <SlotCell
                             key={day.id}

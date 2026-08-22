@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { computeSpanExtendPreview } from './useSlotMutations'
 
 // T107 item 1 (Designer spec 2026-08-21) — drag-to-extend gesture.
@@ -26,6 +26,22 @@ export function useSpanExtendDrag({ slots, timeBlocks, activities, expandSlot })
   const dragRef = useRef(null)
   const slotsRef = useRef(slots)
   useEffect(() => { slotsRef.current = slots }, [slots])
+
+  // Sort once per timeBlocks identity change rather than on every
+  // pointermove of a live drag (efficiency finding — computeSpanExtendPreview
+  // now expects a pre-sorted array).
+  const sortedTimeBlocks = useMemo(
+    () => [...timeBlocks].sort((a, b) => a.sort_order - b.sort_order),
+    [timeBlocks]
+  )
+  // Bails a pointermove that resolves to the same block the drag is already
+  // showing a preview for — no recompute, no DOM repaint, on every pixel of
+  // mouse movement within the same cell. Also keyed on the slots reference:
+  // a remote write can change eligibility under an unmoved pointer (the
+  // "fresh state, not stale preview" contract) — that must still recompute
+  // even though blockId is unchanged.
+  const lastResolvedBlockIdRef = useRef(null)
+  const lastResolvedSlotsRef = useRef(null)
 
   function cellEl(groupId, dayId, blockId) {
     return document.querySelector(`[data-cell-key="${groupId}|${dayId}|${blockId}"]`)
@@ -64,6 +80,8 @@ export function useSpanExtendDrag({ slots, timeBlocks, activities, expandSlot })
   // against.
   function startExtend(groupId, dayId, headBlockId, headActivityId) {
     dragRef.current = { groupId, dayId, headBlockId, headActivityId, coveredBlockIds: [], truncatedAtBlockId: null }
+    lastResolvedBlockIdRef.current = null
+    lastResolvedSlotsRef.current = null
     cellEl(groupId, dayId, headBlockId)?.setAttribute('data-span-dragging', '')
   }
 
@@ -80,10 +98,13 @@ export function useSpanExtendDrag({ slots, timeBlocks, activities, expandSlot })
       if (!d) return
       const blockId = resolveBlockIdFromPoint(e.clientX, e.clientY)
       if (!blockId) return
+      if (blockId === lastResolvedBlockIdRef.current && slotsRef.current === lastResolvedSlotsRef.current) return
+      lastResolvedBlockIdRef.current = blockId
+      lastResolvedSlotsRef.current = slotsRef.current
       // R1 (Maker note #3): the SAME check expandSlot re-applies at dispatch,
       // never a second divergent preview-only rule.
       const { coveredBlockIds, truncatedAtBlockId } = computeSpanExtendPreview(
-        slotsRef.current, timeBlocks, activities,
+        slotsRef.current, sortedTimeBlocks, activities,
         { groupId: d.groupId, dayId: d.dayId, headBlockId: d.headBlockId, headActivityId: d.headActivityId, pointerBlockId: blockId }
       )
       paintPreview(coveredBlockIds, truncatedAtBlockId)
@@ -125,7 +146,7 @@ export function useSpanExtendDrag({ slots, timeBlocks, activities, expandSlot })
   // Re-bind whenever the inputs the closures read are replaced — same
   // precedent as useOverlayFillStamp's own fillState effect.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [timeBlocks, activities, expandSlot])
+  }, [sortedTimeBlocks, activities, expandSlot])
 
   return { startExtend }
 }

@@ -90,8 +90,12 @@ function repairOrphanSpanTails(slots, timeBlocks) {
 // PAST the last valid block — the block id that should show the one-time
 // truncation pulse (data-drag-truncated). No side effects; the caller (a
 // hook, not this function) owns writing those to the DOM.
-function computeSpanExtendPreview(slots, timeBlocks, activities, { groupId, dayId, headBlockId, headActivityId, pointerBlockId }) {
-  const sortedBlocks = [...timeBlocks].sort((a, b) => a.sort_order - b.sort_order)
+//
+// `sortedTimeBlocks` must already be sorted by sort_order — this runs on
+// every pointermove of a live drag, so the caller (useSpanExtendDrag) sorts
+// once (useMemo) rather than this function re-sorting per call.
+function computeSpanExtendPreview(slots, sortedTimeBlocks, activities, { groupId, dayId, headBlockId, headActivityId, pointerBlockId }) {
+  const sortedBlocks = sortedTimeBlocks
   const headIdx = sortedBlocks.findIndex(b => b.id === headBlockId)
   const pointerIdx = sortedBlocks.findIndex(b => b.id === pointerBlockId)
   if (headIdx === -1 || pointerIdx === -1 || pointerIdx <= headIdx) {
@@ -310,6 +314,61 @@ export function useSlotMutations({
 
   function cellKey(groupId, dayId, blockId) {
     return `${route}|${templateId}|${groupId}|${dayId}|${blockId}`
+  }
+
+  // T107 cleanup — expandSlot's two per-block undo loops (newTails,
+  // releasedTails) and splitSlot's one (releasable) each pushed a near-
+  // identical granular per-cell undo/redo frame. This is the shared shape:
+  // re-read the cell's CURRENT row before undoing (R3's stillMatches guard —
+  // a cross-device change since must no-op with a notice, never blind-
+  // clobber), then run the write through the same claim/chain/dispatch
+  // primitive as every other mutation. `findCurrent`/`isForwardState` are
+  // closures because each call site's identity lookup and "is this still the
+  // state I expect" check genuinely differ (coordinate-based vs id-based,
+  // different field checks) — only the undo/redo/re-read SHAPE is shared,
+  // per site (finding #2 in the simplification review: parameterize the
+  // fields, don't flatten them).
+  function pushGranularCellUndo({ key, description, findCurrent, isForwardState, mismatchMessage, backwardFields, forwardFields, backwardOwnWriteKind, forwardOwnWriteKind }) {
+    pushUndo({
+      description,
+      undo: async () => {
+        const current = findCurrent()
+        if (!current || !isForwardState(current)) {
+          setActionError(mismatchMessage)
+          return
+        }
+        await runMutation({
+          keys: [key],
+          claimId: crypto.randomUUID(),
+          dispatch: async () => { await repo.writeSlotFields(current.id, backwardFields) },
+          onSuccess: () => {
+            setSlots(prev => {
+              const next = prev.map(s => s.id === current.id ? { ...s, ...backwardFields } : s)
+              slotsRef.current = next
+              return next
+            })
+          },
+          ownWriteKinds: { [key]: backwardOwnWriteKind },
+        })
+      },
+      redo: async () => {
+        const current = findCurrent()
+        if (!current) return
+        await runMutation({
+          keys: [key],
+          claimId: crypto.randomUUID(),
+          dispatch: async () => { await repo.writeSlotFields(current.id, forwardFields) },
+          onSuccess: () => {
+            setSlots(prev => {
+              const next = prev.map(s => s.id === current.id ? { ...s, ...forwardFields } : s)
+              slotsRef.current = next
+              return next
+            })
+          },
+          ownWriteKinds: { [key]: forwardOwnWriteKind },
+        })
+      },
+    })
   }
 
   // claimAndRun(keys, claimId, dispatch) — the single write-serialization
@@ -952,13 +1011,11 @@ export function useSlotMutations({
   // newly-covered tails are absorbed (recording what they displaced on their
   // OWN flags.displaced — flags.expanded is retired, see ADR §1), and any
   // former tail no longer covered (a shrink-via-drag) is released to a fresh
-  // empty head. tailActivityId/tailActivityName/tailBlockName/dayLabel are
-  // legacy positional params (kept so the existing "merge down one block"
-  // click call site needs no signature change) — displaced-activity info for
-  // EVERY newly-covered tail is now computed fresh from its own row, not
-  // trusted from the caller, so multi-block extends are correct without the
-  // caller resolving N tails' worth of activity names itself.
-  async function expandSlot(groupId, dayId, headBlockId, toBlockId, _tailActivityId, _tailActivityName, _tailBlockName, _dayLabel, gestureId) {
+  // empty head. Displaced-activity info for EVERY newly-covered tail is
+  // computed fresh from its own row, not trusted from the caller, so
+  // multi-block extends are correct without the caller resolving N tails'
+  // worth of activity names itself.
+  async function expandSlot(groupId, dayId, headBlockId, toBlockId, gestureId) {
     if (!existingTemplates[route]) return
     const headSlot = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId)
     if (!headSlot) return
@@ -1065,46 +1122,16 @@ export function useSlotMutations({
       const prevActivityId = t.row.activity_id ?? null
       const prevIsSpanHead = t.row.is_span_head ?? true
       const prevFlags = t.row.flags ?? {}
-      pushUndo({
+      pushGranularCellUndo({
+        key,
         description: `Made ${headName} run longer → ${t.block.name ?? blockId}`,
-        undo: async () => {
-          const current = slotsRef.current.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId)
-          const stillMatches = current && current.activity_id === headActivityId && current.is_span_head === false
-          if (!stillMatches) {
-            setActionError('This block changed since you extended it — undo skipped for that cell.')
-            return
-          }
-          await runMutation({
-            keys: [key],
-            claimId: crypto.randomUUID(),
-            dispatch: async () => { await repo.writeSlotFields(current.id, { activity_id: prevActivityId, is_span_head: prevIsSpanHead, flags: prevFlags }) },
-            onSuccess: () => {
-              setSlots(prev => {
-                const next = prev.map(s => s.id === current.id ? { ...s, activity_id: prevActivityId, is_span_head: prevIsSpanHead, flags: prevFlags } : s)
-                slotsRef.current = next
-                return next
-              })
-            },
-            ownWriteKinds: { [key]: prevActivityId ? `activity:${prevActivityId}` : 'empty' },
-          })
-        },
-        redo: async () => {
-          const current = slotsRef.current.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId)
-          if (!current) return
-          await runMutation({
-            keys: [key],
-            claimId: crypto.randomUUID(),
-            dispatch: async () => { await repo.writeSlotFields(current.id, { activity_id: headActivityId, is_span_head: false, flags: displacedFlagFor(t.row) }) },
-            onSuccess: () => {
-              setSlots(prev => {
-                const next = prev.map(s => s.id === current.id ? { ...s, activity_id: headActivityId, is_span_head: false, flags: displacedFlagFor(t.row) } : s)
-                slotsRef.current = next
-                return next
-              })
-            },
-            ownWriteKinds: { [key]: `activity:${headActivityId}` },
-          })
-        },
+        findCurrent: () => slotsRef.current.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId),
+        isForwardState: (current) => current.activity_id === headActivityId && current.is_span_head === false,
+        mismatchMessage: 'This block changed since you extended it — undo skipped for that cell.',
+        backwardFields: { activity_id: prevActivityId, is_span_head: prevIsSpanHead, flags: prevFlags },
+        backwardOwnWriteKind: prevActivityId ? `activity:${prevActivityId}` : 'empty',
+        forwardFields: { activity_id: headActivityId, is_span_head: false, flags: displacedFlagFor(t.row) },
+        forwardOwnWriteKind: `activity:${headActivityId}`,
       })
     }
     for (const t of releasedTails) {
@@ -1112,46 +1139,16 @@ export function useSlotMutations({
       const key = cellKey(t.group_id, t.day_id, blockId)
       const prevActivityId = t.activity_id
       const prevFlags = t.flags ?? {}
-      pushUndo({
+      pushGranularCellUndo({
+        key,
         description: `Shortened ${headName} — released a block`,
-        undo: async () => {
-          const current = slotsRef.current.find(s => s.id === t.id)
-          const stillMatches = current && current.activity_id == null && current.is_span_head === true
-          if (!stillMatches) {
-            setActionError('This block changed since you shortened it — undo skipped for that cell.')
-            return
-          }
-          await runMutation({
-            keys: [key],
-            claimId: crypto.randomUUID(),
-            dispatch: async () => { await repo.writeSlotFields(current.id, { activity_id: prevActivityId, is_span_head: false, flags: prevFlags }) },
-            onSuccess: () => {
-              setSlots(prev => {
-                const next = prev.map(s => s.id === current.id ? { ...s, activity_id: prevActivityId, is_span_head: false, flags: prevFlags } : s)
-                slotsRef.current = next
-                return next
-              })
-            },
-            ownWriteKinds: { [key]: prevActivityId ? `activity:${prevActivityId}` : 'empty' },
-          })
-        },
-        redo: async () => {
-          const current = slotsRef.current.find(s => s.id === t.id)
-          if (!current) return
-          await runMutation({
-            keys: [key],
-            claimId: crypto.randomUUID(),
-            dispatch: async () => { await repo.writeSlotFields(current.id, { activity_id: null, is_span_head: true, flags: {} }) },
-            onSuccess: () => {
-              setSlots(prev => {
-                const next = prev.map(s => s.id === current.id ? { ...s, activity_id: null, is_span_head: true, flags: {} } : s)
-                slotsRef.current = next
-                return next
-              })
-            },
-            ownWriteKinds: { [key]: 'empty' },
-          })
-        },
+        findCurrent: () => slotsRef.current.find(s => s.id === t.id),
+        isForwardState: (current) => current.activity_id == null && current.is_span_head === true,
+        mismatchMessage: 'This block changed since you shortened it — undo skipped for that cell.',
+        backwardFields: { activity_id: prevActivityId, is_span_head: false, flags: prevFlags },
+        backwardOwnWriteKind: prevActivityId ? `activity:${prevActivityId}` : 'empty',
+        forwardFields: { activity_id: null, is_span_head: true, flags: {} },
+        forwardOwnWriteKind: 'empty',
       })
     }
   }
@@ -1238,46 +1235,16 @@ export function useSlotMutations({
       const prevActivityId = t.activity_id
       const prevIsSpanHead = t.is_span_head ?? false
       const prevFlags = t.flags ?? {}
-      pushUndo({
+      pushGranularCellUndo({
+        key,
         description,
-        undo: async () => {
-          const current = slotsRef.current.find(s => s.id === t.id)
-          const stillMatches = current && current.activity_id == null && current.is_span_head === true
-          if (!stillMatches) {
-            setActionError('This block changed since you split it — undo skipped for that cell.')
-            return
-          }
-          await runMutation({
-            keys: [key],
-            claimId: crypto.randomUUID(),
-            dispatch: async () => { await repo.writeSlotFields(current.id, { activity_id: prevActivityId, is_span_head: prevIsSpanHead, flags: prevFlags }) },
-            onSuccess: () => {
-              setSlots(prev => {
-                const next = prev.map(s => s.id === current.id ? { ...s, activity_id: prevActivityId, is_span_head: prevIsSpanHead, flags: prevFlags } : s)
-                slotsRef.current = next
-                return next
-              })
-            },
-            ownWriteKinds: { [key]: prevActivityId ? `activity:${prevActivityId}` : 'empty' },
-          })
-        },
-        redo: async () => {
-          const current = slotsRef.current.find(s => s.id === t.id)
-          if (!current) return
-          await runMutation({
-            keys: [key],
-            claimId: crypto.randomUUID(),
-            dispatch: async () => { await repo.writeSlotFields(current.id, { activity_id: null, is_span_head: true, flags: {} }) },
-            onSuccess: () => {
-              setSlots(prev => {
-                const next = prev.map(s => s.id === current.id ? { ...s, activity_id: null, is_span_head: true, flags: {} } : s)
-                slotsRef.current = next
-                return next
-              })
-            },
-            ownWriteKinds: { [key]: 'empty' },
-          })
-        },
+        findCurrent: () => slotsRef.current.find(s => s.id === t.id),
+        isForwardState: (current) => current.activity_id == null && current.is_span_head === true,
+        mismatchMessage: 'This block changed since you split it — undo skipped for that cell.',
+        backwardFields: { activity_id: prevActivityId, is_span_head: prevIsSpanHead, flags: prevFlags },
+        backwardOwnWriteKind: prevActivityId ? `activity:${prevActivityId}` : 'empty',
+        forwardFields: { activity_id: null, is_span_head: true, flags: {} },
+        forwardOwnWriteKind: 'empty',
       })
     }
   }

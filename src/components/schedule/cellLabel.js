@@ -27,3 +27,13 @@ export function blockNamesForSpan(timeBlocks, blockIndex, rowSpan = 1) {
     .slice(blockIndex, blockIndex + Math.max(1, rowSpan))
     .map(b => b.name)
 }
+
+// T107 item 2 — the ordered TAIL block ids a span covers (head excluded), for
+// the interior-split bands. rowSpan is already chain-based via
+// getActivityRowSpan, so this is a render-only slice of the already-known
+// timeBlocks array — no new geometry function.
+export function getSpanTailBlockIds(timeBlocks, blockIndex, rowSpan = 1) {
+  return timeBlocks
+    .slice(blockIndex + 1, blockIndex + rowSpan)
+    .map(b => b.id)
+}
