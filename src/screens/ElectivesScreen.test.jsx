@@ -109,6 +109,57 @@ describe('ElectivesScreen', () => {
     )
   })
 
+  it('rejects non-numeric / negative capacity input without writing', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_sets: [electiveSet()],
+      elective_set_activities: [offering()],
+      activities: [activity()],
+      locations: [], tiers: [], groups: [],
+    }))
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('Afternoon Chugim')).not.toBeNull())
+    fireEvent.click(screen.getByText('Manage Offerings'))
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+
+    const capacityInput = screen.getByLabelText('Capacity for Pottery')
+    // digits-only guard blocks bad chars from ever entering the field
+    fireEvent.change(capacityInput, { target: { value: 'abc' } })
+    expect(capacityInput.value).toBe('')
+    fireEvent.change(capacityInput, { target: { value: '-5' } })
+    expect(capacityInput.value).toBe('')
+    fireEvent.blur(capacityInput)
+    // blur with an unchanged (still-null) value must not write
+    expect(localClient.write).not.toHaveBeenCalledWith(
+      'token-abc', 'elective_set_activities', 'off-1', 'camper_headcount', expect.anything()
+    )
+  })
+
+  it('flashes a success cue on the capacity field after a save, then clears it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    try {
+      localClient.list.mockImplementation(byEntity({
+        elective_sets: [electiveSet()],
+        elective_set_activities: [offering()],
+        activities: [activity()],
+        locations: [], tiers: [], groups: [],
+      }))
+      render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
+      await waitFor(() => expect(screen.queryByText('Afternoon Chugim')).not.toBeNull())
+      fireEvent.click(screen.getByText('Manage Offerings'))
+      await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+
+      const capacityInput = screen.getByLabelText('Capacity for Pottery')
+      fireEvent.change(capacityInput, { target: { value: '15' } })
+      fireEvent.blur(capacityInput)
+
+      await waitFor(() => expect(capacityInput.hasAttribute('data-saved')).toBe(true))
+      await vi.advanceTimersByTimeAsync(700)
+      await waitFor(() => expect(capacityInput.hasAttribute('data-saved')).toBe(false))
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('surfaces a write failure instead of silently swallowing it', async () => {
     localClient.list.mockImplementation(byEntity({
       elective_sets: [electiveSet()],

@@ -17,7 +17,7 @@ import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
-import { S, useEnterTransition } from '../styles/shared'
+import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 
 const repository = createSetupCrudRepository({ localClient })
@@ -60,6 +60,10 @@ function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapac
     offering.camper_headcount == null ? '' : String(offering.camper_headcount)
   )
   const [saving, setSaving] = useState(false)
+  // Brief green flash confirming a successful capacity save — silent-save left
+  // directors unsure it persisted (Slice 1 Tester). Single-shot, self-clears;
+  // reuses the confirm-feedback pattern from the Roots-as-hub Slice E.
+  const [savedFlash, setSavedFlash] = useState(false)
   const location = locations.find((l) => l.id === activity?.location_id)
 
   async function commitCapacity() {
@@ -69,6 +73,8 @@ function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapac
     setSaving(true)
     try {
       await onSaveCapacity(offering.id, value)
+      setSavedFlash(true)
+      setTimeout(() => setSavedFlash(false), 700)
     } catch {
       // onSaveCapacity already surfaced the error via the screen's error banner.
     } finally {
@@ -96,7 +102,13 @@ function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapac
           }}
           onBlur={commitCapacity}
           onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-          style={{ ...S.input, width: 90 }}
+          data-saved={savedFlash ? '' : undefined}
+          style={{
+            ...S.input,
+            width: 90,
+            boxShadow: savedFlash ? '0 0 0 2px var(--secondary)' : undefined,
+            transition: prefersReducedMotion() ? 'none' : 'box-shadow var(--motion-base) var(--ease-out)',
+          }}
           aria-label={`Capacity for ${activity?.name ?? 'offering'}`}
         />
       </td>

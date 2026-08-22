@@ -31,10 +31,13 @@ real delta (don't rebuild what exists).
   precedent comments). `database-sync` gate (integration mandatory).
 - **Screen:** a dedicated elective screen where a director builds an **elective set**
   = a named period's worth of **offerings**, each carrying: the activity, its
-  **location**, **staff**, **eligibility (who can go)**, and **capacity**. Reuse
+  **location**, **eligibility (who can go)**, and **capacity**. Reuse
   `setupCrudRepository` / `useCrudScreen` and the frozen tokens; Operate-restrained.
-  Location/staff/eligibility surface via each offering activity's existing links
-  (do not duplicate those models).
+  Location/eligibility surface via each offering activity's existing links (do not
+  duplicate those models).
+  - **Staff DEFERRED (ratified 2026-08-22):** no staffing model exists on
+    `activities`; the offering row omits staff rather than fabricate one. Staff-per-
+    offering is its own future initiative (a real staffing model). See the parent ADR.
 - **Success:** a director can create "Afternoon Chugim" with N offerings, each with
   location/staff/capacity/eligibility, and edit them; persists + replicates like any
   setup entity; gate green.

@@ -58,9 +58,23 @@ the **rich** instance. Electives ship first to de-risk the pattern.
   "Electives". Per-cell (owner-confirmed): different groups may reference
   different sets in the same period.
 - **The sub-schedule is an editable elective set:** its **offerings**
-  (`elective_set_activities`), each carrying **location**, **staff**,
-  **eligibility (who can go)**, and **capacity**, edited on a **dedicated elective
-  screen**.
+  (`elective_set_activities`), each carrying **location**, **eligibility (who can
+  go)**, and **capacity**, edited on a **dedicated elective screen**. Location and
+  eligibility are read from the offering's underlying activity (not duplicated).
+  - **Staff-per-offering is deferred (2026-08-22, ratified during Slice 1 review):**
+    the app has **no staffing model** on `activities` today (confirmed by search —
+    only `users.role`). Rather than fabricate one (which would duplicate a model
+    that does not exist), the offering row omits staff. Staff-per-offering waits on
+    a real staffing model as its own initiative; the Maccabiah `Activity - Person`
+    cells that suggested "staff" are an ingest concern for the event layer, not a
+    reason to invent a staffing field here.
+  - **`camper_headcount` validation (Red Hat/Security, 2026-08-22):** the capacity
+    column has client-side clamping (≥0 integer) but no server-side range check at
+    op-apply — consistent with the app's existing posture for every integer field
+    (`sort_order`, etc.), so it is not singled out with a one-off write guard. The
+    field is inert today (nothing reads it). **When T41 wires the engine to consume
+    `camper_headcount`, it MUST read defensively** (treat null / negative / non-int
+    as "no cap"), validating where the value is consumed rather than at every write.
 - **Model delta is small.** `elective_sets` + `elective_set_activities` (T41,
   data-shape-shipped) are the bones. The one real gap is **per-offering
   capacity** — the `camper_headcount` T41 explicitly deferred. Location / staff /
