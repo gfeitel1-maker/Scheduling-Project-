@@ -601,8 +601,12 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
     try {
       const id = randomUUID()
       const commonOp = { entity: 'elective_sets', entity_id: id, author_user_id: author_user_id ?? null, device_id, parent_op_id: null, source: 'human' }
-      appendOp(db, { ...commonOp, field: 'camp_id', value: camp_id, client_write_id: randomUUID() })
+      // name FIRST — elective_sets is UNIQUE_FIRST_FIELD-registered (Red Hat, 2026-08-22):
+      // writing the unique `name` before `camp_id` means a cross-device collision on
+      // `name` is rejected BEFORE a blank-name row is materialized, so the loser never
+      // ends up with an orphaned camp_id-only row. Matches the manual-create ordering.
       appendOp(db, { ...commonOp, field: 'name', value: name, client_write_id: randomUUID() })
+      appendOp(db, { ...commonOp, field: 'camp_id', value: camp_id, client_write_id: randomUUID() })
       created.push({ id, name })
       liveNormalizedNames.add(key)
     } catch (err) {

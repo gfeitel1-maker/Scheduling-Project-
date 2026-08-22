@@ -182,6 +182,12 @@ The Slice 3 architecture pass established the concrete shape and split it:
   `detectUniqueFieldCollision` conflict-resolution path the pre-check at both
   sync write-entry points already uses — and closes the same gap for the
   pre-existing authored elective-set create, not just the Slice 3a nudge.
+  **Both create paths write `name` first** (the authored `ElectivesScreen`
+  create AND the ingest `commitElectiveCandidates`, reordered per Red Hat's
+  re-review) so a cross-device `name` collision is rejected before a blank-name
+  row is materialized — no orphaned camp_id-only row. Sibling note: the
+  *locations* ingest-create still writes camp_id-first (`ingest.js` ~L1087) — a
+  pre-existing instance of the same pattern, tracked in T115.
 
 ### 5. Ownership
 The peer sessions that previously held the elective authoring UI (T105/T110/T111)

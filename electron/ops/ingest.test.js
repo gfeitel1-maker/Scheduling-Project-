@@ -1452,6 +1452,22 @@ describe('confirmedElectiveSets (Slice 3a)', () => {
     expect(row.name).toBe('Chugim')
   })
 
+  it('writes the unique name field BEFORE camp_id (UNIQUE_FIRST_FIELD orphan-row guard)', () => {
+    commitIngest(db, {
+      approved: {}, camp_id: campId, device_id: deviceId,
+      confirmedElectiveSets: [{ name: 'Chugim' }],
+    })
+    const row = db.prepare('SELECT id FROM elective_sets WHERE camp_id = ?').get(campId)
+    const ops = db.prepare(
+      "SELECT field, seq FROM operations WHERE entity = 'elective_sets' AND entity_id = ? ORDER BY seq"
+    ).all(row.id)
+    const nameSeq = ops.find((o) => o.field === 'name')?.seq
+    const campSeq = ops.find((o) => o.field === 'camp_id')?.seq
+    // name-first so a cross-device collision on name is rejected before a
+    // blank-name row is materialized (Red Hat, 2026-08-22).
+    expect(nameSeq).toBeLessThan(campSeq)
+  })
+
   it('is idempotent — confirming the same name twice creates only one row', () => {
     commitIngest(db, {
       approved: {}, camp_id: campId, device_id: deviceId,
