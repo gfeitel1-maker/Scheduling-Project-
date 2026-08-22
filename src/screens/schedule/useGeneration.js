@@ -87,7 +87,13 @@ export function useGeneration({
     const electivePreplaced = slotsByRoute.generated
       .filter(s => s.elective_set_id)
       .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, electiveSetId: s.elective_set_id }))
-    const preplacedSlots = [...lockedPreplaced, ...electivePreplaced]
+    // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+    // placement.md §6): same posture as electivePreplaced above — an
+    // authored event cell is pre-placed/do-not-fill.
+    const eventPreplaced = slotsByRoute.generated
+      .filter(s => s.event_id)
+      .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, eventId: s.event_id }))
+    const preplacedSlots = [...lockedPreplaced, ...electivePreplaced, ...eventPreplaced]
 
     const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), anchors: effAnchors, campId, preplacedSlots, locations })
     setGenFindings(result.findings || [])

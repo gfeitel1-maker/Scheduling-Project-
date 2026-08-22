@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 39
+export const CURRENT_SCHEMA_VERSION = 40
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1617,6 +1617,28 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v40 — events overlay placement (Slice 1, docs/adr/2026-08-22-events-
+  // overlay-placement.md, docs/work/specs/2026-08-22-events-overlay-slices.md).
+  // One new table (events), no backfill: every camp starts with zero events.
+  // ALSO extends the existing template_slots table with a nullable event_id
+  // column — template_slots is a DRIFTED TABLE (see the schema.sql comment
+  // above it), so this is an ALTER, not folded into a CREATE TABLE. Mirrors
+  // v35's elective_set_id shape exactly. No DDL-time side effect, so this
+  // block emits no op, same posture as v33-v39.
+  if (getSchemaVersion(db) >= 39 && getSchemaVersion(db) < 40) {
+    db.transaction(() => {
+      db.exec(EVENTS_DDL)
+      const hasEventId = db
+        .pragma('table_info(template_slots)')
+        .some((col) => col.name === 'event_id')
+      if (!hasEventId) db.exec('ALTER TABLE template_slots ADD COLUMN event_id TEXT')
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (40, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct
@@ -1829,6 +1851,19 @@ export const ELECTIVE_SET_ACTIVITIES_DDL = `CREATE TABLE IF NOT EXISTS elective_
   activity_id TEXT NOT NULL,
   camper_headcount INTEGER,
   UNIQUE(elective_set_id, activity_id)
+)`
+
+// Byte-identical duplicate of the events block in schema.sql (schema v40,
+// Events overlay placement Slice 1, docs/adr/2026-08-22-events-overlay-
+// placement.md). Kept as a constant so the v40 migration cannot drift from
+// schema.sql by a stray space — same discipline as ELECTIVE_SETS_DDL above.
+export const EVENTS_DDL = `CREATE TABLE IF NOT EXISTS events (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  name TEXT NOT NULL,
+  sort_order INTEGER,
+  notes TEXT,
+  UNIQUE(camp_id, name)
 )`
 
 // Byte-identical duplicate of the day_overrides block in schema.sql (schema

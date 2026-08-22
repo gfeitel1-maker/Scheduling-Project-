@@ -180,6 +180,17 @@ describe('decideCell', () => {
     expect(decideCell(geometry, 'g1', 'd1', 'b1').kind).toBe('empty')
   })
 
+  // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+  // placement.md §3) — an event cell (event_id set, activity_id null) has
+  // real content and must render as a slot, same as an elective cell.
+  it('treats a slot with only event_id set as content, not empty', () => {
+    const slots = [slot({ time_block_id: 'b1', activity_id: null, event_id: 'ev-1', flags: {} })]
+    const geometry = makeGridGeometry({ slots, timeBlocks, groups, overlays: [], fillState: null })
+    const d = decideCell(geometry, 'g1', 'd1', 'b1')
+    expect(d.kind).toBe('slot')
+    expect(d.cellType).toBe('activity')
+  })
+
   it('renders an UNFILLABLE-flagged empty slot as a slot cell (cellType activity)', () => {
     // The empty early-return only fires when NOT UNFILLABLE, so an UNFILLABLE
     // empty slot reaches cellType, which resolves to 'activity' (matches views).

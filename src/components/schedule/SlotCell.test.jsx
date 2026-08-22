@@ -413,6 +413,65 @@ describe('SlotCell — elective render (T105)', () => {
   })
 })
 
+// Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+// placement.md §3/§5) — opaque render + dangling-reference fallback, mirrors
+// the elective-cell block above exactly.
+describe('SlotCell — events overlay opaque render', () => {
+  const eventSlot = {
+    id: 's4', groupId: 'g1', dayId: 'd1', blockId: 'b1',
+    type: 'activity', activity_id: null, event_id: 'ev-1', flags: {},
+  }
+
+  it('renders the event name and carries the [data-event] attribute', () => {
+    const { container } = render(
+      <DndContext>
+        <SlotCell
+          slot={eventSlot}
+          eventsAll={[{ id: 'ev-1', name: 'Color War' }]}
+          gridRow="1 / span 1"
+          gridColumn="2 / span 1"
+          ariaColIndex={2}
+          cellKey="g1|d1|b1"
+        />
+      </DndContext>
+    )
+    expect(screen.getByText('Color War')).toBeTruthy()
+    expect(container.querySelector('[data-event]')).toBeTruthy()
+  })
+
+  it('a dangling event_id (event deleted from another device) renders "Event (removed)", not blank or a thrown error', () => {
+    render(
+      <DndContext>
+        <SlotCell
+          slot={eventSlot}
+          eventsAll={[]}
+          gridRow="1 / span 1"
+          gridColumn="2 / span 1"
+          ariaColIndex={2}
+          cellKey="g1|d1|b1"
+        />
+      </DndContext>
+    )
+    expect(screen.getByText('Event (removed)')).toBeTruthy()
+  })
+
+  it('a non-event cell never carries the [data-event] attribute', () => {
+    const { container } = render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          gridRow="1 / span 1"
+          gridColumn="2 / span 1"
+          ariaColIndex={2}
+          cellKey="g1|d1|b1"
+        />
+      </DndContext>
+    )
+    expect(container.querySelector('[data-event]')).toBeNull()
+  })
+})
+
 // Slice 2 (docs/work/specs/2026-08-22-electives-nested-schedule-slices.md) —
 // the campwide-cell-to-Electives-screen drill-in button.
 describe('SlotCell — elective drill-in button (Slice 2)', () => {

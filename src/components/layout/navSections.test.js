@@ -15,7 +15,7 @@ describe('NAV_SECTIONS setup items (Slice B)', () => {
     const childKeys = setupItems[0].children.map(c => c.key)
     expect(childKeys).toEqual([
       'tiers', 'groups', 'days', 'timeblocks', 'activities',
-      'locations', 'anchors', 'electives', 'specialdays',
+      'locations', 'anchors', 'electives', 'events', 'specialdays',
     ])
   })
 

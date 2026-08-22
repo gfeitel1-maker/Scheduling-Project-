@@ -91,6 +91,7 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'location_migration_reviews', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
   { table: 'special_days', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
   { table: 'elective_sets', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
+  { table: 'events', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
   // T108 Phase 2 review round 3 — day_overrides is the live entity
   // (day_override_templates above is the retired predecessor).
   { table: 'day_overrides', column: 'camp_id', reason: 'scopes to camps, not a U2-deletable entity' },
@@ -118,6 +119,7 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'special_day_slots', column: 'time_block_id', reason: 'points at special_day_time_blocks, not a U2-deletable entity' },
   { table: 'elective_set_activities', column: 'elective_set_id', reason: 'points at elective_sets, not a U2-deletable entity' },
   { table: 'template_slots', column: 'elective_set_id', reason: 'points at elective_sets, not a U2-deletable entity' },
+  { table: 'template_slots', column: 'event_id', reason: 'points at events, not a U2-deletable entity' },
   { table: 'week_activity_exclusions', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
   { table: 'week_group_exclusions', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
   { table: 'week_location_exclusions', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },

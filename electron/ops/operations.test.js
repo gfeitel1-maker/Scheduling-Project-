@@ -691,6 +691,27 @@ describe('detectUniqueFieldCollision (D2 — locations UNIQUE(camp_id, name))', 
     expect(result.id).toBe('loc-a')
   })
 
+  it('detects a collision for events UNIQUE(camp_id, name) — same cross-device same-named-create race', () => {
+    appendOp(db, {
+      entity: 'events',
+      entity_id: 'event-a',
+      field: 'name',
+      value: 'Color War',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    const result = detectUniqueFieldCollision(db, {
+      entity: 'events',
+      entity_id: 'event-b',
+      field: 'name',
+      value: 'Color War',
+    })
+    expect(result).toBeTruthy()
+    expect(result.id).toBe('event-a')
+  })
+
   it('is a no-op for an entity not registered in UNIQUE_FIELD_ENTITIES', () => {
     const result = detectUniqueFieldCollision(db, {
       entity: 'groups',

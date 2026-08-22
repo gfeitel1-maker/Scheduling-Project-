@@ -357,11 +357,14 @@ describe('applyProjection T111 mutual exclusion — template_slots', () => {
     )
   })
 
-  it('registers the exclusive pair for template_slots, symmetric both ways', () => {
-    expect(MUTUALLY_EXCLUSIVE_FIELDS.template_slots).toEqual({
-      activity_id: 'elective_set_id',
-      elective_set_id: 'activity_id',
-    })
+  // Generalized from a pair-dict to a precedence-ordered group list (Events
+  // overlay placement Slice 1, docs/adr/2026-08-22-events-overlay-placement.md
+  // §3) so a three-way exclusivity (activity_id/elective_set_id/event_id)
+  // can be expressed without contradiction. Group order IS precedence order.
+  it('registers the exclusive group for template_slots, precedence-ordered activity/elective/event', () => {
+    expect(MUTUALLY_EXCLUSIVE_FIELDS.template_slots).toEqual([
+      ['activity_id', 'elective_set_id', 'event_id'],
+    ])
   })
 
   // The headline test: replay-order interleave, not call-order. This is the
@@ -418,6 +421,47 @@ describe('applyProjection T111 mutual exclusion — template_slots', () => {
 
     const row = db.prepare('SELECT activity_id, elective_set_id FROM template_slots WHERE id = ?').get('slot-1')
     expect(row.activity_id).toBe('act-1')
+    expect(row.elective_set_id).toBeNull()
+  })
+
+  // Step 2 (Events overlay placement Slice 1) — three-way exclusivity.
+  // docs/work/specs/2026-08-22-events-overlay-slices.md
+  describe('sanitizeMutuallyExclusiveRow: three-way group (activity_id/elective_set_id/event_id)', () => {
+    it('clears event_id when activity_id and event_id are both set', () => {
+      expect(
+        sanitizeMutuallyExclusiveRow('template_slots', { activity_id: 'act-1', elective_set_id: null, event_id: 'ev-1' })
+      ).toEqual({ activity_id: 'act-1', elective_set_id: null, event_id: null })
+    })
+
+    it('clears event_id when elective_set_id and event_id are both set', () => {
+      expect(
+        sanitizeMutuallyExclusiveRow('template_slots', { activity_id: null, elective_set_id: 'set-1', event_id: 'ev-1' })
+      ).toEqual({ activity_id: null, elective_set_id: 'set-1', event_id: null })
+    })
+
+    it('clears both elective_set_id and event_id, keeping activity_id, when all three are set', () => {
+      expect(
+        sanitizeMutuallyExclusiveRow('template_slots', { activity_id: 'act-1', elective_set_id: 'set-1', event_id: 'ev-1' })
+      ).toEqual({ activity_id: 'act-1', elective_set_id: null, event_id: null })
+    })
+
+    it('is a no-op when only event_id is set', () => {
+      expect(
+        sanitizeMutuallyExclusiveRow('template_slots', { activity_id: null, elective_set_id: null, event_id: 'ev-1' })
+      ).toEqual({ activity_id: null, elective_set_id: null, event_id: 'ev-1' })
+    })
+  })
+
+  // applyProjection's per-field eviction step (the OTHER call site, not
+  // sanitizeMutuallyExclusiveRow) must also exercise the three-way group.
+  it('applyProjection eviction: writing event_id non-null nulls BOTH activity_id and elective_set_id on the same row', () => {
+    applyProjection(db, { entity: 'template_slots', entity_id: 'slot-1', field: 'activity_id', value: 'act-1' })
+    applyProjection(db, { entity: 'template_slots', entity_id: 'slot-1', field: 'elective_set_id', value: 'set-1' })
+    applyProjection(db, { entity: 'template_slots', entity_id: 'slot-1', field: 'event_id', value: 'ev-1' })
+
+    const row = db.prepare('SELECT activity_id, elective_set_id, event_id FROM template_slots WHERE id = ?').get('slot-1')
+    expect(row.event_id).toBe('ev-1')
+    expect(row.activity_id).toBeNull()
     expect(row.elective_set_id).toBeNull()
   })
 

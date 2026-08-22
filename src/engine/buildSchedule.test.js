@@ -113,6 +113,29 @@ describe('elective cells excluded from regular placement (engine-skip)', () => {
   })
 })
 
+// Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+// placement.md §6): an event cell is authored content, never engine output —
+// identical posture to the elective-skip block above.
+describe('event cells excluded from regular placement (engine-skip)', () => {
+  it('never places an activity into a cell carrying an eventId, and does not count it unfilled', () => {
+    const archery = { id: 'archery', name: 'Archery', priority: 'high', max_per_week: 5, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+    const preplacedSlots = [{ groupId: 'g1', dayId: 'd1', blockId: 'b1', eventId: 'ev1' }]
+    const { slots } = buildSchedule(minimal({ activities: [archery], preplacedSlots }))
+
+    const cell = slots.find(s => s.groupId === 'g1' && s.dayId === 'd1' && s.blockId === 'b1')
+    expect(cell).toBeTruthy()
+    expect(cell.type).toBe('event')
+    expect(cell.activityId).toBeNull()
+    expect(cell.eventId).toBe('ev1')
+    expect(cell.flags?.UNFILLABLE).toBeFalsy()
+
+    const regularAtSameCoord = slots.filter(
+      s => s.groupId === 'g1' && s.dayId === 'd1' && s.blockId === 'b1' && s.type === 'activity'
+    )
+    expect(regularAtSameCoord).toHaveLength(0)
+  })
+})
+
 describe('UNFILLABLE flag', () => {
   it('sets UNFILLABLE_reason when no activities are eligible', () => {
     const { slots } = buildSchedule(minimal({ activities: [] }))

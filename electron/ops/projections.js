@@ -451,6 +451,21 @@ export const PROJECTIONS = {
       ).run(id, electiveSetId, activityId)
     },
   },
+  // events (Events overlay placement Slice 1, docs/adr/2026-08-22-events-
+  // overlay-placement.md). Camp-scoped parent, same ensureExists shape as
+  // elective_sets/special_days above.
+  events: {
+    table: 'events',
+    key: 'id',
+    fields: ['camp_id', 'name', 'sort_order', 'notes'],
+    ensureExists: (db, id) => {
+      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+      getStmt(db, "INSERT OR IGNORE INTO events (id, camp_id, name) VALUES (?, ?, '')").run(
+        id,
+        camp?.id ?? null
+      )
+    },
+  },
   // day_overrides (T108, ADR 2026-08-21-day-overrides-repoint-shape.md D1).
   // Direct-camp-scoped (camp_id NOT NULL, like special_days), but with FOUR
   // additional NOT NULL foreign keys (schedule_week_id, day_id, group_id,
@@ -695,6 +710,12 @@ export const PROJECTIONS = {
       // MUTUALLY_EXCLUSIVE_FIELDS below (T111,
       // docs/work/specs/2026-08-20-elective-cell-atomic-content-design.md).
       'elective_set_id',
+      // v40 (Events overlay placement Slice 1, docs/adr/2026-08-22-events-
+      // overlay-placement.md): a slot with event_id set is an opaque event
+      // cell; all three of activity_id/elective_set_id/event_id are mutually
+      // exclusive as a precedence-ordered group (see MUTUALLY_EXCLUSIVE_FIELDS
+      // below).
+      'event_id',
     ],
     // template_id is NOT NULL with no default and is a real FK, so the row
     // can only be created once the parent link is known — identical shape to
@@ -736,30 +757,38 @@ export const PROJECTIONS = {
 // leave both non-null with no conflict ever recorded. The eviction step in
 // applyProjection below, plus sanitizeMutuallyExclusiveRow for the
 // bulkReplace write paths (operations.js), close that race at apply time.
+// Generalized (Events overlay placement Slice 1, docs/adr/2026-08-22-events-
+// overlay-placement.md §3) from a pair-dict to a list of precedence-ordered
+// groups — a three-way exclusivity (activity_id/elective_set_id/event_id)
+// cannot be expressed as symmetric pairs without a contradiction (a row
+// could end up with activity_id + event_id both set, unsanitized, since
+// neither pair mentions the other). Group order IS precedence order: the
+// field listed first survives when more than one member is non-null.
 export const MUTUALLY_EXCLUSIVE_FIELDS = {
-  template_slots: {
-    activity_id: 'elective_set_id',
-    elective_set_id: 'activity_id',
-  },
+  template_slots: [['activity_id', 'elective_set_id', 'event_id']],
 }
 
-// Pure, total sanitizer for a single row object: if both halves of a
-// registered mutually-exclusive pair are non-null, clears the partner
-// (fixed field-name precedence — the field listed first in the pair's key
-// wins, i.e. activity_id survives over elective_set_id for template_slots),
-// deterministically and identically on every device sanitizing the same row
-// data. No-op for any entity not registered above (e.g. template_overlays).
-// Used by operations.js's bulkReplace write and replay paths, which never
-// go through applyProjection/the per-field eviction step below.
+// Pure, total sanitizer for a single row object: for each registered group,
+// keeps the first non-null field (group order = precedence) and nulls every
+// other member of the group that is also non-null, deterministically and
+// identically on every device sanitizing the same row data. No-op for any
+// entity not registered above (e.g. template_overlays). Used by
+// operations.js's bulkReplace write and replay paths, which never go through
+// applyProjection/the per-field eviction step below.
 export function sanitizeMutuallyExclusiveRow(entity, row) {
-  const pairs = MUTUALLY_EXCLUSIVE_FIELDS[entity]
-  if (!pairs) return row
-  for (const [field, partner] of Object.entries(pairs)) {
-    if (row[field] != null && row[partner] != null) {
-      return { ...row, [partner]: null }
+  const groups = MUTUALLY_EXCLUSIVE_FIELDS[entity]
+  if (!groups) return row
+  let result = row
+  for (const group of groups) {
+    const survivor = group.find((field) => result[field] != null)
+    if (!survivor) continue
+    for (const field of group) {
+      if (field !== survivor && result[field] != null) {
+        result = { ...result, [field]: null }
+      }
     }
   }
-  return row
+  return result
 }
 
 // Reserved field name for a row-delete op — see DELETE_FIELD's definition in
@@ -825,12 +854,15 @@ export function applyProjection(db, op) {
   // This is a local side effect of replay, not a new appended op: it must
   // never be re-appended to the op-log (that would create a duplicate-op
   // loop across devices replaying each other's corrections).
-  const exclusivePair = MUTUALLY_EXCLUSIVE_FIELDS[op.entity]?.[op.field]
-  if (exclusivePair && op.value != null) {
-    getStmt(
-      db,
-      `UPDATE ${projection.table} SET ${exclusivePair} = NULL WHERE ${projection.key} = ? AND ${exclusivePair} IS NOT NULL`
-    ).run(op.entity_id)
+  const exclusiveGroup = MUTUALLY_EXCLUSIVE_FIELDS[op.entity]?.find((group) => group.includes(op.field))
+  if (exclusiveGroup && op.value != null) {
+    for (const partner of exclusiveGroup) {
+      if (partner === op.field) continue
+      getStmt(
+        db,
+        `UPDATE ${projection.table} SET ${partner} = NULL WHERE ${projection.key} = ? AND ${partner} IS NOT NULL`
+      ).run(op.entity_id)
+    }
   }
 
   return true

@@ -304,7 +304,7 @@ CREATE TABLE IF NOT EXISTS activities (
 -- idx_groups_camp_name (version 12). activities is camp-scoped only (no
 -- cohort_id), matching groups, not tiers/time_blocks.
 
--- DRIFTED TABLE: a migrated database has 11 columns, not the 6 below.
+-- DRIFTED TABLE: a migrated database has 12 columns, not the 6 below.
 -- Migration-added columns (see localDb.js):
 --   v10: flags TEXT, is_released INTEGER, is_span_head INTEGER
 --   v17: anchor_id TEXT, is_anchor INTEGER
@@ -313,7 +313,12 @@ CREATE TABLE IF NOT EXISTS activities (
 --     elective_set_id set is an elective cell (activity_id ignored); the two
 --     are mutually exclusive, enforced by the (UI-driven) write path in a
 --     later slice.
--- Use PRAGMA table_info(template_slots) against a migrated db to see all 11.
+--   v40: event_id TEXT (Events overlay placement Slice 1, docs/adr/2026-08-22-
+--     events-overlay-placement.md) — a slot with event_id set is an opaque
+--     event cell (activity_id/elective_set_id ignored); all three are
+--     mutually exclusive as a precedence-ordered group (see
+--     MUTUALLY_EXCLUSIVE_FIELDS, electron/ops/projections.js).
+-- Use PRAGMA table_info(template_slots) against a migrated db to see all 12.
 CREATE TABLE IF NOT EXISTS template_slots (
   id TEXT PRIMARY KEY,
   template_id TEXT NOT NULL,
@@ -776,6 +781,24 @@ CREATE TABLE IF NOT EXISTS elective_set_activities (
   activity_id TEXT NOT NULL,
   camper_headcount INTEGER,
   UNIQUE(elective_set_id, activity_id)
+);
+
+-- events (schema v40, Events overlay placement Slice 1, docs/adr/2026-08-22-
+-- events-overlay-placement.md). Camp-scoped, mirroring elective_sets' shape:
+-- the parent entity a director creates once and places as an opaque,
+-- span-mergeable cell on the campwide schedule (template_slots.event_id,
+-- below). A NEW table (not drifted) — column order is free to choose since
+-- there is no pre-existing table to stay compatible with. notes is free
+-- text, same posture as special_days.notes (recorded and printed, never
+-- parsed). No internal sub-schedule/stations/teams/scoring in this slice
+-- (deferred to Slice 2, see the ADR's Consequences).
+CREATE TABLE IF NOT EXISTS events (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  name TEXT NOT NULL,
+  sort_order INTEGER,
+  notes TEXT,
+  UNIQUE(camp_id, name)
 );
 
 -- day_overrides (schema v38, T108, ADR 2026-08-21-day-overrides-repoint-

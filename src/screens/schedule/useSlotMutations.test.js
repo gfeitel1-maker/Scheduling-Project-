@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-import { useSlotMutations, collectSpanTails, spanStopsAt, repairOrphanSpanTails, computeSpanExtendPreview } from './useSlotMutations'
+import { useSlotMutations, collectSpanTails, spanStopsAt, repairOrphanSpanTails, computeSpanExtendPreview, refField } from './useSlotMutations'
 import { getSlot } from './gridGeometry'
 
 // A fake repo capturing exactly the fields handed to each write — no React, no
@@ -869,6 +869,47 @@ describe('useSlotMutations — collectSpanTails characterization (arbitrary N)',
     ]
     const tails = collectSpanTails(slots, fiveBlocks, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, headRow)
     expect(tails.map(t => t.id)).toEqual(['t1', 't2', 't3', 't4'])
+  })
+})
+
+// Step 3 (Events overlay placement Slice 1, docs/adr/2026-08-22-events-
+// overlay-placement.md §4) — refField discriminator + collectSpanTails
+// generalized off the activity_id-only hardcode.
+describe('useSlotMutations — refField (ADR §4 discriminator)', () => {
+  it('returns activity_id when activity_id is set', () => {
+    expect(refField({ activity_id: 'act-1', event_id: null })).toBe('activity_id')
+  })
+  it('returns event_id when only event_id is set', () => {
+    expect(refField({ activity_id: null, event_id: 'ev-1' })).toBe('event_id')
+  })
+  it('prefers activity_id when both are (invalidly) set', () => {
+    expect(refField({ activity_id: 'act-1', event_id: 'ev-1' })).toBe('activity_id')
+  })
+  it('returns null when neither is set (e.g. an elective-only row)', () => {
+    expect(refField({ activity_id: null, event_id: null, elective_set_id: 'set-1' })).toBeNull()
+  })
+})
+
+describe('useSlotMutations — collectSpanTails generalized (event-headed spans)', () => {
+  it('walks an event-headed span the same way it walks an activity-headed one', () => {
+    const headRow = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, event_id: 'ev-1', is_span_head: true }
+    const slots = [
+      headRow,
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, event_id: 'ev-1', is_span_head: false },
+      { id: 't2', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: null, event_id: 'ev-1', is_span_head: false },
+    ]
+    const tails = collectSpanTails(slots, spanTimeBlocks, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, headRow)
+    expect(tails.map(t => t.id)).toEqual(['t1', 't2'])
+  })
+
+  it('an elective-only row (never spans) still returns [] — provably unaffected by the generalization', () => {
+    const headRow = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: 'set-1', is_span_head: true }
+    const slots = [
+      headRow,
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, elective_set_id: 'set-1', is_span_head: false },
+    ]
+    const tails = collectSpanTails(slots, spanTimeBlocks, { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, headRow)
+    expect(tails).toEqual([])
   })
 })
 

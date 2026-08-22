@@ -305,7 +305,11 @@
    ACTIVITY_COLORS six-color/greyscale-legible constraint slotCellConstants.
    test.js guards). Layered as a background-image so the activity-colour
    identity dot / structural bars underneath are unaffected. */
-.cell[data-elective] .cell-inner {
+.cell[data-elective] .cell-inner,
+/* Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+   placement.md §3) — same opaque "group" hatch treatment as an elective
+   cell, reused as-is (no new palette/token). */
+.cell[data-event] .cell-inner {
   background-image: repeating-linear-gradient(
     135deg,
     color-mix(in srgb, var(--text) 6%, transparent) 0,
@@ -316,7 +320,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cell[data-elective] .cell-inner {
+  .cell[data-elective] .cell-inner,
+  .cell[data-event] .cell-inner {
     background-image: none;
     outline: 1px dashed color-mix(in srgb, var(--text) 25%, transparent);
     outline-offset: -1px;

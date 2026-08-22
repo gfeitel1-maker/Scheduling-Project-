@@ -81,6 +81,11 @@ export default function SlotCell({
   // focused on this cell's set. Called with the elective_set_id; absent (or
   // no electiveSet resolved) renders no affordance at all.
   onOpenElective,
+  // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
+  // placement.md §3/§5) — eventsAll is the render lookup (mirrors
+  // electiveSetsAll); onOpenEvent is the drill-in affordance to EventScreen,
+  // mirroring onOpenElective exactly (called with the event_id).
+  eventsAll = [], onOpenEvent,
   // Stamp mode (field-trip overlay tool) intercepts a plain click with its own
   // action instead of activating inline write — same precedence the old
   // `onEdit={cellClickHandler || ...}` gave it.
@@ -155,6 +160,7 @@ export default function SlotCell({
     // readable off the element itself — resolveHit reads exactly this.
     'data-drop-disabled': !isDndEnabled || isLocked ? '' : undefined,
     'data-elective': slot?.elective_set_id ? '' : undefined,
+    'data-event': slot?.event_id ? '' : undefined,
     // T108 Phase 2 (design §5.3, Designer spec §2) — a SWAP override (a pull
     // never reaches SlotCell; it routes to PulledCell in gridGeometry.js's
     // decideCell). Two attributes per the Designer spec §6 implementation
@@ -244,6 +250,13 @@ export default function SlotCell({
   const electiveMemberCount = slot.elective_set_id ? (electiveMembersBySet?.get(slot.elective_set_id)?.length ?? 0) : 0
   const electiveLabel = slot.elective_set_id
     ? (electiveSet ? `${electiveSet.name}${electiveMemberCount ? ` (${electiveMemberCount})` : ''}` : 'Elective (removed)')
+    : null
+  // Events overlay placement Slice 1 — same dangling-reference fallback
+  // posture as electiveLabel above, no member/offering count suffix (events
+  // have no offerings in Slice 1).
+  const event = slot.event_id ? eventsAll.find(e => e.id === slot.event_id) : null
+  const eventLabel = slot.event_id
+    ? (event ? event.name : 'Event (removed)')
     : null
   const isOutdoor = Boolean(activity?.is_outdoor)
   const showOutdoorIcon = isOutdoor && !isUnfillable
@@ -452,21 +465,30 @@ export default function SlotCell({
             onClick={e => { e.stopPropagation(); onOpenElective(electiveSet.id) }}
           ><OpenElectiveIcon /></button>
         )}
+        {event && onOpenEvent && (
+          <button
+            type="button"
+            className="cell-action cell-action--elective"
+            title={`Open ${event.name} in Events`}
+            aria-label={`Open ${event.name} in Events`}
+            onClick={e => { e.stopPropagation(); onOpenEvent(event.id) }}
+          ><OpenElectiveIcon /></button>
+        )}
         {editing ? (
           <CellInlineEditor
             eligibleActivities={eligibleActivities}
-            currentActivityName={activity?.name ?? electiveLabel ?? null}
+            currentActivityName={activity?.name ?? electiveLabel ?? eventLabel ?? null}
             onPlace={(activityId) => { setEditing(false); onPlace?.(slot, activityId) }}
             onCreateNew={(name) => { setEditing(false); onCreateNew?.(slot, name) }}
             onCreateElective={onCreateElective ? (setName, memberNames) => { setEditing(false); onCreateElective(slot, setName, memberNames) } : undefined}
             onCancel={() => setEditing(false)}
           />
         ) : (
-          <div className="cell-name" data-unassigned={!activity && !electiveLabel ? '' : undefined}>
+          <div className="cell-name" data-unassigned={!activity && !electiveLabel && !eventLabel ? '' : undefined}>
             {showIdentityDot && activity && (
               <span className="identity-dot" style={{ background: color }} />
             )}
-            {electiveLabel || activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned')}
+            {electiveLabel || eventLabel || activity?.name || (isUnfillable ? 'Unfillable' : 'Unassigned')}
           </div>
         )}
         {isOverlapping && (

@@ -70,6 +70,11 @@ export const NAV_SECTIONS = [
           // builds elective sets/offerings here, off the campwide grid, which
           // stays opaque ("Electives"). Optional, like Locations/Fixed Events.
           { key: 'electives',    label: 'Electives',     area: 'electives',    optional: true },
+          // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-
+          // overlay-placement.md §5): an event is a named, opaque block a
+          // director places directly on the campwide schedule (not its own
+          // sub-schedule, unlike Electives). Optional, same posture.
+          { key: 'events',       label: 'Events',        area: 'events',       optional: true },
           // T108 Phase 2 (design §10 "Removed") — the standalone Day Overrides
           // CRUD screen/nav entry is retired: overrides are now authored in
           // place on the rendered day via "Override this day" mode
@@ -142,4 +147,5 @@ export const AREA_TABLE = {
   anchors: 'anchor_activities',
   specialdays: 'special_days',
   electives: 'elective_sets',
+  events: 'events',
 }

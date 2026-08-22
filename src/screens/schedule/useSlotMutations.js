@@ -16,8 +16,22 @@ import { findOverrideId, upsertDayOverride } from '../../utils/dayOverrideCoordi
 // collecting contiguous following slots (same group+day) that are
 // is_span_head === false AND own the head's activity_id — stopping at the
 // first non-match. Pure, no state.
+// ADR 2026-08-22 §4 (Events overlay placement Slice 1) — which content
+// reference a row carries, for span-chain purposes. Electives are
+// deliberately excluded: they never span (no call site needs to resolve
+// elective_set_id through this), so a row with only elective_set_id set
+// resolves to null here, same as a fully-empty row — collectSpanTails'
+// guard below then returns [] for it, exactly as before this generalization.
+function refField(row) {
+  if (row.activity_id != null) return 'activity_id'
+  if (row.event_id != null) return 'event_id'
+  return null
+}
+
 function collectSpanTails(slots, timeBlocks, target, headRow) {
-  if (!headRow || headRow.is_span_head === false || headRow.activity_id == null) return []
+  if (!headRow || headRow.is_span_head === false) return []
+  const field = refField(headRow)
+  if (!field) return []
   const sortedBlocks = [...timeBlocks].sort((a, b) => a.sort_order - b.sort_order)
   const headIdx = sortedBlocks.findIndex(b => b.id === target.blockId)
   if (headIdx === -1) return []
@@ -26,7 +40,7 @@ function collectSpanTails(slots, timeBlocks, target, headRow) {
   for (let i = headIdx + 1; i < sortedBlocks.length; i++) {
     const blockId = sortedBlocks[i].id
     const row = slots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === blockId)
-    if (!row || row.is_span_head !== false || row.activity_id !== headRow.activity_id) break
+    if (!row || row.is_span_head !== false || row[field] !== headRow[field]) break
     tails.push(row)
   }
   return tails
@@ -599,7 +613,9 @@ export function useSlotMutations({
           const writes = [repo.writeSlotFields(targetRow.id, { activity_id: incoming.activityId, flags: {} })]
           if (sourceRow) writes.push(repo.writeSlotFields(sourceRow.id, { activity_id: null, flags: {} }))
           for (const tail of tailRows) {
-            writes.push(repo.writeSlotFields(tail.id, { activity_id: null, is_span_head: true, flags: {} }))
+            // ADR §4 — release whichever field this tail's chain was keyed
+            // on (activity_id or event_id), not a hardcoded activity_id.
+            writes.push(repo.writeSlotFields(tail.id, { [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} }))
           }
           await Promise.all(writes)
         } catch (err) {
@@ -615,8 +631,8 @@ export function useSlotMutations({
               return { ...s, activity_id: incoming.activityId, flags: {} }
             if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
               return { ...s, activity_id: null, flags: {} }
-            if (tailRows.some(t => t.id === s.id))
-              return { ...s, activity_id: null, is_span_head: true, flags: {} }
+            const tail = tailRows.find(t => t.id === s.id)
+            if (tail) return { ...s, [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} }
             return s
           })
           recalcStats(next)
@@ -656,11 +672,12 @@ export function useSlotMutations({
                 repo.writeSlotFields(targetRow.id, { activity_id: prevTargetActivityId, flags: prevTargetFlags }),
                 ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { activity_id: prevSourceActivityId, flags: prevSourceFlags })] : []),
                 // collectSpanTails only ever collects rows where is_span_head
-                // is exactly false and activity_id is set — the ?? fallbacks
-                // on those two fields would be dead code; flags legitimately
-                // can be absent on a manual tail, so that fallback stays.
+                // is exactly false and its chain field (activity_id or
+                // event_id, ADR §4) is set — restore whichever field that
+                // was; flags legitimately can be absent on a manual tail, so
+                // that fallback stays.
                 ...tailRows.map(tail => repo.writeSlotFields(tail.id, {
-                  activity_id: tail.activity_id,
+                  [refField(tail) ?? 'activity_id']: tail[refField(tail) ?? 'activity_id'],
                   is_span_head: false,
                   flags: tail.flags ?? {},
                 })),
@@ -676,7 +693,10 @@ export function useSlotMutations({
                 if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
                   return { ...s, activity_id: prevSourceActivityId, flags: prevSourceFlags }
                 const tail = tailRows.find(t => t.id === s.id)
-                if (tail) return { ...s, activity_id: tail.activity_id, is_span_head: false, flags: tail.flags ?? {} }
+                if (tail) {
+                  const field = refField(tail) ?? 'activity_id'
+                  return { ...s, [field]: tail[field], is_span_head: false, flags: tail.flags ?? {} }
+                }
                 return s
               })
               slotsRef.current = next
@@ -686,7 +706,10 @@ export function useSlotMutations({
           ownWriteKinds: {
             [targetKey]: prevTargetActivityId ? `activity:${prevTargetActivityId}` : 'empty',
             ...(sourceKey ? { [sourceKey]: prevSourceActivityId ? `activity:${prevSourceActivityId}` : 'empty' } : {}),
-            ...Object.fromEntries(tailRows.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), t.activity_id ? `activity:${t.activity_id}` : 'empty'])),
+            ...Object.fromEntries(tailRows.map(t => {
+              const field = refField(t) ?? 'activity_id'
+              return [cellKey(t.group_id, t.day_id, t.time_block_id), t[field] ? `activity:${t[field]}` : 'empty']
+            })),
           },
         })
       },
@@ -700,7 +723,7 @@ export function useSlotMutations({
               await Promise.all([
                 repo.writeSlotFields(targetRow.id, { activity_id: incoming.activityId, flags: {} }),
                 ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { activity_id: null, flags: {} })] : []),
-                ...tailRows.map(tail => repo.writeSlotFields(tail.id, { activity_id: null, is_span_head: true, flags: {} })),
+                ...tailRows.map(tail => repo.writeSlotFields(tail.id, { [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} })),
               ])
             } catch (err) { redoWriteError = err }
           },
@@ -712,8 +735,8 @@ export function useSlotMutations({
                   return { ...s, activity_id: incoming.activityId, flags: {} }
                 if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
                   return { ...s, activity_id: null, flags: {} }
-                if (tailRows.some(t => t.id === s.id))
-                  return { ...s, activity_id: null, is_span_head: true, flags: {} }
+                const tail = tailRows.find(t => t.id === s.id)
+                if (tail) return { ...s, [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} }
                 return s
               })
               slotsRef.current = next
@@ -1037,6 +1060,11 @@ export function useSlotMutations({
     const freshHeadSlot = freshSlots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === headBlockId) ?? headSlot
     const currentTails = collectSpanTails(freshSlots, timeBlocks, { groupId, dayId, blockId: headBlockId }, freshHeadSlot)
     const currentTailBlockIds = new Set(currentTails.map(t => t.time_block_id))
+    // ADR §4 — the field this chain is keyed on (activity_id or event_id),
+    // resolved once against the fresh head row so every tail write below
+    // absorbs/releases the SAME field the chain is actually keyed on.
+    const headField = refField(freshHeadSlot) ?? 'activity_id'
+    const headFieldValue = freshHeadSlot[headField]
 
     // R1: walk from head+1 toward toBlockId, re-applying §3's stop conditions
     // to every NEWLY-covered block against its FRESH row; truncate at the
@@ -1076,10 +1104,10 @@ export function useSlotMutations({
       dispatch: async () => {
         try {
           const writes = newTails.map(t => repo.writeSlotFields(t.row.id, {
-            activity_id: headActivityId, is_span_head: false, flags: displacedFlagFor(t.row),
+            [headField]: headFieldValue, is_span_head: false, flags: displacedFlagFor(t.row),
           }))
           for (const t of releasedTails) {
-            writes.push(repo.writeSlotFields(t.id, { activity_id: null, is_span_head: true, flags: {} }))
+            writes.push(repo.writeSlotFields(t.id, { [headField]: null, is_span_head: true, flags: {} }))
           }
           await Promise.all(writes)
         } catch (err) {
@@ -1092,8 +1120,8 @@ export function useSlotMutations({
         setSlots(prev => {
           const next = prev.map(s => {
             const newTail = newTails.find(t => t.row.id === s.id)
-            if (newTail) return { ...s, activity_id: headActivityId, is_span_head: false, flags: displacedFlagFor(newTail.row) }
-            if (releasedTails.some(t => t.id === s.id)) return { ...s, activity_id: null, is_span_head: true, flags: {} }
+            if (newTail) return { ...s, [headField]: headFieldValue, is_span_head: false, flags: displacedFlagFor(newTail.row) }
+            if (releasedTails.some(t => t.id === s.id)) return { ...s, [headField]: null, is_span_head: true, flags: {} }
             return s
           })
           recalcStats(next)
@@ -1119,35 +1147,35 @@ export function useSlotMutations({
     for (const t of newTails) {
       const blockId = t.block.id
       const key = cellKey(groupId, dayId, blockId)
-      const prevActivityId = t.row.activity_id ?? null
+      const prevFieldValue = t.row[headField] ?? null
       const prevIsSpanHead = t.row.is_span_head ?? true
       const prevFlags = t.row.flags ?? {}
       pushGranularCellUndo({
         key,
         description: `Made ${headName} run longer → ${t.block.name ?? blockId}`,
         findCurrent: () => slotsRef.current.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId),
-        isForwardState: (current) => current.activity_id === headActivityId && current.is_span_head === false,
+        isForwardState: (current) => current[headField] === headFieldValue && current.is_span_head === false,
         mismatchMessage: 'This block changed since you extended it — undo skipped for that cell.',
-        backwardFields: { activity_id: prevActivityId, is_span_head: prevIsSpanHead, flags: prevFlags },
-        backwardOwnWriteKind: prevActivityId ? `activity:${prevActivityId}` : 'empty',
-        forwardFields: { activity_id: headActivityId, is_span_head: false, flags: displacedFlagFor(t.row) },
-        forwardOwnWriteKind: `activity:${headActivityId}`,
+        backwardFields: { [headField]: prevFieldValue, is_span_head: prevIsSpanHead, flags: prevFlags },
+        backwardOwnWriteKind: prevFieldValue ? `activity:${prevFieldValue}` : 'empty',
+        forwardFields: { [headField]: headFieldValue, is_span_head: false, flags: displacedFlagFor(t.row) },
+        forwardOwnWriteKind: `activity:${headFieldValue}`,
       })
     }
     for (const t of releasedTails) {
       const blockId = t.time_block_id
       const key = cellKey(t.group_id, t.day_id, blockId)
-      const prevActivityId = t.activity_id
+      const prevFieldValue = t[headField]
       const prevFlags = t.flags ?? {}
       pushGranularCellUndo({
         key,
         description: `Shortened ${headName} — released a block`,
         findCurrent: () => slotsRef.current.find(s => s.id === t.id),
-        isForwardState: (current) => current.activity_id == null && current.is_span_head === true,
+        isForwardState: (current) => current[headField] == null && current.is_span_head === true,
         mismatchMessage: 'This block changed since you shortened it — undo skipped for that cell.',
-        backwardFields: { activity_id: prevActivityId, is_span_head: false, flags: prevFlags },
-        backwardOwnWriteKind: prevActivityId ? `activity:${prevActivityId}` : 'empty',
-        forwardFields: { activity_id: null, is_span_head: true, flags: {} },
+        backwardFields: { [headField]: prevFieldValue, is_span_head: false, flags: prevFlags },
+        backwardOwnWriteKind: prevFieldValue ? `activity:${prevFieldValue}` : 'empty',
+        forwardFields: { [headField]: null, is_span_head: true, flags: {} },
         forwardOwnWriteKind: 'empty',
       })
     }
@@ -1195,6 +1223,8 @@ export function useSlotMutations({
     const headKey = cellKey(groupId, dayId, headBlockId)
     const tailKeys = releasable.map(t => cellKey(t.group_id, t.day_id, t.time_block_id))
     const keys = [headKey, ...tailKeys].sort()
+    // ADR §4 — the field this chain is keyed on (activity_id or event_id).
+    const headField = refField(freshHeadSlot) ?? 'activity_id'
 
     let writeError = null
     const { dropped } = await runMutation({
@@ -1202,7 +1232,7 @@ export function useSlotMutations({
       claimId,
       dispatch: async () => {
         try {
-          await Promise.all(releasable.map(t => repo.writeSlotFields(t.id, { activity_id: null, is_span_head: true, flags: {} })))
+          await Promise.all(releasable.map(t => repo.writeSlotFields(t.id, { [headField]: null, is_span_head: true, flags: {} })))
         } catch (err) {
           writeError = err
         }
@@ -1211,7 +1241,7 @@ export function useSlotMutations({
       onError: (err) => setActionError(describeWriteFailure(err, 'That activity could not be split back into two.')),
       onSuccess: () => {
         setSlots(prev => {
-          const next = prev.map(s => releasable.some(t => t.id === s.id) ? { ...s, activity_id: null, is_span_head: true, flags: {} } : s)
+          const next = prev.map(s => releasable.some(t => t.id === s.id) ? { ...s, [headField]: null, is_span_head: true, flags: {} } : s)
           slotsRef.current = next
           return next
         })
@@ -1232,18 +1262,18 @@ export function useSlotMutations({
     // frame expects to be undoing FROM.
     for (const t of releasable) {
       const key = cellKey(t.group_id, t.day_id, t.time_block_id)
-      const prevActivityId = t.activity_id
+      const prevFieldValue = t[headField]
       const prevIsSpanHead = t.is_span_head ?? false
       const prevFlags = t.flags ?? {}
       pushGranularCellUndo({
         key,
         description,
         findCurrent: () => slotsRef.current.find(s => s.id === t.id),
-        isForwardState: (current) => current.activity_id == null && current.is_span_head === true,
+        isForwardState: (current) => current[headField] == null && current.is_span_head === true,
         mismatchMessage: 'This block changed since you split it — undo skipped for that cell.',
-        backwardFields: { activity_id: prevActivityId, is_span_head: prevIsSpanHead, flags: prevFlags },
-        backwardOwnWriteKind: prevActivityId ? `activity:${prevActivityId}` : 'empty',
-        forwardFields: { activity_id: null, is_span_head: true, flags: {} },
+        backwardFields: { [headField]: prevFieldValue, is_span_head: prevIsSpanHead, flags: prevFlags },
+        backwardOwnWriteKind: prevFieldValue ? `activity:${prevFieldValue}` : 'empty',
+        forwardFields: { [headField]: null, is_span_head: true, flags: {} },
         forwardOwnWriteKind: 'empty',
       })
     }
@@ -1622,4 +1652,4 @@ export function useSlotMutations({
   }
 }
 
-export { collectSpanTails, spanStopsAt, repairOrphanSpanTails, computeSpanExtendPreview }
+export { collectSpanTails, spanStopsAt, repairOrphanSpanTails, computeSpanExtendPreview, refField }
