@@ -45,6 +45,19 @@ these legible until ingest actually infers them.
   the file, leave the column blank rather than guess — the whole point of the
   owner's ruling was **no fabricated provenance**.
 
+## Also absorbs: elective Slice 3b (catalog offering-recognition + rule-parsing)
+
+Per the 2026-08-22 electives Slice 3 architecture pass (owner folded 3b into T114):
+this ticket also owns **catalog offering-recognition + narrow rule-parsing** for
+electives — activity-name matching (`recognitionKey`/`normalizeName`) plus
+verbatim-quotable phrase parsing ("DOUBLE PERIOD"→multi-block span; "sign up for
+both"→linked offerings), writing per-field `import_evidence` (needs a new
+`entity_type` value, e.g. `'elective_set_activities'`). **Freeform eligibility prose**
+("Available for ARAD CAMPERS Th 3rd/4th…") is explicitly OUT — not honestly parseable
+into structured rules; stays a manual field on the Electives screen. Same
+prose→confidence-banded-rule problem as the Outdoor/Co-schedule/Alt work, which is why
+it lives here. Elective Slice 3a (detect + nudge + create-empty-set) ships separately.
+
 ## Related / sequencing note
 
 Coordinate with the **fixed-activity mislabel ingest bug** (separate flagged

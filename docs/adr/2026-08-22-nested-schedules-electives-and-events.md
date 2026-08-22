@@ -99,11 +99,39 @@ pattern proven on electives carries over.
 ### 4. Ingest + nudge (discovery-first)
 When an uploaded schedule shows electives **in any form** — a Chugim / Bechirot /
 "Electives" period, or a flattened opaque cell — reconciliation **detects it and
-nudges the elective space open**, recognizing offerings from activity catalogs and
-parsing embedded rules (eligibility, double-period, capacity) with the **Slice D
-inferred-rule machinery** (`import_evidence`, `CONFIDENCE_COPY`,
-`plainEvidenceSentence`). Populating an elective set is a set of reconciliation
-**decisions the director confirms** — never silent.
+nudges the elective space open**, and populating an elective set is a set of
+reconciliation **decisions the director confirms** — never silent.
+
+**Addendum (2026-08-22, Slice 3 architecture) — invariant resolution + split.**
+The Slice 3 architecture pass established the concrete shape and split it:
+- **Standing invariant honored, not broken.** `electron/ops/durableElectiveSets.js`
+  states "electives are authored, never reconstructed from a file." Ingest does NOT
+  gain a bypass: a confirmed nudge **pre-fills the existing authored create-path**
+  (`campScopedEntities.js`) to create ONE empty `elective_set`. It is still authored
+  — just seeded from a director-confirmed decision. **Ingest never writes
+  `elective_set_activities` directly.**
+- **New decision kind, deliberately routed.** `elective_candidate` is added to
+  `reportToLanes.js`'s closed `laneFor()` switch, routed to the **hold** lane
+  (never auto-accepts), regardless of confidence band — enforcing "never silent".
+- **Two detectors:** a header-label detector (a controlled `ELECTIVE_HEADER_TERMS`
+  vocabulary — Chugim/Bechirot/Electives/Indoor Elective, mirrored from
+  `NON_GROUP_HEADERS` but with the *opposite* semantics: flag, don't drop) and a
+  content-shape detector (an unresolved multi-activity blob → inferred band). A cell
+  that resolves 1:1 to an existing activity is exempt by construction (no name
+  blocklist), guarding the "Free Choice" false positive.
+- **Created set name = the header text verbatim** (owner, 2026-08-22): e.g. "Chugim";
+  editable afterward on the Electives screen. No app-invented name.
+- **SPLIT — Slice 3a ships now, 3b folds into T114.** Slice 3a = detect + nudge +
+  create-empty-set. Slice 3b (catalog offering name-matching via the existing
+  `recognitionKey`/`normalizeName`, plus *narrow, verbatim-quotable* phrase parsing —
+  "DOUBLE PERIOD"→span, "sign up for both"→linked) **folds into T114** (same
+  prose→confidence-banded-rule problem). **Freeform eligibility prose** ("Available
+  for ARAD CAMPERS Th 3rd/4th…") is NOT honestly parseable into structured rules and
+  stays a **manual field** on the Electives screen — no NLP promise. Writing offering
+  provenance requires a new `import_evidence.entity_type` value; deferred to 3b/T114.
+- **`CONFIDENCE_COPY`/`plainEvidenceSentence` live in
+  `src/components/reconciliation/reconciliationCards.jsx`** (not `confidence.js`) —
+  correction to §4's original reference.
 
 ### 5. Ownership
 The peer sessions that previously held the elective authoring UI (T105/T110/T111)
