@@ -2215,6 +2215,28 @@ describe('useSlotMutations — placeEventOnCell', () => {
     expect(headCall[1]).toEqual({ event_id: 'ev-1', activity_id: null, elective_set_id: null, flags: {} })
   })
 
+  it('releasing an EVENT-headed span tail clears the tail\'s event_id, not activity_id (refField generalization)', async () => {
+    // Regression pin: the released-tail write used to hardcode activity_id:null,
+    // so an event-headed span (tail carries event_id) kept a stale event_id
+    // after release. refField(tail) must clear whatever ref the tail held.
+    const slots = [
+      { id: 'row-head', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, event_id: 'ev-old', is_span_head: true, flags: {} },
+      { id: 'row-tail', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, event_id: 'ev-old', is_span_head: false, flags: {} },
+    ]
+    const timeBlocks = [{ id: 'b1', sort_order: 1 }, { id: 'b2', sort_order: 2 }]
+    const events = [{ id: 'ev-old', name: 'Old Event' }, { id: 'ev-1', name: 'Color War' }]
+    const { hook, props } = setup({ slots, timeBlocks, eventsAll: events })
+
+    await act(async () => {
+      await hook.result.current.placeEventOnCell('ev-1', { groupId: 'g1', dayId: 'd1', blockId: 'b1' }, slots[0])
+    })
+
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { event_id: null, is_span_head: true, flags: {} })
+    // it must NOT clear activity_id (which was already null) as the ref field
+    const tailCall = props.repo.writeSlotFields.mock.calls.find(c => c[0] === 'row-tail')
+    expect('activity_id' in tailCall[1]).toBe(false)
+  })
+
   it('undo restores the cell\'s previous content (activity) and the released tail', async () => {
     const slots = [
       { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-swim', elective_set_id: null, event_id: null, flags: { foo: 1 } },

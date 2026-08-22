@@ -1457,7 +1457,7 @@ export function useSlotMutations({
         try {
           const writes = [repo.writeSlotFields(targetRow.id, { elective_set_id: electiveSetId, activity_id: null, flags: {} })]
           for (const tail of spanTailRows) {
-            writes.push(repo.writeSlotFields(tail.id, { activity_id: null, is_span_head: true, flags: {} }))
+            writes.push(repo.writeSlotFields(tail.id, { [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} }))
           }
           await Promise.all(writes)
         } catch (err) {
@@ -1472,7 +1472,7 @@ export function useSlotMutations({
             if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
               return { ...s, elective_set_id: electiveSetId, activity_id: null, flags: {} }
             if (spanTailRows.some(t => t.id === s.id))
-              return { ...s, activity_id: null, is_span_head: true, flags: {} }
+              return { ...s, [refField(s) ?? 'activity_id']: null, is_span_head: true, flags: {} }
             return s
           })
           recalcStats(next)
@@ -1588,7 +1588,7 @@ export function useSlotMutations({
             try {
               const writes = [repo.writeSlotFields(targetRow.id, { elective_set_id: liveElectiveSetId, activity_id: null, flags: {} })]
               for (const tail of spanTailRows) {
-                writes.push(repo.writeSlotFields(tail.id, { activity_id: null, is_span_head: true, flags: {} }))
+                writes.push(repo.writeSlotFields(tail.id, { [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} }))
               }
               await Promise.all(writes)
             } catch (err) { redoWriteError = err }
@@ -1600,7 +1600,7 @@ export function useSlotMutations({
                 if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
                   return { ...s, elective_set_id: liveElectiveSetId, activity_id: null, flags: {} }
                 if (spanTailRows.some(t => t.id === s.id))
-                  return { ...s, activity_id: null, is_span_head: true, flags: {} }
+                  return { ...s, [refField(s) ?? 'activity_id']: null, is_span_head: true, flags: {} }
                 return s
               })
               slotsRef.current = next
@@ -1649,7 +1649,7 @@ export function useSlotMutations({
         try {
           const writes = [repo.writeSlotFields(targetRow.id, { event_id: eventId, activity_id: null, elective_set_id: null, flags: {} })]
           for (const tail of spanTailRows) {
-            writes.push(repo.writeSlotFields(tail.id, { activity_id: null, is_span_head: true, flags: {} }))
+            writes.push(repo.writeSlotFields(tail.id, { [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} }))
           }
           await Promise.all(writes)
         } catch (err) {
@@ -1664,7 +1664,7 @@ export function useSlotMutations({
             if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
               return { ...s, event_id: eventId, activity_id: null, elective_set_id: null, flags: {} }
             if (spanTailRows.some(t => t.id === s.id))
-              return { ...s, activity_id: null, is_span_head: true, flags: {} }
+              return { ...s, [refField(s) ?? 'activity_id']: null, is_span_head: true, flags: {} }
             return s
           })
           recalcStats(next)
@@ -1744,7 +1744,7 @@ export function useSlotMutations({
             try {
               const writes = [repo.writeSlotFields(targetRow.id, { event_id: eventId, activity_id: null, elective_set_id: null, flags: {} })]
               for (const tail of spanTailRows) {
-                writes.push(repo.writeSlotFields(tail.id, { activity_id: null, is_span_head: true, flags: {} }))
+                writes.push(repo.writeSlotFields(tail.id, { [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} }))
               }
               await Promise.all(writes)
             } catch (err) { redoWriteError = err }
@@ -1756,7 +1756,7 @@ export function useSlotMutations({
                 if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
                   return { ...s, event_id: eventId, activity_id: null, elective_set_id: null, flags: {} }
                 if (spanTailRows.some(t => t.id === s.id))
-                  return { ...s, activity_id: null, is_span_head: true, flags: {} }
+                  return { ...s, [refField(s) ?? 'activity_id']: null, is_span_head: true, flags: {} }
                 return s
               })
               slotsRef.current = next
