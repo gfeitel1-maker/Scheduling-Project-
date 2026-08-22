@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from 'vitest'
 import { renderHook, act } from '@testing-library/react'
-import { useSlotMutations, collectSpanTails, spanStopsAt, repairOrphanSpanTails } from './useSlotMutations'
+import { useSlotMutations, collectSpanTails, spanStopsAt, repairOrphanSpanTails, computeSpanExtendPreview } from './useSlotMutations'
 import { getSlot } from './gridGeometry'
 
 // A fake repo capturing exactly the fields handed to each write — no React, no
@@ -787,6 +787,62 @@ describe('useSlotMutations — splitSlot', () => {
   })
 })
 
+// ADR 2026-08-21 test-first seam list item 12 / R3 (T107 deferred item 4,
+// Grader 2026-08-21 finding: the guard exists in expandSlot/splitSlot's undo
+// closures but was only exercised indirectly). Pushes a real undo frame, then
+// mutates the target row's activity_id/is_span_head out from under it (as a
+// cross-device edit would), and asserts the pop no-ops with a
+// describeWriteFailure-style notice instead of clobbering the newer state.
+describe('useSlotMutations — R3 undo re-read guard (no blind clobber of a repurposed row)', () => {
+  const headSlot = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'actHead', flags: {}, is_span_head: true }
+  const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, is_span_head: true, flags: {} }
+  const activities = [{ id: 'actHead', name: 'Swim' }, { id: 'actOther', name: 'Archery' }]
+
+  it('expandSlot undo: a tail repurposed by another device since the extend no-ops and surfaces a notice, without rewriting the cell', async () => {
+    const setSlots = statefulSetSlots([headSlot, tailSlot])
+    const { hook, props } = setup({ slots: [headSlot, tailSlot], activities, timeBlocks: spanTimeBlocks, routeState: { setSlots: setSlots.fn } })
+    await act(async () => {
+      await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', null, '', 'Block 2', 'Mon')
+    })
+    const entry = props.pushUndo.mock.calls[0][0]
+
+    // Simulate a cross-device edit landing on the tail after the extend:
+    // drive a REAL write through the hook (replaceSlot) so slotsRef.current
+    // (private to the hook) actually reflects the repurposed row — the same
+    // path a synced op-log write would take. Now some OTHER activity occupies
+    // t1, no longer matching what this undo frame expects to be undoing FROM
+    // (activity_id: 'actHead', is_span_head: false).
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'actOther' }, { groupId: 'g1', dayId: 'd1', blockId: 'b2' })
+    })
+    props.repo.writeSlotFields.mockClear()
+    props.setActionError.mockClear()
+
+    await act(async () => { await entry.undo() })
+
+    expect(props.repo.writeSlotFields).not.toHaveBeenCalledWith('t1', expect.anything())
+    expect(props.setActionError).toHaveBeenCalledWith(
+      expect.stringMatching(/changed since you extended it/i)
+    )
+  })
+
+  it('expandSlot undo: an unchanged target restores normally (no notice, write proceeds)', async () => {
+    const setSlots = statefulSetSlots([headSlot, tailSlot])
+    const { hook, props } = setup({ slots: [headSlot, tailSlot], activities, timeBlocks: spanTimeBlocks, routeState: { setSlots: setSlots.fn } })
+    await act(async () => {
+      await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2', null, '', 'Block 2', 'Mon')
+    })
+    const entry = props.pushUndo.mock.calls[0][0]
+
+    props.repo.writeSlotFields.mockClear()
+    props.setActionError.mockClear()
+    await act(async () => { await entry.undo() })
+
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t1', { activity_id: null, is_span_head: true, flags: {} })
+    expect(props.setActionError).not.toHaveBeenCalledWith(expect.stringMatching(/changed since you extended it/i))
+  })
+})
+
 // ADR 2026-08-21 test-first seam list items 1, 5, 7, 10, 13.
 describe('useSlotMutations — collectSpanTails characterization (arbitrary N)', () => {
   it('walks a chain of N=3 tails', () => {
@@ -913,6 +969,68 @@ describe('useSlotMutations — expandSlot boundary-crossing stop conditions (ADR
     // this is a no-op — no second write, no second undo frame.
     await act(async () => { await hook.result.current.expandSlot('g1', 'd1', 'b1', 'b2') })
     expect(props.repo.writeSlotFields).not.toHaveBeenCalled()
+  })
+})
+
+// T107 item 1 (Designer spec Decision 1) — the pure preview resolver behind
+// drag-to-extend's live boundary. Uses the same activities/blocks fixtures as
+// the expandSlot boundary-crossing describe block above.
+describe('useSlotMutations — computeSpanExtendPreview (T107 item 1, pure function)', () => {
+  const headActivityId = 'actHead'
+  const activities = [{ id: 'actHead', name: 'Swim' }, { id: 'actLocked', name: 'Locked', is_locked: true }]
+
+  it('covers every block from head+1 up to the pointer block when nothing stops it', () => {
+    const slots = [
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null },
+      { id: 't2', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: null },
+    ]
+    const result = computeSpanExtendPreview(slots, spanTimeBlocks, activities, {
+      groupId: 'g1', dayId: 'd1', headBlockId: 'b1', headActivityId, pointerBlockId: 'b3',
+    })
+    expect(result.coveredBlockIds).toEqual(['b2', 'b3'])
+    expect(result.truncatedAtBlockId).toBeNull()
+  })
+
+  it('stops the covered range at the last valid block and reports truncation when the pointer overshoots a locked cell', () => {
+    const slots = [
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null },
+      { id: 'locked1', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'actLocked' },
+    ]
+    const result = computeSpanExtendPreview(slots, spanTimeBlocks, activities, {
+      groupId: 'g1', dayId: 'd1', headBlockId: 'b1', headActivityId, pointerBlockId: 'b4',
+    })
+    expect(result.coveredBlockIds).toEqual(['b2'])
+    expect(result.truncatedAtBlockId).toBe('b2')
+  })
+
+  it('truncates at the head itself (no covered blocks) when the very first block after the head stops the drag', () => {
+    const slots = [
+      { id: 'anchor1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', is_anchor: true },
+    ]
+    const result = computeSpanExtendPreview(slots, spanTimeBlocks, activities, {
+      groupId: 'g1', dayId: 'd1', headBlockId: 'b1', headActivityId, pointerBlockId: 'b2',
+    })
+    expect(result.coveredBlockIds).toEqual([])
+    expect(result.truncatedAtBlockId).toBe('b1')
+  })
+
+  it('a pointer at or before the head resolves to an empty, non-truncated preview', () => {
+    const result = computeSpanExtendPreview([], spanTimeBlocks, activities, {
+      groupId: 'g1', dayId: 'd1', headBlockId: 'b2', headActivityId, pointerBlockId: 'b1',
+    })
+    expect(result).toEqual({ coveredBlockIds: [], truncatedAtBlockId: null })
+  })
+
+  it('a shrink (pointer dragged back toward the head) covers only up to the pointer, live', () => {
+    const slots = [
+      { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: 'actHead', is_span_head: false },
+      { id: 't2', group_id: 'g1', day_id: 'd1', time_block_id: 'b3', activity_id: 'actHead', is_span_head: false },
+    ]
+    const result = computeSpanExtendPreview(slots, spanTimeBlocks, activities, {
+      groupId: 'g1', dayId: 'd1', headBlockId: 'b1', headActivityId, pointerBlockId: 'b2',
+    })
+    expect(result.coveredBlockIds).toEqual(['b2'])
+    expect(result.truncatedAtBlockId).toBeNull()
   })
 })
 

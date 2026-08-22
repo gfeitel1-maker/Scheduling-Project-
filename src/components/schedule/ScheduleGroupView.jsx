@@ -25,6 +25,9 @@ export default function ScheduleGroupView({
   eligibleActivitiesFor, onPlace, onCreateNew, fillState,
   onExpandSlot,
   onSplitSlot,
+  // T107 item 1 / ADR §5 — generated-route parity: same drag-to-extend
+  // gesture, routed through the same expandSlot as the manual route.
+  onSpanExtendStart,
   selectedSlotKeys,
   pasteMode,
   onCellSelect,
@@ -270,6 +273,16 @@ export default function ScheduleGroupView({
                           onExpandSlot(selectedGroup, day.id, block.id, nextBlock.id, nextSlot?.activity_id ?? null, tailAct?.name ?? '', nextBlock.name, day.label)
                         } : undefined
                         const onSplit = isMerged && onSplitSlot ? () => onSplitSlot(selectedGroup, day.id, block.id) : undefined
+                        // T107 item 2 — see ManualBuildView's identical comment.
+                        const spanTailBlockIds = rowSpan > 1
+                          ? timeBlocks.slice(blockIndex + 1, blockIndex + rowSpan).map(b => b.id)
+                          : []
+                        const onSplitAt = onSplitSlot
+                          ? (cutBlockId) => onSplitSlot(selectedGroup, day.id, block.id, undefined, cutBlockId)
+                          : undefined
+                        const onExtendGrab = hasMergeDown && onSpanExtendStart
+                          ? () => onSpanExtendStart(selectedGroup, day.id, block.id, slot.activity_id)
+                          : undefined
 
                         return (
                           <SlotCell
@@ -300,6 +313,9 @@ export default function ScheduleGroupView({
                             isMerged={isMerged}
                             onMergeDown={onMergeDown}
                             onSplitSlot={onSplit}
+                            spanTailBlockIds={spanTailBlockIds}
+                            onSplitAt={onSplitAt}
+                            onExtendGrab={onExtendGrab}
                             showIdentityDot={showIdentityDot}
                             isFlagHighlighted={highlightMap?.has(slot.id) ?? false}
                             highlightColor={highlightColor}

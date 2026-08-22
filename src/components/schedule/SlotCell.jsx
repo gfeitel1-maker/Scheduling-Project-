@@ -73,6 +73,17 @@ export default function SlotCell({
   isSelected = false, isMultiSelected = false, pasteMode = false,
   hasMergeDown = false, isMerged = false,
   onMergeDown, onSplitSlot,
+  // T107 item 1/2 (Designer spec 2026-08-21) — drag-to-extend + click-any-
+  // interior-cell-to-split. spanTailBlockIds is the ordered list of block ids
+  // this span currently covers past its own head (empty for a non-span
+  // cell); band 1 is always the head (this cell) and is never itself a split
+  // target (Interactions §"Click-any-interior-cell-to-split" #3). onSplitAt
+  // is called with the covered block's id when a band 2..N is clicked.
+  // onExtendGrab starts the drag-to-extend gesture on pointerdown on the
+  // handle; showExtendHint mirrors showMergeHint's one-time discoverability
+  // convention.
+  spanTailBlockIds = [],
+  onSplitAt, onExtendGrab, showExtendHint = false,
   // T92. Device-local, one-time onboarding pulse on the first mergeable cell of
   // a camp's first Manual Build session. Owned by the caller (localStorage flag
   // lives in ManualBuildView, not here) — this prop is purely "should THIS
@@ -347,7 +358,8 @@ export default function SlotCell({
             onClick={e => { e.stopPropagation(); onMergeDown?.() }}
           ><ExpandGlyph direction="merge" /></button>
         )}
-        {/* Split button (T4) */}
+        {/* Split button (T4) — the keyboard-accessible equivalent of the
+            interior-band click below (spec Interactions §4); not removed. */}
         {isMerged && (
           <button
             className="cell-action cell-action--split"
@@ -355,6 +367,52 @@ export default function SlotCell({
             aria-label="Split this back into two periods"
             onClick={e => { e.stopPropagation(); onSplitSlot?.() }}
           ><ExpandGlyph direction="split" /></button>
+        )}
+        {/* T107 item 2 — interior-split bands. Band 1 is this cell's own head
+            block and is never a split target (kept out of the DOM entirely,
+            not merely non-interactive, since it would just duplicate the
+            existing click-to-edit surface). Bands render only for a span
+            (rowSpan > 1 with at least one covered tail). */}
+        {rowSpan > 1 && spanTailBlockIds.length > 0 && (
+          <div className="span-bands" aria-hidden="true">
+            {spanTailBlockIds.map((blockId, i) => {
+              const bandIndex = i + 2 // band 1 is the head, never rendered here
+              const bandHeight = 100 / rowSpan
+              return (
+                <div
+                  key={blockId}
+                  className="span-band"
+                  data-band-index={bandIndex}
+                  tabIndex={-1}
+                  style={{
+                    top: `${bandHeight * (bandIndex - 1)}%`,
+                    height: `${bandHeight}%`,
+                  }}
+                  title={`Split before this block`}
+                  onClick={e => { e.stopPropagation(); onSplitAt?.(blockId) }}
+                >
+                  <div className="span-cut-line" />
+                </div>
+              )
+            })}
+          </div>
+        )}
+        {/* T107 item 1 — drag-to-extend handle. Rendered wherever the span
+            could be lengthened (same gate as the merge-down button),
+            regardless of current rowSpan — a plain N=1 activity cell is
+            still extendable to N=2. pointerdown starts tracking immediately
+            (Implementation Note #2 — no distance:8 disambiguation; nothing
+            else on this 28x4px target is clickable). */}
+        {hasMergeDown && onExtendGrab && (
+          <div
+            className="span-extend-handle"
+            role="button"
+            tabIndex={-1}
+            aria-label="Drag to make this activity run longer"
+            title="Drag to make this activity run longer"
+            data-span-extend-hint={showExtendHint ? '' : undefined}
+            onPointerDown={e => { e.preventDefault(); e.stopPropagation(); onExtendGrab() }}
+          />
         )}
         {editing ? (
           <CellInlineEditor

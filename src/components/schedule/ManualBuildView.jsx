@@ -64,6 +64,10 @@ export default function ManualBuildView({
   geometry,
   eligibleActivitiesFor, onPlace, onCreateNew,
   onExpandSlot, onSplitSlot,
+  // T107 item 1 — starts the drag-to-extend gesture (useSpanExtendDrag,
+  // owned by ScheduleScreen). Omitted entirely disables the handle, same
+  // "undefined prop = feature off" convention onMergeDown already uses.
+  onSpanExtendStart,
   selectedSlotKeys, pasteMode, onCellSelect,
   collapsedBlockIds = NO_COLLAPSE,
   onToggleBlockCollapsed,
@@ -244,6 +248,21 @@ export default function ManualBuildView({
                         } : undefined
                         const onSplit = isMerged && onSplitSlot ? () => onSplitSlot(selectedGroup, day.id, block.id) : undefined
                         const showMergeHint = hasMergeDown && cellKey === hintTargetKey
+                        // T107 item 2 — the ordered tail block ids this span
+                        // currently covers, for the interior-split bands
+                        // (rowSpan is already chain-based via
+                        // getActivityRowSpan, so this is a render-only slice
+                        // of the already-known timeBlocks array — no new
+                        // geometry function, per Maker note #4).
+                        const spanTailBlockIds = rowSpan > 1
+                          ? timeBlocks.slice(blockIndex + 1, blockIndex + rowSpan).map(b => b.id)
+                          : []
+                        const onSplitAt = onSplitSlot
+                          ? (cutBlockId) => onSplitSlot(selectedGroup, day.id, block.id, undefined, cutBlockId)
+                          : undefined
+                        const onExtendGrab = hasMergeDown && onSpanExtendStart
+                          ? () => onSpanExtendStart(selectedGroup, day.id, block.id, slot.activity_id)
+                          : undefined
                         return (
                           <SlotCell
                             key={day.id}
@@ -270,6 +289,10 @@ export default function ManualBuildView({
                             onMergeDown={onMergeDown}
                             onSplitSlot={onSplit}
                             showMergeHint={showMergeHint}
+                            spanTailBlockIds={spanTailBlockIds}
+                            onSplitAt={onSplitAt}
+                            onExtendGrab={onExtendGrab}
+                            showExtendHint={showMergeHint}
                             ariaColIndex={ariaColIndex}
                             cellKey={cellKey}
                             collapsed={isCollapsed}

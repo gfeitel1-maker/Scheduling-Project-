@@ -79,6 +79,37 @@ function repairOrphanSpanTails(slots, timeBlocks) {
   return orphans
 }
 
+// T107 item 1 (Designer spec 2026-08-21, Decision 1) — pure preview resolver
+// for the drag-to-extend gesture's LIVE, per-pointer-move boundary. Re-applies
+// spanStopsAt to every block between the head and the pointer's current
+// block, against the CURRENT slots — the identical check expandSlot's own R1
+// dispatch-time re-validation performs, so the preview and the eventual write
+// can never diverge (Maker note #3: do not write a second, divergent
+// preview-time check). Returns the ordered list of block ids the preview
+// should mark data-drag-over, and — only when the pointer has been dragged
+// PAST the last valid block — the block id that should show the one-time
+// truncation pulse (data-drag-truncated). No side effects; the caller (a
+// hook, not this function) owns writing those to the DOM.
+function computeSpanExtendPreview(slots, timeBlocks, activities, { groupId, dayId, headBlockId, headActivityId, pointerBlockId }) {
+  const sortedBlocks = [...timeBlocks].sort((a, b) => a.sort_order - b.sort_order)
+  const headIdx = sortedBlocks.findIndex(b => b.id === headBlockId)
+  const pointerIdx = sortedBlocks.findIndex(b => b.id === pointerBlockId)
+  if (headIdx === -1 || pointerIdx === -1 || pointerIdx <= headIdx) {
+    return { coveredBlockIds: [], truncatedAtBlockId: null }
+  }
+
+  const covered = []
+  for (let i = headIdx + 1; i <= pointerIdx; i++) {
+    const block = sortedBlocks[i]
+    const row = slots.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === block.id)
+    if (spanStopsAt(row, headActivityId, activities)) {
+      return { coveredBlockIds: covered, truncatedAtBlockId: covered[covered.length - 1] ?? headBlockId }
+    }
+    covered.push(block.id)
+  }
+  return { coveredBlockIds: covered, truncatedAtBlockId: null }
+}
+
 // The per-cell slot / overlay mutation cluster (T32), over the T28 repository.
 // Every handler follows the same shape: read the target from `slots` ->
 // repo.writeSlotFields/writeOverlayFields -> setActionError on failure ->
@@ -314,7 +345,12 @@ export function useSlotMutations({
     const priorTails = keys.map(k => cellQueueRef.current.get(k)?.tail)
     let resolveTail
     const tail = new Promise(resolve => { resolveTail = resolve })
-    keys.forEach(k => cellQueueRef.current.set(k, { claimId, tail }))
+    // `pending: true` (T107 R2) marks this claim as an in-flight LOCAL write on
+    // every key it touches, for hasInFlightClaim's benefit below — cellQueueRef
+    // itself is never cleared (see its own comment), so `pending` is the only
+    // signal for "is anyone writing to this cell right now", not merely
+    // "who claimed it last".
+    keys.forEach(k => cellQueueRef.current.set(k, { claimId, tail, pending: true }))
 
     const run = (async () => {
       await Promise.allSettled(priorTails)
@@ -324,8 +360,31 @@ export function useSlotMutations({
       return { dropped: false, result }
     })()
 
-    run.finally(resolveTail)
+    run.finally(() => {
+      resolveTail()
+      keys.forEach(k => {
+        const entry = cellQueueRef.current.get(k)
+        if (entry && entry.claimId === claimId) entry.pending = false
+      })
+    })
     return run
+  }
+
+  // T107 R2 — does this device have an in-flight LOCAL write claim on any
+  // cell of this (groupId, dayId)? Consulted by useScheduleData's repair-on-
+  // read pass so it never heals an orphan tail out from under a gesture this
+  // same device is mid-write on. `cellKey`'s shape is
+  // `${route}|${templateId}|${groupId}|${dayId}|${blockId}` — parsed
+  // positionally rather than re-deriving via cellKey(), since the check must
+  // span every route/template this device has touched this mount, not only
+  // the route currently on screen.
+  function hasInFlightClaim(groupId, dayId) {
+    for (const [key, entry] of cellQueueRef.current) {
+      if (!entry.pending) continue
+      const parts = key.split('|')
+      if (parts[2] === groupId && parts[3] === dayId) return true
+    }
+    return false
   }
 
   // runMutation({ keys, claimId, dispatch, getError, onError, onSuccess }) —
@@ -1592,7 +1651,8 @@ export function useSlotMutations({
     createElectiveFromCell,
     pullOverrideCell,
     ownWriteRef,
+    hasInFlightClaim,
   }
 }
 
-export { collectSpanTails, spanStopsAt, repairOrphanSpanTails }
+export { collectSpanTails, spanStopsAt, repairOrphanSpanTails, computeSpanExtendPreview }

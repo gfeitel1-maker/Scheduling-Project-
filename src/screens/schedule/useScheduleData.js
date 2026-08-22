@@ -3,6 +3,7 @@ import { computeFindings } from '../../engine/buildSchedule'
 import { normalizeActivityEligibility, parseIdList } from '../../utils/normalizeActivityEligibility'
 import { isRestorable } from '../snapshotRestore'
 import { deriveScheduleTemplateId } from '../../../electron/ops/scheduleTemplateId'
+import { repairOrphanSpanTails } from './useSlotMutations'
 
 // Which row IS this camp's candidate for this route? Ask the database by
 // (camp_id, kind) — do not assume the derived id is the one on disk.
@@ -77,7 +78,13 @@ const EMPTY_TEMPLATE_DATA = {
 // concerns, one lifecycle — see docs/work/specs/architecture-restructure-
 // proposal.md §"C1". Route data flows OUT only; this hook never imports or
 // touches useRouteState, and designates neither route as canonical.
-export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes }) {
+// T107 item 3 / ADR §4 + Red Hat R2 — repair-on-read for orphaned span
+// tails. `hasInFlightClaim` correlates against useSlotMutations' cellQueueRef
+// so this pass never heals a tail this SAME device has a write in flight on;
+// defaults to "never in flight" so callers that don't wire it (tests, other
+// screens) get the pre-R2 behaviour of "heal whenever persistent", not a
+// silent no-op.
+export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes, hasInFlightClaim = () => false }) {
   const [setupLists, setSetupLists] = useState(EMPTY_SETUP_LISTS)
   const [weeks, setWeeks] = useState([])
   const [weekId, setWeekId] = useState(null)
@@ -96,6 +103,13 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes 
   // over fresh. Every setter block below bails before firing if a newer load
   // has started in the meantime.
   const generationRef = useRef(0)
+  // T107 item 3 / R2 quiescence — per-route Set of orphan-tail row ids seen
+  // on the PREVIOUS load. An orphan only heals once it has appeared on two
+  // consecutive loads (this Set from load N-1 still contains it at load N)
+  // AND no in-flight local claim covers its group/day — see repairOrphans
+  // below. Never heals on first sight, by construction: a fresh id is never
+  // in this Set yet.
+  const orphanSightingsRef = useRef({})
   // Which weekId the last COMPLETED load actually resolved to. The mount/
   // reload effect below re-fires whenever `preferredWeekId` changes, and the
   // screen feeds its own state back in as `preferredWeekId` once a load
@@ -111,7 +125,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes 
     setLoading(true)
     setLoadError(null)
     setTemplateError(null)
-    let g, a, d
+    let g, a, d, b
     try {
       // Cohorts are not used to build a week, only to answer "is setup done"
       // from the same source the sidebar and Camp Setup use. Without it this
@@ -125,7 +139,7 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes 
       const durableElectiveSets = await repo.loadDurableElectiveSets()
       if (gen !== generationRef.current) return
       g = [...(gd || [])].filter(x => x.camp_id === campId).sort((x, y) => x.name.localeCompare(y.name))
-      const b = [...(bd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
+      b = [...(bd || [])].filter(x => x.camp_id === campId).sort((x, y) => (x.sort_order ?? 0) - (y.sort_order ?? 0))
       a = (ad || []).filter(x => x.camp_id === campId).map(normalizeActivityEligibility)
       // anchor_activities.group_ids is a JSON-stringified array (same storage
       // shape as activities.eligible_group_ids) — normalize once here, at the
@@ -256,6 +270,30 @@ export function useScheduleData({ campId, weekId: preferredWeekId, repo, routes 
         const saved = exists[r] ? allSlots.filter(x => x.template_id === tid) : []
         nextSlots[r] = saved
         nextOverlays[r] = (overlayData || []).filter(o => o.template_id === tid)
+
+        // T107 item 3 / ADR §4 + Red Hat R2 — repair-on-read, quiescence-
+        // guarded. Heal an orphan only if it also showed up on the load
+        // immediately before this one (persists across a read cycle) AND
+        // this device has no in-flight local write claim on its group/day
+        // (a mid-sync tail whose head hasn't arrived yet must not be healed
+        // out from under a legitimate in-flight extend). Healing writes
+        // through the normal repo path — journalled, never a silent
+        // render-layer drop — and is fire-and-forget: it is a background
+        // correction, not something this load waits on.
+        try {
+          const orphans = repairOrphanSpanTails(saved, b)
+          const prevOrphanIds = orphanSightingsRef.current[r] || new Set()
+          for (const orphan of orphans) {
+            if (!prevOrphanIds.has(orphan.id)) continue
+            if (hasInFlightClaim(orphan.group_id, orphan.day_id)) continue
+            repo.writeSlotFields?.(orphan.id, { activity_id: null, is_span_head: true, flags: {} })?.catch(() => {})
+          }
+          orphanSightingsRef.current[r] = new Set(orphans.map(o => o.id))
+        } catch {
+          // Best-effort background correction — a failure here must never
+          // fail the load itself (templateError is reserved for the actual
+          // read failing, not this additive repair pass).
+        }
         nextStats[r] = recalcStats(saved)
         nextFindings[r] = recalcFindings(saved, { groups: g, activities: a, days: d })
         nextSnaps[r] = (snapData || [])
