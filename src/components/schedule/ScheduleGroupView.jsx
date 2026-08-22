@@ -44,7 +44,7 @@ export default function ScheduleGroupView({
   collapsedBlockIds = NO_COLLAPSE,
   onToggleBlockCollapsed,
   // T105
-  electiveSetsAll = [], electiveMembersBySet, onCreateElective,
+  electiveSetsAll = [], electiveMembersBySet, onCreateElective, onOpenElective,
   isContentRaced, onDismissContentRace,
   // T108 Phase 2 (design §6, Designer spec §1.1) — each day COLUMN is its
   // own (week, day) binding here, so the toggle lives once per column, in
@@ -280,6 +280,7 @@ export default function ScheduleGroupView({
                             onCreateElective={onCreateElective}
                             electiveSetsAll={electiveSetsAll}
                             electiveMembersBySet={electiveMembersBySet}
+                            onOpenElective={onOpenElective}
                             isContentRaced={isContentRaced?.(selectedGroup, day.id, block.id)}
                             onDismissContentRace={() => onDismissContentRace?.(`${selectedGroup}|${day.id}|${block.id}`)}
                             onRelease={s => releaseCell(s.id)}

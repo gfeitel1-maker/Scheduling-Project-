@@ -412,3 +412,91 @@ describe('SlotCell — elective render (T105)', () => {
     expect(container.querySelector('[data-elective]')).toBeNull()
   })
 })
+
+// Slice 2 (docs/work/specs/2026-08-22-electives-nested-schedule-slices.md) —
+// the campwide-cell-to-Electives-screen drill-in button.
+describe('SlotCell — elective drill-in button (Slice 2)', () => {
+  const electiveSlot = {
+    id: 's3', groupId: 'g1', dayId: 'd1', blockId: 'b1',
+    type: 'activity', activity_id: null, elective_set_id: 'set-1', flags: {},
+  }
+
+  it('renders an "open in Electives" button on a resolved elective cell, and clicking it calls onOpenElective with the set id without opening the inline editor', () => {
+    const onOpenElective = vi.fn()
+    const onSelect = vi.fn()
+    render(
+      <DndContext>
+        <SlotCell
+          slot={electiveSlot}
+          electiveSetsAll={[{ id: 'set-1', name: 'Afternoon Chugim', is_reusable: 0 }]}
+          electiveMembersBySet={new Map([['set-1', ['act-1']]])}
+          onOpenElective={onOpenElective}
+          onSelect={onSelect}
+          gridRow="1 / span 1"
+          gridColumn="2 / span 1"
+          ariaColIndex={2}
+          cellKey="g1|d1|b1"
+        />
+      </DndContext>
+    )
+    const button = screen.getByRole('button', { name: 'Open Afternoon Chugim in Electives' })
+    fireEvent.click(button)
+    expect(onOpenElective).toHaveBeenCalledWith('set-1')
+    // stopPropagation on the button's own click keeps the cell's click
+    // handler (here onSelect, the same precedence path handleClick uses)
+    // from also firing — the drill-in must not double as cell selection.
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
+  it('renders no drill-in button when the reference is dangling (no resolved set to open)', () => {
+    render(
+      <DndContext>
+        <SlotCell
+          slot={electiveSlot}
+          electiveSetsAll={[]}
+          electiveMembersBySet={new Map()}
+          onOpenElective={vi.fn()}
+          gridRow="1 / span 1"
+          gridColumn="2 / span 1"
+          ariaColIndex={2}
+          cellKey="g1|d1|b1"
+        />
+      </DndContext>
+    )
+    expect(screen.queryByRole('button', { name: /Open .* in Electives/ })).toBeNull()
+  })
+
+  it('renders no drill-in button on a non-elective cell', () => {
+    render(
+      <DndContext>
+        <SlotCell
+          slot={slot}
+          activity={{ id: 'a1', name: 'Soccer' }}
+          onOpenElective={vi.fn()}
+          gridRow="1 / span 1"
+          gridColumn="2 / span 1"
+          ariaColIndex={2}
+          cellKey="g1|d1|b1"
+        />
+      </DndContext>
+    )
+    expect(screen.queryByRole('button', { name: /Open .* in Electives/ })).toBeNull()
+  })
+
+  it('renders no drill-in button when onOpenElective is not supplied (schedule views that never wire it stay unaffected)', () => {
+    render(
+      <DndContext>
+        <SlotCell
+          slot={electiveSlot}
+          electiveSetsAll={[{ id: 'set-1', name: 'Afternoon Chugim', is_reusable: 0 }]}
+          electiveMembersBySet={new Map()}
+          gridRow="1 / span 1"
+          gridColumn="2 / span 1"
+          ariaColIndex={2}
+          cellKey="g1|d1|b1"
+        />
+      </DndContext>
+    )
+    expect(screen.queryByRole('button', { name: /Open .* in Electives/ })).toBeNull()
+  })
+})

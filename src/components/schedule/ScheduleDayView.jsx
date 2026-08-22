@@ -35,7 +35,7 @@ export default function ScheduleDayView({
   collapsedBlockIds = NO_COLLAPSE,
   onToggleBlockCollapsed,
   // T105
-  electiveSetsAll = [], electiveMembersBySet, onCreateElective,
+  electiveSetsAll = [], electiveMembersBySet, onCreateElective, onOpenElective,
   isContentRaced, onDismissContentRace,
   // T108 Phase 2 (design §6, Designer spec §1.1) — the day view IS one
   // (week, day), so the toggle lives once in the toolbar, not per-column.
@@ -227,6 +227,7 @@ export default function ScheduleDayView({
                           onCreateElective={onCreateElective}
                           electiveSetsAll={electiveSetsAll}
                           electiveMembersBySet={electiveMembersBySet}
+                          onOpenElective={onOpenElective}
                           isContentRaced={isContentRaced?.(group.id, selectedDay, block.id)}
                           onDismissContentRace={() => onDismissContentRace?.(`${group.id}|${selectedDay}|${block.id}`)}
                           onRelease={s => releaseCell(s.id)}
