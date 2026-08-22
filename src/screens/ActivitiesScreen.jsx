@@ -268,6 +268,21 @@ const TIER_LABEL = { confirmed: 'Confirmed', observed: 'Observed', inferred: 'In
 // dot is never the only signal, the label always accompanies it).
 const TIER_DOT_COLOR = { confirmed: 'var(--secondary)', observed: 'var(--primary)', inferred: 'var(--accent)' }
 
+// Slice E, Target 4 (WCAG 1.4.1) — tier must be distinguishable by dot SHAPE,
+// not hue alone: confirmed = filled solid, observed = ring (no fill),
+// inferred = outlined-fill (a filled dot plus a --surface gap ring, so it
+// reads distinct from confirmed's plain fill at 6px). Color is unchanged;
+// this only adds shape on top of it.
+function tierShapeStyle(tier) {
+  if (tier === 'observed') {
+    return { background: 'transparent', border: `1.5px solid ${TIER_DOT_COLOR.observed}`, boxShadow: 'none' }
+  }
+  if (tier === 'inferred') {
+    return { background: TIER_DOT_COLOR.inferred, border: 'none', boxShadow: `0 0 0 1.5px var(--surface), 0 0 0 2.5px ${TIER_DOT_COLOR.inferred}` }
+  }
+  return { background: TIER_DOT_COLOR.confirmed, border: 'none', boxShadow: 'none' }
+}
+
 function useProvenancePopover(open, onClose) {
   const popRef = useRef(null)
   useEffect(() => {
@@ -308,7 +323,7 @@ function ProvenancePopoverRow({ row, onConfirm, onChange }) {
   return (
     <div style={dotStyles.row}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ ...dotStyles.rowDot, background: TIER_DOT_COLOR[row.tier] }} />
+        <span style={{ ...dotStyles.rowDot, ...tierShapeStyle(row.tier) }} />
         <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text)' }}>{row.label}</span>
         <span style={dotStyles.tierLabel}>{TIER_LABEL[row.tier]}</span>
       </div>
@@ -357,6 +372,7 @@ function ProvenancePopover({ activity, rows, popRef, onConfirmField, onChange })
 
 function RuleProvenanceDot({ activity, evidenceByField, fieldSources, onConfirmField, onChange }) {
   const [open, setOpen] = useState(false)
+  const [hovered, setHovered] = useState(false)
   const btnRef = useRef(null)
   const close = () => { setOpen(false); btnRef.current?.focus() }
   const popRef = useProvenancePopover(open, close)
@@ -370,6 +386,7 @@ function RuleProvenanceDot({ activity, evidenceByField, fieldSources, onConfirmF
   const ariaLabel = needsReview > 0
     ? `Provenance: ${worst}, ${needsReview} of 3 fields need review`
     : 'Provenance: all confirmed'
+  const shape = tierShapeStyle(worst)
 
   return (
     <span style={{ position: 'relative', display: 'inline-block', marginLeft: 6 }}>
@@ -380,7 +397,16 @@ function RuleProvenanceDot({ activity, evidenceByField, fieldSources, onConfirmF
         aria-expanded={open}
         aria-label={ariaLabel}
         onClick={() => setOpen(v => !v)}
-        style={{ ...dotStyles.dot, background: TIER_DOT_COLOR[worst], transition: reduced ? 'none' : 'background-color var(--motion-fast) var(--ease-out)' }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        onFocus={() => setHovered(true)}
+        onBlur={() => setHovered(false)}
+        style={{
+          ...dotStyles.dot,
+          ...shape,
+          boxShadow: hovered ? '0 0 0 3px color-mix(in srgb, var(--text) 10%, transparent)' : shape.boxShadow,
+          transition: reduced ? 'none' : 'background-color var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out), border-color var(--motion-fast) var(--ease-out)',
+        }}
       />
       {open && (
         <ProvenancePopover
@@ -641,6 +667,14 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   const [quickAdding, setQuickAdding] = useState(false)
   // Slice D: { evidence: importEvidenceRow[], fieldSources: { [activityId]: { [opField]: source|null } } }
   const [provenance, setProvenance] = useState({ evidence: [], fieldSources: {} })
+  // Slice E, Target 3 — a single-shot row settle highlight after a
+  // provenance field is confirmed; self-clears after 700ms.
+  const [justConfirmed, setJustConfirmed] = useState(null) // null | { activityId, field }
+  // Row hover is declarative (single hovered-row id) so it shares the one
+  // `background` slot with justConfirmed instead of imperatively mutating it —
+  // a just-confirmed row stays highlighted even while hovered (Slice E review
+  // fix: the old imperative onMouseEnter/Leave silently cancelled the settle).
+  const [hoveredRow, setHoveredRow] = useState(null)
   const fileRef = useRef()
 
   useEffect(() => { load() }, [campId])
@@ -1143,6 +1177,8 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
     try {
       await writeFields(activity.id, fields)
       await load()
+      setJustConfirmed({ activityId: activity.id, field: row.key })
+      setTimeout(() => setJustConfirmed(null), 700)
     } catch (err) {
       setError(describeWriteFailure(err, 'That could not be confirmed.'))
     }
@@ -1224,9 +1260,18 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                       <td colSpan={weekId ? 8 : 7} style={{ padding: '6px 14px', fontSize: 11, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{label}</td>
                     </tr>
                     {rows.map(a => (
-                      <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
-                        onMouseLeave={e => e.currentTarget.style.background = ''}
+                      <tr key={a.id} style={{
+                          borderBottom: '1px solid var(--border)',
+                          // justConfirmed wins over hover so the settle survives a hover.
+                          background: justConfirmed?.activityId === a.id
+                            ? 'color-mix(in srgb, var(--secondary) 10%, transparent)'
+                            : hoveredRow === a.id ? 'var(--bg)' : 'transparent',
+                          // Transition only the confirm settle; hover stays instant.
+                          transition: (justConfirmed?.activityId === a.id && !prefersReducedMotion())
+                            ? 'background-color var(--motion-settle) var(--ease-out)' : 'none',
+                        }}
+                        onMouseEnter={() => setHoveredRow(a.id)}
+                        onMouseLeave={() => setHoveredRow(null)}
                       >
                         <td style={{ ...S.td, fontWeight: 500 }}>
                           {a.name}

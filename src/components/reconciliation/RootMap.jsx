@@ -174,6 +174,41 @@ function Chip({ child, selected, dimmedOut, onSelect, decisionsById, pulseEligib
   )
 }
 
+function CensusTile({ state, active, count, onClick }) {
+  const [hovered, setHovered] = useState(false)
+  const reduced = prefersReducedMotion()
+  const baseStyle = active
+    ? {
+        ...styles.tile,
+        borderWidth: 2,
+        borderColor: STATE_TOKEN[state],
+        background: `color-mix(in srgb, var(--surface) 92%, ${STATE_TOKEN[state]} 8%)`,
+      }
+    : { ...styles.tile, borderLeftWidth: 3, borderLeftColor: STATE_TOKEN[state] }
+  const style = {
+    ...baseStyle,
+    transform: hovered && !reduced ? 'translateY(-2px)' : 'none',
+    boxShadow: hovered
+      ? '0 4px 10px color-mix(in srgb, var(--text) 12%, transparent)'
+      : '0 1px 3px color-mix(in srgb, var(--text) 8%, transparent)',
+    transition: 'transform var(--motion-fast) var(--ease-out), box-shadow var(--motion-fast) var(--ease-out)',
+  }
+  return (
+    <button
+      type="button"
+      className="press-97"
+      aria-pressed={active}
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={style}
+    >
+      <div style={styles.tileCount}>{count}</div>
+      <div style={styles.tileLabel}>{TILE_LABEL[state]}</div>
+    </button>
+  )
+}
+
 function DomainHead({ domainKey, state, selected, onSelect }) {
   return (
     <button
@@ -222,26 +257,13 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
         {TILE_STATES.map((state) => {
           const active = selection.type === 'tile' && selection.state === state
           return (
-            <button
+            <CensusTile
               key={state}
-              type="button"
-              className="press-97"
-              aria-pressed={active}
+              state={state}
+              active={active}
+              count={tileCounts[state]}
               onClick={() => (active ? onClearSelection() : onSelectTile(state))}
-              style={
-                active
-                  ? {
-                      ...styles.tile,
-                      borderWidth: 2,
-                      borderColor: STATE_TOKEN[state],
-                      background: `color-mix(in srgb, var(--surface) 92%, ${STATE_TOKEN[state]} 8%)`,
-                    }
-                  : { ...styles.tile, borderLeftWidth: 3, borderLeftColor: STATE_TOKEN[state] }
-              }
-            >
-              <div style={styles.tileCount}>{tileCounts[state]}</div>
-              <div style={styles.tileLabel}>{TILE_LABEL[state]}</div>
-            </button>
+            />
           )
         })}
       </div>
