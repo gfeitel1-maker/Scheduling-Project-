@@ -71,7 +71,7 @@ artifacts, not assumptions.
 | W9 | Programming-collaboration via doc storage on events/electives | Concept | HUMAN (new capability) | W4 | brainstorming → domain-modeling → Architect |
 | W10 | MCP surface (CLI shipped, MCP did not) | Impl | — | — | mcp-builder + tool-design → Maker → Verifier |
 | W11 | /improve-codebase-architecture | Audit | — | all | architecture-auditor (standalone) |
-| W12 | Brand-application (watercolor tree/roots identity board) | Design+Impl | HUMAN (token/type reconciliation) | W3 | Designer → Maker; see reference memory |
+| W12 | Brand-application — imagery + iconography ONLY (NO reskin; palette/type frozen; RASTER not SVG) | Impl | integration pending | W3 | Maker; assets intaken to src/assets/brand/ |
 
 ### Sequence
 
@@ -86,9 +86,12 @@ artifacts, not assumptions.
    print/export, and as system chrome (root-line dividers, leaf elements); **Operate working
    screens (Roots, Schedule, Setup) stay art-free** — the board feeds the metaphor via
    root-line/leaf details + palette rather than a centerpiece image. Playfair Display →
-   brand/print only, never UI chrome (Inter stays). Token/type reconciliation to the board is
-   a DEFERRED W12 human decision. First tranche: favicon/app icon, root-line/leaf design
-   tokens, splash/login.
+   brand/print only, never UI chrome (Inter stays). **Token/type reconciliation RESOLVED
+   (owner, 2026-08-21): NO reskin** — after a reskin-comparison prototype, the owner froze the
+   app palette + typography as-is; W12 is narrowed to **imagery/illustrations + iconography
+   only**. W12 is **PARKED pending owner-provided asset files** (the board is a mockup, not an
+   asset kit). When files arrive: icons → nav/entity chrome; illustrations → first-impression/
+   print/chrome; favicon/app-icon → shell.
 
 ### Non-counting outcomes (do not return these as "done")
 

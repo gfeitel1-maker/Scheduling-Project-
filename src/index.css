@@ -21,6 +21,10 @@
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-condensed: 'IBM Plex Sans', system-ui, sans-serif;
   --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+  /* Brand display face — Playfair Display. Scoped to the wordmark on
+     first-impression surfaces (login hero) only. Never apply to app UI
+     (forms, buttons, working screens); see DESIGN_STANDARD.md + W12 brief. */
+  --font-brand-display: 'Playfair Display', Georgia, serif;
 
   --motion-fast:   140ms;
   --motion-base:   220ms;

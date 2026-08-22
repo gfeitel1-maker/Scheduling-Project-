@@ -53,6 +53,14 @@ describe('PostImportBanner', () => {
     expect(screen.getByText('Ready to build a week.')).toBeTruthy()
   })
 
+  it('shows the one-time brand celebration on completion', () => {
+    render(
+      <PostImportBanner outcome={outcome()} readiness={getReadiness(READY_COLLECTIONS)}
+        graceWindow={idleGraceWindow()} onNavigate={vi.fn()} />
+    )
+    expect(screen.getByText('Your foundation is set.')).toBeTruthy()
+  })
+
   it('folds in the blocking verdict sentence when the camp is not ready — the same text describeReadiness produces', () => {
     const readiness = getReadiness(BLOCKED_COLLECTIONS)
     const { blocking } = describeReadiness(readiness)

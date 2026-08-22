@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
+import treeArt from '../assets/brand/tree-full-wide-login.png'
 
 function formatMMSS(ms) {
   const totalSec = Math.max(0, Math.ceil(ms / 1000))
@@ -67,17 +68,29 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
 
   const disabled = status === 'locked' || status === 'submitting'
   const dots = [0, 1, 2, 3]
+  const heroTransition = useEnterTransition('liftFade')
 
   return (
-    <div style={S.authPage}>
-      <style>{'@keyframes shoresh-pin-shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }'}</style>
-      <div style={S.authCard}>
-        <div style={S.authLogoBlock}>
-          <div style={S.authLogo}>Shoresh</div>
-          <div style={S.authLogoSub}>{campName || 'Camp activity scheduling'}</div>
-        </div>
+    <div style={loginStyles.page}>
+      <style>{
+        '@keyframes shoresh-pin-shake { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-3px); } 75% { transform: translateX(3px); } }' +
+        '@media (max-width: 860px) { .shoresh-login-hero { display: none !important; } }'
+      }</style>
 
-        <div style={{ ...S.authTitle, fontSize: 19 }}>Sign in</div>
+      <div className="shoresh-login-hero" style={{ ...loginStyles.heroPanel, ...heroTransition }}>
+        <img src={treeArt} alt="" style={loginStyles.heroArt} />
+        <div style={loginStyles.heroWordmark}>Shoresh</div>
+        <div style={loginStyles.heroTagline}>From Roots to Rhythm</div>
+      </div>
+
+      <div style={loginStyles.formPanel}>
+        <div style={S.authCard}>
+          <div style={S.authLogoBlock}>
+            <div style={S.authLogo}>Shoresh</div>
+            <div style={S.authLogoSub}>{campName || 'Camp activity scheduling'}</div>
+          </div>
+
+          <div style={{ ...S.authTitle, fontSize: 19 }}>Sign in</div>
 
         {notice && (
           <div style={S.authNoticeBox}>
@@ -166,7 +179,57 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
             {status === 'submitting' ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
+        </div>
       </div>
     </div>
   )
+}
+
+const loginStyles = {
+  page: {
+    display: 'flex',
+    minHeight: '100vh',
+    background: 'var(--bg)',
+  },
+  heroPanel: {
+    flex: '1 1 46%',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    padding: '48px 32px',
+    background: 'linear-gradient(160deg, var(--primary-dark), var(--primary))',
+    boxSizing: 'border-box',
+  },
+  heroArt: {
+    width: '100%',
+    maxWidth: 420,
+    height: 'auto',
+    marginBottom: 20,
+  },
+  // Literal white here is intentional: the hero panel sits on a --primary/--primary-dark
+  // brand gradient, so the wordmark/tagline need on-gradient white for contrast. This is
+  // NOT a palette change — no app-chrome token is affected (W12 keeps tokens frozen).
+  heroWordmark: {
+    fontFamily: 'var(--font-brand-display)',
+    fontWeight: 600,
+    fontSize: 40,
+    color: '#fff',
+    letterSpacing: '-0.3px',
+  },
+  heroTagline: {
+    fontFamily: 'var(--font-sans)',
+    fontSize: 13,
+    color: 'color-mix(in srgb, #fff 78%, transparent)',
+    letterSpacing: '0.02em',
+  },
+  formPanel: {
+    flex: '1 1 54%',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    boxSizing: 'border-box',
+  },
 }

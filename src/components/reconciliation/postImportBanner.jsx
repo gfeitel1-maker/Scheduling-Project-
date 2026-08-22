@@ -18,6 +18,7 @@
 
 import { S, useEnterTransition } from '../../styles/shared'
 import { describeReadiness } from '../../engine/readiness.js'
+import rootSystemArt from '../../assets/brand/root-system-celebration.png'
 
 const sumCounts = (counts) => Object.values(counts ?? {}).reduce((n, c) => n + c, 0)
 
@@ -32,6 +33,16 @@ export default function PostImportBanner({ outcome, readiness = [], censusReadFa
     : null
   return (
     <div style={{ ...styles.banner, ...enterStyle }}>
+      {/* W12 — the one rare, first-impression moment brand artwork is placed
+          inside the app (per the approved placement rule: celebration/
+          first-impression surfaces only, never the working Operate screens).
+          "Foundation is set" pairs the roots-only crop (no canopy — the
+          camp isn't built yet, its base is) with the import summary that
+          already led this banner. */}
+      <div style={styles.celebration}>
+        <img src={rootSystemArt} alt="" style={styles.celebrationArt} />
+        <div style={styles.celebrationHeadline}>Your foundation is set.</div>
+      </div>
       <strong>
         Imported {outcome.total} {outcome.total === 1 ? 'record' : 'records'}
         {fixedEvents.created > 0 && `, including ${fixedEvents.created} fixed ${fixedEvents.created === 1 ? 'event' : 'events'}`}
@@ -129,6 +140,17 @@ const styles = {
     background: 'var(--surface)', border: '1px solid var(--border)',
     borderLeft: '3px solid var(--success)', borderRadius: 8, padding: '12px 14px',
     marginBottom: 16, fontSize: 13, lineHeight: 1.6,
+  },
+  celebration: {
+    display: 'flex', alignItems: 'center', gap: 14,
+    marginBottom: 10, paddingBottom: 10, borderBottom: '1px solid var(--border)',
+  },
+  celebrationArt: {
+    width: 88, height: 'auto', flexShrink: 0, borderRadius: 6,
+  },
+  celebrationHeadline: {
+    fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 18,
+    color: 'var(--text)',
   },
   // The folded-in readiness verdict — the same sentence RootsBanner leads with
   // (its verdictLine), reused here so the one post-import banner carries it.
