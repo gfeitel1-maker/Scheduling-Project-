@@ -13,10 +13,15 @@ export const DOMAIN_OF = {
   locations: 'Facility',
   activities: 'Scheduling',
   anchor_activities: 'Scheduling',
-  // Slice 3a — an elective_candidate nudge carries entity: 'elective_sets'
-  // (reconciliationReport.js); electives are a schedule concept, same domain
-  // as activities/anchor_activities.
-  elective_sets: 'Scheduling',
+  // Slice 3a: an elective_candidate decision carries entity: 'elective_sets'
+  // (reconciliationReport.js), but 'elective_sets' is deliberately NOT added
+  // here — DOMAIN_OF's keys are pinned 1:1 against CHILD_OF/the census
+  // snapshot (existingSnapshot.test.js's R1 regression test), a separate
+  // concern this slice does not extend. domainOf() falls through to
+  // `undefined` for this decision, same as any other entity absent from this
+  // table — the decision still renders in the hold lane, just uncategorized
+  // in the domain-rollup chips. Revisit alongside a real CHILD_OF/census
+  // entry for elective_sets, not silently here.
 }
 // Root-map port (docs/adr/2026-08-18-rootmap-screen-port.md §3) widens this
 // from four domains to five. 'Context' intentionally has NO entry in
