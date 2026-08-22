@@ -217,7 +217,7 @@ describe('T59 — accessible names', () => {
 
   it('announces an empty cell as empty, not as a blank cell', () => {
     expect(cellAt(container, 4, 2).getAttribute('aria-label'))
-      .toBe('Empty, Block 3, Monday')
+      .toBe('Open, Block 3, Monday')
   })
 
   it('names day-view cells by their GROUP, because that view\'s columns are groups', () => {
@@ -239,7 +239,7 @@ describe('T59 — accessible names', () => {
     expect(cellAt(c, 2, 2).getAttribute('aria-label'))
       .toBe('Swimming, Block 1 to Block 2, Alpha')
     expect(cellAt(c, 2, 3).getAttribute('aria-label'))
-      .toBe('Empty, Block 1, Bravo')
+      .toBe('Open, Block 1, Bravo')
   })
 
   it('gives every cell in the grid a non-empty accessible name', () => {
@@ -259,7 +259,7 @@ describe('T59/T112 — keys inside an open inline editor do not leak to grid nav
   beforeEach(() => { container = renderGroupView() })
 
   it('EmptyCell editor: arrow/Home/End inside the input do not move grid focus or close the editor', () => {
-    const emptyCell = cellAt(container, 4, 2) // 'Empty, Block 3, Monday'
+    const emptyCell = cellAt(container, 4, 2) // 'Open, Block 3, Monday'
     fireEvent.click(emptyCell)
     const input = emptyCell.querySelector('.cell-inline-editor-input')
     expect(input).not.toBeNull()
@@ -305,7 +305,7 @@ describe('T59 — the T55 collapsed-row contract survives', () => {
 
   it('keeps a collapsed row\'s cells named', () => {
     expect(cellAt(container, 4, 2).getAttribute('aria-label'))
-      .toBe('Empty, Block 3, Monday')
+      .toBe('Open, Block 3, Monday')
   })
 
   it('reaches a collapsed row by arrow key and makes it the tab stop', () => {
