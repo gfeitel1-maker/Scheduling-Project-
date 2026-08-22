@@ -31,7 +31,7 @@ export default function ConfirmRegenModal({ role, onConfirm, onCancel }) {
           <button
             onClick={onConfirm}
             disabled={!isAdmin}
-            title={!isAdmin ? 'Admin only' : undefined}
+            title={!isAdmin ? 'Director only' : undefined}
             style={!isAdmin ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
           >Rebuild it</button>
         </div>

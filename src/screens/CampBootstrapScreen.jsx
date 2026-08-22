@@ -44,7 +44,7 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
 
         <div style={S.authTitle}>Set up your camp</div>
         <div style={S.authSubtitle}>
-          This is a one-time setup. You'll create the first admin account — you can add more staff
+          This is a one-time setup. You'll create the first director account — you can add more staff
           once you're in.
         </div>
 

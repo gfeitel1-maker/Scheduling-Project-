@@ -19,10 +19,10 @@ export default function PairingPendingScreen({ denied, onBack }) {
             <div style={S.authTitle}>Waiting for Approval</div>
             <div style={styles.spinner} />
             <div style={S.authSubtitle}>
-              Waiting for admin to approve this device…
+              Waiting for the director to approve this device…
             </div>
             <div style={styles.hint}>
-              Ask your camp administrator to approve this device in the Device Manager.
+              Ask your camp director to approve this device in the Device Manager.
             </div>
           </>
         )}

@@ -154,7 +154,7 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
                       disabled={!isAdmin || snap.restorable === false}
                       title={
                         snap.restorable === false ? 'This version recorded no schedule data and cannot be restored'
-                          : !isAdmin ? 'Admin only'
+                          : !isAdmin ? 'Director only'
                             : undefined
                       }
                       style={{
