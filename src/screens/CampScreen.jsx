@@ -11,9 +11,9 @@ import { S } from '../styles/shared'
 // only one is needed — which should be the sidebar." The sidebar is now that
 // pathway, with a mark and a count per area, and the step list is gone.
 //
-// The explanations it carried moved to the screens they describe
-// (src/components/screenIntroText.js) rather than being deleted with it — a
-// sidebar row can say "Age Divisions", but not what an age division is.
+// The explanations it carried are gone too (2026-08-22, roots-as-hub setup
+// IA): a top-of-screen explainer was evidence the screen wasn't self-evident,
+// not a feature worth keeping.
 //
 // The name had nowhere else to live, so it lives here, under System. This is
 // not a setup pathway; it is one setting.

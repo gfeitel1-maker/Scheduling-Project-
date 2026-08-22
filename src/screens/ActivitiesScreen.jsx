@@ -6,7 +6,6 @@ import { localClient } from '../localClient'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
-import ScreenIntro from '../components/ScreenIntro'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { createScheduleRepository } from '../data/scheduleRepository'
@@ -993,7 +992,6 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
 
   return (
     <div style={{ maxWidth: 820 }}>
-      <ScreenIntro screen="activities" />
       {weeks.length > 0 && (
         <WeekContextBar
           weekId={weekId}

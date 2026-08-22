@@ -10,7 +10,6 @@ import { fetchCensusSnapshot } from '../ingest/existingSnapshot.js'
 import { describeWriteFailure } from '../utils/writeErrorMessage.js'
 import { downloadWorkbook } from '../utils/exportWorkbook.js'
 import { INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
-import ScreenIntro from '../components/ScreenIntro.jsx'
 import { heldConflictsToDecisions, foldTriageInputs, isDecisionResolvedFor, mapCommitError, identityRememberCalls } from './reconciliationTriage.js'
 import { computeDomainCounts } from '../components/reconciliation/domainRollup.js'
 import ReconstructionMoment from '../components/reconciliation/ReconstructionMoment.jsx'
@@ -416,7 +415,6 @@ export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, 
       : null
     return (
       <div style={{ maxWidth: 920, margin: '0 auto' }}>
-        <ScreenIntro screen={mode === 'inspect' ? 'roots' : 'reconciliation'} />
         <ReconstructionMoment
           settling={!!report}
           domainCounts={momentDomainCounts}
@@ -429,7 +427,6 @@ export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, 
   if (loading && (mode === 'inspect' || !report)) {
     return (
       <div style={{ maxWidth: 920, margin: '0 auto' }}>
-        <ScreenIntro screen={mode === 'inspect' ? 'roots' : 'reconciliation'} />
         <p style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
           {mode === 'inspect' ? 'Reading your camp setup…' : 'Checking this file against your camp…'}
         </p>
@@ -440,7 +437,6 @@ export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, 
   if (error && !report) {
     return (
       <div style={{ maxWidth: 920, margin: '0 auto' }}>
-        <ScreenIntro screen={mode === 'inspect' ? 'roots' : 'reconciliation'} />
         <div style={styles.errorBanner}>{error}</div>
         {onDiscard && <button className="press-97" onClick={onDiscard} style={S.btnSecondary}>Back</button>}
       </div>
@@ -549,7 +545,6 @@ export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, 
 
   return (
     <div style={{ maxWidth: 920, margin: '0 auto' }}>
-      <ScreenIntro screen={mode === 'inspect' ? 'roots' : 'reconciliation'} />
       {error && <div style={styles.errorBanner}>{error}</div>}
       {censusReadFailed && (
         <div style={styles.errorBanner}>Couldn’t read part of your setup — some areas may be incomplete.</div>

@@ -7,7 +7,6 @@ import { S, prefersReducedMotion } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import RecordHistory from '../components/RecordHistory'
-import ScreenIntro from '../components/ScreenIntro'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { createScheduleRepository } from '../data/scheduleRepository'
@@ -347,7 +346,6 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
 
   return (
     <div style={{ maxWidth: 720 }}>
-      <ScreenIntro screen="groups" />
       {weeks.length > 0 && (
         <WeekContextBar
           weekId={weekId}

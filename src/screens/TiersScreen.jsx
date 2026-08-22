@@ -7,7 +7,6 @@ import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { S } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
-import ScreenIntro from '../components/ScreenIntro'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 
 // Tiers' load is cohort-scoped (camp_id AND cohort_id), fetches groups
@@ -355,7 +354,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 700 }}>
-      <ScreenIntro screen="tiers" />
       <CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />
       {error && (
         <div style={S.errorBanner}>

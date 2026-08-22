@@ -15,8 +15,8 @@ export const NAV_SECTIONS = [
     key: 'setup',
     title: 'Camp Set Up',
     // The header only toggles. It used to also reach the Camp Setup screen for
-    // its explanations; those now live on the screens they describe
-    // (src/components/screenIntroText.js), so there is nothing to link to.
+    // its explanations; those explanations are gone entirely (2026-08-22,
+    // roots-as-hub setup IA), so there is nothing to link to.
     items: [
       // Roots — the home base for setup and the in-session landing screen
       // (S5, OF-1; superseded plan: docs/work/plans/2026-08-19-roots-
