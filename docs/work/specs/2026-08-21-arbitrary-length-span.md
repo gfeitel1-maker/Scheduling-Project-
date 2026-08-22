@@ -1,6 +1,16 @@
+---
+title: "Arbitrary-length activity span — extend a period across N blocks"
+document_type: spec
+status: draft
+created: 2026-08-21
+governing_docs: [docs/governance/constitution/CONSTITUTION.md]
+related_adrs: [docs/adr/2026-08-21-arbitrary-length-activity-span.md]
+archive_when: arbitrary-length spans are live on both routes with the drag-to-extend and interior-split UI delivered
+---
+
 # Spec: Arbitrary-length activity span (extend a period across N blocks)
 
-Status: scope-confirmed, awaiting ADR + owner build-gate
+Status: scope-confirmed, ADR accepted, write-path implemented; UI-interaction layer + repair-pass wiring pending
 Owner-flagged: LATER (not urgent)
 
 ## Problem (owner's words)
