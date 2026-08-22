@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
+import { render, screen, waitFor, fireEvent, act, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 vi.mock('../localClient', () => ({
@@ -10,6 +10,7 @@ vi.mock('../localClient', () => ({
     deleteEntity: vi.fn(),
     previewDelete: vi.fn(),
     deleteRecord: vi.fn(),
+    listImportEvidence: vi.fn(),
   },
 }))
 
@@ -83,6 +84,7 @@ beforeEach(() => {
     anchor_count: 0, overlay_count: 0, weather_dependent_count: 0,
   })
   localClient.deleteRecord.mockReset().mockResolvedValue({ ok: true, cleared: 0 })
+  localClient.listImportEvidence.mockReset().mockResolvedValue({ evidence: [], fieldSources: {} })
 })
 
 describe('ActivitiesScreen quick-add', () => {
@@ -773,5 +775,117 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'act-1', 'location_id', null))
+  })
+})
+
+// Slice D (docs/adr/2026-08-22-roots-as-hub-setup-ia.md §7) — row-level
+// provenance dot + popover.
+describe('ActivitiesScreen — rule provenance (Slice D)', () => {
+  function evidenceRow(overrides = {}) {
+    return {
+      id: 'ev-1', camp_id: CAMP_ID, entity_type: 'activities', entity_id: 'act-1',
+      field: 'min_per_week', tag: 'inferred', confidence: 'low', support: {},
+      import_run_id: 'run-1', committed_at: '2026-08-01T00:00:00Z',
+      ...overrides,
+    }
+  }
+
+  it('shows no dot for a hand-created activity with no import_evidence at all', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([activity()])
+      return Promise.resolve([])
+    })
+    localClient.listImportEvidence.mockResolvedValue({ evidence: [], fieldSources: { 'act-1': { min_per_week: null, max_per_week: null, eligible_group_ids: null, location_id: null } } })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    expect(screen.queryByRole('button', { name: /Provenance:/ })).toBeNull()
+  })
+
+  it('shows an inferred-tier dot when a field was imported without evidence, and worst tier wins over other fields', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([activity()])
+      return Promise.resolve([])
+    })
+    localClient.listImportEvidence.mockResolvedValue({
+      evidence: [evidenceRow({ field: 'min_per_week', tag: 'observed', confidence: 'high', support: { occupied_days: 3, operating_days: 5 } })],
+      fieldSources: { 'act-1': { min_per_week: 'import', max_per_week: 'import', eligible_group_ids: null, location_id: null } },
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    // observed evidence tag but source==='import' -> tier 'observed', worst present.
+    expect(screen.queryByRole('button', { name: /Provenance: observed, 1 of 3 fields need review/ })).not.toBeNull()
+  })
+
+  it('opens the popover with exactly 3 field rows, and Confirm re-writes the field then flips the row to confirmed in place', async () => {
+    const act1 = activity({ min_per_week: 2, max_per_week: 4 })
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([act1])
+      return Promise.resolve([])
+    })
+    localClient.listImportEvidence.mockResolvedValue({
+      evidence: [evidenceRow({ field: 'min_per_week', tag: 'inferred', confidence: 'low', support: {} })],
+      fieldSources: { 'act-1': { min_per_week: 'import', max_per_week: 'import', eligible_group_ids: null, location_id: null } },
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: /Provenance:/ }))
+    const dialog = await screen.findByRole('dialog')
+    expect(within(dialog).queryByText('Min–Max/Wk')).not.toBeNull()
+    expect(within(dialog).queryByText('Eligible groups')).not.toBeNull()
+    expect(within(dialog).queryByText('Location')).not.toBeNull()
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Confirm' }))
+    await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'act-1', 'min_per_week', 2))
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'act-1', 'max_per_week', 4)
+
+    // Popover stays open (no toast) — the row for min_per_week now reads Confirmed.
+    await waitFor(() => expect(within(screen.getByRole('dialog')).queryAllByText('Confirmed').length).toBeGreaterThan(0))
+  })
+
+  it('Change opens the existing ActivityModal for that activity', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([activity()])
+      return Promise.resolve([])
+    })
+    localClient.listImportEvidence.mockResolvedValue({
+      evidence: [evidenceRow()],
+      fieldSources: { 'act-1': { min_per_week: 'import', max_per_week: 'import', eligible_group_ids: null, location_id: null } },
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: /Provenance:/ }))
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.click(within(dialog).getAllByRole('button', { name: 'Change' })[0])
+
+    expect(screen.queryByText('Edit: Archery')).not.toBeNull()
+  })
+
+  it('reduced motion: the popover is present at full opacity with no transform on mount, no crash', async () => {
+    const originalMatchMedia = window.matchMedia
+    window.matchMedia = (query) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} })
+    try {
+      localClient.list.mockImplementation(entity => {
+        if (entity === 'activities') return Promise.resolve([activity()])
+        return Promise.resolve([])
+      })
+      localClient.listImportEvidence.mockResolvedValue({
+        evidence: [evidenceRow()],
+        fieldSources: { 'act-1': { min_per_week: 'import', max_per_week: 'import', eligible_group_ids: null, location_id: null } },
+      })
+      render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+      await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+      fireEvent.click(screen.getByRole('button', { name: /Provenance:/ }))
+      const dialog = await screen.findByRole('dialog')
+      expect(dialog.style.transform).toBe('')
+      await act(async () => { await new Promise(r => requestAnimationFrame(r)) })
+      expect(dialog.style.opacity).toBe('1')
+    } finally {
+      window.matchMedia = originalMatchMedia
+    }
   })
 })

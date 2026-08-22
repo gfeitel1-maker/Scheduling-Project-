@@ -99,4 +99,6 @@ contextBridge.exposeInMainWorld('shoresh', {
   // T105: the durability read seam's first production caller
   // (electron/ops/durableElectiveSets.js, T110) — mirrors listUsers's shape.
   listDurableElectiveSets: (token) => ipcRenderer.invoke('shoresh:list-durable-elective-sets', { token }),
+  // Slice D — read-only, mirrors listDurableElectiveSets's shape.
+  listImportEvidence: (token) => ipcRenderer.invoke('shoresh:list-import-evidence', { token }),
 })

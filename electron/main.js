@@ -20,10 +20,10 @@ import { DIRECT_CAMP_ENTITIES, PARENT_SCOPED_ENTITIES } from './ops/campScopedEn
 import { listEntities } from './ops/read.js'
 import { IPC_PIN_FIELDS } from './ops/pinFields.js'
 import { listDeleted, getEntityHistory } from './ops/trash.js'
-import { RESTORABLE_ENTITIES, restoreEntity } from './ops/restore.js'
+import { RESTORABLE_ENTITIES, restoreEntity, lastKnownFieldSources } from './ops/restore.js'
 import { CLEARABLE_ENTITIES, previewDelete, deleteRecord, mergeLocation } from './ops/deleteRecord.js'
 import { listMigrationReviews, dismissMigrationReviews } from './ops/migrationReviews.js'
-import { commitIngest, ingestUndo } from './ops/ingest.js'
+import { commitIngest, ingestUndo, listImportEvidence } from './ops/ingest.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
@@ -1281,6 +1281,35 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return listDurableElectiveSets(db, camp.id)
   }
 
+  // Slice D (docs/adr/2026-08-22-roots-as-hub-setup-ia.md §7): batched
+  // read-only provenance for the Activities screen's row-level provenance
+  // dot. Returns the whole camp's activity import_evidence rows plus, per
+  // activity, the last op `source` for the 3 owner-locked rule fields
+  // (min_per_week/max_per_week, eligible_group_ids, location_id) —
+  // src/utils/ruleProvenance.js combines the two into a tier per field. No
+  // new table, no schema change: import_evidence already exists
+  // (electron/db/schema.sql), this just exposes it over IPC for the first
+  // time, mirroring listDurableElectiveSetsHandler's shape exactly.
+  function listImportEvidenceHandler(token) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'activities.read' })
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) return { evidence: [], fieldSources: {} }
+    const evidence = listImportEvidence(db, camp.id, { entity_type: 'activities' })
+    const activityIds = db.prepare('SELECT id FROM activities WHERE camp_id = ?').all(camp.id).map((r) => r.id)
+    const fieldSources = {}
+    for (const activityId of activityIds) {
+      const sources = lastKnownFieldSources(db, 'activities', activityId)
+      fieldSources[activityId] = {
+        min_per_week: sources.get('min_per_week') ?? null,
+        max_per_week: sources.get('max_per_week') ?? null,
+        eligible_group_ids: sources.get('eligible_group_ids') ?? null,
+        location_id: sources.get('location_id') ?? null,
+      }
+    }
+    return { evidence, fieldSources }
+  }
+
   return {
     chooseMode,
     discoverHosts: discoverHostsHandler,
@@ -1294,6 +1323,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     deleteElectiveSet: deleteElectiveSetHandler,
     deleteSpecialDay: deleteSpecialDayHandler,
     listDurableElectiveSets: listDurableElectiveSetsHandler,
+    listImportEvidence: listImportEvidenceHandler,
     listDeleted: listDeletedHandler,
     listPendingRestores: listPendingRestoresHandler,
     getEntityHistory: getEntityHistoryHandler,
@@ -1478,6 +1508,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:delete-elective-set', (_event, args) => handlers.deleteElectiveSet(args))
     ipcMain.handle('shoresh:delete-special-day', (_event, args) => handlers.deleteSpecialDay(args))
     ipcMain.handle('shoresh:list-durable-elective-sets', (_event, args) => handlers.listDurableElectiveSets(args && args.token))
+    ipcMain.handle('shoresh:list-import-evidence', (_event, args) => handlers.listImportEvidence(args && args.token))
   }
 
   /**
