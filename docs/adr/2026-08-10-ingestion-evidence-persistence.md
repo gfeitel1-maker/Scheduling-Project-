@@ -1,11 +1,11 @@
 ---
 title: "ADR: Ingestion Evidence Persistence — the B4 host-local evidence artifact"
 document_type: adr
-status: proposed
+status: accepted
 authority: normative
-implementation_state: not-started
+implementation_state: implemented
 date: 2026-08-10
-decided: null
+decided: 2026-08-22 (frontmatter reconciled with shipped code — the import_evidence table, writeEvidence/listImportEvidence, and per-field observed/inferred tagging are live in electron/db/schema.sql + electron/ops/ingest.js; confirmed during the Roots-as-hub Slice D architecture investigation)
 deciders: [product-owner]
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
 supersedes: []
