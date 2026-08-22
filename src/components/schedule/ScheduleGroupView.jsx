@@ -8,6 +8,7 @@ import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
 import { blockNamesForSpan } from './cellLabel'
+import { computeSpanCellProps } from '../../screens/schedule/gridGeometry'
 import useGridKeyboardNav from './useGridKeyboardNav'
 import './scheduleGrid.css'
 
@@ -25,6 +26,9 @@ export default function ScheduleGroupView({
   eligibleActivitiesFor, onPlace, onCreateNew, fillState,
   onExpandSlot,
   onSplitSlot,
+  // T107 item 1 / ADR §5 — generated-route parity: same drag-to-extend
+  // gesture, routed through the same expandSlot as the manual route.
+  onSpanExtendStart,
   selectedSlotKeys,
   pasteMode,
   onCellSelect,
@@ -247,17 +251,18 @@ export default function ScheduleGroupView({
                         const actIsLocked = slot.activity_id && act?.is_locked
                         const isLocked = Boolean(actIsLocked && !slot.is_released)
 
-                        const isMerged = Boolean(slot.flags?.expanded)
                         const isSelected = selectedSlotKeys?.has(cellKey) ?? false
                         const isMultiSelected = isSelected && (selectedSlotKeys?.size ?? 0) > 1
-                        const nextBlock = timeBlocks.find(b => b.sort_order === block.sort_order + 1)
-                        const nextSlot = nextBlock ? geometry.getSlot(selectedGroup, day.id, nextBlock.id) : null
-                        const hasMergeDown = !isMerged && Boolean(nextBlock) && !nextSlot?.is_anchor && nextSlot?.is_span_head !== false
+                        const {
+                          isMerged, nextBlock, hasMergeDown, spanTailBlockIds,
+                          onSplit, onSplitAt, onExtendGrab,
+                        } = computeSpanCellProps({
+                          geometry, selectedGroup, day, block, blockIndex, timeBlocks, rowSpan, slot,
+                          onSplitSlot, onSpanExtendStart,
+                        })
                         const onMergeDown = hasMergeDown && onExpandSlot ? () => {
-                          const tailAct = nextSlot?.activity_id ? actMap.get(nextSlot.activity_id) : null
-                          onExpandSlot(selectedGroup, day.id, block.id, nextBlock.id, nextSlot?.activity_id ?? null, tailAct?.name ?? '', nextBlock.name, day.label)
+                          onExpandSlot(selectedGroup, day.id, block.id, nextBlock.id)
                         } : undefined
-                        const onSplit = isMerged && onSplitSlot ? () => onSplitSlot(selectedGroup, day.id, block.id) : undefined
 
                         return (
                           <SlotCell
@@ -288,6 +293,9 @@ export default function ScheduleGroupView({
                             isMerged={isMerged}
                             onMergeDown={onMergeDown}
                             onSplitSlot={onSplit}
+                            spanTailBlockIds={spanTailBlockIds}
+                            onSplitAt={onSplitAt}
+                            onExtendGrab={onExtendGrab}
                             showIdentityDot={showIdentityDot}
                             isFlagHighlighted={highlightMap?.has(slot.id) ?? false}
                             highlightColor={highlightColor}

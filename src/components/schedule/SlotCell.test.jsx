@@ -142,6 +142,39 @@ describe('shared cell components render placed gridcells (T56)', () => {
     expect(button.className).toContain('cell-action--split')
   })
 
+  it('an interior split band stops pointerdown from bubbling to the cell drag activator (Red Hat 2026-08-21)', () => {
+    // Without the guard, a tap-with-drift on a split band reaches the cell's
+    // dnd-kit pointerdown listener and starts a whole-span drag instead of a
+    // split. A spy on a parent wrapper stands in for that ancestor listener:
+    // if stopPropagation is working, the pointerdown never reaches it.
+    const parentPointerDown = vi.fn()
+    const onSplitAt = vi.fn()
+    const { container } = render(
+      <DndContext>
+        <div onPointerDown={parentPointerDown}>
+          <SlotCell
+            slot={slot}
+            activity={{ id: 'a1', name: 'Soccer' }}
+            actColorIdx={0}
+            isMerged={true}
+            isDndEnabled={true}
+            rowSpan={2}
+            spanTailBlockIds={['b2']}
+            onSplitAt={onSplitAt}
+            gridRow="1 / span 2"
+            gridColumn="2 / span 1"
+          />
+        </div>
+      </DndContext>
+    )
+    const band = container.querySelector('.span-band')
+    expect(band).toBeTruthy()
+    fireEvent.pointerDown(band)
+    expect(parentPointerDown).not.toHaveBeenCalled() // guard held
+    fireEvent.click(band)
+    expect(onSplitAt).toHaveBeenCalledWith('b2')
+  })
+
   it('carries the one-time onboarding pulse data attribute only when showMergeHint is set', () => {
     const withHint = render(
       <DndContext>

@@ -1094,3 +1094,120 @@
     animation: none;
   }
 }
+
+/* ---------- T107: arbitrary-length span interactions ----------
+   docs/work/specs/2026-08-21-span-interactions-design.md. Interior-split
+   bands + the drag-to-extend handle. Bands are a hit-target layer only —
+   `pointer-events: none` on the container, re-enabled per band — so the
+   cell's own name/flags underneath are visually unaffected at rest. */
+
+.span-bands {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.span-band {
+  position: absolute;
+  left: 0;
+  right: 0;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+/* Band 1 (the head) is never a split target — rendered, if at all, only to
+   keep index math simple at the call site; it carries no cursor/click of its
+   own and lets the cell's existing click-to-edit handle it. */
+.span-band[data-band-index='1'] {
+  pointer-events: none;
+}
+
+.span-cut-line {
+  position: absolute;
+  top: 0;
+  left: 6px;
+  right: 6px;
+  height: 2px;
+  background: var(--danger);
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-out);
+  pointer-events: none;
+}
+
+.span-band:hover .span-cut-line,
+.span-band:focus-visible .span-cut-line {
+  opacity: 1;
+}
+
+/* Extend handle — bottom edge of the span's last covered block, always
+   present, always above the split bands in z-order (Maker note #5: the
+   bottom ~10px belongs to the handle, not band N's click area). */
+.span-extend-handle {
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 28px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--primary);
+  opacity: 0.5;
+  cursor: row-resize;
+  z-index: 3;
+  transition: opacity var(--motion-fast) var(--ease-out);
+}
+
+.span-extend-handle:hover,
+.span-extend-handle:focus-visible {
+  opacity: 1;
+}
+
+.span-extend-handle:active {
+  transform: translateX(-50%) scale(0.94);
+}
+
+/* Suppresses normal hover/click chrome on the span head while its handle is
+   actively gripped — mirrors how data-drag-over already suppresses normal
+   hover chrome elsewhere during a drag. */
+.cell[data-span-dragging] {
+  cursor: row-resize;
+}
+
+/* One-time discoverability pulse — reuses cell-action-hint-pulse verbatim
+   (T92), just targeting the extend handle instead of the merge button. */
+.span-extend-handle[data-span-extend-hint] {
+  animation: cell-action-hint-pulse var(--motion-settle) var(--ease-out) 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .span-extend-handle[data-span-extend-hint] {
+    animation: none;
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+}
+
+/* Drag-truncated quiet pulse — reuses flag-changed-ack's values verbatim
+   (T107 spec's Visual Style section), applied to the frozen boundary cell.
+   Informational, not destructive: text-secondary, never --danger/--accent. */
+.cell[data-drag-truncated]::after {
+  content: '';
+  position: absolute;
+  inset: 8px 6px;
+  border-radius: 8px;
+  border: 1px solid var(--text-secondary);
+  opacity: 0;
+  pointer-events: none;
+  z-index: 4;
+  animation: flag-changed-ack var(--motion-settle) var(--ease-out) forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cell[data-drag-truncated]::after {
+    animation: none;
+    outline: 2px solid var(--text-secondary);
+    outline-offset: 1px;
+    opacity: 1;
+  }
+}

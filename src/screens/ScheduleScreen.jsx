@@ -30,6 +30,7 @@ import GridDragSurface from './schedule/GridDragSurface'
 import { useUndoRedo } from './schedule/useUndoRedo'
 import { useClipboardSelection } from './schedule/useClipboardSelection'
 import { useOverlayFillStamp } from './schedule/useOverlayFillStamp'
+import { useSpanExtendDrag } from './schedule/useSpanExtendDrag'
 import { useSnapshots } from './schedule/useSnapshots'
 import { useWeeks } from './schedule/useWeeks'
 import DeleteWeekDialog from '../components/schedule/DeleteWeekDialog'
@@ -100,11 +101,21 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // neither route as canonical. `weekId` below is the RESOLVED week — the
   // authority every other call site (routeState, ensureTemplateRow,
   // useGeneration, the switcher's highlighted value) reads.
+  // T107 item 3 — useScheduleData's repair-on-read pass (R2) needs to ask
+  // useSlotMutations' cellQueueRef "is there an in-flight local claim on this
+  // group/day", but useSlotMutations is instantiated below (it needs slots
+  // from templateData, which useScheduleData produces) — a ref breaks the
+  // ordering dependency: useScheduleData reads through it every load,
+  // useSlotMutations points it at its real hasInFlightClaim once created.
+  const hasInFlightClaimRef = useRef(() => false)
   const {
     setupLists, setActivities, weeks, setWeeks,
     weekId, weekDeletedBanner, setWeekDeletedBanner, exclusions, dayOverrides, setDayOverrides,
     templateData, loading, loadError, templateError, reload,
-  } = useScheduleData({ campId, weekId: preferredWeekId, repo, routes: ROUTES })
+  } = useScheduleData({
+    campId, weekId: preferredWeekId, repo, routes: ROUTES,
+    hasInFlightClaim: (groupId, dayId) => hasInFlightClaimRef.current(groupId, dayId),
+  })
   const { groups, days, timeBlocks, activities, anchors, tiers, cohorts, locations, electiveSetsAll, electiveSetActivities, durableElectiveSets } = setupLists
   // T105 §4/§6 render/export lookup — one member-id array per elective set,
   // built once per electiveSetActivities change.
@@ -293,8 +304,21 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     replaceSlot, dismissFlag, lockActivity, releaseCell,
     removeOverlay, placeActivityManual, expandSlot, splitSlot,
     createActivityFromCell, createElectiveFromCell, ownWriteRef,
-    pullOverrideDay,
+    pullOverrideDay, hasInFlightClaim,
   } = slotMutations
+  // T107 item 3 — point the ref useScheduleData's repair pass reads through
+  // at the real hasInFlightClaim now that it exists (see the ref's own
+  // comment above, near useScheduleData's call). Assigned in an effect, not
+  // during render — a ref write must never happen synchronously in the
+  // render body (react-hooks/refs).
+  useEffect(() => { hasInFlightClaimRef.current = hasInFlightClaim }, [hasInFlightClaim])
+
+  // T107 item 1 — drag-to-extend (Designer spec 2026-08-21). One instance
+  // for the whole screen, same as useOverlayFillStamp; expandSlot is already
+  // route-agnostic (routed through routeState, ADR §5), so this single
+  // instance serves both routes' views below without a parallel
+  // implementation.
+  const { startExtend: onSpanExtendStart } = useSpanExtendDrag({ slots, timeBlocks, activities, expandSlot })
 
   // T105 §5 — CONTENT_RACE: derived, render-time, locally-dismissible.
   const { racedKeys, dismiss: dismissContentRace } = useContentRaceFlag(slots, route, ownWriteRef)
@@ -1202,6 +1226,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onDismissContentRace={dismissContentRace}
                 onExpandSlot={expandSlot}
                 onSplitSlot={splitSlot}
+                onSpanExtendStart={onSpanExtendStart}
                 selectedSlotKeys={selectedSlotKeys}
                 pasteMode={pasteMode}
                 onCellSelect={handleCellSelect}
@@ -1238,6 +1263,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 fillState={fillState}
                 onExpandSlot={expandSlot}
                 onSplitSlot={splitSlot}
+                onSpanExtendStart={onSpanExtendStart}
                 selectedSlotKeys={selectedSlotKeys}
                 pasteMode={pasteMode}
                 onCellSelect={handleCellSelect}

@@ -6,6 +6,7 @@ import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
 import { blockNamesForSpan } from './cellLabel'
+import { computeSpanCellProps } from '../../screens/schedule/gridGeometry'
 import useGridKeyboardNav from './useGridKeyboardNav'
 import './scheduleGrid.css'
 
@@ -64,6 +65,10 @@ export default function ManualBuildView({
   geometry,
   eligibleActivitiesFor, onPlace, onCreateNew,
   onExpandSlot, onSplitSlot,
+  // T107 item 1 — starts the drag-to-extend gesture (useSpanExtendDrag,
+  // owned by ScheduleScreen). Omitted entirely disables the handle, same
+  // "undefined prop = feature off" convention onMergeDown already uses.
+  onSpanExtendStart,
   selectedSlotKeys, pasteMode, onCellSelect,
   collapsedBlockIds = NO_COLLAPSE,
   onToggleBlockCollapsed,
@@ -219,20 +224,20 @@ export default function ManualBuildView({
 
                       if (slot?.activity_id || slot?.elective_set_id) {
                         const act = slot.activity_id ? actMap.get(slot.activity_id) : null
-                        const isMerged = Boolean(slot.flags?.expanded)
                         const rowSpan = geometry.getActivityRowSpan(selectedGroup, day.id, block.id)
                         const isSelected = selectedSlotKeys?.has(cellKey) ?? false
                         const isMultiSelected = isSelected && (selectedSlotKeys?.size ?? 0) > 1
-                        const nextBlock = timeBlocks.find(b => b.sort_order === block.sort_order + 1)
-                        const nextSlot = nextBlock ? geometry.getSlot(selectedGroup, day.id, nextBlock.id) : null
-                        const hasMergeDown = !isMerged && Boolean(nextBlock) && !nextSlot?.is_anchor && nextSlot?.is_span_head !== false
+                        const {
+                          isMerged, nextBlock, hasMergeDown, spanTailBlockIds,
+                          onSplit, onSplitAt, onExtendGrab,
+                        } = computeSpanCellProps({
+                          geometry, selectedGroup, day, block, blockIndex, timeBlocks, rowSpan, slot,
+                          onSplitSlot, onSpanExtendStart,
+                        })
                         const onMergeDown = hasMergeDown && onExpandSlot ? () => {
                           clearMergeHint()
-                          const tailAct = nextSlot?.activity_id ? actMap.get(nextSlot.activity_id) : null
-                          const dayObj = days.find(d => d.id === day.id)
-                          onExpandSlot(selectedGroup, day.id, block.id, nextBlock.id, nextSlot?.activity_id ?? null, tailAct?.name ?? '', nextBlock.name, dayObj?.label ?? day.id)
+                          onExpandSlot(selectedGroup, day.id, block.id, nextBlock.id)
                         } : undefined
-                        const onSplit = isMerged && onSplitSlot ? () => onSplitSlot(selectedGroup, day.id, block.id) : undefined
                         const showMergeHint = hasMergeDown && cellKey === hintTargetKey
                         return (
                           <SlotCell
@@ -260,6 +265,10 @@ export default function ManualBuildView({
                             onMergeDown={onMergeDown}
                             onSplitSlot={onSplit}
                             showMergeHint={showMergeHint}
+                            spanTailBlockIds={spanTailBlockIds}
+                            onSplitAt={onSplitAt}
+                            onExtendGrab={onExtendGrab}
+                            showExtendHint={showMergeHint}
                             ariaColIndex={ariaColIndex}
                             cellKey={cellKey}
                             collapsed={isCollapsed}
