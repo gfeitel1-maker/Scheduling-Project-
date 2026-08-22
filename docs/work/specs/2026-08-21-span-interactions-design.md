@@ -3,12 +3,8 @@ title: "Arbitrary-length span UI: drag-to-extend + click-any-interior-cell-to-sp
 document_type: spec
 status: draft
 created: 2026-08-21
-governing_docs:
-  - docs/adr/2026-08-21-arbitrary-length-activity-span.md
-  - docs/governance/standards/DESIGN_STANDARD.md
-  - docs/adr/2026-08-06-schedule-canvas-visual-layer.md
-related_adrs:
-  - docs/adr/2026-08-21-arbitrary-length-activity-span.md
+governing_docs: [docs/adr/2026-08-21-arbitrary-length-activity-span.md, docs/governance/standards/DESIGN_STANDARD.md, docs/adr/2026-08-06-schedule-canvas-visual-layer.md]
+related_adrs: [docs/adr/2026-08-21-arbitrary-length-activity-span.md]
 archive_when: drag-to-extend and click-any-interior-cell-to-split are live on both routes and covered by tests
 ---
 
