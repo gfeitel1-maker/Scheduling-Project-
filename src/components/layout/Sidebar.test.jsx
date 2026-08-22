@@ -45,7 +45,7 @@ function renderSidebar(props = {}) {
   )
 }
 
-describe('Sidebar: the three sections', () => {
+describe('Sidebar: Roots hub with its collapsible entity children (Slice B)', () => {
   it('does not list Programs, because every camp is given one', () => {
     // Product owner, 2026-08-01: "hide programs from the sidebar and
     // auto-create main." A row a director can only ever look at is a question
@@ -55,11 +55,47 @@ describe('Sidebar: the three sections', () => {
     expect(screen.queryByText('Programs')).toBeNull()
   })
 
-  it('shows Camp Set Up, Schedule and System', () => {
+  it('shows Camp Set Up and Schedule — no third System section', () => {
     renderSidebar()
     expect(screen.getByText('Camp Set Up')).toBeTruthy()
     expect(screen.getByText('Schedule')).toBeTruthy()
-    expect(screen.getByText('System')).toBeTruthy()
+    expect(screen.queryByText('System')).toBeNull()
+  })
+
+  it('shows Roots and its entity children by default', () => {
+    renderSidebar()
+    expect(screen.getByText('Roots')).toBeTruthy()
+    expect(screen.getByText('Groups')).toBeTruthy()
+    expect(screen.getByText('Activities')).toBeTruthy()
+  })
+
+  it('clicking Roots navigates to the roots screen', () => {
+    const onNavigate = vi.fn()
+    renderSidebar({ onNavigate })
+    fireEvent.click(screen.getByText('Roots').closest('button'))
+    expect(onNavigate).toHaveBeenCalledWith('roots')
+  })
+
+  it('the chevron toggles the child list without navigating', () => {
+    const onNavigate = vi.fn()
+    renderSidebar({ onNavigate })
+    expect(screen.getByText('Groups')).toBeTruthy()
+
+    fireEvent.click(screen.getByTitle('Collapse Roots'))
+    expect(screen.queryByText('Groups')).toBeNull()
+    expect(onNavigate).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByTitle('Expand Roots'))
+    expect(screen.getByText('Groups')).toBeTruthy()
+  })
+
+  it('remembers whether Roots was collapsed', () => {
+    const { unmount } = renderSidebar()
+    fireEvent.click(screen.getByTitle('Collapse Roots'))
+    unmount()
+
+    renderSidebar()
+    expect(screen.queryByText('Groups')).toBeNull()
   })
 
   it('marks a complete area with a tick and its count', () => {
@@ -92,14 +128,21 @@ describe('Sidebar: the three sections', () => {
   })
 })
 
-describe('Sidebar: neither schedule is canonical', () => {
-  it('renders both routes with identical style props', () => {
+describe('Sidebar: neither schedule is canonical — both routes stay distinct rows (ADR §3, guard against re-collapse)', () => {
+  it('renders both routes as their own rows, with identical style props', () => {
     renderSidebar({ current: 'trash' })
     const generated = screen.getByText('Generated Schedule').closest('button')
     const manual = screen.getByText('Manual Build').closest('button')
+    expect(generated).toBeTruthy()
+    expect(manual).toBeTruthy()
     // Style equality is the assertion: any visual difference between the two
     // reads as one being the real schedule.
     expect(generated.getAttribute('style')).toBe(manual.getAttribute('style'))
+  })
+
+  it('does not render a single collapsed "Schedule" row in place of the two routes', () => {
+    renderSidebar({ current: 'trash' })
+    expect(screen.queryByRole('button', { name: 'Schedule' })).toBeNull()
   })
 
   it('gives neither route a mark or a count that the other lacks', () => {
@@ -108,6 +151,46 @@ describe('Sidebar: neither schedule is canonical', () => {
     const manual = screen.getByText('Manual Build').closest('button')
     expect(generated.textContent).toBe('Generated Schedule')
     expect(manual.textContent).toBe('Manual Build')
+  })
+})
+
+describe('Sidebar: System items live behind the Settings gear', () => {
+  it('does not show Camp/Conflicts/Trash/LAN & Devices in the main nav', () => {
+    renderSidebar()
+    expect(screen.queryByText('Camp')).toBeNull()
+    expect(screen.queryByText('Conflicts')).toBeNull()
+    expect(screen.queryByText('Trash')).toBeNull()
+    expect(screen.queryByText('LAN & Devices')).toBeNull()
+  })
+
+  it('reveals them from the Settings gear', () => {
+    renderSidebar()
+    fireEvent.click(screen.getByTitle('Settings'))
+    expect(screen.getByText('Camp')).toBeTruthy()
+    expect(screen.getByText('Conflicts')).toBeTruthy()
+    expect(screen.getByText('Trash')).toBeTruthy()
+    expect(screen.getByText('LAN & Devices')).toBeTruthy()
+  })
+
+  it('hides LAN & Devices from a non-admin role', () => {
+    renderSidebar({ role: 'staff' })
+    fireEvent.click(screen.getByTitle('Settings'))
+    expect(screen.getByText('Camp')).toBeTruthy()
+    expect(screen.queryByText('LAN & Devices')).toBeNull()
+  })
+
+  it('keeps the conflicts badge visible on the gear so nothing time-sensitive hides', () => {
+    renderSidebar({ badges: { conflicts: 2 } })
+    expect(screen.getByTitle('Settings').textContent).toMatch(/2/)
+  })
+
+  it('navigating from the gear closes the menu', () => {
+    const onNavigate = vi.fn()
+    renderSidebar({ onNavigate })
+    fireEvent.click(screen.getByTitle('Settings'))
+    fireEvent.click(screen.getByText('Trash'))
+    expect(onNavigate).toHaveBeenCalledWith('trash')
+    expect(screen.queryByText('Trash')).toBeNull()
   })
 })
 
@@ -120,15 +203,6 @@ describe('Sidebar: collapsing never hides a problem', () => {
 
     expect(screen.queryByText('Days')).toBeNull()
     expect(screen.getByText('3 / 5')).toBeTruthy()
-  })
-
-  it('rolls the conflicts badge up to a collapsed System header', () => {
-    renderSidebar({ badges: { conflicts: 2 } })
-    expect(screen.getByText('Conflicts')).toBeTruthy()
-
-    fireEvent.click(screen.getByText('System').closest('button'))
-    expect(screen.queryByText('Conflicts')).toBeNull()
-    expect(screen.getByText('2')).toBeTruthy()
   })
 
   it('remembers which sections were collapsed', () => {
@@ -159,7 +233,7 @@ describe('Sidebar: the tuck-away offer', () => {
     // same silent imposition in slower motion. sidebar.offered=true means
     // offerOpen=false even when offerShown=true.
     storage['shoresh-sidebar-state'] = JSON.stringify({
-      sections: { setup: true, schedule: true, system: true }, offered: true,
+      sections: { setup: true, schedule: true }, offered: true,
     })
     renderSidebar({ offerShown: true })
     expect(screen.queryByText(/Setup looks complete/)).toBeNull()

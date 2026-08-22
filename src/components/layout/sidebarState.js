@@ -9,8 +9,11 @@
 
 import { REQUIRED_AREAS } from '../../engine/readiness'
 
-export const SECTION_KEYS = ['setup', 'schedule', 'system']
-export const SECTION_DEFAULTS = { setup: true, schedule: true, system: true }
+// Roots-as-Hub Slice B: 'system' is no longer a foldable nav section — Camp,
+// Conflicts, Trash and LAN & Devices moved to the Settings gear menu, which
+// is a popup (open/closed while mounted), not persisted fold state.
+export const SECTION_KEYS = ['setup', 'schedule']
+export const SECTION_DEFAULTS = { setup: true, schedule: true }
 
 const STORAGE_KEY = 'shoresh-sidebar-state'
 
@@ -23,7 +26,7 @@ const STORAGE_KEY = 'shoresh-sidebar-state'
  * This is the rule that makes collapsing safe. A director who tidied their
  * sidebar in June must still see a sync problem in August.
  */
-export function sectionRollup({ section, open, gaps = [], badges = {}, startedRoutes = 0 }) {
+export function sectionRollup({ section, open, gaps = [], startedRoutes = 0 }) {
   if (open) return null
 
   if (section === 'setup') {
@@ -38,8 +41,7 @@ export function sectionRollup({ section, open, gaps = [], badges = {}, startedRo
     return startedRoutes > 0 ? { mark: null, text: String(startedRoutes), tone: 'secondary' } : null
   }
 
-  const conflicts = Number(badges.conflicts) || 0
-  return conflicts > 0 ? { mark: null, text: String(conflicts), tone: 'warning' } : null
+  return null
 }
 
 /**
@@ -76,7 +78,7 @@ export function nextFoldStateAfterAnswer(sections, answer) {
  * (private browsing, a locked profile, a test environment).
  */
 export function loadSidebarState(storage) {
-  const fallback = { sections: { ...SECTION_DEFAULTS }, offered: false }
+  const fallback = { sections: { ...SECTION_DEFAULTS }, offered: false, rootsOpen: true }
 
   let raw
   try {
@@ -104,7 +106,11 @@ export function loadSidebarState(storage) {
     }
   }
 
-  return { sections, offered: parsed.offered === true }
+  // Roots's own child-list fold (Slice B) — independent of the "Camp Set
+  // Up" section fold above, and defaults open like every other section.
+  const rootsOpen = typeof parsed.rootsOpen === 'boolean' ? parsed.rootsOpen : true
+
+  return { sections, offered: parsed.offered === true, rootsOpen }
 }
 
 // T27 — what the LAN row says, in camp language. A director does not know what
@@ -133,7 +139,9 @@ export function syncStatusLabel(status) {
 
 export function saveSidebarState(storage, state) {
   try {
-    storage?.setItem?.(STORAGE_KEY, JSON.stringify({ sections: state.sections, offered: state.offered }))
+    storage?.setItem?.(STORAGE_KEY, JSON.stringify({
+      sections: state.sections, offered: state.offered, rootsOpen: state.rootsOpen,
+    }))
   } catch {
     // Persisting a preference must never break navigation.
   }
