@@ -120,8 +120,10 @@ describe('Sidebar: Roots hub with its collapsible entity children (Slice B)', ()
     // (overrides are now authored in place on the schedule grid), so it is
     // no longer one of the optional rows this test checks.
     renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 0, locations: 0 } })
-    expect(screen.getAllByText('optional').length).toBe(3)
-    for (const label of ['Fixed Events', 'Locations', 'Special Days']) {
+    // Electives (Slice 1) is the 4th optional entity, alongside Locations,
+    // Fixed Events, and Special Days.
+    expect(screen.getAllByText('optional').length).toBe(4)
+    for (const label of ['Fixed Events', 'Locations', 'Special Days', 'Electives']) {
       const row = screen.getByText(label).closest('button')
       expect(within(row).queryByText('!')).toBeNull()
     }

@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 38
+export const CURRENT_SCHEMA_VERSION = 39
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1596,6 +1596,27 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v39 — elective_set_activities.camper_headcount (Electives Slice 1, ADR
+  // docs/adr/2026-08-22-nested-schedules-electives-and-events.md §2, design
+  // docs/work/specs/2026-08-22-electives-nested-schedule-slices.md Slice 1).
+  // Single nullable-additive column: the per-offering capacity T41 deferred.
+  // NULL = no cap, never "zero campers". No backfill (existing rows get
+  // NULL). No op is written (DDL-only, same posture as v33-v38).
+  if (getSchemaVersion(db) >= 38 && getSchemaVersion(db) < 39) {
+    db.transaction(() => {
+      const hasCamperHeadcount = db
+        .pragma('table_info(elective_set_activities)')
+        .some((col) => col.name === 'camper_headcount')
+      if (!hasCamperHeadcount) {
+        db.exec('ALTER TABLE elective_set_activities ADD COLUMN camper_headcount INTEGER')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (39, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct
@@ -1806,6 +1827,7 @@ export const ELECTIVE_SET_ACTIVITIES_DDL = `CREATE TABLE IF NOT EXISTS elective_
   id TEXT PRIMARY KEY,
   elective_set_id TEXT NOT NULL REFERENCES elective_sets(id),
   activity_id TEXT NOT NULL,
+  camper_headcount INTEGER,
   UNIQUE(elective_set_id, activity_id)
 )`
 

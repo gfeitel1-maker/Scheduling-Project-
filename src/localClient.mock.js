@@ -333,7 +333,9 @@ export const MOCK_WRITE_ALLOWLIST = {
   // hand-transcribed mirror of PROJECTIONS.elective_sets/
   // elective_set_activities.fields, same discipline as T40 above.
   elective_sets: ['camp_id', 'name', 'sort_order', 'is_reusable'],
-  elective_set_activities: ['elective_set_id', 'activity_id'],
+  // camper_headcount (v39, Electives Slice 1): the per-offering capacity T41
+  // deferred.
+  elective_set_activities: ['elective_set_id', 'activity_id', 'camper_headcount'],
   // T108 (day-overrides re-point, ADR 2026-08-21-day-overrides-repoint-
   // shape.md D1) — hand-transcribed mirror of PROJECTIONS.day_overrides.fields,
   // same discipline as T40/T41 above.

@@ -421,7 +421,11 @@ export const PROJECTIONS = {
   elective_set_activities: {
     table: 'elective_set_activities',
     key: 'id',
-    fields: ['elective_set_id', 'activity_id'],
+    // camper_headcount (v39, Electives Slice 1): a normal renderer write like
+    // elective_set_id/activity_id, applied generically via the UPDATE below —
+    // no ensureExists involvement, since the row must already exist (created
+    // by the elective_set_id/activity_id pair) before capacity is editable.
+    fields: ['elective_set_id', 'activity_id', 'camper_headcount'],
     ensureExists: (db, id, field, value) => {
       const table = 'elective_set_activities'
       const readField = (wanted) => {

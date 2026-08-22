@@ -14,6 +14,7 @@ import TimeBlocksScreen from './screens/TimeBlocksScreen'
 import ActivitiesScreen from './screens/ActivitiesScreen'
 import LocationsScreen from './screens/LocationsScreen'
 import AnchorsScreen from './screens/AnchorsScreen'
+import ElectivesScreen from './screens/ElectivesScreen'
 import DaysScreen from './screens/DaysScreen'
 import CohortsScreen from './screens/CohortsScreen'
 import SpecialDaysScreen from './screens/SpecialDaysScreen'
@@ -54,6 +55,7 @@ const SCREENS = {
   activities:   ActivitiesScreen,
   locations:    LocationsScreen,
   anchors:      AnchorsScreen,
+  electives:    ElectivesScreen,
   specialdays:  SpecialDaysScreen,
   // Two routes to a week, two sidebar destinations, one screen. Neither is the
   // camp's "real" schedule — the director makes that call, never the app
