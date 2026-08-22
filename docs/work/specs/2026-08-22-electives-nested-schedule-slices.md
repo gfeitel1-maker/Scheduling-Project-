@@ -81,9 +81,16 @@ Slice 3 stretch) **folds into T114** (owner, 2026-08-22).
   text verbatim** (editable). Ingest never writes `elective_set_activities`.
 - **Success (Tester, real files):** uploading a schedule with a "Chugim"/"Electives"
   period surfaces a hold-lane nudge; confirming it creates an empty "Chugim" elective
-  set the director then fills on the Slice 1 screen; declining writes nothing and
-  doesn't re-surface on re-import. Verified against the owner's real Camp Aaron/JCC
-  files, not a synthetic fixture.
+  set the director then fills on the Slice 1 screen; declining writes nothing.
+  Verified against real fixtures.
+- **Decline dedup is session-local (ruled 2026-08-22).** A *confirmed* nudge is
+  durably idempotent (re-import is a no-op — the named `elective_sets` row already
+  exists). A *declined* nudge re-surfaces on a fresh re-import in a new session —
+  **consistent with the app's existing dismissal posture** (F3 `dismissedGaps` in
+  `ReconciliationScreen.jsx` are explicitly session-local too). Persistent
+  "director dismissed this, never re-ask" is a **generic reconciliation mechanism**
+  (would serve F3 gaps as well), deferred to its own future ticket — NOT an electives
+  special-case table.
 - **Smallest first step (Architect):** implement the header-label detector alone as a
   plan-item annotation and eyeball it against the real files BEFORE touching `laneFor`
   or the write path.
