@@ -73,7 +73,7 @@ export default function ManualBuildView({
   collapsedBlockIds = NO_COLLAPSE,
   onToggleBlockCollapsed,
   // T105
-  electiveSetsAll = [], electiveMembersBySet, onCreateElective,
+  electiveSetsAll = [], electiveMembersBySet, onCreateElective, onOpenElective,
   isContentRaced, onDismissContentRace,
 }) {
   const gridTemplateColumns = columnTracks(days.length)
@@ -253,6 +253,7 @@ export default function ManualBuildView({
                             onCreateElective={onCreateElective}
                             electiveSetsAll={electiveSetsAll}
                             electiveMembersBySet={electiveMembersBySet}
+                            onOpenElective={onOpenElective}
                             isContentRaced={isContentRaced?.(selectedGroup, day.id, block.id)}
                             onDismissContentRace={() => onDismissContentRace?.(`${selectedGroup}|${day.id}|${block.id}`)}
                             onSelect={onCellSelect}

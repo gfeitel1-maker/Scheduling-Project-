@@ -66,6 +66,23 @@ describe('ElectivesScreen', () => {
     expect(fields).toEqual(expect.arrayContaining(['name', 'camp_id']))
   })
 
+  it('opens directly to a set\'s offerings when initialElectiveSetId is passed (Slice 2 drill-in)', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_sets: [electiveSet(), electiveSet({ id: 'set-2', name: 'Morning Bechirot' })],
+      elective_set_activities: [offering({ camper_headcount: 8 })],
+      activities: [activity()],
+      locations: [{ id: 'loc-1', camp_id: CAMP_ID, name: 'Pool' }],
+      tiers: [],
+      groups: [],
+    }))
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" initialElectiveSetId="set-1" />)
+
+    // Lands directly on the offerings table for set-1, not the sets list.
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+    expect(screen.queryByText('Morning Bechirot')).toBeNull()
+    expect(screen.getByText('← Back to Elective Sets')).toBeTruthy()
+  })
+
   it('lists a set with its offerings, showing location and eligibility read from the activity', async () => {
     localClient.list.mockImplementation(byEntity({
       elective_sets: [electiveSet()],

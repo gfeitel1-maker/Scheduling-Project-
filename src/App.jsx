@@ -95,17 +95,25 @@ export function AppShell({ campId, role, mode, onLogout }) {
   // the least-surprising lifecycle: the post-import moment belongs to the
   // landing, not to every later visit.
   const [justImported, setJustImported] = useState(null)
+  // Slice 2 drill-in (docs/work/specs/2026-08-22-electives-nested-schedule-
+  // slices.md) — the elective_set_id an elective cell's drill-in button
+  // wants Electives to open focused on, carried the same way justImported
+  // carries the post-import outcome: lifted above the screen swap, cleared
+  // whenever navigation heads anywhere other than 'electives'.
+  const [electiveFocusSetId, setElectiveFocusSetId] = useState(null)
   // Every in-session navigation goes through this: it clears the carried
   // import outcome the moment the director leaves Roots, so the post-import
   // banner belongs to the landing, not to every later visit. Clearing at the
   // navigation edge (rather than in an effect keyed on `screen`) keeps the
   // transition in one synchronous update, no cascading re-render.
-  const navigate = (next) => {
+  const navigate = (next, opts) => {
     // 'readiness' redirects to 'roots' at render (resolvedScreen below), so
     // treat it as 'roots' here too — otherwise a nav to 'readiness' would
     // clear the post-import banner while visually staying on Roots.
     const target = next === 'readiness' ? 'roots' : next
     if (target !== 'roots') setJustImported(null)
+    if (target !== 'electives') setElectiveFocusSetId(null)
+    if (opts?.electiveSetId) setElectiveFocusSetId(opts.electiveSetId)
     setScreen(next)
   }
   // Single instance of the pending-conflicts source for this whole shell —
@@ -196,6 +204,8 @@ export function AppShell({ campId, role, mode, onLogout }) {
         ...(resolvedScreen === 'roots' ? { mode: 'inspect', justImported } : {}),
         // Task 4 — ImportScreen hands a finished import's outcome up here.
         ...(resolvedScreen === 'import' ? { onImported: setJustImported } : {}),
+        // Slice 2 — the set id a schedule cell's drill-in wants focused.
+        ...(resolvedScreen === 'electives' ? { initialElectiveSetId: electiveFocusSetId } : {}),
       }
 
   return (

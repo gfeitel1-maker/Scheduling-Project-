@@ -410,6 +410,15 @@
   color: var(--danger);
 }
 
+/* Slice 2 elective drill-in — bottom-right corner, the one corner none of
+   the flags/other cell-actions occupy (top-right: merge/split/unfillable/
+   outdoor; top-left: week-closed; bottom-left: content-race). */
+.cell-action--elective {
+  top: auto;
+  bottom: 4px;
+  right: 4px;
+}
+
 /* T92 one-time onboarding pulse: bronze, single non-looping pulse on mount,
    cleared by the caller (ManualBuildView) after the first interaction — see
    docs/work/specs/2026-08-20-t92-manual-merge-discoverability.md. */

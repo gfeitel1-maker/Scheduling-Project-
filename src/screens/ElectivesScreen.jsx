@@ -331,7 +331,7 @@ function ElectiveSetRow({ set, onOpen, onSave, onDelete, role }) {
   )
 }
 
-export default function ElectivesScreen({ campId, role }) {
+export default function ElectivesScreen({ campId, role, initialElectiveSetId = null }) {
   const { rows: sets, loading, error, setError, adding, add, save, reload } = useCrudScreen({
     entity: 'elective_sets',
     campId,
@@ -344,7 +344,14 @@ export default function ElectivesScreen({ campId, role }) {
   })
 
   const [newName, setNewName] = useState('')
-  const [selectedSetId, setSelectedSetId] = useState(null)
+  // Slice 2 drill-in — an elective cell's affordance on the campwide schedule
+  // opens this screen focused on its set (docs/work/specs/2026-08-22-
+  // electives-nested-schedule-slices.md, Slice 2). Lazy-init from the prop is
+  // sufficient: App.jsx's SCREENS map swaps in a different component for
+  // every other screen, so ElectivesScreen always mounts fresh when a
+  // drill-in navigates here — there is no "already mounted, prop just
+  // changed" case to react to.
+  const [selectedSetId, setSelectedSetId] = useState(initialElectiveSetId)
   const [pendingDelete, setPendingDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [supportData, setSupportData] = useState({ activities: [], locations: [], tiers: [], groups: [] })

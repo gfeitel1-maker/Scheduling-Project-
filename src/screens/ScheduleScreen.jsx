@@ -367,6 +367,14 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     createElectiveFromCell(setName, memberNames, { groupId, dayId, blockId })
   }
 
+  // Slice 2 drill-in (docs/work/specs/2026-08-22-electives-nested-schedule-
+  // slices.md) — an elective cell's own button hands its set id up here,
+  // which just forwards it to onNavigate as a second arg for AppShell to
+  // carry across the screen swap (App.jsx's navigate/electiveFocusSetId).
+  function openElective(electiveSetId) {
+    onNavigate?.('electives', { electiveSetId })
+  }
+
   // addOverlay / updateOverlayRange are consumed by useOverlayFillStamp, which
   // runs BEFORE useSlotMutations, so they are provided as thin hoisted wrappers
   // that delegate to the hook. The fill/stamp hook only calls them from event
@@ -1220,6 +1228,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onPlace={handleCellPlace}
                 onCreateNew={handleCellCreateNew}
                 onCreateElective={handleCellCreateElective}
+                onOpenElective={openElective}
                 electiveSetsAll={electiveSetsAll}
                 electiveMembersBySet={electiveMembersBySet}
                 isContentRaced={isContentRaced}
@@ -1256,6 +1265,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onPlace={handleCellPlace}
                 onCreateNew={handleCellCreateNew}
                 onCreateElective={handleCellCreateElective}
+                onOpenElective={openElective}
                 electiveSetsAll={electiveSetsAll}
                 electiveMembersBySet={electiveMembersBySet}
                 isContentRaced={isContentRaced}
@@ -1304,6 +1314,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 onPlace={handleCellPlace}
                 onCreateNew={handleCellCreateNew}
                 onCreateElective={handleCellCreateElective}
+                onOpenElective={openElective}
                 electiveSetsAll={electiveSetsAll}
                 electiveMembersBySet={electiveMembersBySet}
                 isContentRaced={isContentRaced}

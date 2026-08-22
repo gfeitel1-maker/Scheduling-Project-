@@ -35,6 +35,17 @@ function UnfillableIcon() {
   )
 }
 
+// Outline "open in new" glyph for the elective drill-in button (Slice 2).
+// Same construction as the other per-cell glyphs above — `currentColor` so
+// the button's own idle/hover CSS drives it, no inline colour.
+function OpenElectiveIcon() {
+  return (
+    <svg viewBox="0 0 12 12" width={12} height={12} fill="none" style={{ display: 'block' }}>
+      <path d="M4.5 3H9v4.5M9 3 3 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 // Small outline "sun" glyph for outdoor activities — replaces the deleted
 // WEATHER_RISK flag. Informational, not a caution state.
 function OutdoorIcon() {
@@ -65,6 +76,11 @@ export default function SlotCell({
   // isContentRaced/onDismissContentRace surface the CONTENT_RACE flag (§5).
   electiveSetsAll = [], electiveMembersBySet, onCreateElective,
   isContentRaced = false, onDismissContentRace,
+  // Slice 2 (docs/work/specs/2026-08-22-electives-nested-schedule-slices.md)
+  // — the drill-in from an opaque elective cell to the Electives screen,
+  // focused on this cell's set. Called with the elective_set_id; absent (or
+  // no electiveSet resolved) renders no affordance at all.
+  onOpenElective,
   // Stamp mode (field-trip overlay tool) intercepts a plain click with its own
   // action instead of activating inline write — same precedence the old
   // `onEdit={cellClickHandler || ...}` gave it.
@@ -419,6 +435,22 @@ export default function SlotCell({
             data-span-extend-hint={showExtendHint ? '' : undefined}
             onPointerDown={e => { e.preventDefault(); e.stopPropagation(); onExtendGrab() }}
           />
+        )}
+        {/* Slice 2 drill-in — only when the set actually resolves (electiveSet,
+            not just slot.elective_set_id): a dangling reference has nothing to
+            drill into. Its own dedicated control at a corner none of the other
+            per-cell buttons/flags use (top-right is merge/split/unfillable/
+            outdoor, top-left is week-closed, bottom-left is content-race), with
+            its own onClick stopPropagation so it never reaches the cell's
+            click-to-edit / drag / stamp / paste handlers underneath. */}
+        {electiveSet && onOpenElective && (
+          <button
+            type="button"
+            className="cell-action cell-action--elective"
+            title={`Open ${electiveSet.name} in Electives`}
+            aria-label={`Open ${electiveSet.name} in Electives`}
+            onClick={e => { e.stopPropagation(); onOpenElective(electiveSet.id) }}
+          ><OpenElectiveIcon /></button>
         )}
         {editing ? (
           <CellInlineEditor
