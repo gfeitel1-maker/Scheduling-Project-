@@ -78,7 +78,7 @@ export default function LoginScreen({ campName, onSubmit, notice }) {
       }</style>
 
       <div className="shoresh-login-hero" style={{ ...loginStyles.heroPanel, ...heroTransition }}>
-        <img src={treeArt} alt="Shoresh tree with roots, the brand mark for camp scheduling" style={loginStyles.heroArt} />
+        <img src={treeArt} alt="" style={loginStyles.heroArt} />
         <div style={loginStyles.heroWordmark}>Shoresh</div>
         <div style={loginStyles.heroTagline}>From Roots to Rhythm</div>
       </div>
@@ -208,6 +208,9 @@ const loginStyles = {
     height: 'auto',
     marginBottom: 20,
   },
+  // Literal white here is intentional: the hero panel sits on a --primary/--primary-dark
+  // brand gradient, so the wordmark/tagline need on-gradient white for contrast. This is
+  // NOT a palette change — no app-chrome token is affected (W12 keeps tokens frozen).
   heroWordmark: {
     fontFamily: 'var(--font-brand-display)',
     fontWeight: 600,
