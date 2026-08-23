@@ -406,7 +406,15 @@ export const PROJECTIONS = {
     // name/sort_order, so it belongs in this allowlist (not
     // PROJECTION_FIELD_EXCEPTIONS, which is only for server/migration-only
     // columns).
-    fields: ['camp_id', 'name', 'sort_order', 'is_reusable'],
+    // day_id/time_block_id/is_all_groups/group_ids/schedule_week_id/
+    // recurrence_level (v43, Slice 3a): the recurring-event binding shape,
+    // mirroring anchor_activities' fields entry — a normal renderer write
+    // once the elective screen wires this up, applied generically via the
+    // UPDATE path below like every other field here.
+    fields: [
+      'camp_id', 'name', 'sort_order', 'is_reusable',
+      'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level',
+    ],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/special_days/etc.ensureExists above.
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()

@@ -11,6 +11,9 @@ import { appendOp, DELETE_FIELD } from './operations.js'
 // Cascade order per spec §4.1 — load-bearing, do not reorder:
 //   0. anchor_activities.schedule_week_id (real FK → schedule_weeks; NULL the
 //      binding, don't delete the anchor — see the anchor-binding comment below)
+//   0b. elective_sets.schedule_week_id (v43 Slice 3a, same real FK shape;
+//       NULL the binding, don't delete the set — a reusable, director-named
+//       elective set must survive the week it happened to be scoped to)
 //   1. schedule_snapshots      (real FK → schedule_templates)
 //   2. template_overlays       (real FK → schedule_templates)
 //   3. template_slots          (no FK — orphans must be cleaned explicitly)
@@ -64,6 +67,27 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
         appendOp(db, {
           entity: 'anchor_activities',
           entity_id: a.id,
+          field: 'schedule_week_id',
+          value: null,
+          author_user_id,
+          device_id,
+        })
+      )
+    }
+
+    // Step 0b: elective_sets.schedule_week_id carries the same real
+    // DB-level FK shape (schema.sql: schedule_week_id TEXT REFERENCES
+    // schedule_weeks(id), v43 Slice 3a), so the same landmine applies. Sets
+    // are reusable/director-named (is_reusable), not week-owned — NULL the
+    // binding, don't delete the set.
+    const boundElectiveSets = db
+      .prepare('SELECT id FROM elective_sets WHERE schedule_week_id = ?')
+      .all(weekId)
+    for (const s of boundElectiveSets) {
+      ops.push(
+        appendOp(db, {
+          entity: 'elective_sets',
+          entity_id: s.id,
           field: 'schedule_week_id',
           value: null,
           author_user_id,

@@ -70,7 +70,10 @@ const DOMAIN_TABLE_COLUMNS = {
   special_day_time_blocks: ['id', 'special_day_id', 'name', 'sort_order', 'start_time', 'end_time'],
   special_day_slots: ['id', 'special_day_id', 'group_id', 'time_block_id', 'activity_id', 'location_id'],
   // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md)
-  elective_sets: ['id', 'camp_id', 'name', 'sort_order', 'is_reusable'],
+  elective_sets: [
+    'id', 'camp_id', 'name', 'sort_order', 'is_reusable',
+    'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level',
+  ],
   elective_set_activities: ['id', 'elective_set_id', 'activity_id'],
   // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-placement.md)
   events: ['id', 'camp_id', 'name', 'sort_order', 'notes'],

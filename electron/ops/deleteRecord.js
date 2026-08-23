@@ -120,6 +120,16 @@ function overlayRows(db, day_id) {
   return db.prepare('SELECT id FROM template_overlays WHERE day_id = ?').all(day_id)
 }
 
+// v43 Slice 3a: elective_sets.day_id carries a real DB-level FK (schema.sql:
+// day_id TEXT REFERENCES days_of_operation(id)), same shape as
+// anchor_activities.day_id above — but unlike an anchor, an elective set is
+// a reusable, director-named entity (is_reusable), not a per-day occurrence.
+// Deleting the day therefore NULLs the binding rather than deleting the set,
+// mirroring deleteWeek.js's schedule_week_id treatment for the same table.
+function electiveSetRows(db, day_id) {
+  return db.prepare('SELECT id FROM elective_sets WHERE day_id = ?').all(day_id)
+}
+
 // activities.weather_alternative_id self-references activities(id), so another
 // activity naming this one as its rainy-day alternative blocks the delete too.
 function weatherDependents(db, activity_id) {
@@ -295,6 +305,18 @@ function removeDayFromWeek(db, { day_id, slots, author_user_id, device_id }) {
   const ops = []
   for (const row of anchorRows(db, day_id)) ops.push(del('anchor_activities', row.id))
   for (const row of overlayRows(db, day_id)) ops.push(del('template_overlays', row.id))
+  for (const row of electiveSetRows(db, day_id)) {
+    ops.push(
+      appendOp(db, {
+        entity: 'elective_sets',
+        entity_id: row.id,
+        field: 'day_id',
+        value: null,
+        author_user_id,
+        device_id,
+      })
+    )
+  }
   ops.push(...removeSlotRows(db, slots, { author_user_id, device_id }))
   return ops
 }

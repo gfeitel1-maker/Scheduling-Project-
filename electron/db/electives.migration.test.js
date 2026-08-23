@@ -131,8 +131,14 @@ describe('migration v35: fresh vs migrated equivalence', () => {
     // D2, electron/db/electivesDurability.migration.test.js) — this v35 test
     // runs against the CURRENT schema (freshDb migrates all the way up), so
     // it must expect the column too.
+    // day_id..recurrence_level arrived in v43 (unified-schedule-overlay
+    // Slice 3a, docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md)
+    // — six additive binding columns mirroring anchor_activities. This v35
+    // test runs against the CURRENT schema, so it must expect them too.
     expect(db.pragma('table_info(elective_sets)').map((c) => c.name)).toEqual([
       'id', 'camp_id', 'name', 'sort_order', 'is_reusable',
+      'day_id', 'time_block_id', 'is_all_groups', 'group_ids',
+      'schedule_week_id', 'recurrence_level',
     ])
     // camper_headcount arrived in v39 (Electives Slice 1,
     // docs/work/specs/2026-08-22-electives-nested-schedule-slices.md) — this

@@ -388,6 +388,25 @@ describe('deleting a day removes it from the week', () => {
     expect(db.prepare('SELECT COUNT(*) n FROM template_slots WHERE day_id = ?').get(ids.days[0]).n).toBe(0)
     expect(db.prepare('SELECT COUNT(*) n FROM schedule_snapshots').get().n).toBe(2)
   })
+
+  it('nulls elective_sets.day_id instead of deleting the set or throwing an FK error (v43 Slice 3a)', () => {
+    const ids = seedCamp()
+    db.prepare(
+      "INSERT INTO elective_sets (id, camp_id, name, day_id) VALUES (?, 'camp1', ?, ?)"
+    ).run('es1', 'Afternoon Electives', ids.days[0])
+
+    const result = deleteRecord(db, {
+      entity: 'days_of_operation',
+      entity_id: ids.days[0],
+      expected_slot_count: 20,
+      ...session,
+    })
+    expect(result.ok).toBe(true)
+
+    const set = db.prepare('SELECT id, day_id FROM elective_sets WHERE id = ?').get('es1')
+    expect(set).toBeTruthy()
+    expect(set.day_id).toBeNull()
+  })
 })
 
 // ---------------------------------------------------------------------------

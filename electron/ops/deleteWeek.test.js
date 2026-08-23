@@ -301,3 +301,44 @@ describe('deleteWeek — anchor_activities.schedule_week_id FK-cascade landmine 
     expect(anchor.schedule_week_id).toBe('week2')
   })
 })
+
+describe('deleteWeek — elective_sets.schedule_week_id FK-cascade landmine (v43 Slice 3a)', () => {
+  it('nulls the binding on an elective set scoped to the deleted week instead of throwing an FK error', () => {
+    const db = makeDb()
+    const campId = seedCamp(db)
+    seedDevice(db)
+    seedWeek(db, 'week1', campId, 'Week 1', 0)
+    seedWeek(db, 'week2', campId, 'Week 2', 1)
+    seedTemplate(db, 'week2', 'generated', campId) // keep week2 non-empty so week1 isn't the last week
+
+    db.prepare(
+      "INSERT INTO elective_sets (id, camp_id, name, schedule_week_id) VALUES (?, ?, ?, ?)"
+    ).run('es1', campId, 'Afternoon Electives', 'week1')
+
+    expect(() => deleteWeek(db, { weekId: 'week1', campId }, CTX)).not.toThrow()
+
+    expect(db.prepare('SELECT COUNT(*) as c FROM schedule_weeks WHERE id = ?').get('week1').c).toBe(0)
+
+    const set = db.prepare('SELECT id, schedule_week_id FROM elective_sets WHERE id = ?').get('es1')
+    expect(set).toBeTruthy()
+    expect(set.schedule_week_id).toBeNull()
+  })
+
+  it('leaves an elective set bound to a different week untouched', () => {
+    const db = makeDb()
+    const campId = seedCamp(db)
+    seedDevice(db)
+    seedWeek(db, 'week1', campId, 'Week 1', 0)
+    seedWeek(db, 'week2', campId, 'Week 2', 1)
+    seedTemplate(db, 'week1', 'generated', campId)
+
+    db.prepare(
+      "INSERT INTO elective_sets (id, camp_id, name, schedule_week_id) VALUES (?, ?, ?, ?)"
+    ).run('es2', campId, 'Morning Electives', 'week2')
+
+    deleteWeek(db, { weekId: 'week1', campId }, CTX)
+
+    const set = db.prepare('SELECT schedule_week_id FROM elective_sets WHERE id = ?').get('es2')
+    expect(set.schedule_week_id).toBe('week2')
+  })
+})
