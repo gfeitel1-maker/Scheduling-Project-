@@ -413,6 +413,142 @@ describe('Bug B — non-time period labels', () => {
   })
 })
 
+// Red Hat round on Slice 0 — HIGH: cellPeriod's raw embedded-time extraction
+// was unnormalized, so the SAME actual time written differently across days
+// ("9:00" vs "09:00") produced a different period key per day, fragmenting a
+// genuinely-daily-recurring event into single-day buckets that each fail the
+// majority threshold and get silently dropped.
+describe('cellPeriod normalization (HIGH) — same time written differently must not fragment a daily event', () => {
+  const row = (label, cells) => ({ label, cells })
+
+  it('collapses textually-varied same-time cells into ONE recurring event, not dropped', () => {
+    const parsed = {
+      pages: [
+        {
+          title: 'A',
+          columns: DAYS,
+          rows: [row('15:00-15:30', DAYS.map((d, i) => (i === 0 ? 'Swim 3:00' : 'Swim 03:00')))],
+        },
+      ],
+    }
+    const proposal = extractEntities(parsed)
+    const { fixedEvents } = inferFixedEvents(parsed, proposal)
+    const swims = fixedEvents.filter((e) => e.name === 'Swim')
+    expect(swims.length).toBe(1)
+    expect(swims[0].days).toEqual(DAYS)
+    expect(swims[0].confidence).toBe('high')
+  })
+
+  it('still splits genuinely different times into distinct events (regression guard)', () => {
+    const parsed = {
+      pages: [
+        { title: 'A', columns: DAYS, rows: [row('15:00-15:30', DAYS.map(() => 'Swim 3:00'))] },
+        { title: 'B', columns: DAYS, rows: [row('15:00-15:30', DAYS.map(() => 'Swim 3:30'))] },
+      ],
+    }
+    const proposal = extractEntities(parsed)
+    const { fixedEvents } = inferFixedEvents(parsed, proposal)
+    const swims = fixedEvents.filter((e) => e.name === 'Swim')
+    expect(swims.length).toBe(2)
+  })
+})
+
+// Red Hat round on Slice 0 — MEDIUM: a bare cell (no embedded time) used to
+// get its own null-period key, which never merged with an annotated cell's
+// non-null period — fragmenting a plausibly all-groups event just because
+// one group happened to write the time and the rest didn't.
+describe('null-period wildcard (MEDIUM) — a bare cell merges into the same event as annotated cells', () => {
+  const row = (label, cells) => ({ label, cells })
+
+  it('merges 7 bare "Lunch" groups with 1 annotated "Lunch 12:00" group into one all-groups event', () => {
+    const GROUPS = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
+    const parsed = {
+      pages: GROUPS.map((g, i) => ({
+        title: g,
+        columns: DAYS,
+        rows: [row('12:00-12:30', DAYS.map(() => (i === 7 ? 'Lunch 12:00' : 'Lunch')))],
+      })),
+    }
+    const proposal = extractEntities(parsed)
+    const { fixedEvents } = inferFixedEvents(parsed, proposal)
+    const lunches = fixedEvents.filter((e) => e.name === 'Lunch')
+    expect(lunches.length).toBe(1)
+    expect(lunches[0].scope).toEqual({ is_all_groups: true, groups: null })
+  })
+
+  it('still splits when two DIFFERENT non-null periods are present alongside bare cells (regression guard)', () => {
+    const parsed = {
+      pages: [
+        { title: 'A', columns: DAYS, rows: [row('12:00-12:30', DAYS.map(() => 'Lunch'))] },
+        { title: 'B', columns: DAYS, rows: [row('12:00-12:30', DAYS.map(() => 'Lunch 12:00'))] },
+        { title: 'C', columns: DAYS, rows: [row('12:00-12:30', DAYS.map(() => 'Lunch 12:30'))] },
+      ],
+    }
+    const proposal = extractEntities(parsed)
+    const { fixedEvents } = inferFixedEvents(parsed, proposal)
+    const lunches = fixedEvents.filter((e) => e.name === 'Lunch')
+    // Genuine stagger still splits by period (12:00 vs 12:30). The bare
+    // group has no time to disambiguate which occurrence it belongs to, so
+    // it keeps its own bucket rather than being guessed into one of the two
+    // real ones — three events total, not a false 2-way merge.
+    expect(lunches.length).toBe(3)
+    expect(new Set(lunches.flatMap((e) => e.scope.groups))).toEqual(new Set(['A', 'B', 'C']))
+  })
+})
+
+// Red Hat round on Slice 0 — LOW: cellPeriod's regex matched any
+// digit[:.]digit substring, so a per-group numeric annotation unrelated to
+// clock time (a level/score suffix) could be misread as a staggered period
+// and wrongly split a shared event. Validating the fragment as a real clock
+// value (hour <=23, minute <=59) closes the false-positive case; a genuinely
+// invalid fragment ("1.75", minute 75) is what actually demonstrates it,
+// since "1.05" itself is coincidentally a valid clock value and can't be
+// distinguished from a real time by range alone.
+describe('cellPeriod validation (LOW) — reject a numeric fragment that is not a real clock value', () => {
+  const row = (label, cells) => ({ label, cells })
+
+  it('treats an invalid-minute fragment ("Level 1.75") as having no period, so differing scores still merge', () => {
+    const parsed = {
+      pages: [
+        { title: 'A', columns: DAYS, rows: [row('10:00-10:30', DAYS.map(() => 'Craft Level 1.75'))] },
+        { title: 'B', columns: DAYS, rows: [row('10:00-10:30', DAYS.map(() => 'Craft Level 2.90'))] },
+      ],
+    }
+    const proposal = extractEntities(parsed)
+    const { fixedEvents } = inferFixedEvents(parsed, proposal)
+    const crafts = fixedEvents.filter((e) => e.name === 'Craft Level')
+    expect(crafts.length).toBe(1)
+    expect(crafts[0].scope).toEqual({ is_all_groups: true, groups: null })
+  })
+})
+
+// Code Reviewer LOW — the existing Bug A coverage only used a time-shaped row
+// label ("12:00-13:00"). The realistic shape a camp actually produces is a
+// BARE row label ("Lunch") with the true staggered time embedded per-cell.
+describe('Bug A (realistic shape) — staggered lunches under a BARE non-time row label', () => {
+  const row = (label, cells) => ({ label, cells })
+
+  it('detects three staggered lunches under a bare "Lunch" row label, given the block is known', () => {
+    const parsed = {
+      pages: [
+        { title: 'A', columns: DAYS, rows: [row('Lunch', DAYS.map(() => 'Lunch 12:00'))] },
+        { title: 'B', columns: DAYS, rows: [row('Lunch', DAYS.map(() => 'Lunch 12:30'))] },
+        { title: 'C', columns: DAYS, rows: [row('Lunch', DAYS.map(() => 'Lunch 1:00'))] },
+      ],
+    }
+    const proposal = extractEntities(parsed)
+    const { fixedEvents } = inferFixedEvents(parsed, proposal, { knownTimeBlockNames: ['Lunch'] })
+    const lunches = fixedEvents.filter((e) => e.name === 'Lunch')
+    expect(lunches.length).toBe(3)
+    for (const e of lunches) {
+      expect(e.time_block).toBe('Lunch')
+      expect(e.scope.is_all_groups).toBe(false)
+      expect(e.scope.groups.length).toBe(1)
+    }
+    expect(new Set(lunches.flatMap((e) => e.scope.groups))).toEqual(new Set(['A', 'B', 'C']))
+  })
+})
+
 describe('the name-identity invariant (§3.2)', () => {
   // Every string a fixed event carries must appear verbatim in the paired
   // entity proposal, or the commit path cannot resolve it by name.
