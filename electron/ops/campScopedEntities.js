@@ -99,6 +99,24 @@ export const PARENT_SCOPED_ENTITIES = {
     parentTable: 'elective_sets',
     parentKey: 'elective_set_id',
   },
+  // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-
+  // internal-subschedule.md): all three of events' children, parent-scoped
+  // by event_id (mirroring special_day_time_blocks/special_day_slots above).
+  event_time_blocks: {
+    table: 'event_time_blocks',
+    parentTable: 'events',
+    parentKey: 'event_id',
+  },
+  event_groups: {
+    table: 'event_groups',
+    parentTable: 'events',
+    parentKey: 'event_id',
+  },
+  event_slots: {
+    table: 'event_slots',
+    parentTable: 'events',
+    parentKey: 'event_id',
+  },
 }
 
 // T88 (C2, sync/auth audit): the camp-scoped entity set + FK-safe apply
@@ -152,6 +170,9 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   'elective_sets', // T41 slice 1; references camps.id only
   'elective_set_activities', // references elective_sets.id NOT NULL; activity_id has no declared FK
   'events', // Events overlay placement Slice 1; references camps.id only
+  'event_time_blocks', // Events internal sub-schedule Slice 2; references events.id NOT NULL
+  'event_groups', // Events internal sub-schedule Slice 2; references events.id NOT NULL
+  'event_slots', // Events internal sub-schedule Slice 2; references event_groups.id/event_time_blocks.id, both NOT NULL but no declared FK — positioned after both axis tables
 ]
 
 // The subset of DOMAIN_SNAPSHOT_ORDER that is parent-scoped (joined through

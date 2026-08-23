@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 40
+export const CURRENT_SCHEMA_VERSION = 41
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1639,6 +1639,22 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v41 — event internal sub-schedule (Slice 2, docs/adr/2026-08-22-event-
+  // internal-subschedule.md). Three new tables, no backfill: every existing
+  // event starts with zero time blocks / zero groups / zero slots. No
+  // DDL-time side effect, so this block emits no op, same posture as v33-v40.
+  if (getSchemaVersion(db) >= 40 && getSchemaVersion(db) < 41) {
+    db.transaction(() => {
+      db.exec(EVENT_TIME_BLOCKS_DDL)
+      db.exec(EVENT_GROUPS_DDL)
+      db.exec(EVENT_SLOTS_DDL)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (41, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct
@@ -1864,6 +1880,36 @@ export const EVENTS_DDL = `CREATE TABLE IF NOT EXISTS events (
   sort_order INTEGER,
   notes TEXT,
   UNIQUE(camp_id, name)
+)`
+
+// Byte-identical duplicates of the event_time_blocks / event_groups /
+// event_slots blocks in schema.sql (schema v41, Events internal sub-
+// schedule Slice 2, docs/adr/2026-08-22-event-internal-subschedule.md).
+// Kept as constants so the v41 migration cannot drift from schema.sql by a
+// stray space — same discipline as SPECIAL_DAYS_DDL/EVENTS_DDL above.
+export const EVENT_TIME_BLOCKS_DDL = `CREATE TABLE IF NOT EXISTS event_time_blocks (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id),
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL,
+  start_time TEXT,
+  end_time TEXT
+)`
+
+export const EVENT_GROUPS_DDL = `CREATE TABLE IF NOT EXISTS event_groups (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id),
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL
+)`
+
+export const EVENT_SLOTS_DDL = `CREATE TABLE IF NOT EXISTS event_slots (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id),
+  event_group_id TEXT NOT NULL,
+  time_block_id TEXT NOT NULL,
+  activity_id TEXT,
+  location_id TEXT
 )`
 
 // Byte-identical duplicate of the day_overrides block in schema.sql (schema

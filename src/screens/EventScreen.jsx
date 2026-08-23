@@ -8,13 +8,16 @@
 // campwide grid via normal drag/drop, never from this screen: the detail
 // view here is a READ-ONLY summary of where this event currently sits.
 //
-// No coming-soon controls (feedback_no_coming_soon_controls): the deferred
-// internal sub-schedule (Slice 2) is simply absent, not shown disabled.
+// Slice 2 (docs/adr/2026-08-22-event-internal-subschedule.md;
+// docs/work/specs/2026-08-22-event-internal-subschedule-slices.md Step 4)
+// adds the internal sub-schedule section below, opening EventGridEditor —
+// replacing the "simply absent" posture with the real editor.
 import { useState, useRef, useEffect } from 'react'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S, useEnterTransition } from '../styles/shared'
+import EventGridEditor from './event/EventGridEditor'
 
 const repository = createSetupCrudRepository({ localClient })
 const scopeFilter = (row, campId) => row.camp_id === campId
@@ -93,11 +96,23 @@ function PlacementSummary({ eventId, placements, groups, days, timeBlocks }) {
   )
 }
 
-function EventDetail({ event, role, placements, groups, days, timeBlocks, onBack, onSave }) {
+function EventDetail({ event, role, placements, groups, days, timeBlocks, campId, onBack, onSave }) {
   const [name, setName] = useState(event.name)
   const [notes, setNotes] = useState(event.notes ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [editingSchedule, setEditingSchedule] = useState(false)
+
+  if (editingSchedule) {
+    return (
+      <EventGridEditor
+        campId={campId}
+        eventId={event.id}
+        onBack={() => setEditingSchedule(false)}
+        onDeletedElsewhere={onBack}
+      />
+    )
+  }
 
   async function commit(fields) {
     setSaving(true)
@@ -146,6 +161,20 @@ function EventDetail({ event, role, placements, groups, days, timeBlocks, onBack
           Where this is placed
         </div>
         <PlacementSummary eventId={event.id} placements={placements} groups={groups} days={days} timeBlocks={timeBlocks} />
+      </div>
+
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Internal schedule
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
+            This event's own grid — stations, groups, and time blocks, independent of the campwide schedule.
+          </div>
+        </div>
+        <button className="press-97" onClick={() => setEditingSchedule(true)} style={S.btnPrimary}>
+          Open schedule
+        </button>
       </div>
     </div>
   )
@@ -211,6 +240,7 @@ export default function EventScreen({ campId, role, initialEventId = null }) {
         groups={supportData.groups}
         days={supportData.days}
         timeBlocks={supportData.timeBlocks}
+        campId={campId}
         onBack={() => setSelectedEventId(null)}
         onSave={save}
       />

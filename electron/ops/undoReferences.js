@@ -87,6 +87,15 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // schema-parity scanner (undoReferences.schemaParity.test.js), not an entry
   // here; deleteElectiveSet.js's own cascade handles its lifecycle directly.
   { fromTable: 'elective_set_activities', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
+  // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-
+  // internal-subschedule.md §3): event_slots.event_group_id/activity_id/
+  // location_id point at U2-deletable entities the same soft way
+  // special_day_slots does — no DB-level FK (schema.sql), so enforced:false.
+  // event_group_id points at event_groups, NOT the camp's groups — this is
+  // the column that changed target relative to special_day_slots.group_id.
+  { fromTable: 'event_slots', fromColumn: 'event_group_id', toEntity: 'event_groups', kind: 'scalar', enforced: false },
+  { fromTable: 'event_slots', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
+  { fromTable: 'event_slots', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
 ])
 
 // entities U2's deletion slice is allowed to act on — deliberately mirrors

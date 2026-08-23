@@ -67,6 +67,14 @@ export const RESTORE_DECISIONS = Object.freeze({
   // trash-can delete UI on EventScreen in this slice (create/edit
   // name+notes only), so there is no restore entry point to build for yet.
   events: 'refused: no delete UI yet (Slice 1 is create/edit only) — revisit if a delete affordance is added',
+
+  // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-
+  // internal-subschedule.md §3): same posture as special_day_time_blocks/
+  // special_day_slots above — rebuilt with the parent event, not restorable
+  // on their own.
+  event_time_blocks: 'refused: rebuilt with its parent event, not on its own',
+  event_groups: 'refused: rebuilt with its parent event, not on its own',
+  event_slots: 'refused: rebuilt with its parent event, not on its own',
 })
 
 export const RESTORABLE_ENTITIES = Object.freeze(

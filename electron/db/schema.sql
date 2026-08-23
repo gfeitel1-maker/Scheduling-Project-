@@ -801,6 +801,64 @@ CREATE TABLE IF NOT EXISTS events (
   UNIQUE(camp_id, name)
 );
 
+-- Event internal sub-schedule (schema v41, Events internal sub-schedule
+-- Slice 2, docs/adr/2026-08-22-event-internal-subschedule.md). Structural
+-- mirror of special_day_time_blocks/special_day_slots above, parent-scoped
+-- under events instead of special_days — with one deliberate divergence:
+-- the grid's COLUMNS are the event's OWN event_groups, not the camp's fixed
+-- groups (an event often regroups campers entirely, e.g. grade bands for a
+-- Sports Day). All three tables are brand-new (not drifted) — column order
+-- is free.
+--
+-- event_time_blocks: parent-scoped by event_id, no camp_id column. Every
+-- event OWNS its time blocks — no polymorphic "reuse camp time_blocks vs
+-- own" flag; the author UI seeds an event's time blocks from the camp's
+-- time_blocks at first entry, a UI convenience, not a storage branch (same
+-- posture as special_day_time_blocks above).
+CREATE TABLE IF NOT EXISTS event_time_blocks (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id),
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL,
+  start_time TEXT,
+  end_time TEXT
+);
+
+-- event_groups: the grid's COLUMNS, parent-scoped by event_id, no camp_id
+-- column. Structurally identical to event_time_blocks (name + sort_order) —
+-- plain editable column labels, no roster, no scoring, no membership. Like
+-- special_day_time_blocks, no UNIQUE on name — duplicate column labels are
+-- allowed and distinguished by sort_order, avoiding cross-device UNIQUE-
+-- collision machinery for a child entity. Seeded from the camp's groups at
+-- first entry (UI convenience, not a storage branch), then edited freely —
+-- add/rename/reorder — independent of the camp's groups thereafter.
+CREATE TABLE IF NOT EXISTS event_groups (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id),
+  name TEXT NOT NULL,
+  sort_order INTEGER NOT NULL
+);
+
+-- event_slots: parent-scoped by event_id (no camp_id column) — the grid
+-- cells, identified by (event_id, event_group_id, time_block_id).
+-- event_group_id/time_block_id are this event's OWN rows (event_groups/
+-- event_time_blocks), never the camp's groups/time_blocks. activity_id/
+-- location_id are nullable (empty cell / no location). event_group_id/
+-- time_block_id/activity_id/location_id are deliberately NOT given a SQL
+-- REFERENCES clause — they point at live rows the same soft way the weekly
+-- grid does (render resolves by id; a missing id renders empty), not a hard
+-- FK constraint, consistent with the app's op-log model where FK
+-- enforcement is by projection, not SQL FKs. No is_span_head/spanning and no
+-- person/staff column in this slice (mirrors special_day_slots).
+CREATE TABLE IF NOT EXISTS event_slots (
+  id TEXT PRIMARY KEY,
+  event_id TEXT NOT NULL REFERENCES events(id),
+  event_group_id TEXT NOT NULL,
+  time_block_id TEXT NOT NULL,
+  activity_id TEXT,
+  location_id TEXT
+);
+
 -- day_overrides (schema v38, T108, ADR 2026-08-21-day-overrides-repoint-
 -- shape.md D1, design docs/work/specs/2026-08-21-day-overrides-repoint-
 -- design.md). Re-points the "mostly-normal day with a few swaps/pulls" case

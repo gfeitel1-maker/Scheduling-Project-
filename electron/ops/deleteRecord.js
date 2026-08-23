@@ -64,6 +64,10 @@ const DESTRUCTIVE = Object.freeze(new Set(['groups', 'days_of_operation']))
 // those special_day_slots rows themselves stay in the table, inert and
 // unreachable. Full cascade-on-group-delete into special_day_slots is
 // deferred; the rows are harmless dead data, not a correctness or leak risk.
+// The analogous gap applies to event_slots.event_group_id (Events internal
+// sub-schedule Slice 2, docs/adr/2026-08-22-event-internal-subschedule.md
+// §3): deleting an event_group leaves its event_slots rows inert/unreachable
+// rather than cascading — no new cascade code, same accepted posture.
 const SLOT_QUERY = Object.freeze({
   groups: 'SELECT id, template_id FROM template_slots WHERE group_id = ?',
   activities: 'SELECT id, template_id FROM template_slots WHERE activity_id = ?',
