@@ -11,8 +11,15 @@ vi.mock('../localClient', () => ({
   },
 }))
 
+vi.mock('../ingest/textGrid', () => ({ parseTextGrid: vi.fn() }))
+vi.mock('../ingest/parseGridSchedule', () => ({ parseGridSchedule: vi.fn() }))
+vi.mock('../ingest/electiveSetPopulate', () => ({ populateElectiveSet: vi.fn() }))
+
 import ElectivesScreen from './ElectivesScreen'
 import { localClient } from '../localClient'
+import { parseTextGrid } from '../ingest/textGrid'
+import { parseGridSchedule } from '../ingest/parseGridSchedule'
+import { populateElectiveSet } from '../ingest/electiveSetPopulate'
 
 const CAMP_ID = 'camp-1'
 
@@ -238,5 +245,251 @@ describe('ElectivesScreen', () => {
     fireEvent.click(screen.getByText('Delete Elective Set'))
 
     await waitFor(() => expect(localClient.deleteElectiveSet).toHaveBeenCalledWith({ electiveSetId: 'set-1' }))
+  })
+})
+
+describe('ElectivesScreen — grid-schedule import affordance (docs/adr/2026-08-22-event-schedule-import.md §8)', () => {
+  beforeEach(() => {
+    parseTextGrid.mockReset()
+    parseGridSchedule.mockReset()
+    populateElectiveSet.mockReset()
+  })
+
+  it('renders the import affordance in the empty-offerings state', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_sets: [electiveSet()],
+      elective_set_activities: [],
+      activities: [activity()],
+      locations: [], tiers: [], groups: [],
+    }))
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('Afternoon Chugim')).not.toBeNull())
+    fireEvent.click(screen.getByText('Manage Offerings'))
+
+    await waitFor(() => expect(screen.getByText(/import this set’s offerings from a file/)).toBeTruthy())
+  })
+
+  it('file -> parse -> populate wiring: selecting a file runs parseTextGrid -> parseGridSchedule -> populateElectiveSet, then reloads', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_sets: [electiveSet()],
+      elective_set_activities: [],
+      activities: [activity()],
+      locations: [], tiers: [], groups: [],
+    }))
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: 'Chugim', cells: ['Pottery'] }] }] })
+    const parsed = {
+      orientation: { axis: null, confident: false },
+      timeAxis: [], groupAxis: [],
+      cells: [{ timeIndex: 0, groupIndex: 0, activityName: 'Pottery', locationName: null }],
+      unmapped: [],
+    }
+    parseGridSchedule.mockReturnValue(parsed)
+    populateElectiveSet.mockResolvedValue({ ok: true })
+
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('Afternoon Chugim')).not.toBeNull())
+    fireEvent.click(screen.getByText('Manage Offerings'))
+    await waitFor(() => expect(screen.getByText(/import this set’s offerings from a file/)).toBeTruthy())
+
+    const listCallsBefore = localClient.list.mock.calls.filter(([e]) => e === 'elective_set_activities').length
+
+    const importButton = screen.getByText(/import this set’s offerings from a file/)
+    fireEvent.click(importButton)
+    const file = new File(['irrelevant'], 'chugim.txt', { type: 'text/plain' })
+    const input = document.querySelector('input[type="file"]')
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await waitFor(() => expect(populateElectiveSet).toHaveBeenCalledTimes(1))
+    expect(parseGridSchedule).toHaveBeenCalledWith([{ title: 'x', columns: ['A'], rows: [{ label: 'Chugim', cells: ['Pottery'] }] }])
+    const [passedParsed, ctx] = populateElectiveSet.mock.calls[0]
+    expect(passedParsed).toBe(parsed)
+    expect(ctx.electiveSetId).toBe('set-1')
+    expect(ctx.campId).toBe(CAMP_ID)
+
+    // reload happened after a successful import
+    await waitFor(() =>
+      expect(localClient.list.mock.calls.filter(([e]) => e === 'elective_set_activities').length).toBeGreaterThan(listCallsBefore)
+    )
+  })
+
+  it('refusal reason (e.g. nonempty set) is surfaced, writes nothing new', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_sets: [electiveSet()],
+      elective_set_activities: [],
+      activities: [activity()],
+      locations: [], tiers: [], groups: [],
+    }))
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: 'Chugim', cells: ['Pottery'] }] }] })
+    parseGridSchedule.mockReturnValue({ orientation: { axis: null, confident: false }, timeAxis: [], groupAxis: [], cells: [], unmapped: [] })
+    populateElectiveSet.mockResolvedValue({ ok: false, reason: 'This elective set already has offerings. Clear it first if you want to replace it with an import, or add to it by hand.' })
+
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('Afternoon Chugim')).not.toBeNull())
+    fireEvent.click(screen.getByText('Manage Offerings'))
+    await waitFor(() => expect(screen.getByText(/import this set’s offerings from a file/)).toBeTruthy())
+
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant'], 'chugim.txt', { type: 'text/plain' })
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await waitFor(() => expect(screen.getByText(/already has offerings/)).toBeTruthy())
+  })
+
+  it('a mid-import throw (partial write) still reloads offerings, so stale UI does not mask partial data', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_sets: [electiveSet()],
+      elective_set_activities: [],
+      activities: [activity()],
+      locations: [], tiers: [], groups: [],
+    }))
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: 'Chugim', cells: ['Pottery'] }] }] })
+    parseGridSchedule.mockReturnValue({
+      orientation: { axis: null, confident: false }, timeAxis: [], groupAxis: [],
+      cells: [{ timeIndex: 0, groupIndex: 0, activityName: 'Pottery', locationName: null }], unmapped: [],
+    })
+    populateElectiveSet.mockRejectedValue(new Error('write failed for field "activity_id"'))
+
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('Afternoon Chugim')).not.toBeNull())
+    fireEvent.click(screen.getByText('Manage Offerings'))
+    await waitFor(() => expect(screen.getByText(/import this set’s offerings from a file/)).toBeTruthy())
+
+    const listCallsBefore = localClient.list.mock.calls.filter(([e]) => e === 'elective_set_activities').length
+
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant'], 'chugim.txt', { type: 'text/plain' })
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await waitFor(() => expect(screen.getByText(/Could not import that schedule/)).toBeTruthy())
+    await waitFor(() =>
+      expect(localClient.list.mock.calls.filter(([e]) => e === 'elective_set_activities').length).toBeGreaterThan(listCallsBefore)
+    )
+  })
+
+  // Red Hat HIGH: reload() only refreshes offerings, not the activities
+  // catalog. loadSupportData() runs once on mount — without also calling it
+  // here, a retry's existingActivities dedup input stays stale and mints a
+  // duplicate catalog activity for a name that already succeeded partway
+  // through the failed attempt.
+  it('a mid-import throw also refreshes the activities catalog, so a retry does not stale-dedupe', async () => {
+    const initialActivities = [activity()]
+    const afterFailureActivities = [activity(), activity({ id: 'act-partial', name: 'Pottery2' })]
+    let activitiesCallCount = 0
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'elective_sets') return Promise.resolve([electiveSet()])
+      if (entity === 'elective_set_activities') return Promise.resolve([])
+      if (entity === 'activities') {
+        activitiesCallCount += 1
+        return Promise.resolve(activitiesCallCount === 1 ? initialActivities : afterFailureActivities)
+      }
+      return Promise.resolve([])
+    })
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: 'Chugim', cells: ['Pottery2'] }] }] })
+    parseGridSchedule.mockReturnValue({
+      orientation: { axis: null, confident: false }, timeAxis: [], groupAxis: [],
+      cells: [{ timeIndex: 0, groupIndex: 0, activityName: 'Pottery2', locationName: null }], unmapped: [],
+    })
+    populateElectiveSet
+      .mockRejectedValueOnce(new Error('write failed for field "activity_id"'))
+      .mockResolvedValueOnce({ ok: true })
+
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('Afternoon Chugim')).not.toBeNull())
+    fireEvent.click(screen.getByText('Manage Offerings'))
+    await waitFor(() => expect(screen.getByText(/import this set’s offerings from a file/)).toBeTruthy())
+
+    const input = document.querySelector('input[type="file"]')
+    fireEvent.change(input, { target: { files: [new File(['x'], 'a.txt', { type: 'text/plain' })] } })
+    await waitFor(() => expect(screen.getByText(/Could not import that schedule/)).toBeTruthy())
+    await waitFor(() => expect(activitiesCallCount).toBeGreaterThan(1))
+
+    // Retry: the second populateElectiveSet call must see the refreshed
+    // activities list (including the one the failed attempt already wrote),
+    // not the stale mount-time snapshot.
+    fireEvent.change(input, { target: { files: [new File(['x'], 'a.txt', { type: 'text/plain' })] } })
+    await waitFor(() => expect(populateElectiveSet).toHaveBeenCalledTimes(2))
+
+    const ctxSecondCall = populateElectiveSet.mock.calls[1][1]
+    expect(ctxSecondCall.existingActivities).toEqual(afterFailureActivities)
+  })
+
+  // Red Hat HIGH, cross-set half: the success path split `reload()`
+  // (offerings) from `loadSupportData()` (activities) too — so importing
+  // into Set A and then opening Set B in the same session still hands Set
+  // B's import a stale activities list, minting a duplicate for a name
+  // Set A's import already created.
+  it('a successful import also refreshes the activities catalog, so a different set opened next does not stale-dedupe', async () => {
+    const initialActivities = [activity()]
+    const afterImportActivities = [activity(), activity({ id: 'act-new', name: 'Archery' })]
+    let activitiesCallCount = 0
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'elective_sets') {
+        return Promise.resolve([electiveSet(), electiveSet({ id: 'set-2', name: 'Morning Bechirot' })])
+      }
+      if (entity === 'elective_set_activities') return Promise.resolve([])
+      if (entity === 'activities') {
+        activitiesCallCount += 1
+        return Promise.resolve(activitiesCallCount === 1 ? initialActivities : afterImportActivities)
+      }
+      return Promise.resolve([])
+    })
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: 'Chugim', cells: ['Archery'] }] }] })
+    parseGridSchedule.mockReturnValue({
+      orientation: { axis: null, confident: false }, timeAxis: [], groupAxis: [],
+      cells: [{ timeIndex: 0, groupIndex: 0, activityName: 'Archery', locationName: null }], unmapped: [],
+    })
+    populateElectiveSet.mockResolvedValue({ ok: true })
+
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('Afternoon Chugim')).not.toBeNull())
+
+    fireEvent.click(screen.getAllByText('Manage Offerings')[0])
+    await waitFor(() => expect(screen.getByText(/import this set’s offerings from a file/)).toBeTruthy())
+    let input = document.querySelector('input[type="file"]')
+    fireEvent.change(input, { target: { files: [new File(['x'], 'a.txt', { type: 'text/plain' })] } })
+    await waitFor(() => expect(populateElectiveSet).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(activitiesCallCount).toBeGreaterThan(1))
+
+    fireEvent.click(screen.getByText('← Back to Elective Sets'))
+    await waitFor(() => expect(screen.queryByText('Morning Bechirot')).not.toBeNull())
+    fireEvent.click(screen.getAllByText('Manage Offerings')[1])
+    await waitFor(() => expect(screen.getByText(/import this set’s offerings from a file/)).toBeTruthy())
+
+    input = document.querySelector('input[type="file"]')
+    fireEvent.change(input, { target: { files: [new File(['x'], 'b.txt', { type: 'text/plain' })] } })
+    await waitFor(() => expect(populateElectiveSet).toHaveBeenCalledTimes(2))
+
+    const ctxSecondCall = populateElectiveSet.mock.calls[1][1]
+    expect(ctxSecondCall.existingActivities).toEqual(afterImportActivities)
+  })
+})
+
+describe('ElectivesScreen — Clear offerings control (Tester MEDIUM)', () => {
+  it('clears all offerings after confirmation, and the import affordance reappears', async () => {
+    let offeringsCleared = false
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'elective_set_activities') return Promise.resolve(offeringsCleared ? [] : [offering()])
+      return byEntity({
+        elective_sets: [electiveSet()],
+        activities: [activity()],
+        locations: [], tiers: [], groups: [],
+      })(entity)
+    })
+    localClient.deleteEntity.mockImplementation(() => {
+      offeringsCleared = true
+      return Promise.resolve({ status: 'applied' })
+    })
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('Afternoon Chugim')).not.toBeNull())
+    fireEvent.click(screen.getByText('Manage Offerings'))
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Clear offerings'))
+    await waitFor(() => expect(screen.queryByText(/Clear all offerings from this set/)).not.toBeNull())
+    fireEvent.click(screen.getByText('Clear Offerings'))
+
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'elective_set_activities', 'off-1'))
+    await waitFor(() => expect(screen.queryByText('No offerings yet')).not.toBeNull())
+    expect(screen.queryByText(/import this set’s offerings from a file/)).not.toBeNull()
   })
 })

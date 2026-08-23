@@ -371,6 +371,15 @@ provable, not just claimed:
   activity-matching helper when it's eventually built — confirming the
   shared/consumer split is real, not aspirational.
 
+**Addendum (Code Reviewer, electives slice shipped):** the built consumer
+(`src/ingest/electiveSetPopulate.js`) keys the deterministic id on the
+RESOLVED `activity_id` — `deriveElectiveImportId(electiveSetId, activityId)`
+— not on the `activitySourceIndex` sketched above. Deliberate improvement:
+a flat membership set has no meaningful cell position, and keying on the
+resolved activity id converges both a byte-identical re-import AND a
+different file naming the same activities onto the same row, instead of
+depending on cell order matching across files.
+
 ## Files/modules affected
 
 - **New**: `src/ingest/parseGridSchedule.js` — `parseGridSchedule(pages)`
