@@ -286,12 +286,25 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
 
       // Rule inference (T35) — same "propose, director confirms" shape as the
       // entities and recurring events above.
+      //
+      // The Asserted-classification exclusion set is NOT pinOnlySet — pinOnlySet
+      // is high-confidence-only (it feeds a separate mechanism, the tier:'low'
+      // pin above) and would wrongly let a low-confidence fixed event also get
+      // an Obligation rule. ADR §4.1 defines the Asserted denylist as every
+      // inferFixedEvents name regardless of confidence (high OR low — a
+      // low-confidence Asserted guess is still an Asserted-shaped hypothesis,
+      // not a demotion to Obligation), minus dual-use names — a dual-use
+      // activity legitimately keeps BOTH classifications (ADR OQ1: two rows
+      // sharing a name). (docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md
+      // §4.1/§6 step 3.)
+      const assertedNonDualUseNames = new Set(inferred.map((fe) => fe.name).filter((n) => !dualUseSet.has(n)))
       const rules = inferActivityRules(
         proposal.entities.activities,
         proposal.activityPages,
         proposal.seenCounts,
         proposal.entities.days_of_operation.length,
-        proposal.entities.groups
+        proposal.entities.groups,
+        assertedNonDualUseNames
       )
       setActivityRules(Object.fromEntries(rules))
     } catch (err) {

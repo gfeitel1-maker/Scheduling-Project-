@@ -487,11 +487,20 @@ partially shipped as **cases of this ontology**, not reinventing any of it:
 2. **Slice 3b (already designed, `docs/work/specs/2026-08-23-slice3b-lunch-stagger-design.md`):**
    the staggered-Lunch worked example — ships as the concrete implementation of defect 1's fix.
 3. **New, small: classifier sequencing (§4.1).** Add `excludeNames` param to
-   `inferActivityRules`, call `inferFixedEvents` first in `electron/ops/ingest.js`'s orchestration,
-   pass its confirmed names through. Test-first: a fixture activity appearing 5/5 days for one
-   group must NOT receive a `min_per_week` proposal once it's also proposed as a fixed event.
-   Gate: existing `ingest.activityRuleProvenance.test.js` and `ingest.test.js` extended, not
-   replaced.
+   `inferActivityRules` and exclude the Asserted names from Obligation-rule inference. The actual
+   orchestration site is `src/screens/ImportScreen.jsx` (it calls `inferFixedEvents` then
+   `inferActivityRules` in the import preview) — NOT `electron/ops/ingest.js`, which only consumes a
+   pre-computed `activityRules` payload at commit; the `scripts/ingestCli.js` path never calls
+   `inferActivityRules` and so does not double-classify. `ImportScreen` builds the
+   exclusion set as `assertedNonDualUseNames` — **every** `inferFixedEvents` name (high OR low
+   confidence, per §4.1's Asserted predicate) MINUS dual-use names — and passes it as `excludeNames`.
+   This is deliberately a *different* set from the pre-existing `pinOnlySet` (high-confidence-only,
+   reserved for the `tier:'low'` pin mechanism): a low-confidence Asserted hypothesis must still
+   suppress the competing Obligation rule, while dual-use names are preserved so they keep both
+   classifications (OQ1). Test-first: a fixture activity appearing 5/5 days for one group must NOT receive a
+   `min_per_week` proposal once it's also proposed as a fixed event. *(Shipped — see the
+   classifier-sequencing commit; this bullet corrected from the original `electron/ops/ingest.js`
+   reference, which was imprecise.)*
 4. **New, small: `recurrence_truth_status` column (§3.2, §3.5 checklist).** Additive migration
    only; classifier writes it; no engine consumer. Gate: migration parity test + projections
    parity test per the checklist.

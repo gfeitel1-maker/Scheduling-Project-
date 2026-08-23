@@ -36,6 +36,15 @@ function normalizeName(name) {
  *        .activityUnitShare is keyed by NORMALIZED name (extractEntities.seenCounts.activityUnitShare)
  * @param {number} dayCount                proposal.entities.days_of_operation.length
  * @param {string[]} allGroupNames         every proposed group name, for the "appears everywhere" check
+ * @param {Iterable<string>} [excludeNames] names to skip entirely (no rule emitted), normalized the
+ *        same way as the loop's own keying. Classifier-sequencing fix
+ *        (docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md §4.1/§6 step 3): a name
+ *        already classified as a pinned (non-dual-use) Asserted fixed event must not also get a
+ *        spurious Obligation (min_per_week) rule from this pass — that was a double-classification
+ *        with nothing marking which one was load-bearing. Callers pass the caller's own
+ *        already-computed pin-only set (fixed-event names minus dual-use names); dual-use names are
+ *        deliberately NOT excluded, since a dual-use activity legitimately carries both an Asserted
+ *        and an Obligation pattern (ADR OQ1: two rows sharing a name).
  * @returns {Map<string, {
  *   eligible_group_names: string[]|null,
  *   eligibility_known: boolean,   // false = no per-group signal existed at all (T35 Fix 2b) —
@@ -47,16 +56,18 @@ function normalizeName(name) {
  *   _inferred: true,
  * }>}
  */
-export function inferActivityRules(activityNames, activityPages, seenCounts, dayCount, allGroupNames) {
+export function inferActivityRules(activityNames, activityPages, seenCounts, dayCount, allGroupNames, excludeNames) {
   const pages = activityPages ?? {}
   const counts = seenCounts?.activities ?? {}
   const allGroups = Array.isArray(allGroupNames) ? allGroupNames : []
   const days = Math.max(Number(dayCount) || 0, 1)
+  const excluded = new Set([...(excludeNames ?? [])].map(normalizeName))
 
   const rules = new Map()
 
   for (const name of activityNames ?? []) {
     const key = normalizeName(name)
+    if (excluded.has(key)) continue
     const matchedGroups = Array.isArray(pages[key]) ? pages[key] : []
     const appearances = Number(counts[name]) || 0
 
