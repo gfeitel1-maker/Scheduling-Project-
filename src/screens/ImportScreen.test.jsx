@@ -8,7 +8,7 @@ import userEvent from '@testing-library/user-event'
 // exercise. Stubbing extractEntities/parseTextGrid keeps the test about
 // "does the inferred rule render and drive the commit payload", not about the
 // grid parser (which has its own tests).
-vi.mock('../ingest/textGrid', () => ({ parseTextGrid: () => ({ pages: [{ title: 'x', columns: [], rows: [] }] }) }))
+vi.mock('../ingest/textGrid', () => ({ parseTextGrid: vi.fn(() => ({ pages: [{ title: 'x', columns: [], rows: [] }] })) }))
 // Base proposal fixture, reused as the default mock return and cloned by
 // individual tests (via extractEntities.mockReturnValueOnce) that need a
 // different activity shape — e.g. one with no per-group signal at all, to
@@ -55,6 +55,8 @@ vi.mock('../localClient', () => ({
 import ImportScreen from './ImportScreen'
 import { localClient } from '../localClient'
 import { extractEntities } from '../ingest/extractEntities'
+import { parseTextGrid } from '../ingest/textGrid'
+import { IMPORT_LIMITS } from '../utils/exportSanitize'
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -124,6 +126,21 @@ describe('ImportScreen — residual report (T36)', () => {
     extractEntities.mockReturnValueOnce({ ...baseProposal, residual: { cells: [] } })
     await uploadFile()
     expect(screen.queryByText(/not recognised/i)).toBeNull()
+  })
+})
+
+describe('ImportScreen — oversized text-file guard (F4)', () => {
+  it('rejects an oversized .txt file before it reaches the parser', async () => {
+    render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['x'], 'schedule.txt', { type: 'text/plain' })
+    // A real 11MB string would blow the test's memory — the guard reads
+    // file.size, so overriding it exercises the same code path a huge file hits.
+    Object.defineProperty(file, 'size', { value: IMPORT_LIMITS.maxBytes + 1 })
+    await userEvent.upload(input, file)
+    await waitFor(() => expect(screen.getByText(/could not be read/i)).toBeTruthy())
+    // Fails closed: the bytes never reach parseTextGrid.
+    expect(parseTextGrid).not.toHaveBeenCalled()
   })
 })
 
