@@ -15,6 +15,7 @@ import { S, useEnterTransition } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import SpecialDayGridEditor from './specialDay/SpecialDayGridEditor'
 import { seedFailureMessage } from './specialDay/seedFailureMessage'
+import uiCalendar from '../assets/brand/icons/ui-calendar.png'
 
 const LABELS = {
   emptyTitle: 'No special days yet',
@@ -203,6 +204,7 @@ export default function SpecialDaysScreen({ campId, role }) {
         <div style={S.stateLoading}>Loading…</div>
       ) : days.length === 0 && !creating ? (
         <div style={{ ...S.emptyState, ...enterStyle }}>
+          <img src={uiCalendar} alt="" style={S.emptyStateIcon} />
           <div style={S.emptyStateTitle}>{LABELS.emptyTitle}</div>
           <div style={S.emptyStateBody}>{LABELS.emptyBody}</div>
           <button className="press-97" onClick={() => setCreating(true)} style={{ ...S.btnPrimary, marginTop: 12 }}>{LABELS.createCta}</button>

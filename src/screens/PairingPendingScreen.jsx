@@ -1,10 +1,19 @@
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
+import forestCircle from '../assets/brand/forest-circle.png'
 
 export default function PairingPendingScreen({ denied, onBack }) {
+  const badgeEnter = useEnterTransition('liftFade')
   return (
     <div style={S.authPage}>
       <div style={S.authCard}>
         <div style={S.authLogoBlock}>
+          {!denied && (
+            <img
+              src={forestCircle}
+              alt=""
+              style={{ width: 56, height: 56, display: 'block', margin: '0 auto 10px', ...badgeEnter }}
+            />
+          )}
           <div style={S.authLogo}>Shoresh</div>
         </div>
         {denied ? (

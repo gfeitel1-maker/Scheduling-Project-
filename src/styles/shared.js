@@ -677,4 +677,16 @@ export const S = {
     fontSize: 12,
     color: 'var(--text-secondary)',
   },
+  // W12b (docs/work/specs/2026-08-22-brand-placement-round2.md §3) — optional
+  // icon slot for S.emptyState. Sits directly on the page/table background,
+  // no card, matching DESIGN_STANDARD §5a's "calm, not boxed" rule for
+  // emptiness. Proportional to the sliced ui-*.png tiles' 307.2:256 aspect —
+  // do not force square.
+  emptyStateIcon: {
+    width: 96,
+    height: 80,
+    display: 'block',
+    margin: '0 auto 14px',
+    objectFit: 'contain',
+  },
 }

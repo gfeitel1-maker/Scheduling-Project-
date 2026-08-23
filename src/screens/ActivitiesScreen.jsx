@@ -14,6 +14,7 @@ import { CapacityStepper } from './LocationsScreen'
 import { resolveLocationCandidateId } from '../../electron/ops/locationId.js'
 import { CONFIDENCE_COPY, plainEvidenceSentence } from '../components/reconciliation/reconciliationCards.jsx'
 import { deriveActivityProvenance, hasAnyEvidence, worstTier } from '../utils/ruleProvenance.js'
+import uiClipboard from '../assets/brand/icons/ui-clipboard.png'
 
 const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
@@ -647,6 +648,7 @@ const repo = createScheduleRepository({ localClient })
 const repository = createSetupCrudRepository({ localClient })
 
 export default function ActivitiesScreen({ campId, role, onNavigate, weekId, weeks = [], onSelectWeek }) {
+  const emptyEnter = useEnterTransition('liftFade')
   const [activities, setActivities] = useState([])
   const [tiers, setTiers] = useState([])
   const [groups, setGroups] = useState([])
@@ -1233,8 +1235,11 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       ) : activities.length === 0 ? (
         // padding 40px 24px intentional — wider horizontal padding than other empty states
         <div style={{ ...S.emptyState, padding: '40px 24px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
-          <div style={S.emptyStateTitle}>No activities yet</div>
-          <div style={S.emptyStateBody}>Add your first activity or import from Excel.</div>
+          <div style={emptyEnter}>
+            <img src={uiClipboard} alt="" style={S.emptyStateIcon} />
+            <div style={S.emptyStateTitle}>No activities yet</div>
+            <div style={S.emptyStateBody}>Add your first activity or import from Excel.</div>
+          </div>
         </div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>

@@ -1,8 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import { localClient } from '../localClient'
+import decorativeMagnifier from '../assets/brand/icons/decorative-magnifier.png'
 
 export default function JoinScreen({ onBack, onSelectHost }) {
+  const emptyIconEnter = useEnterTransition('liftFade')
   const [state, setState] = useState('searching')
   const [hosts, setHosts] = useState([])
   const mountedRef = useRef(true)
@@ -99,7 +101,19 @@ export default function JoinScreen({ onBack, onSelectHost }) {
 
         {state === 'empty' && (
           <div style={{ textAlign: 'center', padding: '30px 10px' }}>
-            <div style={{ fontSize: 30, marginBottom: 12, opacity: 0.5 }}>📡</div>
+            <div
+              style={{
+                width: 72,
+                height: 72,
+                margin: '0 auto 12px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                ...emptyIconEnter,
+              }}
+            >
+              <img src={decorativeMagnifier} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} />
+            </div>
             <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 15, color: 'var(--text)', marginBottom: 6 }}>
               No camps found nearby
             </div>

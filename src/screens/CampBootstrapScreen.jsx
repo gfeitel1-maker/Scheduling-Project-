@@ -1,7 +1,9 @@
 import { useState } from 'react'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
+import forestCircle from '../assets/brand/forest-circle.png'
 
 export default function CampBootstrapScreen({ onBack, onSubmit }) {
+  const badgeEnter = useEnterTransition('liftFade')
   const [campName, setCampName] = useState('')
   const [adminName, setAdminName] = useState('')
   const [adminPin, setAdminPin] = useState('')
@@ -36,6 +38,12 @@ export default function CampBootstrapScreen({ onBack, onSubmit }) {
             ← Back
           </button>
         </div>
+
+        <img
+          src={forestCircle}
+          alt=""
+          style={{ width: 64, height: 64, display: 'block', margin: '0 auto 14px', ...badgeEnter }}
+        />
 
         <div style={S.authRolePill}>
           <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--primary)' }} />

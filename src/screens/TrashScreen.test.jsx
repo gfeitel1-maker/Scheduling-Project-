@@ -47,6 +47,22 @@ describe('TrashScreen', () => {
     expect(screen.getByText('Deleted records appear here and can be restored.')).toBeTruthy()
   })
 
+  // W12b (docs/work/specs/2026-08-22-brand-placement-round2.md §3, §4) — the
+  // icon tile renders only in the .length===0 branch, never once the screen
+  // has data.
+  it('shows the trash icon in the empty state, and no icon once there are deleted records', async () => {
+    const { unmount } = render(<TrashScreen role="admin" />)
+    await screen.findByText('Nothing deleted')
+    expect(screen.getByAltText('')).toBeTruthy()
+    unmount()
+
+    localClient.listDeleted.mockResolvedValue([deletedGroup()])
+    render(<TrashScreen role="admin" />)
+    await screen.findByText('Aleph')
+    expect(screen.queryByText('Nothing deleted')).toBeNull()
+    expect(screen.queryByAltText('')).toBeNull()
+  })
+
   it('shows the record by name, in plain words, never by uuid or table name', async () => {
     localClient.listDeleted.mockResolvedValue([deletedGroup()])
     render(<TrashScreen role="admin" />)

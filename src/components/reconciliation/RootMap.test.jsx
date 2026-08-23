@@ -76,6 +76,49 @@ describe('RootMap domain layers', () => {
   })
 })
 
+// W12b (docs/work/specs/2026-08-22-brand-placement-round2.md §3) — the
+// whole-camp "open and waiting" moment replaces the domain stack only when
+// every domain has zero children, and disappears the instant any one does.
+describe('RootMap whole-camp empty state', () => {
+  it('shows the forest-circle open-and-waiting moment when every domain is empty', () => {
+    const allEmptyModel = {
+      domains: [
+        { key: 'Structure', label: 'Structure', state: 'absent', children: [] },
+        { key: 'Scheduling', label: 'Scheduling', state: 'absent', children: [] },
+        { key: 'Time', label: 'Time', state: 'absent', children: [] },
+        { key: 'Facility', label: 'Facility', state: 'absent', children: [] },
+        { key: 'Context', label: 'Context', state: 'absent', children: [] },
+      ],
+    }
+    render(
+      <RootMap
+        model={allEmptyModel}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(screen.getByText(/Nothing imported yet/)).toBeTruthy()
+    expect(screen.getByAltText('')).toBeTruthy()
+    // Per-domain teaching notes don't also render underneath the whole-camp moment.
+    expect(screen.queryByText(/No entities imported yet — this layer has no root\./)).toBeNull()
+  })
+
+  it('does not show the whole-camp moment once any one domain has data', () => {
+    render(
+      <RootMap
+        model={fiveDomainModel()}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(screen.queryByText(/Nothing imported yet/)).toBeNull()
+  })
+})
+
 describe('RootMap chips', () => {
   it('renders each child as a real button with an aria-label and aria-pressed', () => {
     render(
