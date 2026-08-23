@@ -168,6 +168,65 @@ describe('AnchorsScreen — which weeks control (schedule_week_id)', () => {
   })
 })
 
+// W7b (docs/work/specs/camp-setup-ingestion-program.md): location_id picker
+// on the recurring-event modal, mirroring ActivitiesScreen's LocationPicker.
+describe('AnchorsScreen — location picker (location_id)', () => {
+  const locations = [
+    { id: 'loc-1', camp_id: CAMP_ID, name: 'Pool Deck', capacity: 2, notes: null },
+  ]
+  const anchorRow = {
+    id: 'anc-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Swim',
+    day_id: 'd1', time_block_id: 'block-1', is_all_groups: 1, group_ids: '[]',
+    notes: null, schedule_week_id: null, location_id: null,
+  }
+
+  function mockList(anchors, locs = locations) {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'anchor_activities') return Promise.resolve(anchors)
+      if (entity === 'days_of_operation') return Promise.resolve([day({ id: 'd1' })])
+      if (entity === 'time_blocks') return Promise.resolve([block()])
+      if (entity === 'tiers') return Promise.resolve([])
+      if (entity === 'groups') return Promise.resolve([])
+      if (entity === 'schedule_weeks') return Promise.resolve([])
+      if (entity === 'locations') return Promise.resolve(locs)
+      return Promise.resolve([])
+    })
+  }
+
+  it('selecting a location in the Edit modal writes location_id', async () => {
+    mockList([anchorRow])
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Swim')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Edit'))
+    await waitFor(() => expect(screen.getByPlaceholderText('Search or add a location…')).not.toBeNull())
+
+    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Pool' } })
+    fireEvent.mouseDown(await screen.findByText('Pool Deck'))
+
+    fireEvent.click(screen.getByText('Save Changes'))
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalledWith(
+      'token-abc', 'anchor_activities', 'anc-1', 'location_id', 'loc-1'
+    ))
+  })
+
+  it('a location_id pointing at a deleted location is nulled out on save (C5 dangling guard)', async () => {
+    mockList([{ ...anchorRow, location_id: 'stale-loc' }], locations)
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Swim')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Edit'))
+    await waitFor(() => expect(screen.getByText('The location set here no longer exists — pick a new one.')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Save Changes'))
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalledWith(
+      'token-abc', 'anchor_activities', 'anc-1', 'location_id', null
+    ))
+  })
+})
+
 describe('AnchorsScreen cleanup-failure surfacing', () => {
   it('shows a distinct honest error when a mid-fan-out write fails and rollback is refused (non-admin)', async () => {
     const days = [
