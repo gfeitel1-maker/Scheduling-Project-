@@ -70,6 +70,14 @@ export const NAV_SECTIONS = [
           // builds elective sets/offerings here, off the campwide grid, which
           // stays opaque ("Electives"). Optional, like Locations/Recurring Events.
           { key: 'electives',    label: 'Electives',     area: 'electives',    optional: true },
+          // Override-family-model ADR §6c (docs/adr/2026-08-23-override-
+          // family-model.md): Events and Special Days are display-grouped
+          // under one quiet, non-navigating heading — "these feel like one
+          // thing" (owner's felt model). This is a display-layer grouping
+          // only: no schema change, each row keeps its own `area`/optional
+          // status/Next-chain identity untouched. Sidebar.jsx renders a
+          // `heading` marker as a plain label, never a row.
+          { key: 'special-schedule-heading', heading: 'Special Schedule' },
           // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-
           // overlay-placement.md §5): an event is a named, opaque block a
           // director places directly on the campwide schedule (not its own

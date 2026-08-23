@@ -278,7 +278,11 @@ export default function Sidebar({
                         }}
                       >▶</button>
                     </div>
-                    {rootsOpen && item.children.map(child => renderItem(child, { indent: true }))}
+                    {rootsOpen && item.children.map(child => (
+                      child.heading
+                        ? <div key={child.key} style={subHeadingStyle}>{child.heading}</div>
+                        : renderItem(child, { indent: true })
+                    ))}
                   </div>
                 )
               })}
@@ -460,6 +464,17 @@ const GearMenu = forwardRef(function GearMenu({ items, current, badges, onSelect
     </div>
   )
 })
+
+// A quiet grouping label between Roots children — echoes the section-title
+// treatment (condensed, uppercase, tracked-out) at Roots-child indent depth,
+// so it reads as a sub-heading rather than a row: no hover state, no click
+// target, no mark/count/optional affordance.
+const subHeadingStyle = {
+  padding: '10px 12px 4px 33px',
+  fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
+  letterSpacing: '0.1em', textTransform: 'uppercase',
+  color: 'var(--text-secondary)', opacity: 0.75,
+}
 
 const offerButton = {
   flex: 1, padding: '5px 8px', fontSize: 11,
