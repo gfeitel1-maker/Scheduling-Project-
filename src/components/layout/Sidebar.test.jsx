@@ -131,6 +131,37 @@ describe('Sidebar: Roots hub with its collapsible entity children (Slice B)', ()
   })
 })
 
+describe('Sidebar: Events and Special Days read as one family under a shared heading (Slice B, override-family-model ADR §6c)', () => {
+  it('renders a "Special Schedule" heading among the Roots children', () => {
+    renderSidebar()
+    expect(screen.getByText('Special Schedule')).toBeTruthy()
+  })
+
+  it('keeps Events and Special Days as their own navigable rows under the heading', () => {
+    const onNavigate = vi.fn()
+    renderSidebar({ onNavigate })
+    fireEvent.click(screen.getByText('Events').closest('button'))
+    expect(onNavigate).toHaveBeenCalledWith('events')
+
+    fireEvent.click(screen.getByText('Special Days').closest('button'))
+    expect(onNavigate).toHaveBeenCalledWith('specialdays')
+  })
+
+  it('does not treat the heading itself as a navigable row', () => {
+    const onNavigate = vi.fn()
+    renderSidebar({ onNavigate })
+    fireEvent.click(screen.getByText('Special Schedule'))
+    expect(onNavigate).not.toHaveBeenCalled()
+  })
+
+  it('gives the heading no count, checkmark, or optional affordance', () => {
+    renderSidebar()
+    const heading = screen.getByText('Special Schedule')
+    expect(within(heading.closest('div')).queryByText('optional')).toBeNull()
+    expect(within(heading.closest('div')).queryByText('✓')).toBeNull()
+  })
+})
+
 describe('Sidebar: neither schedule is canonical — both routes stay distinct rows (ADR §3, guard against re-collapse)', () => {
   it('renders both routes as their own rows, with identical style props', () => {
     renderSidebar({ current: 'trash' })
