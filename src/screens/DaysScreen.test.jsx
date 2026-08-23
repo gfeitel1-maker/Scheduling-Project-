@@ -112,7 +112,7 @@ describe('DaysScreen', () => {
     await waitFor(() => expect(screen.queryByText(/That day could not be added/)).not.toBeNull())
   })
 
-  it('names the schedule cells, fixed events and overlays a day holds, before deleting it', async () => {
+  it('names the schedule cells, recurring events and overlays a day holds, before deleting it', async () => {
     localClient.list.mockResolvedValue([day()])
     localClient.previewDelete.mockResolvedValue({
       ok: true, entity: 'days_of_operation', entity_id: 'day-1', name: 'Monday',
@@ -127,7 +127,7 @@ describe('DaysScreen', () => {
 
     // Three different things to a director, reported as three things.
     await waitFor(() => expect(screen.queryAllByText(/30 places/).length).toBeGreaterThan(0))
-    expect(screen.queryByText(/1 fixed event/)).not.toBeNull()
+    expect(screen.queryByText(/1 recurring event/)).not.toBeNull()
     expect(screen.queryByText(/2 trips or other overlay/)).not.toBeNull()
     expect(localClient.deleteRecord).not.toHaveBeenCalled()
 

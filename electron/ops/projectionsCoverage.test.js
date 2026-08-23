@@ -207,7 +207,7 @@ const UNRESOLVED_SPREAD_SOURCES = [
     // Human-verified: `base` (saveAnchor(), `fields` from AnchorModal.save()
     // minus `selectedDays`) and `record` (import path, `row` minus
     // warning/_dayLabel/_blockName/_tierNames).
-    fields: ['name', 'is_all_groups', 'group_ids', 'time_block_id', 'notes', 'day_id', 'camp_id', 'cohort_id'],
+    fields: ['name', 'is_all_groups', 'group_ids', 'time_block_id', 'notes', 'day_id', 'camp_id', 'cohort_id', 'schedule_week_id'],
   },
 ]
 

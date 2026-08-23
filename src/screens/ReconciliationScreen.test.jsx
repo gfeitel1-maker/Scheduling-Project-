@@ -915,7 +915,7 @@ describe('inspect mode (persistent inspector, mode="inspect")', () => {
       />
     )
 
-    await screen.findByText(textNode(/1 fixed event couldn.t\s+be created/))
+    await screen.findByText(textNode(/1 recurring event couldn.t\s+be created/))
     expect(screen.getByText(textNode(/moved since this file was last imported/))).toBeTruthy()
   })
 
