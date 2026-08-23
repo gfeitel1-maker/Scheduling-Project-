@@ -6,9 +6,8 @@ authority: implementation
 date: 2026-08-22
 created: 2026-08-22
 archive_when: this slice ships (merged/deferred) or the parent ADR is superseded
-governing_docs:
-  - docs/adr/2026-08-22-event-schedule-import.md
-  - docs/adr/2026-08-22-event-internal-subschedule.md
+governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md]
+parent_spec: [docs/adr/2026-08-22-event-schedule-import.md, docs/adr/2026-08-22-event-internal-subschedule.md]
 ---
 
 # Grid-schedule import — slice spec
