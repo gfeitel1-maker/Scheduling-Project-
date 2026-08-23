@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { localClient } from '../localClient'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import RecordHistory from '../components/RecordHistory'
 import { entityLabel, formatMoment, restoreCaveat } from './recordLabels'
+import uiTrash from '../assets/brand/icons/ui-trash.png'
 
 // What was deleted, by whom, when — and a way to get it back. All of it has
 // been in the op log since the first delete; none of it was ever shown.
@@ -62,6 +63,7 @@ function Notice({ tone, children }) {
 }
 
 export default function TrashScreen({ role }) {
+  const emptyEnter = useEnterTransition('liftFade')
   const [rows, setRows] = useState([])
   const [waiting, setWaiting] = useState([])
   const [loading, setLoading] = useState(true)
@@ -215,8 +217,11 @@ export default function TrashScreen({ role }) {
         <div style={S.stateLoading}>Loading…</div>
       ) : rows.length === 0 ? (
         <div style={S.emptyStateTall}>
-          <div style={S.emptyStateTitle}>Nothing deleted</div>
-          <div style={S.emptyStateBody}>Deleted records appear here and can be restored.</div>
+          <div style={emptyEnter}>
+            <img src={uiTrash} alt="" style={S.emptyStateIcon} />
+            <div style={S.emptyStateTitle}>Nothing deleted</div>
+            <div style={S.emptyStateBody}>Deleted records appear here and can be restored.</div>
+          </div>
         </div>
       ) : (
         Object.entries(grouped).map(([entity, entityRows]) => (

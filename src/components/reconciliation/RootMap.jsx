@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
-import { prefersReducedMotion } from '../../styles/shared'
+import { prefersReducedMotion, useEnterTransition } from '../../styles/shared'
 import { DOMAIN_LABELS } from './domainRollup.js'
 import { CONFIDENCE_COPY, plainEvidenceSentence } from './reconciliationCards.jsx'
+import forestCircle from '../../assets/brand/forest-circle.png'
 
 // RootMap — foundation-first stacked layout, replacing the SVG orb/backdrop
 // canvas per docs/work/specs/2026-08-21-roots-metaphor-visual.md (Governor
@@ -229,6 +230,8 @@ function DomainHead({ domainKey, state, selected, onSelect }) {
 }
 
 export default function RootMap({ model, selection, onSelectTile, onSelectNode, onClearSelection, canvasWrapRef, decisionsById }) {
+  const wholeCampEnter = useEnterTransition('settle')
+  const wholeCampEmpty = model.domains.every((d) => d.children.length === 0)
   const dimmed = (domainKey, childKey) => {
     if (selection.type !== 'tile') return false
     const domain = model.domains.find((d) => d.key === domainKey)
@@ -269,7 +272,14 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
       </div>
 
       <div style={styles.domainStack} ref={canvasWrapRef}>
-        {model.domains.map((domain) => (
+        {wholeCampEmpty ? (
+          <div style={{ ...styles.wholeCampEmpty, ...wholeCampEnter }}>
+            <img src={forestCircle} alt="" style={styles.wholeCampEmptyIcon} />
+            <div style={styles.wholeCampEmptyBody}>
+              Nothing imported yet — bring in your roster to get started.
+            </div>
+          </div>
+        ) : model.domains.map((domain) => (
           <div key={domain.key} style={styles.domainLayer}>
             <DomainHead
               domainKey={domain.key}
@@ -371,6 +381,28 @@ const styles = {
     color: 'var(--text-secondary)',
     fontStyle: 'italic',
     marginTop: 12,
+  },
+  // W12b (docs/work/specs/2026-08-22-brand-placement-round2.md §3) — the
+  // one-time, whole-camp "open and waiting" moment; gone the instant any
+  // entity exists anywhere in the camp. Per-domain-layer emptyNote above
+  // stays untouched — this doesn't layer icons onto every domain, just this
+  // single first-impression state.
+  wholeCampEmpty: {
+    textAlign: 'center',
+    padding: '48px 16px',
+  },
+  wholeCampEmptyIcon: {
+    width: 140,
+    height: 140,
+    display: 'block',
+    margin: '0 auto 16px',
+    objectFit: 'contain',
+  },
+  wholeCampEmptyBody: {
+    fontSize: 13,
+    color: 'var(--text-secondary)',
+    maxWidth: '48ch',
+    margin: '0 auto',
   },
   chipRow: {
     display: 'flex',

@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
+import uiPeople from '../assets/brand/icons/ui-people.png'
 
 // Repository-only migration (not the full useCrudScreen hook): load() is a
 // single camp-scoped list() with a two-key sort, and this screen has no
@@ -133,6 +134,7 @@ function CohortRow({ cohort, onSave, onDelete }) {
 }
 
 export default function CohortsScreen({ campId }) {
+  const emptyEnter = useEnterTransition('liftFade')
   const [cohorts, setCohorts] = useState([])
   const [loading, setLoading] = useState(true)
   const [newName, setNewName] = useState('')
@@ -295,8 +297,11 @@ export default function CohortsScreen({ campId }) {
             <tbody>
               {cohorts.length === 0 ? (
                 <tr><td colSpan={6} style={S.emptyState}>
-                  <div style={S.emptyStateTitle}>No programs yet</div>
-                  <div style={S.emptyStateBody}>Add your first program below.</div>
+                  <div style={emptyEnter}>
+                    <img src={uiPeople} alt="" style={S.emptyStateIcon} />
+                    <div style={S.emptyStateTitle}>No programs yet</div>
+                    <div style={S.emptyStateBody}>Add your first program below.</div>
+                  </div>
                 </td></tr>
               ) : cohorts.map(c => (
                 <CohortRow key={c.id} cohort={c} onSave={saveCohort} onDelete={deleteCohort} />

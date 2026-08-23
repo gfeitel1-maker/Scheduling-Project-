@@ -4,10 +4,11 @@ import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
+import uiClock from '../assets/brand/icons/ui-clock.png'
 
 // TimeBlocks' load is cohort-scoped (camp_id AND cohort_id) and guards
 // against a stale response overwriting the UI when the user switches
@@ -96,6 +97,7 @@ function BlockRow({ block, role, onSave, onDelete }) {
 }
 
 export default function TimeBlocksScreen({ campId, role, onNavigate }) {
+  const emptyEnter = useEnterTransition('liftFade')
   const [blocks, setBlocks] = useState([])
   const [loading, setLoading] = useState(true)
   const [newName, setNewName] = useState('')
@@ -406,8 +408,11 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
             <tbody>
               {blocks.length === 0 ? (
                 <tr><td colSpan={6} style={S.emptyState}>
-                  <div style={S.emptyStateTitle}>No time blocks yet</div>
-                  <div style={S.emptyStateBody}>Add your first time block below.</div>
+                  <div style={emptyEnter}>
+                    <img src={uiClock} alt="" style={S.emptyStateIcon} />
+                    <div style={S.emptyStateTitle}>No time blocks yet</div>
+                    <div style={S.emptyStateBody}>Add your first time block below.</div>
+                  </div>
                 </td></tr>
               ) : blocks.map(b => (
                 <BlockRow key={b.id} block={b} role={role} onSave={saveBlock} onDelete={deleteBlock} />

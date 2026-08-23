@@ -4,10 +4,11 @@ import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
+import uiPeople from '../assets/brand/icons/ui-people.png'
 
 // Tiers' load is cohort-scoped (camp_id AND cohort_id), fetches groups
 // alongside tiers for groupCounts, and guards against a stale response
@@ -93,6 +94,7 @@ function TierRow({ tier, groupCount, role, onSave, onDelete }) {
 }
 
 export default function TiersScreen({ campId, role, onNavigate }) {
+  const emptyEnter = useEnterTransition('liftFade')
   const [tiers, setTiers] = useState([])
   const [groupCounts, setGroupCounts] = useState({})
   const [loading, setLoading] = useState(true)
@@ -400,8 +402,11 @@ export default function TiersScreen({ campId, role, onNavigate }) {
             <tbody>
               {tiers.length === 0 ? (
                 <tr><td colSpan={4} style={S.emptyState}>
-                  <div style={S.emptyStateTitle}>No age divisions yet</div>
-                  <div style={S.emptyStateBody}>Add your first age division below or import from Excel.</div>
+                  <div style={emptyEnter}>
+                    <img src={uiPeople} alt="" style={S.emptyStateIcon} />
+                    <div style={S.emptyStateTitle}>No age divisions yet</div>
+                    <div style={S.emptyStateBody}>Add your first age division below or import from Excel.</div>
+                  </div>
                 </td></tr>
               ) : tiers.map(tier => (
                 <TierRow

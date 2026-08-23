@@ -18,6 +18,7 @@ import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S, useEnterTransition } from '../styles/shared'
 import EventGridEditor from './event/EventGridEditor'
+import uiCalendar from '../assets/brand/icons/ui-calendar.png'
 
 const repository = createSetupCrudRepository({ localClient })
 const scopeFilter = (row, campId) => row.camp_id === campId
@@ -255,10 +256,7 @@ export default function EventScreen({ campId, role, initialEventId = null }) {
         <div style={S.stateLoading}>Loading…</div>
       ) : events.length === 0 ? (
         <div style={{ ...emptyStyles.wrap, ...enter }}>
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="1.5">
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <path d="M8 10h8M8 14h5" />
-          </svg>
+          <img src={uiCalendar} alt="" style={S.emptyStateIcon} />
           <div style={emptyStyles.title}>No events yet</div>
           <div style={emptyStyles.body}>
             An event is a named block that sits on the campwide schedule — like "Color War". Add one below, then
