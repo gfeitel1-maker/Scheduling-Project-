@@ -276,7 +276,7 @@ export const PROJECTIONS = {
     key: 'id',
     fields: [
       'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes',
-      'schedule_week_id', 'recurrence_level',
+      'schedule_week_id', 'recurrence_level', 'location_id',
     ],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/days_of_operation/time_blocks/tiers/activities.ensureExists above.
@@ -472,7 +472,7 @@ export const PROJECTIONS = {
   events: {
     table: 'events',
     key: 'id',
-    fields: ['camp_id', 'name', 'sort_order', 'notes'],
+    fields: ['camp_id', 'name', 'sort_order', 'notes', 'location_id'],
     ensureExists: (db, id) => {
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
       getStmt(db, "INSERT OR IGNORE INTO events (id, camp_id, name) VALUES (?, ?, '')").run(

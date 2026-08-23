@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 44
+export const CURRENT_SCHEMA_VERSION = 45
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1742,6 +1742,31 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v45 — Slice 4 engine location-contention prerequisite (docs/work/specs/
+  // 2026-08-23-slice4-engine-location-contention.md §1/§6). Two additive,
+  // nullable columns: anchor_activities.location_id and events.location_id,
+  // matching activities.location_id's FK-by-convention (no DB-level FOREIGN
+  // KEY). No backfill: every existing row stays NULL (unconstrained, same as
+  // today). Storage + projection only — no engine use, no writer, no UI in
+  // this slice. No DDL-time side effect, so this block emits no op, same
+  // posture as v33-v44.
+  if (getSchemaVersion(db) >= 44 && getSchemaVersion(db) < 45) {
+    db.transaction(() => {
+      const anchorCols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
+      if (!anchorCols.includes('location_id')) {
+        db.exec('ALTER TABLE anchor_activities ADD COLUMN location_id TEXT')
+      }
+      const eventCols = db.pragma('table_info(events)').map((c) => c.name)
+      if (!eventCols.includes('location_id')) {
+        db.exec('ALTER TABLE events ADD COLUMN location_id TEXT')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (45, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct
@@ -1964,14 +1989,17 @@ export const ELECTIVE_SET_ACTIVITIES_DDL = `CREATE TABLE IF NOT EXISTS elective_
 
 // Byte-identical duplicate of the events block in schema.sql (schema v40,
 // Events overlay placement Slice 1, docs/adr/2026-08-22-events-overlay-
-// placement.md). Kept as a constant so the v40 migration cannot drift from
-// schema.sql by a stray space — same discipline as ELECTIVE_SETS_DDL above.
+// placement.md; location_id added v45, docs/work/specs/2026-08-23-slice4-
+// engine-location-contention.md §6). Kept as a constant so the v40 migration
+// cannot drift from schema.sql by a stray space — same discipline as
+// ELECTIVE_SETS_DDL above, kept in sync with later ALTER-added columns.
 export const EVENTS_DDL = `CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
   name TEXT NOT NULL,
   sort_order INTEGER,
   notes TEXT,
+  location_id TEXT,
   UNIQUE(camp_id, name)
 )`
 

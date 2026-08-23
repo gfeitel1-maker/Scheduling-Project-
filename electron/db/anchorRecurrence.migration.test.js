@@ -84,7 +84,7 @@ describe('migration v42: fresh vs migrated equivalence', () => {
   it('declares schema version 42 on a fresh db and gives anchor_activities both new columns', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(44)
+    expect(CURRENT_SCHEMA_VERSION).toBe(45)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 42').get().c).toBe(1)
     const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
     expect(cols).toContain('schedule_week_id')
@@ -113,11 +113,11 @@ describe('migration v42: fresh vs migrated equivalence', () => {
     migrated.close()
   }, 30000)
 
-  it('declares anchor_activities columns in order, schedule_week_id and recurrence_level last', () => {
+  it('declares anchor_activities columns in order, schedule_week_id and recurrence_level last (before v45\'s location_id)', () => {
     const db = freshDb()
     expect(db.pragma('table_info(anchor_activities)').map((c) => c.name)).toEqual([
       'id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks',
-      'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level',
+      'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id',
     ])
     db.close()
   })
@@ -164,7 +164,7 @@ describe('migration v42: fresh vs migrated equivalence', () => {
     const match = schemaText.match(/CREATE TABLE IF NOT EXISTS anchor_activities \([\s\S]*?\n\);/)
     expect(match, 'expected an anchor_activities CREATE TABLE block in schema.sql').toBeTruthy()
     expect(match[0]).toContain(
-      "notes TEXT,\n  schedule_week_id TEXT REFERENCES schedule_weeks(id),\n  recurrence_level TEXT NOT NULL DEFAULT 'daily'\n);"
+      "notes TEXT,\n  schedule_week_id TEXT REFERENCES schedule_weeks(id),\n  recurrence_level TEXT NOT NULL DEFAULT 'daily',\n  location_id TEXT\n);"
     )
   })
 })

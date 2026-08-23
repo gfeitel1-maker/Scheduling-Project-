@@ -317,7 +317,7 @@ export const MOCK_WRITE_ALLOWLIST = {
   // mirror of PROJECTIONS.camp_maps.fields, per this file's "do not import
   // from electron/" rule (kept honest by electron/ipcSurfaceParity.test.js).
   camp_maps: ['camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'],
-  anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level'],
+  anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id'],
   day_override_templates: ['camp_id', 'cohort_id', 'name', 'frequency_mode'],
   day_override_template_slots: ['day_override_template_id', 'time_block_id', 'activity_id'],
   week_activity_exclusions: ['week_id', 'activity_id'],
@@ -373,7 +373,7 @@ export const MOCK_WRITE_ALLOWLIST = {
   ],
   // Events overlay placement Slice 1 — hand-transcribed mirror of
   // PROJECTIONS.events.fields, same discipline as T40/T41 above.
-  events: ['camp_id', 'name', 'sort_order', 'notes'],
+  events: ['camp_id', 'name', 'sort_order', 'notes', 'location_id'],
   // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-
   // internal-subschedule.md) — hand-transcribed mirror of
   // PROJECTIONS.event_time_blocks/event_groups/event_slots.fields, same

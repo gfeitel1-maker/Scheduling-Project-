@@ -82,7 +82,7 @@ describe('migration v40: fresh vs migrated equivalence', () => {
   it('creates the events table and the template_slots.event_id column on a fresh db, declares schema version 40', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(44)
+    expect(CURRENT_SCHEMA_VERSION).toBe(45)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 40').get().c).toBe(1)
     expect(db.prepare('SELECT COUNT(*) c FROM events').get().c).toBe(0)
     expect(db.pragma('table_info(template_slots)').map((c) => c.name)).toContain('event_id')
@@ -119,10 +119,10 @@ describe('migration v40: fresh vs migrated equivalence', () => {
     migrated.close()
   }, 30000)
 
-  it('declares every column for events — id, camp_id, name, sort_order, notes', () => {
+  it('declares every column for events — id, camp_id, name, sort_order, notes, location_id (v45)', () => {
     const db = freshDb()
     expect(db.pragma('table_info(events)').map((c) => c.name)).toEqual([
-      'id', 'camp_id', 'name', 'sort_order', 'notes',
+      'id', 'camp_id', 'name', 'sort_order', 'notes', 'location_id',
     ])
     db.close()
   })

@@ -474,6 +474,13 @@ CREATE TABLE IF NOT EXISTS time_blocks (
 -- by an ALTER TABLE in the v42 migration in localDb.js for existing dbs, so
 -- column order must match here for a fresh install to be byte-identical to a
 -- migrated one.
+-- location_id (v45, docs/work/specs/2026-08-23-slice4-engine-location-
+-- contention.md §1/§6): nullable FK-by-convention to locations(id), NO
+-- DB-level FOREIGN KEY — matches activities.location_id exactly. NULL =
+-- unconstrained, identical to today's behavior. Appended LAST: it is
+-- ALTER-added on a migrated db (localDb.js v45), which always appends, so
+-- declaring it last here keeps a fresh install's column order byte-identical
+-- to a migrated one (column-order trap).
 CREATE TABLE IF NOT EXISTS anchor_activities (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
@@ -487,7 +494,8 @@ CREATE TABLE IF NOT EXISTS anchor_activities (
   group_ids TEXT,
   notes TEXT,
   schedule_week_id TEXT REFERENCES schedule_weeks(id),
-  recurrence_level TEXT NOT NULL DEFAULT 'daily'
+  recurrence_level TEXT NOT NULL DEFAULT 'daily',
+  location_id TEXT
 );
 
 -- A week is director-named text (e.g. "Week 1"), not a `template`/`slot`/
@@ -831,12 +839,24 @@ CREATE TABLE IF NOT EXISTS elective_set_activities (
 -- text, same posture as special_days.notes (recorded and printed, never
 -- parsed). No internal sub-schedule/stations/teams/scoring in this slice
 -- (deferred to Slice 2, see the ADR's Consequences).
+-- location_id (v45, docs/work/specs/2026-08-23-slice4-engine-location-
+-- contention.md §1/§6): nullable FK-by-convention to locations(id), NO
+-- DB-level FOREIGN KEY — matches activities.location_id exactly. NULL =
+-- unconstrained, identical to today's behavior. This is the main-grid cell's
+-- own location, NOT event_slots.location_id (the event's internal
+-- sub-schedule, a different concept — see the design doc). Appended LAST: it
+-- is ALTER-added on a migrated db (localDb.js v45), which always appends, so
+-- declaring it last here keeps a fresh install's column order byte-identical
+-- to a migrated one (column-order trap). Also kept byte-identical to the
+-- EVENTS_DDL constant in localDb.js (used to create this table on migrated
+-- pre-v40 dbs) — see events.migration.test.js's byte-for-byte check.
 CREATE TABLE IF NOT EXISTS events (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
   name TEXT NOT NULL,
   sort_order INTEGER,
   notes TEXT,
+  location_id TEXT,
   UNIQUE(camp_id, name)
 );
 
