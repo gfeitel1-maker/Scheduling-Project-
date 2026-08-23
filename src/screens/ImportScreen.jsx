@@ -221,6 +221,9 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
           pages.push(...sheetPages)
           for (const r of sheetPages.residual ?? []) fileResidualSheets.push({ file: file.name, ...r })
         } else {
+          // F4 — same size guard as the xlsx branch: fail closed before the
+          // whole text file is read unbounded into a JS string.
+          assertImportFileSize(file.size)
           pages.push(...parseTextGrid(await file.text()).pages)
         }
       }
