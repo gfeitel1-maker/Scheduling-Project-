@@ -137,7 +137,7 @@ function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapac
   )
 }
 
-function ElectiveSetDetail({ set, role, activities, locations, tiers, groups, onBack }) {
+function ElectiveSetDetail({ set, role, activities, locations, tiers, groups, refreshActivities, onBack }) {
   const { rows: offerings, loading, error, setError, adding, add, reload } = useCrudScreen({
     entity: 'elective_set_activities',
     campId: set.id,
@@ -156,6 +156,8 @@ function ElectiveSetDetail({ set, role, activities, locations, tiers, groups, on
   const [pendingDelete, setPendingDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [importing, setImporting] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
+  const [clearing, setClearing] = useState(false)
   const fileInputRef = useRef(null)
 
   const offeredActivityIds = new Set(offerings.map((o) => o.activity_id))
@@ -207,14 +209,25 @@ function ElectiveSetDetail({ set, role, activities, locations, tiers, groups, on
         setError(result.reason)
         return
       }
-      await reload()
+      // Refresh BOTH offerings (this set) and the activities catalog (shared
+      // across every set) — reload() alone leaves existingActivities stale
+      // for the next import, in this set on retry or in a different set
+      // opened later in the same session, letting createActivity's dedup
+      // miss activities this import just wrote and mint duplicates (Red Hat
+      // HIGH). Mirrors EventGridEditor.jsx's runImport, which reloads
+      // everything via one load() call — split here because offerings and
+      // the activities catalog live in different state owners (this
+      // component vs. the parent ElectivesScreen).
+      await Promise.all([reload(), refreshActivities()])
     } catch (err) {
       // A mid-import failure can leave partial writes (populateElectiveSet has
       // no rollback). Reload FIRST so the UI reflects what actually landed
       // instead of showing a stale empty list, which would let the director
       // retry and re-mint duplicate catalog activities for names that
-      // already succeeded — mirrors EventGridEditor.jsx's runImport.
-      await reload()
+      // already succeeded — mirrors EventGridEditor.jsx's runImport. Same
+      // reasoning as the success path above: both offerings AND activities
+      // must refresh, not just offerings.
+      await Promise.all([reload(), refreshActivities()])
       setError(describeWriteFailure(err, 'Could not import that schedule.'))
     } finally {
       setImporting(false)
@@ -229,6 +242,27 @@ function ElectiveSetDetail({ set, role, activities, locations, tiers, groups, on
     } catch (err) {
       setError(describeWriteFailure(err, 'That capacity could not be saved.'))
       throw err
+    }
+  }
+
+  // Closes the dead-end the refuse-on-nonempty import message ("...already
+  // has offerings. Clear it first...") otherwise points at with no control
+  // to act on (Tester MEDIUM). Deletes every elective_set_activities row for
+  // this set via the same per-row delete path Remove already uses; the
+  // elective_sets row itself is untouched. Mirrors EventGridEditor.jsx's
+  // clearSchedule.
+  async function clearOfferings() {
+    setClearing(true)
+    try {
+      const ids = offerings.map((o) => o.id)
+      const { succeeded } = await repository.deleteAllRecords('elective_set_activities', ids)
+      if (succeeded !== ids.length) throw new Error('clear-offerings-partial-failure')
+      await reload()
+    } catch (err) {
+      setError(describeWriteFailure(err, "Could not clear this set's offerings."))
+    } finally {
+      setClearing(false)
+      setConfirmClear(false)
     }
   }
 
@@ -286,6 +320,9 @@ function ElectiveSetDetail({ set, role, activities, locations, tiers, groups, on
         </div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 14px 0' }}>
+            <button className="press-97" onClick={() => setConfirmClear(true)} style={S.btnDanger}>Clear offerings</button>
+          </div>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
@@ -350,6 +387,17 @@ function ElectiveSetDetail({ set, role, activities, locations, tiers, groups, on
           busy={deleting}
           onConfirm={confirmDeleteOffering}
           onCancel={() => setPendingDelete(null)}
+        />
+      )}
+
+      {confirmClear && (
+        <ConfirmDangerDialog
+          title="Clear all offerings from this set?"
+          recovery="This can't be undone."
+          confirmLabel="Clear Offerings"
+          busy={clearing}
+          onConfirm={clearOfferings}
+          onCancel={() => setConfirmClear(false)}
         />
       )}
     </div>
@@ -500,6 +548,7 @@ export default function ElectivesScreen({ campId, role, initialElectiveSetId = n
         locations={supportData.locations}
         tiers={supportData.tiers}
         groups={supportData.groups}
+        refreshActivities={loadSupportData}
         onBack={() => setSelectedSetId(null)}
       />
     )
