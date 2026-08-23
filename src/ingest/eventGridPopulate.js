@@ -6,7 +6,7 @@
 // can be unit tested against a mock repo (spec Step 3). The real
 // EventGridEditor.jsx wires a repo backed by writeField/localClient.
 
-import { recognitionKey } from './preview.js'
+import { recognitionKey, normalizeName } from './preview.js'
 import { createActivity } from '../screens/schedule/createActivityHelper.js'
 
 // Mirrors EventGridEditor.jsx's deriveEventSeedId string-template shape
@@ -26,8 +26,15 @@ const NONEMPTY_MESSAGE =
  * Map a parseGridSchedule result onto this event's three tables.
  *
  * Returns `{ ok: true, unmapped }` on success (all mappable writes made
- * through `repo`), or `{ ok: false, reason }` when refused/failed — writing
- * nothing in that case (ADR §5/§6).
+ * through `repo`), or `{ ok: false, reason }` on REFUSAL — not-confident
+ * orientation or a nonempty container (ADR §5/§6) — writing nothing in
+ * that case. A mid-write IO failure (e.g. `repo.writeField` rejects) is
+ * NOT covered by that guarantee: it throws with some writes already made,
+ * and the caller (EventGridEditor.jsx's `runImport`) is responsible for
+ * reloading so the partial state is visible and the refuse-on-nonempty
+ * gate above blocks a naive retry from re-minting duplicate activities.
+ * Activities are resolved/created in one pass before any event_slots row
+ * is written, narrowing (not eliminating) that partial-write window.
  */
 export async function populateEventGrid(parsed, { eventId, campId, existingLocations, existingActivities, existingEventSlots }, repo) {
   if (!parsed || parsed.orientation?.confident !== true) {
@@ -59,12 +66,26 @@ export async function populateEventGrid(parsed, { eventId, campId, existingLocat
   const locationsByKey = new Map((existingLocations ?? []).map((l) => [recognitionKey('locations', l.name), l]))
   const unmapped = [...parsed.unmapped]
 
+  // Pass 1: resolve/create every DISTINCT cell activity first, before any
+  // event_slots row is written — reduces the window in which a mid-import
+  // IO failure could leave slots referencing an activity that never got
+  // written, and keeps the mint count at "one per distinct name" rather
+  // than depending on write order (Red Hat #1).
+  const activityIdByName = new Map()
   for (const cell of parsed.cells) {
+    const nameKey = normalizeName(cell.activityName)
+    if (activityIdByName.has(nameKey)) continue
     const { activityId, activity, isNew } = await createActivity(
       { name: cell.activityName, campId, activities },
       { writeActivityFields: repo.writeActivityFields }
     )
     if (isNew) activities.push(activity)
+    activityIdByName.set(nameKey, activityId)
+  }
+
+  // Pass 2: write the slots, referencing activities resolved above.
+  for (const cell of parsed.cells) {
+    const activityId = activityIdByName.get(normalizeName(cell.activityName))
 
     let locationId = null
     if (cell.locationName) {

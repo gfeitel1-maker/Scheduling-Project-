@@ -432,4 +432,33 @@ describe('EventGridEditor — grid-schedule import affordance (docs/adr/2026-08-
 
     await waitFor(() => expect(screen.getByText(/couldn.t be fully matched/)).toBeTruthy())
   })
+
+  it('a mid-import throw (partial write) still reloads grid state, so stale UI does not mask the partial data (Red Hat #1)', async () => {
+    baseFixtures({ slots: [] })
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: '9:30-10:10', cells: ['Swim'] }] }] })
+    parseGridSchedule.mockReturnValue({
+      orientation: { axis: 'rows-are-time', confident: true },
+      timeAxis: [{ name: '9:30-10:10', start_time: '09:30', end_time: '10:10', sourceIndex: 0 }],
+      groupAxis: [{ name: 'A', sourceIndex: 0 }],
+      cells: [{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }],
+      unmapped: [],
+    })
+    populateEventGrid.mockRejectedValue(new Error('write failed for field "activity_id"'))
+
+    render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getAllByText('Open').length).toBeGreaterThan(0))
+
+    const listCallsBefore = localClient.list.mock.calls.filter(([e]) => e === 'event_slots').length
+
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant'], 'schedule.txt', { type: 'text/plain' })
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await waitFor(() => expect(screen.getByText(/Could not import that schedule/)).toBeTruthy())
+    // the catch path reloaded grid state (event_slots re-listed), not just
+    // shown an error over stale state
+    await waitFor(() => expect(
+      localClient.list.mock.calls.filter(([e]) => e === 'event_slots').length
+    ).toBeGreaterThan(listCallsBefore))
+  })
 })

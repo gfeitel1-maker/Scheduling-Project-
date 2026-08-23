@@ -213,4 +213,26 @@ describe('populateEventGrid', () => {
     const slotId = deriveEventImportId(EVENT_ID, 'slot', '0:0')
     expect(repo.calls.some((c) => c.entity === 'event_slots' && c.id === slotId && c.field === 'activity_id')).toBe(true)
   })
+
+  it('resolves/creates every distinct cell activity BEFORE writing any event_slots row (Red Hat #1, narrows the partial-mint window)', async () => {
+    // TWO_BY_TWO has two distinct activity names (Swim, Zumba), neither in
+    // existingActivities, so both get minted. If activity resolution were
+    // interleaved with slot writes (the old per-cell order), the first
+    // event_slots write would appear before the second activity's
+    // writeActivityFields call. Assert all writeActivityFields calls land
+    // before the first event_slots write.
+    const result = await populateEventGrid(TWO_BY_TWO, {
+      eventId: EVENT_ID, campId: CAMP_ID,
+      existingLocations: [], existingActivities: [], existingEventSlots: [],
+    }, repo)
+
+    expect(result.ok).toBe(true)
+    const lastActivityCallIndex = Math.max(
+      ...repo.calls.map((c, i) => (c.entity === 'activities' ? i : -1))
+    )
+    const firstSlotCallIndex = repo.calls.findIndex((c) => c.entity === 'event_slots')
+    expect(lastActivityCallIndex).toBeLessThan(firstSlotCallIndex)
+    // exactly 2 distinct activities minted, not 4 (one per cell)
+    expect(repo.writeActivityFields).toHaveBeenCalledTimes(2)
+  })
 })

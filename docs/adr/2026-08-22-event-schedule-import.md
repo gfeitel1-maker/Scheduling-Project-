@@ -252,13 +252,27 @@ deriveEventImportId(eventId, axis, sourceSignature)
 - `event_slots` row: `sourceSignature = `${timeIndex}:${groupIndex}``
   (composite, mirrors `event_slots`' own natural key).
 
-This makes a **re-import of the same file** (retry after a crash, or a
-second device importing the same document before syncing) converge on the
-same rows instead of duplicating — the class of bug T85/the
-`deriveEventSeedId` comment both call out. It does **not** make two
-*different* files converge on the same rows, which is correct (§6).
+This makes a **re-import of the byte-identical file** (retry after a
+crash, or a second device importing the same document before syncing)
+converge on the same rows instead of duplicating — the class of bug
+T85/the `deriveEventSeedId` comment both call out. It does **not** make
+two *different* files converge on the same rows, which is correct (§6).
 Newly-created activities are excluded from this id scheme (§3) — matched
 by name on next read, not by position.
+
+This idempotency is narrower than "re-import is safe": it holds only when
+the source file's rows/columns are in the SAME positions as the prior
+import. Editing the file between imports — inserting a row, reordering a
+column, deleting a period — shifts `sourceIndex` for everything after the
+edit, so a naive re-import against the same event would orphan the old
+positional rows rather than update them in place. We do not attempt
+content-addressed convergence across an edited file; that is out of
+scope here. In practice this gap is closed by §6's refuse-on-nonempty
+gate, not by the id scheme: because import is only offered when the
+event's schedule is empty, the supported path for importing an EDITED
+file is **Clear schedule** (the control added alongside this feature) →
+empty grid → fresh import, not an in-place re-import over stale
+positional ids.
 
 Writes go field-at-a-time via the existing `writeField` helper
 (`EventGridEditor.jsx` lines ~37–44), same as every other Slice-2 write —

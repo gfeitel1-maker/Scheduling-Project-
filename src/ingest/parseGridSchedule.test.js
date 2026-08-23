@@ -8,15 +8,15 @@ describe('parseGridSchedule — orientation', () => {
       title: 'Sports Day',
       columns: ['Kinders', '1st Grade'],
       rows: [
-        { label: '9:30-10:10', cells: ['Swim', 'Watersports'] },
-        { label: '10:15-10:55', cells: ['Watersports', 'Swim'] },
+        { label: '9:30am-10:10am', cells: ['Swim', 'Watersports'] },
+        { label: '10:15am-10:55am', cells: ['Watersports', 'Swim'] },
       ],
     }
     const result = parseGridSchedule([page])
     expect(result.orientation).toEqual({ axis: 'rows-are-time', confident: true })
     expect(result.timeAxis).toEqual([
-      { name: '9:30-10:10', start_time: '09:30', end_time: '10:10', sourceLabel: '9:30-10:10', sourceIndex: 0 },
-      { name: '10:15-10:55', start_time: '10:15', end_time: '10:55', sourceLabel: '10:15-10:55', sourceIndex: 1 },
+      { name: '9:30am-10:10am', start_time: '09:30', end_time: '10:10', sourceLabel: '9:30am-10:10am', sourceIndex: 0 },
+      { name: '10:15am-10:55am', start_time: '10:15', end_time: '10:55', sourceLabel: '10:15am-10:55am', sourceIndex: 1 },
     ])
     expect(result.groupAxis).toEqual([
       { name: 'Kinders', sourceLabel: 'Kinders', sourceIndex: 0 },
@@ -52,6 +52,25 @@ describe('parseGridSchedule — orientation', () => {
     ]))
   })
 
+  it('not confident: BOTH axes clear the time majority (ambiguous, Red Hat #2) — no silent guess', () => {
+    // Every row label AND every column header looks like a time — the
+    // parser must not silently prefer rows-are-time; it must report the
+    // ambiguity instead of guessing.
+    const page = {
+      title: 'Ambiguous',
+      columns: ['9:30-10:10', '10:15-10:55'],
+      rows: [
+        { label: '11:00-11:40', cells: ['Art', 'Music'] },
+        { label: '11:45-12:25', cells: ['Music', 'Art'] },
+      ],
+    }
+    const result = parseGridSchedule([page])
+    expect(result.orientation).toEqual({ axis: null, confident: false })
+    expect(result.timeAxis).toEqual([])
+    expect(result.groupAxis).toEqual([])
+    expect(result.cells).toEqual([])
+  })
+
   it('not confident: neither axis clears the time majority', () => {
     const page = {
       title: 'Roster',
@@ -70,10 +89,54 @@ describe('parseGridSchedule — orientation', () => {
 })
 
 describe('parseGridSchedule — time-range parsing', () => {
-  it('parses "9:30-10:10" into name/start_time/end_time', () => {
-    const page = { title: 't', columns: ['G'], rows: [{ label: '9:30-10:10', cells: ['Swim'] }] }
+  it('a leading-zero range ("09:30-10:10") is an unambiguous 24h reading and populates start/end', () => {
+    const page = { title: 't', columns: ['G'], rows: [{ label: '09:30-10:10', cells: ['Swim'] }] }
     const result = parseGridSchedule([page])
     expect(result.timeAxis[0]).toMatchObject({ start_time: '09:30', end_time: '10:10' })
+  })
+
+  it('an ambiguous bare 12-hour range (no AM/PM, hour < 13) keeps the label as name and leaves start/end null — never silently inverted (Red Hat #3)', () => {
+    const page = {
+      title: 't',
+      columns: ['G'],
+      rows: [
+        { label: '1:00-1:45', cells: ['Swim'] },
+        { label: '2:00-2:30', cells: ['Music'] },
+      ],
+    }
+    const result = parseGridSchedule([page])
+    const block = result.timeAxis.find((t) => t.name === '1:00-1:45')
+    expect(block).toMatchObject({ name: '1:00-1:45', start_time: null, end_time: null })
+  })
+
+  it('an explicit PM marker resolves unambiguously', () => {
+    const page = {
+      title: 't',
+      columns: ['G'],
+      rows: [
+        { label: '1:00pm-1:45pm', cells: ['Swim'] },
+        { label: '2:00pm-2:30pm', cells: ['Music'] },
+      ],
+    }
+    const result = parseGridSchedule([page])
+    const block = result.timeAxis.find((t) => t.name === '1:00pm-1:45pm')
+    expect(block.start_time).toBe('13:00')
+    expect(block.end_time).toBe('13:45')
+  })
+
+  it('a 24-hour reading (hour >= 13) resolves unambiguously without AM/PM', () => {
+    const page = {
+      title: 't',
+      columns: ['G'],
+      rows: [
+        { label: '13:00-13:45', cells: ['Swim'] },
+        { label: '14:00-14:30', cells: ['Music'] },
+      ],
+    }
+    const result = parseGridSchedule([page])
+    const block = result.timeAxis.find((t) => t.name === '13:00-13:45')
+    expect(block.start_time).toBe('13:00')
+    expect(block.end_time).toBe('13:45')
   })
 
   it('a non-range label still becomes a timeAxis entry, never dropped', () => {
@@ -150,6 +213,26 @@ describe('parseGridSchedule — location key', () => {
   })
 })
 
+describe('parseGridSchedule — unmarked "=" rows are not silently dropped (Red Hat #4)', () => {
+  it('a grid ROW LABEL itself shaped like "name = name" (no marker) is kept as a grid row, not swallowed as a key line', () => {
+    const page = {
+      title: 'Sports Day',
+      columns: ['Kinders'],
+      rows: [
+        { label: '9:30-10:10', cells: ['Swim'] },
+        { label: 'Red = Blue Scrimmage', cells: ['Dodgeball'] },
+        { label: '10:15-10:55', cells: ['Music'] },
+      ],
+    }
+    const result = parseGridSchedule([page])
+    expect(result.orientation.confident).toBe(true)
+    const keyLikeRow = result.timeAxis.find((t) => t.name === 'Red = Blue Scrimmage')
+    expect(keyLikeRow).toBeTruthy()
+    const dodgeball = result.cells.find((c) => c.activityName === 'Dodgeball')
+    expect(dodgeball).toBeTruthy()
+  })
+})
+
 describe('parseGridSchedule — empty/degenerate input', () => {
   it('parseGridSchedule([]) returns the empty-but-well-formed shape', () => {
     const result = parseGridSchedule([])
@@ -209,7 +292,11 @@ describe('parseGridSchedule — real Sports Day fixture (Step 0)', () => {
     // 9 real timed periods; the two empty-labelled metadata rows (Friday,
     // Mifkad x2) are dropped, not turned into nameless periods.
     expect(result.timeAxis).toHaveLength(9)
-    expect(result.timeAxis[0]).toMatchObject({ name: '9:30-10:10', start_time: '09:30', end_time: '10:10' })
+    // Bare "9:30-10:10" (no leading zero, no AM/PM) is genuinely ambiguous —
+    // could be morning or afternoon — so start/end stay null rather than
+    // being silently assumed AM (Red Hat #3). The label/ordering is still
+    // preserved via name + sort_order.
+    expect(result.timeAxis[0]).toMatchObject({ name: '9:30-10:10', start_time: null, end_time: null })
     // The blank padding columns between "5th/6th Grade" and "Sailing" are
     // dropped from groupAxis; six real columns remain.
     expect(result.groupAxis.map((g) => g.name)).toEqual([

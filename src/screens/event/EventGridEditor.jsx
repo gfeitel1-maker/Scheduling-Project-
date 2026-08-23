@@ -444,6 +444,13 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
       if (result.unmapped.length > 0) setImportUnmapped(result.unmapped)
       await load()
     } catch (err) {
+      // A mid-import failure can leave partial writes (populateEventGrid has
+      // no rollback — Red Hat #1). Reload FIRST so the UI reflects what
+      // actually landed instead of showing a stale empty grid, which would
+      // let the director retry and re-mint duplicate catalog activities for
+      // names that already succeeded; load() clears any error itself, so
+      // set this one after it, not before.
+      await load()
       setError(describeWriteFailure(err, 'Could not import that schedule.'))
     } finally {
       setImporting(false)

@@ -17,7 +17,9 @@ import { cleanCellValue } from './extractEntities.js'
 // token anywhere — mirrors the shape textGrid.js's looksLikeTime/
 // extractEntities.js's stripTimes already match against, not a new pattern.
 const TIME_TOKEN = /\d{1,2}[:.]\d{2}/
-const TIME_RANGE = /(\d{1,2})[:.](\d{2})\s*[-–—]\s*(\d{1,2})[:.](\d{2})/
+// Captures an optional am/pm marker on either side of the range, so
+// parseTimeLabel can tell an unambiguous time from a bare 12-hour guess.
+const TIME_RANGE = /(\d{1,2})[:.](\d{2})\s*([ap]\.?m\.?)?\s*[-–—]\s*(\d{1,2})[:.](\d{2})\s*([ap]\.?m\.?)?/i
 
 // The location-key section marker this feature's target file shape uses
 // ("WHERE TO GO"). Matched case-insensitively against a row's own label.
@@ -45,32 +47,61 @@ function timeMajority(labels) {
 // "9:30-10:10" -> { name, start_time: '09:30', end_time: '10:10' }. A label
 // that carries text but isn't a clean range still becomes a timeAxis entry —
 // `name` set, times null — never dropped (spec §1.4).
+//
+// start_time/end_time are populated ONLY when the reading is unambiguous:
+// an explicit am/pm marker, an hour >= 13 (24h notation), or an hour written
+// with a leading zero ("09:30" — nobody writes that for 12-hour AM/PM). A
+// bare 12-hour hour with none of those ("1:00-1:45") is genuinely ambiguous
+// — could be morning or afternoon — so it is left name-only rather than
+// silently assumed AM (Red Hat #3: was a silent inversion for PM times).
+function isLeadingZeroHour(hourText) {
+  return hourText.length === 2 && hourText[0] === '0'
+}
+
+function resolve24Hour(hourText, marker) {
+  let hour = parseInt(hourText, 10)
+  if (marker) {
+    const isPM = /p/i.test(marker)
+    if (isPM && hour < 12) hour += 12
+    if (!isPM && hour === 12) hour = 0
+  }
+  return hour
+}
+
 function parseTimeLabel(label) {
   const text = String(label ?? '').trim()
   const m = text.match(TIME_RANGE)
   if (!m) return { name: text, start_time: null, end_time: null }
-  const pad = (h, mm) => `${String(h).padStart(2, '0')}:${mm}`
-  return { name: text, start_time: pad(m[1], m[2]), end_time: pad(m[3], m[4]) }
+  const [, h1, mm1, marker1, h2, mm2, marker2] = m
+
+  const unambiguous =
+    Boolean(marker1) || Boolean(marker2) ||
+    parseInt(h1, 10) >= 13 || parseInt(h2, 10) >= 13 ||
+    isLeadingZeroHour(h1) || isLeadingZeroHour(h2)
+  if (!unambiguous) return { name: text, start_time: null, end_time: null }
+
+  const sharedMarker = marker1 || marker2
+  const pad = (hourText, mm, marker) => {
+    const hour = resolve24Hour(hourText, marker || sharedMarker)
+    return `${String(hour).padStart(2, '0')}:${mm}`
+  }
+  return { name: text, start_time: pad(h1, mm1, marker1), end_time: pad(h2, mm2, marker2) }
 }
 
 // Split a page's rows into the actual grid rows and a location-key section
-// (ADR §2 "Location key"). Two detection strategies, in order:
-//   1. A "WHERE TO GO"-style marker row — everything after it (marker itself
-//      dropped) is the key section, regardless of individual line shape.
-//   2. No marker found — fall back to stripping any row anywhere whose own
-//      label is itself a "name = name" line (handles a key with no header).
+// (ADR §2 "Location key"). ONE detection strategy: a "WHERE TO GO"-style
+// marker row — everything after it (marker itself dropped) is the key
+// section, regardless of individual line shape. Without a marker, every row
+// stays a grid row — there is no unmarked "row.label looks like `a = b`"
+// fallback, because that guess silently drops real schedule rows whose
+// label happens to contain "=" (e.g. "Red = Blue Scrimmage") with no
+// unmapped notice (Red Hat #4). A marker is the only reliable signal.
 function splitKeySection(rows) {
   const markerIndex = rows.findIndex((r) => KEY_MARKER.test(String(r.label ?? '').trim()))
   if (markerIndex !== -1) {
     return { gridRows: rows.slice(0, markerIndex), keyRows: rows.slice(markerIndex + 1) }
   }
-  const gridRows = []
-  const keyRows = []
-  for (const row of rows) {
-    if (KEY_LINE.test(String(row.label ?? '').trim())) keyRows.push(row)
-    else gridRows.push(row)
-  }
-  return { gridRows, keyRows }
+  return { gridRows: rows, keyRows: [] }
 }
 
 // "name = name" lines -> [[activity, location], ...]. Also recognises a
@@ -159,7 +190,13 @@ export function parseGridSchedule(pages) {
   ]
   const locationVotes = activityLocationTally(keyEntries)
 
+  // Neither axis clears the majority, OR BOTH do (Red Hat #2) — either way
+  // the parser cannot tell which side is times, and must say so rather than
+  // silently defaulting to rows-are-time.
   if (!rowsAreTime && !columnsAreTime) {
+    return emptyResult()
+  }
+  if (rowsAreTime && columnsAreTime) {
     return emptyResult()
   }
 
