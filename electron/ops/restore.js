@@ -24,11 +24,9 @@ export const RESTORE_DECISIONS = Object.freeze({
   days_of_operation: 'restorable',
   time_blocks: 'restorable',
   anchor_activities: 'restorable',
-  day_override_templates: 'restorable',
-  // T108 Phase 2 review round 3 (full-gate) — day_overrides (the live
-  // entity; day_override_templates above is the retired predecessor kept
-  // declared-but-unused per the design doc) is a normal authored
-  // camp-scoped entity like anchor_activities, restorable from the op-log.
+  // T108 Phase 2 review round 3 (full-gate) — day_overrides is a normal
+  // authored camp-scoped entity like anchor_activities, restorable from the
+  // op-log.
   day_overrides: 'restorable',
   locations: 'restorable',
 
@@ -41,7 +39,6 @@ export const RESTORE_DECISIONS = Object.freeze({
   template_slots: 'refused: schedule edits already have snapshots on ScheduleScreen',
   template_overlays: 'refused: schedule edits already have snapshots on ScheduleScreen',
   schedule_snapshots: 'refused: a snapshot is itself the undo story; nesting one is confusing',
-  day_override_template_slots: 'refused: rebuilt with its parent override, not on its own',
   week_activity_exclusions: 'refused: rebuilt by toggling the exclusion UI or duplicating the week',
   week_group_exclusions: 'refused: rebuilt by toggling the exclusion UI or duplicating the week',
   week_location_exclusions: 'refused: rebuilt by toggling the exclusion UI or duplicating the week',
@@ -92,7 +89,6 @@ const CHILD_LINKS = {
     { entity: 'tiers', field: 'cohort_id' },
     { entity: 'time_blocks', field: 'cohort_id' },
     { entity: 'anchor_activities', field: 'cohort_id' },
-    { entity: 'day_override_templates', field: 'cohort_id' },
   ],
   tiers: [{ entity: 'groups', field: 'tier_id' }],
   days_of_operation: [{ entity: 'anchor_activities', field: 'day_id' }],

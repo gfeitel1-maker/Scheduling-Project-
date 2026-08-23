@@ -14,7 +14,7 @@ import { getStmt } from './stmtCache.js'
 // exclusion ON persisted nothing, invisibly (see projections.test.js).
 //
 // A placeholder can't rescue this the way it does for a single-NOT-NULL parent
-// table (day_override_template_slots etc.): the FK columns point at real tables,
+// table (event_slots etc.): the FK columns point at real tables,
 // so '' or NULL both violate the constraint. Instead, reconstruct BOTH values
 // and insert the complete row only once both are known. The current op supplies
 // one field directly; the sibling is read back from the operations log, where
@@ -287,50 +287,15 @@ export const PROJECTIONS = {
       )
     },
   },
-  day_override_templates: {
-    table: 'day_override_templates',
-    key: 'id',
-    fields: ['camp_id', 'cohort_id', 'name', 'frequency_mode'],
-    ensureExists: (db, id) => {
-      // Same zero-camps caveat as cohorts/groups/days_of_operation/time_blocks/tiers/activities/anchor_activities.ensureExists above.
-      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
-      getStmt(db, "INSERT OR IGNORE INTO day_override_templates (id, camp_id, name) VALUES (?, ?, '')").run(
-        id,
-        camp?.id ?? null
-      )
-    },
-  },
-  day_override_template_slots: {
-    table: 'day_override_template_slots',
-    key: 'id',
-    fields: ['day_override_template_id', 'time_block_id', 'activity_id'],
-    // Parent-scoped, no camp_id column (same shape as template_overlays/
-    // schedule_snapshots) — ensureExists must not look up `camps` at all.
-    // day_override_template_id is NOT NULL with no default (a real FK, no
-    // a uniqueness convention like other entities' name-first pattern), so
-    // this row can only be created once its parent link is known. The
-    // caller (DayOverridesScreen) is required to write day_override_template_id
-    // FIRST for every new slot row; if some other field arrived first the
-    // row doesn't exist yet and this INSERT is skipped, so the subsequen
-    // UPDATE becomes a harmless no-op rather than a constraint violation —
-    // consistent with every other entity's ensureExists being a best-effor
-    // "make the row exist" step, not a full validator.
-    ensureExists: (db, id, field, value) => {
-      if (field !== 'day_override_template_id') return
-      getStmt(db,
-        'INSERT OR IGNORE INTO day_override_template_slots (id, day_override_template_id) VALUES (?, ?)'
-      ).run(id, value)
-    },
-  },
   // Special days (T40 slice 1, data shape only,
   // docs/work/specs/2026-08-20-special-days-data-shape-design.md). Camp-scoped
-  // parent, same ensureExists shape as day_override_templates above.
+  // parent, same ensureExists shape as anchor_activities above.
   special_days: {
     table: 'special_days',
     key: 'id',
     fields: ['camp_id', 'name', 'sort_order', 'notes'],
     ensureExists: (db, id) => {
-      // Same zero-camps caveat as cohorts/groups/day_override_templates/etc.ensureExists above.
+      // Same zero-camps caveat as cohorts/groups/anchor_activities/etc.ensureExists above.
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
       getStmt(db, "INSERT OR IGNORE INTO special_days (id, camp_id, name) VALUES (?, ?, '')").run(
         id,
@@ -339,7 +304,7 @@ export const PROJECTIONS = {
     },
   },
   // Parent-scoped by special_day_id, no camp_id column — same shape as
-  // day_override_template_slots above. name and sort_order are NOT NULL with
+  // event_time_blocks below. name and sort_order are NOT NULL with
   // no default (schema.sql), so the placeholder insert must supply both
   // (mirroring the schedule_weeks stub in ensureWeekJoinRow below), not just
   // the id/parent pair.
@@ -399,8 +364,7 @@ export const PROJECTIONS = {
   },
   // Group-level electives (T41 slice 1, data shape + engine-skip only,
   // docs/work/specs/2026-08-20-group-electives-design.md). Camp-scoped
-  // parent, same ensureExists shape as special_days/day_override_templates
-  // above.
+  // parent, same ensureExists shape as special_days above.
   elective_sets: {
     table: 'elective_sets',
     key: 'id',
@@ -698,13 +662,11 @@ export const PROJECTIONS = {
       }
     },
   },
-  // Never previously registered here (see the day_override_template_slots
-  // comment above referencing "same shape as ... schedule_snapshots", which
-  // was aspirational, not actual) — ScheduleScreen.jsx's writeFields()
+  // Never previously registered here — ScheduleScreen.jsx's writeFields()
   // already writes these ops assuming a working projection, but with no
   // PROJECTIONS entry applyProjection silently no-ops for every field, so a
   // schedule_snapshots row never actually materializes. Same parent-scoped,
-  // no-camp_id pattern as day_override_template_slots: template_id is a
+  // no-camp_id pattern as event_slots: template_id is a
   // real NOT NULL FK (schema.sql) with no default, so the row can only be
   // created once template_id is known — writeFields() always writes
   // template_id first, matching the required ordering.
@@ -718,7 +680,7 @@ export const PROJECTIONS = {
       if (field !== 'template_id') return
       // created_at is NOT NULL with no default (schema.sql) — placeholder
       // here, same as every other entity's NOT NULL/no-default column
-      // (e.g. anchor_activities/day_override_templates' name), always
+      // (e.g. anchor_activities'/special_days' name), always
       // overwritten by the subsequent write() for that field.
       getStmt(db,
         "INSERT OR IGNORE INTO schedule_snapshots (id, template_id, created_at) VALUES (?, ?, '')"
@@ -758,7 +720,7 @@ export const PROJECTIONS = {
   // this registry.
   //
   // Parent-scoped with no camp_id column (schema.sql), like
-  // day_override_template_slots/schedule_snapshots — so ensureExists mus
+  // event_slots/schedule_snapshots — so ensureExists must
   // not look up `camps`, and applyProjection's camp_id guard never applies.
   //
   // Field list is every non-key column of template_slots (schema.sql plus
@@ -798,7 +760,7 @@ export const PROJECTIONS = {
     ],
     // template_id is NOT NULL with no default and is a real FK, so the row
     // can only be created once the parent link is known — identical shape to
-    // day_override_template_slots/schedule_snapshots above.
+    // event_slots/schedule_snapshots above.
     //
     // Unlike those two, however, NO current caller ever reaches the insert:
     // every writeFields('template_slots', ...) call in ScheduleScreen.jsx
@@ -911,7 +873,7 @@ export function applyProjection(db, op) {
   }
 
   // Most ensureExists implementations only need the id (they insert a
-  // placeholder row with safe defaults). day_override_template_slots is the
+  // placeholder row with safe defaults). event_slots is the
   // exception: its parent FK column is NOT NULL with no default, so its
   // ensureExists needs the current op's field/value to satisfy the FK on
   // first insert — see that entry below.

@@ -934,8 +934,8 @@ describe('full_sync on first pairing', () => {
     // ships too, as empty arrays here since none has any data yet.
     for (const table of [
       'cohorts', 'days_of_operation', 'groups', 'tiers', 'time_blocks', 'activities',
-      'anchor_activities', 'schedule_templates', 'day_override_templates',
-      'template_slots', 'template_overlays', 'day_override_template_slots',
+      'anchor_activities', 'schedule_templates',
+      'template_slots', 'template_overlays',
     ]) {
       expect(msg[table], `expected msg.${table} to be []`).toEqual([])
     }
@@ -1978,7 +1978,7 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
     // to permissions.js and this list isn't updated in lockstep.
     // Not every entity's PROJECTIONS.fields (electron/ops/projections.js)
     // includes a literal 'name' field — days_of_operation uses 'label' and
-    // day_override_template_slots has no name-shaped field at all. Writing
+    // event_slots has no name-shaped field at all. Writing
     // an unregistered field throws inside appendOp, which the WS layer
     // turns into an 'error' reply, not 'op_applied' — false failure
     // unrelated to this sweep's actual purpose (proving the authorization
@@ -1993,12 +1993,10 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
       time_blocks: 'name',
       anchor_activities: 'name',
       schedule_templates: 'name',
-      day_override_templates: 'name',
       schedule_weeks: 'name',
       template_slots: 'activity_id',
       template_overlays: 'label',
       schedule_snapshots: 'name',
-      day_override_template_slots: 'time_block_id',
       // Exclusion rows have no name-shaped field; 'week_id' is the field their
       // projection's ensureExists keys on (electron/ops/projections.js:205-226).
       week_activity_exclusions: 'week_id',
@@ -2009,7 +2007,7 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
       // non-ensureExists field UPDATEs zero rows and still logs the op — same
       // trick template_slots uses with activity_id.
       week_location_exclusions: 'location_id',
-      // T40 slice 1: same tricks as day_override_template_slots/template_slots
+      // T40 slice 1: same tricks as week_location_exclusions/template_slots
       // above — 'name' isn't special_day_time_blocks' parent-key field
       // (special_day_id), so ensureExists no-ops instead of FK-linking to a
       // nonexistent parent; special_day_slots' ensureExists needs all three of

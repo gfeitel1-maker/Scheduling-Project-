@@ -582,28 +582,6 @@ CREATE TABLE IF NOT EXISTS schedule_snapshots (
   day_overrides_json TEXT
 );
 
--- Sub-plan D Task 0 (2026-07-23): confirmed exact field set by re-reading
--- DayOverridesScreen.jsx's actual insert/update payloads directly.
--- day_override_templates real fields: camp_id, cohort_id, name,
--- frequency_mode. day_override_template_slots real fields: time_block_id,
--- activity_id, keyed to the parent via `template_id` in Supabase — renamed
--- to day_override_template_id locally to match this table's existing FK
--- column name (already used by main.js's PARENT_SCOPED_ENTITIES mapping).
-CREATE TABLE IF NOT EXISTS day_override_templates (
-  id TEXT PRIMARY KEY,
-  camp_id TEXT NOT NULL REFERENCES camps(id),
-  cohort_id TEXT REFERENCES cohorts(id),
-  name TEXT NOT NULL,
-  frequency_mode TEXT
-);
-
-CREATE TABLE IF NOT EXISTS day_override_template_slots (
-  id TEXT PRIMARY KEY,
-  day_override_template_id TEXT NOT NULL REFERENCES day_override_templates(id),
-  time_block_id TEXT,
-  activity_id TEXT
-);
-
 -- Per-week activity and group exclusion tables (migration v28).
 -- A row means "this activity/group does not run in this week." Absence means it runs.
 -- idx_week_activity_exclusions_week_activity and idx_week_group_exclusions_week_group
@@ -688,10 +666,10 @@ CREATE INDEX IF NOT EXISTS idx_schedule_snapshots_template_id ON schedule_snapsh
 -- docs/work/specs/2026-08-20-special-days-data-shape-design.md): a standalone,
 -- undated, throwaway single-day schedule (Maccabiah / colour war / trip day) —
 -- NOT a week, not tied to a calendar date. Ordinary op-log-synced, camp-scoped
--- entity family (same trust model as groups/activities/day_override_templates),
--- not host-local. Closest pattern copied verbatim: day_override_templates +
--- day_override_template_slots (camp-scoped parent + parent-scoped children, no
--- camp_id on children). The DDL text below is duplicated verbatim in
+-- entity family (same trust model as groups/activities), not host-local.
+-- Closest pattern copied verbatim: elective_sets + elective_set_activities
+-- (camp-scoped parent + parent-scoped children, no camp_id on children).
+-- The DDL text below is duplicated verbatim in
 -- localDb.js's v34 block (SPECIAL_DAYS_DDL / SPECIAL_DAY_TIME_BLOCKS_DDL /
 -- SPECIAL_DAY_SLOTS_DDL); the three copies are asserted byte-identical by
 -- specialDays.migration.test.js.
@@ -717,7 +695,7 @@ CREATE TABLE IF NOT EXISTS special_days (
 );
 
 -- special_day_time_blocks: parent-scoped by special_day_id, no camp_id column
--- (same shape as day_override_template_slots). Every special day OWNS its time
+-- (same shape as elective_set_activities). Every special day OWNS its time
 -- blocks — no polymorphic "reuse camp time_blocks vs own" flag; the "same grid
 -- as the normal week" case is served by the author UI seeding a special day's
 -- time blocks from the camp's time_blocks at creation, a UI convenience, not a
@@ -807,7 +785,7 @@ CREATE TABLE IF NOT EXISTS elective_sets (
 );
 
 -- elective_set_activities: parent-scoped by elective_set_id, no camp_id
--- column (mirrors day_override_template_slots/special_day_time_blocks). One
+-- column (mirrors special_day_time_blocks). One
 -- row per member activity option. UNIQUE(elective_set_id, activity_id)
 -- prevents the same activity being listed twice in one set. activity_id is
 -- deliberately NOT given a SQL REFERENCES clause — it points at a live camp
@@ -922,9 +900,10 @@ CREATE TABLE IF NOT EXISTS event_slots (
 -- shape.md D1, design docs/work/specs/2026-08-21-day-overrides-repoint-
 -- design.md). Re-points the "mostly-normal day with a few swaps/pulls" case
 -- to a specific rendered (week, day, group, block) instead of the detached
--- day_override_templates/day_override_template_slots pair above (retained,
--- unused — see Q3 in the ADR for the removal trigger). Direct-camp-scoped
--- (camp_id NOT NULL), like schedule_weeks/special_days, NOT parent-scoped
+-- day_override_templates/day_override_template_slots pair that predated it
+-- (dropped in v46, docs/adr/2026-08-23-override-family-model.md §6a).
+-- Direct-camp-scoped (camp_id NOT NULL), like schedule_weeks/special_days,
+-- NOT parent-scoped
 -- through a join like week_activity_exclusions. `kind` is explicit
 -- ('swap' | 'pull'), never inferred from a NULL activity_id (same reasoning
 -- as schedule_templates.kind). Bound to schedule_weeks (FK), not a recurring

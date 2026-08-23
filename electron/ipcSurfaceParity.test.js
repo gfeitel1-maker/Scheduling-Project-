@@ -321,10 +321,11 @@ describe('MOCK_WRITE_ALLOWLIST stays in sync with PROJECTIONS', () => {
 
 // ---------------------------------------------------------------------------
 // C4 — MOCK_SCOPE_KEYS <-> PARENT_SCOPED_ENTITIES drift, both directions, for
-// exactly the five entities main.js's SCOPED_LIST_ENTITIES targets.
-// day_override_template_slots is deliberately excluded from both sides: it
-// is in PARENT_SCOPED_ENTITIES but rejected by main.js's listByScope, so it
-// must appear in neither MOCK_SCOPE_KEYS nor this comparison.
+// exactly the entities main.js's SCOPED_LIST_ENTITIES targets. Every other
+// parent-scoped child (e.g. special_day_slots, event_slots) is deliberately
+// excluded from both sides: it is in PARENT_SCOPED_ENTITIES but rejected by
+// main.js's listByScope, so it must appear in neither MOCK_SCOPE_KEYS nor
+// this comparison.
 // ---------------------------------------------------------------------------
 describe('MOCK_SCOPE_KEYS stays in sync with PARENT_SCOPED_ENTITIES (C4)', () => {
   const SCOPED_LIST_ENTITIES = [
@@ -350,11 +351,11 @@ describe('MOCK_SCOPE_KEYS stays in sync with PARENT_SCOPED_ENTITIES (C4)', () =>
     ).toEqual([])
   })
 
-  it('MOCK_SCOPE_KEYS has no entries beyond the five SCOPED_LIST_ENTITIES', () => {
+  it('MOCK_SCOPE_KEYS has no entries beyond SCOPED_LIST_ENTITIES', () => {
     const extra = Object.keys(MOCK_SCOPE_KEYS).filter((entity) => !SCOPED_LIST_ENTITIES.includes(entity))
     expect(
       extra,
-      `MOCK_SCOPE_KEYS has extra entities [${extra.join(', ')}] beyond the five listByScope targets — including day_override_template_slots here would make it mock-scope-listable even though main.js's SCOPED_LIST_ENTITIES rejects it. Remove the extra entry/entries.`
+      `MOCK_SCOPE_KEYS has extra entities [${extra.join(', ')}] beyond the listByScope targets — including a parent-scoped child here would make it mock-scope-listable even though main.js's SCOPED_LIST_ENTITIES rejects it. Remove the extra entry/entries.`
     ).toEqual([])
   })
 })

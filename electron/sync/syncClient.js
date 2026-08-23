@@ -59,10 +59,8 @@ const DOMAIN_TABLE_COLUMNS = {
   // T108 (day-overrides re-point, ADR 2026-08-21-day-overrides-repoint-shape.md D1)
   day_overrides: ['id', 'camp_id', 'schedule_week_id', 'day_id', 'group_id', 'time_block_id', 'activity_id', 'kind', 'note', 'created_at'],
   schedule_templates: ['id', 'camp_id', 'name', 'kind', 'week_id'],
-  day_override_templates: ['id', 'camp_id', 'cohort_id', 'name', 'frequency_mode'],
   template_slots: ['id', 'template_id', 'group_id', 'activity_id', 'day_id', 'time_block_id', 'flags', 'is_released', 'is_span_head', 'anchor_id', 'is_anchor', 'elective_set_id'],
   template_overlays: ['id', 'template_id', 'unit_id', 'day_id', 'from_block_order', 'to_block_order', 'label'],
-  day_override_template_slots: ['id', 'day_override_template_id', 'time_block_id', 'activity_id'],
   week_activity_exclusions: ['id', 'week_id', 'activity_id'],
   week_group_exclusions: ['id', 'week_id', 'group_id'],
   week_location_exclusions: ['id', 'week_id', 'location_id'], // T88 — closes the manifest drift (see DOMAIN_SNAPSHOT_ORDER)

@@ -10,9 +10,8 @@
 //
 // `template_slots` is deliberately in the parent-scoped group, not the
 // direct-camp_id group: per schema.sql it has only `template_id` (no
-// `camp_id` column at all), same as template_overlays/schedule_snapshots/
-// day_override_template_slots. It is scoped via JOIN through
-// schedule_templates, exactly like those three.
+// `camp_id` column at all), same as template_overlays/schedule_snapshots.
+// It is scoped via JOIN through schedule_templates, exactly like those two.
 export const DIRECT_CAMP_ENTITIES = new Set([
   'groups',
   'tiers',
@@ -22,7 +21,6 @@ export const DIRECT_CAMP_ENTITIES = new Set([
   'time_blocks',
   'anchor_activities',
   'schedule_templates',
-  'day_override_templates',
   'schedule_weeks',
   'locations',
   'camp_maps',
@@ -61,11 +59,6 @@ export const PARENT_SCOPED_ENTITIES = {
     parentTable: 'schedule_templates',
     parentKey: 'template_id',
   },
-  day_override_template_slots: {
-    table: 'day_override_template_slots',
-    parentTable: 'day_override_templates',
-    parentKey: 'day_override_template_id',
-  },
   week_activity_exclusions: {
     table: 'week_activity_exclusions',
     parentTable: 'schedule_weeks',
@@ -82,7 +75,7 @@ export const PARENT_SCOPED_ENTITIES = {
     parentKey: 'week_id',
   },
   // T40 slice 1: both of special_days' children, parent-scoped by
-  // special_day_id (mirroring day_override_template_slots above).
+  // special_day_id (mirroring week_activity_exclusions above).
   special_day_time_blocks: {
     table: 'special_day_time_blocks',
     parentTable: 'special_days',
@@ -157,10 +150,8 @@ export const DOMAIN_SNAPSHOT_ORDER = [
   'schedule_weeks', // references camps.id only; must precede schedule_templates and every week_*_exclusions table below, all of which reference it
   'day_overrides', // T108; references schedule_weeks.id/days_of_operation.id/groups.id, all NOT NULL — positioned after all three
   'schedule_templates', // references schedule_weeks.id, nullable
-  'day_override_templates', // references cohorts.id, nullable
   'template_slots', // references groups.id/activities.id, both nullable — no declared FK to schedule_templates.id (schema.sql); elective_set_id (v35) also has no declared FK
   'template_overlays', // references schedule_templates.id NOT NULL, days_of_operation.id nullable
-  'day_override_template_slots', // references day_override_templates.id NOT NULL
   'week_activity_exclusions', // references schedule_weeks.id and activities.id, both NOT NULL
   'week_group_exclusions', // references schedule_weeks.id and groups.id, both NOT NULL
   'week_location_exclusions', // T88: references schedule_weeks.id (NOT NULL, no DB-level FK on this side); location_id has no declared FK

@@ -26,8 +26,6 @@ import { appendOp, DELETE_FIELD } from './operations.js'
 //   9. schedule_weeks          (the week row itself, last)
 //
 // Explicitly NOT cascaded (not an omission):
-//   - day_override_templates / day_override_template_slots — camp-scoped via
-//     camp_id, no relationship to weeks at all.
 //   - operations — append-only history, never deleted; this is what makes
 //     the delete auditable across devices.
 //

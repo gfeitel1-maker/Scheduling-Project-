@@ -7,11 +7,11 @@ function fakeList(byEntity) {
 }
 
 describe('fetchCensusSnapshot', () => {
-  it('returns the CHILD_OF/DOMAIN_OF keys plus the two Context-only keys (Slice 3) — the R1 regression test', async () => {
+  it('returns the CHILD_OF/DOMAIN_OF keys plus the Context-only key (Slice 3) — the R1 regression test', async () => {
     const snapshot = await fetchCensusSnapshot(fakeList({}))
-    const expectedKeys = [...Object.keys(CHILD_OF), 'field_trips', 'day_overrides'].sort()
+    const expectedKeys = [...Object.keys(CHILD_OF), 'field_trips'].sort()
     expect(Object.keys(snapshot).sort()).toEqual(expectedKeys)
-    expect(Object.keys(snapshot).sort()).toEqual([...Object.keys(DOMAIN_OF), 'field_trips', 'day_overrides'].sort())
+    expect(Object.keys(snapshot).sort()).toEqual([...Object.keys(DOMAIN_OF), 'field_trips'].sort())
   })
 
   it('normalizes days_of_operation rows to a .name field from their .label column', async () => {
@@ -89,10 +89,4 @@ describe('fetchCensusSnapshot', () => {
     expect(snapshot.field_trips).toBeNull()
   })
 
-  it('day_overrides passes through day_override_templates rows by id/name', async () => {
-    const snapshot = await fetchCensusSnapshot(fakeList({
-      day_override_templates: [{ id: 'do1', name: 'Winter Break', frequency_mode: 'weekly' }],
-    }))
-    expect(snapshot.day_overrides).toEqual([{ id: 'do1', name: 'Winter Break' }])
-  })
 })

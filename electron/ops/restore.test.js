@@ -94,10 +94,6 @@ describe('the restore allowlist is enforced, not merely documented', () => {
       'activities',
       'anchor_activities',
       'cohorts',
-      'day_override_templates',
-      // T108 Phase 2 review round 3 (full-gate) — day_overrides is the live
-      // entity (day_override_templates is the retired predecessor, kept
-      // declared for now, see restore.js).
       'day_overrides',
       'days_of_operation',
       'groups',

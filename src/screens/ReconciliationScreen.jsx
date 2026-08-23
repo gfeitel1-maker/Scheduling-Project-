@@ -35,7 +35,6 @@ function readinessCollectionsFromCensus(snapshot) {
     timeBlocks: snapshot.time_blocks,
     activities: snapshot.activities,
     anchors: snapshot.anchor_activities,
-    dayOverrides: snapshot.day_overrides,
     locations: snapshot.locations,
   }
 }
@@ -77,7 +76,6 @@ async function fetchReadiness() {
     timeBlocks: await localClient.list('time_blocks').catch(() => []),
     activities: await localClient.list('activities').catch(() => []),
     anchors: await localClient.list('anchor_activities').catch(() => []),
-    dayOverrides: await localClient.list('day_override_templates').catch(() => []),
   }
   return getReadiness(collections, null)
 }

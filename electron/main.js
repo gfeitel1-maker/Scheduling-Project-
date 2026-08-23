@@ -64,11 +64,11 @@ const HOST_PATTERN = /^[a-zA-Z0-9.\-:]+$/
 // guaranteed to cover the same table set — see that module's own comment.
 
 // Explicit allowlist for `shoresh:list-by-scope`, deliberately narrower than
-// PARENT_SCOPED_ENTITIES: that registry also contains
-// day_override_template_slots, which C4 does not target. Gating on this set
-// ALONE would let a caller-supplied scope column reach nowhere (there is
-// none), but gating on PARENT_SCOPED_ENTITIES alone would silently expose
-// day_override_template_slots as scope-listable. Both checks are required.
+// PARENT_SCOPED_ENTITIES: that registry also contains parent-scoped children
+// (e.g. special_day_slots, event_slots) which C4 does not target. Gating on
+// this set ALONE would let a caller-supplied scope column reach nowhere
+// (there is none), but gating on PARENT_SCOPED_ENTITIES alone would silently
+// expose those children as scope-listable. Both checks are required.
 const SCOPED_LIST_ENTITIES = new Set([
   'template_slots',
   'template_overlays',
@@ -961,9 +961,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   }
 
   // Scope-filtered sibling of list(): same allowlist-before-query discipline,
-  // but additionally requires SCOPED_LIST_ENTITIES membership so that
-  // day_override_template_slots (present in PARENT_SCOPED_ENTITIES but not
-  // targeted by this read path) is rejected rather than silently exposed.
+  // but additionally requires SCOPED_LIST_ENTITIES membership so that a
+  // parent-scoped child (present in PARENT_SCOPED_ENTITIES but not targeted
+  // by this read path) is rejected rather than silently exposed.
   // The camp JOIN from list() is retained — the scope predicate is additive,
   // not a replacement — because template_slots and its siblings have no
   // camp_id column of their own (see campScopedEntities.js).

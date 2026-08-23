@@ -28,7 +28,6 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   { fromTable: 'tiers', fromColumn: 'cohort_id', toEntity: 'cohorts', kind: 'scalar', enforced: true },
   { fromTable: 'time_blocks', fromColumn: 'cohort_id', toEntity: 'cohorts', kind: 'scalar', enforced: true },
   { fromTable: 'anchor_activities', fromColumn: 'cohort_id', toEntity: 'cohorts', kind: 'scalar', enforced: true },
-  { fromTable: 'day_override_templates', fromColumn: 'cohort_id', toEntity: 'cohorts', kind: 'scalar', enforced: true },
   // -- into tiers --
   { fromTable: 'groups', fromColumn: 'tier_id', toEntity: 'tiers', kind: 'scalar', enforced: false },
   { fromTable: 'activities', fromColumn: 'eligible_tier_ids', toEntity: 'tiers', kind: 'json_array', enforced: false },
@@ -38,10 +37,9 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   { fromTable: 'week_group_exclusions', fromColumn: 'group_id', toEntity: 'groups', kind: 'scalar', enforced: true },
   { fromTable: 'activities', fromColumn: 'eligible_group_ids', toEntity: 'groups', kind: 'json_array', enforced: false },
   { fromTable: 'anchor_activities', fromColumn: 'group_ids', toEntity: 'groups', kind: 'json_array', enforced: false }, // 3rd Red Hat pass finding
-  // T108 Phase 2 review round 3 — day_overrides is the live entity
-  // (day_override_templates above is the retired predecessor). group_id and
-  // day_id both carry a DB-level REFERENCES clause (schema.sql), so
-  // enforced:true, same as anchor_activities' equivalents just above.
+  // T108 Phase 2 review round 3 — group_id and day_id both carry a DB-level
+  // REFERENCES clause (schema.sql), so enforced:true, same as
+  // anchor_activities' equivalents just above.
   { fromTable: 'day_overrides', fromColumn: 'group_id', toEntity: 'groups', kind: 'scalar', enforced: true },
   // v43 (docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md
   // Slice 3a) — elective_sets.group_ids mirrors anchor_activities.group_ids
@@ -50,7 +48,6 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // -- into activities --
   { fromTable: 'template_slots', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: true },
   { fromTable: 'week_activity_exclusions', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: true },
-  { fromTable: 'day_override_template_slots', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: false },
   { fromTable: 'activities', fromColumn: 'weather_alternative_id', toEntity: 'activities', kind: 'scalar', enforced: false }, // self-referential — see U2's batch-computation note
   // T108 Phase 2 review round 3 — day_overrides.activity_id is nullable (a
   // PULL override has no activity) but DOES carry a DB-level REFERENCES
@@ -68,7 +65,6 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // -- into time_blocks --
   { fromTable: 'anchor_activities', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
   { fromTable: 'template_slots', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
-  { fromTable: 'day_override_template_slots', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
   // T108 Phase 2 review round 3 — day_overrides.time_block_id has NO
   // DB-level REFERENCES clause (schema.sql: plain TEXT NOT NULL), same
   // convention-only pointer as template_slots.time_block_id above.

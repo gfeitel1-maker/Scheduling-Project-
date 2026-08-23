@@ -100,9 +100,8 @@ export async function fetchCensusSnapshot(list) {
   }))
   const snapshot = Object.fromEntries(entries)
 
-  const [overlays, dayOverrides, templates] = await Promise.all([
+  const [overlays, templates] = await Promise.all([
     (async () => { try { return (await list('template_overlays')) ?? [] } catch { return null } })(),
-    (async () => { try { return (await list('day_override_templates')) ?? [] } catch { return null } })(),
     (async () => { try { return (await list('schedule_templates')) ?? [] } catch { return null } })(),
   ])
 
@@ -127,8 +126,6 @@ export async function fetchCensusSnapshot(list) {
         route: routeByTemplateId.get(row.template_id) ?? 'schedule:manual',
       }
     })
-
-  snapshot.day_overrides = dayOverrides === null ? null : dayOverrides.map((row) => ({ id: row.id, name: row.name }))
 
   return snapshot
 }

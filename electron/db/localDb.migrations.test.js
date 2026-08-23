@@ -391,6 +391,10 @@ describe('Fix 5: WAL mode, busy_timeout, safe open', () => {
 })
 
 describe('schema v10: renderer Supabase migration Sub-plan A schema', () => {
+  // day_override_templates/day_override_template_slots were part of the
+  // original v10 set but were dropped in v46 (confirmed-dead table pair,
+  // docs/adr/2026-08-23-override-family-model.md §6a) — a fresh install no
+  // longer creates them, so they are excluded here.
   const NEW_TABLES = [
     'cohorts',
     'days_of_operation',
@@ -399,11 +403,9 @@ describe('schema v10: renderer Supabase migration Sub-plan A schema', () => {
     'schedule_templates',
     'template_overlays',
     'schedule_snapshots',
-    'day_override_templates',
-    'day_override_template_slots',
   ]
 
-  it('creates all 9 new tables on a fresh install, at version 10', () => {
+  it('creates all 7 surviving v10 tables on a fresh install', () => {
     const db = freshDb()
     for (const t of NEW_TABLES) {
       const table = db
