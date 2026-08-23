@@ -52,7 +52,7 @@ const DOMAIN_TABLE_COLUMNS = {
     'location_id', // v32 — the migration sets this as a side effect (no op), so it must travel in the snapshot or a first-pairing Client's activities land unbound from their place.
     'recurrence_truth_status', // v44 — truth-status x binding-vector activity ontology, storage-only
   ],
-  anchor_activities: ['id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level'],
+  anchor_activities: ['id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id'],
   locations: ['id', 'camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry'],
   camp_maps: ['id', 'camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'],
   schedule_weeks: ['id', 'camp_id', 'name', 'sort_order', 'is_archived'], // T88 — required so week_*_exclusions' NOT NULL FK to schedule_weeks.id can be satisfied
@@ -77,7 +77,7 @@ const DOMAIN_TABLE_COLUMNS = {
   ],
   elective_set_activities: ['id', 'elective_set_id', 'activity_id'],
   // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-placement.md)
-  events: ['id', 'camp_id', 'name', 'sort_order', 'notes'],
+  events: ['id', 'camp_id', 'name', 'sort_order', 'notes', 'location_id'],
   // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-internal-subschedule.md)
   event_time_blocks: ['id', 'event_id', 'name', 'sort_order', 'start_time', 'end_time'],
   event_groups: ['id', 'event_id', 'name', 'sort_order'],

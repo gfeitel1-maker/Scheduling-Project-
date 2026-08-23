@@ -80,6 +80,12 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // -- into locations --
   { fromTable: 'activities', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
   { fromTable: 'week_location_exclusions', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
+  // v45 (docs/work/specs/2026-08-23-slice4-engine-location-contention.md
+  // §1/§6) — anchor_activities.location_id and events.location_id mirror
+  // activities.location_id exactly: no DB-level FK (schema.sql), so
+  // enforced:false.
+  { fromTable: 'anchor_activities', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
+  { fromTable: 'events', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
   // -- into anchor_activities --
   { fromTable: 'template_slots', fromColumn: 'anchor_id', toEntity: 'anchor_activities', kind: 'scalar', enforced: false }, // 3rd Red Hat pass finding: v17 ALTER-added column, missed by the original hand-search
   // T40 slice 1 (docs/work/specs/2026-08-20-special-days-data-shape-design.md):
