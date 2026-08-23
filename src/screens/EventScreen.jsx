@@ -17,6 +17,7 @@ import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S, useEnterTransition } from '../styles/shared'
+import { LocationPicker } from '../components/LocationPicker'
 import EventGridEditor from './event/EventGridEditor'
 import uiCalendar from '../assets/brand/icons/ui-calendar.png'
 
@@ -97,9 +98,10 @@ function PlacementSummary({ eventId, placements, groups, days, timeBlocks }) {
   )
 }
 
-function EventDetail({ event, role, placements, groups, days, timeBlocks, campId, onBack, onSave }) {
+function EventDetail({ event, role, placements, groups, days, timeBlocks, locations, campId, onBack, onSave, onCreateLocation, onUpdateLocationCapacity }) {
   const [name, setName] = useState(event.name)
   const [notes, setNotes] = useState(event.notes ?? '')
+  const [locationId, setLocationId] = useState(event.location_id ?? null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
   const [editingSchedule, setEditingSchedule] = useState(false)
@@ -125,6 +127,17 @@ function EventDetail({ event, role, placements, groups, days, timeBlocks, campId
     } finally {
       setSaving(false)
     }
+  }
+
+  // Picker selection writes immediately — mirrors AnchorModal/ActivityModal's
+  // location_id semantics, but this card has no Save button (every field
+  // commits on its own, like Name/Notes above). A picked match or a fresh
+  // create is always a valid location by construction; the picker's own
+  // dangling-id display (C5) already warns when `event.location_id` points
+  // at a place that no longer exists — this only needs to write what it's given.
+  function changeLocation(newLocationId) {
+    setLocationId(newLocationId)
+    commit({ location_id: newLocationId })
   }
 
   return (
@@ -154,6 +167,8 @@ function EventDetail({ event, role, placements, groups, days, timeBlocks, campId
           style={{ ...S.input, resize: 'vertical', fontFamily: 'inherit' }}
           placeholder="Teams, points, staffing, run-of-show — recorded and printed, never parsed."
         />
+        <label style={fieldLabel}>Location (optional)</label>
+        <LocationPicker value={locationId} locations={locations} onChange={changeLocation} onCreate={onCreateLocation} onUpdateCapacity={onUpdateLocationCapacity} />
         {saving && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 6 }}>Saving…</div>}
       </div>
 
@@ -201,23 +216,48 @@ export default function EventScreen({ campId, role, initialEventId = null }) {
   // Grid drill-in — an event cell's affordance on the campwide schedule opens
   // this screen focused on it, mirroring ElectivesScreen's selectedSetId.
   const [selectedEventId, setSelectedEventId] = useState(initialEventId)
-  const [supportData, setSupportData] = useState({ placements: [], groups: [], days: [], timeBlocks: [] })
+  const [supportData, setSupportData] = useState({ placements: [], groups: [], days: [], timeBlocks: [], locations: [] })
   const nameRef = useRef()
   const enter = useEnterTransition('liftFade')
 
   async function loadSupportData() {
-    const [slots, groups, days, timeBlocks] = await Promise.all([
+    const [slots, groups, days, timeBlocks, locations] = await Promise.all([
       localClient.list('template_slots'),
       localClient.list('groups'),
       localClient.list('days_of_operation'),
       localClient.list('time_blocks'),
+      localClient.list('locations'),
     ])
     setSupportData({
       placements: (slots || []).filter((s) => s.event_id),
       groups: groups || [],
       days: days || [],
       timeBlocks: timeBlocks || [],
+      locations: (locations || []).filter((l) => l.camp_id === campId),
     })
+  }
+
+  // Contextual create from the LocationPicker's "create new" row — mirrors
+  // ActivitiesScreen.createLocation exactly (same case-insensitive dedupe
+  // rationale; see that screen's comment for the full ADR reasoning).
+  async function createLocation(name) {
+    const trimmedName = String(name ?? '').trim()
+    if (!trimmedName) return null
+    const existing = supportData.locations.find((l) => String(l.name ?? '').trim().toLowerCase() === trimmedName.toLowerCase())
+    if (existing) return existing.id
+    const newId = crypto.randomUUID()
+    const fields = { name: trimmedName, camp_id: campId, capacity: 1, notes: null }
+    await repository.createRecord('locations', newId, fields)
+    setSupportData((prev) => ({ ...prev, locations: [...prev.locations, { id: newId, ...fields }] }))
+    return newId
+  }
+
+  async function updateLocationCapacity(locationId, capacity) {
+    await repository.writeFields('locations', locationId, { capacity })
+    setSupportData((prev) => ({
+      ...prev,
+      locations: prev.locations.map((l) => (l.id === locationId ? { ...l, capacity } : l)),
+    }))
   }
 
   useEffect(() => {
@@ -241,9 +281,12 @@ export default function EventScreen({ campId, role, initialEventId = null }) {
         groups={supportData.groups}
         days={supportData.days}
         timeBlocks={supportData.timeBlocks}
+        locations={supportData.locations}
         campId={campId}
         onBack={() => setSelectedEventId(null)}
         onSave={save}
+        onCreateLocation={createLocation}
+        onUpdateLocationCapacity={updateLocationCapacity}
       />
     )
   }

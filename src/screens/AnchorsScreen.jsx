@@ -7,6 +7,7 @@ import { S, useEnterTransition } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
+import { LocationPicker } from '../components/LocationPicker'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 
 // Repository-only migration (not the full useCrudScreen hook): load() fans out
@@ -68,13 +69,14 @@ function normalizeAnchor(row) {
   }
 }
 
-function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose }) {
+function AnchorModal({ anchor, tiers, groups, days, timeBlocks, locations, onSave, onClose, onCreateLocation, onUpdateLocationCapacity }) {
   const isNew = !anchor?.id
   const [name, setName] = useState(anchor?.name || '')
   const [isAllTiers, setIsAllTiers] = useState(anchor?.is_all_groups ?? true)
   // Multi-day: editing an existing anchor pre-selects its single day
   const [selectedDays, setSelectedDays] = useState(anchor?.day_id ? [anchor.day_id] : [])
   const [blockId, setBlockId] = useState(anchor?.time_block_id || '')
+  const [locationId, setLocationId] = useState(anchor?.location_id ?? null)
   const [notes, setNotes] = useState(anchor?.notes || '')
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState(null)
@@ -105,6 +107,10 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
     const group_ids = isAllTiers
       ? []
       : groups.filter(g => selectedTiers.includes(g.tier_id)).map(g => g.id)
+    // C5: a location_id left dangling (set, but the place it pointed at is
+    // gone — deleted, cross-device race, stale import) is never persisted
+    // silently on save — mirrors ActivityModal's identical guard.
+    const resolvedLocationId = locationId && locations.some(l => l.id === locationId) ? locationId : null
     // When editing, update only the existing record's day; when creating, one record per day
     try {
       await onSave(anchor?.id || null, {
@@ -113,6 +119,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
         group_ids,
         selectedDays,
         time_block_id: blockId,
+        location_id: resolvedLocationId,
         notes: notes.trim() || null,
       })
     } catch (err) {
@@ -159,6 +166,10 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
             <option value="">— Select block —</option>
             {timeBlocks.map(b => <option key={b.id} value={b.id}>{b.name} ({b.start_time?.slice(0,5)}–{b.end_time?.slice(0,5)})</option>)}
           </select>
+        </Field>
+
+        <Field label="Location (optional)">
+          <LocationPicker value={locationId} locations={locations} onChange={setLocationId} onCreate={onCreateLocation} onUpdateCapacity={onUpdateLocationCapacity} />
         </Field>
 
         <Field label="Age Divisions">
@@ -222,6 +233,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
   const [tiers, setTiers] = useState([])
   const [groups, setGroups] = useState([])
   const [weeks, setWeeks] = useState([])
+  const [locations, setLocations] = useState([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null)
   const [importStep, setImportStep] = useState(null)
@@ -247,13 +259,14 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
     setLoading(true)
     setError(null)
     try {
-      const [aData, dData, bData, tData, gData, wData] = await Promise.all([
+      const [aData, dData, bData, tData, gData, wData, lData] = await Promise.all([
         localClient.list('anchor_activities'),
         localClient.list('days_of_operation'),
         localClient.list('time_blocks'),
         localClient.list('tiers'),
         localClient.list('groups'),
         localClient.list('schedule_weeks'),
+        localClient.list('locations'),
       ])
       const list = (aData || [])
         .filter(a => a.camp_id === campId && a.cohort_id === activeCohort.id)
@@ -278,6 +291,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       setWeeks((wData || [])
         .filter(w => w.camp_id === campId)
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)))
+      setLocations((lData || []).filter(l => l.camp_id === campId))
     } catch {
       setError("Couldn't load your camp setup — check your connection and refresh.")
     } finally {
@@ -376,6 +390,26 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
     } catch (err) {
       setError(describeWriteFailure(err, 'That week could not be saved.'))
     }
+  }
+
+  // Contextual create from the LocationPicker's "create new" row — mirrors
+  // ActivitiesScreen.createLocation exactly (same case-insensitive dedupe
+  // rationale; see that screen's comment for the full ADR reasoning).
+  async function createLocation(name) {
+    const trimmedName = String(name ?? '').trim()
+    if (!trimmedName) return null
+    const existing = locations.find(l => String(l.name ?? '').trim().toLowerCase() === trimmedName.toLowerCase())
+    if (existing) return existing.id
+    const newId = crypto.randomUUID()
+    const fields = { name: trimmedName, camp_id: campId, capacity: 1, notes: null }
+    await repository.createRecord('locations', newId, fields)
+    setLocations(prev => [...prev, { id: newId, ...fields }])
+    return newId
+  }
+
+  async function updateLocationCapacity(locationId, capacity) {
+    await repository.writeFields('locations', locationId, { capacity })
+    setLocations(prev => prev.map(l => l.id === locationId ? { ...l, capacity } : l))
   }
 
   function deleteAnchor(id) {
@@ -697,8 +731,11 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
           groups={groups}
           days={days}
           timeBlocks={timeBlocks}
+          locations={locations}
           onSave={saveAnchor}
           onClose={() => setModal(null)}
+          onCreateLocation={createLocation}
+          onUpdateLocationCapacity={updateLocationCapacity}
         />
       )}
 

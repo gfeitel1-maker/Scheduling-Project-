@@ -189,3 +189,44 @@ describe('EventScreen', () => {
     await waitFor(() => expect(screen.getByText('Capture the Flag')).toBeTruthy())
   })
 })
+
+// W7b (docs/work/specs/camp-setup-ingestion-program.md): location_id picker
+// on the event's own detail card, next to Name/Notes — writes events.location_id
+// so the Slice 4b engine location-contention fires for events too.
+describe('EventScreen — location picker (location_id)', () => {
+  it('selecting a location on the event detail writes events.location_id', async () => {
+    localClient.list.mockImplementation(byEntity({
+      events: [eventRow()],
+      template_slots: [],
+      groups: [],
+      days_of_operation: [],
+      time_blocks: [],
+      locations: [{ id: 'loc-1', camp_id: CAMP_ID, name: 'Field House', capacity: 4, notes: null }],
+    }))
+    render(<EventScreen campId={CAMP_ID} role="admin" initialEventId="ev-1" />)
+    await waitFor(() => expect(screen.getByText('← Back to Events')).toBeTruthy())
+
+    fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Field' } })
+    fireEvent.mouseDown(await screen.findByText('Field House'))
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalledWith(
+      'token-abc', 'events', 'ev-1', 'location_id', 'loc-1'
+    ))
+  })
+
+  it('an event whose location_id points at a deleted location shows the C5 dangling warning', async () => {
+    localClient.list.mockImplementation(byEntity({
+      events: [eventRow({ location_id: 'loc-GONE' })],
+      template_slots: [],
+      groups: [],
+      days_of_operation: [],
+      time_blocks: [],
+      locations: [{ id: 'loc-1', camp_id: CAMP_ID, name: 'Field House', capacity: 4, notes: null }],
+    }))
+    render(<EventScreen campId={CAMP_ID} role="admin" initialEventId="ev-1" />)
+    await waitFor(() => expect(screen.getByText('← Back to Events')).toBeTruthy())
+    await waitFor(() =>
+      expect(screen.getByText('The location set here no longer exists — pick a new one.')).not.toBeNull()
+    )
+  })
+})
