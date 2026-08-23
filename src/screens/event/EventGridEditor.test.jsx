@@ -281,6 +281,64 @@ describe('EventGridEditor — live-delete-while-editing', () => {
   })
 })
 
+describe('EventGridEditor — Clear schedule control (Tester MEDIUM / Open Question #1)', () => {
+  it('asks for confirmation, then deletes every event_slots/event_time_blocks/event_groups row for this event and leaves the events row alone', async () => {
+    baseFixtures({
+      slots: [{ id: 'sl1', event_id: EVT_ID, event_group_id: 'eg1', time_block_id: 'tb1', activity_id: 'act1', location_id: null }],
+      activities: [{ id: 'act1', camp_id: CAMP_ID, name: 'Capture the Flag' }],
+    })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Capture the Flag')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Clear schedule'))
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    await waitFor(() => {
+      const calls = localClient.deleteEntity.mock.calls
+      expect(calls.some(([, entity, id]) => entity === 'event_slots' && id === 'sl1')).toBe(true)
+      expect(calls.some(([, entity, id]) => entity === 'event_time_blocks' && id === 'tb1')).toBe(true)
+      expect(calls.some(([, entity, id]) => entity === 'event_groups' && id === 'eg1')).toBe(true)
+      expect(calls.some(([, entity, id]) => entity === 'event_groups' && id === 'eg2')).toBe(true)
+    })
+    expect(localClient.deleteEntity.mock.calls.some(([, entity]) => entity === 'events')).toBe(false)
+
+    await waitFor(() => expect(screen.getAllByText(/Add your first block/).length).toBeGreaterThan(0))
+    confirmSpy.mockRestore()
+  })
+
+  it('does nothing when the confirm is declined', async () => {
+    baseFixtures({
+      slots: [{ id: 'sl1', event_id: EVT_ID, event_group_id: 'eg1', time_block_id: 'tb1', activity_id: 'act1', location_id: null }],
+      activities: [{ id: 'act1', camp_id: CAMP_ID, name: 'Capture the Flag' }],
+    })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Capture the Flag')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Clear schedule'))
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
+
+  it('after clearing, the import affordance reappears', async () => {
+    baseFixtures({
+      slots: [{ id: 'sl1', event_id: EVT_ID, event_group_id: 'eg1', time_block_id: 'tb1', activity_id: 'act1', location_id: null }],
+      activities: [{ id: 'act1', camp_id: CAMP_ID, name: 'Capture the Flag' }],
+    })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Capture the Flag')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Clear schedule'))
+
+    await waitFor(() => expect(screen.getAllByText(/import this event’s schedule from a file|Import from a file/).length).toBeGreaterThan(0))
+    confirmSpy.mockRestore()
+  })
+})
+
 describe('EventGridEditor — grid-schedule import affordance (docs/adr/2026-08-22-event-schedule-import.md)', () => {
   beforeEach(() => {
     parseTextGrid.mockReset()

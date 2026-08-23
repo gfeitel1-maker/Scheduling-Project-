@@ -130,7 +130,6 @@ describe('parseGridSchedule — location key', () => {
     expect(watersports.every((c) => c.locationName === 'Field')).toBe(true)
     const zumba = result.cells.find((c) => c.activityName === 'Zumba')
     expect(zumba.locationName === 'Dance Studio' || zumba.locationName === null).toBe(true)
-    expect(result.locationKey).toMatchObject({ watersports: 'Field' })
   })
 
   it('an activity with no key entry gets locationName: null, not unmapped', () => {
@@ -159,7 +158,6 @@ describe('parseGridSchedule — empty/degenerate input', () => {
       timeAxis: [],
       groupAxis: [],
       cells: [],
-      locationKey: null,
       unmapped: [],
     })
   })
@@ -221,10 +219,11 @@ describe('parseGridSchedule — real Sports Day fixture (Step 0)', () => {
     expect(swimCell.activityName).toBe('Swim')
     const watersportsCells = result.cells.filter((c) => c.activityName === 'Watersports' || c.activityName === 'Water Sports')
     expect(watersportsCells.length).toBeGreaterThan(0)
-    expect(result.locationKey).toMatchObject({
-      'obstacle course': 'Gym Side B',
-      gymnastics: 'Gym Side A',
-      zumba: 'Dance Studio',
-    })
+    const obstacleCourseCell = result.cells.find((c) => c.activityName === 'Obstacle Course')
+    expect(obstacleCourseCell.locationName).toBe('Gym Side B')
+    const gymnasticsCell = result.cells.find((c) => c.activityName === 'Gymnastics')
+    expect(gymnasticsCell.locationName).toBe('Gym Side A')
+    const zumbaCell = result.cells.find((c) => c.activityName === 'Zumba')
+    expect(zumbaCell.locationName).toBe('Dance Studio')
   })
 })

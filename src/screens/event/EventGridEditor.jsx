@@ -33,6 +33,8 @@ const LABELS = {
   backLink: '← Back to Event',
   addBlock: '+ Add Block',
   addGroup: '+ Add Group',
+  clearSchedule: 'Clear schedule',
+  clearScheduleConfirm: "Clear this event's whole schedule? This can't be undone.",
   notesLabel: 'Notes',
   printAction: 'Print',
   emptyBlocksTitle: 'No time blocks yet.',
@@ -377,6 +379,28 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
     }
   }
 
+  // Clear this event's whole grid: deletes every event_slots row, then the
+  // two axis tables (event_time_blocks/event_groups), mirroring deleteEvent.js's
+  // cascade ordering — children before the tables that hold them. Never
+  // deletes the `events` row itself. Closes the dead-end the refuse-on-
+  // nonempty import message ("...already has entries. Clear it first...")
+  // otherwise points at with no control to act on (Tester MEDIUM, Architect
+  // Open Question #1).
+  async function clearSchedule() {
+    if (!window.confirm(LABELS.clearScheduleConfirm)) return
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      for (const s of slots) await localClient.deleteEntity(token, 'event_slots', s.id)
+      for (const b of timeBlocks) await localClient.deleteEntity(token, 'event_time_blocks', b.id)
+      for (const g of eventGroups) await localClient.deleteEntity(token, 'event_groups', g.id)
+      setSlots([])
+      setTimeBlocks([])
+      setEventGroups([])
+    } catch (err) {
+      setError(describeWriteFailure(err, "Could not clear this event's schedule."))
+    }
+  }
+
   // File -> parse -> populate wiring (ADR §7, spec Step 4.2). Reuses the same
   // file->grid extraction and size/complexity guards ImportScreen.jsx uses —
   // this import stays renderer-side, scoped to this one event, never touching
@@ -398,6 +422,7 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
         }))
         pages = workbookToPages(sheets, file.name)
       } else {
+        assertImportFileSize(file.size)
         pages = parseTextGrid(await file.text()).pages
       }
 
@@ -464,6 +489,9 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button className="press-97" onClick={addBlock} style={S.btnSecondary}>{LABELS.addBlock}</button>
           <button className="press-97" onClick={addEventGroup} style={S.btnSecondary}>{LABELS.addGroup}</button>
+          {(timeBlocks.length > 0 || eventGroups.length > 0) && (
+            <button className="press-97" onClick={clearSchedule} style={S.btnDanger}>{LABELS.clearSchedule}</button>
+          )}
           {filledCount === 0 && timeBlocks.length > 0 && eventGroups.length > 0 && (
             <button
               className="press-97"

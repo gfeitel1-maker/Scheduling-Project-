@@ -116,14 +116,15 @@ function emptyResult() {
     timeAxis: [],
     groupAxis: [],
     cells: [],
-    locationKey: null,
     unmapped: [],
   }
 }
 
 /**
  * Normalize one or more grid pages into { orientation, timeAxis, groupAxis,
- * cells, locationKey, unmapped }. Pure — no db, no entity/table knowledge.
+ * cells, unmapped } — per-cell `locationName` carries the majority-vote
+ * location key result (see below); there is no top-level aggregate field.
+ * Pure — no db, no entity/table knowledge.
  * See docs/adr/2026-08-22-event-schedule-import.md §2.
  */
 export function parseGridSchedule(pages) {
@@ -157,10 +158,9 @@ export function parseGridSchedule(pages) {
     ...otherPages.flatMap((p) => keyEntriesFromRows(p.rows ?? [], (p.columns ?? []).length <= 1)),
   ]
   const locationVotes = activityLocationTally(keyEntries)
-  const locationKey = locationVotes.size > 0 ? Object.fromEntries(locationVotes) : null
 
   if (!rowsAreTime && !columnsAreTime) {
-    return { ...emptyResult(), locationKey: null }
+    return emptyResult()
   }
 
   const axis = rowsAreTime ? 'rows-are-time' : 'columns-are-time'
@@ -223,7 +223,6 @@ export function parseGridSchedule(pages) {
     timeAxis: timeAxis.map(({ sourceIndex: _sourceIndex, ...rest }, i) => ({ ...rest, sourceIndex: i })),
     groupAxis: groupAxis.map(({ sourceIndex: _sourceIndex, ...rest }, i) => ({ ...rest, sourceIndex: i })),
     cells: reindexedCells,
-    locationKey,
     unmapped,
   }
 }
