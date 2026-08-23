@@ -440,6 +440,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
     resetUndoRedo, saveSnapshot, ensureTemplateRow,
     setConfirmRegen, setSelectedGroup, statsFor: recalcStatsPure,
     groups, tiers, days, timeBlocks, activities, anchors, locations,
+    electiveSetActivities, events: eventsAll,
     weekId, activityExclusions, groupExclusions, locationExclusions,
   })
   // Generation reloads slots wholesale — bump the flag-ack resync so the

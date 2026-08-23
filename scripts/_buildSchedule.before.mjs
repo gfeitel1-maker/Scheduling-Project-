@@ -1,5 +1,5 @@
-import { assertIdListShape } from './assertIdListShape.js'
-import { isActivityEligibleForGroup } from './eligibility.js'
+import { assertIdListShape } from '../src/engine/assertIdListShape.js'
+import { isActivityEligibleForGroup } from '../src/engine/eligibility.js'
 
 // Pure function — zero React dependencies, zero Supabase calls.
 //
@@ -56,8 +56,6 @@ function normalizeInput(input) {
       activities: input.activities,
       campId: input.campId || '',
       locations: input.locations || [],
-      electiveSetActivities: input.electiveSetActivities || [],
-      events: input.events || [],
       anchorsOnly: input.anchorsOnly || false,
       weekId: input.weekId ?? null,
     }
@@ -76,14 +74,12 @@ function normalizeInput(input) {
     activities: input.activities || [],
     campId: input.campId || '',
     locations: input.locations || [],
-    electiveSetActivities: input.electiveSetActivities || [],
-    events: input.events || [],
     anchorsOnly: input.anchorsOnly || false,
     weekId: input.weekId ?? null,
   }
 }
 
-function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, locationNameById, electiveSetActivities, events, anchorsOnly = false, weekId = null }) {
+function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, anchorsOnly = false, weekId = null }) {
   const { cohort, timeBlocks, tiers: _tiers, groups, preplacedSlots, activityTargets, _legacyAnchors } = cohortEntry
   const cohortId = cohort?.id ?? null
 
@@ -184,39 +180,6 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   }
 
   const groupMap = new Map(groups.map(g => [g.id, g]))
-  const activityById = new Map(activities.map(a => [a.id, a]))
-  const eventById = new Map((events || []).map(e => [e.id, e]))
-  // Slice 4b (docs/work/specs/2026-08-23-slice4-engine-location-contention.md
-  // §1): an elective set doesn't have one location — each offering has its
-  // own, via elective_set_activities.activity_id → activities.location_id.
-  const electiveOfferingsBySetId = new Map() // electiveSetId → [activityId, ...]
-  for (const m of (electiveSetActivities || [])) {
-    if (!electiveOfferingsBySetId.has(m.elective_set_id)) electiveOfferingsBySetId.set(m.elective_set_id, [])
-    electiveOfferingsBySetId.get(m.elective_set_id).push(m.activity_id)
-  }
-
-  // placeUsage — how many groups are in a PLACE at once, keyed by the shared
-  // location_id, capped at locations.capacity. Occupant list (not a count)
-  // because same_tier_only reasons about who else is there. Declared here
-  // (before Pass 1) because overlay cells now register their location during
-  // Pass 1 itself (§2.1: every overlay must be registered before Pass 2's
-  // canPlace/placeBlocked ever runs, or placement would become order-
-  // dependent on which overlay happened to be visited first).
-  const placeUsage = new Map()    // "locationId|dayId|blockId" → [{ groupId, tierId, sourceLabel }]
-
-  // Shared by occupyPlace (regular activities, Pass 2) and the overlay
-  // registration below (anchors/electives/events, Pass 1) — one physical
-  // capacity ledger, one write path, per the design doc's explicit rejection
-  // of a parallel mechanism. sourceLabel (the anchor/elective offering/event
-  // name) is optional and used only to enrich UNFILLABLE_reason in Pass 3.
-  function registerOverlayOccupancy(locId, groupId, dayId, blockId, tierId, sourceLabel) {
-    if (locId == null) return
-    const lk = `${locId}|${dayId}|${blockId}`
-    const list = placeUsage.get(lk) || []
-    list.push({ groupId, tierId, sourceLabel: sourceLabel ?? null })
-    placeUsage.set(lk, list)
-  }
-
   const slots = []
   const openSlots = []
 
@@ -234,9 +197,6 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
         // more constrained mechanism).
         if (anchor) {
           slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'anchor', activityId: null, anchorId: anchor.id, is_span_head: anchor._isSpanHead !== false, flags: {} })
-          if (anchor.location_id != null) {
-            registerOverlayOccupancy(anchor.location_id, group.id, day.id, block.id, group.tier_id ?? null, anchor.name || 'an anchor')
-          }
           continue
         }
 
@@ -246,10 +206,6 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
         const eventId = eventLookup.get(key)
         if (eventId != null) {
           slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'event', activityId: null, anchorId: null, eventId, is_span_head: true, flags: {} })
-          const eventRow = eventById.get(eventId)
-          if (eventRow?.location_id != null) {
-            registerOverlayOccupancy(eventRow.location_id, group.id, day.id, block.id, group.tier_id ?? null, eventRow.name || 'an event')
-          }
           continue
         }
 
@@ -259,26 +215,6 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
           // cell and never counts it as unfilled (no UNFILLABLE flag), the
           // same way an anchor slot above is excluded.
           slots.push({ groupId: group.id, dayId: day.id, blockId: block.id, cohort_id: cohortId, type: 'elective', activityId: null, anchorId: null, electiveSetId, is_span_head: true, flags: {} })
-          // Owner-resolved model (§1): the set doesn't have one location —
-          // each DISTINCT offering location contends, simultaneously. But an
-          // occupant is a GROUP AT A LOCATION, not an offering — two
-          // offerings of the SAME set sharing one location (e.g. a
-          // waterfront period with swim+kayak both at 'Waterfront') are one
-          // group physically present in one place (campers split by choice
-          // within it), not two groups. Dedup by location before
-          // registering, or a colocated set would phantom-consume extra
-          // capacity at its own location for a single group's presence.
-          const offeringLocationLabels = new Map() // locationId → label (first offering's name at that location)
-          for (const offeringActId of (electiveOfferingsBySetId.get(electiveSetId) || [])) {
-            const offeringAct = activityById.get(offeringActId)
-            const locId = offeringAct?.location_id
-            if (locId != null && !offeringLocationLabels.has(locId)) {
-              offeringLocationLabels.set(locId, offeringAct.name || 'an elective offering')
-            }
-          }
-          for (const [locId, label] of offeringLocationLabels) {
-            registerOverlayOccupancy(locId, group.id, day.id, block.id, group.tier_id ?? null, label)
-          }
           continue
         }
 
@@ -301,12 +237,14 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   const usageCount = new Map() // "groupId|activityId" → count
   const dailyUsage = new Set() // "groupId|dayId|activityId" — per-day dedup guard
   // Two independent occupancy ledgers, two independent constraints (ADR D2):
-  //   placeUsage — how many groups are in a PLACE at once (declared above,
-  //     before Pass 1, since overlay cells register into it during Pass 1).
+  //   placeUsage — how many groups are in a PLACE at once, keyed by the shared
+  //     location_id, capped at locations.capacity. Occupant list (not a count)
+  //     because same_tier_only reasons about who else is there.
   //   activityUsage — how many groups can do an ACTIVITY at once (an
   //     instructor/equipment cap), keyed per activity, capped at
   //     max_groups_per_slot. NOT a min() of the two — different key, different
   //     constraint; the engine checks both.
+  const placeUsage = new Map()    // "locationId|dayId|blockId" → [{ groupId, tierId }]
   const activityUsage = new Map() // "activityId|dayId|blockId" → count
 
   function getCount(groupId, actId) {
@@ -390,7 +328,12 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
 
   function occupyPlace(act, safeGroup, groupId, dayId, blockId) {
     const locId = act.location_id ?? null
-    registerOverlayOccupancy(locId, groupId, dayId, blockId, safeGroup.tier_id, null)
+    if (locId != null) {
+      const lk = `${locId}|${dayId}|${blockId}`
+      const list = placeUsage.get(lk) || []
+      list.push({ groupId, tierId: safeGroup.tier_id })
+      placeUsage.set(lk, list)
+    }
     const ak = `${act.id}|${dayId}|${blockId}`
     activityUsage.set(ak, (activityUsage.get(ak) || 0) + 1)
   }
@@ -499,26 +442,6 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
     if (!actId && !anchorsOnly) {
       flags.UNFILLABLE = true
       flags.UNFILLABLE_reason = 'No eligible activity could be placed in this slot'
-      // Slice 4b (§3): if every eligible activity was blocked by a place an
-      // overlay (anchor/elective offering/event) already occupies, name that
-      // overlay — otherwise a director sees a newly-blank cell with no way to
-      // connect it to the Lunch anchor or Sports Day event that caused it.
-      // This re-scans os.eligibleActs (O(eligibleActs) per unfilled slot) —
-      // fine here because it only runs on the rare UNFILLABLE path in Pass 3,
-      // after placement is done; do not hoist this into canPlace/placeBlocked
-      // or the hot per-slot placement loop in Pass 2.
-      for (const act of os.eligibleActs) {
-        const locId = act.location_id ?? null
-        if (locId == null || !locationCapById.has(locId)) continue
-        const occupants = placeUsage.get(`${locId}|${os.dayId}|${os.blockId}`) || []
-        if (occupants.length < locationCapById.get(locId)) continue
-        const blocker = occupants.find(o => o.sourceLabel)
-        if (blocker) {
-          const locName = locationNameById?.get(locId) || locId
-          flags.UNFILLABLE_reason = `No eligible activity could be placed — ${locName} is occupied by ${blocker.sourceLabel} at this time`
-          break
-        }
-      }
     }
 
     resultSlots.push({ groupId: os.groupId, dayId: os.dayId, blockId: os.blockId, cohort_id: cohortId, type: 'activity', activityId: actId, anchorId: null, is_span_head: isSpanHead, flags })
@@ -660,7 +583,7 @@ export function computeFindings({ slots, groups, activities, days }) {
 }
 
 function buildSchedule(input) {
-  const { cohorts, days, activities, campId, locations, electiveSetActivities, events, anchorsOnly, weekId } = normalizeInput(input)
+  const { cohorts, days, activities, campId, locations, anchorsOnly, weekId } = normalizeInput(input)
 
   // location_id → capacity (how many GROUPS fit in this place at once). Built
   // once from the camp's locations rows. A stored capacity of 0 or negative
@@ -671,12 +594,8 @@ function buildSchedule(input) {
   // and is NOT defaulted here: its absence from the map is exactly what tells
   // placeBlocked to treat it as unconstrained.
   const locationCapById = new Map()
-  const locationNameById = new Map()
   for (const loc of (locations || [])) {
-    if (loc && loc.id != null) {
-      locationCapById.set(loc.id, loc.capacity > 0 ? loc.capacity : 1)
-      locationNameById.set(loc.id, loc.name || loc.id)
-    }
+    if (loc && loc.id != null) locationCapById.set(loc.id, loc.capacity > 0 ? loc.capacity : 1)
   }
 
   // Findings that are properties of an activity, not of any one cohort/group,
@@ -707,7 +626,7 @@ function buildSchedule(input) {
     const cohortEntry = cohorts[idx]
     const cohortSeed = campId + (cohortEntry.cohort?.id || String(idx))
     const rand = mulberry32(djb2(cohortSeed))
-    const { slots, findings } = scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, locationNameById, electiveSetActivities, events, anchorsOnly, weekId })
+    const { slots, findings } = scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, anchorsOnly, weekId })
     allSlots.push(...slots)
     allFindings.push(...findings)
   }

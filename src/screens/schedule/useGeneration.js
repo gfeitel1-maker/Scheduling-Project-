@@ -36,6 +36,8 @@ export function useGeneration({
   activities,
   anchors,
   locations,
+  electiveSetActivities,
+  events,
   weekId,
   activityExclusions,
   groupExclusions,
@@ -95,7 +97,7 @@ export function useGeneration({
       .map(s => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, eventId: s.event_id }))
     const preplacedSlots = [...lockedPreplaced, ...electivePreplaced, ...eventPreplaced]
 
-    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), anchors: effAnchors, campId, preplacedSlots, locations, weekId })
+    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), anchors: effAnchors, campId, preplacedSlots, locations, electiveSetActivities, events, weekId })
     setGenFindings(result.findings || [])
     setGenDismissed(new Set())
 
@@ -178,7 +180,7 @@ export function useGeneration({
       locationExclusions: locationExclusions || [],
     })
 
-    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), anchors: effAnchors, campId, locations, anchorsOnly: true, weekId })
+    const result = buildSchedule({ groups: effGroups, tiers, days, timeBlocks, activities: resolvePriorityForGeneration(effActivities), anchors: effAnchors, campId, locations, electiveSetActivities, events, anchorsOnly: true, weekId })
     setManualFindings(result.findings || [])
     setManualDismissed(new Set())
 
