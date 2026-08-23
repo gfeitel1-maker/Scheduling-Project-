@@ -668,6 +668,235 @@ describe('span-tail place capacity (M2 round-2)', () => {
   })
 })
 
+// Slice 4b (docs/work/specs/2026-08-23-slice4-engine-location-contention.md):
+// anchor/elective/event overlays now draw down their location's capacity in
+// placeUsage, so a location an overlay already occupies correctly reads as
+// full to a regular activity contending for the same place.
+describe('overlay location contention (Slice 4)', () => {
+  const oDay = { id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }
+  const oBlock = { id: 'b1', name: 'Morning', start_time: '09:00', end_time: '10:00', sort_order: 0, part_of_day: 'morning' }
+  const oBlock2 = { id: 'b2', name: 'Late Morning', start_time: '10:00', end_time: '11:00', sort_order: 1, part_of_day: 'morning' }
+  const grp = (id, tierId = 't1') => ({ id, name: id, tier_id: tierId, availability: 'all' })
+  const oAct = (over = {}) => ({
+    id: 'a', name: 'A', priority: 'high', max_per_week: 5, min_per_week: 0, span_blocks: 1,
+    is_outdoor: false, location: null, location_id: null, max_groups_per_slot: 5, same_tier_only: false,
+    eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null,
+    ...over,
+  })
+
+  function run(over = {}) {
+    return buildSchedule({
+      groups: over.groups, tiers: over.tiers || [{ id: 't1', name: 'Junior' }],
+      days: over.days || [oDay], timeBlocks: over.timeBlocks || [oBlock],
+      activities: over.activities || [], anchors: over.anchors || [],
+      campId: 'test', locations: over.locations || [],
+      preplacedSlots: over.preplacedSlots || [],
+      electiveSetActivities: over.electiveSetActivities || [],
+      events: over.events || [],
+    })
+  }
+
+  it('a located anchor blocks overflow for a regular activity at the same place', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Dining Hall', capacity: 1 }]
+    const groups = [grp('g1'), grp('g2')]
+    // Anchor occupies L for g1, all groups scope, so it lands on g2's row too —
+    // use is_all_groups:false + explicit group_ids so only g1 is anchored,
+    // leaving g2's cell open for the regular activity attempt.
+    const anchor = { id: 'anc1', activity_id: null, unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1, name: 'Lunch', location_id: 'L' }
+    const activity = oAct({ id: 'a1', location_id: 'L', eligible_group_ids: ['g2'] })
+
+    const { slots } = run({ groups, locations, anchors: [anchor], activities: [activity] })
+    const g2Slot = slots.find(s => s.groupId === 'g2' && s.dayId === 'd1' && s.blockId === 'b1')
+    expect(g2Slot.flags.UNFILLABLE).toBe(true)
+    expect(g2Slot.flags.UNFILLABLE_reason).toContain('Lunch')
+  })
+
+  it('a located elective offering blocks overflow for a regular activity at the same place', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Pool', capacity: 1 }]
+    const groups = [grp('g1'), grp('g2')]
+    const offering = oAct({ id: 'off1', name: 'Swim', location_id: 'L' })
+    const activity = oAct({ id: 'a1', location_id: 'L', eligible_group_ids: ['g2'] })
+    const preplacedSlots = [{ groupId: 'g1', dayId: 'd1', blockId: 'b1', electiveSetId: 'es1' }]
+    const electiveSetActivities = [{ elective_set_id: 'es1', activity_id: 'off1' }]
+
+    const { slots } = run({ groups, locations, activities: [offering, activity], preplacedSlots, electiveSetActivities })
+    const g2Slot = slots.find(s => s.groupId === 'g2' && s.dayId === 'd1' && s.blockId === 'b1')
+    expect(g2Slot.flags.UNFILLABLE).toBe(true)
+  })
+
+  it('a mixed-location elective set registers occupancy at EVERY offering location simultaneously', () => {
+    const locations = [
+      { id: 'L1', camp_id: 'test', name: 'Pool', capacity: 1 },
+      { id: 'L2', camp_id: 'test', name: 'Art Shed', capacity: 1 },
+      { id: 'L3', camp_id: 'test', name: 'Range', capacity: 1 },
+    ]
+    const groups = [grp('g1'), grp('g2'), grp('g3'), grp('g4')]
+    const swim = oAct({ id: 'off1', name: 'Swim', location_id: 'L1' })
+    const art = oAct({ id: 'off2', name: 'Art', location_id: 'L2' })
+    const archery = oAct({ id: 'off3', name: 'Archery', location_id: 'L3' })
+    const actAtL1 = oAct({ id: 'r1', location_id: 'L1', eligible_group_ids: ['g2'] })
+    const actAtL2 = oAct({ id: 'r2', location_id: 'L2', eligible_group_ids: ['g3'] })
+    const actAtL3 = oAct({ id: 'r3', location_id: 'L3', eligible_group_ids: ['g4'] })
+    const preplacedSlots = [{ groupId: 'g1', dayId: 'd1', blockId: 'b1', electiveSetId: 'es1' }]
+    const electiveSetActivities = [
+      { elective_set_id: 'es1', activity_id: 'off1' },
+      { elective_set_id: 'es1', activity_id: 'off2' },
+      { elective_set_id: 'es1', activity_id: 'off3' },
+    ]
+
+    const { slots } = run({
+      groups, locations,
+      activities: [swim, art, archery, actAtL1, actAtL2, actAtL3],
+      preplacedSlots, electiveSetActivities,
+    })
+    for (const gid of ['g2', 'g3', 'g4']) {
+      const slot = slots.find(s => s.groupId === gid && s.dayId === 'd1' && s.blockId === 'b1')
+      expect(slot.flags.UNFILLABLE).toBe(true)
+    }
+  })
+
+  // Red Hat MEDIUM: two offerings of the SAME elective set sharing ONE
+  // location (e.g. a waterfront period with swim+kayak both at 'Waterfront')
+  // is physically ONE group present, not two — campers split by choice
+  // within one place, not two groups in two places. registerOverlayOccupancy
+  // must be called ONCE per DISTINCT offering location per elective cell, not
+  // once per offering. Capacity 2 at the shared location: the elective's one
+  // occupant + one regular-activity group must both fit; a third is blocked.
+  it('two offerings of the SAME set sharing one location count as ONE occupant, not two', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Waterfront', capacity: 2 }]
+    const groups = [grp('g1'), grp('g2'), grp('g3')]
+    const swim = oAct({ id: 'off1', name: 'Swim', location_id: 'L', eligible_group_ids: ['g1'] })
+    const kayak = oAct({ id: 'off2', name: 'Kayak', location_id: 'L', eligible_group_ids: ['g1'] })
+    const actAtL = oAct({ id: 'r1', location_id: 'L', eligible_group_ids: ['g2', 'g3'], max_groups_per_slot: 5 })
+    const preplacedSlots = [{ groupId: 'g1', dayId: 'd1', blockId: 'b1', electiveSetId: 'es1' }]
+    const electiveSetActivities = [
+      { elective_set_id: 'es1', activity_id: 'off1' },
+      { elective_set_id: 'es1', activity_id: 'off2' },
+    ]
+
+    const { slots } = run({
+      groups, locations, activities: [swim, kayak, actAtL],
+      preplacedSlots, electiveSetActivities,
+    })
+    // Elective occupies L once for g1 (capacity 2, so one slot left) — a
+    // second group must still fit; a third must be blocked.
+    const placed = slots.filter(s => s.type === 'activity' && s.activityId === 'r1')
+    expect(placed).toHaveLength(1)
+    const unfillable = slots.filter(s => s.flags?.UNFILLABLE)
+    expect(unfillable).toHaveLength(1)
+  })
+
+  it('an offering with no location contributes nothing while its sibling still contends', () => {
+    const locations = [{ id: 'L1', camp_id: 'test', name: 'Pool', capacity: 1 }]
+    const groups = [grp('g1'), grp('g2'), grp('g3')]
+    const swim = oAct({ id: 'off1', name: 'Swim', location_id: 'L1', eligible_group_ids: ['g1'] })
+    const unlocated = oAct({ id: 'off2', name: 'Board Games', location_id: null, eligible_group_ids: ['g1'] })
+    const actAtL1 = oAct({ id: 'r1', location_id: 'L1', eligible_group_ids: ['g2'] })
+    const actUnlocated = oAct({ id: 'r2', location_id: null, eligible_group_ids: ['g3'] })
+    const preplacedSlots = [{ groupId: 'g1', dayId: 'd1', blockId: 'b1', electiveSetId: 'es1' }]
+    const electiveSetActivities = [
+      { elective_set_id: 'es1', activity_id: 'off1' },
+      { elective_set_id: 'es1', activity_id: 'off2' },
+    ]
+
+    const { slots } = run({
+      groups, locations, activities: [swim, unlocated, actAtL1, actUnlocated],
+      preplacedSlots, electiveSetActivities,
+    })
+    expect(slots.find(s => s.groupId === 'g2' && s.blockId === 'b1').flags.UNFILLABLE).toBe(true)
+    expect(slots.find(s => s.groupId === 'g3' && s.blockId === 'b1').flags.UNFILLABLE).toBeUndefined()
+  })
+
+  it('a located event blocks overflow for a regular activity at the same place', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Field', capacity: 1 }]
+    const groups = [grp('g1'), grp('g2')]
+    const activity = oAct({ id: 'a1', location_id: 'L', eligible_group_ids: ['g2'] })
+    const preplacedSlots = [{ groupId: 'g1', dayId: 'd1', blockId: 'b1', eventId: 'ev1' }]
+    const events = [{ id: 'ev1', name: 'Sports Day', location_id: 'L' }]
+
+    const { slots } = run({ groups, locations, activities: [activity], preplacedSlots, events })
+    const g2Slot = slots.find(s => s.groupId === 'g2' && s.dayId === 'd1' && s.blockId === 'b1')
+    expect(g2Slot.flags.UNFILLABLE).toBe(true)
+    expect(g2Slot.flags.UNFILLABLE_reason).toContain('Sports Day')
+  })
+
+  it('a null-location overlay blocks nothing', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Field', capacity: 1 }]
+    const groups = [grp('g1'), grp('g2')]
+    const anchor = { id: 'anc1', activity_id: null, unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1, name: 'Lunch', location_id: null }
+    const activity = oAct({ id: 'a1', location_id: 'L', eligible_group_ids: ['g2'] })
+
+    const { slots } = run({ groups, locations, anchors: [anchor], activities: [activity] })
+    const g2Slot = slots.find(s => s.groupId === 'g2' && s.dayId === 'd1' && s.blockId === 'b1')
+    expect(g2Slot.flags.UNFILLABLE).toBeUndefined()
+    expect(g2Slot.activityId).toBe('a1')
+  })
+
+  it('capacity-boundary: a capacity-2 location allows an overlay + one activity, blocks a third', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Studio', capacity: 2 }]
+    const groups = [grp('g1'), grp('g2'), grp('g3')]
+    const anchor = { id: 'anc1', activity_id: null, unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1, name: 'Lunch', location_id: 'L' }
+    const activity = oAct({ id: 'a1', location_id: 'L', eligible_group_ids: ['g2', 'g3'], max_groups_per_slot: 5 })
+
+    const { slots } = run({ groups, locations, anchors: [anchor], activities: [activity] })
+    const placed = slots.filter(s => s.type === 'activity' && s.activityId === 'a1')
+    expect(placed).toHaveLength(1)
+    const unfillable = slots.filter(s => s.flags?.UNFILLABLE)
+    expect(unfillable).toHaveLength(1)
+  })
+
+  it('same_tier_only blocks a cross-tier group from a place an overlay already occupies', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Studio', capacity: 3 }]
+    const tiers = [{ id: 't1', name: 'Junior' }, { id: 't2', name: 'Senior' }]
+    const groups = [grp('g1', 't1'), grp('g2', 't2')]
+    const anchor = { id: 'anc1', activity_id: null, unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1, name: 'Lunch', location_id: 'L' }
+    const activity = oAct({ id: 'a1', location_id: 'L', same_tier_only: true, eligible_group_ids: ['g2'] })
+
+    const { slots } = run({ groups, tiers, locations, anchors: [anchor], activities: [activity] })
+    const g2Slot = slots.find(s => s.groupId === 'g2' && s.blockId === 'b1')
+    expect(g2Slot.flags.UNFILLABLE).toBe(true)
+  })
+
+  it('is deterministic: identical inputs including a contended overlay produce byte-identical output', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Field', capacity: 1 }]
+    const groups = [grp('g1'), grp('g2'), grp('g3')]
+    const anchor = { id: 'anc1', activity_id: null, unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1, name: 'Lunch', location_id: 'L' }
+    const activity = oAct({ id: 'a1', location_id: 'L', eligible_group_ids: ['g2', 'g3'], max_groups_per_slot: 5 })
+
+    const r1 = run({ groups, locations, anchors: [anchor], activities: [activity] })
+    const r2 = run({ groups, locations, anchors: [anchor], activities: [activity] })
+    expect(JSON.stringify(r1.slots)).toBe(JSON.stringify(r2.slots))
+  })
+
+  it('a multi-block anchor registers occupancy at both head and tail blocks', () => {
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Dining Hall', capacity: 1 }]
+    const groups = [grp('g1'), grp('g2')]
+    const anchor = { id: 'anc1', activity_id: null, unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 2, name: 'Lunch', location_id: 'L' }
+    const activity = oAct({ id: 'a1', location_id: 'L', eligible_group_ids: ['g2'] })
+
+    const { slots } = run({ groups, locations, anchors: [anchor], activities: [activity], timeBlocks: [oBlock, oBlock2] })
+    const g2AtTail = slots.find(s => s.groupId === 'g2' && s.blockId === 'b2')
+    expect(g2AtTail.flags.UNFILLABLE).toBe(true)
+  })
+
+  it('before/after: an activity previously placeable via silent double-booking is now UNFILLABLE, naming the blocker', () => {
+    // Before Slice 4, this activity would have silently double-booked L
+    // alongside the anchor (no capacity feed for anchors); now it must be
+    // blocked and the reason must name the anchor.
+    const locations = [{ id: 'L', camp_id: 'test', name: 'Dining Hall', capacity: 1 }]
+    const groups = [grp('g1'), grp('g2')]
+    const anchor = { id: 'anc1', activity_id: null, unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b1', span_blocks: 1, name: 'Lunch', location_id: 'L' }
+    const activity = oAct({ id: 'a1', location_id: 'L', eligible_group_ids: ['g2'] })
+
+    const { slots } = run({ groups, locations, anchors: [anchor], activities: [activity] })
+    const g2Slot = slots.find(s => s.groupId === 'g2' && s.blockId === 'b1')
+    expect(g2Slot.activityId).toBeNull()
+    expect(g2Slot.flags.UNFILLABLE).toBe(true)
+    expect(g2Slot.flags.UNFILLABLE_reason).toMatch(/Dining Hall/)
+    expect(g2Slot.flags.UNFILLABLE_reason).toMatch(/Lunch/)
+  })
+})
+
 // ── Helpers shared by new tests ──────────────────────────────────────────────
 
 const baseAct = {

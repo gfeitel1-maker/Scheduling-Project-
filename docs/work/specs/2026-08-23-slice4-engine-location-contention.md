@@ -203,16 +203,30 @@ entry — anchors/electives/events are not `activities` rows and do not particip
 `max_groups_per_slot`/instructor-capacity accounting, which is correct and unchanged).
 
 **Anchors and events call it once** (a single `locationId` resolved directly off the anchor/event
-row's new `location_id` column, §1). **Electives call it once per offering**: for the resolved
-`electiveSetId`, look up its `elective_set_activities` rows (joined to `activities` for
-`location_id`), and call `registerOverlayOccupancy` once per offering whose `activities.location_id`
-is non-null, all at the same `(groupId, dayId, blockId)` the elective cell occupies. This is the
-direct implementation of the owner's resolved model (§1): the set doesn't have one location, its
-offerings each have one, and each one contends independently. No dedup is needed across offerings
-even if two offerings happen to share a location (e.g. two water-adjacent chugim both at the
-"waterfront" location) — each is a genuine, separate occupant and both should count against that
-location's capacity, exactly as two independently-placed regular activities sharing a location
-would.
+row's new `location_id` column, §1). **Electives call it once per DISTINCT offering location**: for
+the resolved `electiveSetId`, look up its `elective_set_activities` rows (joined to `activities` for
+`location_id`), collapse them to the set of distinct non-null `activities.location_id` values, and
+call `registerOverlayOccupancy` once per distinct location, all at the same `(groupId, dayId,
+blockId)` the elective cell occupies. This is the direct implementation of the owner's resolved
+model (§1): the set doesn't have one location, its offerings each have one, and each distinct
+location contends independently.
+
+**Correction (Red Hat MEDIUM, post-implementation review): offerings sharing one location must
+dedup to ONE occupant, not one per offering.** The original draft of this section reasoned "two
+offerings sharing a location are each a genuine, separate occupant, exactly as two independently-
+placed regular activities sharing a location would" — that analogy was wrong. Two independently-
+placed regular activities sharing a location are two different GROUPS physically present. Two
+offerings of the SAME elective set (e.g. a waterfront period with swim + kayak both at "Waterfront")
+are one GROUP, physically present once, whose campers split by choice within that one place — the
+elective cell represents one group's presence at (day, block), not one presence per offering. An
+occupant in `placeUsage` means "a group is at this location," so a colocated multi-offering elective
+must register exactly one occupant at that location for that group, same as it would if the elective
+had only one offering there. Registering once per offering instead double-(or N-)counts a single
+group's presence and phantom-blocks other groups' regular activities at that location past its real
+remaining capacity. Cross-*location* contention is unchanged by this correction — an elective set
+with offerings at three distinct locations still registers three occupants (one per location, per
+§1's "each offering occupies its own, simultaneously" model); only two-or-more offerings sharing
+*one* location collapse to that location's single occupant.
 
 **Scope boundary (Governor decision, binding on Maker): Slice 4 is contention-*checking* only.** The
 engine *respects* a location that is already set — on an activity, an anchor, an event, or an
