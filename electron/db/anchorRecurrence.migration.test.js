@@ -84,7 +84,7 @@ describe('migration v42: fresh vs migrated equivalence', () => {
   it('declares schema version 42 on a fresh db and gives anchor_activities both new columns', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(43)
+    expect(CURRENT_SCHEMA_VERSION).toBe(44)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 42').get().c).toBe(1)
     const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
     expect(cols).toContain('schedule_week_id')

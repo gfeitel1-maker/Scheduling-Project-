@@ -209,6 +209,10 @@ export const PROJECTIONS = {
       // effect (no op) and by restore re-resolution (INV-2); the UI switches to
       // it at M3.
       'location_id',
+      // v44: truth-status × binding-vector activity ontology
+      // (docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md §3.2).
+      // Storage + projection only in this slice — no writer, no engine use.
+      'recurrence_truth_status',
     ],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/days_of_operation/time_blocks/tiers.ensureExists above.

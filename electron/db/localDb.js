@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 43
+export const CURRENT_SCHEMA_VERSION = 44
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1720,6 +1720,25 @@ export function initSchema(db) {
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (43, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v44 — truth-status × binding-vector activity ontology
+  // (docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md §3.2/§3.5).
+  // One additive, nullable column. No backfill: every existing row stays
+  // NULL (not-yet-classified/mixed). Storage + projection only — no writer,
+  // no engine use, no UI in this slice. No DDL-time side effect, so this
+  // block emits no op, same posture as v33-v43.
+  if (getSchemaVersion(db) >= 43 && getSchemaVersion(db) < 44) {
+    db.transaction(() => {
+      const cols = db.pragma('table_info(activities)').map((c) => c.name)
+      if (!cols.includes('recurrence_truth_status')) {
+        db.exec('ALTER TABLE activities ADD COLUMN recurrence_truth_status TEXT')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (44, ?)').run(
       new Date().toISOString()
     )
   }

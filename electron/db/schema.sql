@@ -292,6 +292,13 @@ CREATE TABLE IF NOT EXISTS activities (
   -- last here keeps a fresh install's column order byte-identical to a migrated
   -- one (docs/adr/2026-08-15-camp-locations-entity.md, "column-order trap").
   location_id TEXT,
+  -- v44: truth-status × binding-vector activity ontology
+  -- (docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md §3.2). Nullable;
+  -- NULL means not-yet-classified/mixed. Must be LAST for the same reason
+  -- location_id is above it: ALTER-added on a migrated db (localDb.js v44),
+  -- which always appends, so declaring it last here keeps a fresh install's
+  -- column order byte-identical to a migrated one (column-order trap).
+  recurrence_truth_status TEXT,
   UNIQUE(camp_id, name)
 );
 -- Round 2 Red Hat fix (ActivitiesScreen migration): the UNIQUE above only

@@ -57,6 +57,15 @@ function preV32Db(tag = 'v32-migrated') {
   if (db.pragma('table_info(activities)').some((c) => c.name === 'location_id')) {
     db.exec('ALTER TABLE activities DROP COLUMN location_id')
   }
+  // A genuine pre-v32 activities table has NONE of the columns later migrations
+  // append. location_id (v32) is dropped above; any column added by a migration
+  // AFTER v32 must also be stripped here, or re-running the migrations re-adds
+  // location_id (v32) *after* that leftover column and the fresh-vs-migrated
+  // column order diverges. recurrence_truth_status arrived at v44 (ADR
+  // 2026-08-23-activity-recurrence-tiers-ingestion).
+  if (db.pragma('table_info(activities)').some((c) => c.name === 'recurrence_truth_status')) {
+    db.exec('ALTER TABLE activities DROP COLUMN recurrence_truth_status')
+  }
   db.pragma('foreign_keys = ON')
   db.prepare('DELETE FROM schema_migrations WHERE version >= 32').run()
   return db
@@ -126,14 +135,19 @@ describe('migration v32: fresh vs migrated equivalence', () => {
     }, 30000)
   }
 
-  it('places activities.location_id LAST and identically on fresh and migrated (column-order trap)', () => {
+  it('places activities.location_id at its v32 append point, identically on fresh and migrated (column-order trap)', () => {
     const fresh = freshDb()
     const migrated = preV32Db()
     initSchema(migrated)
 
     expect(activitiesInfo(migrated)).toEqual(activitiesInfo(fresh))
     const cols = fresh.pragma('table_info(activities)').map((c) => c.name)
-    expect(cols[cols.length - 1]).toBe('location_id')
+    // v32 appended location_id last; later migrations append after it (v44 added
+    // recurrence_truth_status), so it is no longer the absolute final column —
+    // but it must stay at its v32 append point, immediately before the next
+    // appended column, and identical fresh-vs-migrated (the equivalence above is
+    // the real trap check). This relative-order assertion survives future appends.
+    expect(cols[cols.indexOf('location_id') + 1]).toBe('recurrence_truth_status')
     fresh.close()
     migrated.close()
   }, 30000)
