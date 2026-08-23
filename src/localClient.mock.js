@@ -1521,6 +1521,11 @@ export const mockShoresh = {
     state.event_time_blocks = (state.event_time_blocks || []).filter((b) => b.event_id !== eventId)
     state.event_groups = (state.event_groups || []).filter((g) => g.event_id !== eventId)
     state.events = (state.events || []).filter((e) => e.id !== eventId)
+    // Mirrors deleteEvent.js's template_slots clearing (Red Hat LOW, round 2):
+    // a Slice-1 campwide placement referencing this event must not dangle.
+    state.template_slots = (state.template_slots || []).map((ts) =>
+      ts.event_id === eventId ? { ...ts, event_id: null } : ts
+    )
 
     saveState(state)
     return { ok: true }

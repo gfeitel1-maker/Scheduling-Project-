@@ -361,6 +361,18 @@ same posture as `special_day_slots` (no solver, ever).
     revisit if/when a delete UI is added to `EventScreen.jsx` (mirrors
     `restore.js`'s existing `events: 'refused: no delete UI yet'` note).
 
+## Known limitations (inherited)
+
+- **Concurrent-cell write race, no conflict record:** `event_slots` has no
+  `UNIQUE(event_id, event_group_id, time_block_id)` constraint. If two
+  devices place into the same empty cell before syncing, both writes apply
+  and the row duplicates rather than being arbitrated as a conflict. This is
+  not a gap introduced by this slice — it is a faithful mirror of the
+  accepted `special_day_slots` design, which has the identical shape and the
+  identical absence of a uniqueness constraint. Documented here rather than
+  diverged from; if `special_day_slots` is ever hardened against this race,
+  `event_slots` should be hardened the same way in the same change.
+
 ## Non-goals (Slice 2)
 
 - No event-scoped teams-with-scoring/roster/membership — **`event_groups`

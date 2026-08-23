@@ -77,6 +77,21 @@ describe('deleteEvent', () => {
     expect(deleteEvent(db, {}, { author_user_id: 'user-1', device_id: 'device-1' })).toEqual({ error: 'not-found' })
   })
 
+  it('clears event_id on referencing template_slots rows instead of leaving a dangling reference', () => {
+    db.prepare(
+      'INSERT INTO template_slots (id, template_id, event_id) VALUES (?, ?, ?)'
+    ).run('ts-1', 'tmpl-1', 'evt-1')
+
+    const result = deleteEvent(db, { eventId: 'evt-1' }, { author_user_id: 'user-1', device_id: 'device-1' })
+
+    expect(result.ok).toBe(true)
+    expect(db.prepare('SELECT event_id FROM template_slots WHERE id = ?').get('ts-1').event_id).toBeNull()
+    expect(result.ops.find((o) => o.entity === 'template_slots' && o.entity_id === 'ts-1')).toMatchObject({
+      field: 'event_id',
+      value: null,
+    })
+  })
+
   it('deleting an event with no time blocks, groups, or slots removes just the parent row', () => {
     db.prepare('INSERT INTO events (id, camp_id, name) VALUES (?, ?, ?)').run('evt-empty', 'camp-1', 'Empty Event')
     const result = deleteEvent(db, { eventId: 'evt-empty' }, { author_user_id: 'user-1', device_id: 'device-1' })

@@ -43,6 +43,15 @@ async function writeField(entity, id, field, value) {
   return result
 }
 
+// Deterministic id for a row minted by the first-entry seed, derived from
+// stable inputs only (eventId + the source camp entity's own id + which
+// axis) — see the seed's comment above for why. Mirrors
+// electron/ops/locationId.js's deriveLocationId string-template shape
+// rather than inventing a new hashing scheme.
+function deriveEventSeedId(eventId, axis, sourceId) {
+  return `event-seed:${eventId}:${axis}:${sourceId}`
+}
+
 const repo = {
   async writeActivityFields(activityId, fields) {
     for (const [field, value] of Object.entries(fields)) {
@@ -93,19 +102,32 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
         .filter((g) => g.event_id === eventId)
         .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
 
-      // First-entry seed (ADR §4): when an event has zero event_time_blocks
-      // AND zero event_groups, seed both axes once from the camp's current
-      // time_blocks/groups — ordinary per-field writeField calls, not a
-      // special import path. Independent per axis; no re-seed afterward.
-      if (blocksForEvent.length === 0 && groupsForEvent.length === 0 && !seededEventIdsRef.current.has(eventId)) {
-        seededEventIdsRef.current.add(eventId)
+      // First-entry seed (ADR §4): when an event has zero event_time_blocks,
+      // seed that axis once from the camp's current time_blocks; independently,
+      // when it has zero event_groups, seed that axis once from the camp's
+      // current groups. Two SEPARATE guards (Red Hat MEDIUM, round 2) — a
+      // director who adds one group by hand before either axis seeds must
+      // still get blocks seeded on the next load, and vice versa. Each axis
+      // is deduped per-session by its own ref key so neither re-seeds twice
+      // in one load. Ordinary per-field writeField calls, not a special
+      // import path.
+      //
+      // Seed ids are DETERMINISTIC (deriveEventSeedId below), not
+      // crypto.randomUUID() — mirrors electron/ops/locationId.js's
+      // deriveLocationId precedent (INV-1). Two devices seeding the same
+      // brand-new event from the same camp inputs before syncing must mint
+      // IDENTICAL rows so the op-log converges on one row per source entity
+      // instead of duplicating (the sync-burst duplication class T85 fixed).
+      // Scoped to the event seed only — special_days' equivalent seed still
+      // uses crypto.randomUUID() and has the same latent gap, left for a
+      // follow-up.
+      if (blocksForEvent.length === 0 && !seededEventIdsRef.current.has(`${eventId}:blocks`)) {
+        seededEventIdsRef.current.add(`${eventId}:blocks`)
         const campBlocks = (campTimeBlocks || []).filter((b) => b.camp_id === campId)
-        const camp_groups = (campGroups || []).filter((g) => g.camp_id === campId)
         const seededBlocks = []
-        const seededGroups = []
         try {
           for (const b of campBlocks) {
-            const id = crypto.randomUUID()
+            const id = deriveEventSeedId(eventId, 'block', b.id)
             await writeField('event_time_blocks', id, 'event_id', eventId)
             await writeField('event_time_blocks', id, 'name', b.name)
             await writeField('event_time_blocks', id, 'sort_order', b.sort_order ?? 0)
@@ -113,14 +135,23 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
             if (b.end_time) await writeField('event_time_blocks', id, 'end_time', b.end_time)
             seededBlocks.push({ id, event_id: eventId, name: b.name, sort_order: b.sort_order ?? 0, start_time: b.start_time ?? null, end_time: b.end_time ?? null })
           }
+          blocksForEvent = seededBlocks
+        } catch (err) {
+          setError(describeWriteFailure(err, 'Could not seed this schedule from your camp setup.'))
+        }
+      }
+      if (groupsForEvent.length === 0 && !seededEventIdsRef.current.has(`${eventId}:groups`)) {
+        seededEventIdsRef.current.add(`${eventId}:groups`)
+        const camp_groups = (campGroups || []).filter((g) => g.camp_id === campId)
+        const seededGroups = []
+        try {
           for (const g of camp_groups) {
-            const id = crypto.randomUUID()
+            const id = deriveEventSeedId(eventId, 'group', g.id)
             await writeField('event_groups', id, 'event_id', eventId)
             await writeField('event_groups', id, 'name', g.name)
             await writeField('event_groups', id, 'sort_order', g.sort_order ?? 0)
             seededGroups.push({ id, event_id: eventId, name: g.name, sort_order: g.sort_order ?? 0 })
           }
-          blocksForEvent = seededBlocks
           groupsForEvent = seededGroups
         } catch (err) {
           setError(describeWriteFailure(err, 'Could not seed this schedule from your camp setup.'))
@@ -472,7 +503,12 @@ function BlockName({ block, onRename }) {
     )
   }
   return (
-    <span className="block-name" onClick={startEditing} style={{ cursor: 'text', flex: 1 }}>
+    <span
+      className="block-name"
+      onClick={startEditing}
+      title="Click to rename"
+      style={{ cursor: 'text', flex: 1, borderBottom: '1px dotted var(--border)' }}
+    >
       {block.name}
     </span>
   )
@@ -502,7 +538,12 @@ function EventGroupName({ group, onRename }) {
     )
   }
   return (
-    <span className="block-name" onClick={startEditing} style={{ cursor: 'text', flex: 1 }}>
+    <span
+      className="block-name"
+      onClick={startEditing}
+      title="Click to rename"
+      style={{ cursor: 'text', flex: 1, borderBottom: '1px dotted var(--border)' }}
+    >
       {group.name}
     </span>
   )

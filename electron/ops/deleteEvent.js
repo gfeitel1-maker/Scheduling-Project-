@@ -16,6 +16,15 @@ import { appendOp, DELETE_FIELD } from './operations.js'
 //                           the other)
 //   3. events               (the parent row itself, last)
 //
+// Slice-1 campwide placements (docs/adr/2026-08-22-events-overlay-placement.md):
+// a template_slots row can point at this event via event_id. Unlike
+// deleteElectiveSet.js's elective_set_id (deliberately left dangling — a
+// deleted elective set renders empty), a dangling event_id renders
+// "Event (removed)", so every referencing template_slots row has its
+// event_id cleared to null in the same transaction, via the same per-field
+// write path Slice 1 uses to set it (not DELETE_FIELD — the template_slots
+// row itself is not deleted, only this one field).
+//
 // Not called from any IPC handler yet — Slice 1 shipped with no event-delete
 // UI at all (restore.js: "events: refused: no delete UI yet"). This is the
 // cascade primitive a future delete-UI slice will wire up; exercised
@@ -39,6 +48,20 @@ export function deleteEvent(db, { eventId }, { author_user_id, device_id } = {})
 
     const slots = db.prepare('SELECT id FROM event_slots WHERE event_id = ?').all(eventId)
     for (const s of slots) ops.push(del('event_slots', s.id))
+
+    const referencingTemplateSlots = db
+      .prepare('SELECT id FROM template_slots WHERE event_id = ?')
+      .all(eventId)
+    for (const ts of referencingTemplateSlots) {
+      ops.push(appendOp(db, {
+        entity: 'template_slots',
+        entity_id: ts.id,
+        field: 'event_id',
+        value: null,
+        author_user_id,
+        device_id,
+      }))
+    }
 
     const timeBlocks = db.prepare('SELECT id FROM event_time_blocks WHERE event_id = ?').all(eventId)
     for (const tb of timeBlocks) ops.push(del('event_time_blocks', tb.id))

@@ -207,6 +207,54 @@ describe('EventGridEditor — first-entry seed from the camp', () => {
     const calls = localClient.write.mock.calls
     expect(calls.some(([, entity]) => entity === 'event_groups' || entity === 'event_time_blocks')).toBe(false)
   })
+
+  it('seeds only the still-empty axis when one axis already has a row (Red Hat MEDIUM, per-axis guard)', async () => {
+    baseFixtures({
+      // event_groups already has one row (director added it by hand); event_time_blocks is still empty.
+      eventGroups: [{ id: 'eg-existing', event_id: EVT_ID, name: 'Blue Team', sort_order: 0 }],
+      eventTimeBlocks: [],
+      campGroups: [{ id: 'g1', camp_id: CAMP_ID, name: 'Bunk A', sort_order: 0 }],
+      campTimeBlocks: [{ id: 'tb1', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
+    })
+    render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+
+    await waitFor(() => expect(screen.getByText('Morning')).toBeTruthy())
+    expect(screen.getByText('Blue Team')).toBeTruthy()
+
+    const calls = localClient.write.mock.calls
+    // Blocks axis seeded from the camp.
+    expect(calls.some(([, entity, , field, value]) => entity === 'event_time_blocks' && field === 'name' && value === 'Morning')).toBe(true)
+    // Groups axis was NOT re-seeded — no write ever names a group "Bunk A".
+    expect(calls.some(([, entity, , field, value]) => entity === 'event_groups' && field === 'name' && value === 'Bunk A')).toBe(false)
+  })
+
+  it('derives deterministic seed ids from (eventId, source camp entity id, axis) so two seed passes converge instead of duplicating', async () => {
+    baseFixtures({
+      eventGroups: [],
+      eventTimeBlocks: [],
+      campGroups: [{ id: 'g1', camp_id: CAMP_ID, name: 'Bunk A', sort_order: 0 }],
+      campTimeBlocks: [{ id: 'tb1', camp_id: CAMP_ID, name: 'Morning', sort_order: 0 }],
+    })
+    const { unmount } = render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Bunk A')).toBeTruthy())
+
+    const firstPassIds = localClient.write.mock.calls
+      .filter(([, entity]) => entity === 'event_groups' || entity === 'event_time_blocks')
+      .map(([, , id]) => id)
+    unmount()
+    localClient.write.mockClear()
+
+    // A second seed pass (a second device, or a remount before the write lands) with the
+    // SAME camp inputs must mint the SAME ids — not crypto.randomUUID().
+    render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Bunk A')).toBeTruthy())
+    const secondPassIds = localClient.write.mock.calls
+      .filter(([, entity]) => entity === 'event_groups' || entity === 'event_time_blocks')
+      .map(([, , id]) => id)
+
+    expect(new Set(secondPassIds)).toEqual(new Set(firstPassIds))
+    expect(firstPassIds.every((id) => !id.startsWith('new-id-'))).toBe(true)
+  })
 })
 
 describe('EventGridEditor — live-delete-while-editing', () => {
