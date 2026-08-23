@@ -466,6 +466,70 @@ export const PROJECTIONS = {
       )
     },
   },
+  // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-
+  // internal-subschedule.md). Parent-scoped by event_id, no camp_id column —
+  // same shape as special_day_time_blocks above. name and sort_order are NOT
+  // NULL with no default, so the placeholder insert must supply both.
+  event_time_blocks: {
+    table: 'event_time_blocks',
+    key: 'id',
+    fields: ['event_id', 'name', 'sort_order', 'start_time', 'end_time'],
+    ensureExists: (db, id, field, value) => {
+      if (field !== 'event_id') return
+      getStmt(db,
+        "INSERT OR IGNORE INTO event_time_blocks (id, event_id, name, sort_order) VALUES (?, ?, '', 0)"
+      ).run(id, value)
+    },
+  },
+  // event_groups — the grid's COLUMNS (docs/adr/2026-08-22-event-internal-
+  // subschedule.md §1), structurally identical to event_time_blocks: a
+  // second parent-scoped child of events, not a child of event_time_blocks.
+  event_groups: {
+    table: 'event_groups',
+    key: 'id',
+    fields: ['event_id', 'name', 'sort_order'],
+    ensureExists: (db, id, field, value) => {
+      if (field !== 'event_id') return
+      getStmt(db,
+        "INSERT OR IGNORE INTO event_groups (id, event_id, name, sort_order) VALUES (?, ?, '', 0)"
+      ).run(id, value)
+    },
+  },
+  // Parent-scoped by event_id (no camp_id column), the grid cells. THREE NOT
+  // NULL columns (event_id, event_group_id, time_block_id) — same
+  // reconstruct-then-insert-once shape as special_day_slots above, with
+  // event_group_id replacing group_id as the second required column (it
+  // references this event's OWN event_groups, never the camp's groups).
+  event_slots: {
+    table: 'event_slots',
+    key: 'id',
+    fields: ['event_id', 'event_group_id', 'time_block_id', 'activity_id', 'location_id'],
+    ensureExists: (db, id, field, value) => {
+      const table = 'event_slots'
+      const readField = (wanted) => {
+        if (field === wanted) return value
+        const prior = getStmt(
+          db,
+          'SELECT value FROM operations WHERE entity = ? AND entity_id = ? AND field = ? ORDER BY seq DESC LIMIT 1'
+        ).get(table, id, wanted)
+        return prior ? prior.value : null
+      }
+      const eventId = readField('event_id')
+      const eventGroupId = readField('event_group_id')
+      const timeBlockId = readField('time_block_id')
+      if (eventId == null || eventGroupId == null || timeBlockId == null) return
+
+      const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
+      getStmt(
+        db,
+        "INSERT OR IGNORE INTO events (id, camp_id, name) VALUES (?, ?, '')"
+      ).run(eventId, camp?.id ?? null)
+      getStmt(
+        db,
+        'INSERT OR IGNORE INTO event_slots (id, event_id, event_group_id, time_block_id) VALUES (?, ?, ?, ?)'
+      ).run(id, eventId, eventGroupId, timeBlockId)
+    },
+  },
   // day_overrides (T108, ADR 2026-08-21-day-overrides-repoint-shape.md D1).
   // Direct-camp-scoped (camp_id NOT NULL, like special_days), but with FOUR
   // additional NOT NULL foreign keys (schedule_week_id, day_id, group_id,

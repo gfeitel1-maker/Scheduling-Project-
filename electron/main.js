@@ -29,6 +29,7 @@ import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
 import { deleteElectiveSet } from './ops/deleteElectiveSet.js'
 import { deleteSpecialDay } from './ops/deleteSpecialDay.js'
+import { deleteEvent } from './ops/deleteEvent.js'
 import { listDurableElectiveSets } from './ops/durableElectiveSets.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
@@ -1273,6 +1274,27 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     return { ...reportable, ops_written: ops.length }
   }
 
+  // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-internal-
+  // subschedule.md §3): wires the deleteEvent cascade primitive
+  // (electron/ops/deleteEvent.js, shipped inert in this slice) to a caller.
+  // ADMIN-ONLY ('.delete' not '.write'), same posture as
+  // deleteSpecialDayHandler above. Not called from any UI in this slice —
+  // restore.js's "events: refused: no delete UI yet" note stays accurate.
+  function deleteEventHandler({ token, eventId } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    const { userId } = requireAuthorized(db, { token, action: 'events.delete' })
+    if (!isNonEmptyString(eventId)) throw new Error('eventId is required')
+
+    const result = deleteEvent(
+      db,
+      { eventId },
+      { author_user_id: userId, device_id: deviceId }
+    )
+    if (result.error) return result
+    const { ops, ...reportable } = result
+    return { ...reportable, ops_written: ops.length }
+  }
+
   // T105 (docs/work/tickets/T105-elective-inline-authoring-and-render.md;
   // docs/work/specs/2026-08-20-elective-authoring-render-design.md §2):
   // listDurableElectiveSets (electron/ops/durableElectiveSets.js, T110) gets
@@ -1330,6 +1352,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     deleteWeek: deleteWeekHandler,
     deleteElectiveSet: deleteElectiveSetHandler,
     deleteSpecialDay: deleteSpecialDayHandler,
+    deleteEvent: deleteEventHandler,
     listDurableElectiveSets: listDurableElectiveSetsHandler,
     listImportEvidence: listImportEvidenceHandler,
     listDeleted: listDeletedHandler,
@@ -1515,6 +1538,7 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:delete-week', (_event, args) => handlers.deleteWeek(args))
     ipcMain.handle('shoresh:delete-elective-set', (_event, args) => handlers.deleteElectiveSet(args))
     ipcMain.handle('shoresh:delete-special-day', (_event, args) => handlers.deleteSpecialDay(args))
+    ipcMain.handle('shoresh:delete-event', (_event, args) => handlers.deleteEvent(args))
     ipcMain.handle('shoresh:list-durable-elective-sets', (_event, args) => handlers.listDurableElectiveSets(args && args.token))
     ipcMain.handle('shoresh:list-import-evidence', (_event, args) => handlers.listImportEvidence(args && args.token))
   }

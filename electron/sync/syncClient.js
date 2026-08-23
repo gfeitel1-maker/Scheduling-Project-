@@ -74,6 +74,10 @@ const DOMAIN_TABLE_COLUMNS = {
   elective_set_activities: ['id', 'elective_set_id', 'activity_id'],
   // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-placement.md)
   events: ['id', 'camp_id', 'name', 'sort_order', 'notes'],
+  // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-internal-subschedule.md)
+  event_time_blocks: ['id', 'event_id', 'name', 'sort_order', 'start_time', 'end_time'],
+  event_groups: ['id', 'event_id', 'name', 'sort_order'],
+  event_slots: ['id', 'event_id', 'event_group_id', 'time_block_id', 'activity_id', 'location_id'],
 }
 
 // T88 review follow-up (Code Reviewer LOW-MED): DOMAIN_TABLE_COLUMNS is a

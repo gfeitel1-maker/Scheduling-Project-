@@ -66,6 +66,13 @@ export const ENTITIES = [
   // placement.md §1): same posture as elective_sets above — staff
   // read/write, delete/bulk_replace admin-only via default-deny.
   'events',
+  // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-
+  // internal-subschedule.md): same posture as special_day_time_blocks/
+  // special_day_slots above — staff read/write, delete/bulk_replace
+  // admin-only via default-deny.
+  'event_time_blocks',
+  'event_groups',
+  'event_slots',
 ]
 
 const staffReadWrite = ENTITIES.flatMap((entity) => [`${entity}.read`, `${entity}.write`])

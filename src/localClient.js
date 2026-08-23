@@ -126,6 +126,10 @@ export const localClient = {
   // docs/adr/2026-08-20-special-days-authoring-and-day-override-repoint.md).
   deleteSpecialDay: ({ specialDayId }) =>
     shoresh.deleteSpecialDay({ token: currentToken(), specialDayId }),
+  // deleteEventHandler (electron/main.js) destructures { token, eventId } —
+  // same wrapper shape as deleteSpecialDay above (Events internal
+  // sub-schedule Slice 2, docs/adr/2026-08-22-event-internal-subschedule.md).
+  deleteEvent: ({ eventId }) => shoresh.deleteEvent({ token: currentToken(), eventId }),
   // T105 §2 — the sole reuse/durable-read seam. Never a client-side filter of
   // the generic list('elective_sets') result.
   listDurableElectiveSets: () => shoresh.listDurableElectiveSets(currentToken()),

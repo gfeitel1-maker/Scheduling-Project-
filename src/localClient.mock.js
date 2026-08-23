@@ -367,6 +367,13 @@ export const MOCK_WRITE_ALLOWLIST = {
   // Events overlay placement Slice 1 — hand-transcribed mirror of
   // PROJECTIONS.events.fields, same discipline as T40/T41 above.
   events: ['camp_id', 'name', 'sort_order', 'notes'],
+  // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-
+  // internal-subschedule.md) — hand-transcribed mirror of
+  // PROJECTIONS.event_time_blocks/event_groups/event_slots.fields, same
+  // discipline as T40/T41 above.
+  event_time_blocks: ['event_id', 'name', 'sort_order', 'start_time', 'end_time'],
+  event_groups: ['event_id', 'name', 'sort_order'],
+  event_slots: ['event_id', 'event_group_id', 'time_block_id', 'activity_id', 'location_id'],
   conflicts: [],
 }
 
@@ -1493,6 +1500,32 @@ export const mockShoresh = {
       (b) => b.special_day_id !== specialDayId
     )
     state.special_days = (state.special_days || []).filter((d) => d.id !== specialDayId)
+
+    saveState(state)
+    return { ok: true }
+  },
+
+  // Permanently delete an event and its scoped rows, mirroring
+  // deleteEvent.js's cascade (Events internal sub-schedule Slice 2,
+  // docs/adr/2026-08-22-event-internal-subschedule.md §3): event_slots
+  // before event_time_blocks/event_groups, before events. Not wired to any
+  // UI in this slice (see restore.js's "no delete UI yet" note) — exists for
+  // registry parity, mirroring deleteSpecialDay above. Operates on
+  // localStorage state — no op-log, no broadcast.
+  async deleteEvent({ eventId } = {}) {
+    const state = loadState()
+    const event = (state.events || []).find((e) => e.id === eventId)
+    if (!event) return { error: 'not-found' }
+
+    state.event_slots = (state.event_slots || []).filter((s) => s.event_id !== eventId)
+    state.event_time_blocks = (state.event_time_blocks || []).filter((b) => b.event_id !== eventId)
+    state.event_groups = (state.event_groups || []).filter((g) => g.event_id !== eventId)
+    state.events = (state.events || []).filter((e) => e.id !== eventId)
+    // Mirrors deleteEvent.js's template_slots clearing (Red Hat LOW, round 2):
+    // a Slice-1 campwide placement referencing this event must not dangle.
+    state.template_slots = (state.template_slots || []).map((ts) =>
+      ts.event_id === eventId ? { ...ts, event_id: null } : ts
+    )
 
     saveState(state)
     return { ok: true }

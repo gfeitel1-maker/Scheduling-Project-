@@ -969,6 +969,14 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     // Events overlay placement Slice 1: a plain camp-scoped entity, same
     // shape as groups/locations/elective_sets above.
     events: 'name',
+    // Events internal sub-schedule Slice 2: same shape/trick as
+    // special_day_time_blocks/special_day_slots above — event_time_blocks
+    // and event_groups pick 'name' (not their parent-key field event_id),
+    // event_slots picks 'activity_id' since its ensureExists needs all three
+    // of event_id/event_group_id/time_block_id before it creates anything.
+    event_time_blocks: 'name',
+    event_groups: 'name',
+    event_slots: 'activity_id',
   }
 
   // Login is scoped to the single camp in this db (`SELECT id FROM camps

@@ -120,6 +120,12 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'elective_set_activities', column: 'elective_set_id', reason: 'points at elective_sets, not a U2-deletable entity' },
   { table: 'template_slots', column: 'elective_set_id', reason: 'points at elective_sets, not a U2-deletable entity' },
   { table: 'template_slots', column: 'event_id', reason: 'points at events, not a U2-deletable entity' },
+  // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-
+  // internal-subschedule.md §3).
+  { table: 'event_time_blocks', column: 'event_id', reason: 'points at events, not a U2-deletable entity' },
+  { table: 'event_groups', column: 'event_id', reason: 'points at events, not a U2-deletable entity' },
+  { table: 'event_slots', column: 'event_id', reason: 'points at events, not a U2-deletable entity' },
+  { table: 'event_slots', column: 'time_block_id', reason: 'points at event_time_blocks, not a U2-deletable entity' },
   { table: 'week_activity_exclusions', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
   { table: 'week_group_exclusions', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
   { table: 'week_location_exclusions', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },

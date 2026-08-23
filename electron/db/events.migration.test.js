@@ -82,7 +82,7 @@ describe('migration v40: fresh vs migrated equivalence', () => {
   it('creates the events table and the template_slots.event_id column on a fresh db, declares schema version 40', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(40)
+    expect(CURRENT_SCHEMA_VERSION).toBe(41)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 40').get().c).toBe(1)
     expect(db.prepare('SELECT COUNT(*) c FROM events').get().c).toBe(0)
     expect(db.pragma('table_info(template_slots)').map((c) => c.name)).toContain('event_id')

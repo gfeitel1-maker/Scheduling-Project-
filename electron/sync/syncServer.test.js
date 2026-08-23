@@ -2030,6 +2030,11 @@ describe('WS authorize() gating (Phase 2 Task 3)', () => {
       // Events overlay placement Slice 1: a plain camp-scoped entity, same
       // shape as groups/locations/elective_sets above.
       events: 'name',
+      // Events internal sub-schedule Slice 2: same tricks as
+      // special_day_time_blocks/special_day_slots above.
+      event_time_blocks: 'name',
+      event_groups: 'name',
+      event_slots: 'activity_id',
     }
     const ws = connect()
     await onceOpen(ws)
