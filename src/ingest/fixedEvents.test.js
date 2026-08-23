@@ -318,6 +318,101 @@ describe('normalizer fix (Red Hat Risk 5) — orientation B with inconsistent gr
   })
 })
 
+// Slice 0 (docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md) —
+// Bug A: three same-name cells staggered by an embedded TIME under one shared
+// row label used to collapse into a single all-groups event, losing the
+// stagger. Days: same-block-same-day recurrence across multiple days must
+// stay ONE event (the legitimate case) — only a difference in embedded time
+// splits an event, never a difference in day.
+describe('Bug A — staggered same-name occurrences under one shared row label', () => {
+  const row = (label, cells) => ({ label, cells })
+
+  it('does not collapse three staggered same-name cells into one all-groups event', () => {
+    // One wide "Lunch" block row; each group's own cell carries its true,
+    // staggered time as text — exactly what a camp encodes when the row
+    // label alone can't capture three different lunch times.
+    const parsed = {
+      pages: [
+        { title: 'A', columns: DAYS, rows: [row('12:00-13:00', DAYS.map(() => 'Lunch 12:00'))] },
+        { title: 'B', columns: DAYS, rows: [row('12:00-13:00', DAYS.map(() => 'Lunch 12:30'))] },
+        { title: 'C', columns: DAYS, rows: [row('12:00-13:00', DAYS.map(() => 'Lunch 1:00'))] },
+      ],
+    }
+    const proposal = extractEntities(parsed)
+    const { fixedEvents } = inferFixedEvents(parsed, proposal)
+
+    const lunches = fixedEvents.filter((e) => e.name === 'Lunch')
+    expect(lunches.length).toBe(3)
+    for (const e of lunches) {
+      expect(e.scope.is_all_groups).toBe(false)
+      expect(e.scope.groups.length).toBe(1)
+      // Never surfaced on the output — the by-name resolution invariant
+      // still needs time_block to be exactly the row's own block spelling.
+      expect(e.time_block).toBe('12:00-13:00')
+    }
+    expect(new Set(lunches.flatMap((e) => e.scope.groups))).toEqual(new Set(['A', 'B', 'C']))
+  })
+
+  it('keeps the same activity at the same block on multiple days as ONE event (no false split by day)', () => {
+    const parsed = {
+      pages: [
+        { title: 'A', columns: DAYS, rows: [row('09:00-09:30', DAYS.map(() => 'Mifkad'))] },
+      ],
+    }
+    const proposal = extractEntities(parsed)
+    const { fixedEvents } = inferFixedEvents(parsed, proposal)
+    const mifkads = fixedEvents.filter((e) => e.name === 'Mifkad')
+    expect(mifkads.length).toBe(1)
+    expect(mifkads[0].days).toEqual(DAYS)
+  })
+})
+
+// Bug B: a camp whose periods are named "Period 1"/"Block 2" rather than
+// printed times produced zero detection because isBlockLabel only recognized
+// a time-shaped regex. Passing the camp's own already-configured time_blocks
+// names lets non-time period labels be recognized too.
+describe('Bug B — non-time period labels', () => {
+  const row = (label, cells) => ({ label, cells })
+
+  it('detects nothing for non-time row labels with no known block names (documents the gap)', () => {
+    const parsed = {
+      pages: [{ title: 'A', columns: DAYS, rows: [row('Period 1', DAYS.map(() => 'Mifkad'))] }],
+    }
+    const proposal = extractEntities(parsed)
+    const { fixedEvents } = inferFixedEvents(parsed, proposal)
+    expect(fixedEvents).toEqual([])
+  })
+
+  it('detects the same recurring event once the camp\'s own period names are known', () => {
+    const parsed = {
+      pages: [{ title: 'A', columns: DAYS, rows: [row('Period 1', DAYS.map(() => 'Mifkad'))] }],
+    }
+    const proposal = extractEntities(parsed)
+    const { fixedEvents } = inferFixedEvents(parsed, proposal, { knownTimeBlockNames: ['Period 1', 'Period 2'] })
+    const mifkad = fixedEvents.find((e) => e.name === 'Mifkad')
+    expect(mifkad).toBeTruthy()
+    expect(mifkad.time_block).toBe('Period 1')
+    expect(mifkad.confidence).toBe('high')
+    expect(mifkad.scope).toEqual({ is_all_groups: true, groups: null })
+  })
+
+  it('matches known block names case- and whitespace-insensitively', () => {
+    const parsed = {
+      pages: [{ title: 'A', columns: DAYS, rows: [row('  period 1  ', DAYS.map(() => 'Mifkad'))] }],
+    }
+    const proposal = extractEntities(parsed)
+    const { fixedEvents } = inferFixedEvents(parsed, proposal, { knownTimeBlockNames: ['Period 1'] })
+    expect(fixedEvents.find((e) => e.name === 'Mifkad')).toBeTruthy()
+  })
+
+  it('keeps the time-shaped path working unaffected by known-block-names threading', () => {
+    const parsed = orientationA()
+    const proposal = extractEntities(parsed)
+    const { fixedEvents } = inferFixedEvents(parsed, proposal, { knownTimeBlockNames: ['Period 1'] })
+    expect(fixedEvents.map((e) => e.name).sort()).toEqual(['Lunch 1', 'Lunch 2', 'Mifkad', 'Swim'])
+  })
+})
+
 describe('the name-identity invariant (§3.2)', () => {
   // Every string a fixed event carries must appear verbatim in the paired
   // entity proposal, or the commit path cannot resolve it by name.

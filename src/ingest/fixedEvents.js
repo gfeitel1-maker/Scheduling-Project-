@@ -27,17 +27,52 @@ const dayRank = (d) => {
   return i === -1 ? DAY_ORDER.length : i
 }
 
-// A row label is a period only when it is time-shaped — the same test
-// extractEntities uses to decide a label is a time_blocks value.
-const isBlockLabel = (label) => /^\d{1,2}[:.]\d{2}/.test(String(label ?? '').trim())
+// A row label is a period when it is time-shaped — the same test
+// extractEntities uses to decide a label is a time_blocks value — OR when it
+// matches one of the camp's own already-configured time_blocks names byte for
+// byte modulo trim/case. Without the second arm, a camp whose periods are
+// named "Period 1"/"Lunch" rather than printed times produces zero fixed-event
+// detection: nothing in the row labels looks time-shaped, so every row is
+// silently skipped. `knownBlockNames` is the camp's EXISTING time_blocks rows
+// (threaded in from ImportScreen), not this file's own freshly-parsed
+// proposal — a brand-new camp with non-time period names and no prior setup
+// still gets no detection here (there is nothing yet to recognize against),
+// which is an accepted limitation: this is a re-import/update scenario fix,
+// not a from-nothing one.
+const isBlockLabel = (label, knownBlockNames) => {
+  const trimmed = String(label ?? '').trim()
+  if (/^\d{1,2}[:.]\d{2}/.test(trimmed)) return true
+  if (!trimmed || !knownBlockNames || knownBlockNames.size === 0) return false
+  return knownBlockNames.has(trimmed.toLowerCase())
+}
 
 // A collision-safe map key over strings that may themselves contain spaces,
 // commas or dashes ("Yeladim 1", "08:40-09:00", "Lunch 1").
 const keyOf = (...parts) => JSON.stringify(parts)
 
+// A cell's own text sometimes carries the true period ("Lunch 12:00") even
+// though the row itself has one shared label ("Lunch") that every group's
+// cell sits under. cleanCellValue/stripTimes (extractEntities.js) strips that
+// time out of the NAME on purpose — "Lunch 12:00" and "Lunch 12:30" are the
+// same activity — but doing so also erases the one signal that these are
+// staggered occurrences of it, not one shared occurrence. Reading the time
+// back out of the raw cell (before it's cleaned) and folding it into the
+// merge key stops two groups' genuinely different times from silently
+// collapsing into a single all-groups event. It is never surfaced on the
+// output event — fe.time_block always stays the row's own block, so the
+// by-name resolution invariant (§3.2) is untouched.
+const cellPeriod = (cell) => {
+  const m = String(cell ?? '').match(/\d{1,2}[:.]\d{2}/)
+  return m ? m[0] : null
+}
+
 /**
  * @param {{ pages: Array }} parsed        the same object passed to extractEntities
  * @param {object} proposal                extractEntities(parsed)'s return
+ * @param {{ knownTimeBlockNames?: string[] }} [options]  the camp's own
+ *        already-configured time_blocks names (existing rows, not this file's
+ *        proposal), so a non-time period label ("Period 1") can still be
+ *        recognized as a block. See isBlockLabel.
  * @returns {{ fixedEvents: ProposedFixedEvent[] }}
  *
  * ProposedFixedEvent — every string is BY NAME, exactly as the entity proposal
@@ -46,11 +81,14 @@ const keyOf = (...parts) => JSON.stringify(parts)
  *     scope: { is_all_groups: true, groups: null } | { is_all_groups: false, groups: string[] },
  *     confidence: 'high' | 'low' }
  */
-export function inferFixedEvents(parsed, proposal) {
+export function inferFixedEvents(parsed, proposal, options = {}) {
   const pages = parsed?.pages ?? []
   const orientation = proposal?.orientation ?? {}
   const allGroups = proposal?.entities?.groups ?? []
   const groupNameByTitle = proposal?.groupNameByTitle ?? {}
+  const knownBlockNames = new Set(
+    (options.knownTimeBlockNames ?? []).map((n) => String(n ?? '').trim().toLowerCase()).filter(Boolean)
+  )
 
   // Every group-identity key below is normalizeName'd so two spellings of the
   // same group (whitespace, casing) collapse into one — the SAME function
@@ -73,8 +111,8 @@ export function inferFixedEvents(parsed, proposal) {
     if (!operatingDays.has(group)) operatingDays.set(group, new Set())
     operatingDays.get(group).add(day)
   }
-  const addTuple = (group, day, block, activity) => {
-    const key = keyOf(group, block, activity)
+  const addTuple = (group, day, block, activity, period) => {
+    const key = keyOf(group, block, activity, period)
     if (!occupied.has(key)) occupied.set(key, new Set())
     occupied.get(key).add(day)
   }
@@ -94,10 +132,11 @@ export function inferFixedEvents(parsed, proposal) {
         }
       })
       for (const row of page.rows) {
-        if (!isBlockLabel(row.label)) continue
+        if (!isBlockLabel(row.label, knownBlockNames)) continue
         const block = row.label.trim()
         for (const { i, day } of dayCols) {
-          for (const a of activityNamesFromCell(row.cells?.[i])) addTuple(groupName, day, block, a)
+          const cell = row.cells?.[i]
+          for (const a of activityNamesFromCell(cell)) addTuple(groupName, day, block, a, cellPeriod(cell))
         }
       }
     } else {
@@ -106,12 +145,13 @@ export function inferFixedEvents(parsed, proposal) {
       if (!day) continue
       page.columns.forEach((rawGroupName) => { if (rawGroupName) addOperatingDay(regGroup(rawGroupName), day) })
       for (const row of page.rows) {
-        if (!isBlockLabel(row.label)) continue
+        if (!isBlockLabel(row.label, knownBlockNames)) continue
         const block = row.label.trim()
         page.columns.forEach((rawGroupName, i) => {
           if (!rawGroupName) return
           const groupName = regGroup(rawGroupName)
-          for (const a of activityNamesFromCell(row.cells?.[i])) addTuple(groupName, day, block, a)
+          const cell = row.cells?.[i]
+          for (const a of activityNamesFromCell(cell)) addTuple(groupName, day, block, a, cellPeriod(cell))
         })
       }
     }
@@ -125,7 +165,7 @@ export function inferFixedEvents(parsed, proposal) {
   // no unit special-casing (§3.5).
   const collapsed = new Map()
   for (const [key, daySet] of occupied) {
-    const [group, block, activity] = JSON.parse(key)
+    const [group, block, activity, period] = JSON.parse(key)
     const operating = operatingDays.get(group)?.size ?? 0
     if (operating === 0) continue
     const occ = daySet.size
@@ -134,7 +174,11 @@ export function inferFixedEvents(parsed, proposal) {
     const confidence = confidenceTier === CONFIDENCE.HIGH ? 'high' : 'low'
 
     const days = [...daySet].sort((a, b) => dayRank(a) - dayRank(b))
-    const collKey = keyOf(activity, block, days.join(','))
+    // `period` (the cell's own embedded time, if any) is part of the collapse
+    // key but never the output — two groups whose cells sit under the same
+    // row label/name but carry different embedded times stay separate events
+    // instead of merging into one that hides the stagger (Bug A).
+    const collKey = keyOf(activity, block, period, days.join(','))
     if (!collapsed.has(collKey)) {
       collapsed.set(collKey, {
         name: activity, time_block: block, days, groups: new Set(), allHigh: true,
