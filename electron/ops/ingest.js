@@ -22,6 +22,7 @@ import { PARENT_SCOPED_ENTITIES } from './campScopedEntities.js'
 import { normalizeName, recognitionKey } from '../../src/ingest/preview.js'
 import { buildPlan, CLEAR } from '../../src/ingest/buildPlan.js'
 import { foldApprovedToRecords, enrichSnapshotRow, resolveFieldWrite, dbFieldFor } from '../../src/ingest/fieldUpdate.js'
+import { activityTruthStatus } from '../../src/ingest/truthStatus.js'
 import { resolveLocationCreateId } from './locationCreate.js'
 import { PROJECTIONS } from './projections.js'
 import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
@@ -1095,6 +1096,63 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
     return id
   }
 
+  // Slice: activities.recurrence_truth_status classifier inputs
+  // (docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md §3.2/§4.1).
+  // Built once, from data already in scope — no new IPC param. assertedNames
+  // is every name this commit is about to fan out as a pinned fixed-event
+  // occurrence (plan.fixedEvents, same array the anchor_activities write
+  // loop below reads), and assertedConfidence carries each name's OWN
+  // detection confidence ('high'/'low', fixedEvents.js never emits anything
+  // else) through to the evidence row below rather than hardcoding 'high' —
+  // a low-confidence Asserted guess must not misrepresent itself as certain.
+  const assertedConfidence = new Map(
+    (plan.fixedEvents ?? []).map((fe) => [normalizeName(fe.name), fe.confidence === 'low' ? 'low' : 'high'])
+  )
+  const assertedNames = new Set(assertedConfidence.keys())
+
+  // Red Hat (2026-08-23): permission-tier classification is SCOPED OUT of
+  // this path entirely. Elective membership lives in elective_set_activities
+  // (activity_id rows), populated only by the separate elective-sheet import
+  // (src/ingest/electiveSetPopulate.js) — commitIngest never writes that
+  // table (see the comment above commitElectiveCandidates). confirmedElectiveSets
+  // here carries elective_sets.name (the PERIOD/SET name, e.g. "Chugim"), not
+  // an activity name, so comparing it against an activity name is comparing
+  // the wrong two things — a name collision that "happened" to work is not a
+  // real signal. isElective is always false in classifyTruthStatus below;
+  // ADR §4.1 already calls electives "Permission-tier BY CONSTRUCTION" from
+  // that other path, which is exactly where this belongs — see the (future)
+  // elective-import follow-up, not built here.
+  //
+  // Used only by the create path (commitCreate, below) — CREATE-ONLY BY
+  // DESIGN (owner decision, 2026-08-23). See the longer comment at the call
+  // site for why: an earlier version of this slice also ran this on the
+  // generic update/re-import path, and that collided with the op-log's own
+  // idempotency (a spurious clear op wherever a re-import legitimately
+  // carries no classification signal, e.g. the S4b enrichment-workbook
+  // round-trip) for a column nothing reads yet. Kept as a standalone helper
+  // (rather than inlined into commitCreate) so a future reclassify-on-
+  // reimport pass, once the column has a real consumer, can reuse it.
+  const classifyTruthStatus = (name, rule) => {
+    const key = normalizeName(name)
+    const isFixedEvent = assertedNames.has(key)
+    const hasObligationRule = Boolean(rule) && Number.isInteger(rule.min_per_week) && rule.min_per_week >= 1
+    const status = activityTruthStatus({ isFixedEvent, hasObligationRule, isElective: false })
+    if (status == null) return null
+    const obligationConfident = Boolean(rule?.eligibility_known) && Array.isArray(rule?.eligible_group_names)
+    const confidence = status === 'obligation'
+      ? (obligationConfident ? 'high' : 'low')
+      : (assertedConfidence.get(key) ?? 'high')
+    return {
+      status,
+      // 'observed' when read directly off a fixed-event classification;
+      // 'inferred' when it required the frequency extrapolation
+      // activityRules.js already tags 'inferred' for min_per_week itself.
+      tag: status === 'obligation' ? 'inferred' : 'observed',
+      confidence,
+      support: { isFixedEvent, hasObligationRule, isElective: false },
+    }
+  }
+
   // The write of one PlanItem: mint the row id, extract each FieldDelta's `to`
   // in order, resolve the commit-time reference fields (tier_id / activity
   // rules) against the live name maps, then emit one appendOp per non-null
@@ -1219,6 +1277,43 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           support: { reason: 'no priority in source; never inferred or judged' },
           import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
         })
+      }
+      // recurrence_truth_status classifier (ADR §3.2/§3.4/§4.1). Only computed
+      // when the director hasn't already hand-set it earlier in THIS same
+      // import — the seed-guard: `fields.recurrence_truth_status` already has
+      // a value here iff the approved record itself carried one (item.fields
+      // at the top of commitCreate), which is the only way a hand-set value
+      // could exist before a row is even minted. Guarded before rather than
+      // after because this field has no live row yet for the usual
+      // latestOp-based protection to apply to.
+      //
+      // CREATE-ONLY BY DESIGN (owner decision, 2026-08-23): a re-imported or
+      // pre-existing activity is never reclassified here. An earlier version
+      // of this slice also ran the classifier on the generic update path,
+      // recomputing recurrence_truth_status on every re-import — that hit
+      // two real collisions: it clashed with the op-log's own idempotency
+      // (writing a spurious clear op wherever an import genuinely carries no
+      // classification signal — e.g. the S4b enrichment-workbook round-trip,
+      // ingest.s4b.test.js, which legitimately re-imports without fixed-
+      // event/rule data), and it was fighting the "write nothing rather than
+      // a sentinel" posture (§4.1) for a column nothing reads yet — no UI, no
+      // engine, reads `recurrence_truth_status` (§3.2: "purely descriptive").
+      // Reclassify-on-reimport is deferred until the column has a real
+      // consumer to justify that complexity. Accepted limitation for now:
+      // Red Hat HIGH #2 (a re-imported/pre-feature activity's
+      // recurrence_truth_status stays whatever it was on first classification,
+      // or NULL if it predates this column) is documented, not silently
+      // dropped — revisit alongside whatever first reads this column.
+      if (fields.recurrence_truth_status === undefined) {
+        const classified = classifyTruthStatus(name, rule)
+        if (classified) {
+          fields.recurrence_truth_status = classified.status
+          writeEvidence(db, {
+            camp_id, entity_type: 'activities', entity_id: entityId, field: 'recurrence_truth_status',
+            tag: classified.tag, confidence: classified.confidence, support: classified.support,
+            import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
+          })
+        }
       }
     }
 

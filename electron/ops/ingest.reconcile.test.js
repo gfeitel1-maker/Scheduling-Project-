@@ -267,6 +267,18 @@ describe('D1 dryRun — evidenceSupport (D3)', () => {
   it('carries the inferred activity support keyed by entity_id and the fixed-event support keyed by name', () => {
     seedRealisticCamp()
 
+    // recurrence_truth_status classification (ADR 2026-08-23) runs on every
+    // commit, real or dry — seedRealisticCamp's own real commit above already
+    // legitimately writes 2 import_evidence rows (Swim/Archery, both
+    // classified 'obligation'), independent of and prior to this test's dry
+    // run. The non-mutation invariant this test cares about is therefore "the
+    // dry run below adds no NEW row", not "zero rows exist" — a before/after
+    // count comparison, the same snapshotDb()-style invariant the sibling
+    // 'D1 dryRun — non-mutation' describe block above already asserts
+    // (full-row equality; this is the narrower count-only form for the same
+    // reason: the count already isn't 0 before the dry run even starts).
+    const evidenceCountBefore = db.prepare('SELECT COUNT(*) c FROM import_evidence').get().c
+
     const activitySupport = { matched_groups: ['Bunk 1'], appearances: 6, eligible_group_count: 1 }
     const fixedSupport = { days: ['Tuesday'], occupied_days: 1, operating_days: 2, groups_in_scope: ['Bunk 1', 'Bunk 2'] }
 
@@ -290,7 +302,27 @@ describe('D1 dryRun — evidenceSupport (D3)', () => {
     expect(outcome.evidenceSupport.fixedEvents['Flag Lowering']).toBe(fixedSupport)
 
     // Non-mutation still holds: nothing was written for this in-memory field to reflect.
+    expect(db.prepare('SELECT COUNT(*) c FROM import_evidence').get().c).toBe(evidenceCountBefore)
+  })
+
+  // The genuinely-empty-starting-point case: with nothing pre-existing, a
+  // dryRun import of activities that WOULD classify (a fixed event, a
+  // min_per_week rule) writes zero recurrence_truth_status ops and zero
+  // import_evidence rows — proves the classifier itself is dryRun-safe, not
+  // just that it happens to net out to an unchanged count against seeded data.
+  it('a dryRun import of freshly-classifiable activities writes zero recurrence_truth_status ops and zero import_evidence rows', () => {
+    const outcome = commit({
+      approved: { activities: ['Mifkad', 'Swim'] },
+      fixedEvents: [MIFKAD_MON_9],
+      activityRules: {
+        Swim: { eligible_group_names: null, min_per_week: 2, max_per_week: 3, priority: 'high' },
+      },
+      dryRun: true,
+    })
+    expect(outcome.held).toBe(false)
     expect(db.prepare('SELECT COUNT(*) c FROM import_evidence').get().c).toBe(0)
+    expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE field = 'recurrence_truth_status'").get().c).toBe(0)
+    expect(db.prepare('SELECT COUNT(*) c FROM activities').get().c).toBe(0)
   })
 })
 
