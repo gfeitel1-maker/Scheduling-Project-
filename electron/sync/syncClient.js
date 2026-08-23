@@ -51,7 +51,7 @@ const DOMAIN_TABLE_COLUMNS = {
     'eligible_group_ids', 'prefer_before_day', 'prefer_before_day_min', 'weather_alternative_id', 'notes',
     'location_id', // v32 — the migration sets this as a side effect (no op), so it must travel in the snapshot or a first-pairing Client's activities land unbound from their place.
   ],
-  anchor_activities: ['id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks', 'is_all_groups', 'group_ids', 'notes'],
+  anchor_activities: ['id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level'],
   locations: ['id', 'camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry'],
   camp_maps: ['id', 'camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'],
   schedule_weeks: ['id', 'camp_id', 'name', 'sort_order', 'is_archived'], // T88 — required so week_*_exclusions' NOT NULL FK to schedule_weeks.id can be satisfied

@@ -457,6 +457,16 @@ CREATE TABLE IF NOT EXISTS time_blocks (
 -- drop) rather than removed; name/time_block_id/notes are added by the
 -- version-16 migration in localDb.js for existing dbs that already ran this
 -- file at an earlier version.
+-- schedule_week_id/recurrence_level (v42, docs/work/specs/2026-08-23-unified-
+-- schedule-overlay-slices.md Slice 1) are storage-only. schedule_week_id NULL
+-- preserves today's implicit meaning exactly (all-weeks). recurrence_level is
+-- NOT NULL DEFAULT 'daily': every existing anchor IS daily-recurring, so the
+-- DEFAULT labels them concretely instead of leaving that meaning implicit in
+-- a NULL, and SQLite's ADD COLUMN ... NOT NULL DEFAULT 'daily' populates
+-- existing rows for free — still zero backfill logic. Appended LAST — added
+-- by an ALTER TABLE in the v42 migration in localDb.js for existing dbs, so
+-- column order must match here for a fresh install to be byte-identical to a
+-- migrated one.
 CREATE TABLE IF NOT EXISTS anchor_activities (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
@@ -468,7 +478,9 @@ CREATE TABLE IF NOT EXISTS anchor_activities (
   span_blocks INTEGER,
   is_all_groups INTEGER,
   group_ids TEXT,
-  notes TEXT
+  notes TEXT,
+  schedule_week_id TEXT REFERENCES schedule_weeks(id),
+  recurrence_level TEXT NOT NULL DEFAULT 'daily'
 );
 
 -- A week is director-named text (e.g. "Week 1"), not a `template`/`slot`/

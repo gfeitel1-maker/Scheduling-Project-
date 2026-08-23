@@ -260,3 +260,44 @@ describe('deleteWeek — S3-7: duplicate then delete source', () => {
     expect(db.prepare('SELECT COUNT(*) as c FROM schedule_weeks').get().c).toBe(1)
   })
 })
+
+describe('deleteWeek — anchor_activities.schedule_week_id FK-cascade landmine (v42 Red Hat HIGH 3)', () => {
+  it('nulls the binding on an anchor scoped to the deleted week instead of throwing an FK error', () => {
+    const db = makeDb()
+    const campId = seedCamp(db)
+    seedDevice(db)
+    seedWeek(db, 'week1', campId, 'Week 1', 0)
+    seedWeek(db, 'week2', campId, 'Week 2', 1)
+    seedTemplate(db, 'week2', 'generated', campId) // keep week2 non-empty so week1 isn't the last week
+
+    db.prepare(
+      "INSERT INTO anchor_activities (id, camp_id, name, schedule_week_id) VALUES (?, ?, ?, ?)"
+    ).run('anchor1', campId, 'Flag Raising', 'week1')
+
+    expect(() => deleteWeek(db, { weekId: 'week1', campId }, CTX)).not.toThrow()
+
+    expect(db.prepare('SELECT COUNT(*) as c FROM schedule_weeks WHERE id = ?').get('week1').c).toBe(0)
+
+    const anchor = db.prepare('SELECT id, schedule_week_id FROM anchor_activities WHERE id = ?').get('anchor1')
+    expect(anchor).toBeTruthy()
+    expect(anchor.schedule_week_id).toBeNull()
+  })
+
+  it('leaves an anchor bound to a different week untouched', () => {
+    const db = makeDb()
+    const campId = seedCamp(db)
+    seedDevice(db)
+    seedWeek(db, 'week1', campId, 'Week 1', 0)
+    seedWeek(db, 'week2', campId, 'Week 2', 1)
+    seedTemplate(db, 'week1', 'generated', campId)
+
+    db.prepare(
+      "INSERT INTO anchor_activities (id, camp_id, name, schedule_week_id) VALUES (?, ?, ?, ?)"
+    ).run('anchor2', campId, 'Swim Rotation', 'week2')
+
+    deleteWeek(db, { weekId: 'week1', campId }, CTX)
+
+    const anchor = db.prepare('SELECT schedule_week_id FROM anchor_activities WHERE id = ?').get('anchor2')
+    expect(anchor.schedule_week_id).toBe('week2')
+  })
+})

@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 41
+export const CURRENT_SCHEMA_VERSION = 42
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1652,6 +1652,31 @@ export function initSchema(db) {
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (41, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v42 — recurrence-axis storage on anchor_activities (unified-schedule-
+  // overlay Slice 1, docs/work/specs/2026-08-23-unified-schedule-overlay-
+  // slices.md). Two additive columns, no backfill logic needed:
+  // schedule_week_id NULL preserves today's implicit meaning exactly
+  // (all-weeks). recurrence_level is NOT NULL DEFAULT 'daily' — every
+  // existing anchor IS daily-recurring, and SQLite's ADD COLUMN ... NOT NULL
+  // DEFAULT 'daily' populates every existing row with that value for free.
+  // Storage + projection only — no UI, no engine use in this slice. No
+  // DDL-time side effect, so this block emits no op, same posture as v33-v41.
+  if (getSchemaVersion(db) >= 41 && getSchemaVersion(db) < 42) {
+    db.transaction(() => {
+      const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
+      if (!cols.includes('schedule_week_id')) {
+        db.exec('ALTER TABLE anchor_activities ADD COLUMN schedule_week_id TEXT')
+      }
+      if (!cols.includes('recurrence_level')) {
+        db.exec("ALTER TABLE anchor_activities ADD COLUMN recurrence_level TEXT NOT NULL DEFAULT 'daily'")
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (42, ?)').run(
       new Date().toISOString()
     )
   }

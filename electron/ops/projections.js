@@ -270,7 +270,10 @@ export const PROJECTIONS = {
   anchor_activities: {
     table: 'anchor_activities',
     key: 'id',
-    fields: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes'],
+    fields: [
+      'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes',
+      'schedule_week_id', 'recurrence_level',
+    ],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/days_of_operation/time_blocks/tiers/activities.ensureExists above.
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
