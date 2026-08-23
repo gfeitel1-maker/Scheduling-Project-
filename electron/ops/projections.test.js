@@ -269,7 +269,7 @@ describe('applyProjection for template_slots', () => {
   })
 
   // Parent-scoped entity: template_slots has no camp_id column at all (same
-  // as day_override_template_slots/schedule_snapshots), so ensureExists must
+  // as event_slots/schedule_snapshots), so ensureExists must
   // never consult or create a camps row.
   it('ensureExists does not touch the camps table', () => {
     const before = db.prepare('SELECT COUNT(*) as count FROM camps').get().count
@@ -284,7 +284,7 @@ describe('applyProjection for template_slots', () => {
   })
 
   // template_id is NOT NULL with no default, so the row can only be created
-  // once the parent link is known — mirrors day_override_template_slots and
+  // once the parent link is known — mirrors event_slots and
   // schedule_snapshots.
   it('ensureExists creates the row when template_id is written first', () => {
     applyProjection(db, {

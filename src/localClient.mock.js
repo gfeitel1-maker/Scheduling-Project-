@@ -259,10 +259,8 @@ let opRejectedListeners = []
 // in the project and the drift test exists specifically so staleness here is
 // loud (a failing test) rather than silent.
 // Independent transcription of PARENT_SCOPED_ENTITIES's parentKey in
-// electron/ops/campScopedEntities.js, for the five entities C4's
-// listByScope targets (day_override_template_slots is deliberately
-// excluded — it is in PARENT_SCOPED_ENTITIES but not in main.js's
-// SCOPED_LIST_ENTITIES allowlist). Same duplication discipline as
+// electron/ops/campScopedEntities.js, for the entities C4's
+// listByScope targets. Same duplication discipline as
 // MOCK_WRITE_ALLOWLIST above: src/ never imports from electron/, so this is
 // a verbatim copy kept honest by electron/ipcSurfaceParity.test.js's drift
 // check rather than by sharing code.
@@ -318,8 +316,6 @@ export const MOCK_WRITE_ALLOWLIST = {
   // from electron/" rule (kept honest by electron/ipcSurfaceParity.test.js).
   camp_maps: ['camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'],
   anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id'],
-  day_override_templates: ['camp_id', 'cohort_id', 'name', 'frequency_mode'],
-  day_override_template_slots: ['day_override_template_id', 'time_block_id', 'activity_id'],
   week_activity_exclusions: ['week_id', 'activity_id'],
   week_group_exclusions: ['week_id', 'group_id'],
   week_location_exclusions: ['week_id', 'location_id'],
@@ -592,7 +588,7 @@ export const mockShoresh = {
       const entityTables = ['activities', 'groups', 'time_blocks', 'days_of_operation', 'tiers']
       const dependentTables = [
         'template_slots', 'template_overlays', 'week_activity_exclusions',
-        'week_group_exclusions', 'week_location_exclusions', 'day_override_template_slots', 'anchor_activities',
+        'week_group_exclusions', 'week_location_exclusions', 'anchor_activities',
       ]
       replaced = { entities: {}, dependents: {} }
       for (const table of dependentTables) {

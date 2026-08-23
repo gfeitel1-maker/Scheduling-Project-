@@ -918,7 +918,7 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
 
   // Not every entity's PROJECTIONS.fields (electron/ops/projections.js)
   // includes a literal 'name' field — days_of_operation uses 'label' and
-  // day_override_template_slots has no name-shaped field at all. Writing an
+  // event_slots has no name-shaped field at all. Writing an
   // unregistered field throws 'field not allowed for entity' before
   // authorize() even matters, which would be a false failure unrelated to
   // this sweep's actual purpose (proving the AUTHORIZATION gate, not the
@@ -932,12 +932,10 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     time_blocks: 'name',
     anchor_activities: 'name',
     schedule_templates: 'name',
-    day_override_templates: 'name',
     schedule_weeks: 'name',
     template_slots: 'activity_id',
     template_overlays: 'label',
     schedule_snapshots: 'name',
-    day_override_template_slots: 'time_block_id',
     // Exclusion rows have no name-shaped field; 'week_id' is the field their
     // projection's ensureExists keys on (electron/ops/projections.js:205-226).
     week_activity_exclusions: 'week_id',
@@ -949,7 +947,7 @@ describe('existing-behavior-preserved: full entity sweep (staff + admin both rea
     week_location_exclusions: 'location_id',
     // T40 slice 1: 'name' is not special_day_time_blocks' parent-key field
     // (special_day_id), so ensureExists no-ops rather than trying to FK-link
-    // to a nonexistent parent — same trick day_override_template_slots uses
+    // to a nonexistent parent — same trick week_location_exclusions uses
     // above. special_day_slots picks 'activity_id', mirroring template_slots'
     // own choice, since its ensureExists needs all three of
     // special_day_id/group_id/time_block_id before it creates anything.
@@ -1522,13 +1520,13 @@ describe('list: generic entity-read IPC', () => {
 })
 
 describe('listByScope: scope-filtered entity-read IPC (C4)', () => {
-  it('rejects day_override_template_slots even though it is in PARENT_SCOPED_ENTITIES (SCOPED_LIST_ENTITIES gate)', async () => {
+  it('rejects event_slots even though it is in PARENT_SCOPED_ENTITIES (SCOPED_LIST_ENTITIES gate)', async () => {
     const handlers = makeHandlers(db, deviceId, {})
     const { campId } = await seedCampAndUser({ name: 'Scoper1', pin: '1234' })
     const { token } = await handlers.login({ name: 'Scoper1', pin: '1234' })
     void campId
 
-    expect(() => handlers.listByScope(token, 'day_override_template_slots', 'anything')).toThrow(
+    expect(() => handlers.listByScope(token, 'event_slots', 'anything')).toThrow(
       'Unrecognized entity'
     )
   })

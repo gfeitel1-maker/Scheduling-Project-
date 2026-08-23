@@ -580,15 +580,14 @@ describe('activity rules resolved at commit (T35)', () => {
 const ALL_TABLES = [
   'operations', 'groups', 'tiers', 'activities', 'cohorts', 'days_of_operation',
   'time_blocks', 'anchor_activities', 'schedule_templates', 'schedule_weeks',
-  'day_override_templates', 'template_slots', 'template_overlays',
-  'schedule_snapshots', 'day_override_template_slots',
+  'template_slots', 'template_overlays',
+  'schedule_snapshots',
   'week_activity_exclusions', 'week_group_exclusions', 'week_location_exclusions',
 ]
 const snapshotCounts = () => Object.fromEntries(ALL_TABLES.map((t) => [t, count(t)]))
 
-// A camp with a real schedule hanging off it: rows in all six dependent
-// tables the teardown has to clear, plus a snapshot (which survives) and a
-// day-override template (whose slots go but whose shell survives).
+// A camp with a real schedule hanging off it: rows in all five dependent
+// tables the teardown has to clear, plus a snapshot (which survives).
 function seedCampWithSchedule() {
   const id = (p) => `${p}-${randomUUID()}`
   const cohortId = 'co-seed'
@@ -622,19 +621,13 @@ function seedCampWithSchedule() {
   db.prepare('INSERT INTO week_location_exclusions (id, week_id, location_id) VALUES (?, ?, ?)')
     .run(id('wlx'), weekId, id('loc'))
 
-  const overrideId = id('dot')
-  db.prepare('INSERT INTO day_override_templates (id, camp_id, cohort_id, name) VALUES (?, ?, ?, ?)')
-    .run(overrideId, campId, cohortId, 'Rainy Day')
-  db.prepare('INSERT INTO day_override_template_slots (id, day_override_template_id, time_block_id, activity_id) VALUES (?, ?, ?, ?)')
-    .run(id('dots'), overrideId, blockId, activityId)
-
   db.prepare('INSERT INTO anchor_activities (id, camp_id, cohort_id, day_id, time_block_id, name) VALUES (?, ?, ?, ?, ?, ?)')
     .run(id('anc'), campId, cohortId, dayId, blockId, 'Mifkad')
 
   db.prepare('INSERT INTO schedule_snapshots (id, template_id, name, created_at, slots, overlays) VALUES (?, ?, ?, ?, ?, ?)')
     .run(id('snap'), templateId, 'Before', new Date().toISOString(), '[]', '[]')
 
-  return { cohortId, tierId, groupId, dayId, blockId, activityId, weekId, templateId, overrideId }
+  return { cohortId, tierId, groupId, dayId, blockId, activityId, weekId, templateId }
 }
 
 describe('replace mode tears the camp down inside the import transaction (T61)', () => {
@@ -653,7 +646,6 @@ describe('replace mode tears the camp down inside the import transaction (T61)',
     expect(count('week_activity_exclusions')).toBe(0)
     expect(count('week_group_exclusions')).toBe(0)
     expect(count('week_location_exclusions')).toBe(0)
-    expect(count('day_override_template_slots')).toBe(0)
     expect(count('anchor_activities')).toBe(0)
 
     // Entities: exactly the new set, none of the old ids.
@@ -668,7 +660,6 @@ describe('replace mode tears the camp down inside the import transaction (T61)',
     // The parents of the cleared dependents survive; only their rows went.
     expect(count('schedule_templates')).toBe(1)
     expect(count('schedule_weeks')).toBe(1)
-    expect(count('day_override_templates')).toBe(1)
     expect(count('schedule_snapshots')).toBe(1)
 
     expect(result.total).toBe(5)
@@ -686,7 +677,7 @@ describe('replace mode tears the camp down inside the import transaction (T61)',
     })
     expect(result.replaced.dependents).toEqual({
       template_slots: 1, template_overlays: 1, week_activity_exclusions: 1,
-      week_group_exclusions: 1, week_location_exclusions: 1, day_override_template_slots: 1, anchor_activities: 1,
+      week_group_exclusions: 1, week_location_exclusions: 1, anchor_activities: 1,
     })
   })
 
@@ -696,9 +687,9 @@ describe('replace mode tears the camp down inside the import transaction (T61)',
       mode: 'replace', approved: {}, camp_id: campId, author_user_id: 'u1', device_id: deviceId,
     })
     const deletes = db.prepare("SELECT entity FROM operations WHERE field = '__deleted__'").all()
-    // 5 entities + 7 dependent rows.
-    expect(deletes.length).toBe(12)
-    expect(new Set(deletes.map((d) => d.entity))).toContain('day_override_template_slots')
+    // 5 entities + 6 dependent rows.
+    expect(deletes.length).toBe(11)
+    expect(new Set(deletes.map((d) => d.entity))).toContain('template_overlays')
   })
 
   it('unhooks weather_alternative_id before deleting activities, including a mutual A→B/B→A pair', () => {

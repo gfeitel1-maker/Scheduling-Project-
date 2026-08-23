@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 45
+export const CURRENT_SCHEMA_VERSION = 46
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -625,12 +625,18 @@ export function initSchema(db) {
     )
   }
 
-  // Sub-plan D Task 0: anchor_activities/day_override_templates/
-  // day_override_template_slots were created with a minimal/inference-only
-  // column set in Sub-plan A. This adds the real columns confirmed by
-  // directly re-reading AnchorsScreen.jsx/DayOverridesScreen.jsx's actual
-  // insert/update payloads — see schema.sql's comments on each table for
+  // Sub-plan D Task 0: anchor_activities was created with a minimal/
+  // inference-only column set in Sub-plan A. This adds the real columns
+  // confirmed by directly re-reading AnchorsScreen.jsx's actual
+  // insert/update payloads — see schema.sql's comments on the table for
   // the full confirmation note.
+  //
+  // This block originally also backfilled day_override_templates/
+  // day_override_template_slots columns — removed in v46 (docs/adr/
+  // 2026-08-23-override-family-model.md §6a) along with the tables
+  // themselves: a pre-v10 device migrating forward now skips straight past
+  // both tables' existence, and v46's DROP TABLE IF EXISTS is a no-op for
+  // it, same end state as a device that already had them.
   if (getSchemaVersion(db) < 16) {
     db.transaction(() => {
       const addColumnIfMissing = (table, name, type) => {
@@ -641,10 +647,6 @@ export function initSchema(db) {
       addColumnIfMissing('anchor_activities', 'time_block_id', 'TEXT')
       addColumnIfMissing('anchor_activities', 'name', 'TEXT')
       addColumnIfMissing('anchor_activities', 'notes', 'TEXT')
-      addColumnIfMissing('day_override_templates', 'cohort_id', 'TEXT')
-      addColumnIfMissing('day_override_templates', 'frequency_mode', 'TEXT')
-      addColumnIfMissing('day_override_template_slots', 'time_block_id', 'TEXT')
-      addColumnIfMissing('day_override_template_slots', 'activity_id', 'TEXT')
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (16, ?)').run(
@@ -1764,6 +1766,27 @@ export function initSchema(db) {
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (45, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v46 — drop the confirmed-dead day_override_templates/
+  // day_override_template_slots pair (docs/adr/2026-08-23-override-family-
+  // model.md §6a; removal trigger set by 2026-08-21-day-overrides-repoint-
+  // shape.md §Q3). No writer ever existed for either table (day_overrides,
+  // schema v38, replaced the mechanism they were built for) — confirmed by
+  // grep across src/ and electron/ before this migration was written. Child
+  // before parent, matching the FK direction
+  // (day_override_template_slots.day_override_template_id REFERENCES
+  // day_override_templates(id)). DDL-only, emits no op, same posture as
+  // v33-v45.
+  if (getSchemaVersion(db) >= 45 && getSchemaVersion(db) < 46) {
+    db.transaction(() => {
+      db.exec('DROP TABLE IF EXISTS day_override_template_slots')
+      db.exec('DROP TABLE IF EXISTS day_override_templates')
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (46, ?)').run(
       new Date().toISOString()
     )
   }

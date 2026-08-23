@@ -27,12 +27,10 @@ export const ENTITIES = [
   'time_blocks',
   'anchor_activities',
   'schedule_templates',
-  'day_override_templates',
   'schedule_weeks',
   'template_slots',
   'template_overlays',
   'schedule_snapshots',
-  'day_override_template_slots',
   'week_activity_exclusions',
   'week_group_exclusions',
   // v32 (INV-3, docs/adr/2026-08-15-camp-locations-entity.md): locations is a

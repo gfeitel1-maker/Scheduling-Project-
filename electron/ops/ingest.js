@@ -67,7 +67,6 @@ const PARENT_SCOPED_DEPENDENTS = Object.freeze([
   'week_activity_exclusions',
   'week_group_exclusions',
   'week_location_exclusions',
-  'day_override_template_slots',
 ])
 
 /**
@@ -158,8 +157,8 @@ export function replaceScope(db, { camp_id, author_user_id = null, device_id, so
 
   // A violation here means the clearing above missed a table, and committing
   // would leave a torn camp. It covers REAL foreign keys only — it says
-  // nothing about the plain-TEXT soft references (day_override_template_slots
-  // .activity_id, template_overlays.unit_id) or the snapshot JSON blobs.
+  // nothing about the plain-TEXT soft references (template_overlays.unit_id)
+  // or the snapshot JSON blobs.
   const violations = db.pragma('foreign_key_check')
   if (violations.length > 0) {
     throw new Error(`ingest: replace left ${violations.length} foreign key violation(s); nothing was imported`)

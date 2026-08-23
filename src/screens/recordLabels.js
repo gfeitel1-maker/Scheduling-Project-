@@ -13,8 +13,8 @@ export const ENTITY_LABEL = {
   days_of_operation: 'Day',
   time_blocks: 'Time block',
   anchor_activities: 'Recurring event',
-  // T108 Phase 2 (design §8) — the entity is `day_overrides` now (the
-  // standalone day_override_templates CRUD table is retired, see D2).
+  // T108 Phase 2 (design §8) — the entity is `day_overrides` now, authored
+  // in place on the schedule grid, not a standalone CRUD screen.
   day_overrides: 'Day override',
   // W1 (docs/work/specs/2026-08-21-vocabulary-unification-design.md) — "Place"
   // and "Resources" are retired; "Location" is the one canonical word.
@@ -24,7 +24,7 @@ export const ENTITY_LABEL = {
 
 export function entityLabel(entity) {
   // T18: the fallback used to render the raw table name — a director would see
-  // "template_slots" or "day_override_template_slots" as a section heading.
+  // "template_slots" or "event_slots" as a section heading.
   // `users` is a real case: deleting a person is covered by the Trash tests.
   return ENTITY_LABEL[entity] ?? 'Record'
 }

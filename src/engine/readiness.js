@@ -26,7 +26,7 @@
 // Every camp gets one called "Main" automatically (src/utils/ensureCohort.js,
 // run from App.jsx on first sight of a camp), and both real databases have
 // exactly that one row. It is a structural necessity — tiers, time_blocks,
-// anchor_activities and day_override_templates all carry a cohort_id — and not
+// and anchor_activities all carry a cohort_id — and not
 // a decision a director has ever had to make.
 //
 // Product owner, 2026-08-01: "hide programs from the sidebar and auto-create
