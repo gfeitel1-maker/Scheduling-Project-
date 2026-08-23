@@ -1,9 +1,11 @@
 ---
 title: "Grid-schedule import — Slice spec (shared parser + events consumer)"
 document_type: spec
-status: planned
+status: implemented
 authority: implementation
 date: 2026-08-22
+created: 2026-08-22
+archive_when: this slice ships (merged/deferred) or the parent ADR is superseded
 governing_docs:
   - docs/adr/2026-08-22-event-schedule-import.md
   - docs/adr/2026-08-22-event-internal-subschedule.md

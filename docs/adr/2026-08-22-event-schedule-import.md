@@ -3,13 +3,9 @@ title: "Grid-schedule import — shared parser, consumer 1 (events) built now"
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: planned
+implementation_state: implemented
 date: 2026-08-22
-approved: 2026-08-22 (owner — pivot away from a global reconciliation-pipeline
-  event detector, to "surface it globally, build it locally": global upload only
-  creates an empty nested-schedule container; a shared parser populates its
-  detail on the container's own screen. This ADR pins the technical model and
-  the shared/consumer split.)
+approved: 2026-08-22 (owner — pivot away from a global reconciliation-pipeline event detector, to "surface it globally, build it locally": global upload only creates an empty nested-schedule container; a shared parser populates its detail on the container's own screen. This ADR pins the technical model and the shared/consumer split.)
 task_class: database-sync
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md, docs/governance/standards/DESIGN_STANDARD.md]
 related_specs:
@@ -18,8 +14,7 @@ related_specs:
   - docs/adr/2026-08-22-nested-schedules-electives-and-events.md
   - docs/adr/2026-08-01-ingesting-a-prior-year-schedule.md
   - docs/work/specs/2026-08-22-event-schedule-import-slices.md
-archive_when: this ADR's Consumer 1 (events) ships, or the shared parser is
-  superseded
+archive_when: this ADR's Consumer 1 (events) ships, or the shared parser is superseded
 ---
 
 # Grid-schedule import — shared parser, consumer 1 (events) built now
