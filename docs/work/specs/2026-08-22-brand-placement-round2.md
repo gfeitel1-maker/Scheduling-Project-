@@ -1,8 +1,12 @@
 ---
 title: Brand Placement Round 2 — Onboarding Chrome + Empty States (W12b)
-document_type: design_spec
-status: ready-for-maker
+document_type: spec
+status: implemented
+created: 2026-08-22
 owner_approved: 2026-08-22
+archive_when: the onboarding + empty-state brand placements ship, or W12's placement philosophy is superseded
+governing_docs: [docs/governance/standards/DESIGN_STANDARD.md]
+parent_spec: [docs/work/specs/camp-setup-ingestion-program.md]
 scope: onboarding/first-run chrome + empty states only. Populated Operate screens (Roots/Schedule/Setup) stay art-free.
 ---
 
