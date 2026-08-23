@@ -2,15 +2,17 @@
 //
 // Migration v42 — recurrence-axis storage on anchor_activities (unified-
 // schedule-overlay Slice 1, docs/work/specs/2026-08-23-unified-schedule-
-// overlay-slices.md). Adds two nullable-additive columns,
-// `schedule_week_id TEXT REFERENCES schedule_weeks(id)` and
-// `recurrence_level TEXT`, to the existing anchor_activities table (v17).
-// NULL preserves today's implicit meaning exactly: schedule_week_id NULL =
-// all-weeks, recurrence_level NULL = unspecified/daily-inferred — no
-// behavior change for anything created before this migration. Storage +
-// projection only in this slice: no UI, no engine use. Mirrors
-// electron/db/electivesDurability.migration.test.js's fresh-vs-migrated
-// shape for an ALTER-added column pair.
+// overlay-slices.md). Adds two additive columns,
+// `schedule_week_id TEXT REFERENCES schedule_weeks(id)` (nullable) and
+// `recurrence_level TEXT NOT NULL DEFAULT 'daily'`, to the existing
+// anchor_activities table (v17). schedule_week_id NULL preserves today's
+// implicit meaning exactly (all-weeks). recurrence_level's DEFAULT 'daily'
+// labels every pre-existing anchor concretely (they ARE daily-recurring) —
+// SQLite's ADD COLUMN ... NOT NULL DEFAULT populates existing rows for free,
+// so this is still zero backfill logic — no behavior change for anything
+// created before this migration. Storage + projection only in this slice: no
+// UI, no engine use. Mirrors electron/db/electivesDurability.migration.test.js's
+// fresh-vs-migrated shape for an ALTER-added column pair.
 import { describe, it, expect, afterEach } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -120,14 +122,14 @@ describe('migration v42: fresh vs migrated equivalence', () => {
     db.close()
   })
 
-  it('no backfill — every existing anchor reads NULL for both new columns', () => {
+  it('no backfill logic — schedule_week_id stays NULL, recurrence_level reads the DEFAULT for every existing anchor', () => {
     const db = preV42Db()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('camp1', 'Camp', 'sec')").run()
     db.prepare("INSERT INTO anchor_activities (id, camp_id, name) VALUES ('a1', 'camp1', 'Flag Raising')").run()
     initSchema(db)
     const row = db.prepare('SELECT schedule_week_id, recurrence_level FROM anchor_activities WHERE id = ?').get('a1')
     expect(row.schedule_week_id).toBeNull()
-    expect(row.recurrence_level).toBeNull()
+    expect(row.recurrence_level).toBe('daily')
     // No op was written for the migration — a DDL-only change, matching v35/v36's posture.
     expect(
       db.prepare(
@@ -161,7 +163,9 @@ describe('migration v42: fresh vs migrated equivalence', () => {
     const schemaText = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
     const match = schemaText.match(/CREATE TABLE IF NOT EXISTS anchor_activities \([\s\S]*?\n\);/)
     expect(match, 'expected an anchor_activities CREATE TABLE block in schema.sql').toBeTruthy()
-    expect(match[0]).toContain('notes TEXT,\n  schedule_week_id TEXT REFERENCES schedule_weeks(id),\n  recurrence_level TEXT\n);')
+    expect(match[0]).toContain(
+      "notes TEXT,\n  schedule_week_id TEXT REFERENCES schedule_weeks(id),\n  recurrence_level TEXT NOT NULL DEFAULT 'daily'\n);"
+    )
   })
 })
 

@@ -131,6 +131,8 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'week_location_exclusions', column: 'week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
   // T108 Phase 2 review round 3.
   { table: 'day_overrides', column: 'schedule_week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
+  // v42 (docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md Slice 1):
+  { table: 'anchor_activities', column: 'schedule_week_id', reason: 'optional binding to schedule_weeks, not a U2-deletable entity — mirrors day_overrides.schedule_week_id' },
   { table: 'audit_events', column: 'actor_user_id', reason: 'points at users, not a U2-deletable entity' },
   { table: 'audit_events', column: 'device_id', reason: 'points at devices, not a U2-deletable entity' },
   { table: 'migration_v24_repoint_log', column: 'row_id', reason: 'historical migration journal row key, not an entity pointer' },

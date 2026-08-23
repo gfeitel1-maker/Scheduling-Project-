@@ -9,6 +9,8 @@ import { appendOp, DELETE_FIELD } from './operations.js'
 // delete could execute against a count the director was shown earlier.
 //
 // Cascade order per spec §4.1 — load-bearing, do not reorder:
+//   0. anchor_activities.schedule_week_id (real FK → schedule_weeks; NULL the
+//      binding, don't delete the anchor — see the anchor-binding comment below)
 //   1. schedule_snapshots      (real FK → schedule_templates)
 //   2. template_overlays       (real FK → schedule_templates)
 //   3. template_slots          (no FK — orphans must be cleaned explicitly)
@@ -45,6 +47,30 @@ export function deleteWeek(db, { weekId, campId }, { author_user_id, device_id }
 
   const outcome = db.transaction(() => {
     const ops = []
+
+    // Step 0: anchor_activities.schedule_week_id carries a real DB-level FK
+    // (schema.sql: schedule_week_id TEXT REFERENCES schedule_weeks(id)), so
+    // deleting the week without addressing it would throw a FOREIGN KEY
+    // constraint failed (the v11-migration bug class). Anchors are NOT
+    // week-owned — schedule_week_id is an optional scoping binding, NULL =
+    // all-weeks — so the correct cascade is to NULL the binding, not delete
+    // the anchor. Routed through appendOp/the anchor_activities projection
+    // (not a raw SQL UPDATE) so the change replicates across devices.
+    const boundAnchors = db
+      .prepare('SELECT id FROM anchor_activities WHERE schedule_week_id = ?')
+      .all(weekId)
+    for (const a of boundAnchors) {
+      ops.push(
+        appendOp(db, {
+          entity: 'anchor_activities',
+          entity_id: a.id,
+          field: 'schedule_week_id',
+          value: null,
+          author_user_id,
+          device_id,
+        })
+      )
+    }
 
     const templates = db
       .prepare('SELECT id FROM schedule_templates WHERE week_id = ?')

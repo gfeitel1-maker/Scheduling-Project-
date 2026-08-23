@@ -1658,11 +1658,13 @@ export function initSchema(db) {
 
   // v42 — recurrence-axis storage on anchor_activities (unified-schedule-
   // overlay Slice 1, docs/work/specs/2026-08-23-unified-schedule-overlay-
-  // slices.md). Two nullable-additive columns, no backfill: NULL preserves
-  // today's implicit meaning exactly (schedule_week_id NULL = all-weeks,
-  // recurrence_level NULL = unspecified/daily-inferred). Storage + projection
-  // only — no UI, no engine use in this slice. No DDL-time side effect, so
-  // this block emits no op, same posture as v33-v41.
+  // slices.md). Two additive columns, no backfill logic needed:
+  // schedule_week_id NULL preserves today's implicit meaning exactly
+  // (all-weeks). recurrence_level is NOT NULL DEFAULT 'daily' — every
+  // existing anchor IS daily-recurring, and SQLite's ADD COLUMN ... NOT NULL
+  // DEFAULT 'daily' populates every existing row with that value for free.
+  // Storage + projection only — no UI, no engine use in this slice. No
+  // DDL-time side effect, so this block emits no op, same posture as v33-v41.
   if (getSchemaVersion(db) >= 41 && getSchemaVersion(db) < 42) {
     db.transaction(() => {
       const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
@@ -1670,7 +1672,7 @@ export function initSchema(db) {
         db.exec('ALTER TABLE anchor_activities ADD COLUMN schedule_week_id TEXT')
       }
       if (!cols.includes('recurrence_level')) {
-        db.exec('ALTER TABLE anchor_activities ADD COLUMN recurrence_level TEXT')
+        db.exec("ALTER TABLE anchor_activities ADD COLUMN recurrence_level TEXT NOT NULL DEFAULT 'daily'")
       }
     })()
 

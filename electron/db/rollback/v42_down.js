@@ -12,11 +12,13 @@
 //      schema-only rollback does not undo. A build still referencing these
 //      columns in the registries would throw on the next write (column
 //      doesn't exist), the correct failure mode.
-//   3. No backfill to undo: v42 had none (every existing anchor keeps NULL
-//      for both columns, preserving today's implicit all-weeks/daily-
-//      inferred meaning), so the worst case on drop is losing any
-//      week-binding or recurrence level a director had already set on an
-//      anchor — its full op-log history survives in `operations` regardless.
+//   3. schedule_week_id has no backfill to undo (every existing anchor keeps
+//      NULL, preserving today's implicit all-weeks meaning). recurrence_level
+//      DOES carry a DEFAULT ('daily'), so every existing anchor reads
+//      'daily' after v42 — dropping the column loses that label along with
+//      any explicit recurrence level a director had already set. Either way
+//      the worst case is losing a week-binding or recurrence level; the full
+//      op-log history survives in `operations` regardless.
 //
 // Usage:  node electron/db/rollback/v42_down.js <path-to-shoresh.sqlite>
 
