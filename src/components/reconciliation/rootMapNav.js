@@ -33,7 +33,12 @@ export const CHILD_SCREEN = {
   // its own resolved `targetScreen` (manual vs. generated) that
   // RootMapPanel prefers when present; this is the "Open in..." button's
   // generic fallback.
-  'Field Trips / Special Events': 'schedule:manual',
+  // docs/work/specs/2026-08-23-schedule-build-ia.md — building a special
+  // day/event's grid now lives under Schedule → Special Schedules, not
+  // Manual Build. This is only the destination fix for the existing node;
+  // the RootMap domains/labels themselves (renaming 'Context', regrouping
+  // to events/special-days/electives) are a separate, later slice.
+  'Field Trips / Special Events': 'schedule:special',
   // T108 Phase 2 review round 2 (MED/HIGH #4) — 'Day Overrides' removed: the
   // node it pointed at (rootMapModel.js's Context child) is gone too, and
   // there is no App.jsx SCREENS entry for it any more (overrides are
@@ -53,6 +58,7 @@ export const SCREEN_LABEL = {
   days: 'Days',
   'schedule:manual': 'Schedule',
   'schedule:generated': 'Schedule',
+  'schedule:special': 'Special Schedules',
 }
 
 // Resolves a node selection ({ domainKey, childKey? }) to a screen key, or

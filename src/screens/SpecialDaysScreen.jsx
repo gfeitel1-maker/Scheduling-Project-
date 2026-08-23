@@ -13,7 +13,6 @@ import { localClient } from '../localClient'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { S, useEnterTransition } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
-import SpecialDayGridEditor from './specialDay/SpecialDayGridEditor'
 import { seedFailureMessage } from './specialDay/seedFailureMessage'
 import uiCalendar from '../assets/brand/icons/ui-calendar.png'
 
@@ -28,7 +27,10 @@ const LABELS = {
   deleteConfirmBody: (blocks, slots) =>
     `This special day and its ${blocks} time block${blocks === 1 ? '' : 's'} and ${slots} filled slot${slots === 1 ? '' : 's'} will be removed.`,
   deleteRecovery: (name) => `"${name}" goes to Trash, and you can put it back from there.`,
-  deletedElsewhere: 'This special day was deleted.',
+  // docs/work/specs/2026-08-23-schedule-build-ia.md "the seam, precisely" —
+  // creating a day no longer auto-forwards into the grid (OQ2, owner-resolved
+  // 2026-08-23); a quiet hint points at where building now lives instead.
+  createdHint: (name) => `"${name}" created — build it from Special Schedules under Schedule.`,
 }
 
 async function writeField(entity, id, field, value) {
@@ -40,7 +42,7 @@ async function writeField(entity, id, field, value) {
   return result
 }
 
-export default function SpecialDaysScreen({ campId, role }) {
+export default function SpecialDaysScreen({ campId, role, onNavigate }) {
   const [days, setDays] = useState([])
   const [timeBlocks, setTimeBlocks] = useState([])
   const [slots, setSlots] = useState([])
@@ -52,7 +54,6 @@ export default function SpecialDaysScreen({ campId, role }) {
   const [seedPromptForId, setSeedPromptForId] = useState(null)
   const [pendingDelete, setPendingDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
-  const [openId, setOpenId] = useState(null)
   const [toast, setToast] = useState(null)
   const enterStyle = useEnterTransition('liftFade')
 
@@ -113,18 +114,18 @@ export default function SpecialDaysScreen({ campId, role }) {
         if (b.end_time) await writeField('special_day_time_blocks', newId, 'end_time', b.end_time)
         seededCount += 1
       }
+      setToast(LABELS.createdHint(days.find((d) => d.id === specialDayId)?.name ?? 'Special Day'))
     } catch (err) {
       setError(describeWriteFailure(err, seedFailureMessage(seededCount, totalCount)))
     } finally {
       setSeedPromptForId(null)
-      setOpenId(specialDayId)
       await load()
     }
   }
 
   function startEmpty(specialDayId) {
     setSeedPromptForId(null)
-    setOpenId(specialDayId)
+    setToast(LABELS.createdHint(days.find((d) => d.id === specialDayId)?.name ?? 'Special Day'))
   }
 
   function requestDelete(day) {
@@ -152,21 +153,6 @@ export default function SpecialDaysScreen({ campId, role }) {
   }
   function slotsFor(dayId) {
     return slots.filter((s) => s.special_day_id === dayId)
-  }
-
-  if (openId) {
-    return (
-      <SpecialDayGridEditor
-        campId={campId}
-        specialDayId={openId}
-        onBack={() => { setOpenId(null); load() }}
-        onDeletedElsewhere={() => {
-          setOpenId(null)
-          setToast(LABELS.deletedElsewhere)
-          load()
-        }}
-      />
-    )
   }
 
   return (
@@ -240,7 +226,7 @@ export default function SpecialDaysScreen({ campId, role }) {
                         {filled} / {total} cells filled
                       </td>
                       <td style={{ ...S.td, textAlign: 'right' }}>
-                        <button className="press-97" onClick={() => setOpenId(d.id)} style={S.btnSecondary}>Open</button>
+                        <button className="press-97" onClick={() => onNavigate?.('schedule:special', { specialDayId: d.id })} style={S.btnSecondary}>Open</button>
                         <button
                           onClick={() => requestDelete(d)}
                           disabled={role !== 'admin'}

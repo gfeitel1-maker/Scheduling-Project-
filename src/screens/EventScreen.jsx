@@ -10,15 +10,18 @@
 //
 // Slice 2 (docs/adr/2026-08-22-event-internal-subschedule.md;
 // docs/work/specs/2026-08-22-event-internal-subschedule-slices.md Step 4)
-// adds the internal sub-schedule section below, opening EventGridEditor —
-// replacing the "simply absent" posture with the real editor.
+// added an internal sub-schedule section that opened EventGridEditor
+// directly from here. docs/work/specs/2026-08-23-schedule-build-ia.md
+// removed that button: building an event's grid now lives only under
+// Schedule → Special Schedules (SpecialSchedulesScreen); this screen keeps
+// authoring (name/notes/location) and the read-only PlacementSummary, plus a
+// quiet link that navigates to the new build entry.
 import { useState, useRef, useEffect } from 'react'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S, useEnterTransition } from '../styles/shared'
 import { LocationPicker } from '../components/LocationPicker'
-import EventGridEditor from './event/EventGridEditor'
 import uiCalendar from '../assets/brand/icons/ui-calendar.png'
 
 const repository = createSetupCrudRepository({ localClient })
@@ -98,24 +101,12 @@ function PlacementSummary({ eventId, placements, groups, days, timeBlocks }) {
   )
 }
 
-function EventDetail({ event, role, placements, groups, days, timeBlocks, locations, campId, onBack, onSave, onCreateLocation, onUpdateLocationCapacity }) {
+function EventDetail({ event, role, placements, groups, days, timeBlocks, locations, onBack, onSave, onCreateLocation, onUpdateLocationCapacity, onNavigate }) {
   const [name, setName] = useState(event.name)
   const [notes, setNotes] = useState(event.notes ?? '')
   const [locationId, setLocationId] = useState(event.location_id ?? null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
-  const [editingSchedule, setEditingSchedule] = useState(false)
-
-  if (editingSchedule) {
-    return (
-      <EventGridEditor
-        campId={campId}
-        eventId={event.id}
-        onBack={() => setEditingSchedule(false)}
-        onDeletedElsewhere={onBack}
-      />
-    )
-  }
 
   async function commit(fields) {
     setSaving(true)
@@ -179,24 +170,26 @@ function EventDetail({ event, role, placements, groups, days, timeBlocks, locati
         <PlacementSummary eventId={event.id} placements={placements} groups={groups} days={days} timeBlocks={timeBlocks} />
       </div>
 
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', marginTop: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Internal schedule
-          </div>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>
-            This event's own grid — stations, groups, and time blocks, independent of the campwide schedule.
-          </div>
-        </div>
-        <button className="press-97" onClick={() => setEditingSchedule(true)} style={S.btnPrimary}>
-          Open schedule
+      <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 16 }}>
+        <button
+          className="press-97"
+          onClick={() => onNavigate?.('schedule:special', { buildEventId: event.id })}
+          style={linkButtonStyle}
+        >
+          Build this event's schedule from Special Schedules
         </button>
       </div>
     </div>
   )
 }
 
-export default function EventScreen({ campId, role, initialEventId = null }) {
+const linkButtonStyle = {
+  background: 'none', border: 'none', padding: 0, color: 'var(--primary)',
+  fontWeight: 600, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+  textDecoration: 'underline',
+}
+
+export default function EventScreen({ campId, role, initialEventId = null, onNavigate }) {
   const { rows: events, loading, error, add, save, adding } = useCrudScreen({
     entity: 'events',
     campId,
@@ -282,11 +275,11 @@ export default function EventScreen({ campId, role, initialEventId = null }) {
         days={supportData.days}
         timeBlocks={supportData.timeBlocks}
         locations={supportData.locations}
-        campId={campId}
         onBack={() => setSelectedEventId(null)}
         onSave={save}
         onCreateLocation={createLocation}
         onUpdateLocationCapacity={updateLocationCapacity}
+        onNavigate={onNavigate}
       />
     )
   }

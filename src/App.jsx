@@ -19,6 +19,7 @@ import EventScreen from './screens/EventScreen'
 import DaysScreen from './screens/DaysScreen'
 import CohortsScreen from './screens/CohortsScreen'
 import SpecialDaysScreen from './screens/SpecialDaysScreen'
+import SpecialSchedulesScreen from './screens/SpecialSchedulesScreen'
 import ScheduleScreen from './screens/ScheduleScreen'
 import ConflictsScreen from './screens/ConflictsScreen'
 import TrashScreen from './screens/TrashScreen'
@@ -68,6 +69,10 @@ const SCREENS = {
   schedule:               ScheduleScreen,
   'schedule:manual':      ScheduleScreen,
   'schedule:generated':   ScheduleScreen,
+  // The Schedule-side build entry (docs/work/specs/2026-08-23-schedule-
+  // build-ia.md) — a picker, not a route, so it is deliberately absent from
+  // SCHEDULE_ROUTE_BY_SCREEN below.
+  'schedule:special':     SpecialSchedulesScreen,
   devices:      DeviceManagerScreen,
 }
 
@@ -108,6 +113,12 @@ export function AppShell({ campId, role, mode, onLogout }) {
   // EventScreen to open focused on, carried the same way electiveFocusSetId
   // carries the elective drill-in target.
   const [eventFocusId, setEventFocusId] = useState(null)
+  // Schedule-side build entry (docs/work/specs/2026-08-23-schedule-build-ia.md,
+  // "the seam, precisely") — SpecialDaysScreen's "Open" row action and
+  // EventScreen's "Build this event's schedule" link both navigate here with
+  // a pre-selection, carried the same way electiveFocusSetId/eventFocusId
+  // carry their own drill-in targets. `{ type: 'day'|'event', id }`.
+  const [specialScheduleFocus, setSpecialScheduleFocus] = useState(null)
   // Every in-session navigation goes through this: it clears the carried
   // import outcome the moment the director leaves Roots, so the post-import
   // banner belongs to the landing, not to every later visit. Clearing at the
@@ -123,6 +134,9 @@ export function AppShell({ campId, role, mode, onLogout }) {
     if (opts?.electiveSetId) setElectiveFocusSetId(opts.electiveSetId)
     if (target !== 'events') setEventFocusId(null)
     if (opts?.eventId) setEventFocusId(opts.eventId)
+    if (target !== 'schedule:special') setSpecialScheduleFocus(null)
+    if (opts?.specialDayId) setSpecialScheduleFocus({ type: 'day', id: opts.specialDayId })
+    if (opts?.buildEventId) setSpecialScheduleFocus({ type: 'event', id: opts.buildEventId })
     setScreen(next)
   }
   // Single instance of the pending-conflicts source for this whole shell —
@@ -216,6 +230,7 @@ export function AppShell({ campId, role, mode, onLogout }) {
         // Slice 2 — the set id a schedule cell's drill-in wants focused.
         ...(resolvedScreen === 'electives' ? { initialElectiveSetId: electiveFocusSetId } : {}),
         ...(resolvedScreen === 'events' ? { initialEventId: eventFocusId } : {}),
+        ...(resolvedScreen === 'schedule:special' ? { initialSelection: specialScheduleFocus } : {}),
       }
 
   return (
