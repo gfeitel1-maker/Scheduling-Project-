@@ -1083,10 +1083,13 @@ describe('import evidence persistence (B4)', () => {
     const anchorId = db.prepare('SELECT id FROM anchor_activities WHERE name = ?').get('Mifkad').id
 
     const activityEvidence = listImportEvidence(db, campId, { entity_type: 'activities', entity_id: activityId })
-    expect(activityEvidence.map((r) => r.field).sort()).toEqual(['eligible_group_names', 'min_per_week'])
-    expect(activityEvidence[0].tag).toBe('inferred')
-    expect(activityEvidence[0].confidence).toBe('high')
-    expect(activityEvidence.every((r) => r.support.matched_groups)).toBe(true)
+    // recurrence_truth_status='obligation' (min_per_week rule, Swim is not
+    // the fixed-event name here — Mifkad is) also gets an evidence row.
+    expect(activityEvidence.map((r) => r.field).sort()).toEqual(['eligible_group_names', 'min_per_week', 'recurrence_truth_status'])
+    const ruleEvidence = activityEvidence.filter((r) => r.field !== 'recurrence_truth_status')
+    expect(ruleEvidence[0].tag).toBe('inferred')
+    expect(ruleEvidence[0].confidence).toBe('high')
+    expect(ruleEvidence.every((r) => r.support.matched_groups)).toBe(true)
 
     const anchorEvidence = listImportEvidence(db, campId, { entity_type: 'anchor_activities', entity_id: anchorId })
     expect(anchorEvidence.map((r) => r.field).sort()).toEqual(['days', 'scope'])
@@ -1107,7 +1110,9 @@ describe('import evidence persistence (B4)', () => {
     })
     const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Swim').id
     const first = listImportEvidence(db, campId, { entity_type: 'activities', entity_id: activityId })
-    expect(first.map((r) => r.field).sort()).toEqual(['eligible_group_names', 'min_per_week'])
+    // recurrence_truth_status='obligation' (min_per_week rule, no fixed-event
+    // pin) also gets an evidence row at create time (ADR §3.2/§3.4/§4.1).
+    expect(first.map((r) => r.field).sort()).toEqual(['eligible_group_names', 'min_per_week', 'recurrence_truth_status'])
     const firstRunId = first[0].import_run_id
 
     // Re-import: the same activity is recognized (unchanged/update) against
@@ -1125,8 +1130,10 @@ describe('import evidence persistence (B4)', () => {
     expect(result.held).toBe(false)
 
     const second = evidenceRows('activities')
-    // Still exactly one row PER FIELD — latest-wins, not append-only.
-    expect(second).toHaveLength(2)
+    // eligible_group_names/min_per_week upsert in place (still one row per
+    // key); recurrence_truth_status is create-only and untouched by the
+    // update path, so its row from the first commit persists unchanged.
+    expect(second).toHaveLength(3)
     const eligibleRow = second.find((r) => r.field === 'eligible_group_names')
     expect(JSON.parse(eligibleRow.support).appearances).toBe(9)
     expect(eligibleRow.import_run_id).not.toBe(firstRunId)
@@ -1150,8 +1157,10 @@ describe('import evidence persistence (B4)', () => {
     expect(db.prepare('SELECT min_per_week FROM activities WHERE id = ?').get(activityId).min_per_week).toBe(1)
     const first = evidenceRows('activities')
     // eligible_group_names + min_per_week (writeActivityEvidence) + priority
-    // (2026-08-20 ADR: never given in this rule, so tagged 'unknown').
-    expect(first).toHaveLength(3)
+    // (2026-08-20 ADR: never given in this rule, so tagged 'unknown') +
+    // recurrence_truth_status ('obligation' — min_per_week rule, no
+    // fixed-event pin, create-only).
+    expect(first).toHaveLength(4)
     const firstRunId = first[0].import_run_id
 
     // Re-import: no fields proposed (no min_per_week in activityRules, so
@@ -1174,8 +1183,8 @@ describe('import evidence persistence (B4)', () => {
     // Still one row per field — upserted, not appended. The re-import's own
     // rule never mentions priority, but priority evidence is only written
     // from commitCreate, so this re-import (an update/clear, not a create)
-    // leaves the earlier priority row untouched.
-    expect(second).toHaveLength(3)
+    // leaves the earlier priority AND recurrence_truth_status rows untouched.
+    expect(second).toHaveLength(4)
     const eligibleRow = second.find((r) => r.field === 'eligible_group_names')
     expect(JSON.parse(eligibleRow.support).appearances).toBe(7)
     expect(eligibleRow.import_run_id).not.toBe(firstRunId)
@@ -1223,15 +1232,18 @@ describe('import evidence persistence (B4)', () => {
     const activityId = db.prepare('SELECT id FROM activities WHERE name = ?').get('Drama').id
     const rows = listImportEvidence(db, campId, { entity_type: 'activities', entity_id: activityId })
     // eligible_group_names + min_per_week (writeActivityEvidence) + priority
-    // (2026-08-20 ADR: never given in this rule, so tagged 'unknown').
-    expect(rows).toHaveLength(3)
-    for (const row of rows.filter((r) => r.field !== 'priority')) {
+    // (2026-08-20 ADR: never given in this rule, so tagged 'unknown') +
+    // recurrence_truth_status ('obligation' — min_per_week rule present).
+    expect(rows).toHaveLength(4)
+    for (const row of rows.filter((r) => r.field !== 'priority' && r.field !== 'recurrence_truth_status')) {
       expect(row.support).toEqual({ matched_groups: [], appearances: 3, eligible_group_count: 0 })
       expect(row.confidence).toBe('low') // eligibility_known:false -> honestly low
     }
     const priorityRow = rows.find((r) => r.field === 'priority')
     expect(priorityRow.tag).toBe('unknown')
     expect(priorityRow.confidence).toBe('low')
+    const truthStatusRow = rows.find((r) => r.field === 'recurrence_truth_status')
+    expect(truthStatusRow.tag).toBe('inferred')
   })
 })
 
@@ -1542,5 +1554,136 @@ describe('confirmedElectiveSets (Slice 3a)', () => {
     expect(result.electiveSetsCreated).toEqual([])
     expect(result.electiveSetsFailed).toHaveLength(1)
     expect(result.electiveSetsFailed[0].name).toBe('Chugim')
+  })
+})
+
+// docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md §3.2/§3.4/§4.1.
+// The classifier write of activities.recurrence_truth_status at ingest
+// commit. Column already exists (v44, PR #162) — this is populating it.
+describe('recurrence_truth_status classifier write at ingest commit', () => {
+  it('a fixed-event activity commits asserted', () => {
+    commitIngest(db, {
+      approved: { activities: ['Mifkad'] },
+      fixedEvents: [{
+        name: 'Mifkad', time_block: '09:00-09:30', days: ['Monday'],
+        scope: { is_all_groups: true, groups: null },
+      }],
+      camp_id: campId, device_id: deviceId,
+    })
+    const row = db.prepare('SELECT id, recurrence_truth_status FROM activities WHERE name = ?').get('Mifkad')
+    expect(row.recurrence_truth_status).toBe('asserted')
+    const evidence = listImportEvidence(db, campId, { entity_type: 'activities', entity_id: row.id })
+      .find((r) => r.field === 'recurrence_truth_status')
+    expect(evidence.tag).toBe('observed')
+  })
+
+  it('an activity with a min_per_week rule and no fixed-event pin commits obligation', () => {
+    commitIngest(db, {
+      approved: { activities: ['Swim'] },
+      activityRules: {
+        Swim: { eligible_group_names: null, min_per_week: 2, max_per_week: 3, priority: 'high' },
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+    const row = db.prepare('SELECT id, recurrence_truth_status FROM activities WHERE name = ?').get('Swim')
+    expect(row.recurrence_truth_status).toBe('obligation')
+    const evidence = listImportEvidence(db, campId, { entity_type: 'activities', entity_id: row.id })
+      .find((r) => r.field === 'recurrence_truth_status')
+    expect(evidence.tag).toBe('inferred')
+  })
+
+  // Red Hat HIGH #1: permission-tier classification is intentionally NOT
+  // wired into commitIngest. confirmedElectiveSets carries elective_sets.name
+  // (the PERIOD/SET name, e.g. "Chugim" — reconciliationTriage.js:116,
+  // commitElectiveCandidates above), never an activity name, so it cannot be
+  // compared against an activity name to decide elective membership. The
+  // real signal is elective_set_activities (activity_id rows), populated
+  // only by the separate elective-sheet import (src/ingest/electiveSetPopulate.js)
+  // — ingest.js never writes that table (see the comment above
+  // commitElectiveCandidates). This path always classifies with
+  // isElective:false (see classifyTruthStatus in commitPlan); a director
+  // confirming an elective sheet through THAT other import path is where
+  // 'permission' gets written, a documented follow-up, not built here. The
+  // pure helper's permission branch (src/ingest/truthStatus.test.js) stays
+  // correct and ready for that future caller.
+  it('an activity name that happens to equal a confirmed elective SET name does NOT commit permission via ingest', () => {
+    commitIngest(db, {
+      approved: { activities: ['Chugim'] },
+      confirmedElectiveSets: [{ name: 'Chugim' }],
+      camp_id: campId, device_id: deviceId,
+    })
+    const row = db.prepare('SELECT recurrence_truth_status FROM activities WHERE name = ?').get('Chugim')
+    expect(row.recurrence_truth_status).toBeNull()
+  })
+
+  it('a dual-use activity (fixed AND min_per_week) commits NULL, with no evidence row for the field', () => {
+    commitIngest(db, {
+      approved: { activities: ['Swim'] },
+      fixedEvents: [{
+        name: 'Swim', time_block: '09:00-09:30', days: ['Monday'],
+        scope: { is_all_groups: true, groups: null },
+      }],
+      activityRules: {
+        Swim: { eligible_group_names: null, min_per_week: 2, max_per_week: 3, priority: 'high' },
+      },
+      camp_id: campId, device_id: deviceId,
+    })
+    const row = db.prepare('SELECT id, recurrence_truth_status FROM activities WHERE name = ?').get('Swim')
+    expect(row.recurrence_truth_status).toBeNull()
+    const evidence = listImportEvidence(db, campId, { entity_type: 'activities', entity_id: row.id })
+      .find((r) => r.field === 'recurrence_truth_status')
+    expect(evidence).toBeUndefined()
+  })
+
+  it('an activity with neither signal commits NULL, unclassified', () => {
+    commitIngest(db, {
+      approved: { activities: ['Drama'] },
+      camp_id: campId, device_id: deviceId,
+    })
+    const row = db.prepare('SELECT recurrence_truth_status FROM activities WHERE name = ?').get('Drama')
+    expect(row.recurrence_truth_status).toBeNull()
+  })
+
+  // This exercises specifically the CREATE-path seed-guard (commitCreate's
+  // `fields.recurrence_truth_status === undefined` check): when the approved
+  // record's own `fields` already carries a value for a brand-new row, the
+  // classifier must not overwrite it before the row is even minted. There is
+  // no update-path counterpart to this test: classification is create-only
+  // by design (owner decision 2026-08-23, electron/ops/ingest.js's comment
+  // above the classifier block) — a re-imported/recognized activity is never
+  // reclassified, so there is nothing on that path for a director's edit to
+  // need protecting from. Constructs the plan item directly (commitPlan, not
+  // commitIngest) — same pattern the "held commit" test above uses —
+  // because buildPlan's own field list does not yet expose a director-
+  // editable recurrence_truth_status UI (out of scope for this slice); this
+  // proves the write-path guard, independent of that UI.
+  it('a director hand-set recurrence_truth_status on a NEW activity survives the create-path seed-guard', () => {
+    const plan = {
+      plan_version: 1, camp_id: campId, cohort_id: null, base_generation: 0, mode: 'add',
+      fixedEvents: [{
+        name: 'Swim', time_block: '09:00-09:30', days: ['Monday'],
+        scope: { is_all_groups: true, groups: null },
+      }],
+      items: [
+        {
+          op: 'create', entity: 'activities', entity_id: null,
+          fields: {
+            name: { from: null, to: 'Swim', source: 'import' },
+            // Director hand-picked 'obligation' in preview, overriding what
+            // the classifier would otherwise compute for a fixed-event name
+            // (asserted) — item.fields already carries the value BEFORE the
+            // classifier block runs, so its `fields.recurrence_truth_status
+            // === undefined` guard must see it as already set.
+            recurrence_truth_status: { from: null, to: 'obligation', source: 'import' },
+          },
+          evidence: { tier: 'new' }, _name: 'Swim', _humanFields: ['recurrence_truth_status'],
+          _rule: null,
+        },
+      ],
+    }
+    const result = commitPlan(db, plan, { device_id: deviceId })
+    expect(result.held).toBe(false)
+    const row = db.prepare('SELECT recurrence_truth_status FROM activities WHERE name = ?').get('Swim')
+    expect(row.recurrence_truth_status).toBe('obligation')
   })
 })
