@@ -101,6 +101,45 @@ describe('inferActivityRules', () => {
   // activity just never matched) must be distinguishable from a confident
   // "this is universal" judgement — both produce eligible_group_names: null,
   // but only one is actually an inference the director should trust.
+  // Classifier-sequencing fix (docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md
+  // §4.1/§6 step 3): a name already classified as a pinned (non-dual-use)
+  // Asserted fixed event must not also receive a spurious Obligation rule.
+  describe('excludeNames', () => {
+    it('emits no rule for a name in excludeNames', () => {
+      const allGroups = ['A', 'B', 'C']
+      const activityPages = { lunch: allGroups }
+      const counts = seenCounts({ Lunch: 5 }, { lunch: 1 })
+      const rules = inferActivityRules(['Lunch'], activityPages, counts, 5, allGroups, ['Lunch'])
+      expect(rules.has('Lunch')).toBe(false)
+    })
+
+    it('a name NOT in excludeNames still receives its normal rule', () => {
+      const allGroups = ['A', 'B', 'C']
+      const activityPages = { swim: ['A', 'B', 'C'] }
+      const counts = seenCounts({ Swim: 12 }, { swim: 1 })
+      const rules = inferActivityRules(['Swim', 'Lunch'], activityPages, counts, 4, allGroups, ['Lunch'])
+      expect(rules.has('Swim')).toBe(true)
+      expect(rules.get('Swim').min_per_week).toBe(1)
+    })
+
+    it('excludeNames matching is normalized the same as internal keying', () => {
+      const allGroups = ['A', 'B', 'C']
+      const activityPages = { lunch: allGroups }
+      const counts = seenCounts({ Lunch: 5 }, { lunch: 1 })
+      const rules = inferActivityRules(['Lunch'], activityPages, counts, 5, allGroups, ['  LUNCH  '])
+      expect(rules.has('Lunch')).toBe(false)
+    })
+
+    it('empty/omitted excludeNames leaves behavior unchanged (backward compat)', () => {
+      const allGroups = ['A', 'B', 'C']
+      const activityPages = { swim: allGroups }
+      const counts = seenCounts({ Swim: 12 }, { swim: 1 })
+      const withDefault = inferActivityRules(['Swim'], activityPages, counts, 4, allGroups)
+      const withEmpty = inferActivityRules(['Swim'], activityPages, counts, 4, allGroups, [])
+      expect(withDefault.get('Swim')).toEqual(withEmpty.get('Swim'))
+    })
+  })
+
   describe('eligibility_known (T35 Fix 2b)', () => {
     it('is false when activityPages is empty entirely', () => {
       const rules = inferActivityRules(['Mystery'], {}, seenCounts({ Mystery: 5 }, {}), 2, ['A', 'B'])

@@ -123,4 +123,16 @@ describe('ImportScreen — fixed-event routing (ADR 2026-08-09 Decision 1)', () 
     const inputs = await commit()
     expect(inputs.fixedEvents.map((fe) => fe.name).sort()).toEqual(['Ceramics', 'Lunch'])
   })
+
+  // Classifier-sequencing fix (docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md
+  // §4.1/§6 step 3): a pin-only (non-dual-use) fixed event must not also carry
+  // a spurious inferred Obligation (min_per_week) rule — that was two
+  // uncoordinated classification passes double-classifying the same name. A
+  // dual-use name legitimately keeps its Obligation rule (ADR OQ1).
+  it('a pin-only fixed event gets no inferred activity rule, while a dual-use one still does', async () => {
+    await uploadFile()
+    const inputs = await commit()
+    expect(inputs.activityRules.Lunch).toBeUndefined()
+    expect(inputs.activityRules.Ceramics).toBeDefined()
+  })
 })

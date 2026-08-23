@@ -286,12 +286,22 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
 
       // Rule inference (T35) — same "propose, director confirms" shape as the
       // entities and recurring events above.
+      //
+      // pinOnlySet (above) is passed as excludeNames: a name already classified
+      // as a pinned (non-dual-use) Asserted fixed event must not also get a
+      // spurious Obligation (min_per_week) rule here — that was two
+      // uncoordinated classification passes double-classifying the same name
+      // (docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md §4.1/§6
+      // step 3). pinOnlySet already excludes dual-use names (line 284, via
+      // dualUseSet), so a dual-use activity — legitimately both an Asserted
+      // fixed event AND an Obligation elective (ADR OQ1) — still gets its rule.
       const rules = inferActivityRules(
         proposal.entities.activities,
         proposal.activityPages,
         proposal.seenCounts,
         proposal.entities.days_of_operation.length,
-        proposal.entities.groups
+        proposal.entities.groups,
+        pinOnlySet
       )
       setActivityRules(Object.fromEntries(rules))
     } catch (err) {
