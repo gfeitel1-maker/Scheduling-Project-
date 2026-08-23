@@ -43,6 +43,10 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // day_id both carry a DB-level REFERENCES clause (schema.sql), so
   // enforced:true, same as anchor_activities' equivalents just above.
   { fromTable: 'day_overrides', fromColumn: 'group_id', toEntity: 'groups', kind: 'scalar', enforced: true },
+  // v43 (docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md
+  // Slice 3a) — elective_sets.group_ids mirrors anchor_activities.group_ids
+  // exactly: no DB-level FK (schema.sql), so enforced:false.
+  { fromTable: 'elective_sets', fromColumn: 'group_ids', toEntity: 'groups', kind: 'json_array', enforced: false },
   // -- into activities --
   { fromTable: 'template_slots', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: true },
   { fromTable: 'week_activity_exclusions', fromColumn: 'activity_id', toEntity: 'activities', kind: 'scalar', enforced: true },
@@ -57,6 +61,10 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   { fromTable: 'template_overlays', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: true },
   { fromTable: 'template_slots', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: false },
   { fromTable: 'day_overrides', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: true }, // T108 Phase 2 review round 3
+  // v43 (Slice 3a) — elective_sets.day_id mirrors anchor_activities.day_id:
+  // schema.sql declares `day_id TEXT REFERENCES days_of_operation(id)`, so
+  // enforced:true.
+  { fromTable: 'elective_sets', fromColumn: 'day_id', toEntity: 'days_of_operation', kind: 'scalar', enforced: true },
   // -- into time_blocks --
   { fromTable: 'anchor_activities', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
   { fromTable: 'template_slots', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
@@ -65,6 +73,10 @@ export const UNDO_REFERENCE_CHECKS = Object.freeze([
   // DB-level REFERENCES clause (schema.sql: plain TEXT NOT NULL), same
   // convention-only pointer as template_slots.time_block_id above.
   { fromTable: 'day_overrides', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
+  // v43 (Slice 3a) — elective_sets.time_block_id mirrors
+  // anchor_activities.time_block_id exactly: NO REFERENCES clause, so
+  // enforced:false.
+  { fromTable: 'elective_sets', fromColumn: 'time_block_id', toEntity: 'time_blocks', kind: 'scalar', enforced: false },
   // -- into locations --
   { fromTable: 'activities', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },
   { fromTable: 'week_location_exclusions', fromColumn: 'location_id', toEntity: 'locations', kind: 'scalar', enforced: false },

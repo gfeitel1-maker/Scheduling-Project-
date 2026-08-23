@@ -762,12 +762,32 @@ CREATE TABLE IF NOT EXISTS special_day_slots (
 -- appends, so declaring it last here keeps a fresh install's column order
 -- byte-identical to a migrated one (same column-order-trap precedent as
 -- activities.location_id).
+-- day_id/time_block_id/is_all_groups/group_ids/schedule_week_id/
+-- recurrence_level (v43, docs/work/specs/2026-08-23-unified-schedule-overlay-
+-- slices.md Slice 3a) give elective_sets the recurring-event binding shape,
+-- mirroring anchor_activities' binding columns exactly. All storage-only:
+-- NULL binding fields preserve today's implicit meaning (unbound, the
+-- existing hand-filled case). time_block_id carries no REFERENCES clause,
+-- matching anchor_activities.time_block_id. schedule_week_id NULL means all
+-- weeks. recurrence_level is NOT NULL DEFAULT 'daily' — electives are
+-- recurring, so the DEFAULT labels every existing set concretely instead of
+-- leaving that meaning implicit in a NULL, and SQLite's ADD COLUMN ... NOT
+-- NULL DEFAULT 'daily' populates existing rows for free — zero backfill
+-- logic. Appended LAST — added by an ALTER TABLE in the v43 migration in
+-- localDb.js for existing dbs, so column order must match here for a fresh
+-- install to be byte-identical to a migrated one.
 CREATE TABLE IF NOT EXISTS elective_sets (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
   name TEXT NOT NULL,
   sort_order INTEGER,
   is_reusable INTEGER NOT NULL DEFAULT 1,
+  day_id TEXT REFERENCES days_of_operation(id),
+  time_block_id TEXT,
+  is_all_groups INTEGER,
+  group_ids TEXT,
+  schedule_week_id TEXT REFERENCES schedule_weeks(id),
+  recurrence_level TEXT NOT NULL DEFAULT 'daily',
   UNIQUE(camp_id, name)
 );
 

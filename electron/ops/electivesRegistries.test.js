@@ -24,7 +24,13 @@ describe('v35 registry coverage — elective_sets', () => {
   it('is a projected entity (writes materialize, not silently discarded)', () => {
     expect(PROJECTIONS.elective_sets).toBeTruthy()
     // is_reusable added v36 (T110, docs/adr/2026-08-20-electives-authoring.md D2).
-    expect(PROJECTIONS.elective_sets.fields).toEqual(['camp_id', 'name', 'sort_order', 'is_reusable'])
+    // day_id/time_block_id/is_all_groups/group_ids/schedule_week_id/
+    // recurrence_level added v43 (unified-schedule-overlay Slice 3a,
+    // docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md).
+    expect(PROJECTIONS.elective_sets.fields).toEqual([
+      'camp_id', 'name', 'sort_order', 'is_reusable',
+      'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level',
+    ])
   })
 
   it('is a direct-camp-scoped entity (list() + first-pairing full_sync)', () => {
@@ -34,7 +40,9 @@ describe('v35 registry coverage — elective_sets', () => {
   it('is in the client first-pairing snapshot (DOMAIN_SNAPSHOT_ORDER + columns)', () => {
     const src = fs.readFileSync(path.join(__dirname, '../sync/syncClient.js'), 'utf8')
     expect(DOMAIN_SNAPSHOT_ORDER).toContain('elective_sets')
-    expect(src).toMatch(/elective_sets:\s*\['id', 'camp_id', 'name', 'sort_order', 'is_reusable'\]/)
+    expect(src).toMatch(
+      /elective_sets:\s*\[\s*'id', 'camp_id', 'name', 'sort_order', 'is_reusable',\s*'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level',\s*\]/
+    )
   })
 
   it('is in permissions.ENTITIES (not silently admin-only)', () => {
@@ -43,7 +51,10 @@ describe('v35 registry coverage — elective_sets', () => {
 
   it('has a restore decision and a mock write allowlist', () => {
     expect(RESTORE_DECISIONS.elective_sets).toBeDefined()
-    expect(MOCK_WRITE_ALLOWLIST.elective_sets).toEqual(['camp_id', 'name', 'sort_order', 'is_reusable'])
+    expect(MOCK_WRITE_ALLOWLIST.elective_sets).toEqual([
+      'camp_id', 'name', 'sort_order', 'is_reusable',
+      'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level',
+    ])
   })
 })
 

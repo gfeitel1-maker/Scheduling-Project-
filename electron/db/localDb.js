@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 42
+export const CURRENT_SCHEMA_VERSION = 43
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1680,6 +1680,49 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v43 — recurring-event binding shape on elective_sets (unified-schedule-
+  // overlay Slice 3a, docs/work/specs/2026-08-23-unified-schedule-overlay-
+  // slices.md). Six additive columns mirroring anchor_activities' binding
+  // shape exactly, no backfill logic needed: the five nullable columns
+  // preserve today's implicit meaning (unbound). recurrence_level is NOT
+  // NULL DEFAULT 'daily' — every existing elective_set IS effectively
+  // daily-recurring, and SQLite's ADD COLUMN ... NOT NULL DEFAULT 'daily'
+  // populates every existing row with that value for free. Storage +
+  // projection only — no UI, no engine use in this slice. No DDL-time side
+  // effect, so this block emits no op, same posture as v33-v42.
+  if (getSchemaVersion(db) >= 42 && getSchemaVersion(db) < 43) {
+    db.transaction(() => {
+      const cols = db.pragma('table_info(elective_sets)').map((c) => c.name)
+      // No REFERENCES clause on the ALTER-added columns, mirroring v42's
+      // anchor_activities.schedule_week_id precedent — schema.sql declares
+      // the FK for a fresh install; table_info (name/type/notnull/default/pk,
+      // what the fresh-vs-migrated equivalence test checks) is identical
+      // either way.
+      if (!cols.includes('day_id')) {
+        db.exec('ALTER TABLE elective_sets ADD COLUMN day_id TEXT')
+      }
+      if (!cols.includes('time_block_id')) {
+        db.exec('ALTER TABLE elective_sets ADD COLUMN time_block_id TEXT')
+      }
+      if (!cols.includes('is_all_groups')) {
+        db.exec('ALTER TABLE elective_sets ADD COLUMN is_all_groups INTEGER')
+      }
+      if (!cols.includes('group_ids')) {
+        db.exec('ALTER TABLE elective_sets ADD COLUMN group_ids TEXT')
+      }
+      if (!cols.includes('schedule_week_id')) {
+        db.exec('ALTER TABLE elective_sets ADD COLUMN schedule_week_id TEXT')
+      }
+      if (!cols.includes('recurrence_level')) {
+        db.exec("ALTER TABLE elective_sets ADD COLUMN recurrence_level TEXT NOT NULL DEFAULT 'daily'")
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (43, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct
@@ -1883,6 +1926,12 @@ export const ELECTIVE_SETS_DDL = `CREATE TABLE IF NOT EXISTS elective_sets (
   name TEXT NOT NULL,
   sort_order INTEGER,
   is_reusable INTEGER NOT NULL DEFAULT 1,
+  day_id TEXT REFERENCES days_of_operation(id),
+  time_block_id TEXT,
+  is_all_groups INTEGER,
+  group_ids TEXT,
+  schedule_week_id TEXT REFERENCES schedule_weeks(id),
+  recurrence_level TEXT NOT NULL DEFAULT 'daily',
   UNIQUE(camp_id, name)
 )`
 

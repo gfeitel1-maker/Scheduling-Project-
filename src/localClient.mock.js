@@ -333,7 +333,13 @@ export const MOCK_WRITE_ALLOWLIST = {
   // T41 slice 1 (docs/work/specs/2026-08-20-group-electives-design.md) —
   // hand-transcribed mirror of PROJECTIONS.elective_sets/
   // elective_set_activities.fields, same discipline as T40 above.
-  elective_sets: ['camp_id', 'name', 'sort_order', 'is_reusable'],
+  // day_id/time_block_id/is_all_groups/group_ids/schedule_week_id/
+  // recurrence_level (v43, Slice 3a) — recurring-event binding shape,
+  // mirroring anchor_activities' allowlist entry.
+  elective_sets: [
+    'camp_id', 'name', 'sort_order', 'is_reusable',
+    'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level',
+  ],
   // camper_headcount (v39, Electives Slice 1): the per-offering capacity T41
   // deferred.
   elective_set_activities: ['elective_set_id', 'activity_id', 'camper_headcount'],

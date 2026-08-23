@@ -133,6 +133,11 @@ const ACCEPTED_NON_REFERENCES = [
   { table: 'day_overrides', column: 'schedule_week_id', reason: 'points at schedule_weeks, not a U2-deletable entity' },
   // v42 (docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md Slice 1):
   { table: 'anchor_activities', column: 'schedule_week_id', reason: 'optional binding to schedule_weeks, not a U2-deletable entity — mirrors day_overrides.schedule_week_id' },
+  // v43 (docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md
+  // Slice 3a).
+  { table: 'elective_sets', column: 'schedule_week_id', reason: 'optional binding to schedule_weeks, not a U2-deletable entity — mirrors anchor_activities.schedule_week_id' },
+  // is_all_groups is not an *_id/*_ids column so the scanner never flags it;
+  // no entry needed (matches anchor_activities.is_all_groups, likewise unlisted).
   { table: 'audit_events', column: 'actor_user_id', reason: 'points at users, not a U2-deletable entity' },
   { table: 'audit_events', column: 'device_id', reason: 'points at devices, not a U2-deletable entity' },
   { table: 'migration_v24_repoint_log', column: 'row_id', reason: 'historical migration journal row key, not an entity pointer' },
