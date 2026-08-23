@@ -263,7 +263,12 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
       // is shown and ships unconditionally at commit (sub-slice 4) — a
       // low-confidence one the director hasn't reconciled is held back
       // downstream (ReconciliationScreen), not here.
-      const { fixedEvents: inferred, dualUseNames = [] } = inferFixedEvents({ pages }, proposal)
+      // Bug B (recurring-event detection slice 0): a camp whose periods are
+      // named "Period 1"/"Lunch" rather than printed times only gets detected
+      // once its own already-configured time_blocks names are known — thread
+      // the existing rows in so isBlockLabel can recognize them.
+      const knownTimeBlockNames = (existingAll.time_blocks ?? []).map((t) => t.name)
+      const { fixedEvents: inferred, dualUseNames = [] } = inferFixedEvents({ pages }, proposal, { knownTimeBlockNames })
       setFixedEvents(inferred)
       setOperatingDayCount(proposal.entities.days_of_operation.length)
 

@@ -6,8 +6,8 @@ authority: informative
 date: 2026-08-23
 created: 2026-08-23
 archive_when: all 8 slices of the unified schedule-overlay model ship (merged/deferred) or the parent ADR is superseded
-related_adrs:
-  - docs/adr/2026-08-23-unified-schedule-overlay-model.md
+governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
+parent_spec: [docs/adr/2026-08-23-unified-schedule-overlay-model.md]
 ---
 
 # Unified schedule-overlay model — phased slice plan

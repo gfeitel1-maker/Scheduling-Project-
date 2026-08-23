@@ -27,17 +27,79 @@ const dayRank = (d) => {
   return i === -1 ? DAY_ORDER.length : i
 }
 
-// A row label is a period only when it is time-shaped — the same test
-// extractEntities uses to decide a label is a time_blocks value.
-const isBlockLabel = (label) => /^\d{1,2}[:.]\d{2}/.test(String(label ?? '').trim())
+// A row label is a period when it is time-shaped — the same test
+// extractEntities uses to decide a label is a time_blocks value — OR when it
+// matches one of the camp's own already-configured time_blocks names byte for
+// byte modulo trim/case. Without the second arm, a camp whose periods are
+// named "Period 1"/"Lunch" rather than printed times produces zero fixed-event
+// detection: nothing in the row labels looks time-shaped, so every row is
+// silently skipped. `knownBlockNames` is the camp's EXISTING time_blocks rows
+// (threaded in from ImportScreen), not this file's own freshly-parsed
+// proposal — a brand-new camp with non-time period names and no prior setup
+// still gets no detection here (there is nothing yet to recognize against),
+// which is an accepted limitation: this is a re-import/update scenario fix,
+// not a from-nothing one.
+//
+// `knownBlockNames` as threaded in from ImportScreen is flattened across all
+// of the camp's cohorts, so a block name that only exists in one cohort can
+// false-positive a label in a different cohort's rows. That is an accepted
+// instance of this module's deliberate over-inclusion bias (a wrong match
+// costs the director an untick; missing one costs the rebuild this feature
+// exists to remove) — not a defect to fix here, and cohort-scoping is
+// intentionally out of scope for this slice.
+const isBlockLabel = (label, knownBlockNames) => {
+  const trimmed = String(label ?? '').trim()
+  if (/^\d{1,2}[:.]\d{2}/.test(trimmed)) return true
+  if (!trimmed || !knownBlockNames || knownBlockNames.size === 0) return false
+  return knownBlockNames.has(trimmed.toLowerCase())
+}
 
 // A collision-safe map key over strings that may themselves contain spaces,
 // commas or dashes ("Yeladim 1", "08:40-09:00", "Lunch 1").
 const keyOf = (...parts) => JSON.stringify(parts)
 
+// A cell's own text sometimes carries the true period ("Lunch 12:00") even
+// though the row itself has one shared label ("Lunch") that every group's
+// cell sits under. cleanCellValue/stripTimes (extractEntities.js) strips that
+// time out of the NAME on purpose — "Lunch 12:00" and "Lunch 12:30" are the
+// same activity — but doing so also erases the one signal that these are
+// staggered occurrences of it, not one shared occurrence. Reading the time
+// back out of the raw cell (before it's cleaned) and folding it into the
+// merge key stops two groups' genuinely different times from silently
+// collapsing into a single all-groups event. It is never surfaced on the
+// output event — fe.time_block always stays the row's own block, so the
+// by-name resolution invariant (§3.2) is untouched.
+//
+// The extracted fragment is CANONICALIZED (zero-padded hour, unified ':'
+// separator) before it is used as a key, mirroring how group names are
+// canonicalized via normalizeName elsewhere in this file. Without this, the
+// SAME actual time written differently across days ("9:00" vs "09:00")
+// produced a different key per day, fragmenting a genuinely-daily-recurring
+// event into single-day buckets that each fail the majority threshold and
+// get silently dropped (Red Hat HIGH).
+//
+// The fragment is also validated as a real clock value (hour <= 23, minute
+// <= 59) and anchored so it can't match inside a longer alphanumeric/decimal
+// token ("v2.05"). Otherwise a per-group annotation that merely looks
+// time-shaped but isn't (a level/score suffix) could be misread as a
+// staggered period and wrongly split a shared event (Red Hat LOW).
+const TIME_TOKEN_RE = /(?<![\w.])(\d{1,2})[:.](\d{2})(?![\w.])/
+const cellPeriod = (cell) => {
+  const m = String(cell ?? '').match(TIME_TOKEN_RE)
+  if (!m) return null
+  const hour = Number(m[1])
+  const minute = Number(m[2])
+  if (hour > 23 || minute > 59) return null
+  return `${String(hour).padStart(2, '0')}:${m[2]}`
+}
+
 /**
  * @param {{ pages: Array }} parsed        the same object passed to extractEntities
  * @param {object} proposal                extractEntities(parsed)'s return
+ * @param {{ knownTimeBlockNames?: string[] }} [options]  the camp's own
+ *        already-configured time_blocks names (existing rows, not this file's
+ *        proposal), so a non-time period label ("Period 1") can still be
+ *        recognized as a block. See isBlockLabel.
  * @returns {{ fixedEvents: ProposedFixedEvent[] }}
  *
  * ProposedFixedEvent — every string is BY NAME, exactly as the entity proposal
@@ -46,11 +108,14 @@ const keyOf = (...parts) => JSON.stringify(parts)
  *     scope: { is_all_groups: true, groups: null } | { is_all_groups: false, groups: string[] },
  *     confidence: 'high' | 'low' }
  */
-export function inferFixedEvents(parsed, proposal) {
+export function inferFixedEvents(parsed, proposal, options = {}) {
   const pages = parsed?.pages ?? []
   const orientation = proposal?.orientation ?? {}
   const allGroups = proposal?.entities?.groups ?? []
   const groupNameByTitle = proposal?.groupNameByTitle ?? {}
+  const knownBlockNames = new Set(
+    (options.knownTimeBlockNames ?? []).map((n) => String(n ?? '').trim().toLowerCase()).filter(Boolean)
+  )
 
   // Every group-identity key below is normalizeName'd so two spellings of the
   // same group (whitespace, casing) collapse into one — the SAME function
@@ -73,8 +138,8 @@ export function inferFixedEvents(parsed, proposal) {
     if (!operatingDays.has(group)) operatingDays.set(group, new Set())
     operatingDays.get(group).add(day)
   }
-  const addTuple = (group, day, block, activity) => {
-    const key = keyOf(group, block, activity)
+  const addTuple = (group, day, block, activity, period) => {
+    const key = keyOf(group, block, activity, period)
     if (!occupied.has(key)) occupied.set(key, new Set())
     occupied.get(key).add(day)
   }
@@ -94,10 +159,11 @@ export function inferFixedEvents(parsed, proposal) {
         }
       })
       for (const row of page.rows) {
-        if (!isBlockLabel(row.label)) continue
+        if (!isBlockLabel(row.label, knownBlockNames)) continue
         const block = row.label.trim()
         for (const { i, day } of dayCols) {
-          for (const a of activityNamesFromCell(row.cells?.[i])) addTuple(groupName, day, block, a)
+          const cell = row.cells?.[i]
+          for (const a of activityNamesFromCell(cell)) addTuple(groupName, day, block, a, cellPeriod(cell))
         }
       }
     } else {
@@ -106,12 +172,13 @@ export function inferFixedEvents(parsed, proposal) {
       if (!day) continue
       page.columns.forEach((rawGroupName) => { if (rawGroupName) addOperatingDay(regGroup(rawGroupName), day) })
       for (const row of page.rows) {
-        if (!isBlockLabel(row.label)) continue
+        if (!isBlockLabel(row.label, knownBlockNames)) continue
         const block = row.label.trim()
         page.columns.forEach((rawGroupName, i) => {
           if (!rawGroupName) return
           const groupName = regGroup(rawGroupName)
-          for (const a of activityNamesFromCell(row.cells?.[i])) addTuple(groupName, day, block, a)
+          const cell = row.cells?.[i]
+          for (const a of activityNamesFromCell(cell)) addTuple(groupName, day, block, a, cellPeriod(cell))
         })
       }
     }
@@ -123,18 +190,28 @@ export function inferFixedEvents(parsed, proposal) {
   // (activity, block, sorted-day-set): the sharing groups are the scope; all
   // groups -> is_all_groups. A whole unit falls out naturally as its groups, with
   // no unit special-casing (§3.5).
-  const collapsed = new Map()
+  // First pass: majority-filter every (group, block, activity, period) tuple
+  // down to the ones that survive, without collapsing across groups yet.
+  const filtered = []
   for (const [key, daySet] of occupied) {
-    const [group, block, activity] = JSON.parse(key)
+    const [group, block, activity, period] = JSON.parse(key)
     const operating = operatingDays.get(group)?.size ?? 0
     if (operating === 0) continue
     const occ = daySet.size
     if (occ * 2 <= operating) continue
     const confidenceTier = classifyConfidence(occ / operating, { highThreshold: 1 })
     const confidence = confidenceTier === CONFIDENCE.HIGH ? 'high' : 'low'
-
     const days = [...daySet].sort((a, b) => dayRank(a) - dayRank(b))
-    const collKey = keyOf(activity, block, days.join(','))
+    filtered.push({ group, block, activity, period, days, occ, operating, confidence })
+  }
+
+  const collapsed = new Map()
+  const pushEntries = (entries, periodKey, activity, block, days) => {
+    // `periodKey` (representative of this bucket, or null) is part of the
+    // collapse key but never the output — fe.time_block always stays the
+    // row's own block, so the by-name resolution invariant (§3.2) is
+    // untouched.
+    const collKey = keyOf(activity, block, periodKey, days.join(','))
     if (!collapsed.has(collKey)) {
       collapsed.set(collKey, {
         name: activity, time_block: block, days, groups: new Set(), allHigh: true,
@@ -148,23 +225,61 @@ export function inferFixedEvents(parsed, proposal) {
         // was the one that actually dragged confidence to 'low', so the
         // eventual "why?" panel could show "held 6 of 6" next to
         // confidence=low with no way to see the group that caused it.
-        maxOcc: occ, pairedOperating: operating, groupStats: new Map(),
+        maxOcc: 0, pairedOperating: 0, groupStats: new Map(),
       })
     }
     const entry = collapsed.get(collKey)
-    entry.groups.add(group)
-    entry.groupStats.set(group, { occ, operating })
-    if (confidence !== 'high') entry.allHigh = false
-    // B4 aggregation choice: the top-level occupied_days/operating_days keep
-    // the group with the STRONGEST single-group justification (highest
-    // occupied-day count) — a stable "how solid is this, at best" headline
-    // number. The FULL per-group breakdown (below, at push time) is what
-    // actually explains a 'low' confidence: whichever group's ratio is
-    // sub-majority is visible there, so support and confidence never
-    // contradict each other.
-    if (occ > entry.maxOcc) {
-      entry.maxOcc = occ
-      entry.pairedOperating = operating
+    for (const e of entries) {
+      entry.groups.add(e.group)
+      entry.groupStats.set(e.group, { occ: e.occ, operating: e.operating })
+      if (e.confidence !== 'high') entry.allHigh = false
+      // B4 aggregation choice: the top-level occupied_days/operating_days keep
+      // the group with the STRONGEST single-group justification (highest
+      // occupied-day count) — a stable "how solid is this, at best" headline
+      // number. The FULL per-group breakdown (below, at push time) is what
+      // actually explains a 'low' confidence: whichever group's ratio is
+      // sub-majority is visible there, so support and confidence never
+      // contradict each other.
+      if (e.occ > entry.maxOcc) {
+        entry.maxOcc = e.occ
+        entry.pairedOperating = e.operating
+      }
+    }
+  }
+
+  // Second pass: group the filtered tuples by (activity, block, days) —
+  // ignoring period — since that's the true collapse boundary; period then
+  // only decides whether the SAME (activity, block, days) group splits.
+  // A null period (a bare cell, no embedded time) is a WILDCARD that merges
+  // with whichever non-null period is present, so a mostly-bare row with one
+  // annotated cell still resolves to a single event instead of fragmenting
+  // (Red Hat MEDIUM). Two DIFFERENT non-null periods are still a genuine
+  // stagger and split into separate events, exactly as before (Bug A).
+  const rowGroups = new Map()
+  for (const f of filtered) {
+    const rowKey = keyOf(f.activity, f.block, f.days.join(','))
+    if (!rowGroups.has(rowKey)) rowGroups.set(rowKey, [])
+    rowGroups.get(rowKey).push(f)
+  }
+
+  for (const entries of rowGroups.values()) {
+    const { activity, block, days } = entries[0]
+    const nonNullPeriods = new Set(entries.filter((e) => e.period != null).map((e) => e.period))
+    if (nonNullPeriods.size <= 1) {
+      // At most one distinct real time in play — every entry (including any
+      // bare/null-period ones) merges into a single event.
+      pushEntries(entries, null, activity, block, days)
+    } else {
+      // A genuine stagger: split by period. A bare cell has no time to
+      // disambiguate which occurrence it belongs to, so it keeps its own
+      // null-period bucket rather than being guessed into one of the real
+      // ones.
+      const byPeriod = new Map()
+      for (const e of entries) {
+        if (!byPeriod.has(e.period)) byPeriod.set(e.period, [])
+        byPeriod.get(e.period).push(e)
+      }
+      for (const [period, es] of byPeriod) pushEntries(es, period, activity, block, days)
     }
   }
 
