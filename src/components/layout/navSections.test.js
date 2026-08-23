@@ -33,6 +33,13 @@ describe('NAV_SECTIONS setup items (Slice B)', () => {
   it('does not list import as a top-level row (Slice C: single state-aware entry point)', () => {
     expect(setupItems.some(i => i.key === 'import')).toBe(false)
   })
+
+  it('does not mark Recurring Events optional — it is a strongly-expected anchor, not a nice-to-have', () => {
+    const anchorsRow = setupItems[0].children.find(c => c.key === 'anchors')
+    expect(anchorsRow).toBeTruthy()
+    expect(anchorsRow.optional).toBeUndefined()
+    expect(anchorsRow.expected).toBe(true)
+  })
 })
 
 describe('NAV_SECTIONS schedule items — both routes stay distinct (ADR §3)', () => {

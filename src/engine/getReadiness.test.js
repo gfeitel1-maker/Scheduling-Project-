@@ -33,6 +33,11 @@ const FULL = {
   days: [{ id: 'd1' }],
   timeBlocks: [{ id: 'b1' }],
   activities: [{ id: 'a1' }],
+  // Recurring Events are expected, not merely optional (see the dedicated
+  // describe block below) — a "fully set up" fixture includes at least one,
+  // so tests unrelated to anchors aren't tripped by its Needs-attention
+  // resting state.
+  anchors: [{ id: 'e1' }],
 }
 
 const stateOf = (readiness, key) => readiness.find((r) => r.key === key)?.state
@@ -41,7 +46,10 @@ describe('getReadiness: the six-state layer', () => {
   it('marks every required area Missing on an empty camp, optionals Optional, forward Optional', () => {
     const r = getReadiness({})
     for (const area of REQUIRED_AREAS) expect(stateOf(r, area.key)).toBe('missing')
-    expect(stateOf(r, 'anchors')).toBe('optional')
+    // Recurring Events is expected, not a plain optional: an empty camp reads
+    // Needs-attention here, not Optional — see the dedicated describe block
+    // below. location/staffing carry no such expectation.
+    expect(stateOf(r, 'anchors')).toBe('needs-attention')
     expect(stateOf(r, 'location')).toBe('optional')
     expect(stateOf(r, 'staffing')).toBe('optional')
   })
@@ -79,7 +87,10 @@ describe('getReadiness: the six-state layer', () => {
       // even with no data and an attention signal, non-required areas never go red
       const r = getReadiness({}, { attention: { [key]: 5 } })
       expect(stateOf(r, key)).not.toBe('missing')
-      expect(stateOf(r, key)).toBe('optional')
+      // anchors is expected (see the dedicated describe block): it already
+      // reads Needs-attention on empty data alone, so the extra attention
+      // signal changes nothing observable here.
+      expect(stateOf(r, key)).toBe(key === 'anchors' ? 'needs-attention' : 'optional')
     }
     // REQUIRED_AREAS never grows to include an optional/forward key.
     const requiredKeys = new Set(REQUIRED_AREAS.map((a) => a.key))
@@ -106,6 +117,43 @@ describe('getReadiness: the six-state layer', () => {
     // Unlike a forward category, it can reach Ready once it has real rows.
     const r = getReadiness({ ...FULL, locations: [{ id: 'loc-1' }] })
     expect(stateOf(r, 'location')).toBe('ready')
+  })
+})
+
+// Recurring Events (anchors) are camp-wide anchors — carpool, flagpole, lunch,
+// all-camp — not a nice-to-have. buildSchedule.js places them first, before
+// anything else can be scheduled over them (Pass 1, ~L108-293), and locks
+// those cells so nothing else can land there (~L372). The setup side mirrors
+// that: an empty camp is not "finished, done, nothing to see" — it is worth a
+// director's attention — but it still must not block a draft schedule the way
+// a genuinely required area does. `kind` stays 'optional' (never reaches
+// Missing, never gates getSetupGaps); only the resting state for "no rows yet"
+// moves from Optional to Needs-attention.
+describe('getReadiness: Recurring Events are expected, not merely optional', () => {
+  it('reads Needs-attention, not Optional, when a camp has zero recurring events', () => {
+    const r = getReadiness({ ...FULL, anchors: [] })
+    expect(stateOf(r, 'anchors')).toBe('needs-attention')
+  })
+
+  it('reads Ready once the camp has at least one recurring event', () => {
+    const r = getReadiness(FULL)
+    expect(stateOf(r, 'anchors')).toBe('ready')
+  })
+
+  it('never reaches Missing, and never blocks getSetupGaps, however empty the camp', () => {
+    expect(stateOf(getReadiness({}), 'anchors')).not.toBe('missing')
+    expect(getSetupGaps({}).map((g) => g.key)).not.toContain('anchors')
+    expect(getSetupGaps({ ...FULL, anchors: [] }).map((g) => g.key)).not.toContain('anchors')
+  })
+
+  it('stays kind "optional" in the category spine — the middle state is a resting-state change, not a new kind', () => {
+    const anchorsCat = ALL_CATEGORIES.find((c) => c.key === 'anchors')
+    expect(anchorsCat.kind).toBe('optional')
+  })
+
+  it('an explicit Not-applicable signal still overrides Needs-attention', () => {
+    const r = getReadiness(FULL, { notApplicable: { anchors: true } })
+    expect(stateOf(r, 'anchors')).toBe('not-applicable')
   })
 })
 
