@@ -15,9 +15,9 @@ import uiPeople from '../assets/brand/icons/ui-people.png'
 const repository = createSetupCrudRepository({ localClient })
 
 const ANCHOR_MODELS = [
-  { value: 'none',     label: 'None — no fixed events' },
-  { value: 'fixed',    label: 'Fixed — fixed events happen at the same time every day' },
-  { value: 'floating', label: 'Floating — fixed events can move within the day (coming soon)' },
+  { value: 'none',     label: 'None — no recurring events' },
+  { value: 'fixed',    label: 'Fixed — recurring events happen at the same time every day' },
+  { value: 'floating', label: 'Floating — recurring events can move within the day (coming soon)' },
 ]
 
 const CAPACITY_SOURCES = [
@@ -259,7 +259,7 @@ export default function CohortsScreen({ campId }) {
     } catch (err) {
       setError(
         /FOREIGN KEY/i.test(err?.message ?? '')
-          ? "Can't delete — other data (time blocks or fixed events) still references this program. Remove those first."
+          ? "Can't delete — other data (time blocks or recurring events) still references this program. Remove those first."
           : describeWriteFailure(err, 'That program could not be deleted.')
       )
       setPendingDelete(null)
@@ -351,7 +351,7 @@ export default function CohortsScreen({ campId }) {
       </div>
 
       <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-        A program groups age divisions, time blocks, and fixed events that share a schedule structure.
+        A program groups age divisions, time blocks, and recurring events that share a schedule structure.
         Most camps have one program ("Main"). Add a second for specialty programs with a different time grid.
       </div>
 

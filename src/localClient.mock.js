@@ -933,9 +933,9 @@ export const mockShoresh = {
     for (const item of toCreate) commitCreate(item)
     for (const u of toUpdate) commitUpdate(u)
 
-    // Fixed events (T34) — resolve by name against the rows now in state, then
+    // Recurring events (T34) — resolve by name against the rows now in state, then
     // fan out one anchor_activities row per day. Mirrors commitPlan's fixed-event
-    // loop so the whole import flow, fixed events included, works at :5200.
+    // loop so the whole import flow, recurring events included, works at :5200.
     const norm = (s) => normalizeName(s)
     const targetCohort = cohortId ?? 'main'
     const blockIdByName = new Map()

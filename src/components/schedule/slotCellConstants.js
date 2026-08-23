@@ -133,7 +133,7 @@ export const LEGEND_ENTRIES = [
   WEEK_CLOSED_ENTRY,
   CONTENT_RACE_ENTRY,
   // T108 Phase 2 (Designer spec §2.6) — a director-authored diff, not an
-  // engine-emitted flag, so flagKey is null (like Locked/Fixed event below).
+  // engine-emitted flag, so flagKey is null (like Locked/Recurring event below).
   // Never filtered out by legendEntriesFor: an override can appear on either
   // route (design §5.4).
   {
@@ -152,7 +152,7 @@ export const LEGEND_ENTRIES = [
   },
   {
     flagKey: null,
-    label: 'Fixed event',
+    label: 'Recurring event',
     shape: 'bar',
     color: ANCHOR_COLOR,
     description: 'Same slot every day — meals, tefillah, flagpole',

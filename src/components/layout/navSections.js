@@ -5,7 +5,7 @@
 // roots-as-hub-setup-ia-slices.md "Slice B".
 //
 // Roots-as-Hub Slice B: the entity setup rows (Age Divisions/Groups/Days/
-// Time Blocks/Activities + optional Locations/Fixed Events/Special Days) are
+// Time Blocks/Activities + optional Locations/Recurring Events/Special Days) are
 // no longer flat siblings of Roots — they are Roots's own collapsible
 // children (Sidebar.jsx renders `item.children` nested under the Roots row,
 // toggled by its own chevron, independent of the "Camp Set Up" section
@@ -61,14 +61,14 @@ export const NAV_SECTIONS = [
           // Sits directly after Activities (design D-1, docs/work/specs/2026-08-15-m3-locations-design.md):
           // the picker that binds a location to an activity lives on the
           // Activities screen, so the two read better adjacent. Optional — its
-          // own Next chain points at Fixed Events without touching Activities'
+          // own Next chain points at Recurring Events without touching Activities'
           // own required Next button.
           { key: 'locations',    label: 'Locations',     area: 'locations',    optional: true },
-          { key: 'anchors',      label: 'Recurring Events',  area: 'anchors',      optional: true },
+          { key: 'anchors',      label: 'Recurring Events', area: 'anchors',      optional: true },
           // Electives Slice 1 (docs/adr/2026-08-22-nested-schedules-electives-
           // and-events.md §2): the "schedule within a schedule" — a director
           // builds elective sets/offerings here, off the campwide grid, which
-          // stays opaque ("Electives"). Optional, like Locations/Fixed Events.
+          // stays opaque ("Electives"). Optional, like Locations/Recurring Events.
           { key: 'electives',    label: 'Electives',     area: 'electives',    optional: true },
           // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-
           // overlay-placement.md §5): an event is a named, opaque block a

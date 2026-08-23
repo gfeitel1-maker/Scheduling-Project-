@@ -45,7 +45,7 @@ export default function PostImportBanner({ outcome, readiness = [], censusReadFa
       </div>
       <strong>
         Imported {outcome.total} {outcome.total === 1 ? 'record' : 'records'}
-        {fixedEvents.created > 0 && `, including ${fixedEvents.created} fixed ${fixedEvents.created === 1 ? 'event' : 'events'}`}
+        {fixedEvents.created > 0 && `, including ${fixedEvents.created} recurring ${fixedEvents.created === 1 ? 'event' : 'events'}`}
         {' '}— here’s your camp.
       </strong>
       {verdict && <div style={styles.verdictLine}>{verdict}</div>}
@@ -55,19 +55,19 @@ export default function PostImportBanner({ outcome, readiness = [], censusReadFa
       </div>
       {fixedEvents.skipped?.length > 0 && (
         <div style={{ marginTop: 8 }}>
-          {fixedEvents.skipped.length} fixed {fixedEvents.skipped.length === 1 ? 'event' : 'events'} couldn’t
+          {fixedEvents.skipped.length} recurring {fixedEvents.skipped.length === 1 ? 'event' : 'events'} couldn’t
           be created because their time block or groups weren’t imported — you can add {fixedEvents.skipped.length === 1 ? 'it' : 'them'} on the Recurring Events screen.
         </div>
       )}
       {fixedEvents.partial?.length > 0 && (
         <div style={{ marginTop: 8 }}>
-          Some fixed events were added for fewer days or groups than proposed, because you didn’t import all of them:{' '}
+          Some recurring events were added for fewer days or groups than proposed, because you didn’t import all of them:{' '}
           {fixedEvents.partial.map((p) => `${p.name} (${p.reason})`).join('; ')}. Adjust {fixedEvents.partial.length === 1 ? 'it' : 'them'} on the Recurring Events screen.
         </div>
       )}
       {fixedEvents.moved?.length > 0 && (
         <div style={{ marginTop: 8 }}>
-          {fixedEvents.moved.length} fixed {fixedEvents.moved.length === 1 ? 'event has' : 'events have'} moved since this file was last imported, so {fixedEvents.moved.length === 1 ? 'it was' : 'they were'} left as-is instead of creating a duplicate:{' '}
+          {fixedEvents.moved.length} recurring {fixedEvents.moved.length === 1 ? 'event has' : 'events have'} moved since this file was last imported, so {fixedEvents.moved.length === 1 ? 'it was' : 'they were'} left as-is instead of creating a duplicate:{' '}
           {fixedEvents.moved.map((m) => `${m.name} (${m.reason})`).join('; ')}.
         </div>
       )}

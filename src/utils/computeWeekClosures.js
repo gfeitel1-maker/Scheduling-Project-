@@ -20,7 +20,7 @@
 // refused (CONSTITUTION Art. V), the same posture placeActivityManual already
 // takes for capacity clashes. It exists only on the manual route.
 //
-// Anchors (meals, tefillah, fixed events) and empty cells are skipped, exactly
+// Anchors (meals, tefillah, recurring events) and empty cells are skipped, exactly
 // as computeOverlaps skips `s.is_anchor` / cells with no activity — an empty
 // cell has nothing placed to be closed, and an anchor is structural chrome the
 // exclusion UIs govern differently.

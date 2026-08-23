@@ -682,6 +682,11 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
               ))}
             </tbody>
           </table>
+          {anchors.length > 0 && (
+            <div style={{ padding: '8px 16px', fontSize: 12, color: 'var(--text-secondary)', borderTop: '1px solid var(--border)' }}>
+              Changing a recurring event's week won't move it on weeks already built — regenerate or re-place those to pick up the change.
+            </div>
+          )}
         </div>
       )}
 

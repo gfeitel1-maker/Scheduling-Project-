@@ -130,7 +130,7 @@ describe('PostImportBanner', () => {
         readiness={getReadiness(READY_COLLECTIONS)}
         graceWindow={idleGraceWindow()} onNavigate={vi.fn()} />
     )
-    expect(screen.getByText(textNode(/1 fixed event couldn.t\s+be created/))).toBeTruthy()
+    expect(screen.getByText(textNode(/1 recurring event couldn.t\s+be created/))).toBeTruthy()
     expect(screen.getByText(textNode(/moved since this file was last imported/))).toBeTruthy()
   })
 })
