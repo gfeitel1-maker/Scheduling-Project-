@@ -11,8 +11,15 @@ vi.mock('../localClient', () => ({
   },
 }))
 
+vi.mock('../ingest/textGrid', () => ({ parseTextGrid: vi.fn() }))
+vi.mock('../ingest/parseGridSchedule', () => ({ parseGridSchedule: vi.fn() }))
+vi.mock('../ingest/electiveSetPopulate', () => ({ populateElectiveSet: vi.fn() }))
+
 import ElectivesScreen from './ElectivesScreen'
 import { localClient } from '../localClient'
+import { parseTextGrid } from '../ingest/textGrid'
+import { parseGridSchedule } from '../ingest/parseGridSchedule'
+import { populateElectiveSet } from '../ingest/electiveSetPopulate'
 
 const CAMP_ID = 'camp-1'
 
@@ -238,5 +245,124 @@ describe('ElectivesScreen', () => {
     fireEvent.click(screen.getByText('Delete Elective Set'))
 
     await waitFor(() => expect(localClient.deleteElectiveSet).toHaveBeenCalledWith({ electiveSetId: 'set-1' }))
+  })
+})
+
+describe('ElectivesScreen — grid-schedule import affordance (docs/adr/2026-08-22-event-schedule-import.md §8)', () => {
+  beforeEach(() => {
+    parseTextGrid.mockReset()
+    parseGridSchedule.mockReset()
+    populateElectiveSet.mockReset()
+  })
+
+  it('renders the import affordance in the empty-offerings state', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_sets: [electiveSet()],
+      elective_set_activities: [],
+      activities: [activity()],
+      locations: [], tiers: [], groups: [],
+    }))
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('Afternoon Chugim')).not.toBeNull())
+    fireEvent.click(screen.getByText('Manage Offerings'))
+
+    await waitFor(() => expect(screen.getByText(/import this set’s offerings from a file/)).toBeTruthy())
+  })
+
+  it('file -> parse -> populate wiring: selecting a file runs parseTextGrid -> parseGridSchedule -> populateElectiveSet, then reloads', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_sets: [electiveSet()],
+      elective_set_activities: [],
+      activities: [activity()],
+      locations: [], tiers: [], groups: [],
+    }))
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: 'Chugim', cells: ['Pottery'] }] }] })
+    const parsed = {
+      orientation: { axis: null, confident: false },
+      timeAxis: [], groupAxis: [],
+      cells: [{ timeIndex: 0, groupIndex: 0, activityName: 'Pottery', locationName: null }],
+      unmapped: [],
+    }
+    parseGridSchedule.mockReturnValue(parsed)
+    populateElectiveSet.mockResolvedValue({ ok: true })
+
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('Afternoon Chugim')).not.toBeNull())
+    fireEvent.click(screen.getByText('Manage Offerings'))
+    await waitFor(() => expect(screen.getByText(/import this set’s offerings from a file/)).toBeTruthy())
+
+    const listCallsBefore = localClient.list.mock.calls.filter(([e]) => e === 'elective_set_activities').length
+
+    const importButton = screen.getByText(/import this set’s offerings from a file/)
+    fireEvent.click(importButton)
+    const file = new File(['irrelevant'], 'chugim.txt', { type: 'text/plain' })
+    const input = document.querySelector('input[type="file"]')
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await waitFor(() => expect(populateElectiveSet).toHaveBeenCalledTimes(1))
+    expect(parseGridSchedule).toHaveBeenCalledWith([{ title: 'x', columns: ['A'], rows: [{ label: 'Chugim', cells: ['Pottery'] }] }])
+    const [passedParsed, ctx] = populateElectiveSet.mock.calls[0]
+    expect(passedParsed).toBe(parsed)
+    expect(ctx.electiveSetId).toBe('set-1')
+    expect(ctx.campId).toBe(CAMP_ID)
+
+    // reload happened after a successful import
+    await waitFor(() =>
+      expect(localClient.list.mock.calls.filter(([e]) => e === 'elective_set_activities').length).toBeGreaterThan(listCallsBefore)
+    )
+  })
+
+  it('refusal reason (e.g. nonempty set) is surfaced, writes nothing new', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_sets: [electiveSet()],
+      elective_set_activities: [],
+      activities: [activity()],
+      locations: [], tiers: [], groups: [],
+    }))
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: 'Chugim', cells: ['Pottery'] }] }] })
+    parseGridSchedule.mockReturnValue({ orientation: { axis: null, confident: false }, timeAxis: [], groupAxis: [], cells: [], unmapped: [] })
+    populateElectiveSet.mockResolvedValue({ ok: false, reason: 'This elective set already has offerings. Clear it first if you want to replace it with an import, or add to it by hand.' })
+
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('Afternoon Chugim')).not.toBeNull())
+    fireEvent.click(screen.getByText('Manage Offerings'))
+    await waitFor(() => expect(screen.getByText(/import this set’s offerings from a file/)).toBeTruthy())
+
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant'], 'chugim.txt', { type: 'text/plain' })
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await waitFor(() => expect(screen.getByText(/already has offerings/)).toBeTruthy())
+  })
+
+  it('a mid-import throw (partial write) still reloads offerings, so stale UI does not mask partial data', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_sets: [electiveSet()],
+      elective_set_activities: [],
+      activities: [activity()],
+      locations: [], tiers: [], groups: [],
+    }))
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: 'Chugim', cells: ['Pottery'] }] }] })
+    parseGridSchedule.mockReturnValue({
+      orientation: { axis: null, confident: false }, timeAxis: [], groupAxis: [],
+      cells: [{ timeIndex: 0, groupIndex: 0, activityName: 'Pottery', locationName: null }], unmapped: [],
+    })
+    populateElectiveSet.mockRejectedValue(new Error('write failed for field "activity_id"'))
+
+    render(<ElectivesScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.queryByText('Afternoon Chugim')).not.toBeNull())
+    fireEvent.click(screen.getByText('Manage Offerings'))
+    await waitFor(() => expect(screen.getByText(/import this set’s offerings from a file/)).toBeTruthy())
+
+    const listCallsBefore = localClient.list.mock.calls.filter(([e]) => e === 'elective_set_activities').length
+
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant'], 'chugim.txt', { type: 'text/plain' })
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await waitFor(() => expect(screen.getByText(/Could not import that schedule/)).toBeTruthy())
+    await waitFor(() =>
+      expect(localClient.list.mock.calls.filter(([e]) => e === 'elective_set_activities').length).toBeGreaterThan(listCallsBefore)
+    )
   })
 })

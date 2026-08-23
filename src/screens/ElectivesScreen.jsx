@@ -13,16 +13,27 @@
 // No campers roster, no solver (ADR §2) — this screen only holds and
 // displays what the director decides.
 import { useState, useRef, useEffect } from 'react'
+import * as XLSX from 'xlsx'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
+import { parseTextGrid } from '../ingest/textGrid'
+import { workbookToPages } from '../ingest/sheetGrid'
+import { parseGridSchedule } from '../ingest/parseGridSchedule'
+import { populateElectiveSet } from '../ingest/electiveSetPopulate'
+import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../utils/exportSanitize.js'
 
 const repository = createSetupCrudRepository({ localClient })
 const setScopeFilter = (row, campId) => row.camp_id === campId
 const offeringScopeFilter = (row, electiveSetId) => row.elective_set_id === electiveSetId
+
+const IMPORT_LABELS = {
+  importAction: 'or import this set’s offerings from a file',
+  noGridFound: 'No schedule could be read out of that. It may be a scan rather than a document with text in it.',
+}
 
 // Defense-in-depth: malformed JSON in an eligible_*_ids column must not crash
 // this screen — same posture as ActivitiesScreen.jsx's parseIdList.
@@ -144,6 +155,8 @@ function ElectiveSetDetail({ set, role, activities, locations, tiers, groups, on
   const [pickerActivityId, setPickerActivityId] = useState('')
   const [pendingDelete, setPendingDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const fileInputRef = useRef(null)
 
   const offeredActivityIds = new Set(offerings.map((o) => o.activity_id))
   const availableActivities = activities.filter((a) => !offeredActivityIds.has(a.id))
@@ -152,6 +165,61 @@ function ElectiveSetDetail({ set, role, activities, locations, tiers, groups, on
     if (!pickerActivityId) return
     const succeeded = await add({ activityId: pickerActivityId })
     if (succeeded) setPickerActivityId('')
+  }
+
+  // File -> parse -> populate wiring (ADR §8, mirrors EventGridEditor.jsx's
+  // runImport). Reuses the same file->grid extraction and size/complexity
+  // guards ImportScreen.jsx uses — this import stays renderer-side, scoped
+  // to this one elective set, never touching ReconciliationScreen/
+  // buildPlan.js/the campwide ingest pipeline. Both the xlsx AND the .txt
+  // branch are size-guarded (a gap Security caught in the events consumer).
+  async function runImport(file) {
+    if (!file) return
+    setError(null)
+    setImporting(true)
+    try {
+      let pages
+      if (/\.(xlsx|xlsm|xls)$/i.test(file.name)) {
+        assertImportFileSize(file.size)
+        const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+        assertWorkbookComplexity(wb)
+        const sheets = wb.SheetNames.map((name) => ({
+          name,
+          rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false }).map(unescapeRow),
+        }))
+        pages = workbookToPages(sheets, file.name)
+      } else {
+        assertImportFileSize(file.size)
+        pages = parseTextGrid(await file.text()).pages
+      }
+
+      if (!pages || pages.length === 0) {
+        setError(IMPORT_LABELS.noGridFound)
+        return
+      }
+
+      const parsed = parseGridSchedule(pages)
+      const result = await populateElectiveSet(parsed, {
+        electiveSetId: set.id, campId: set.camp_id, repo: repository, existingActivities: activities, existingOfferings: offerings,
+      })
+
+      if (!result.ok) {
+        setError(result.reason)
+        return
+      }
+      await reload()
+    } catch (err) {
+      // A mid-import failure can leave partial writes (populateElectiveSet has
+      // no rollback). Reload FIRST so the UI reflects what actually landed
+      // instead of showing a stale empty list, which would let the director
+      // retry and re-mint duplicate catalog activities for names that
+      // already succeeded — mirrors EventGridEditor.jsx's runImport.
+      await reload()
+      setError(describeWriteFailure(err, 'Could not import that schedule.'))
+    } finally {
+      setImporting(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
   }
 
   async function saveCapacity(offeringId, value) {
@@ -193,12 +261,28 @@ function ElectiveSetDetail({ set, role, activities, locations, tiers, groups, on
 
       {error && <div style={S.errorBanner}>{error}</div>}
 
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xlsx,.xlsm,.xls,.txt"
+        style={{ display: 'none' }}
+        onChange={(e) => runImport(e.target.files?.[0])}
+      />
+
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>
       ) : offerings.length === 0 ? (
         <div style={emptyStyles.wrap}>
           <div style={emptyStyles.title}>No offerings yet</div>
           <div style={emptyStyles.body}>Add an activity below to make it one of this set's choices.</div>
+          <button
+            className="press-97"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+            style={{ ...S.btnSecondary, fontStyle: 'italic', marginTop: 10 }}
+          >
+            {importing ? 'Importing…' : IMPORT_LABELS.importAction}
+          </button>
         </div>
       ) : (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
