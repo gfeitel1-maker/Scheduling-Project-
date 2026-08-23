@@ -13,6 +13,7 @@
 // placeActivityManual, which is schedule_templates-specific (this is the one
 // seam Red Hat should check, doubled by event_group_id replacing group_id).
 import { useEffect, useRef, useState } from 'react'
+import * as XLSX from 'xlsx'
 import { localClient } from '../../localClient'
 import { describeWriteFailure } from '../../utils/writeErrorMessage'
 import { S, useEnterTransition } from '../../styles/shared'
@@ -20,6 +21,11 @@ import { createActivity } from '../schedule/createActivityHelper'
 import { buildRowTracks, columnTracks } from '../schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../schedule/gridPlacement'
 import { blockNamesForSpan } from '../../components/schedule/cellLabel'
+import { parseTextGrid } from '../../ingest/textGrid'
+import { workbookToPages } from '../../ingest/sheetGrid'
+import { parseGridSchedule } from '../../ingest/parseGridSchedule'
+import { populateEventGrid } from '../../ingest/eventGridPopulate'
+import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../../utils/exportSanitize.js'
 import EventCell from './EventCell'
 import '../../components/schedule/scheduleGrid.css'
 
@@ -27,11 +33,15 @@ const LABELS = {
   backLink: '← Back to Event',
   addBlock: '+ Add Block',
   addGroup: '+ Add Group',
+  clearSchedule: 'Clear schedule',
+  clearScheduleConfirm: "Clear this event's whole schedule? This can't be undone.",
   notesLabel: 'Notes',
   printAction: 'Print',
   emptyBlocksTitle: 'No time blocks yet.',
   emptyBlocksBody: 'Add your first block and group to start building this schedule.',
   deletedElsewhere: 'This event was deleted.',
+  importAction: 'or import this event’s schedule from a file',
+  noGridFound: 'No schedule could be read out of that. It may be a scan rather than a document with text in it.',
 }
 
 async function writeField(entity, id, field, value) {
@@ -69,6 +79,9 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
   const [locations, setLocations] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [importUnmapped, setImportUnmapped] = useState(null)
+  const [importing, setImporting] = useState(false)
+  const fileInputRef = useRef(null)
   const enterStyle = useEnterTransition('liftFade')
   const seededEventIdsRef = useRef(new Set())
 
@@ -366,6 +379,85 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
     }
   }
 
+  // Clear this event's whole grid: deletes every event_slots row, then the
+  // two axis tables (event_time_blocks/event_groups), mirroring deleteEvent.js's
+  // cascade ordering — children before the tables that hold them. Never
+  // deletes the `events` row itself. Closes the dead-end the refuse-on-
+  // nonempty import message ("...already has entries. Clear it first...")
+  // otherwise points at with no control to act on (Tester MEDIUM, Architect
+  // Open Question #1).
+  async function clearSchedule() {
+    if (!window.confirm(LABELS.clearScheduleConfirm)) return
+    try {
+      const token = localStorage.getItem('shoresh-token')
+      for (const s of slots) await localClient.deleteEntity(token, 'event_slots', s.id)
+      for (const b of timeBlocks) await localClient.deleteEntity(token, 'event_time_blocks', b.id)
+      for (const g of eventGroups) await localClient.deleteEntity(token, 'event_groups', g.id)
+      setSlots([])
+      setTimeBlocks([])
+      setEventGroups([])
+    } catch (err) {
+      setError(describeWriteFailure(err, "Could not clear this event's schedule."))
+    }
+  }
+
+  // File -> parse -> populate wiring (ADR §7, spec Step 4.2). Reuses the same
+  // file->grid extraction and size/complexity guards ImportScreen.jsx uses —
+  // this import stays renderer-side, scoped to this one event, never touching
+  // ReconciliationScreen/buildPlan.js/the campwide ingest pipeline.
+  async function runImport(file) {
+    if (!file) return
+    setError(null)
+    setImportUnmapped(null)
+    setImporting(true)
+    try {
+      let pages
+      if (/\.(xlsx|xlsm|xls)$/i.test(file.name)) {
+        assertImportFileSize(file.size)
+        const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
+        assertWorkbookComplexity(wb)
+        const sheets = wb.SheetNames.map((name) => ({
+          name,
+          rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false }).map(unescapeRow),
+        }))
+        pages = workbookToPages(sheets, file.name)
+      } else {
+        assertImportFileSize(file.size)
+        pages = parseTextGrid(await file.text()).pages
+      }
+
+      if (!pages || pages.length === 0) {
+        setError(LABELS.noGridFound)
+        return
+      }
+
+      const parsed = parseGridSchedule(pages)
+      const repoShim = { writeField, writeActivityFields: repo.writeActivityFields }
+      const result = await populateEventGrid(parsed, {
+        eventId, campId, existingLocations: locations, existingActivities: activities, existingEventSlots: slots,
+      }, repoShim)
+
+      if (!result.ok) {
+        setError(result.reason)
+        return
+      }
+      if (result.unmapped.length > 0) setImportUnmapped(result.unmapped)
+      await load()
+    } catch (err) {
+      // A mid-import failure can leave partial writes (populateEventGrid has
+      // no rollback — Red Hat #1). Reload FIRST so the UI reflects what
+      // actually landed instead of showing a stale empty grid, which would
+      // let the director retry and re-mint duplicate catalog activities for
+      // names that already succeeded; load() clears any error itself, so
+      // set this one after it, not before.
+      await load()
+      setError(describeWriteFailure(err, 'Could not import that schedule.'))
+    } finally {
+      setImporting(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
   function doPrint() {
     window.print()
   }
@@ -386,11 +478,37 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
       </div>
 
       {error && <div style={S.errorBanner}>{error}</div>}
+      {importUnmapped && importUnmapped.length > 0 && (
+        <div style={{ ...S.errorBanner, background: 'var(--surface-warning, #fff8e1)', color: 'var(--text-primary)' }}>
+          {importUnmapped.length} cell{importUnmapped.length !== 1 ? 's' : ''} couldn’t be fully matched — you can fill those in below.
+        </div>
+      )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".xlsx,.xlsm,.xls,.txt"
+        style={{ display: 'none' }}
+        onChange={(e) => runImport(e.target.files?.[0])}
+      />
 
       <div className="grid-toolbar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, gap: 10, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button className="press-97" onClick={addBlock} style={S.btnSecondary}>{LABELS.addBlock}</button>
           <button className="press-97" onClick={addEventGroup} style={S.btnSecondary}>{LABELS.addGroup}</button>
+          {(timeBlocks.length > 0 || eventGroups.length > 0) && (
+            <button className="press-97" onClick={clearSchedule} style={S.btnDanger}>{LABELS.clearSchedule}</button>
+          )}
+          {filledCount === 0 && timeBlocks.length > 0 && eventGroups.length > 0 && (
+            <button
+              className="press-97"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={importing}
+              style={{ ...S.btnSecondary, fontStyle: 'italic' }}
+            >
+              {importing ? 'Importing…' : LABELS.importAction}
+            </button>
+          )}
         </div>
         <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>
           {eventGroups.length} group{eventGroups.length !== 1 ? 's' : ''} × {timeBlocks.length} block{timeBlocks.length !== 1 ? 's' : ''} — {filledCount} / {totalCells} filled
@@ -404,6 +522,9 @@ export default function EventGridEditor({ campId, eventId, onBack, onDeletedElse
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 12 }}>
             <button className="press-97" onClick={addBlock} style={S.btnPrimary}>{LABELS.addBlock}</button>
             <button className="press-97" onClick={addEventGroup} style={S.btnPrimary}>{LABELS.addGroup}</button>
+            <button className="press-97" onClick={() => fileInputRef.current?.click()} disabled={importing} style={S.btnSecondary}>
+              {importing ? 'Importing…' : LABELS.importAction}
+            </button>
           </div>
         </div>
       ) : (

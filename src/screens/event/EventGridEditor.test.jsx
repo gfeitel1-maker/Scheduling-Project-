@@ -18,8 +18,15 @@ vi.mock('../../localClient', () => ({
   },
 }))
 
+vi.mock('../../ingest/textGrid', () => ({ parseTextGrid: vi.fn() }))
+vi.mock('../../ingest/parseGridSchedule', () => ({ parseGridSchedule: vi.fn() }))
+vi.mock('../../ingest/eventGridPopulate', () => ({ populateEventGrid: vi.fn() }))
+
 import EventGridEditor from './EventGridEditor'
 import { localClient } from '../../localClient'
+import { parseTextGrid } from '../../ingest/textGrid'
+import { parseGridSchedule } from '../../ingest/parseGridSchedule'
+import { populateEventGrid } from '../../ingest/eventGridPopulate'
 
 const CAMP_ID = 'camp-1'
 const EVT_ID = 'evt-1'
@@ -271,5 +278,187 @@ describe('EventGridEditor — live-delete-while-editing', () => {
     opHandler({ entity: 'events', entity_id: EVT_ID, field: '__deleted__', value: 1, device_id: 'other-device' })
 
     await waitFor(() => expect(onDeletedElsewhere).toHaveBeenCalledTimes(1))
+  })
+})
+
+describe('EventGridEditor — Clear schedule control (Tester MEDIUM / Open Question #1)', () => {
+  it('asks for confirmation, then deletes every event_slots/event_time_blocks/event_groups row for this event and leaves the events row alone', async () => {
+    baseFixtures({
+      slots: [{ id: 'sl1', event_id: EVT_ID, event_group_id: 'eg1', time_block_id: 'tb1', activity_id: 'act1', location_id: null }],
+      activities: [{ id: 'act1', camp_id: CAMP_ID, name: 'Capture the Flag' }],
+    })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Capture the Flag')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Clear schedule'))
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    await waitFor(() => {
+      const calls = localClient.deleteEntity.mock.calls
+      expect(calls.some(([, entity, id]) => entity === 'event_slots' && id === 'sl1')).toBe(true)
+      expect(calls.some(([, entity, id]) => entity === 'event_time_blocks' && id === 'tb1')).toBe(true)
+      expect(calls.some(([, entity, id]) => entity === 'event_groups' && id === 'eg1')).toBe(true)
+      expect(calls.some(([, entity, id]) => entity === 'event_groups' && id === 'eg2')).toBe(true)
+    })
+    expect(localClient.deleteEntity.mock.calls.some(([, entity]) => entity === 'events')).toBe(false)
+
+    await waitFor(() => expect(screen.getAllByText(/Add your first block/).length).toBeGreaterThan(0))
+    confirmSpy.mockRestore()
+  })
+
+  it('does nothing when the confirm is declined', async () => {
+    baseFixtures({
+      slots: [{ id: 'sl1', event_id: EVT_ID, event_group_id: 'eg1', time_block_id: 'tb1', activity_id: 'act1', location_id: null }],
+      activities: [{ id: 'act1', camp_id: CAMP_ID, name: 'Capture the Flag' }],
+    })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false)
+    render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Capture the Flag')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Clear schedule'))
+
+    expect(confirmSpy).toHaveBeenCalledTimes(1)
+    expect(localClient.deleteEntity).not.toHaveBeenCalled()
+    confirmSpy.mockRestore()
+  })
+
+  it('after clearing, the import affordance reappears', async () => {
+    baseFixtures({
+      slots: [{ id: 'sl1', event_id: EVT_ID, event_group_id: 'eg1', time_block_id: 'tb1', activity_id: 'act1', location_id: null }],
+      activities: [{ id: 'act1', camp_id: CAMP_ID, name: 'Capture the Flag' }],
+    })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Capture the Flag')).toBeTruthy())
+
+    fireEvent.click(screen.getByText('Clear schedule'))
+
+    await waitFor(() => expect(screen.getAllByText(/import this event’s schedule from a file|Import from a file/).length).toBeGreaterThan(0))
+    confirmSpy.mockRestore()
+  })
+})
+
+describe('EventGridEditor — grid-schedule import affordance (docs/adr/2026-08-22-event-schedule-import.md)', () => {
+  beforeEach(() => {
+    parseTextGrid.mockReset()
+    parseGridSchedule.mockReset()
+    populateEventGrid.mockReset()
+  })
+
+  it('renders the import affordance when the grid has no placed activities', async () => {
+    baseFixtures({ slots: [] })
+    render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getAllByText('Open').length).toBeGreaterThan(0))
+    expect(screen.getByText(/import this event’s schedule from a file/)).toBeTruthy()
+  })
+
+  it('does not render the import affordance once the grid has a placed activity', async () => {
+    baseFixtures({
+      slots: [{ id: 's1', event_id: EVT_ID, event_group_id: 'eg1', time_block_id: 'tb1', activity_id: 'act-1' }],
+      activities: [{ id: 'act-1', camp_id: CAMP_ID, name: 'Capture the Flag' }],
+    })
+    render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Capture the Flag')).toBeTruthy())
+    expect(screen.queryByText(/import this event’s schedule from a file/)).toBeNull()
+  })
+
+  it('file -> parse -> populate wiring: selecting a file runs parseTextGrid -> parseGridSchedule -> populateEventGrid, then reloads', async () => {
+    baseFixtures({ slots: [] })
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['Kinders'], rows: [{ label: '9:30-10:10', cells: ['Swim'] }] }] })
+    const parsed = {
+      orientation: { axis: 'rows-are-time', confident: true },
+      timeAxis: [{ name: '9:30-10:10', start_time: '09:30', end_time: '10:10', sourceIndex: 0 }],
+      groupAxis: [{ name: 'Kinders', sourceIndex: 0 }],
+      cells: [{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }],
+      unmapped: [],
+    }
+    parseGridSchedule.mockReturnValue(parsed)
+    populateEventGrid.mockResolvedValue({ ok: true, unmapped: [] })
+
+    render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getAllByText('Open').length).toBeGreaterThan(0))
+
+    const importButton = screen.getByText(/import this event’s schedule from a file/)
+    fireEvent.click(importButton)
+    const file = new File(['irrelevant'], 'schedule.txt', { type: 'text/plain' })
+    const input = document.querySelector('input[type="file"]')
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await waitFor(() => expect(populateEventGrid).toHaveBeenCalledTimes(1))
+    expect(parseGridSchedule).toHaveBeenCalledWith([{ title: 'x', columns: ['Kinders'], rows: [{ label: '9:30-10:10', cells: ['Swim'] }] }])
+    const [passedParsed, ctx] = populateEventGrid.mock.calls[0]
+    expect(passedParsed).toBe(parsed)
+    expect(ctx.eventId).toBe(EVT_ID)
+    expect(ctx.campId).toBe(CAMP_ID)
+    // reload happened after a successful import
+    await waitFor(() => expect(localClient.list.mock.calls.filter(([e]) => e === 'event_slots').length).toBeGreaterThan(1))
+  })
+
+  it('not-confident orientation refuses and surfaces the ADR §5.2 message, writes nothing new', async () => {
+    baseFixtures({ slots: [] })
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: 'Monday', cells: ['Art'] }] }] })
+    parseGridSchedule.mockReturnValue({ orientation: { axis: null, confident: false }, timeAxis: [], groupAxis: [], cells: [], unmapped: [] })
+    populateEventGrid.mockResolvedValue({ ok: false, reason: "Couldn't tell which side of this file is the schedule's times. Check that the file has a clear time column or time row, and try again." })
+
+    render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getAllByText('Open').length).toBeGreaterThan(0))
+
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant'], 'schedule.txt', { type: 'text/plain' })
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await waitFor(() => expect(screen.getByText(/Couldn.t tell which side of this file/)).toBeTruthy())
+  })
+
+  it('partial parse: renders the unmapped summary without treating it as a failure', async () => {
+    baseFixtures({ slots: [] })
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: '9:30-10:10', cells: ['Swim'] }] }] })
+    parseGridSchedule.mockReturnValue({
+      orientation: { axis: 'rows-are-time', confident: true },
+      timeAxis: [{ name: '9:30-10:10', start_time: '09:30', end_time: '10:10', sourceIndex: 0 }],
+      groupAxis: [{ name: 'A', sourceIndex: 0 }],
+      cells: [{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: 'Field' }],
+      unmapped: [],
+    })
+    populateEventGrid.mockResolvedValue({ ok: true, unmapped: [{ sourceExcerpt: 'Field', reason: 'no matching location for this cell' }] })
+
+    render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getAllByText('Open').length).toBeGreaterThan(0))
+
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant'], 'schedule.txt', { type: 'text/plain' })
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await waitFor(() => expect(screen.getByText(/couldn.t be fully matched/)).toBeTruthy())
+  })
+
+  it('a mid-import throw (partial write) still reloads grid state, so stale UI does not mask the partial data (Red Hat #1)', async () => {
+    baseFixtures({ slots: [] })
+    parseTextGrid.mockReturnValue({ pages: [{ title: 'x', columns: ['A'], rows: [{ label: '9:30-10:10', cells: ['Swim'] }] }] })
+    parseGridSchedule.mockReturnValue({
+      orientation: { axis: 'rows-are-time', confident: true },
+      timeAxis: [{ name: '9:30-10:10', start_time: '09:30', end_time: '10:10', sourceIndex: 0 }],
+      groupAxis: [{ name: 'A', sourceIndex: 0 }],
+      cells: [{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }],
+      unmapped: [],
+    })
+    populateEventGrid.mockRejectedValue(new Error('write failed for field "activity_id"'))
+
+    render(<EventGridEditor campId={CAMP_ID} eventId={EVT_ID} onBack={() => {}} onDeletedElsewhere={() => {}} />)
+    await waitFor(() => expect(screen.getAllByText('Open').length).toBeGreaterThan(0))
+
+    const listCallsBefore = localClient.list.mock.calls.filter(([e]) => e === 'event_slots').length
+
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant'], 'schedule.txt', { type: 'text/plain' })
+    fireEvent.change(input, { target: { files: [file] } })
+
+    await waitFor(() => expect(screen.getByText(/Could not import that schedule/)).toBeTruthy())
+    // the catch path reloaded grid state (event_slots re-listed), not just
+    // shown an error over stale state
+    await waitFor(() => expect(
+      localClient.list.mock.calls.filter(([e]) => e === 'event_slots').length
+    ).toBeGreaterThan(listCallsBefore))
   })
 })
