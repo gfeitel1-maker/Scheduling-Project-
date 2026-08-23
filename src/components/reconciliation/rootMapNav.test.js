@@ -13,7 +13,7 @@ const REAL_SCREEN_KEYS = new Set([
   'readiness', 'camp', 'import', 'roots', 'conflicts', 'trash',
   'cohorts', 'tiers', 'groups', 'days', 'timeblocks', 'activities',
   'locations', 'anchors', 'schedule',
-  'schedule:manual', 'schedule:generated',
+  'schedule:manual', 'schedule:generated', 'schedule:special',
 ])
 
 describe('rootMapNav — every nav target is a real screen', () => {
@@ -69,8 +69,13 @@ describe('rootMapNav — every nav target is a real screen', () => {
 
   // ── Context wiring (Slice 3, docs/adr/2026-08-19-roots-census-and-persistent-inspector.md §(g)) ──
 
-  it('Field Trips / Special Events resolves to the schedule (manual default) — inspect-mode-only child', () => {
-    expect(screenForNode('Context', 'Field Trips / Special Events')).toBe('schedule:manual')
+  // docs/work/specs/2026-08-23-schedule-build-ia.md — building a special
+  // day/event's grid now lives under Schedule → Special Schedules, not
+  // Manual Build. A roster row's own resolved targetScreen (manual vs.
+  // generated) still wins when present (RootMapPanel.jsx); this is only the
+  // generic fallback for the "Open in..." button.
+  it('Field Trips / Special Events resolves to Special Schedules — inspect-mode-only child', () => {
+    expect(screenForNode('Context', 'Field Trips / Special Events')).toBe('schedule:special')
   })
 
   // T108 Phase 2 review round 2 (MED/HIGH #4) — the 'Day Overrides' node no

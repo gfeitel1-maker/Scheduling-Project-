@@ -62,6 +62,30 @@ describe('SpecialDaysScreen — create', () => {
     })
     await waitFor(() => expect(screen.getByText(/Seed from Time Blocks/)).toBeTruthy())
   })
+
+  // OQ2 (owner-resolved 2026-08-23, docs/work/specs/2026-08-23-schedule-
+  // build-ia.md): no auto-forward into the grid. Choosing "Start Empty"
+  // returns to the list with a quiet hint pointing at Schedule → Special
+  // Schedules — no grid editor renders in this screen at all.
+  it('returns to the list after choosing "Start Empty" — no auto-forward into the grid — and shows a hint', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'special_days') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+    render(<SpecialDaysScreen campId={CAMP_ID} role="admin" />)
+    await waitFor(() => expect(screen.getByText('No special days yet')).toBeTruthy())
+
+    fireEvent.click(screen.getAllByText('+ New Special Day')[0])
+    fireEvent.change(screen.getByPlaceholderText('Name your special day…'), { target: { value: 'Color War' } })
+    fireEvent.click(screen.getByText('Create'))
+    await waitFor(() => expect(screen.getByText(/Start Empty/)).toBeTruthy())
+
+    fireEvent.click(screen.getByText(/Start Empty/))
+
+    await waitFor(() => expect(screen.getByText(/build it from Special Schedules under Schedule/)).toBeTruthy())
+    expect(screen.queryByText('← Back to Special Days')).toBeNull()
+    expect(screen.getByText('Color War')).toBeTruthy()
+  })
 })
 
 describe('SpecialDaysScreen — delete', () => {
@@ -149,8 +173,8 @@ describe('SpecialDaysScreen — seed from camp time blocks', () => {
   })
 })
 
-describe('SpecialDaysScreen — open', () => {
-  it('clicking Open switches into the grid editor sub-view', async () => {
+describe('SpecialDaysScreen — open (docs/work/specs/2026-08-23-schedule-build-ia.md)', () => {
+  it('clicking Open navigates to schedule:special with this day pre-selected — no inline grid swap', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'special_days') return Promise.resolve([{ id: 'sd-1', camp_id: CAMP_ID, name: 'Color War' }])
       if (entity === 'special_day_time_blocks') return Promise.resolve([])
@@ -160,11 +184,13 @@ describe('SpecialDaysScreen — open', () => {
       if (entity === 'locations') return Promise.resolve([])
       return Promise.resolve([])
     })
-    render(<SpecialDaysScreen campId={CAMP_ID} role="admin" />)
+    const onNavigate = vi.fn()
+    render(<SpecialDaysScreen campId={CAMP_ID} role="admin" onNavigate={onNavigate} />)
     await waitFor(() => expect(screen.getByText('Color War')).toBeTruthy())
 
     fireEvent.click(screen.getByText('Open'))
-    await waitFor(() => expect(screen.getByText('← Back to Special Days')).toBeTruthy())
-    expect(screen.getByText('No time blocks yet.')).toBeTruthy()
+
+    expect(onNavigate).toHaveBeenCalledWith('schedule:special', { specialDayId: 'sd-1' })
+    expect(screen.queryByText('← Back to Special Days')).toBeNull()
   })
 })

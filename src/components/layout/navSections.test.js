@@ -38,13 +38,31 @@ describe('NAV_SECTIONS setup items (Slice B)', () => {
 describe('NAV_SECTIONS schedule items — both routes stay distinct (ADR §3)', () => {
   const scheduleItems = NAV_SECTIONS.find(s => s.key === 'schedule').items
 
-  it('lists both schedule routes as separate rows', () => {
+  it('lists both schedule routes as separate rows, plus the Special Schedules picker after them', () => {
     const keys = scheduleItems.map(i => i.key)
-    expect(keys).toEqual(['schedule:generated', 'schedule:manual'])
+    expect(keys).toEqual(['schedule:generated', 'schedule:manual', 'schedule:special'])
   })
 
   it('does not collapse the two routes into one neutral entry', () => {
     expect(scheduleItems.some(i => i.key === 'schedule')).toBe(false)
+  })
+})
+
+// docs/work/specs/2026-08-23-schedule-build-ia.md — the Schedule-side build
+// entry for special days/events. Fixed row (never grows with data), no
+// badge (resolved OQ1: "things you can optionally build" carry no urgency).
+describe('NAV_SECTIONS schedule:special row (schedule-build-ia)', () => {
+  const scheduleItems = NAV_SECTIONS.find(s => s.key === 'schedule').items
+  const specialRow = scheduleItems.find(i => i.key === 'schedule:special')
+
+  it('is present, labeled "Special Schedules", after Manual Build', () => {
+    expect(specialRow).toBeTruthy()
+    expect(specialRow.label).toBe('Special Schedules')
+    expect(scheduleItems.indexOf(specialRow)).toBe(scheduleItems.length - 1)
+  })
+
+  it('carries no badge', () => {
+    expect(specialRow.badgeKey).toBeUndefined()
   })
 })
 

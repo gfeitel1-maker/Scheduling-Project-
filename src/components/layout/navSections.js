@@ -111,6 +111,12 @@ export const NAV_SECTIONS = [
       // becomes designation.
       { key: 'schedule:generated', label: 'Generated Schedule' },
       { key: 'schedule:manual',    label: 'Manual Build' },
+      // docs/work/specs/2026-08-23-schedule-build-ia.md — the picker that
+      // reaches SpecialDayGridEditor/EventGridEditor from the Schedule side.
+      // Fixed row, never grows with data (the list inside is data, not nav
+      // structure) — so it doesn't read as a third route. No badge (resolved
+      // OQ1): "things you can optionally go build" carry no urgency.
+      { key: 'schedule:special',   label: 'Special Schedules' },
     ],
   },
 ]
