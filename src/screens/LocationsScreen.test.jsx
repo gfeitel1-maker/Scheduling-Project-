@@ -317,7 +317,7 @@ describe('LocationsScreen', () => {
     fireEvent.click(screen.getByText('← Back to Activities'))
     expect(onNavigate).toHaveBeenCalledWith('activities')
 
-    fireEvent.click(screen.getByText('Next: Fixed Events →'))
+    fireEvent.click(screen.getByText('Next: Recurring Events →'))
     expect(onNavigate).toHaveBeenCalledWith('anchors')
   })
 

@@ -856,11 +856,11 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
                 letterSpacing: '0.12em', textTransform: 'uppercase',
                 color: 'var(--text-secondary)', marginBottom: 8,
               }}>
-                Fixed Events
+                Recurring Events
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
                 These activities sat at the same time across a group’s days, so they look fixed rather
-                than scheduled fresh each day. They’re added as fixed events you can edit later.
+                than scheduled fresh each day. They’re added as recurring events you can edit later.
               </div>
               {fixedEvents.some((fe) => fe.confidence === 'low') && (
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
@@ -955,7 +955,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
                       <>Both your <strong>Manual Build</strong> and <strong>Generated Schedule</strong> will
                       be cleared ({slotCount} {slotCount === 1 ? 'slot' : 'slots'}).</>) },
                   { key: 'anchors', count: anchorCount, render: () => (
-                      <>Your <strong>{anchorCount}</strong> Fixed {anchorCount === 1 ? 'Event' : 'Events'} will
+                      <>Your <strong>{anchorCount}</strong> Recurring {anchorCount === 1 ? 'Event' : 'Events'} will
                       be cleared. {anchorCount === 1 ? 'It is' : 'They are'} recoverable from Trash.</>) },
                 ].filter((w) => w.count > 0)
 

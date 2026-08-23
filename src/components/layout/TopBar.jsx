@@ -12,7 +12,7 @@ const TITLES = {
   days:         'Days',
   timeblocks:   'Time Blocks',
   activities:   'Activities',
-  anchors:      'Fixed Events',
+  anchors:      'Recurring Events',
   electives:    'Electives',
   schedule:              'Schedule',
   'schedule:generated':  'Generated Schedule',

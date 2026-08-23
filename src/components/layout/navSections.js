@@ -64,7 +64,7 @@ export const NAV_SECTIONS = [
           // own Next chain points at Fixed Events without touching Activities'
           // own required Next button.
           { key: 'locations',    label: 'Locations',     area: 'locations',    optional: true },
-          { key: 'anchors',      label: 'Fixed Events',  area: 'anchors',      optional: true },
+          { key: 'anchors',      label: 'Recurring Events',  area: 'anchors',      optional: true },
           // Electives Slice 1 (docs/adr/2026-08-22-nested-schedules-electives-
           // and-events.md §2): the "schedule within a schedule" — a director
           // builds elective sets/offerings here, off the campwide grid, which

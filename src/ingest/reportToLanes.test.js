@@ -186,7 +186,7 @@ describe('reportToLanes', () => {
   it('an optional-kind readiness row never produces a required_gap decision, regardless of state', () => {
     const r = report([], { understood: 5, notInSource: 1 })
     r.readiness = [
-      { key: 'anchors', label: 'Fixed Events', screen: 'anchors', kind: 'optional', state: 'optional' },
+      { key: 'anchors', label: 'Recurring Events', screen: 'anchors', kind: 'optional', state: 'optional' },
     ]
     const lanes = reportToLanes(r)
     expect(lanes.hold).toEqual([])

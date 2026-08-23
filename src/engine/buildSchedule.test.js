@@ -41,6 +41,49 @@ describe('anchored activities excluded from regular placement', () => {
   })
 })
 
+// Slice 2 (docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md):
+// anchor_activities.schedule_week_id (Slice 1) binds a Recurring Event to one
+// schedule week — NULL means all weeks (today's behavior). The engine must
+// honor that binding: a week-bound anchor is skipped entirely (never placed
+// AND never marks its activity "anchored") when the week being built doesn't
+// match, so it can't leak into — or silently block regular placement in — a
+// week it isn't bound to.
+describe('week-bound anchors (schedule_week_id, Slice 2)', () => {
+  const lunch = { id: 'lunch', name: 'Lunch', priority: 'high', max_per_week: 10, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+  const weekBoundAnchor = { id: 'anc-wk', activity_id: 'lunch', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1, schedule_week_id: 'week-A' }
+
+  it('places a week-bound anchor when building the week it is bound to', () => {
+    const { slots } = buildSchedule(minimal({ activities: [lunch], anchors: [weekBoundAnchor], weekId: 'week-A' }))
+    const anchorSlots = slots.filter(s => s.type === 'anchor' && s.anchorId === 'anc-wk')
+    expect(anchorSlots.length).toBeGreaterThan(0)
+  })
+
+  it('omits a week-bound anchor entirely when building a different week, and does not block regular placement there', () => {
+    const { slots } = buildSchedule(minimal({ activities: [lunch], anchors: [weekBoundAnchor], weekId: 'week-B' }))
+    const anchorSlots = slots.filter(s => s.type === 'anchor' && s.anchorId === 'anc-wk')
+    expect(anchorSlots).toHaveLength(0)
+
+    // Not just absent as an anchor — its activity must be free to place as a
+    // regular activity slot in the week it isn't anchored to, proving the
+    // skip doesn't leave a phantom occupied/excluded cell behind.
+    const regularLunchSlots = slots.filter(s => s.type === 'activity' && s.activityId === 'lunch')
+    expect(regularLunchSlots.length).toBeGreaterThan(0)
+  })
+
+  it('a NULL schedule_week_id anchor appears on every week (unchanged today behavior)', () => {
+    const allWeeksAnchor = { ...weekBoundAnchor, id: 'anc-all', schedule_week_id: null }
+    const { slots: slotsA } = buildSchedule(minimal({ activities: [lunch], anchors: [allWeeksAnchor], weekId: 'week-A' }))
+    const { slots: slotsB } = buildSchedule(minimal({ activities: [lunch], anchors: [allWeeksAnchor], weekId: 'week-B' }))
+    expect(slotsA.filter(s => s.type === 'anchor' && s.anchorId === 'anc-all').length).toBeGreaterThan(0)
+    expect(slotsB.filter(s => s.type === 'anchor' && s.anchorId === 'anc-all').length).toBeGreaterThan(0)
+  })
+
+  it('omits a week-bound anchor when no weekId is passed at all (backward compat, e.g. anchorsOnly grids without a resolved week)', () => {
+    const { slots } = buildSchedule(minimal({ activities: [lunch], anchors: [weekBoundAnchor] }))
+    expect(slots.filter(s => s.type === 'anchor' && s.anchorId === 'anc-wk')).toHaveLength(0)
+  })
+})
+
 // T41 slice 1 (group-level electives,
 // docs/work/specs/2026-08-20-group-electives-design.md): an elective cell is
 // authored content, never engine output — mirrors the anchor-skip test above

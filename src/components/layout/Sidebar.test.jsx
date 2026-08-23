@@ -124,7 +124,7 @@ describe('Sidebar: Roots hub with its collapsible entity children (Slice B)', ()
     // overlay-placement.md) are the 4th and 5th optional entities, alongside
     // Locations, Fixed Events, and Special Days.
     expect(screen.getAllByText('optional').length).toBe(5)
-    for (const label of ['Fixed Events', 'Locations', 'Special Days', 'Electives', 'Events']) {
+    for (const label of ['Recurring Events', 'Locations', 'Special Days', 'Electives', 'Events']) {
       const row = screen.getByText(label).closest('button')
       expect(within(row).queryByText('!')).toBeNull()
     }

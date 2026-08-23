@@ -56,13 +56,13 @@ export default function PostImportBanner({ outcome, readiness = [], censusReadFa
       {fixedEvents.skipped?.length > 0 && (
         <div style={{ marginTop: 8 }}>
           {fixedEvents.skipped.length} fixed {fixedEvents.skipped.length === 1 ? 'event' : 'events'} couldn’t
-          be created because their time block or groups weren’t imported — you can add {fixedEvents.skipped.length === 1 ? 'it' : 'them'} on the Fixed Events screen.
+          be created because their time block or groups weren’t imported — you can add {fixedEvents.skipped.length === 1 ? 'it' : 'them'} on the Recurring Events screen.
         </div>
       )}
       {fixedEvents.partial?.length > 0 && (
         <div style={{ marginTop: 8 }}>
           Some fixed events were added for fewer days or groups than proposed, because you didn’t import all of them:{' '}
-          {fixedEvents.partial.map((p) => `${p.name} (${p.reason})`).join('; ')}. Adjust {fixedEvents.partial.length === 1 ? 'it' : 'them'} on the Fixed Events screen.
+          {fixedEvents.partial.map((p) => `${p.name} (${p.reason})`).join('; ')}. Adjust {fixedEvents.partial.length === 1 ? 'it' : 'them'} on the Recurring Events screen.
         </div>
       )}
       {fixedEvents.moved?.length > 0 && (

@@ -68,9 +68,9 @@ describe('AnchorsScreen fan-out-per-day creation', () => {
     })
 
     render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No recurring events yet')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('+ Add Fixed Event'))
+    fireEvent.click(screen.getByText('+ Add Recurring Event'))
 
     fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'Mifkad' } })
     fireEvent.click(screen.getByText('Monday'))
@@ -78,7 +78,7 @@ describe('AnchorsScreen fan-out-per-day creation', () => {
     fireEvent.click(screen.getByText('Wednesday'))
     fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
 
-    fireEvent.click(screen.getByText('Add Fixed Event (×3)'))
+    fireEvent.click(screen.getByText('Add Recurring Event (×3)'))
 
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
     await waitFor(() => {
@@ -99,6 +99,72 @@ describe('AnchorsScreen fan-out-per-day creation', () => {
     // matches the id set for name writes (same 3 rows, fully written).
     const dayIdIds = dayIdCalls.map(c => c[2]).sort()
     expect(dayIdIds).toEqual([...ids].sort())
+  })
+})
+
+// Slice 2 (docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md):
+// per-anchor "which weeks" control writing schedule_week_id. Default "All
+// weeks" (NULL, today's implicit meaning) — picking a specific week writes
+// that week's id.
+describe('AnchorsScreen — which weeks control (schedule_week_id)', () => {
+  const weeks = [
+    { id: 'week-1', camp_id: CAMP_ID, name: 'Week 1', sort_order: 1 },
+    { id: 'week-2', camp_id: CAMP_ID, name: 'Week 2', sort_order: 2 },
+  ]
+  const anchorRow = {
+    id: 'anc-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Mifkad',
+    day_id: 'd1', time_block_id: 'block-1', is_all_groups: 1, group_ids: '[]',
+    notes: null, schedule_week_id: null,
+  }
+
+  function mockList(anchors = [anchorRow]) {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'anchor_activities') return Promise.resolve(anchors)
+      if (entity === 'days_of_operation') return Promise.resolve([day({ id: 'd1' })])
+      if (entity === 'time_blocks') return Promise.resolve([block()])
+      if (entity === 'tiers') return Promise.resolve([])
+      if (entity === 'groups') return Promise.resolve([])
+      if (entity === 'schedule_weeks') return Promise.resolve(weeks)
+      return Promise.resolve([])
+    })
+  }
+
+  it('defaults an anchor with schedule_week_id NULL to "All weeks"', async () => {
+    mockList()
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+    expect(screen.getByDisplayValue('All weeks')).not.toBeNull()
+  })
+
+  it('picking a specific week writes schedule_week_id for that anchor', async () => {
+    mockList()
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+
+    fireEvent.change(screen.getByDisplayValue('All weeks'), { target: { value: 'week-2' } })
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalledWith(
+      'token-abc', 'anchor_activities', 'anc-1', 'schedule_week_id', 'week-2'
+    ))
+  })
+
+  it('an anchor already bound to a week shows that week selected, not "All weeks"', async () => {
+    mockList([{ ...anchorRow, schedule_week_id: 'week-1' }])
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+    expect(screen.getByDisplayValue('Week 1')).not.toBeNull()
+  })
+
+  it('picking "All weeks" on a week-bound anchor writes schedule_week_id back to null', async () => {
+    mockList([{ ...anchorRow, schedule_week_id: 'week-1' }])
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+
+    fireEvent.change(screen.getByDisplayValue('Week 1'), { target: { value: '' } })
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalledWith(
+      'token-abc', 'anchor_activities', 'anc-1', 'schedule_week_id', null
+    ))
   })
 })
 
@@ -130,15 +196,15 @@ describe('AnchorsScreen cleanup-failure surfacing', () => {
     localClient.deleteEntity.mockRejectedValue(new Error('admin role required'))
 
     render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No recurring events yet')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('+ Add Fixed Event'))
+    fireEvent.click(screen.getByText('+ Add Recurring Event'))
     fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'Mifkad' } })
     fireEvent.click(screen.getByText('Monday'))
     fireEvent.click(screen.getByText('Tuesday'))
     fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
 
-    fireEvent.click(screen.getByText('Add Fixed Event (×2)'))
+    fireEvent.click(screen.getByText('Add Recurring Event (×2)'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalled())
 
@@ -168,13 +234,13 @@ describe('AnchorsScreen write serialization (characterization)', () => {
     })
 
     render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('No recurring events yet')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('+ Add Fixed Event'))
+    fireEvent.click(screen.getByText('+ Add Recurring Event'))
     fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'Mifkad' } })
     fireEvent.click(screen.getByText('Monday'))
     fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add Fixed Event' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add Recurring Event' }))
 
     await waitFor(() => {
       const allGroupsCall = localClient.write.mock.calls.find(c => c[3] === 'is_all_groups')
@@ -209,10 +275,10 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
 
     expect(window.confirm).not.toHaveBeenCalled()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
-    await waitFor(() => expect(screen.queryByText('Delete all fixed events?')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Delete all recurring events?')).not.toBeNull())
     expect(screen.queryByText('They can be restored from Trash.')).not.toBeNull()
 
-    fireEvent.click(screen.getByText('Delete All Fixed Events'))
+    fireEvent.click(screen.getByText('Delete All Recurring Events'))
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'anchor_activities', 'anchor-1'))
   })
 
@@ -224,10 +290,10 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
-    await waitFor(() => expect(screen.queryByText('Delete all fixed events?')).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Delete all recurring events?')).not.toBeNull())
     fireEvent.click(screen.getByText('Cancel'))
 
-    expect(screen.queryByText('Delete all fixed events?')).toBeNull()
+    expect(screen.queryByText('Delete all recurring events?')).toBeNull()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
   })
 
@@ -246,8 +312,8 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
         : [])
     )
     fireEvent.click(screen.getByText('Delete All'))
-    await waitFor(() => expect(screen.queryByText('Delete all fixed events?')).not.toBeNull())
-    fireEvent.click(screen.getByText('Delete All Fixed Events'))
+    await waitFor(() => expect(screen.queryByText('Delete all recurring events?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Recurring Events'))
 
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'anchor_activities', 'anchor-2'))
     expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'anchor_activities', 'anchor-1')
@@ -267,11 +333,11 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
-    await waitFor(() => expect(screen.queryByText('Delete all fixed events?')).not.toBeNull())
-    fireEvent.click(screen.getByText('Delete All Fixed Events'))
+    await waitFor(() => expect(screen.queryByText('Delete all recurring events?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Recurring Events'))
 
     await waitFor(() =>
-      expect(screen.queryByText('Deleted 1 of 2 fixed events — please try again for the rest.')).not.toBeNull()
+      expect(screen.queryByText('Deleted 1 of 2 recurring events — please try again for the rest.')).not.toBeNull()
     )
   })
 
@@ -286,11 +352,11 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
     await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Delete All'))
-    await waitFor(() => expect(screen.queryByText('Delete all fixed events?')).not.toBeNull())
-    fireEvent.click(screen.getByText('Delete All Fixed Events'))
+    await waitFor(() => expect(screen.queryByText('Delete all recurring events?')).not.toBeNull())
+    fireEvent.click(screen.getByText('Delete All Recurring Events'))
 
     await waitFor(() =>
-      expect(screen.queryByText('Only an admin can delete fixed events — no fixed events were deleted.')).not.toBeNull()
+      expect(screen.queryByText('Only an admin can delete recurring events — no recurring events were deleted.')).not.toBeNull()
     )
   })
 })
@@ -325,9 +391,9 @@ describe('AnchorsScreen delete confirmation', () => {
     expect(window.confirm).not.toHaveBeenCalled()
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
     await waitFor(() => expect(screen.queryByText('Delete "Mifkad"?')).not.toBeNull())
-    expect(screen.queryByText('This fixed event will be removed from your schedules.')).not.toBeNull()
+    expect(screen.queryByText('This recurring event will be removed from your schedules.')).not.toBeNull()
 
-    fireEvent.click(screen.getByText('Delete Fixed Event'))
+    fireEvent.click(screen.getByText('Delete Recurring Event'))
     await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalledWith('token-abc', 'anchor_activities', 'anchor-1'))
   })
 

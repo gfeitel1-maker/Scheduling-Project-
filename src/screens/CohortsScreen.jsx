@@ -288,7 +288,7 @@ export default function CohortsScreen({ campId }) {
               <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
                 <th style={S.th}>Name</th>
                 <th style={S.th}>Session Weeks</th>
-                <th style={S.th}>Fixed Events</th>
+                <th style={S.th}>Recurring Events</th>
                 <th style={S.th}>Capacity Source</th>
                 <th style={S.th}>Order</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>

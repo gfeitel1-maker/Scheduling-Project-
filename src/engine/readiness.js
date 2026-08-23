@@ -81,7 +81,7 @@ export const REQUIRED_AREAS = [
 // TiersScreen on click — exactly the failure guardScreensExist below exists
 // to catch.
 export const OPTIONAL_AREAS = [
-  { key: 'anchors', label: 'Fixed Events', screen: 'anchors' },
+  { key: 'anchors', label: 'Recurring Events', screen: 'anchors' },
   // M3 — promoted out of FORWARD_AREAS now that a real Locations screen and
   // collection exist (docs/adr/2026-08-15-camp-locations-entity.md M3 row).
   // Fixes the dead Review button (gap 14): `screen` used to be 'camp', a
