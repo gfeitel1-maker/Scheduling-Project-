@@ -5,11 +5,23 @@
 // subprocess (docs/work/specs/2026-08-21-mcp-server-tool-schemas.md, "Test
 // seam").
 
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+
+const buildScheduleCalls = []
+vi.mock('../../src/engine/buildSchedule.js', async (importOriginal) => {
+  const actual = await importOriginal()
+  return {
+    ...actual,
+    default: (input) => {
+      buildScheduleCalls.push(input)
+      return actual.default(input)
+    },
+  }
+})
 
 import { openLocalDb } from '../../electron/db/localDb.js'
 import {
@@ -49,6 +61,7 @@ describe('scripts/mcp/tools.js', () => {
   afterEach(() => {
     for (const dir of dirs) fs.rmSync(dir, { recursive: true, force: true })
     dirs.length = 0
+    buildScheduleCalls.length = 0
   })
 
   describe('ingestPreviewTool', () => {
@@ -278,6 +291,24 @@ describe('scripts/mcp/tools.js', () => {
         expect(result2.ok).toBe(true)
         expect(result2.week_id).toBe(week2)
         expect(result2.template.id).toBe(template2)
+      })
+
+      // Red Hat HIGH: scheduleStateTool resolved weekId but did not thread it
+      // into buildSchedule(...), so week-bound anchors for the queried week
+      // were silently dropped from every findings/conflicts computation.
+      it('passes the resolved weekId through to buildSchedule so week-bound anchors are honored', () => {
+        const dir = makeTmpDir()
+        dirs.push(dir)
+        const { dbPath, campId } = bootstrapDb(dir)
+        const { week1, week2 } = bootstrapTwoWeeksTwoTemplates(dbPath, campId)
+
+        scheduleStateTool({ route: 'generated', week_id: week1 }, { dbPath })
+        expect(buildScheduleCalls.length).toBe(1)
+        expect(buildScheduleCalls[0].weekId).toBe(week1)
+
+        scheduleStateTool({ route: 'generated', week_id: week2 }, { dbPath })
+        expect(buildScheduleCalls.length).toBe(2)
+        expect(buildScheduleCalls[1].weekId).toBe(week2)
       })
 
       it('returns needs_week with the week list when week_id is omitted and multiple weeks exist', () => {

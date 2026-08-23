@@ -252,7 +252,7 @@ describe('buildRootMapModel', () => {
     const snapshot = makeSnapshot()
     const model = buildRootMapModel(report, { answers: {}, dismissedGaps: new Set(), snapshot })
 
-    const fixedEvents = model.domains.flatMap((d) => d.children).find((c) => c.key === 'Fixed Events')
+    const fixedEvents = model.domains.flatMap((d) => d.children).find((c) => c.key === 'Recurring Events')
     const row = fixedEvents.roster.find((r) => r.entityId === 'fe1')
     expect(row.state).toBe('changed')
     expect(row.decisionId).toBe(report.decisions[0].id)
@@ -274,7 +274,7 @@ describe('buildRootMapModel', () => {
       snapshot,
     })
 
-    const fixedEvents = model.domains.flatMap((d) => d.children).find((c) => c.key === 'Fixed Events')
+    const fixedEvents = model.domains.flatMap((d) => d.children).find((c) => c.key === 'Recurring Events')
     const row = fixedEvents.roster.find((r) => r.entityId === 'fe1')
     expect(row.state).toBe('understood')
   })
@@ -290,7 +290,7 @@ describe('buildRootMapModel', () => {
     const snapshot = makeSnapshot({ anchor_activities: [] })
     const model = buildRootMapModel(report, { answers: {}, dismissedGaps: new Set(), snapshot })
 
-    const fixedEvents = model.domains.flatMap((d) => d.children).find((c) => c.key === 'Fixed Events')
+    const fixedEvents = model.domains.flatMap((d) => d.children).find((c) => c.key === 'Recurring Events')
     expect(fixedEvents.roster.length).toBe(1)
     expect(fixedEvents.roster[0]).toMatchObject({ entityId: null, name: 'Campfire', state: 'attention' })
   })
@@ -306,7 +306,7 @@ describe('buildRootMapModel', () => {
     const snapshot = makeSnapshot()
     const model = buildRootMapModel(report, { answers: {}, dismissedGaps: new Set(), snapshot })
 
-    const fixedEvents = model.domains.flatMap((d) => d.children).find((c) => c.key === 'Fixed Events')
+    const fixedEvents = model.domains.flatMap((d) => d.children).find((c) => c.key === 'Recurring Events')
     const liveCount = fixedEvents.roster.filter((r) => r.entityId != null).length
     expect(liveCount).toBe(snapshot.anchor_activities.length)
 

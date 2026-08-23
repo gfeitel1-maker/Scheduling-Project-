@@ -4,7 +4,7 @@
 //
 // Pure inference — no database, no I/O. Like extractEntities, this proposes;
 // the director confirms (and can edit) in the preview before anything is
-// written. Rules travel as group NAMES here, same as fixed events — group IDs
+// written. Rules travel as group NAMES here, same as recurring events — group IDs
 // do not exist yet at preview time, they are minted by commitIngest inside
 // its transaction. Resolution to IDs happens there, not here.
 //

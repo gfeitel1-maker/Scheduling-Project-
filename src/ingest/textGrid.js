@@ -352,7 +352,7 @@ export function parseTextGrid(text) {
       // under every day) OR bare numbers (a room number); a NARROW trailing line
       // fills far fewer columns than the activity above, so it is a wrapped
       // continuation ("Instructional" over "Swim") — kept, not dropped. A time
-      // line (no data) resets the adjacency, so a fixed event that follows its
+      // line (no data) resets the adjacency, so a recurring event that follows its
       // own time line ("Sof Hayom" under the 03:20 line) is kept too. When
       // ambiguous, KEEP: ADR §1 makes a dropped activity the one unrecoverable
       // failure. Gated to unlabeled pages (spec §3b).

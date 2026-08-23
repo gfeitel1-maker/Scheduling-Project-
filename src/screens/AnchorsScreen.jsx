@@ -118,7 +118,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
     } catch (err) {
       setSaveError(
         err?.cleanupFailed
-          ? `Save failed partway through and couldn't be fully rolled back (admin required) — ${err.orphanCount} incomplete fixed-event row(s) may remain; ask an admin to review/delete them.`
+          ? `Save failed partway through and couldn't be fully rolled back (admin required) — ${err.orphanCount} incomplete recurring-event row(s) may remain; ask an admin to review/delete them.`
           : describeWriteFailure(err, 'Your changes could not be saved.')
       )
       setSaving(false)
@@ -131,7 +131,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
     <div style={{ ...S.overlay, ...enterStyle }}>
       <div style={{ ...S.modalLg, width: 520 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, marginBottom: 20 }}>
-          {isNew ? 'Add Fixed Event' : `Edit: ${anchor.name}`}
+          {isNew ? 'Add Recurring Event' : `Edit: ${anchor.name}`}
         </div>
 
         <Field label="Name">
@@ -186,7 +186,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
 
         {isNew && selectedDays.length > 1 && (
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, fontFamily: 'var(--font-mono)' }}>
-            Will create {selectedDays.length} fixed events (one per day)
+            Will create {selectedDays.length} recurring events (one per day)
           </div>
         )}
 
@@ -198,7 +198,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, onSave, onClose 
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
           <button className="press-97" onClick={onClose} style={S.btnSecondary}>Cancel</button>
           <button className="press-97" onClick={save} disabled={saving || !canSave} style={{ ...S.btnPrimary, opacity: (!canSave || saving) ? 0.5 : 1 }}>
-            {saving ? 'Saving…' : isNew ? `Add Fixed Event${selectedDays.length > 1 ? ` (×${selectedDays.length})` : ''}` : 'Save Changes'}
+            {saving ? 'Saving…' : isNew ? `Add Recurring Event${selectedDays.length > 1 ? ` (×${selectedDays.length})` : ''}` : 'Save Changes'}
           </button>
         </div>
       </div>
@@ -221,6 +221,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
   const [timeBlocks, setTimeBlocks] = useState([])
   const [tiers, setTiers] = useState([])
   const [groups, setGroups] = useState([])
+  const [weeks, setWeeks] = useState([])
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null)
   const [importStep, setImportStep] = useState(null)
@@ -246,12 +247,13 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
     setLoading(true)
     setError(null)
     try {
-      const [aData, dData, bData, tData, gData] = await Promise.all([
+      const [aData, dData, bData, tData, gData, wData] = await Promise.all([
         localClient.list('anchor_activities'),
         localClient.list('days_of_operation'),
         localClient.list('time_blocks'),
         localClient.list('tiers'),
         localClient.list('groups'),
+        localClient.list('schedule_weeks'),
       ])
       const list = (aData || [])
         .filter(a => a.camp_id === campId && a.cohort_id === activeCohort.id)
@@ -273,6 +275,9 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       setGroups((gData || [])
         .filter(g => g.camp_id === campId)
         .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? ''))))
+      setWeeks((wData || [])
+        .filter(w => w.camp_id === campId)
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)))
     } catch {
       setError("Couldn't load your camp setup — check your connection and refresh.")
     } finally {
@@ -350,13 +355,27 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
     } catch (err) {
       setError(
         err.cleanupFailed
-          ? `Save failed partway through and couldn't be fully rolled back (admin required) — ${err.orphanCount} incomplete fixed-event row(s) may remain; ask an admin to review/delete them.`
-          : describeWriteFailure(err, 'That fixed event could not be saved.')
+          ? `Save failed partway through and couldn't be fully rolled back (admin required) — ${err.orphanCount} incomplete recurring-event row(s) may remain; ask an admin to review/delete them.`
+          : describeWriteFailure(err, 'That recurring event could not be saved.')
       )
       throw err
     }
     await load()
     setModal(null)
+  }
+
+  // Slice 2 — per-anchor "which weeks" control. '' selects "All weeks" and
+  // writes NULL, preserving today's implicit all-weeks meaning; picking a
+  // specific week writes that week's id. Optimistic local update (mirrors
+  // load()'s row shape) so the select reflects the change immediately rather
+  // than waiting on a full reload.
+  async function changeAnchorWeek(id, scheduleWeekId) {
+    try {
+      await writeFields(id, { schedule_week_id: scheduleWeekId })
+      setAnchors(prev => prev.map(a => a.id === id ? { ...a, schedule_week_id: scheduleWeekId } : a))
+    } catch (err) {
+      setError(describeWriteFailure(err, 'That week could not be saved.'))
+    }
   }
 
   function deleteAnchor(id) {
@@ -380,8 +399,8 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
-          ? 'Only an admin can delete fixed events.'
-          : describeWriteFailure(err, 'That fixed event could not be deleted.')
+          ? 'Only an admin can delete recurring events.'
+          : describeWriteFailure(err, 'That recurring event could not be deleted.')
       )
       setPendingDelete(null)
     } finally {
@@ -410,12 +429,12 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       if (failed > 0) {
         setError(
           failedDueToRole
-            ? 'Only an admin can delete fixed events — no fixed events were deleted.'
-            : `Deleted ${succeeded} of ${ids.length} fixed events — please try again for the rest.`
+            ? 'Only an admin can delete recurring events — no recurring events were deleted.'
+            : `Deleted ${succeeded} of ${ids.length} recurring events — please try again for the rest.`
         )
       }
     } catch (err) {
-      setError(describeWriteFailure(err, 'That fixed events could not be deleted.'))
+      setError(describeWriteFailure(err, 'That recurring events could not be deleted.'))
     } finally {
       setDeletingAll(false)
       setPendingDeleteAll(false)
@@ -585,13 +604,13 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       )}
       {timeBlocks.length === 0 && !loading && (
         <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#7a5100' }}>
-          No time blocks found. Set these up before adding fixed events.
+          No time blocks found. Set these up before adding recurring events.
         </div>
       )}
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          {anchors.length} fixed event{anchors.length !== 1 ? 's' : ''}
+          {anchors.length} recurring event{anchors.length !== 1 ? 's' : ''}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
@@ -603,7 +622,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
             title={role !== 'admin' ? 'Admin only' : undefined}
             style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
           >Delete All</button>
-          <button className="press-97" onClick={() => setModal({ anchor: null })} style={S.btnPrimary}>+ Add Fixed Event</button>
+          <button className="press-97" onClick={() => setModal({ anchor: null })} style={S.btnPrimary}>+ Add Recurring Event</button>
         </div>
       </div>
 
@@ -618,14 +637,15 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
                 <th style={S.th}>Day</th>
                 <th style={S.th}>Time Block</th>
                 <th style={S.th}>Age Divisions</th>
+                <th style={S.th}>Weeks</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {anchors.length === 0 ? (
-                <tr><td colSpan={5} style={S.emptyState}>
-                  <div style={S.emptyStateTitle}>No fixed events yet</div>
-                  <div style={S.emptyStateBody}>Add your first fixed event below.</div>
+                <tr><td colSpan={6} style={S.emptyState}>
+                  <div style={S.emptyStateTitle}>No recurring events yet</div>
+                  <div style={S.emptyStateBody}>Add your first recurring event below.</div>
                 </td></tr>
               ) : anchors.map(a => (
                 <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}
@@ -639,6 +659,16 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
                   <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{dayMap[a.day_id] || '—'}</td>
                   <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)' }}>{blockMap[a.time_block_id] || '—'}</td>
                   <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{anchorTierLabel(a)}</td>
+                  <td style={{ ...S.td, fontSize: 12 }}>
+                    <select
+                      value={a.schedule_week_id || ''}
+                      onChange={e => changeAnchorWeek(a.id, e.target.value || null)}
+                      style={{ ...S.input, padding: '5px 8px', fontSize: 12, width: 'auto' }}
+                    >
+                      <option value="">All weeks</option>
+                      {weeks.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+                    </select>
+                  </td>
                   <td style={{ ...S.td, textAlign: 'right' }}>
                     <button className="press-97" onClick={() => setModal({ anchor: a })} style={S.btnSecondary}>Edit</button>
                     <button
@@ -652,6 +682,11 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
               ))}
             </tbody>
           </table>
+          {anchors.length > 0 && (
+            <div style={{ padding: '8px 16px', fontSize: 12, color: 'var(--text-secondary)', borderTop: '1px solid var(--border)' }}>
+              Changing a recurring event's week won't move it on weeks already built — regenerate or re-place those to pick up the change.
+            </div>
+          )}
         </div>
       )}
 
@@ -718,9 +753,9 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       {pendingDelete && (
         <ConfirmDangerDialog
           title={`Delete "${pendingDelete.name}"?`}
-          body="This fixed event will be removed from your schedules."
+          body="This recurring event will be removed from your schedules."
           recovery={`"${pendingDelete.name}" goes to Trash, and you can put it back from there.`}
-          confirmLabel="Delete Fixed Event"
+          confirmLabel="Delete Recurring Event"
           busy={deleting}
           onConfirm={confirmAnchorDelete}
           onCancel={() => setPendingDelete(null)}
@@ -729,9 +764,9 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
 
       {pendingDeleteAll && (
         <ConfirmDangerDialog
-          title="Delete all fixed events?"
+          title="Delete all recurring events?"
           recovery="They can be restored from Trash."
-          confirmLabel="Delete All Fixed Events"
+          confirmLabel="Delete All Recurring Events"
           busy={deletingAll}
           onConfirm={confirmDeleteAll}
           onCancel={() => setPendingDeleteAll(false)}

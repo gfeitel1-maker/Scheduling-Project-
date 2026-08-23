@@ -27,7 +27,7 @@ export const NODE_LAYOUT = {
     y: 0.3299,
     children: {
       Activities: { x: 0.4541, y: 0.4234 },
-      'Fixed Events': { x: 0.4259, y: 0.5026 },
+      'Recurring Events': { x: 0.4259, y: 0.5026 },
     },
   },
   Time: {

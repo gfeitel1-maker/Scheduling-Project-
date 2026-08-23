@@ -29,13 +29,13 @@ describe('grid legend', () => {
     const labels = LEGEND_ENTRIES.map(e => e.label)
     // DESIGN_STANDARD.md §4: "The grid legend must document anchor separately
     // from the activity key."
-    expect(labels).toContain('Fixed event')
+    expect(labels).toContain('Recurring event')
     expect(labels).toContain('Locked')
     expect(labels).toContain('Unavailable')
   })
 
   it('renders the fixed-event entry in the anchor token, never an activity colour', () => {
-    const anchor = LEGEND_ENTRIES.find(e => e.label === 'Fixed event')
+    const anchor = LEGEND_ENTRIES.find(e => e.label === 'Recurring event')
     expect(anchor.color).toBe(ANCHOR_COLOR)
   })
 
@@ -95,7 +95,7 @@ describe('route-aware legend', () => {
     for (const route of ['manual', 'generated']) {
       const labels = legendEntriesFor(route).map(e => e.label)
       expect(labels).toContain('Locked')
-      expect(labels).toContain('Fixed event')
+      expect(labels).toContain('Recurring event')
       expect(labels).toContain('Unavailable')
     }
   })

@@ -1403,7 +1403,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
       )}
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button className="press-97" onClick={() => onNavigate('anchors')} style={S.btnPrimary}>Next: Fixed Events →</button>
+        <button className="press-97" onClick={() => onNavigate('anchors')} style={S.btnPrimary}>Next: Recurring Events →</button>
       </div>
       {pendingDelete && (
         <DeleteRecordDialog

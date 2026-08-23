@@ -14,7 +14,7 @@ describe('entityLabel', () => {
     expect(entityLabel('groups')).toBe('Group')
     expect(entityLabel('activities')).toBe('Activity')
     expect(entityLabel('days_of_operation')).toBe('Day')
-    expect(entityLabel('anchor_activities')).toBe('Fixed event')
+    expect(entityLabel('anchor_activities')).toBe('Recurring event')
   })
 
   // W1 — vocabulary unification (docs/work/specs/2026-08-21-vocabulary-
@@ -51,7 +51,7 @@ describe('fieldLabel', () => {
     // A history line about a cell read "changed is span head" before T18.
     expect(fieldLabel('is_span_head')).toBe('Runs across two periods')
     expect(fieldLabel('is_locked')).toBe('Held in place')
-    expect(fieldLabel('is_anchor')).toBe('Fixed event')
+    expect(fieldLabel('is_anchor')).toBe('Recurring event')
     expect(fieldLabel('group_id')).toBe('Group')
   })
 

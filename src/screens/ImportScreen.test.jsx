@@ -370,8 +370,8 @@ describe('ImportScreen — inferred activity rules (T35)', () => {
 // the aggregate success total. This also covers the split into a recoverable
 // (--accent) sub-block and an irreversible (--danger) sub-block, since both
 // regressed together would look identical to the old single-box warning.
-describe('ImportScreen — Replace warning names Fixed Events and separates the irreversible item (T68)', () => {
-  it('warns about cleared Fixed Events with a live count when the camp has anchors, and never says "anchor"', async () => {
+describe('ImportScreen — Replace warning names Recurring Events and separates the irreversible item (T68)', () => {
+  it('warns about cleared Recurring Events with a live count when the camp has anchors, and never says "anchor"', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
       if (entity === 'anchor_activities') return Promise.resolve([{ id: 'a1' }, { id: 'a2' }, { id: 'a3' }])
@@ -383,22 +383,22 @@ describe('ImportScreen — Replace warning names Fixed Events and separates the 
     await userEvent.upload(input, file)
     await waitFor(() => expect(screen.getAllByText(/Swim/).length).toBeGreaterThan(0))
     await userEvent.click(screen.getByText(/Replace them/))
-    expect(screen.getByText(textNode(/Your\s*3\s*Fixed Events will/))).toBeTruthy()
+    expect(screen.getByText(textNode(/Your\s*3\s*Recurring Events will/))).toBeTruthy()
     expect(screen.getByText(/They are recoverable from Trash/)).toBeTruthy()
     expect(container.textContent).not.toMatch(/anchor/i)
   })
 
-  it('does not warn about Fixed Events when the camp has none', async () => {
+  it('does not warn about Recurring Events when the camp has none', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
       return Promise.resolve([])
     })
     await uploadFile()
     await userEvent.click(screen.getByText(/Replace them/))
-    expect(screen.queryByText(/Fixed Event/)).toBeNull()
+    expect(screen.queryByText(/Recurring Event/)).toBeNull()
   })
 
-  it('uses singular phrasing for exactly one Fixed Event', async () => {
+  it('uses singular phrasing for exactly one Recurring Event', async () => {
     localClient.list.mockImplementation((entity) => {
       if (entity === 'tiers') return Promise.resolve([{ id: 't1', cohort_id: 'cohort-1' }])
       if (entity === 'anchor_activities') return Promise.resolve([{ id: 'a1' }])
@@ -406,9 +406,9 @@ describe('ImportScreen — Replace warning names Fixed Events and separates the 
     })
     await uploadFile()
     await userEvent.click(screen.getByText(/Replace them/))
-    expect(screen.getByText(textNode(/Your\s*1\s*Fixed Event will/))).toBeTruthy()
+    expect(screen.getByText(textNode(/Your\s*1\s*Recurring Event will/))).toBeTruthy()
     expect(screen.getByText(/It is recoverable from Trash/)).toBeTruthy()
-    expect(screen.queryByText(/Fixed Events will/)).toBeNull()
+    expect(screen.queryByText(/Recurring Events will/)).toBeNull()
   })
 
   it('renders the recoverable and irreversible warnings in two separate bordered containers', async () => {
@@ -424,16 +424,16 @@ describe('ImportScreen — Replace warning names Fixed Events and separates the 
     const irreversibleLabel = screen.getByText('Cannot be undone')
     // Walk up to the bordered container the spec requires — the one painted
     // with --danger — and confirm it holds the snapshot sentence but not the
-    // Fixed Events sentence, i.e. the two are not sharing one box.
+    // Recurring Events sentence, i.e. the two are not sharing one box.
     let dangerContainer = irreversibleLabel.parentElement
     while (dangerContainer && !/color-mix\(in srgb, var\(--danger\)/.test(dangerContainer.getAttribute('style') || '')) {
       dangerContainer = dangerContainer.parentElement
     }
     expect(dangerContainer).toBeTruthy()
     expect(dangerContainer.textContent).toMatch(/saved schedule version/)
-    expect(dangerContainer.textContent).not.toMatch(/Fixed Event/)
+    expect(dangerContainer.textContent).not.toMatch(/Recurring Event/)
 
-    const fixedEventsLine = screen.getByText(/Fixed Event will/)
+    const fixedEventsLine = screen.getByText(/Recurring Event will/)
     let accentContainer = fixedEventsLine.parentElement
     while (accentContainer && !/color-mix\(in srgb, var\(--accent\)/.test(accentContainer.getAttribute('style') || '')) {
       accentContainer = accentContainer.parentElement
@@ -457,7 +457,7 @@ describe('ImportScreen — Replace warning names Fixed Events and separates the 
     expect(screen.getByText('Cannot be undone')).toBeTruthy()
     expect(screen.getByText(/saved schedule version/)).toBeTruthy()
     expect(screen.queryByText(/Manual Build/)).toBeNull()
-    expect(screen.queryByText(/Fixed Event/)).toBeNull()
+    expect(screen.queryByText(/Recurring Event/)).toBeNull()
     expect(screen.queryByText(/Day Override/)).toBeNull()
   })
 
@@ -470,7 +470,7 @@ describe('ImportScreen — Replace warning names Fixed Events and separates the 
     await userEvent.click(screen.getByText(/Replace them/))
     expect(screen.queryByText('Cannot be undone')).toBeNull()
     expect(screen.queryByText(/Manual Build/)).toBeNull()
-    expect(screen.queryByText(/Fixed Event/)).toBeNull()
+    expect(screen.queryByText(/Recurring Event/)).toBeNull()
     expect(screen.queryByText(/saved schedule version/)).toBeNull()
     expect(screen.queryByText(/Day Override/)).toBeNull()
   })

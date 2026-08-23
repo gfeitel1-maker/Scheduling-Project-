@@ -12,7 +12,7 @@ export const ENTITY_LABEL = {
   activities: 'Activity',
   days_of_operation: 'Day',
   time_blocks: 'Time block',
-  anchor_activities: 'Fixed event',
+  anchor_activities: 'Recurring event',
   // T108 Phase 2 (design §8) — the entity is `day_overrides` now (the
   // standalone day_override_templates CRUD table is retired, see D2).
   day_overrides: 'Day override',
@@ -78,7 +78,7 @@ const FIELD_LABEL = {
   is_locked: 'Held in place',
   is_released: 'Unlocked',
   is_span_head: 'Runs across two periods',
-  is_anchor: 'Fixed event',
+  is_anchor: 'Recurring event',
   flags: 'Findings',
   is_all_day: 'All day',
   day_override_id: 'Day override',

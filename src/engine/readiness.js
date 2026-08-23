@@ -4,7 +4,7 @@
 //
 // This exists because the app held four disagreeing answers to that question.
 // CampSetup tracked five areas and told the director "the engine needs all
-// five" — a sentence that was false twice over, counting Fixed Events (which is
+// five" — a sentence that was false twice over, counting Recurring Events (which is
 // optional) and omitting Days and Programs (which are not). ScheduleScreen
 // checked a different four inline. The sidebar listed nine. Two more surfaces
 // implied two more sets.
@@ -71,7 +71,7 @@ export const REQUIRED_AREAS = [
 ]
 
 // Present in the sidebar and on the setup screen, but never a gap. A camp with
-// no fixed events is finished, not unfinished — and flagging it otherwise
+// no recurring events is finished, not unfinished — and flagging it otherwise
 // teaches directors to ignore the flag that matters.
 //
 // T108 Phase 2 review round 2 (MED/HIGH #4) — 'dayoverrides' removed: it
@@ -81,7 +81,7 @@ export const REQUIRED_AREAS = [
 // TiersScreen on click — exactly the failure guardScreensExist below exists
 // to catch.
 export const OPTIONAL_AREAS = [
-  { key: 'anchors', label: 'Fixed Events', screen: 'anchors' },
+  { key: 'anchors', label: 'Recurring Events', screen: 'anchors' },
   // M3 — promoted out of FORWARD_AREAS now that a real Locations screen and
   // collection exist (docs/adr/2026-08-15-camp-locations-entity.md M3 row).
   // Fixes the dead Review button (gap 14): `screen` used to be 'camp', a

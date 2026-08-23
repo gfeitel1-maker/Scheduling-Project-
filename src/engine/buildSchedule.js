@@ -57,6 +57,7 @@ function normalizeInput(input) {
       campId: input.campId || '',
       locations: input.locations || [],
       anchorsOnly: input.anchorsOnly || false,
+      weekId: input.weekId ?? null,
     }
   }
   return {
@@ -74,10 +75,11 @@ function normalizeInput(input) {
     campId: input.campId || '',
     locations: input.locations || [],
     anchorsOnly: input.anchorsOnly || false,
+    weekId: input.weekId ?? null,
   }
 }
 
-function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, anchorsOnly = false }) {
+function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, anchorsOnly = false, weekId = null }) {
   const { cohort, timeBlocks, tiers: _tiers, groups, preplacedSlots, activityTargets, _legacyAnchors } = cohortEntry
   const cohortId = cohort?.id ?? null
 
@@ -102,7 +104,15 @@ function scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, 
   // ── Pass 1: map the grid ──────────────────────────────────────────────────
   // Build anchor lookup from legacy anchors (flat signature) or preplacedSlots
   const anchorLookup = new Map() // "groupId|dayId|blockId" → anchor
-  const anchors = _legacyAnchors || []
+  // Slice 2 (schedule_week_id, docs/work/specs/2026-08-23-unified-schedule-
+  // overlay-slices.md): schedule_week_id NULL means "every week" (today's
+  // implicit behavior, unchanged). A non-null schedule_week_id that doesn't
+  // match the week being built is dropped here, BEFORE anchoredActivityIds is
+  // built below — a week-bound anchor must not occupy a cell on another week,
+  // and must not exclude its activity from regular placement there either.
+  const anchors = (_legacyAnchors || []).filter(
+    (a) => a.schedule_week_id == null || a.schedule_week_id === weekId
+  )
   const anchoredActivityIds = new Set()
   for (const anchor of anchors) {
     if (anchor.activity_id != null) anchoredActivityIds.add(anchor.activity_id)
@@ -573,7 +583,7 @@ export function computeFindings({ slots, groups, activities, days }) {
 }
 
 function buildSchedule(input) {
-  const { cohorts, days, activities, campId, locations, anchorsOnly } = normalizeInput(input)
+  const { cohorts, days, activities, campId, locations, anchorsOnly, weekId } = normalizeInput(input)
 
   // location_id → capacity (how many GROUPS fit in this place at once). Built
   // once from the camp's locations rows. A stored capacity of 0 or negative
@@ -616,7 +626,7 @@ function buildSchedule(input) {
     const cohortEntry = cohorts[idx]
     const cohortSeed = campId + (cohortEntry.cohort?.id || String(idx))
     const rand = mulberry32(djb2(cohortSeed))
-    const { slots, findings } = scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, anchorsOnly })
+    const { slots, findings } = scheduleCohort({ cohortEntry, days, activities, rand, locationCapById, anchorsOnly, weekId })
     allSlots.push(...slots)
     allFindings.push(...findings)
   }

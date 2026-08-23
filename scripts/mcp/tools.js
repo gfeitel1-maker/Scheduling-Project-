@@ -125,7 +125,7 @@ export function scheduleStateTool(args, { dbPath }) {
       .filter((s) => s.activity_id && !s.is_anchor)
       .map((s) => ({ groupId: s.group_id, dayId: s.day_id, blockId: s.time_block_id, activityId: s.activity_id }))
 
-    const engineResult = buildSchedule({ ...inputs, campId: camp.id, preplacedSlots })
+    const engineResult = buildSchedule({ ...inputs, campId: camp.id, preplacedSlots, weekId })
 
     return {
       ok: true,

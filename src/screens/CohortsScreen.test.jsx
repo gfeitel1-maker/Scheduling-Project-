@@ -246,7 +246,7 @@ describe('CohortsScreen', () => {
     await waitFor(() =>
       expect(
         screen.queryByText(
-          "Can't delete — other data (time blocks or fixed events) still references this program. Remove those first."
+          "Can't delete — other data (time blocks or recurring events) still references this program. Remove those first."
         )
       ).not.toBeNull()
     )

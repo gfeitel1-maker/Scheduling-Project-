@@ -823,7 +823,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
       label: 'Manual',
       caption: 'The week you\u2019re building',
       offerTitle: 'Build it myself',
-      offerBody: 'Start from a blank week with your meals and fixed events already in place. You place every activity yourself \u2014 the way you would in a spreadsheet, but it watches for clashes and tells you what each group still needs.',
+      offerBody: 'Start from a blank week with your meals and recurring events already in place. You place every activity yourself \u2014 the way you would in a spreadsheet, but it watches for clashes and tells you what each group still needs.',
       offerAction: 'Start a blank week',
     },
     generated: {

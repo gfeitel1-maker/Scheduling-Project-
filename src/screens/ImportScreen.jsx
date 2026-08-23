@@ -96,7 +96,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
   // "survives staging" reasoning as fileGroupUnitsRef: normalized(activity
   // name) -> the one place name it was captured next to.
   const fileActivityLocationsRef = useRef({})
-  // Proposed recurring fixed events (T34). Every inferred fixed event is sent
+  // Proposed recurring recurring events (T34). Every inferred recurring event is sent
   // unconditionally at commit (sub-slice 4, §3/A1) — there is no local tick
   // to gate it. A low-confidence one that the director hasn't reconciled is
   // held back downstream by reconciliationResolutions.js's fixed-event
@@ -152,7 +152,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
   // in the success banner today — after it has already happened. This reads
   // it pre-confirm instead (Red Hat, T61 round 3).
   const [slotCount, setSlotCount] = useState(0)
-  // Fixed Events (anchor_activities) — director-authored content with its own
+  // Recurring Events (anchor_activities) — director-authored content with its own
   // nav screen, deleted by replaceScope step 6 because anchors reference
   // days_of_operation, which step 8 also deletes. Recoverable from Trash,
   // same as slots (T68).
@@ -259,7 +259,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
       fileGroupUnitsRef.current = proposal.groupUnits ?? {}
       fileActivityLocationsRef.current = proposal.activityLocations ?? {}
 
-      // Recurring fixed events implied by the grid (T34). Every inferred event
+      // Recurring recurring events implied by the grid (T34). Every inferred event
       // is shown and ships unconditionally at commit (sub-slice 4) — a
       // low-confidence one the director hasn't reconciled is held back
       // downstream (ReconciliationScreen), not here.
@@ -285,7 +285,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
       setPinOnlyActivityNames(pinOnlySet)
 
       // Rule inference (T35) — same "propose, director confirms" shape as the
-      // entities and fixed events above.
+      // entities and recurring events above.
       const rules = inferActivityRules(
         proposal.entities.activities,
         proposal.activityPages,
@@ -458,7 +458,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
         groupUnits[name] = fileGroupUnitsRef.current[name]
       }
     }
-    // Every inferred fixed event ships unconditionally (sub-slice 4, §3/A1)
+    // Every inferred recurring event ships unconditionally (sub-slice 4, §3/A1)
     // — the hold-back for an unresolved one lives on ReconciliationScreen
     // (reconciliationResolutions.js's fixed-event hold-back), not here.
     // Only rules for activities the director actually approved — an
@@ -842,12 +842,12 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
             )
           })}
 
-          {/* Fixed Events (T34). Activities pinned to the same period across a
+          {/* Recurring Events (T34). Activities pinned to the same period across a
               group's days — Mifkad, Lunch, Swim. Sub-slice 4: no local tick —
               every inferred event is shown and ships to ReconciliationScreen,
               which is where a low-confidence one gets reconciled (or held
-              back if left unresolved). An imported fixed event is an ordinary
-              anchor, so its full editor already exists on the Fixed Events
+              back if left unresolved). An imported recurring event is an ordinary
+              anchor, so its full editor already exists on the Recurring Events
               screen (spec §4.2). */}
           {fixedEvents.length > 0 && (
             <div style={{ marginBottom: 20 }}>
@@ -856,11 +856,11 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
                 letterSpacing: '0.12em', textTransform: 'uppercase',
                 color: 'var(--text-secondary)', marginBottom: 8,
               }}>
-                Fixed Events
+                Recurring Events
               </div>
               <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
                 These activities sat at the same time across a group’s days, so they look fixed rather
-                than scheduled fresh each day. They’re added as fixed events you can edit later.
+                than scheduled fresh each day. They’re added as recurring events you can edit later.
               </div>
               {fixedEvents.some((fe) => fe.confidence === 'low') && (
                 <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
@@ -941,7 +941,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
               {/* What Replace destroys beyond the setup records above, said
                   before the confirm rather than discovered weeks later.
                   Split into two sub-blocks (T68): recoverable items — slots,
-                  Fixed Events — share one bordered
+                  Recurring Events — share one bordered
                   container in --accent (temporary/recoverable per
                   DESIGN_STANDARD); saved versions get their own --danger
                   container, always last, because they are the one item that
@@ -955,7 +955,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
                       <>Both your <strong>Manual Build</strong> and <strong>Generated Schedule</strong> will
                       be cleared ({slotCount} {slotCount === 1 ? 'slot' : 'slots'}).</>) },
                   { key: 'anchors', count: anchorCount, render: () => (
-                      <>Your <strong>{anchorCount}</strong> Fixed {anchorCount === 1 ? 'Event' : 'Events'} will
+                      <>Your <strong>{anchorCount}</strong> Recurring {anchorCount === 1 ? 'Event' : 'Events'} will
                       be cleared. {anchorCount === 1 ? 'It is' : 'They are'} recoverable from Trash.</>) },
                 ].filter((w) => w.count > 0)
 

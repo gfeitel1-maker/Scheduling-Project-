@@ -122,9 +122,9 @@ describe('Sidebar: Roots hub with its collapsible entity children (Slice B)', ()
     renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 0, locations: 0 } })
     // Electives (Slice 1) and Events (Slice 1, docs/adr/2026-08-22-events-
     // overlay-placement.md) are the 4th and 5th optional entities, alongside
-    // Locations, Fixed Events, and Special Days.
+    // Locations, Recurring Events, and Special Days.
     expect(screen.getAllByText('optional').length).toBe(5)
-    for (const label of ['Fixed Events', 'Locations', 'Special Days', 'Electives', 'Events']) {
+    for (const label of ['Recurring Events', 'Locations', 'Special Days', 'Electives', 'Events']) {
       const row = screen.getByText(label).closest('button')
       expect(within(row).queryByText('!')).toBeNull()
     }

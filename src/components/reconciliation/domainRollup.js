@@ -74,7 +74,7 @@ export const CHILD_OF = {
   time_blocks: 'Time Blocks',
   locations: 'Locations',
   activities: 'Activities',
-  anchor_activities: 'Fixed Events',
+  anchor_activities: 'Recurring Events',
 }
 
 export const REQUIRED_GAP_CHILD_OF = {

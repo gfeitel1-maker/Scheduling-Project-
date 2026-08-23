@@ -82,7 +82,7 @@ export function foldTriageInputs(baseInputs, decisions, answers) {
     approved: baseInputs.approved,
     decisions: nonConflict,
     answers,
-    // Sub-slice 4 — every inferred fixed event ships unconditionally from
+    // Sub-slice 4 — every inferred recurring event ships unconditionally from
     // ImportScreen now (no more chosenFixedEvents pre-filter); the hold-back
     // here is what gates an unresolved one out of the outgoing commit.
     fixedEvents: baseInputs.fixedEvents,
