@@ -316,7 +316,7 @@ export const MOCK_WRITE_ALLOWLIST = {
   // mirror of PROJECTIONS.camp_maps.fields, per this file's "do not import
   // from electron/" rule (kept honest by electron/ipcSurfaceParity.test.js).
   camp_maps: ['camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'],
-  anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes'],
+  anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level'],
   day_override_templates: ['camp_id', 'cohort_id', 'name', 'frequency_mode'],
   day_override_template_slots: ['day_override_template_id', 'time_block_id', 'activity_id'],
   week_activity_exclusions: ['week_id', 'activity_id'],
