@@ -22,6 +22,10 @@ function countGaps(counts) {
 }
 
 const MARK_COLOR = { '✓': 'var(--success)', '!': 'var(--danger)', '·': 'var(--text-secondary)' }
+// The dot an `expected`-but-empty row uses (Recurring Events) instead of the
+// plain grey "not started" dot — a distinct tint, not a distinct glyph, so it
+// reads as "worth a look" without borrowing '!''s blocking weight.
+const EXPECTED_EMPTY_DOT_COLOR = 'var(--warning)'
 const TONE_COLOR = {
   danger: 'var(--danger)', success: 'var(--success)',
   warning: 'var(--warning)', secondary: 'var(--text-secondary)',
@@ -106,10 +110,15 @@ export default function Sidebar({
     const lan = item.key === 'devices' && syncStatus ? syncStatusLabel(syncStatus) : null
     const count = item.area ? counts?.[item.area] : undefined
     const isBlocking = item.area ? gapAreas.has(item.area) : false
+    const isExpectedEmpty = item.area && item.expected && !isBlocking && !(count > 0)
     const mark = !item.area ? null : isBlocking ? '!' : (count > 0 ? '✓' : '·')
+    const markColor = mark
+      ? (isExpectedEmpty ? EXPECTED_EMPTY_DOT_COLOR : MARK_COLOR[mark])
+      : null
     const meta = !item.area
       ? null
       : count > 0 ? String(count)
+      : item.expected ? 'attention'
       : item.optional ? 'optional'
       : 'needed'
 
@@ -134,8 +143,8 @@ export default function Sidebar({
             do not shift as ticks appear. */}
         <span style={{
           width: 13, flexShrink: 0, fontSize: 11, fontWeight: 700,
-          color: mark ? MARK_COLOR[mark] : 'transparent',
-          opacity: mark === '·' ? 0.5 : 1,
+          color: mark ? markColor : 'transparent',
+          opacity: mark === '·' && !isExpectedEmpty ? 0.5 : 1,
         }}>{mark ?? ''}</span>
         <span style={{ flex: 1, minWidth: 0, marginLeft: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {item.label}

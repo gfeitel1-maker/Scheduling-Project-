@@ -70,9 +70,18 @@ export const REQUIRED_AREAS = [
   },
 ]
 
-// Present in the sidebar and on the setup screen, but never a gap. A camp with
-// no recurring events is finished, not unfinished — and flagging it otherwise
-// teaches directors to ignore the flag that matters.
+// Present in the sidebar and on the setup screen, and never a *blocking* gap —
+// getSetupGaps/REQUIRED_AREAS never gate a draft build on these. That is a
+// deliberate posture, not "safe to ignore": Recurring Events (carpool,
+// flagpole, lunch, all-camp) are camp-wide anchors the engine already treats
+// as first-class — buildSchedule.js places them in Pass 1, before anything
+// else, and locks those cells so nothing can be scheduled over them (~L108-293,
+// exclusion enforced ~L372). An empty camp is not "finished" the way a camp
+// with no locations is; it is worth a director's attention. `expected: true`
+// below is how that distinction reaches the six-state layer: it moves the
+// empty-collection resting state from Optional to Needs-attention without
+// ever letting the category reach Missing (see readinessState — `kind` stays
+// 'optional', so getSetupGaps and the build gate are untouched).
 //
 // T108 Phase 2 review round 2 (MED/HIGH #4) — 'dayoverrides' removed: it
 // pointed at App.jsx's SCREENS['dayoverrides'], which no longer exists
@@ -81,7 +90,7 @@ export const REQUIRED_AREAS = [
 // TiersScreen on click — exactly the failure guardScreensExist below exists
 // to catch.
 export const OPTIONAL_AREAS = [
-  { key: 'anchors', label: 'Recurring Events', screen: 'anchors' },
+  { key: 'anchors', label: 'Recurring Events', screen: 'anchors', expected: true },
   // M3 — promoted out of FORWARD_AREAS now that a real Locations screen and
   // collection exist (docs/adr/2026-08-15-camp-locations-entity.md M3 row).
   // Fixes the dead Review button (gap 14): `screen` used to be 'camp', a
@@ -214,7 +223,7 @@ function readinessState(cat, source, gapKeys, { attention, inProgress, notApplic
   if (cat.kind === 'optional') {
     const rows = source[OPTIONAL_COLLECTION[cat.key]]
     const hasRows = Array.isArray(rows) && rows.length > 0
-    if (!hasRows) return 'optional'
+    if (!hasRows) return cat.expected ? 'needs-attention' : 'optional'
     return attention[cat.key] > 0 ? 'needs-attention' : 'ready'
   }
 

@@ -119,15 +119,36 @@ describe('Sidebar: Roots hub with its collapsible entity children (Slice B)', ()
     // T108 Phase 2 — the standalone Day Overrides nav entry/area is retired
     // (overrides are now authored in place on the schedule grid), so it is
     // no longer one of the optional rows this test checks.
+    //
+    // Recurring Events is no longer one of these: it is `expected`, not
+    // `optional` (see the dedicated describe block below) — it reads
+    // "attention", not "optional", though it still never shows '!'.
     renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 0, locations: 0 } })
     // Electives (Slice 1) and Events (Slice 1, docs/adr/2026-08-22-events-
-    // overlay-placement.md) are the 4th and 5th optional entities, alongside
-    // Locations, Recurring Events, and Special Days.
-    expect(screen.getAllByText('optional').length).toBe(5)
-    for (const label of ['Recurring Events', 'Locations', 'Special Days', 'Electives', 'Events']) {
+    // overlay-placement.md) are the 3rd and 4th optional entities, alongside
+    // Locations and Special Days.
+    expect(screen.getAllByText('optional').length).toBe(4)
+    for (const label of ['Locations', 'Special Days', 'Electives', 'Events']) {
       const row = screen.getByText(label).closest('button')
       expect(within(row).queryByText('!')).toBeNull()
     }
+  })
+})
+
+describe('Sidebar: Recurring Events is expected, not merely optional', () => {
+  it('reads "attention" (not "optional", not the blocking "needed") when a camp has zero recurring events', () => {
+    renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 0 } })
+    const anchorsRow = screen.getByText('Recurring Events').closest('button')
+    expect(within(anchorsRow).getByText('attention')).toBeTruthy()
+    expect(within(anchorsRow).queryByText('!')).toBeNull()
+    expect(within(anchorsRow).queryByText('optional')).toBeNull()
+  })
+
+  it('reads its count, like a required area, once it has recurring events', () => {
+    renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 3 } })
+    const anchorsRow = screen.getByText('Recurring Events').closest('button')
+    expect(within(anchorsRow).getByText('3')).toBeTruthy()
+    expect(within(anchorsRow).getByText('✓')).toBeTruthy()
   })
 })
 

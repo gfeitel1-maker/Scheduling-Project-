@@ -64,7 +64,17 @@ export const NAV_SECTIONS = [
           // own Next chain points at Recurring Events without touching Activities'
           // own required Next button.
           { key: 'locations',    label: 'Locations',     area: 'locations',    optional: true },
-          { key: 'anchors',      label: 'Recurring Events', area: 'anchors',      optional: true },
+          // Recurring Events (carpool, flagpole, lunch, all-camp) are camp-wide
+          // anchors, not a nice-to-have — buildSchedule.js places them first and
+          // locks their cells before anything else can be scheduled (see
+          // src/engine/readiness.js OPTIONAL_AREAS comment). No `optional` chip:
+          // this row reads as expected setup, like Activities. `expected: true`
+          // (mirroring readiness.js's OPTIONAL_AREAS entry) is what tells
+          // Sidebar.jsx to show a "needs a look" affordance instead of either
+          // "optional" or the blocking "needed" — it still does not block
+          // building a draft (readiness.js carries that as a Needs-attention
+          // resting state, never Missing).
+          { key: 'anchors',      label: 'Recurring Events', area: 'anchors', expected: true },
           // Electives Slice 1 (docs/adr/2026-08-22-nested-schedules-electives-
           // and-events.md §2): the "schedule within a schedule" — a director
           // builds elective sets/offerings here, off the campwide grid, which
