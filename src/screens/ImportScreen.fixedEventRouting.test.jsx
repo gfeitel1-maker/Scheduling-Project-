@@ -31,17 +31,22 @@ vi.mock('../ingest/extractEntities', async () => {
         groups: ['Yeladim'],
         days_of_operation: ['Monday', 'Tuesday'],
         time_blocks: [],
-        // 'Lunch' is pin-only (fixed only); 'Ceramics' is dual-use (also a
-        // free-choice elective elsewhere).
-        activities: ['Lunch', 'Ceramics'],
+        // 'Lunch' is pin-only high-confidence (fixed only); 'Ceramics' is
+        // dual-use (also a free-choice elective elsewhere); 'Free Swim' is
+        // pin-only LOW-confidence (fixed only, but a thinner Asserted
+        // hypothesis — ADR §4.1: still Asserted, not a demotion to Obligation).
+        activities: ['Lunch', 'Ceramics', 'Free Swim'],
         tiers: [],
         cohorts: [],
       },
       groupUnits: {},
       groupNameByTitle: {},
-      activityPages: { lunch: ['Yeladim'], ceramics: ['Yeladim'] },
-      seenCounts: { activities: { Lunch: 4, Ceramics: 4 }, activityUnitShare: { lunch: 0.9, ceramics: 0.9 } },
-      counts: { groups: 1, days_of_operation: 2, activities: 2 },
+      activityPages: { lunch: ['Yeladim'], ceramics: ['Yeladim'], 'free swim': ['Yeladim'] },
+      seenCounts: {
+        activities: { Lunch: 4, Ceramics: 4, 'Free Swim': 4 },
+        activityUnitShare: { lunch: 0.9, ceramics: 0.9, 'free swim': 0.9 },
+      },
+      counts: { groups: 1, days_of_operation: 2, activities: 3 },
     }),
   }
 })
@@ -50,6 +55,7 @@ vi.mock('../ingest/fixedEvents', () => ({
     fixedEvents: [
       { name: 'Lunch', time_block: '12:00-12:30', days: ['Monday', 'Tuesday'], scope: { is_all_groups: true, groups: null }, confidence: 'high' },
       { name: 'Ceramics', time_block: '10:00-10:30', days: ['Monday', 'Tuesday'], scope: { is_all_groups: true, groups: null }, confidence: 'high' },
+      { name: 'Free Swim', time_block: '15:00-15:30', days: ['Monday', 'Tuesday'], scope: { is_all_groups: true, groups: null }, confidence: 'low' },
     ],
     dualUseNames: ['Ceramics'],
   }),
@@ -121,7 +127,7 @@ describe('ImportScreen — fixed-event routing (ADR 2026-08-09 Decision 1)', () 
   it('every inferred fixed event ships unconditionally in the commit inputs', async () => {
     await uploadFile()
     const inputs = await commit()
-    expect(inputs.fixedEvents.map((fe) => fe.name).sort()).toEqual(['Ceramics', 'Lunch'])
+    expect(inputs.fixedEvents.map((fe) => fe.name).sort()).toEqual(['Ceramics', 'Free Swim', 'Lunch'])
   })
 
   // Classifier-sequencing fix (docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md
@@ -134,5 +140,19 @@ describe('ImportScreen — fixed-event routing (ADR 2026-08-09 Decision 1)', () 
     const inputs = await commit()
     expect(inputs.activityRules.Lunch).toBeUndefined()
     expect(inputs.activityRules.Ceramics).toBeDefined()
+  })
+
+  // Red Hat CONFIRMED HIGH follow-up: ADR §4.1's Asserted denylist is high OR
+  // low confidence — a low-confidence fixed event is still an Asserted-shaped
+  // hypothesis, not a demotion to Obligation. `pinOnlySet` (which feeds the
+  // separate tier:'low' pin mechanism) is high-confidence-only and is the
+  // WRONG set for this exclusion; ImportScreen must use a set built from ALL
+  // inferred fixed-event names minus dual-use, regardless of confidence.
+  it('a LOW-confidence pin-only fixed event also gets no inferred activity rule', async () => {
+    await uploadFile()
+    const inputs = await commit()
+    expect(inputs.activityRules['Free Swim']).toBeUndefined()
+    // still ships unconditionally per ADR 2026-08-09 Decision 1 (unchanged)
+    expect(inputs.fixedEvents.map((fe) => fe.name)).toContain('Free Swim')
   })
 })
