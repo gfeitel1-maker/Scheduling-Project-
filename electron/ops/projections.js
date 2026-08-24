@@ -277,6 +277,12 @@ export const PROJECTIONS = {
     fields: [
       'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes',
       'schedule_week_id', 'recurrence_level', 'location_id',
+      // Slice B (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md
+      // addendum): ingest now writes span_blocks on a confirmed recurring
+      // multi-block candidate. Already a live, engine-consumed column
+      // (buildSchedule.js reads anchor.span_blocks || 1) — this just makes
+      // it a writable field for the op-log path too.
+      'span_blocks',
     ],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/days_of_operation/time_blocks/tiers/activities.ensureExists above.

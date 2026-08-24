@@ -691,6 +691,10 @@ export function buildPlan(source, existing = null, resolutions = []) {
     // S0 commit directives carried as data (the plan is the whole commit input).
     mode: source?.mode ?? 'add',
     fixedEvents: Array.isArray(source?.fixedEvents) ? source.fixedEvents : [],
+    // Slice B (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md addendum)
+    // — director-confirmed one-off multi-block candidates, same passthrough
+    // shape as fixedEvents above.
+    multiBlockEvents: Array.isArray(source?.multiBlockEvents) ? source.multiBlockEvents : [],
     // Slice 3a — create-shaped elective nudges, never entity `items` (no
     // elective_set exists yet to diff fields against).
     electiveCandidates: buildElectiveCandidates(source, existing),

@@ -278,7 +278,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // device's sync mode — and the guard below reads it; a shadowing parameter
   // would silently turn the Host check into a comparison against the import
   // mode instead.
-  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets } = {}) {
+  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // Admin only. Staff may edit setup records one at a time; creating a
     // camp's whole structure in one action is a different kind of authority,
@@ -346,6 +346,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       electiveHeaderFindings: electiveHeaderFindings ?? [],
       activityPeriods: activityPeriods ?? {},
       confirmedElectiveSets: confirmedElectiveSets ?? [],
+      // Slice B (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md
+      // addendum) — director-confirmed one-off multi-block candidates,
+      // written as `events` catalog rows only (surface-then-fill). Absent
+      // for every caller that predates this, same as fixedEvents above.
+      multiBlockEvents: multiBlockEvents ?? [],
       // U1 — additive, opt-in. Absent/false for every existing caller, same
       // behavior as before (docs/adr/2026-08-17-onescreen-reconciliation-undo.md).
       captureInverse: captureInverse === true,
@@ -357,7 +362,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // guard above — a dry run commits nothing anywhere, on any device, so there
   // is no fork-the-camp risk to guard against. Also does not push any
   // onOpApplied/sync broadcast: nothing was written for a peer to learn about.
-  function ingestReconcile({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods } = {}) {
+  function ingestReconcile({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'groups.import' })
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
@@ -380,6 +385,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       pinOnlyActivityNames: pinOnlyActivityNames ?? [],
       electiveHeaderFindings: electiveHeaderFindings ?? [],
       activityPeriods: activityPeriods ?? {},
+      multiBlockEvents: multiBlockEvents ?? [],
       dryRun: true,
     })
     return {

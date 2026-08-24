@@ -50,12 +50,12 @@ export const localClient = {
   // real one — same rule as deleteWeek below.
   // U1 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) — captureInverse
   // is additive and opt-in; every existing caller that omits it is unaffected.
-  ingestCommit: ({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets } = {}) =>
-    shoresh.ingestCommit({ token: currentToken(), approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets }),
+  ingestCommit: ({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents } = {}) =>
+    shoresh.ingestCommit({ token: currentToken(), approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents }),
   // D1 — read-only dry run of the same commit pipeline, for the reconciliation
   // summary. Same argument shape as ingestCommit; never writes.
-  ingestReconcile: ({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods } = {}) =>
-    shoresh.ingestReconcile({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods }),
+  ingestReconcile: ({ approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents } = {}) =>
+    shoresh.ingestReconcile({ token: currentToken(), approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents }),
   // U1+U2 — reverts field-updates AND newly-created rows from a
   // captureInverse commit. See the ADR's "grace-window" mechanism;
   // invertibleOps/createdEntityIds never persist past the renderer session

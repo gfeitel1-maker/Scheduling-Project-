@@ -7,6 +7,7 @@ import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { inferFixedEvents } from '../ingest/fixedEvents'
+import { inferMultiBlockCandidates } from '../ingest/multiBlockCandidates'
 import { inferActivityRules } from '../ingest/activityRules'
 import { normalizeName } from '../ingest/preview'
 import { autoAccepts } from '../ingest/confidence'
@@ -56,6 +57,17 @@ const RULE_FIELD_TO_SOURCE = Object.freeze({
   priority: 'priority',
   eligible_group_names: 'eligible_groups',
 })
+
+// Slice B — stable identity for a multiBlockCandidates entry, used both as
+// the React key and as the multiBlockDecisions lookup key. Mirrors the
+// fixedEvents chip key convention (name + block + day) one field narrower
+// (no days array — a multi-block candidate is always one cell, one day).
+// Keys on the LOGICAL identity (name + start_block + span_blocks) —
+// inferMultiBlockCandidates already aggregates across every group/day that
+// showed the same merge into ONE candidate (Governor round 2: the same
+// Friday "Ruach & Shabbat" merge on 14 group pages must render as ONE row,
+// not 14), so no group/day component belongs in this key.
+const multiBlockKey = (c) => `${c.name} ${c.start_block} ${c.span_blocks}`
 
 // S1b — cohort-scoped entity_type set the alias path gates cohort_id on. Lives
 // in its own module (importAliasScope.js) so a drift-guard test can assert it
@@ -143,6 +155,14 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
   // the guard that forces tier:'low' on that name, so it can never silently
   // mint into the catalog.
   const [pinOnlyActivityNames, setPinOnlyActivityNames] = useState(new Set())
+  // Slice B (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md addendum)
+  // — merged multi-block cells Slice A now reads (row.blockSpans), surfaced
+  // as "Longer Blocks" candidates. multiBlockDecisions is keyed by
+  // multiBlockKey(candidate) -> 'recurring' | 'one_off'; a candidate with no
+  // key present is undecided and ships nowhere at commit — same "unticked =
+  // not written" rule the rest of this screen already follows.
+  const [multiBlockCandidates, setMultiBlockCandidates] = useState([])
+  const [multiBlockDecisions, setMultiBlockDecisions] = useState({})
   // Slice 2b — dualUseNames lifted out of the throwaway destructure in
   // readFiles (was computed only to seed pinOnlySet, then discarded). Filtered
   // against declined_two_row_splits on every readFiles() pass so a director's
@@ -225,6 +245,8 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
     setResidualSheets([])
     setDualUseNames(new Set())
     setSplitDecisions({})
+    setMultiBlockCandidates([])
+    setMultiBlockDecisions({})
     const files = [...(fileList ?? [])]
     if (files.length === 0) return
     setFileNames(files.map((f) => f.name))
@@ -336,6 +358,13 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
       const { fixedEvents: inferred, dualUseNames: dualUseNamesRaw = [] } = inferFixedEvents({ pages }, proposal, { knownTimeBlockNames })
       setFixedEvents(inferred)
       setOperatingDayCount(proposal.entities.days_of_operation.length)
+
+      // Slice B — merges Slice A reconstructed as row.blockSpans, surfaced
+      // as "Longer Blocks" candidates. Every one is shown; nothing commits
+      // until the director picks recurring or one-off (see
+      // multiBlockDecisions above).
+      const { multiBlockCandidates: mbc } = inferMultiBlockCandidates({ pages }, proposal)
+      setMultiBlockCandidates(mbc)
 
       // ADR 2026-08-09 Decision 1 / A3 (Red Hat) — an auto-accepted
       // (high-confidence) fixed-event name that is NOT dual-use is never a
@@ -728,13 +757,47 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
       const edited = Array.isArray(rule._editedFields) ? rule._editedFields : []
       if (edited.length > 0) activityHumanFields[name] = edited
     }
+    // Slice B — fold each director-decided "Longer Blocks" candidate into
+    // the right existing pipeline. Recurring rides the SAME fixedEvents
+    // array/commit block as an ordinary recurring event (just with
+    // span_blocks set); one-off is a separate, smaller multiBlockEvents
+    // payload (events catalog row only — see ingest.js). A candidate with no
+    // decision in multiBlockDecisions is in neither array, so it ships
+    // nothing (the same "unticked = not written" rule as everywhere else on
+    // this screen).
+    const multiBlockRecurring = []
+    const multiBlockOneOff = []
+    for (const c of multiBlockCandidates) {
+      const decision = multiBlockDecisions[multiBlockKey(c)]
+      if (decision === 'recurring') {
+        // c.days/c.scope are already the aggregated union/verdict
+        // inferMultiBlockCandidates computed (every group/day that showed
+        // this merge) — passed straight through, same ProposedFixedEvent
+        // shape inferFixedEvents produces, so this rides the identical
+        // anchor_activities commit block.
+        multiBlockRecurring.push({
+          name: c.name,
+          time_block: c.start_block,
+          days: c.days,
+          scope: c.scope,
+          confidence: 'high',
+          span_blocks: c.span_blocks,
+        })
+      } else if (decision === 'one_off') {
+        multiBlockOneOff.push({
+          name: c.name,
+          notes: `Imported from ${fileNames.join(', ')} — ${c.days.join(', ')}, ${c.span_blocks} blocks starting ${c.start_block}`,
+        })
+      }
+    }
     return {
       approved,
       links: { groups: groupUnits },
       clears: { groups: groupClears },
       humanEditedFields: { groups: groupHumanFields, activities: activityHumanFields },
       cohort_id: activeCohort?.id ?? null,
-      fixedEvents,
+      fixedEvents: [...fixedEvents, ...multiBlockRecurring],
+      multiBlockEvents: multiBlockOneOff,
       activityRules: outgoingRules,
       mode: importMode === 'replace' ? 'replace' : 'add',
       // §1 — real create confidence input, and A3's pin-only carry-over.
@@ -1173,6 +1236,77 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
                     )
                   })
                 })()}
+              </div>
+            </div>
+          )}
+
+          {/* Longer Blocks (Slice B, docs/adr/2026-08-24-merged-cell-
+              multiblock-ingest.md). A merged cell Slice A read as spanning
+              more than one time block — Shabbat, a field trip, a Special
+              Event. Neither bucket is picked for the director: every
+              candidate needs an explicit "Every week" or "Just this once"
+              before it ships at commit (buildCommitInputs, below); an
+              un-pressed candidate is simply not sent. */}
+          {multiBlockCandidates.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{
+                fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
+                letterSpacing: '0.12em', textTransform: 'uppercase',
+                color: 'var(--text-secondary)', marginBottom: 8,
+              }}>
+                Longer Blocks
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
+                These filled more than one time block in a row. Tell us if this happens every week,
+                or if it was a one-time thing.
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'flex-start' }}>
+                {multiBlockCandidates.map((c) => {
+                  const key = multiBlockKey(c)
+                  const decision = multiBlockDecisions[key]
+                  const pill = (active) => ({
+                    fontSize: 11, padding: '3px 8px', borderRadius: 5, fontFamily: 'inherit', cursor: 'pointer',
+                    border: `1px solid ${active ? 'var(--primary)' : 'var(--border)'}`,
+                    background: active ? `color-mix(in srgb, var(--primary) 12%, var(--surface))` : 'var(--bg)',
+                    color: active ? 'var(--primary)' : 'var(--text-secondary)',
+                  })
+                  const scopeLabel = c.scope.is_all_groups ? 'every group' : c.scope.groups.join(', ')
+                  const daysLabel = c.days.join(', ')
+                  return (
+                    <div key={key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                      <div
+                        style={{
+                          fontSize: 12, padding: '5px 10px', borderRadius: 6,
+                          fontFamily: 'inherit', textAlign: 'left',
+                          background: 'color-mix(in srgb, var(--accent) 12%, var(--surface))',
+                          border: '1px solid var(--accent)',
+                          color: 'var(--text)',
+                        }}
+                      >
+                        {c.name}
+                        <span style={{ marginLeft: 6, opacity: 0.6, fontSize: 11 }}>
+                          · {c.span_blocks}-block block · {scopeLabel} · {daysLabel}
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <button
+                          type="button"
+                          onClick={() => setMultiBlockDecisions((d) => ({ ...d, [key]: 'recurring' }))}
+                          style={pill(decision === 'recurring')}
+                        >
+                          Every week
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setMultiBlockDecisions((d) => ({ ...d, [key]: 'one_off' }))}
+                          style={pill(decision === 'one_off')}
+                        >
+                          Just this once
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
