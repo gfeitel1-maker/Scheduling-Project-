@@ -1157,6 +1157,25 @@ export const mockShoresh = {
     saveState(state)
     return { id: newId, superseded: supersededId }
   },
+  // Slice 2a — mock stand-in for recordDeclinedSplit/listDeclinedSplitNames
+  // (electron/ops/declinedSplits.js), mirroring the OBSERVABLE contract:
+  // normalized names, idempotent record. No transaction/atomicity — proves
+  // the UI, not real persistence (that stays electron:dev).
+  async recordDeclinedSplit({ activityName } = {}) {
+    const state = loadState()
+    if (!Array.isArray(state.__declinedTwoRowSplits)) state.__declinedTwoRowSplits = []
+    const normalized = normalizeName(activityName)
+    if (!normalized) return { ok: true }
+    if (!state.__declinedTwoRowSplits.includes(normalized)) {
+      state.__declinedTwoRowSplits.push(normalized)
+      saveState(state)
+    }
+    return { ok: true }
+  },
+  async listDeclinedSplitNames() {
+    const state = loadState()
+    return Array.isArray(state.__declinedTwoRowSplits) ? state.__declinedTwoRowSplits.slice() : []
+  },
   // S4b §4 — the dev mock has no op log/seq clock, so the export stamps 0 and
   // the staleness gate is inert at :5200 (the real clock lives under electron:dev).
   async latestOpSeq() { return 0 },

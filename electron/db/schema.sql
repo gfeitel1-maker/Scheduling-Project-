@@ -121,6 +121,22 @@ CREATE TABLE IF NOT EXISTS source_aliases (
 CREATE INDEX IF NOT EXISTS idx_source_aliases_lookup
   ON source_aliases (camp_id, entity_type, cohort_id);
 
+-- Host-local memory of a declined two-rows split suggestion, so a re-import
+-- does not re-suggest a split the director already said no to (docs/adr/
+-- 2026-08-23-two-rows-multipattern-split.md, docs/work/specs/2026-08-23-
+-- two-rows-slice2-affordance.md "Decline-memory"). Same posture as
+-- source_aliases: NEVER included in any full-sync SELECT/payload, NEVER sent
+-- over the wire, NEVER added to DIRECT_CAMP_ENTITIES or PROJECTIONS. Written
+-- only from electron/ops/declinedSplits.js, admin-gated at the IPC boundary
+-- like confirmAlias.
+CREATE TABLE IF NOT EXISTS declined_two_row_splits (
+  id TEXT PRIMARY KEY,
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  activity_name_normalized TEXT NOT NULL,  -- normalizeName(name) — the read side must match
+  declined_at TEXT NOT NULL,
+  UNIQUE(camp_id, activity_name_normalized)
+);
+
 -- Host-only table, like source_aliases and host_signing_key. NEVER included
 -- in any full-sync SELECT/payload, NEVER sent over the wire, NEVER added to
 -- DIRECT_CAMP_ENTITIES or PROJECTIONS. Written only from inside commitPlan's

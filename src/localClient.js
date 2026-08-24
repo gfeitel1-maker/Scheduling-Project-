@@ -67,6 +67,13 @@ export const localClient = {
   // boundary (electron/main.js's confirmAliasHandler); best-effort by callers.
   confirmAlias: ({ entity_type, cohort_id, source_label, entity_id } = {}) =>
     shoresh.confirmAlias({ token: currentToken(), entity_type, cohort_id, source_label, entity_id }),
+  // Slice 2a — record/read a director's "not now" on a two-rows split
+  // suggestion (docs/adr/2026-08-23-two-rows-multipattern-split.md). Host-only,
+  // admin-gated at the IPC boundary like confirmAlias above.
+  recordDeclinedSplit: (activityName) =>
+    shoresh.recordDeclinedSplit({ token: currentToken(), activityName }),
+  listDeclinedSplitNames: () =>
+    shoresh.listDeclinedSplitNames({ token: currentToken() }),
   // S4b §4 — the op-log generation S4a's export stamps as base_generation so the
   // round-trip's staleness gate has a real clock. Read-only; 0 on the dev mock.
   latestOpSeq: () => (shoresh.latestOpSeq ? shoresh.latestOpSeq() : Promise.resolve(0)),

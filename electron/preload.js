@@ -79,6 +79,11 @@ contextBridge.exposeInMainWorld('shoresh', {
   // S1b — confirm that an imported label means an existing entity, so the next
   // import recognizes it without re-asking (docs/adr/2026-08-09-s1b-host-local-aliases.md).
   confirmAlias: (args) => ipcRenderer.invoke('shoresh:confirm-alias', args),
+  // Slice 2a (two-rows split decline-memory, docs/adr/2026-08-23-two-rows-
+  // multipattern-split.md) — record/read a director's "not now" on a split
+  // suggestion, so re-import does not re-suggest it.
+  recordDeclinedSplit: (args) => ipcRenderer.invoke('shoresh:record-declined-split', args),
+  listDeclinedSplitNames: (args) => ipcRenderer.invoke('shoresh:list-declined-split-names', args),
   latestOpSeq: () => ipcRenderer.invoke('shoresh:latest-op-seq'),
   onSyncStatusChanged: (cb) => {
     const listener = (_e, status) => cb(status)
