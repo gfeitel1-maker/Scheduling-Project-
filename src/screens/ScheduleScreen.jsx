@@ -382,11 +382,13 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   }
 
   // Slice 2 drill-in (docs/work/specs/2026-08-22-electives-nested-schedule-
-  // slices.md) — an elective cell's own button hands its set id up here,
-  // which just forwards it to onNavigate as a second arg for AppShell to
-  // carry across the screen swap (App.jsx's navigate/electiveFocusSetId).
+  // slices.md), redirected by docs/work/specs/2026-08-23-electives-gap.md to
+  // the Schedule-side builder — an elective cell's own button hands its set
+  // id up here, which just forwards it to onNavigate as a second arg for
+  // AppShell to carry across the screen swap (App.jsx's
+  // navigate/electiveFocusSetId).
   function openElective(electiveSetId) {
-    onNavigate?.('electives', { electiveSetId })
+    onNavigate?.('schedule:electives', { electiveSetId })
   }
 
   // Events overlay placement Slice 1 — an event cell's own drill-in button

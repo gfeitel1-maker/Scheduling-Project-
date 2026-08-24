@@ -12,399 +12,18 @@
 //
 // No campers roster, no solver (ADR §2) — this screen only holds and
 // displays what the director decides.
-import { useState, useRef, useEffect } from 'react'
-import * as XLSX from 'xlsx'
+import { useState, useRef } from 'react'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
-import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
-import { parseTextGrid } from '../ingest/textGrid'
-import { workbookToPages } from '../ingest/sheetGrid'
-import { parseGridSchedule } from '../ingest/parseGridSchedule'
-import { populateElectiveSet } from '../ingest/electiveSetPopulate'
-import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../utils/exportSanitize.js'
 
 const repository = createSetupCrudRepository({ localClient })
 const setScopeFilter = (row, campId) => row.camp_id === campId
-const offeringScopeFilter = (row, electiveSetId) => row.elective_set_id === electiveSetId
 
-const IMPORT_LABELS = {
-  importAction: 'or import this set’s offerings from a file',
-  noGridFound: 'No schedule could be read out of that. It may be a scan rather than a document with text in it.',
-}
-
-// Defense-in-depth: malformed JSON in an eligible_*_ids column must not crash
-// this screen — same posture as ActivitiesScreen.jsx's parseIdList.
-function parseIdList(raw) {
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
-
-// "Staff" has no model on `activities` anywhere in this codebase today (no
-// column, no join table) — surfacing it here would mean inventing a new
-// model, which the brief explicitly forbids ("do not duplicate those
-// models"). Location and eligibility are real activity fields; staff is
-// left out of this render rather than fabricated.
-function eligibilitySummary(activity, tiers, groups) {
-  const tierIds = parseIdList(activity?.eligible_tier_ids)
-  const groupIds = parseIdList(activity?.eligible_group_ids)
-  if (groupIds.length > 0) {
-    const names = groupIds.map((id) => groups.find((g) => g.id === id)?.name).filter(Boolean)
-    return names.length ? names.join(', ') : `${groupIds.length} group(s)`
-  }
-  if (tierIds.length > 0) {
-    const names = tierIds.map((id) => tiers.find((t) => t.id === id)?.name).filter(Boolean)
-    return names.length ? names.join(', ') : `${tierIds.length} division(s)`
-  }
-  return 'Everyone'
-}
-
-function OfferingRow({ offering, activity, locations, tiers, groups, onSaveCapacity, onDelete, role }) {
-  const [capacityText, setCapacityText] = useState(
-    offering.camper_headcount == null ? '' : String(offering.camper_headcount)
-  )
-  const [saving, setSaving] = useState(false)
-  // Brief green flash confirming a successful capacity save — silent-save left
-  // directors unsure it persisted (Slice 1 Tester). Single-shot, self-clears;
-  // reuses the confirm-feedback pattern from the Roots-as-hub Slice E.
-  const [savedFlash, setSavedFlash] = useState(false)
-  const location = locations.find((l) => l.id === activity?.location_id)
-
-  async function commitCapacity() {
-    const trimmed = capacityText.trim()
-    const value = trimmed === '' ? null : Math.max(0, parseInt(trimmed, 10) || 0)
-    if (value === (offering.camper_headcount ?? null)) return
-    setSaving(true)
-    try {
-      await onSaveCapacity(offering.id, value)
-      setSavedFlash(true)
-      setTimeout(() => setSavedFlash(false), 700)
-    } catch {
-      // onSaveCapacity already surfaced the error via the screen's error banner.
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <tr style={{ borderBottom: '1px solid var(--border)' }}>
-      <td style={{ ...S.td, fontWeight: 500 }}>{activity?.name ?? '(deleted activity)'}</td>
-      <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{location?.name ?? '—'}</td>
-      <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>
-        {activity ? eligibilitySummary(activity, tiers, groups) : '—'}
-      </td>
-      <td style={S.td}>
-        <input
-          type="text"
-          inputMode="numeric"
-          placeholder="No cap"
-          value={capacityText}
-          disabled={saving}
-          onChange={(e) => {
-            const raw = e.target.value
-            if (raw === '' || /^\d+$/.test(raw)) setCapacityText(raw)
-          }}
-          onBlur={commitCapacity}
-          onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
-          data-saved={savedFlash ? '' : undefined}
-          style={{
-            ...S.input,
-            width: 90,
-            boxShadow: savedFlash ? '0 0 0 2px var(--secondary)' : undefined,
-            transition: prefersReducedMotion() ? 'none' : 'box-shadow var(--motion-base) var(--ease-out)',
-          }}
-          aria-label={`Capacity for ${activity?.name ?? 'offering'}`}
-        />
-      </td>
-      <td style={{ ...S.td, textAlign: 'right' }}>
-        <button
-          onClick={() => onDelete(offering)}
-          disabled={role !== 'admin'}
-          title={role !== 'admin' ? 'Admin only' : undefined}
-          style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-        >
-          Remove
-        </button>
-      </td>
-    </tr>
-  )
-}
-
-function ElectiveSetDetail({ set, role, activities, locations, tiers, groups, refreshActivities, onBack }) {
-  const { rows: offerings, loading, error, setError, adding, add, reload } = useCrudScreen({
-    entity: 'elective_set_activities',
-    campId: set.id,
-    localClient,
-    repository,
-    scopeFilter: offeringScopeFilter,
-    buildCreateFields: ({ activityId }) => ({
-      elective_set_id: set.id,
-      activity_id: activityId,
-    }),
-    addFailedText: 'That offering could not be added.',
-    saveFailedText: 'That capacity could not be saved.',
-  })
-
-  const [pickerActivityId, setPickerActivityId] = useState('')
-  const [pendingDelete, setPendingDelete] = useState(null)
-  const [deleting, setDeleting] = useState(false)
-  const [importing, setImporting] = useState(false)
-  const [confirmClear, setConfirmClear] = useState(false)
-  const [clearing, setClearing] = useState(false)
-  const fileInputRef = useRef(null)
-
-  const offeredActivityIds = new Set(offerings.map((o) => o.activity_id))
-  const availableActivities = activities.filter((a) => !offeredActivityIds.has(a.id))
-
-  async function addOffering() {
-    if (!pickerActivityId) return
-    const succeeded = await add({ activityId: pickerActivityId })
-    if (succeeded) setPickerActivityId('')
-  }
-
-  // File -> parse -> populate wiring (ADR §8, mirrors EventGridEditor.jsx's
-  // runImport). Reuses the same file->grid extraction and size/complexity
-  // guards ImportScreen.jsx uses — this import stays renderer-side, scoped
-  // to this one elective set, never touching ReconciliationScreen/
-  // buildPlan.js/the campwide ingest pipeline. Both the xlsx AND the .txt
-  // branch are size-guarded (a gap Security caught in the events consumer).
-  async function runImport(file) {
-    if (!file) return
-    setError(null)
-    setImporting(true)
-    try {
-      let pages
-      if (/\.(xlsx|xlsm|xls)$/i.test(file.name)) {
-        assertImportFileSize(file.size)
-        const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' })
-        assertWorkbookComplexity(wb)
-        const sheets = wb.SheetNames.map((name) => ({
-          name,
-          rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false }).map(unescapeRow),
-        }))
-        pages = workbookToPages(sheets, file.name)
-      } else {
-        assertImportFileSize(file.size)
-        pages = parseTextGrid(await file.text()).pages
-      }
-
-      if (!pages || pages.length === 0) {
-        setError(IMPORT_LABELS.noGridFound)
-        return
-      }
-
-      const parsed = parseGridSchedule(pages)
-      const result = await populateElectiveSet(parsed, {
-        electiveSetId: set.id, campId: set.camp_id, repo: repository, existingActivities: activities, existingOfferings: offerings,
-      })
-
-      if (!result.ok) {
-        setError(result.reason)
-        return
-      }
-      // Refresh BOTH offerings (this set) and the activities catalog (shared
-      // across every set) — reload() alone leaves existingActivities stale
-      // for the next import, in this set on retry or in a different set
-      // opened later in the same session, letting createActivity's dedup
-      // miss activities this import just wrote and mint duplicates (Red Hat
-      // HIGH). Mirrors EventGridEditor.jsx's runImport, which reloads
-      // everything via one load() call — split here because offerings and
-      // the activities catalog live in different state owners (this
-      // component vs. the parent ElectivesScreen).
-      await Promise.all([reload(), refreshActivities()])
-    } catch (err) {
-      // A mid-import failure can leave partial writes (populateElectiveSet has
-      // no rollback). Reload FIRST so the UI reflects what actually landed
-      // instead of showing a stale empty list, which would let the director
-      // retry and re-mint duplicate catalog activities for names that
-      // already succeeded — mirrors EventGridEditor.jsx's runImport. Same
-      // reasoning as the success path above: both offerings AND activities
-      // must refresh, not just offerings.
-      await Promise.all([reload(), refreshActivities()])
-      setError(describeWriteFailure(err, 'Could not import that schedule.'))
-    } finally {
-      setImporting(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
-
-  async function saveCapacity(offeringId, value) {
-    try {
-      await repository.writeFields('elective_set_activities', offeringId, { camper_headcount: value })
-      await reload()
-    } catch (err) {
-      setError(describeWriteFailure(err, 'That capacity could not be saved.'))
-      throw err
-    }
-  }
-
-  // Closes the dead-end the refuse-on-nonempty import message ("...already
-  // has offerings. Clear it first...") otherwise points at with no control
-  // to act on (Tester MEDIUM). Deletes every elective_set_activities row for
-  // this set via the same per-row delete path Remove already uses; the
-  // elective_sets row itself is untouched. Mirrors EventGridEditor.jsx's
-  // clearSchedule.
-  async function clearOfferings() {
-    setClearing(true)
-    try {
-      const ids = offerings.map((o) => o.id)
-      const { succeeded } = await repository.deleteAllRecords('elective_set_activities', ids)
-      if (succeeded !== ids.length) throw new Error('clear-offerings-partial-failure')
-      await reload()
-    } catch (err) {
-      setError(describeWriteFailure(err, "Could not clear this set's offerings."))
-    } finally {
-      setClearing(false)
-      setConfirmClear(false)
-    }
-  }
-
-  async function confirmDeleteOffering() {
-    if (!pendingDelete) return
-    setDeleting(true)
-    try {
-      const { succeeded } = await repository.deleteAllRecords('elective_set_activities', [pendingDelete.id])
-      if (succeeded !== 1) throw new Error('delete failed')
-      await reload()
-    } catch (err) {
-      setError(describeWriteFailure(err, 'That offering could not be removed.'))
-    } finally {
-      setDeleting(false)
-      setPendingDelete(null)
-    }
-  }
-
-  return (
-    <div style={{ maxWidth: 760 }}>
-      <button className="press-97" onClick={onBack} style={S.authLinkBtn}>← Back to Elective Sets</button>
-
-      <div style={{ marginTop: 12, marginBottom: 20 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 20 }}>{set.name || '(untitled set)'}</div>
-        <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4 }}>
-          Offerings a group sees when they're in this elective period — the "Electives" cell on the campwide schedule
-          stays opaque; this is the detail behind it.
-        </div>
-      </div>
-
-      {error && <div style={S.errorBanner}>{error}</div>}
-
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".xlsx,.xlsm,.xls,.txt"
-        style={{ display: 'none' }}
-        onChange={(e) => runImport(e.target.files?.[0])}
-      />
-
-      {loading ? (
-        <div style={S.stateLoading}>Loading…</div>
-      ) : offerings.length === 0 ? (
-        <div style={emptyStyles.wrap}>
-          <div style={emptyStyles.title}>No offerings yet</div>
-          <div style={emptyStyles.body}>Add an activity below to make it one of this set's choices.</div>
-          <button
-            className="press-97"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={importing}
-            style={{ ...S.btnSecondary, fontStyle: 'italic', marginTop: 10 }}
-          >
-            {importing ? 'Importing…' : IMPORT_LABELS.importAction}
-          </button>
-        </div>
-      ) : (
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 14px 0' }}>
-            <button className="press-97" onClick={() => setConfirmClear(true)} style={S.btnDanger}>Clear offerings</button>
-          </div>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
-                <th style={S.th}>Activity</th>
-                <th style={S.th}>Location</th>
-                <th style={S.th}>Who can go</th>
-                <th style={S.th}>Capacity</th>
-                <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {offerings.map((offering) => (
-                <OfferingRow
-                  key={offering.id}
-                  offering={offering}
-                  activity={activities.find((a) => a.id === offering.activity_id)}
-                  locations={locations}
-                  tiers={tiers}
-                  groups={groups}
-                  role={role}
-                  onSaveCapacity={saveCapacity}
-                  onDelete={setPendingDelete}
-                />
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Offering</div>
-        <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-          <select
-            value={pickerActivityId}
-            onChange={(e) => setPickerActivityId(e.target.value)}
-            style={{ ...S.input, minWidth: 220 }}
-            aria-label="Choose an activity to add"
-          >
-            <option value="">
-              {availableActivities.length === 0 ? 'No more activities to add' : 'Choose an activity…'}
-            </option>
-            {availableActivities.map((a) => (
-              <option key={a.id} value={a.id}>{a.name}</option>
-            ))}
-          </select>
-          <button
-            className="press-97"
-            onClick={addOffering}
-            disabled={adding || !pickerActivityId}
-            style={S.btnPrimary}
-          >
-            {adding ? 'Adding…' : '+ Add'}
-          </button>
-        </div>
-      </div>
-
-      {pendingDelete && (
-        <ConfirmDangerDialog
-          title={`Remove ${activities.find((a) => a.id === pendingDelete.activity_id)?.name ?? 'this offering'}?`}
-          recovery="It stops being one of this set's choices. The activity itself is untouched."
-          confirmLabel="Remove Offering"
-          busy={deleting}
-          onConfirm={confirmDeleteOffering}
-          onCancel={() => setPendingDelete(null)}
-        />
-      )}
-
-      {confirmClear && (
-        <ConfirmDangerDialog
-          title="Clear all offerings from this set?"
-          recovery="This can't be undone."
-          confirmLabel="Clear Offerings"
-          busy={clearing}
-          onConfirm={clearOfferings}
-          onCancel={() => setConfirmClear(false)}
-        />
-      )}
-    </div>
-  )
-}
-
-function ElectiveSetRow({ set, onOpen, onSave, onDelete, role }) {
+function ElectiveSetRow({ set, onBuild, onSave, onDelete, role }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(set.name)
   const [saving, setSaving] = useState(false)
@@ -444,11 +63,11 @@ function ElectiveSetRow({ set, onOpen, onSave, onDelete, role }) {
 
   return (
     <tr style={{ borderBottom: '1px solid var(--border)' }}>
-      <td style={{ ...S.td, fontWeight: 500, cursor: 'pointer' }} onClick={() => onOpen(set)}>
+      <td style={{ ...S.td, fontWeight: 500 }}>
         {set.name || '(untitled set)'}
       </td>
       <td style={{ ...S.td, textAlign: 'right' }}>
-        <button className="press-97" onClick={() => onOpen(set)} style={S.btnSecondary}>Manage Offerings</button>
+        <button className="press-97" onClick={() => onBuild(set)} style={S.btnSecondary} title="Build this set's offerings from Electives under Schedule">Open</button>
         <button className="press-97" onClick={() => setEditing(true)} style={{ ...S.btnSecondary, marginLeft: 6 }}>Rename</button>
         <button
           onClick={() => onDelete(set)}
@@ -463,7 +82,7 @@ function ElectiveSetRow({ set, onOpen, onSave, onDelete, role }) {
   )
 }
 
-export default function ElectivesScreen({ campId, role, initialElectiveSetId = null }) {
+export default function ElectivesScreen({ campId, role, onNavigate }) {
   const { rows: sets, loading, error, setError, adding, add, save, reload } = useCrudScreen({
     entity: 'elective_sets',
     campId,
@@ -479,41 +98,10 @@ export default function ElectivesScreen({ campId, role, initialElectiveSetId = n
   })
 
   const [newName, setNewName] = useState('')
-  // Slice 2 drill-in — an elective cell's affordance on the campwide schedule
-  // opens this screen focused on its set (docs/work/specs/2026-08-22-
-  // electives-nested-schedule-slices.md, Slice 2). Lazy-init from the prop is
-  // sufficient: App.jsx's SCREENS map swaps in a different component for
-  // every other screen, so ElectivesScreen always mounts fresh when a
-  // drill-in navigates here — there is no "already mounted, prop just
-  // changed" case to react to.
-  const [selectedSetId, setSelectedSetId] = useState(initialElectiveSetId)
   const [pendingDelete, setPendingDelete] = useState(null)
   const [deleting, setDeleting] = useState(false)
-  const [supportData, setSupportData] = useState({ activities: [], locations: [], tiers: [], groups: [] })
   const nameRef = useRef()
   const enter = useEnterTransition('liftFade')
-
-  async function loadSupportData() {
-    const [activities, locations, tiers, groups] = await Promise.all([
-      localClient.list('activities'),
-      localClient.list('locations'),
-      localClient.list('tiers'),
-      localClient.list('groups'),
-    ])
-    setSupportData({
-      activities: (activities || []).filter((a) => a.camp_id === campId),
-      locations: (locations || []).filter((l) => l.camp_id === campId),
-      tiers: (tiers || []).filter((t) => t.camp_id === campId),
-      groups: (groups || []).filter((g) => g.camp_id === campId),
-    })
-  }
-
-  // The IIFE wrapper (rather than calling loadSupportData() directly) is
-  // required by this repo's react-hooks/set-state-in-effect lint rule — same
-  // reason as LocationsScreen.jsx's refreshReviewData mount effect.
-  useEffect(() => {
-    ;(async () => { await loadSupportData() })()
-  }, [campId])
 
   async function addSet() {
     if (!newName.trim()) return
@@ -527,7 +115,6 @@ export default function ElectivesScreen({ campId, role, initialElectiveSetId = n
     try {
       const result = await localClient.deleteElectiveSet({ electiveSetId: pendingDelete.id })
       if (!result || result.error) throw new Error(result?.error ?? 'delete-failed')
-      if (selectedSetId === pendingDelete.id) setSelectedSetId(null)
       await reload()
     } catch (err) {
       setError(describeWriteFailure(err, 'That elective set could not be deleted.'))
@@ -535,23 +122,6 @@ export default function ElectivesScreen({ campId, role, initialElectiveSetId = n
       setDeleting(false)
       setPendingDelete(null)
     }
-  }
-
-  const selectedSet = sets.find((s) => s.id === selectedSetId)
-
-  if (selectedSet) {
-    return (
-      <ElectiveSetDetail
-        set={selectedSet}
-        role={role}
-        activities={supportData.activities}
-        locations={supportData.locations}
-        tiers={supportData.tiers}
-        groups={supportData.groups}
-        refreshActivities={loadSupportData}
-        onBack={() => setSelectedSetId(null)}
-      />
-    )
   }
 
   return (
@@ -590,7 +160,7 @@ export default function ElectivesScreen({ campId, role, initialElectiveSetId = n
                   key={set.id}
                   set={set}
                   role={role}
-                  onOpen={(s) => setSelectedSetId(s.id)}
+                  onBuild={(s) => onNavigate?.('schedule:electives', { electiveSetId: s.id })}
                   onSave={save}
                   onDelete={setPendingDelete}
                 />
