@@ -360,6 +360,57 @@ describe('ElectiveSetDetail — Clear offerings control (Tester MEDIUM)', () => 
   })
 })
 
+describe('ElectiveSetDetail — Remove offering clears permission-tier (owner priority #4, symmetric with #172)', () => {
+  it('removing the last offering of a permission-status activity nulls recurrence_truth_status', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering()] }))
+    renderDetail({ activities: [activity({ recurrence_truth_status: 'permission' })] })
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Remove'))
+    await waitFor(() => expect(screen.queryByText(/Remove Pottery\?/)).not.toBeNull())
+    fireEvent.click(screen.getByText('Remove Offering'))
+
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'act-1', 'recurrence_truth_status', null)
+    )
+  })
+
+  it('does NOT clear when the activity still belongs to another elective set', async () => {
+    localClient.list.mockImplementation(byEntity({
+      elective_set_activities: [
+        offering({ id: 'off-1', elective_set_id: 'set-1', activity_id: 'act-1' }),
+        offering({ id: 'off-2', elective_set_id: 'set-2', activity_id: 'act-1' }),
+      ],
+    }))
+    renderDetail({ activities: [activity({ recurrence_truth_status: 'permission' })] })
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Remove'))
+    await waitFor(() => expect(screen.queryByText(/Remove Pottery\?/)).not.toBeNull())
+    fireEvent.click(screen.getByText('Remove Offering'))
+
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalled())
+    expect(
+      localClient.write.mock.calls.some((c) => c[2] === 'act-1' && c[3] === 'recurrence_truth_status')
+    ).toBe(false)
+  })
+
+  it('does NOT clear an obligation-status activity even with zero remaining memberships', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [offering()] }))
+    renderDetail({ activities: [activity({ recurrence_truth_status: 'obligation' })] })
+    await waitFor(() => expect(screen.queryByText('Pottery')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Remove'))
+    await waitFor(() => expect(screen.queryByText(/Remove Pottery\?/)).not.toBeNull())
+    fireEvent.click(screen.getByText('Remove Offering'))
+
+    await waitFor(() => expect(localClient.deleteEntity).toHaveBeenCalled())
+    expect(
+      localClient.write.mock.calls.some((c) => c[2] === 'act-1' && c[3] === 'recurrence_truth_status')
+    ).toBe(false)
+  })
+})
+
 describe('ElectiveSetDetail — Back', () => {
   it('calls onBack when "← Back to Elective Sets" is clicked', async () => {
     localClient.list.mockImplementation(byEntity({ elective_set_activities: [] }))
