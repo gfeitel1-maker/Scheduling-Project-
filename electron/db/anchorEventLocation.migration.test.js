@@ -98,7 +98,7 @@ describe('migration v45: fresh vs migrated equivalence', () => {
   it('declares schema version 45 on a fresh db and gives both tables the location_id column', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(46)
+    expect(CURRENT_SCHEMA_VERSION).toBe(47)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 45').get().c).toBe(1)
     expect(db.pragma('table_info(anchor_activities)').map((c) => c.name)).toContain('location_id')
     expect(db.pragma('table_info(events)').map((c) => c.name)).toContain('location_id')

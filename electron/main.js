@@ -25,6 +25,7 @@ import { CLEARABLE_ENTITIES, previewDelete, deleteRecord, mergeLocation } from '
 import { listMigrationReviews, dismissMigrationReviews } from './ops/migrationReviews.js'
 import { commitIngest, ingestUndo, listImportEvidence } from './ops/ingest.js'
 import { confirmAlias, ConfirmAliasError } from './ops/confirmAlias.js'
+import { recordDeclinedSplit, listDeclinedSplitNames } from './ops/declinedSplits.js'
 import { duplicateWeek } from './ops/duplicateWeek.js'
 import { deleteWeek } from './ops/deleteWeek.js'
 import { deleteElectiveSet } from './ops/deleteElectiveSet.js'
@@ -455,6 +456,35 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       if (err instanceof ConfirmAliasError) throw new Error(err.message)
       throw err
     }
+  }
+
+  // Slice 2a (two-rows split decline-memory) — record that the director said
+  // "not now" to a split suggestion, so re-import does not re-suggest it.
+  // Same posture as confirmAliasHandler above: admin-only via
+  // 'declined_two_row_splits.record' (absent from the staff permission list),
+  // HOST ONLY (direct SQL, no op-log — see confirmAliasHandler's comment).
+  function recordDeclinedSplitHandler({ token, activityName } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'declined_two_row_splits.record' })
+    if (mode === 'client') {
+      throw new Error('Declining a split suggestion can only be done on the main computer.')
+    }
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) throw new Error('no camp on this device')
+    recordDeclinedSplit(db, { campId: camp.id, activityName })
+    return { ok: true }
+  }
+
+  // Slice 2a — the names ImportScreen filters dualUseNames through before
+  // rendering the split-suggestion affordance. Read-only, same admin-only
+  // gate as the write above (this is only ever called from the import review
+  // flow, which is already admin-gated end to end).
+  function listDeclinedSplitNamesHandler({ token } = {}) {
+    if (!isNonEmptyString(token)) throw new Error('token is required')
+    requireAuthorized(db, { token, action: 'declined_two_row_splits.record' })
+    const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
+    if (!camp) return []
+    return Array.from(listDeclinedSplitNames(db, { campId: camp.id }))
   }
 
   // S4b §4 — the op-log's current generation, so S4a's export can stamp a real
@@ -1374,6 +1404,8 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
     ingestReconcile,
     ingestUndo: ingestUndoHandler,
     confirmAlias: confirmAliasHandler,
+    recordDeclinedSplit: recordDeclinedSplitHandler,
+    listDeclinedSplitNames: listDeclinedSplitNamesHandler,
     latestOpSeq: latestOpSeqHandler,
     resolveConflict,
     listPendingConflicts: listPendingConflictsHandler,
@@ -1463,6 +1495,8 @@ if (isElectronEntryPoint()) {
     'shoresh:ingest-reconcile',
     'shoresh:ingest-undo',
     'shoresh:confirm-alias',
+    'shoresh:record-declined-split',
+    'shoresh:list-declined-split-names',
     'shoresh:latest-op-seq',
     'shoresh:resolve-conflict',
     'shoresh:list-conflicts',
@@ -1516,6 +1550,8 @@ if (isElectronEntryPoint()) {
     ipcMain.handle('shoresh:ingest-reconcile', (_event, args) => handlers.ingestReconcile(args))
     ipcMain.handle('shoresh:ingest-undo', (_event, args) => handlers.ingestUndo(args))
     ipcMain.handle('shoresh:confirm-alias', (_event, args) => handlers.confirmAlias(args))
+    ipcMain.handle('shoresh:record-declined-split', (_event, args) => handlers.recordDeclinedSplit(args))
+    ipcMain.handle('shoresh:list-declined-split-names', (_event, args) => handlers.listDeclinedSplitNames(args))
     ipcMain.handle('shoresh:latest-op-seq', () => handlers.latestOpSeq())
     ipcMain.handle('shoresh:resolve-conflict', (_event, args) => handlers.resolveConflict(args))
     ipcMain.handle('shoresh:list-conflicts', (_event, args) => handlers.listPendingConflicts(args && args.token))

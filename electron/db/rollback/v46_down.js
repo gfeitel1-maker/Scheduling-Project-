@@ -36,7 +36,13 @@ export function rollbackV46(db) {
       time_block_id TEXT,
       activity_id TEXT
     )`)
-    db.prepare('DELETE FROM schema_migrations WHERE version = 46').run()
+    // >= 46, not just = 46 (v32_down's precedent): a later migration's
+    // schema_migrations row surviving this rollback would make
+    // getSchemaVersion() report a version higher than 46, which defeats the
+    // v46 migration's own `>= 45 && < 46` guard on the next initSchema() —
+    // the tables would never get re-dropped. Surfaced by adding v47 on top
+    // (declinedTwoRowSplits) — see declinedTwoRowSplits work.
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 46').run()
   })()
 
   return { recreated: ['day_override_templates', 'day_override_template_slots'] }
