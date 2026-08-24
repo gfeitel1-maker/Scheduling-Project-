@@ -127,6 +127,16 @@ export const NAV_SECTIONS = [
       // structure) — so it doesn't read as a third route. No badge (resolved
       // OQ1): "things you can optionally go build" carry no urgency.
       { key: 'schedule:special',   label: 'Special Schedules' },
+      // docs/work/specs/2026-08-23-electives-gap.md — a SEPARATE sibling row,
+      // not folded into Special Schedules: electives are core recurring
+      // structure, not an exception category (the key IA decision in that
+      // spec). Fixed row, never grows with data, same reasoning as
+      // schedule:special above. Labeled "Elective Schedules" — distinct from
+      // Roots's "Electives" authoring row, parallel to how "Special
+      // Schedules" is distinct from Roots's "Special Days"/"Events" rows —
+      // two identical "Electives" labels in one sidebar was confusing and
+      // broke text-lookup-based tests (Sidebar.test.jsx).
+      { key: 'schedule:electives', label: 'Elective Schedules' },
     ],
   },
 ]

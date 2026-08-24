@@ -20,6 +20,7 @@ import DaysScreen from './screens/DaysScreen'
 import CohortsScreen from './screens/CohortsScreen'
 import SpecialDaysScreen from './screens/SpecialDaysScreen'
 import SpecialSchedulesScreen from './screens/SpecialSchedulesScreen'
+import ScheduleElectivesScreen from './screens/ScheduleElectivesScreen'
 import ScheduleScreen from './screens/ScheduleScreen'
 import ConflictsScreen from './screens/ConflictsScreen'
 import TrashScreen from './screens/TrashScreen'
@@ -73,6 +74,10 @@ const SCREENS = {
   // build-ia.md) — a picker, not a route, so it is deliberately absent from
   // SCHEDULE_ROUTE_BY_SCREEN below.
   'schedule:special':     SpecialSchedulesScreen,
+  // docs/work/specs/2026-08-23-electives-gap.md — a separate Schedule-side
+  // picker for elective sets, sibling to schedule:special, not merged into
+  // it. Also absent from SCHEDULE_ROUTE_BY_SCREEN — a picker, not a route.
+  'schedule:electives':   ScheduleElectivesScreen,
   devices:      DeviceManagerScreen,
 }
 
@@ -103,10 +108,12 @@ export function AppShell({ campId, role, mode, onLogout }) {
   // landing, not to every later visit.
   const [justImported, setJustImported] = useState(null)
   // Slice 2 drill-in (docs/work/specs/2026-08-22-electives-nested-schedule-
-  // slices.md) — the elective_set_id an elective cell's drill-in button
-  // wants Electives to open focused on, carried the same way justImported
-  // carries the post-import outcome: lifted above the screen swap, cleared
-  // whenever navigation heads anywhere other than 'electives'.
+  // slices.md), redirected by docs/work/specs/2026-08-23-electives-gap.md —
+  // the elective_set_id an elective cell's drill-in button, or the "Open"
+  // row action on Roots's Electives list, wants the Schedule-side Electives
+  // builder to open focused on. Carried the same way justImported carries
+  // the post-import outcome: lifted above the screen swap, cleared whenever
+  // navigation heads anywhere other than 'schedule:electives'.
   const [electiveFocusSetId, setElectiveFocusSetId] = useState(null)
   // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
   // placement.md §5) — the event_id an event cell's drill-in button wants
@@ -130,7 +137,7 @@ export function AppShell({ campId, role, mode, onLogout }) {
     // clear the post-import banner while visually staying on Roots.
     const target = next === 'readiness' ? 'roots' : next
     if (target !== 'roots') setJustImported(null)
-    if (target !== 'electives') setElectiveFocusSetId(null)
+    if (target !== 'schedule:electives') setElectiveFocusSetId(null)
     if (opts?.electiveSetId) setElectiveFocusSetId(opts.electiveSetId)
     if (target !== 'events') setEventFocusId(null)
     if (opts?.eventId) setEventFocusId(opts.eventId)
@@ -227,8 +234,9 @@ export function AppShell({ campId, role, mode, onLogout }) {
         ...(resolvedScreen === 'roots' ? { mode: 'inspect', justImported } : {}),
         // Task 4 — ImportScreen hands a finished import's outcome up here.
         ...(resolvedScreen === 'import' ? { onImported: setJustImported } : {}),
-        // Slice 2 — the set id a schedule cell's drill-in wants focused.
-        ...(resolvedScreen === 'electives' ? { initialElectiveSetId: electiveFocusSetId } : {}),
+        // Slice 2 — the set id a schedule cell's drill-in (or Roots's "Open"
+        // row action) wants the Schedule-side Electives builder focused on.
+        ...(resolvedScreen === 'schedule:electives' ? { initialElectiveSetId: electiveFocusSetId } : {}),
         ...(resolvedScreen === 'events' ? { initialEventId: eventFocusId } : {}),
         ...(resolvedScreen === 'schedule:special' ? { initialSelection: specialScheduleFocus } : {}),
       }
