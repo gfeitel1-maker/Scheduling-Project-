@@ -141,6 +141,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [Override family model — is Special Days/Events/Day Overrides/Field-Trip stamps one entity?](../../docs/adr/2026-08-23-override-family-model.md) | accepted | not-started | [2026-08-23-schedule-build-ia](../../docs/work/specs/2026-08-23-schedule-build-ia.md) |
 | [Two-rows split for multi-pattern activities (OQ1 implementation)](../../docs/adr/2026-08-23-two-rows-multipattern-split.md) | accepted | in-progress | — |
 | [Unified schedule-overlay model — contend-and-coexist vs override-and-replace](../../docs/adr/2026-08-23-unified-schedule-overlay-model.md) | accepted | not-started | [2026-08-23-activity-recurrence-tiers-ingestion](../../docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md) · [2026-08-23-override-family-model](../../docs/adr/2026-08-23-override-family-model.md) · [2026-08-23-slice3b-lunch-stagger-design](../../docs/work/specs/2026-08-23-slice3b-lunch-stagger-design.md) · [2026-08-23-slice4-engine-location-contention](../../docs/work/specs/2026-08-23-slice4-engine-location-contention.md) · [2026-08-23-unified-schedule-overlay-slices](../../docs/work/specs/2026-08-23-unified-schedule-overlay-slices.md) |
+| [Merged-cell reading — multi-block special/recurring blocks from ingest](../../docs/adr/2026-08-24-merged-cell-multiblock-ingest.md) | accepted | not-started | — |
 
 ## Runs
 
