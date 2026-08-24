@@ -712,6 +712,30 @@ describe('detectUniqueFieldCollision (D2 — locations UNIQUE(camp_id, name))', 
     expect(result.id).toBe('event-a')
   })
 
+  it('detects a collision for activities UNIQUE(camp_id, name) — the two-rows-split prerequisite race', () => {
+    appendOp(db, {
+      entity: 'activities',
+      entity_id: 'activity-a',
+      field: 'name',
+      value: 'Swim',
+      author_user_id: 'user-1',
+      device_id: 'device-1',
+      parent_op_id: null,
+    })
+
+    // A second device concurrently creating an activity named "Swim" (e.g.
+    // via import, manual add, or an electives create-new) mints a DIFFERENT
+    // entity_id for the same name — same race class as locations/events.
+    const result = detectUniqueFieldCollision(db, {
+      entity: 'activities',
+      entity_id: 'activity-b',
+      field: 'name',
+      value: 'Swim',
+    })
+    expect(result).toBeTruthy()
+    expect(result.id).toBe('activity-a')
+  })
+
   it('is a no-op for an entity not registered in UNIQUE_FIELD_ENTITIES', () => {
     const result = detectUniqueFieldCollision(db, {
       entity: 'groups',

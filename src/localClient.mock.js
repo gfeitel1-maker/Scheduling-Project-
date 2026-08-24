@@ -223,15 +223,27 @@ const UNIQUE_KEYS = {
 }
 
 // Mirrors electron/ops/operations.js's UNIQUE_FIELD_ENTITIES exactly (D2,
-// docs/adr/2026-08-15-locations-concurrent-create-collision.md): the ONE
-// entity/field pair whose UNIQUE(camp_id, name) collision is rejected via a
-// structured {status:'rejected', reason:'unique_field', existing} result —
-// matching handleSubmitOp's op_rejected / the host-local direct-write path —
-// rather than a thrown SQLITE_CONSTRAINT_UNIQUE-shaped Error. Every OTHER
-// UNIQUE_KEYS entity above still throws raw, because the real app-level
-// pre-check (detectUniqueFieldCollision) is registered for locations only.
-const UNIQUE_FIELD_ENTITIES = {
+// docs/adr/2026-08-15-locations-concurrent-create-collision.md): entity/field
+// pairs whose UNIQUE(camp_id, name) collision is rejected via a structured
+// {status:'rejected', reason:'unique_field', existing} result — matching
+// handleSubmitOp's op_rejected / the host-local direct-write path — rather than
+// a thrown SQLITE_CONSTRAINT_UNIQUE-shaped Error. Every OTHER UNIQUE_KEYS
+// entity above still throws raw, because it is not app-level pre-checked by
+// detectUniqueFieldCollision.
+//
+// Guarded by uniqueFieldEntitiesMockParity.test.js so a mock entity can't drift
+// from the real registry's field, and so entities that MUST reproduce the
+// structured rejection in dev-mode/browser-mock (npm run dev) stay present.
+// `activities` is required here — the two-rows split's concurrent-create path is
+// verified in dev-mode, and without it the mock throws raw instead of rejecting.
+// NOTE: elective_sets/events are structured-rejected by the REAL registry but
+// deliberately NOT mirrored here yet — their dev-mode create callers were built
+// against the raw-throw behavior (mock.electives.test.js pins it), so switching
+// them is a separate change with its own caller-audit, tracked as known drift
+// (Red Hat 2026-08-23). Exported for the parity test.
+export const UNIQUE_FIELD_ENTITIES = {
   locations: 'name',
+  activities: 'name',
 }
 
 // Registered listeners for the mock's event-style methods (onOpApplied,

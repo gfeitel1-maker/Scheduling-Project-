@@ -567,6 +567,16 @@ export const UNIQUE_FIELD_ENTITIES = {
   // collision class as elective_sets/locations (docs/adr/2026-08-15-
   // locations-concurrent-create-collision.md), covered the same way.
   events: { table: 'events', field: 'name', scopeColumn: 'camp_id' },
+  // activities has UNIQUE(camp_id, name) — same cross-device same-named-create
+  // collision class as locations/elective_sets/events. Normal single-device
+  // creates never hit this: createActivity (createActivityHelper.js) dedups
+  // case-insensitively against the in-memory activities list BEFORE writing.
+  // This only fires on a genuine cross-device race where both devices' local
+  // dedup passed (neither had synced the other's create yet). Prerequisite
+  // for the two-rows split feature (docs/adr/2026-08-23-two-rows-
+  // multipattern-split.md), which mints new activity rows (e.g. "Swim (rec)")
+  // two devices could both create.
+  activities: { table: 'activities', field: 'name', scopeColumn: 'camp_id' },
 }
 
 // Returns the colliding row's current { id, ...fields } if `op` would
