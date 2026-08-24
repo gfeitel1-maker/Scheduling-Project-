@@ -28,6 +28,14 @@ export const NODE_LAYOUT = {
     children: {
       Activities: { x: 0.4541, y: 0.4234 },
       'Recurring Events': { x: 0.4259, y: 0.5026 },
+      // Regroup slice (owner decision 2026-08-24): Events/Special Days/
+      // Electives moved here from the dropped 'Context' domain. Not
+      // re-projected through the Blender camera like the hand-placed nodes
+      // above — placed via layoutForChild's evenly-spaced arc fallback
+      // instead (no entry here), since a 5th-6th hand position on this
+      // already-dense root would need a fresh render pass to avoid
+      // overlapping Activities/Recurring Events. Revisit if the backdrop is
+      // ever re-rendered.
     },
   },
   Time: {
@@ -44,11 +52,6 @@ export const NODE_LAYOUT = {
     children: {
       Locations: { x: 0.6251, y: 0.5838 },
     },
-  },
-  Context: {
-    x: 0.8032,
-    y: 0.3485,
-    children: {},
   },
 }
 

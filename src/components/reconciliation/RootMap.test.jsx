@@ -26,7 +26,7 @@ function model({ domainState = 'attention', domains } = {}) {
   }
 }
 
-function fiveDomainModel() {
+function fourDomainModel() {
   return {
     domains: [
       { key: 'Structure', label: 'Structure', state: 'understood', children: [
@@ -41,16 +41,15 @@ function fiveDomainModel() {
       { key: 'Facility', label: 'Facility', state: 'attention', children: [
         { key: 'Locations', name: 'Locations', count: 1, state: 'attention', decisionIds: ['d1'] },
       ] },
-      { key: 'Context', label: 'Context', state: 'absent', children: [] },
     ],
   }
 }
 
 describe('RootMap domain layers', () => {
-  it('renders all five domains from model.domains, in order, as layer headers', () => {
+  it('renders all four domains from model.domains, in order, as layer headers', () => {
     render(
       <RootMap
-        model={fiveDomainModel()}
+        model={fourDomainModel()}
         selection={{ type: 'none' }}
         onSelectTile={noop}
         onSelectNode={noop}
@@ -63,9 +62,11 @@ describe('RootMap domain layers', () => {
   })
 
   it('renders an empty-domain teaching note when a domain has zero children', () => {
+    const model = fourDomainModel()
+    model.domains[3] = { key: 'Facility', label: 'Facility', state: 'absent', children: [] }
     render(
       <RootMap
-        model={fiveDomainModel()}
+        model={model}
         selection={{ type: 'none' }}
         onSelectTile={noop}
         onSelectNode={noop}
@@ -87,7 +88,6 @@ describe('RootMap whole-camp empty state', () => {
         { key: 'Scheduling', label: 'Scheduling', state: 'absent', children: [] },
         { key: 'Time', label: 'Time', state: 'absent', children: [] },
         { key: 'Facility', label: 'Facility', state: 'absent', children: [] },
-        { key: 'Context', label: 'Context', state: 'absent', children: [] },
       ],
     }
     render(
@@ -108,7 +108,7 @@ describe('RootMap whole-camp empty state', () => {
   it('does not show the whole-camp moment once any one domain has data', () => {
     render(
       <RootMap
-        model={fiveDomainModel()}
+        model={fourDomainModel()}
         selection={{ type: 'none' }}
         onSelectTile={noop}
         onSelectNode={noop}
@@ -438,7 +438,7 @@ describe('RootMap reduced motion', () => {
   it('still renders chips and layers under reduced motion', () => {
     render(
       <RootMap
-        model={fiveDomainModel()}
+        model={fourDomainModel()}
         selection={{ type: 'none' }}
         onSelectTile={noop}
         onSelectNode={noop}
