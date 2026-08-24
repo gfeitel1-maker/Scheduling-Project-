@@ -412,7 +412,11 @@ function UnplacedChip({ location }) {
 // ratio (set inline, before the data: URL decodes, per ADR D10) + every
 // placed location's marker. Wrapped in one DndContext shared with the
 // unplaced tray so a tray chip can be dropped onto the canvas.
-function MapCanvas({ mapRow, locations, dragFsm, containerRef }) {
+//
+// Create-in-place: a click on empty canvas (not on an existing marker, and
+// not while a create draft is already showing there) reports the click's
+// fraction position up to the caller, which opens the inline name input.
+function MapCanvas({ mapRow, locations, dragFsm, containerRef, draft, onCanvasClick, onDraftNameChange, onDraftCommit, onDraftCancel, draftBusy }) {
   const { setNodeRef: setDroppableRef } = useDroppable({ id: 'map-canvas' })
   const { registerLocationEl, liveRef } = dragFsm
   const placed = locations.filter((l) => l.map_geometry)
@@ -422,11 +426,25 @@ function MapCanvas({ mapRow, locations, dragFsm, containerRef }) {
     setDroppableRef(el)
   }
 
+  function handleClick(e) {
+    // A click that landed on an existing marker (or the draft input itself)
+    // bubbles here too — both render with the same 'map-location' class, so
+    // this one check covers "don't spawn a new draft over either".
+    if (e.target.closest('.map-location')) return
+    const rect = containerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    onCanvasClick({
+      x: rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0.5,
+      y: rect.height > 0 ? (e.clientY - rect.top) / rect.height : 0.5,
+    })
+  }
+
   return (
     <div
       ref={setCanvasRef}
       className="map-canvas"
       style={{ aspectRatio: `${mapRow.image_width || 1} / ${mapRow.image_height || 1}` }}
+      onClick={handleClick}
     >
       <img className="map-image" src={`data:image/jpeg;base64,${mapRow.image_data}`} alt="" />
       {placed.map((location, i) => (
@@ -439,7 +457,50 @@ function MapCanvas({ mapRow, locations, dragFsm, containerRef }) {
           dragFsm={dragFsm}
         />
       ))}
+      {draft && (
+        <NewMarkerDraft
+          geometry={defaultTrayGeometry(draft)}
+          name={draft.name}
+          onNameChange={onDraftNameChange}
+          onCommit={onDraftCommit}
+          onCancel={onDraftCancel}
+          busy={draftBusy}
+        />
+      )}
       <div ref={liveRef} className="map-drag-live" aria-live="polite" />
+    </div>
+  )
+}
+
+// Create-in-place — the nascent marker shown at the click point, with an
+// inline name input. Same geometry math as a tray drop (defaultTrayGeometry)
+// so a click-created marker and a dragged-tray marker are indistinguishable
+// once placed. Enter commits (blank = cancel, no write); Escape cancels.
+function NewMarkerDraft({ geometry, name, onNameChange, onCommit, onCancel, busy }) {
+  return (
+    <div
+      className="map-location"
+      style={{
+        left: `${geometry.x * 100}%`,
+        top: `${geometry.y * 100}%`,
+        width: `${geometry.w * 100}%`,
+        height: `${geometry.h * 100}%`,
+        border: '2px dashed var(--primary)',
+        background: 'color-mix(in srgb, var(--primary) 10%, transparent)',
+      }}
+    >
+      <input
+        autoFocus
+        placeholder="e.g. Pool, Gym, Beit Midrash"
+        value={name}
+        disabled={busy}
+        onChange={(e) => onNameChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') onCommit()
+          if (e.key === 'Escape') onCancel()
+        }}
+        style={{ ...S.input, position: 'absolute', top: -1, left: -1, width: 150 }}
+      />
     </div>
   )
 }
@@ -523,11 +584,15 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
       // placeholder row for the new id BEFORE the collision on `name` ever
       // fires, reintroducing this ADR's orphan-row defect via a different
       // field. Pinned by a regression test in LocationsScreen.test.jsx.
-      buildCreateFields: ({ name, capacity, notes }) => ({
+      buildCreateFields: ({ name, capacity, notes, map_geometry }) => ({
         name,
         camp_id: campId,
         capacity,
         notes: notes || null,
+        // Only the map's click-to-create path supplies this — the List add
+        // form never does, so ...spread keeps that path's write shape
+        // byte-identical to before this feature existed.
+        ...(map_geometry ? { map_geometry } : {}),
       }),
       addFailedText: 'That location could not be added.',
       saveFailedText: 'That location could not be saved.',
@@ -557,6 +622,10 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
   const [removingMap, setRemovingMap] = useState(false)
   const mapFileInputRef = useRef()
   const mapContainerRef = useRef(null)
+  // Create-in-place — { x, y, name } fraction position of the click plus the
+  // in-progress name text, or null when no draft is showing.
+  const [mapDraft, setMapDraft] = useState(null)
+  const [mapDraftBusy, setMapDraftBusy] = useState(false)
   const { writeGeometry } = useLocationGeometryMutations({ repository })
   const handleGeometryCommitError = useCallback(() => {
     setMapError('That change could not be saved. Try again.')
@@ -666,6 +735,34 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
   function handleMapDragCancel(event) {
     const id = String(event.active.id)
     if (id.startsWith('move:') || id.startsWith('resize:')) dragFsm.dndProps.onDragCancel()
+  }
+
+  // Create-in-place: a click on empty canvas opens the draft; committing
+  // reuses `add` (useCrudScreen) — the SAME create path/repository call the
+  // List's Add Location form uses, so duplicate-name collision handling and
+  // error surfacing come along for free, and `name` stays the first written
+  // key (buildCreateFields above).
+  function handleMapCanvasClick(pointFraction) {
+    setMapDraft({ x: pointFraction.x, y: pointFraction.y, name: '' })
+  }
+
+  async function commitMapDraft() {
+    if (!mapDraft) return
+    const trimmed = mapDraft.name.trim()
+    if (!trimmed) { setMapDraft(null); return }
+    setMapDraftBusy(true)
+    try {
+      const geometry = defaultTrayGeometry({ x: mapDraft.x, y: mapDraft.y })
+      const succeeded = await add({ name: trimmed, capacity: 1, notes: '', map_geometry: JSON.stringify(geometry) })
+      if (succeeded) setMapDraft(null)
+    } finally {
+      setMapDraftBusy(false)
+    }
+  }
+
+  function handleTabChange(next) {
+    setTab(next)
+    setMapDraft(null)
   }
 
   async function loadExclusions() {
@@ -877,7 +974,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
 
   return (
     <div style={{ maxWidth: 720 }}>
-      <ListMapToggle tab={tab} onChange={setTab} />
+      <ListMapToggle tab={tab} onChange={handleTabChange} />
       {error && (
         <div style={S.errorBanner}>
           {error}
@@ -1016,7 +1113,18 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                   <button className="press-97" onClick={() => setPendingRemoveMap(true)} disabled={mapBusy} style={S.btnDanger}>Remove image</button>
                 </div>
               )}
-              <MapCanvas mapRow={mapRow} locations={locations} dragFsm={dragFsm} containerRef={mapContainerRef} />
+              <MapCanvas
+                mapRow={mapRow}
+                locations={locations}
+                dragFsm={dragFsm}
+                containerRef={mapContainerRef}
+                draft={mapDraft}
+                onCanvasClick={handleMapCanvasClick}
+                onDraftNameChange={(name) => setMapDraft((d) => (d ? { ...d, name } : d))}
+                onDraftCommit={commitMapDraft}
+                onDraftCancel={() => setMapDraft(null)}
+                draftBusy={mapDraftBusy}
+              />
               {locations.some((l) => !l.map_geometry) && (
                 <UnplacedTray items={locations.filter((l) => !l.map_geometry)} />
               )}
