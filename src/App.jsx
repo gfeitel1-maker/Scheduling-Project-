@@ -22,6 +22,7 @@ import SpecialDaysScreen from './screens/SpecialDaysScreen'
 import SpecialSchedulesScreen from './screens/SpecialSchedulesScreen'
 import ScheduleElectivesScreen from './screens/ScheduleElectivesScreen'
 import ScheduleScreen from './screens/ScheduleScreen'
+import DayMapScreen from './screens/DayMapScreen'
 import ConflictsScreen from './screens/ConflictsScreen'
 import TrashScreen from './screens/TrashScreen'
 import DeviceManagerScreen from './screens/DeviceManagerScreen'
@@ -78,6 +79,13 @@ const SCREENS = {
   // picker for elective sets, sibling to schedule:special, not merged into
   // it. Also absent from SCHEDULE_ROUTE_BY_SCREEN — a picker, not a route.
   'schedule:electives':   ScheduleElectivesScreen,
+  // Day Map (B1, read-only) — docs/adr/2026-08-24-run-the-day-on-the-map.md
+  // Decision 2. Route toggle is IN-screen (unpersisted default 'generated'),
+  // deliberately absent from SCHEDULE_ROUTE_BY_SCREEN below: the ADR rejected
+  // a fixed-route sidebar destination for this screen as the same
+  // "remembered schedule" anti-pattern the plural-candidate-schedules ADR
+  // forbids.
+  'schedule:map':         DayMapScreen,
   devices:      DeviceManagerScreen,
 }
 
@@ -220,7 +228,7 @@ export function AppShell({ campId, role, mode, onLogout }) {
   const resolvedScreen = screen === 'readiness' ? 'roots' : screen
   const Screen = SCREENS[resolvedScreen] || TiersScreen
   const scheduleRoute = SCHEDULE_ROUTE_BY_SCREEN[resolvedScreen]
-  const isWeekScreen = resolvedScreen === 'activities' || resolvedScreen === 'groups' || resolvedScreen === 'locations'
+  const isWeekScreen = resolvedScreen === 'activities' || resolvedScreen === 'groups' || resolvedScreen === 'locations' || resolvedScreen === 'schedule:map'
   const screenProps = resolvedScreen === 'conflicts'
     ? { campId, role, onNavigate: navigate, pendingConflicts }
     : {
