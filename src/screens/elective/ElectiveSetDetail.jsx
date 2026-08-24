@@ -18,6 +18,7 @@ import { workbookToPages } from '../../ingest/sheetGrid'
 import { parseGridSchedule } from '../../ingest/parseGridSchedule'
 import { populateElectiveSet } from '../../ingest/electiveSetPopulate'
 import { markElectivePermissionTier } from '../../ingest/electivePermissionTier'
+import { clearElectivePermissionOnRemoval } from '../../ingest/electivePermissionClear'
 import { createActivity } from '../schedule/createActivityHelper'
 import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../../utils/exportSanitize.js'
 
@@ -269,8 +270,19 @@ export default function ElectiveSetDetail({ set, role, activities, locations, ti
     setClearing(true)
     try {
       const ids = offerings.map((o) => o.id)
+      // Fetched once, before the delete, so the clear-on-removal math below
+      // subtracts removedIds from a consistent pre-delete snapshot rather
+      // than re-listing after the write (read-after-write race).
+      const allMemberships = await localClient.list('elective_set_activities')
       const { succeeded } = await repository.deleteAllRecords('elective_set_activities', ids)
       if (succeeded !== ids.length) throw new Error('clear-offerings-partial-failure')
+      const distinctActivityIds = [...new Set(offerings.map((o) => o.activity_id))]
+      for (const activityId of distinctActivityIds) {
+        const currentStatus = activities.find((a) => a.id === activityId)?.recurrence_truth_status
+        await clearElectivePermissionOnRemoval({
+          repo: activityRepo, allMemberships, removedMembershipIds: ids, activityId, currentStatus,
+        })
+      }
       await reload()
     } catch (err) {
       setError(describeWriteFailure(err, "Could not clear this set's offerings."))
@@ -284,8 +296,19 @@ export default function ElectiveSetDetail({ set, role, activities, locations, ti
     if (!pendingDelete) return
     setDeleting(true)
     try {
+      // Fetched before the delete for the same read-after-write reason as
+      // clearOfferings above.
+      const allMemberships = await localClient.list('elective_set_activities')
       const { succeeded } = await repository.deleteAllRecords('elective_set_activities', [pendingDelete.id])
       if (succeeded !== 1) throw new Error('delete failed')
+      const currentStatus = activities.find((a) => a.id === pendingDelete.activity_id)?.recurrence_truth_status
+      await clearElectivePermissionOnRemoval({
+        repo: activityRepo,
+        allMemberships,
+        removedMembershipIds: [pendingDelete.id],
+        activityId: pendingDelete.activity_id,
+        currentStatus,
+      })
       await reload()
     } catch (err) {
       setError(describeWriteFailure(err, 'That offering could not be removed.'))
