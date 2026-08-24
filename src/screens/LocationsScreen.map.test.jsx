@@ -291,3 +291,108 @@ describe('LocationsScreen — Map marker selected wash (Designer spec §4)', () 
     expect(match[1]).not.toMatch(/border/)
   })
 })
+
+// Create-in-place: click empty canvas -> inline name input -> commit creates
+// a location with map_geometry computed the same way a tray drop would.
+// jsdom has no real layout, so every test here stubs getBoundingClientRect
+// on the canvas element to a fixed pixel box.
+describe('LocationsScreen — Map click-to-create', () => {
+  beforeEach(() => {
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 800, height: 600, left: 0, top: 0, right: 800, bottom: 600, x: 0, y: 0, toJSON() {},
+    })
+  })
+
+  async function renderPopulatedMap(locationsList = []) {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'camp_maps') return Promise.resolve([campMapRow()])
+      if (entity === 'locations') return Promise.resolve(locationsList)
+      return Promise.resolve([])
+    })
+    render(<LocationsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    fireEvent.click(await screen.findByText('Map'))
+    await waitFor(() => expect(document.querySelector('.map-canvas')).not.toBeNull())
+  }
+
+  it('clicking empty canvas opens an inline name input at the click point', async () => {
+    await renderPopulatedMap()
+    const canvas = document.querySelector('.map-canvas')
+    fireEvent.click(canvas, { clientX: 400, clientY: 300 })
+
+    const input = document.querySelector('input[placeholder="e.g. Pool, Gym, Beit Midrash"]')
+    expect(input).not.toBeNull()
+  })
+
+  it('committing a name creates a location with map_geometry matching the tray-drop geometry shape', async () => {
+    await renderPopulatedMap()
+    const canvas = document.querySelector('.map-canvas')
+    fireEvent.click(canvas, { clientX: 400, clientY: 300 })
+
+    const input = document.querySelector('input[placeholder="e.g. Pool, Gym, Beit Midrash"]')
+    fireEvent.change(input, { target: { value: 'Field House' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => {
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'locations', expect.any(String), 'name', 'Field House')
+    })
+    const geometryCall = localClient.write.mock.calls.find(
+      (call) => call[1] === 'locations' && call[3] === 'map_geometry'
+    )
+    expect(geometryCall).toBeTruthy()
+    const geometry = JSON.parse(geometryCall[4])
+    // Same shape defaultTrayGeometry produces for a tray drop: fixed w/h,
+    // x/y centered on (then clamped around) the drop point.
+    expect(geometry).toEqual({ x: 0.44, y: 0.45, w: 0.12, h: 0.1 })
+  })
+
+  it('Escape cancels the draft with no write', async () => {
+    await renderPopulatedMap()
+    const canvas = document.querySelector('.map-canvas')
+    fireEvent.click(canvas, { clientX: 400, clientY: 300 })
+    const input = document.querySelector('input[placeholder="e.g. Pool, Gym, Beit Midrash"]')
+    fireEvent.change(input, { target: { value: 'Field House' } })
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    expect(document.querySelector('input[placeholder="e.g. Pool, Gym, Beit Midrash"]')).toBeNull()
+    expect(localClient.write).not.toHaveBeenCalled()
+  })
+
+  it('a blank name on Enter cancels with no write', async () => {
+    await renderPopulatedMap()
+    const canvas = document.querySelector('.map-canvas')
+    fireEvent.click(canvas, { clientX: 400, clientY: 300 })
+    const input = document.querySelector('input[placeholder="e.g. Pool, Gym, Beit Midrash"]')
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    expect(document.querySelector('input[placeholder="e.g. Pool, Gym, Beit Midrash"]')).toBeNull()
+    expect(localClient.write).not.toHaveBeenCalled()
+  })
+
+  it('a duplicate name surfaces the collision error, not a crash', async () => {
+    await renderPopulatedMap()
+    localClient.write.mockImplementation((token, entity, id, field) => {
+      if (entity === 'locations' && field === 'name') return Promise.resolve({ status: 'rejected', error: 'unique-collision' })
+      return Promise.resolve({ status: 'applied' })
+    })
+    const canvas = document.querySelector('.map-canvas')
+    fireEvent.click(canvas, { clientX: 400, clientY: 300 })
+    const input = document.querySelector('input[placeholder="e.g. Pool, Gym, Beit Midrash"]')
+    fireEvent.change(input, { target: { value: 'Pool' } })
+    fireEvent.keyDown(input, { key: 'Enter' })
+
+    await waitFor(() => expect(screen.queryByText(/That location could not be added/)).not.toBeNull())
+    // Draft input stays open so the director can retry a different name.
+    expect(document.querySelector('input[placeholder="e.g. Pool, Gym, Beit Midrash"]')).not.toBeNull()
+  })
+
+  it('clicking an existing marker does not open the create input', async () => {
+    await renderPopulatedMap([
+      location({ id: 'loc-placed', name: 'Pool', map_geometry: JSON.stringify({ x: 0.1, y: 0.1, w: 0.2, h: 0.2 }) }),
+    ])
+    const marker = document.querySelector('.map-location')
+    expect(marker).not.toBeNull()
+    fireEvent.click(marker)
+
+    expect(document.querySelector('input[placeholder="e.g. Pool, Gym, Beit Midrash"]')).toBeNull()
+  })
+})
