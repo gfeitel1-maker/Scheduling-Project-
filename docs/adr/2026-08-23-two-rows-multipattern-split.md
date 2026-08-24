@@ -1,6 +1,11 @@
 ---
 title: "Two-rows split for multi-pattern activities (OQ1 implementation)"
+document_type: adr
 status: accepted
+authority: normative
+implementation_state: in-progress
+task_class: architecture
+governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
 date: 2026-08-23
 supersedes: none
 amends: docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md (§7 OQ1)
@@ -33,8 +38,12 @@ on migrated dbs (localDb.js version-15). **Two rows cannot share a stored `name`
 Therefore the two rows share a *display relationship*, not an identical stored
 string: the pinned row keeps the bare name ("Swim"); the flexible row takes a
 **distinct suffixed stored name** ("Swim (rec)"). The suffix is not cosmetic — it
-is the mechanism that satisfies the UNIQUE constraint. Omitting it makes the
-second INSERT fail. This means:
+is the mechanism that keeps the two rows distinct under UNIQUE. Note the failure
+mode of omitting it is *not* a rejected INSERT: `createActivity`'s normalized-name
+dedup short-circuits to the existing row *before* any INSERT, so an empty suffix
+silently yields a no-op "split of a row with itself". `emitTwoRowSplit` guards
+this explicitly (returns `outcome: 'degenerate'`, writes nothing) rather than
+relying on a DB error that never fires. This means:
 
 - **No migration is required** (the recurrence-tiers ADR §Recommended-path claim
   holds) — but *only* under the distinct-stored-name model. A genuine shared
@@ -67,10 +76,18 @@ accepted wrong split costs an untick + merge).
    touch a blank or `'permission'` value, so they never fight the split.
 
 ### Provenance & re-import idempotency
-A director-accepted split is a human decision and must survive re-import. Reuse
-the `_humanFields` / `import_evidence` provenance mechanism (same as activity-rule
-provenance, PR #28): stamp the split rows human-confirmed. On re-import of the
-same file:
+A director-accepted split is a human decision and must survive re-import.
+**Mechanism (as implemented in Slice 1, verified by Red Hat 2026-08-23):** the
+split writes through the generic renderer write path (`repo.writeFields`), whose
+ops carry `source: null`, which `tierForField` (`src/utils/ruleProvenance.js`)
+already treats as director-confirmed — the same path `electivePermissionTier.js`
+and `electiveSetPopulate.js` rely on. No separate `_humanFields`/`import_evidence`
+stamp is written. Re-import durability holds for a stronger reason than
+provenance alone: the classifier in `electron/ops/ingest.js` is **create-only**
+(gated on `recurrence_truth_status === undefined`), so the update/re-import path
+never touches the column and has nothing to fight the split's `'asserted'` write.
+(This supersedes an earlier draft of this section that proposed reusing the
+`_humanFields` mechanism directly.) On re-import of the same file:
 - the suffixed row is matched by its stored name and **not** re-suggested;
 - the split is **not** undone (the flexible pattern re-imports onto the existing
   suffixed row via normalized-name dedup, which now matches "Swim (rec)");
@@ -99,6 +116,18 @@ real fixtures we don't have and would stall the slice.
 is auto-named "<name> (rec)"; the director can edit the suffix inline before
 confirming. Smallest director effort; "(rec)" reads as recreational/flexible,
 matching the Permission/Obligation sense.
+
+## Slice 2 prerequisite — concurrent cross-device split (Red Hat MED, 2026-08-23)
+`emitTwoRowSplit` takes `existingActivities` by value and never re-fetches. Two
+directors on two devices accepting the same split within the LAN-sync window each
+compute `outcome: 'split'` locally (neither DB yet has the counterpart), mint two
+distinct UUIDs, and write ops claiming the same `(camp_id, name)` — a genuine
+UNIQUE(camp_id, name) conflict on replay. Same inert-until-wired class as the #4
+reclassify concurrency debt: unreachable until Slice 2 wires the suggestion to
+the UI. **Before Slice 2 ships to two-device camps, confirm the sync layer's
+behavior on a UNIQUE-violating replayed `activities` create** (does it surface as
+a normal `conflicts`-table entry for `resolveConflict`, or an unhandled failure?
+— `electron/sync/syncServer.js`). Verify, don't assume.
 
 ## Slice plan (each independently shippable + gate-able)
 - **Slice 1 — split-emit logic (pure, no UI):** given an accepted dual-use split
