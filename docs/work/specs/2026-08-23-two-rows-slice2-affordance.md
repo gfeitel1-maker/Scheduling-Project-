@@ -1,8 +1,10 @@
 ---
+title: Two-rows Slice 2 — split-suggestion affordance (Designer spec)
 document_type: spec
-status: approved
+status: active
 authority: informative
-date: 2026-08-23
+created: 2026-08-23
+archive_when: two-rows Slice 2b ships (merged) or this design is superseded
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/DESIGN_STANDARD.md]
 related_adr: docs/adr/2026-08-23-two-rows-multipattern-split.md
 ---

@@ -7,7 +7,7 @@ implementation_state: in-progress
 task_class: architecture
 governing_docs: [docs/governance/constitution/CONSTITUTION.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
 date: 2026-08-23
-supersedes: none
+supersedes: []
 amends: docs/adr/2026-08-23-activity-recurrence-tiers-ingestion.md (§7 OQ1)
 approved: "owner-approved 2026-08-23. OQ1 = two rows sharing a display name. OD-1 = ship now behind the human confirm-gate + instrument precision. OD-2 = auto '(rec)' suffix, director-editable inline."
 ---
