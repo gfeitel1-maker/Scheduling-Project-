@@ -352,3 +352,324 @@ document would just restate it.
    Slice A boundary (matches the ADR's own slice split) and Slice B (director-
    facing candidate + eventual `is_span_head` write) is a separate Governor-
    scoped piece of work, not expected in the same PR.
+
+---
+
+## Slice B design (Architect addendum, 2026-08-24)
+
+Closed case for divergence — the owner has already fixed the two candidate
+shapes (recurring → anchor, one-off → event) and the reuse constraints
+(recurring-events surface, no bespoke UI, no internal vocabulary in copy).
+What's undecided is mechanical: how a span gets written, and this addendum
+resolves it against the real schema rather than by generating alternatives.
+
+### The load-bearing mechanical question — resolved
+
+**`anchor_activities` already has a `span_blocks INTEGER` column
+(`electron/db/schema.sql:508`), and it is already a live, consumed field —
+not a stub.** `src/engine/buildSchedule.js:143` reads `anchor.span_blocks ||
+1` directly when placing an anchor into the schedule (tail-block handling at
+line 148 immediately below). This is the *same* span primitive
+`docs/adr/2026-08-21-arbitrary-length-activity-span.md` (PR #145) shipped for
+manually-authored spanning activities — `anchor_activities.span_blocks` is
+its anchor-table counterpart, already wired into the one and only engine that
+consumes anchors.
+
+This means the ADR's instruction to "reuse `is_span_head`" resolves
+differently at this layer than Slice A's addendum guessed: **`is_span_head`
+lives on `template_slots` (the placed-schedule layer) and is not what a
+*recurring* candidate needs.** A recurring multi-block block is not a placed
+slot — it is an `anchor_activities` row, and that table's own span
+representation is `span_blocks`, already load-bearing, already read by the
+engine. **No new column, no `is_span_head` chain, at the anchor level.**
+`is_span_head` only re-enters the picture for the one-off path, below, where
+the target really is `template_slots`.
+
+Concretely, confirming "recurring" for a 3-block `Ruach & Shabbat` candidate
+means one `anchor_activities` INSERT:
+
+```
+time_block_id = <id of the block the merge anchors on>   -- the FIRST of the 3
+span_blocks   = 3
+day_id        = <resolved day>
+name          = "Ruach & Shabbat"
+group_ids / is_all_groups = <resolved scope>
+```
+
+— exactly the shape `electron/ops/ingest.js`'s existing fixed-events commit
+block already produces (see below), plus one new field.
+
+### 1. Detection → candidate
+
+New pure function, `src/ingest/multiBlockCandidates.js`, sibling to
+`fixedEvents.js` and `extractEntities.js`, same "propose, never write" shape:
+takes `{ pages }` (the same `pages` Slice A already threads `blockSpans`
+through) and returns `{ multiBlockCandidates }`.
+
+- **Qualifying cells:** any `row.blockSpans[cellIndex] >= 2` on any page.
+  (Slice A only ever sets `blockSpans` for `N >= 2`, per its own design — no
+  extra threshold needed here.)
+- **Shape per candidate**, derived the same way `fixedEvents.js` already
+  derives its tuples from a row/cell (reuse, don't reinvent):
+  - `name` — the cell's value, via the same `activityNamesFromCell`/
+    `cleanTitle` helpers `extractEntities.js` and `fixedEvents.js` both
+    import from `extractEntities.js` — keeps name spelling identical to
+    whatever `extractEntities` would produce for the same cell, which matters
+    because (per `fixedEvents.js`'s own header comment) "the commit path
+    resolves a fixed event's block/days/groups BY NAME."
+  - `start_block` — the row label at the anchor row (the same block-label
+    resolution `fixedEvents.js:isBlockLabel`/its block-row walk already does).
+  - `span_blocks` — `row.blockSpans[cellIndex]`, straight through.
+  - `day` / `group` — resolved from the page's orientation exactly as
+    `extractEntities.js`/`fixedEvents.js` resolve them today for an ordinary
+    cell in that same (row, column) position — a multi-block cell is still
+    one cell; only its extent is new information, not a new resolution
+    problem. Unlike `fixedEvents.js`, do **not** attempt cross-day
+    collapsing/majority-vote here: a multi-block merge is evidence of ONE
+    literal occurrence at ONE cell (Shabbat happens to repeat weekly because
+    every Friday's page independently shows the same 3-block merge — each
+    page produces its own candidate; Slice B does not need to invent
+    fixed-events' occupied/operating majority machinery to see that "Friday,
+    Ruach & Shabbat, 3 blocks" recurs — the director's own recurring/one-off
+    choice is what does that collapsing, by hand, at confirm time). If the
+    same `(name, start_block, span_blocks)` triple appears on every
+    operating day for a group, that repetition is visible to the director as
+    multiple identical-looking candidate chips, which is acceptable
+    over-inclusion (the ADR's own stated bias) rather than a defect — do not
+    build a second collapsing pass to hide it.
+- **Noise guard (Red Hat MED from Slice A, block-count bleed):** no
+  algorithmic fix in Slice B — the ADR already assigns this to the human
+  gate. Slice B's obligation is to make a false candidate *cheap to reject*:
+  every candidate renders with a plain "not this" affordance (see UI below)
+  and nothing commits until the director positively picks recurring-or-
+  one-off. There is no third, silent "ignore" outcome that auto-commits
+  anything — an un-acted-on candidate simply does not ship (same rule
+  `fixedEvents.js` already follows: nothing here is written unless
+  confirmed).
+
+### 2. The recurring-vs-one-off UI choice
+
+Add to `src/screens/ImportScreen.jsx` a new section, same structural place
+and visual idiom as the existing "Recurring Events" chip block
+(`ImportScreen.jsx:1095-1173`) — a labelled group of chips, one per
+candidate, sitting alongside (not replacing) the Recurring Events section.
+Copy: plain language, no "overlay"/"anchor_activities"/"span" — draft:
+
+- Section label: **"Multi-Block Blocks"** → reject this, too internal; use
+  **"Longer Blocks"** or reuse the ADR's own owner-quoted framing: **"These
+  spanned more than one time block"**.
+- Body copy, modeled on the existing Recurring Events body copy
+  (`ImportScreen.jsx:1102-1105`): *"These filled more than one time block in
+  a row. Tell us if this happens every week, or if it was a one-time
+  thing."*
+- Each candidate chip shows `name · start_block–end_block · scope · day(s)`
+  (mirrors the existing fixed-event chip's `name · time_block · scope ·
+  days` format at `ImportScreen.jsx:1148-1153`) plus **two buttons**, not a
+  pre-ticked default: **"Every week"** and **"Just this once"** — reusing the
+  `TwoRowSplitSuggestion` disclosure *component* (expand/decide/confirm
+  interaction shape, `ImportScreen.jsx`'s existing import) is the right
+  reuse target here, not its copy or its specific two-row-split semantics:
+  swap its decision payload from `{ suffix }` to `{ kind: 'recurring' |
+  'one_off' }`. A candidate with neither button pressed stays in an
+  undecided state and is simply **not included** in `commitIngest`'s payload
+  — same "unticked = not written" rule the rest of the review screen already
+  uses, so there is no new no-op/decline state to invent (that already IS
+  "don't press a button").
+- State: `const [multiBlockDecisions, setMultiBlockDecisions] = useState({})`
+  keyed by the same `key = \`${name} ${start_block} ${days.join(',')}\``
+  convention `fixedEvents` chips already use for their own `key`
+  (`ImportScreen.jsx:1120`).
+
+### 3. The two commit paths
+
+Both live in `electron/ops/ingest.js`, as **dedicated payload + dedicated
+commit block** — the pattern the file already uses for `fixedEvents` (a
+second top-level param on `commitIngest`, handled after the generic
+`INGESTIBLE_ENTITIES` loop, inside the same transaction —
+`ingest.js:619`/`~1662-1718`), not the generic whitelist path. Add one new
+`commitIngest` param, `multiBlockDecisions = []`, array of
+`{ name, start_block_id, span_blocks, day_id, scope, kind }` (already
+resolved to real ids by the same name/day/group resolution the fixed-events
+block performs at `ingest.js:821` — `groupIdByName`, block-name → id lookup
+— reuse those resolvers, don't re-derive).
+
+**`kind === 'recurring'`:** extend the existing fixed-events commit block
+(`ingest.js:~1718`, the `for (const fe of plan.fixedEvents)` loop that
+already inserts `anchor_activities` rows) rather than writing a parallel one
+— a recurring multi-block candidate is structurally a fixed event with
+`span_blocks > 1` instead of the implicit `1`. Concretely: give
+`fixedEvents.js`'s candidate shape (and this new candidate shape, once
+`kind === 'recurring'` is chosen) an optional `span_blocks` field, defaulted
+to `1` for every existing fixed-event candidate (byte-identical to today's
+behavior — confirmed no existing caller sets it, so the default is a true
+no-op), and have the commit block write `span_blocks: fe.span_blocks ?? 1`
+into the `anchor_activities` INSERT instead of the implicit `1` it presumably
+writes today. **Maker must confirm the exact current INSERT/column list at
+`ingest.js:~1718-1859` before adding the field** — this design specifies the
+column exists and is consumed downstream, not the exact current SQL text,
+which Maker should read fresh rather than trust paraphrased here.
+
+**`kind === 'one_off'`: surface-then-fill, not full placement.** This is the
+one place this design diverges from "just write the entity" and the reason
+is load-bearing, not stylistic:
+
+- `events` (`electron/db/schema.sql:847`) is a **catalog** row only — `id,
+  camp_id, name, sort_order, notes, location_id`. It carries no day/
+  time-block/span placement fields at all. Placement onto an actual schedule
+  grid lives at `template_slots.event_id` (set on a `template_slots` row,
+  with `is_span_head` chaining a multi-block placement — confirmed:
+  `schema.sql:339-343`, the Events overlay placement ADR).
+- `template_slots` rows are scoped to one **route** (`manual`/`generated`)
+  and one **week** (`schedule_week_id` via `schedule_templates`) — concepts
+  ingest has never had context for. `INGESTIBLE_ENTITIES` and the
+  `fixedEvents` commit path both write only camp/cohort-scoped catalog data;
+  neither ingest path today resolves "which of the camp's (possibly several)
+  weeks and which of its two routes" a placement belongs to. Forcing that
+  resolution inside ingest — guessing a route, guessing a week — is the kind
+  of decision this ADR's own precedent (the superseded whole-day detector)
+  warns against: inventing structure the source data doesn't actually
+  specify. A merged cell in one week's printed schedule does not, by itself,
+  say which of the camp's `schedule_weeks` rows or which route the director
+  wants it placed on.
+- **Recommended scope for Slice B: commit the `events` catalog row only** —
+  `name`, `camp_id` (via the existing `events` projection's `ensureExists` +
+  ordinary field ops, `electron/ops/projections.js:436-446`, the same
+  op-log write path `ScheduleScreen`'s own event-creation UI already uses —
+  no new write mechanism needed), plus the source day/block-span folded into
+  `notes` as a plain-language provenance note (e.g. "Imported from Group
+  Schedules 1.xlsx — Friday, 3 blocks starting 4:00pm") so the director isn't
+  starting from a blank event. **Ingest does not write any `template_slots`
+  row.** The director places the new event onto whichever week/route grid
+  they choose using the existing Events placement UI (drag-to-place, per the
+  Events overlay ADR) — the same UI a manually-created event already uses.
+  This matches the "surface globally / build locally" precedent this same
+  program already used for event import (`docs/adr/2026-08-22-events-
+  overlay-placement.md`'s per-event grid import, cited in project memory as
+  "surface globally/build locally") and for the parked "special-day/field-
+  trip ingest as surface-then-fill candidates" framing (D6) that directly
+  named this exact shape before this ADR existed.
+- This is a **product-level narrowing**, not a technical wall — full
+  placement is not impossible, it requires ingest to gain
+  week/route-resolution it has never needed before. Flagged below as an open
+  question rather than silently decided, because "create the event but don't
+  place it" vs. "ask the director which week to place it into, then place
+  it" is a real UX tradeoff, not a pure architecture call.
+
+### 4. Block-count-bleed guard
+
+Addressed inline in §1/§2 above: no algorithmic filtering added in Slice B
+(the ADR assigns this to the human gate); the design obligation is that a
+false candidate costs one un-pressed button, not an accidental commit —
+there is no default-ticked state and no "select all" affordance for this
+section.
+
+### 5. Parity / registry / migration
+
+- **`anchor_activities` (recurring path):** no new registration needed.
+  `anchor_activities` is already in `EVIDENCE_ENTITY_TYPES`
+  (`ingest.js:270`) and already written through its own dedicated
+  `fixedEvents` commit block, not the generic whitelist — Slice B's
+  `span_blocks` addition is one new field on an already-registered write
+  path, not a new entity type.
+- **`events` (one-off path):** `events` already has a full projection
+  definition (`projections.js:436-446`, `ensureExists` + field list
+  `['camp_id', 'name', 'sort_order', 'notes', 'location_id']`) used today by
+  the manual Events UI. Writing an ingest-created event through ordinary
+  field-write ops against that same projection needs **no new registry
+  entry**. `events` is, however, genuinely new to `commitIngest` — it has
+  never been written by ingest before (confirmed: absent from both
+  `INGESTIBLE_ENTITIES` and every `ingest.js` reference to `'events'` prior
+  to this design). Whether an ingest-created `events` row needs
+  `EVIDENCE_ENTITY_TYPES` treatment (re-import provenance protection, same
+  as `activities`/`anchor_activities` get) is an open question below —
+  Slice B is the first ingest writer of this table, so there is no existing
+  precedent to match; Governor should decide whether re-import protection is
+  in scope for this slice or deferred.
+- **No schema migration** for either path: `span_blocks` and `events`'
+  columns all already exist. Slice B is additive at the ingest-payload/
+  commit-logic layer only.
+
+### Files/modules affected
+
+- New: `src/ingest/multiBlockCandidates.js` (+ test file) — candidate
+  detection, pure function, no I/O.
+- Modify: `src/screens/ImportScreen.jsx` — new "Longer Blocks" review
+  section, decision state, wiring into the `commitIngest` payload.
+- Modify: `electron/ops/ingest.js` — `span_blocks` field threaded through the
+  existing `fixedEvents` commit block; new `multiBlockDecisions` param and
+  commit block for the `one_off` path (events catalog write only, via the
+  existing `events` projection).
+- Modify: `src/ingest/fixedEvents.js` — candidate shape gains an optional
+  `span_blocks` (default `1`, no behavior change for existing callers) so a
+  `kind: 'recurring'` multi-block candidate can be handed to the same commit
+  block without a parallel code path.
+- Unchanged: `electron/db/schema.sql`, `electron/ops/projections.js` (no new
+  fields/tables — both already have what Slice B needs).
+
+### Reused vs. new
+
+- **Reused:** `anchor_activities.span_blocks` (already a live schema column
+  and already consumed by `buildSchedule.js`); the `fixedEvents` dedicated-
+  payload/commit-block pattern; the `events` table and its existing
+  `projections.js` write path; the Recurring Events chip UI idiom and the
+  `TwoRowSplitSuggestion` disclosure component's interaction shape;
+  `extractEntities.js`'s name/day/group resolution helpers.
+- **New:** `multiBlockCandidates.js` (candidate detection over
+  `blockSpans`); the "Longer Blocks" review section and its recurring/
+  one-off decision state; `events` as an ingest-writable entity for the
+  first time; the `notes` provenance string for a surfaced one-off event.
+
+### ADR required: no
+
+This addendum resolves the fork the base ADR explicitly deferred to the
+Architect (recurring vs. one-off commit mechanics) and specifies the
+implementation already committed to by the accepted ADR. No new persistent
+data shape (`span_blocks` and `events`' columns both pre-exist), no changed
+contract other modules already call (the fixed-events commit block gains an
+optional field with a no-op default; `events`' projection is used exactly as
+designed for its existing caller), and the one real tradeoff — one-off
+events are surfaced-then-placed rather than auto-placed — is a product
+narrowing recorded here and in the open question below, not an irreversible
+technical commitment: Slice B.2 (full auto-placement) remains available
+later without any rework of Slice B's `events` row shape.
+
+### Open questions for Governor
+
+1. **One-off event placement scope.** Confirm "create the event, let the
+   director place it via the existing Events UI" (surface-then-fill) is the
+   intended Slice B scope, versus asking the director to also pick a
+   week/route at confirm time so ingest can write `template_slots` directly.
+   The former is smaller and matches this program's own "surface globally /
+   build locally" precedent; the latter is a real UX improvement (one fewer
+   trip to the schedule screen) but requires ingest to gain week/route-
+   resolution UI it has never had. Recommend the smaller scope for Slice B,
+   with full placement as an explicit, separately-scoped Slice B.2 if the
+   owner wants it.
+2. **Re-import provenance for ingest-created events.** Should an
+   ingest-created `events` row get the same re-import protection
+   (`EVIDENCE_ENTITY_TYPES`) `activities`/`anchor_activities` already have,
+   so a director's hand-edit to an imported event's name/notes survives a
+   later re-import the way an activity's does? This is Slice B's first
+   precedent for the question, not a pre-existing pattern to copy — needs an
+   owner call, not just an architecture call.
+3. **Exact `anchor_activities` INSERT column list.** This design specifies
+   *that* `span_blocks` should be threaded into the existing fixed-events
+   `anchor_activities` INSERT at `ingest.js:~1718-1859`, not the literal
+   current SQL — Maker should read that block fresh before editing it, since
+   this design was written from targeted greps, not a full read of that
+   ~140-line block.
+
+### Confidence & biggest risk
+
+**Confidence: high** on the mechanical resolution (`span_blocks` is
+grounded in a live, engine-consumed schema column — not inferred, verified
+by reading `buildSchedule.js:143` directly) and on the recurring path being
+a small, additive extension of an existing, well-tested commit block.
+**Medium** on the one-off path's scope, specifically — not because it's
+technically risky, but because "surface-then-fill vs. full auto-placement"
+is a real product decision this design deliberately did not make unilaterally
+(open question 1). **Biggest risk:** if Governor/owner picks full
+auto-placement instead of the recommended surface-then-fill scope, Slice B
+grows a genuinely new capability (ingest resolving week/route context) that
+has no precedent anywhere in the ingest pipeline today, and should be
+re-scoped as its own slice rather than folded into this one.
