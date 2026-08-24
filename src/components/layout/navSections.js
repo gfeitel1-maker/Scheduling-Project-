@@ -137,6 +137,10 @@ export const NAV_SECTIONS = [
       // two identical "Electives" labels in one sidebar was confusing and
       // broke text-lookup-based tests (Sidebar.test.jsx).
       { key: 'schedule:electives', label: 'Elective Schedules' },
+      // Day Map (B1, read-only) — docs/adr/2026-08-24-run-the-day-on-the-map.md
+      // Decision 2. Route/day/block selection is in-screen, unpersisted; this
+      // row is just the nav destination, same posture as schedule:special.
+      { key: 'schedule:map', label: 'Day Map' },
     ],
   },
 ]
