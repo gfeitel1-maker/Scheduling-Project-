@@ -87,6 +87,7 @@ beforeEach(() => {
   localClient.list.mockImplementation((entity) => Promise.resolve(READY_ENTITIES.has(entity) ? [{ id: `${entity}-1` }] : []))
   localClient.ingestCommit.mockResolvedValue({ total: 3, fixedEvents: { created: 0, skipped: [], partial: [] } })
 })
+vi.mock('../ingest/specialDays', () => ({ inferSpecialDays: () => ({ specialDayCandidates: [] }) }))
 
 async function uploadFile() {
   render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)

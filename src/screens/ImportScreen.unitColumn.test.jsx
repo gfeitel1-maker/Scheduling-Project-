@@ -35,6 +35,7 @@ vi.mock('../ingest/extractEntities', async () => {
   }
 })
 vi.mock('../ingest/fixedEvents', () => ({ inferFixedEvents: () => ({ fixedEvents: [], dualUseNames: [] }) }))
+vi.mock('../ingest/specialDays', () => ({ inferSpecialDays: () => ({ specialDayCandidates: [] }) }))
 vi.mock('../hooks/useCohorts', () => ({ useCohorts: () => ({ activeCohort: { id: 'cohort-1' } }) }))
 // Fix round 2026-08-17 — ReconciliationScreen's "Use this setup" button
 // (the new one-screen flow's commit trigger) is gated on readiness's 5

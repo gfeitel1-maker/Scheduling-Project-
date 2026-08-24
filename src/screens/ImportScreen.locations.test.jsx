@@ -44,6 +44,7 @@ vi.mock('../ingest/textGrid', async () => {
   return { ...actual, parseTextGrid: () => parsed }
 })
 vi.mock('../ingest/fixedEvents', () => ({ inferFixedEvents: () => ({ fixedEvents: [], dualUseNames: [] }) }))
+vi.mock('../ingest/specialDays', () => ({ inferSpecialDays: () => ({ specialDayCandidates: [] }) }))
 vi.mock('../hooks/useCohorts', () => ({ useCohorts: () => ({ activeCohort: { id: 'cohort-1' } }) }))
 vi.mock('../localClient', () => ({
   localClient: {

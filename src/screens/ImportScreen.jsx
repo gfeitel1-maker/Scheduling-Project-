@@ -7,6 +7,7 @@ import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
 import { extractEntities, INGESTIBLE_ENTITIES } from '../ingest/extractEntities'
 import { inferFixedEvents } from '../ingest/fixedEvents'
+import { inferSpecialDays } from '../ingest/specialDays'
 import { inferActivityRules } from '../ingest/activityRules'
 import { normalizeName } from '../ingest/preview'
 import { autoAccepts } from '../ingest/confidence'
@@ -136,6 +137,12 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
   // operatingDayCount is only for the "every day" hint.
   const [fixedEvents, setFixedEvents] = useState([])
   const [operatingDayCount, setOperatingDayCount] = useState(0)
+  // D6 (docs/adr/2026-08-24-special-day-field-trip-ingest.md) — proposed
+  // special_days candidates. Every candidate is shown unconditionally, same
+  // "no local tick" posture as fixedEvents above; the accept/reject decision
+  // happens on ReconciliationScreen (always confirm_value/low, since the
+  // detector never emits anything else).
+  const [specialDayCandidates, setSpecialDayCandidates] = useState([])
   // ADR 2026-08-09 Decision 1 / A3 (Red Hat, 2026-08-17-onescreen-
   // reconciliation-merge.md) — pinOnlyActivityNames is every auto-accepted
   // (high-confidence) fixed-event name that ISN'T also a free activity
@@ -317,6 +324,12 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
       setFixedEvents(inferred)
       setOperatingDayCount(proposal.entities.days_of_operation.length)
 
+      // D6 — a day whose grid looks nothing like the rest of that group's
+      // week, for most of that day's operating groups at once. Pure, reuses
+      // the same tuple walk fixedEvents.js performs — no second scan.
+      const { specialDayCandidates: inferredSpecialDays } = inferSpecialDays({ pages }, proposal, { knownTimeBlockNames })
+      setSpecialDayCandidates(inferredSpecialDays)
+
       // ADR 2026-08-09 Decision 1 / A3 (Red Hat) — an auto-accepted
       // (high-confidence) fixed-event name that is NOT dual-use is never a
       // free activity-catalog choice. This set travels to buildPlan as
@@ -396,6 +409,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
       links: { groups: {} },
       cohort_id: activeCohort?.id ?? null,
       fixedEvents: [],
+      specialDayCandidates: [],
       activityRules: {},
       mode: 'add',
       // The staleness clock is the workbook's EXPORTED generation (ADR §4), not
@@ -715,6 +729,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
       humanEditedFields: { groups: groupHumanFields, activities: activityHumanFields },
       cohort_id: activeCohort?.id ?? null,
       fixedEvents,
+      specialDayCandidates,
       activityRules: outgoingRules,
       mode: importMode === 'replace' ? 'replace' : 'add',
       // §1 — real create confidence input, and A3's pin-only carry-over.
@@ -1153,6 +1168,50 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
                     )
                   })
                 })()}
+              </div>
+            </div>
+          )}
+
+          {/* Special Days (D6, docs/adr/2026-08-24-special-day-field-trip-ingest.md).
+              A day whose grid looked nothing like the rest of that group's
+              week, for most of that day's operating groups at once. Every
+              candidate is shown unconditionally, the same "no local tick"
+              posture as Recurring Events above — the accept/reject decision
+              happens on ReconciliationScreen, not here. Proposal-only: a
+              rejected candidate writes nothing, and this section never
+              creates a special_days row by itself. */}
+          {specialDayCandidates.length > 0 && (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{
+                fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
+                letterSpacing: '0.12em', textTransform: 'uppercase',
+                color: 'var(--text-secondary)', marginBottom: 8,
+              }}>
+                Special Days
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.6 }}>
+                These days looked different from the rest of the week in the file. They’re proposed as
+                special days you can name and fill in later — you’ll be asked to confirm each one on the
+                next step.
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'flex-start' }}>
+                {specialDayCandidates.map((candidate) => (
+                  <div
+                    key={`${candidate.name} ${candidate.day}`}
+                    style={{
+                      fontSize: 12, padding: '5px 10px', borderRadius: 6,
+                      fontFamily: 'inherit', textAlign: 'left',
+                      background: 'color-mix(in srgb, var(--success) 12%, var(--surface))',
+                      border: '1px solid var(--success)',
+                      color: 'var(--text)',
+                    }}
+                  >
+                    {candidate.name}
+                    <span style={{ marginLeft: 6, opacity: 0.6, fontSize: 11 }}>
+                      · {candidate.day}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           )}

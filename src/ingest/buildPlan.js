@@ -174,6 +174,7 @@ export function fieldsFor(entity, name, campId, index, cohortId) {
  *     - links:          { groups: { [groupName]: unitName } }
  *     - activityRules:  { [activityName]: rule }
  *     - fixedEvents:    FixedEvent[]  (resolved by name at commit)
+ *     - specialDayCandidates: ProposedSpecialDay[]  (resolved by name at commit)
  *     - camp_id, cohort_id, mode
  *   @param {Object|null} existing  { [entity]: [{ id, name }] } — names already
  *     in the camp become `unchanged` items (zero ops). Null/absent => every
@@ -691,6 +692,10 @@ export function buildPlan(source, existing = null, resolutions = []) {
     // S0 commit directives carried as data (the plan is the whole commit input).
     mode: source?.mode ?? 'add',
     fixedEvents: Array.isArray(source?.fixedEvents) ? source.fixedEvents : [],
+    // D6 (docs/adr/2026-08-24-special-day-field-trip-ingest.md): the same
+    // side-channel shape as fixedEvents above — resolved by commitPlan into a
+    // dedicated special_days commit block, never through INGESTIBLE_ENTITIES.
+    specialDayCandidates: Array.isArray(source?.specialDayCandidates) ? source.specialDayCandidates : [],
     // Slice 3a — create-shaped elective nudges, never entity `items` (no
     // elective_set exists yet to diff fields against).
     electiveCandidates: buildElectiveCandidates(source, existing),

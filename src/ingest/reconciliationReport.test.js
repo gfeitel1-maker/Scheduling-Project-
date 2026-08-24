@@ -3,6 +3,7 @@
 
 import { describe, it, expect } from 'vitest'
 import { buildReconciliationReport } from './reconciliationReport.js'
+import { reportToLanes } from './reportToLanes.js'
 
 function readinessRow(key, state) {
   return { key, label: key, screen: null, kind: 'core', state, message: '' }
@@ -1412,5 +1413,59 @@ describe('buildReconciliationReport — electiveCandidates (Slice 3a)', () => {
   it('degrades to zero elective decisions when the caller omits electiveCandidates (additive)', () => {
     const report = buildReconciliationReport({ planItems: [], readiness: [] })
     expect(report.decisions).toEqual([])
+  })
+})
+
+// D6 (docs/adr/2026-08-24-special-day-field-trip-ingest.md): specialDaysReport
+// side channel -> confirm_value/low decisions, entity 'special_days', the
+// same kind/confidence (and therefore reportToLanes lane) the low-confidence
+// fixed-event path already uses — "reuse the existing lane", not a new one.
+describe('buildReconciliationReport — specialDaysReport (D6)', () => {
+  it('turns a created candidate into a needsAttention confirm_value/low decision', () => {
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      specialDaysReport: { created: [{ name: 'Field Trip' }], unchanged: [] },
+    })
+    expect(report.buckets.needsAttention).toBe(1)
+    expect(report.decisions).toHaveLength(1)
+    expect(report.decisions[0]).toMatchObject({
+      kind: 'confirm_value', entity: 'special_days', entityId: null, confidence: 'low', entityName: 'Field Trip',
+    })
+  })
+
+  it('dedups by name across repeated entries', () => {
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      specialDaysReport: { created: [{ name: 'Field Trip' }, { name: 'Field Trip' }] },
+    })
+    expect(report.decisions).toHaveLength(1)
+  })
+
+  it('attaches evidence support keyed by name when evidenceSupport.specialDays is provided', () => {
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      specialDaysReport: { created: [{ name: 'Field Trip' }] },
+      evidenceSupport: { specialDays: { 'Field Trip': { operating_groups: 3 } } },
+    })
+    expect(report.decisions[0].evidence).toEqual({ operating_groups: 3 })
+  })
+
+  it('degrades to zero decisions when the caller omits specialDaysReport (additive)', () => {
+    const report = buildReconciliationReport({ planItems: [], readiness: [] })
+    expect(report.decisions).toEqual([])
+  })
+
+  it('a decision from specialDaysReport lands in the standard lane, mirroring a low-confidence fixed event', () => {
+    const report = buildReconciliationReport({
+      planItems: [],
+      readiness: [],
+      specialDaysReport: { created: [{ name: 'Field Trip' }] },
+    })
+    const lanes = reportToLanes(report)
+    expect(lanes.standard.some((d) => d.kind === 'confirm_value' && d.entity === 'special_days')).toBe(true)
+    expect(lanes.hold.some((d) => d.entity === 'special_days')).toBe(false)
   })
 })

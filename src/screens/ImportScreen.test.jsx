@@ -37,6 +37,7 @@ vi.mock('../ingest/extractEntities', async () => {
   }
 })
 vi.mock('../ingest/fixedEvents', () => ({ inferFixedEvents: () => ({ fixedEvents: [] }) }))
+vi.mock('../ingest/specialDays', () => ({ inferSpecialDays: () => ({ specialDayCandidates: [] }) }))
 vi.mock('../hooks/useCohorts', () => ({ useCohorts: () => ({ activeCohort: { id: 'cohort-1' } }) }))
 vi.mock('../localClient', () => ({
   localClient: {

@@ -74,6 +74,7 @@ vi.mock('../ingest/twoRowSplit', async () => {
     emitTwoRowSplit: (...args) => emitTwoRowSplitMock(...args),
   }
 })
+vi.mock('../ingest/specialDays', () => ({ inferSpecialDays: () => ({ specialDayCandidates: [] }) }))
 
 const READY_ENTITIES = new Set(['tiers', 'groups', 'days_of_operation', 'time_blocks', 'activities'])
 const EXISTING_CERAMICS = { id: 'act-ceramics', name: 'Ceramics', camp_id: 'camp-1', recurrence_truth_status: null }

@@ -568,6 +568,37 @@ export function buildReconciliationReport(input) {
   }
   buckets.understood += asArray(unchanged).length
 
+  // D6 (docs/adr/2026-08-24-special-day-field-trip-ingest.md): specialDaysReport
+  // is a second, parallel classification source, structurally identical to
+  // fixedEventsReport above but with no entity_id and no moved/partial/
+  // scopeChanged shapes (a special_days candidate carries no day/block/group
+  // binding). Every created candidate is ALWAYS confirm_value/low — the
+  // detector never emits anything else (specialDays.js has no high-confidence
+  // tier) — reusing the SAME kind/confidence the low-confidence-fixed-event
+  // path uses puts it in the same reportToLanes 'standard' lane, "the
+  // existing low-confidence-fixed-event lane" the ADR calls for, with no new
+  // lane-mapping case needed.
+  const { created: specialDaysCreated = [] } = input?.specialDaysReport ?? {}
+  const { specialDays: specialDayEvidence = {} } = evidenceSupport ?? {}
+  for (const entry of asArray(specialDaysCreated)) {
+    buckets.needsAttention += 1
+    const id = `special_days:null:confirm_value:${entry.name ?? ''}`
+    if (decisionsByKey.has(id)) continue
+    decisionsByKey.set(id, {
+      id,
+      kind: 'confirm_value',
+      entity: 'special_days',
+      entityId: null,
+      entityName: entry.name ?? null,
+      field: null,
+      confidence: 'low',
+      proposedValue: null,
+      unknowns: [],
+      evidence: specialDayEvidence?.[entry.name] ?? null,
+      reason: 'This day looked different from the rest of the week in the file — confirm before creating it.',
+    })
+  }
+
   // Slice 3a (docs/adr/2026-08-22-nested-schedules-electives-and-events.md §4
   // addendum): buildPlan's electiveCandidates, a create-shaped side channel
   // (no entity_id, no plan `items` row — no elective_set exists yet), same

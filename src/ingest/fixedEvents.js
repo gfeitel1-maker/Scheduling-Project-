@@ -108,10 +108,20 @@ const cellPeriod = (cell) => {
  *     scope: { is_all_groups: true, groups: null } | { is_all_groups: false, groups: string[] },
  *     confidence: 'high' | 'low' }
  */
-export function inferFixedEvents(parsed, proposal, options = {}) {
+// The per-(group, day, block, activity) tuple walk over the parsed pages —
+// the one pass over the source file this ingest family is allowed to make
+// for schedule-grid content. inferFixedEvents and inferSpecialDays
+// (specialDays.js) both consume its output as a second reducer; neither
+// re-scans `parsed.pages` itself (D6 ADR: "no new parsing pass over the
+// source file").
+//
+// @returns {{ occupied: Map, operatingDays: Map, groupSpelling: Map }}
+//   occupied: keyOf(groupNorm, block, activity, period) -> Set of days occupied
+//   operatingDays: groupNorm -> Set of days that group operates
+//   groupSpelling: normalizeName(group) -> first display spelling seen
+export function buildOccupancyTuples(parsed, proposal, options = {}) {
   const pages = parsed?.pages ?? []
   const orientation = proposal?.orientation ?? {}
-  const allGroups = proposal?.entities?.groups ?? []
   const groupNameByTitle = proposal?.groupNameByTitle ?? {}
   const knownBlockNames = new Set(
     (options.knownTimeBlockNames ?? []).map((n) => String(n ?? '').trim().toLowerCase()).filter(Boolean)
@@ -183,6 +193,13 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
       }
     }
   }
+
+  return { occupied, operatingDays, groupSpelling }
+}
+
+export function inferFixedEvents(parsed, proposal, options = {}) {
+  const allGroups = proposal?.entities?.groups ?? []
+  const { occupied, operatingDays, groupSpelling } = buildOccupancyTuples(parsed, proposal, options)
 
   // Majority + confidence per (group, block, activity) — mirrors the rare-entity
   // lowConfidence split. Below a strict majority is dropped; every operating day

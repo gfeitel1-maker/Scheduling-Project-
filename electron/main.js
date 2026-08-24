@@ -278,7 +278,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // device's sync mode — and the guard below reads it; a shadowing parameter
   // would silently turn the Host check into a comparison against the import
   // mode instead.
-  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets } = {}) {
+  function ingestCommit({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, specialDayCandidates, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, captureInverse, electiveHeaderFindings, activityPeriods, confirmedElectiveSets } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     // Admin only. Staff may edit setup records one at a time; creating a
     // camp's whole structure in one action is a different kind of authority,
@@ -322,6 +322,9 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       // Recurring fixed events the director ticked, resolved to real rows and
       // written as anchor_activities (T34). Defaults to none.
       fixedEvents: fixedEvents ?? [],
+      // D6 — proposed special_days candidates (surface-then-fill), the same
+      // side-channel shape as fixedEvents above. Defaults to none.
+      specialDayCandidates: specialDayCandidates ?? [],
       // Inferred/edited activity rules (T35), keyed by activity name. Defaults
       // to none, preserving pre-T35 behaviour for callers that pass none.
       activityRules: activityRules ?? {},
@@ -357,7 +360,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   // guard above — a dry run commits nothing anywhere, on any device, so there
   // is no fork-the-camp risk to guard against. Also does not push any
   // onOpApplied/sync broadcast: nothing was written for a peer to learn about.
-  function ingestReconcile({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods } = {}) {
+  function ingestReconcile({ token, approved, links, clears, humanEditedFields, cohort_id, fixedEvents, specialDayCandidates, activityRules, mode: ingestMode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     const session = requireAuthorized(db, { token, action: 'groups.import' })
     const camp = db.prepare('SELECT id FROM camps LIMIT 1').get()
@@ -372,6 +375,7 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
       author_user_id: session.userId,
       device_id: deviceId,
       fixedEvents: fixedEvents ?? [],
+      specialDayCandidates: specialDayCandidates ?? [],
       activityRules: activityRules ?? {},
       mode: ingestMode === 'replace' ? 'replace' : 'add',
       resolutions: resolutions ?? [],
@@ -395,6 +399,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
         ...outcome.fixedEvents,
         created: outcome.fixedEvents.createdEntries ?? [],
         unchanged: outcome.fixedEvents.unchangedEntries ?? [],
+      },
+      // D6 — same detail-channel substitution as fixedEventsReport above.
+      specialDaysReport: outcome.specialDays && {
+        ...outcome.specialDays,
+        created: outcome.specialDays.createdEntries ?? [],
+        unchanged: outcome.specialDays.unchangedEntries ?? [],
       },
       fieldProvenance: outcome.fieldProvenance ?? {},
       legacyPriorityActivities: outcome.legacyPriorityActivities ?? [],

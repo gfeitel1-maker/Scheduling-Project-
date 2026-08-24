@@ -267,7 +267,7 @@ function listAliasMap(db, camp_id, cohort_id) {
 // ALIAS_ENTITY_TABLE above), so it is validated against a FIXED set rather
 // than trusted — the two entity types inferActivityRules/inferFixedEvents
 // produce support for today.
-const EVIDENCE_ENTITY_TYPES = new Set(['activities', 'anchor_activities'])
+const EVIDENCE_ENTITY_TYPES = new Set(['activities', 'anchor_activities', 'special_days'])
 const EVIDENCE_TAGS = new Set(['observed', 'inferred', 'unknown'])
 const EVIDENCE_CONFIDENCE = new Set(['high', 'low'])
 
@@ -616,7 +616,7 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
   return { created, failed }
 }
 
-export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [] }) {
+export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], specialDayCandidates = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [] }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -653,7 +653,7 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
     // create confidence) and pinOnlyActivityNames (the A3 guard) flow straight
     // through the same way — additive, absent for any caller/fixture that
     // predates this change (S4b workbook re-import included — Risk 2/A4).
-    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode, base_generation, humanEditedFields, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods },
+    { approved: recordApproved, links, activityRules, fixedEvents, specialDayCandidates, camp_id, cohort_id, mode, base_generation, humanEditedFields, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods },
     existing,
     // T73: a director's per-conflict decisions from a prior held commit. buildPlan
     // consumes only the ambiguous_identity picks; stale picks flow to commitPlan.
@@ -901,6 +901,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // close over these directly.
   const evidenceSupportActivities = {}
   const evidenceSupportFixedEvents = {}
+  const evidenceSupportSpecialDays = {}
 
   const writeActivityEvidence = (entityId, rule) => {
     if (!rule?.support) return
@@ -1016,6 +1017,9 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   const fixedRejected = []
   const fixedMoved = []
   const fixedScopeChanged = []
+
+  const specialDaysCreated = []
+  const specialDaysUnchanged = []
 
   // T72: slot identity of a fixed-event occurrence — "this activity, in this
   // block, on this day, for this cohort." is_all_groups/group_ids are attributes
@@ -1871,6 +1875,62 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       }
     }
 
+    // Special days (D6, docs/adr/2026-08-24-special-day-field-trip-ingest.md),
+    // after the fixedEvents block and INSIDE the same transaction — the
+    // dedicated side-channel commit shape that block uses, copied structurally:
+    // special_days is written here and nowhere else in ingest; the generic
+    // whitelist (INGESTIBLE_ENTITIES) never lets it through. Unlike
+    // anchor_activities, a special_days candidate carries no day/block/group
+    // binding — it is name-only, so there is no slot-identity or moved/scope
+    // tracking here, only recognize-then-skip by name.
+    const liveSpecialDayNames = new Set(
+      db.prepare('SELECT name FROM special_days WHERE camp_id = ?').all(camp_id)
+        .map((row) => normalizeName(row.name))
+    )
+    let nextSpecialDaySortOrder = db
+      .prepare('SELECT COUNT(*) AS n FROM special_days WHERE camp_id = ?')
+      .get(camp_id).n
+    for (const candidate of plan.specialDayCandidates ?? []) {
+      const name = String(candidate?.name ?? '').trim()
+      if (!name) continue
+      const norm = normalizeName(name)
+      // Recognize-then-skip by name (schema's UNIQUE(camp_id, name) backs this
+      // but the check is explicit here, mirroring fixedUnchanged above, so a
+      // re-import never throws or duplicates).
+      if (liveSpecialDayNames.has(norm)) {
+        specialDaysUnchanged.push({ name })
+        continue
+      }
+      liveSpecialDayNames.add(norm)
+      const specialDayId = randomUUID()
+      const fields = {
+        camp_id,
+        name,
+        sort_order: nextSpecialDaySortOrder++,
+      }
+      for (const [field, value] of Object.entries(fields)) {
+        if (value === null || value === undefined) continue
+        write(db, {
+          entity: 'special_days',
+          entity_id: specialDayId,
+          field,
+          value,
+          author_user_id: author_user_id ?? null,
+          device_id,
+          parent_op_id: null,
+          client_write_id: randomUUID(),
+          source: IMPORT_SOURCE,
+        })
+      }
+      writeEvidence(db, {
+        camp_id, entity_type: 'special_days', entity_id: specialDayId, field: 'name',
+        tag: 'inferred', confidence: 'low', support: candidate.support ?? null,
+        import_run_id: evidenceRunId, committed_at: evidenceCommittedAt,
+      })
+      if (candidate.support) evidenceSupportSpecialDays[name] = candidate.support
+      specialDaysCreated.push({ specialDayId, name })
+    }
+
     // D1: everything above ran and every count/drift array is populated —
     // abort the transaction now so dryRun writes nothing, same rollback
     // mechanism as HELD. Ordering matters: this fires AFTER the HELD throw's
@@ -1931,6 +1991,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         created: 0, unchanged: 0, skipped: [], partial: [], rejected: [], moved: [], scopeChanged: [],
         createdEntries: [], unchangedEntries: [],
       },
+      specialDays: { created: 0, unchanged: 0, createdEntries: [], unchangedEntries: [] },
     }
   }
 
@@ -1959,11 +2020,21 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       createdEntries: fixedCreated,
       unchangedEntries: fixedUnchanged,
     },
+    specialDays: {
+      created: specialDaysCreated.length,
+      unchanged: specialDaysUnchanged.length,
+      createdEntries: specialDaysCreated,
+      unchangedEntries: specialDaysUnchanged,
+    },
   }
   if (replaced) outcome.replaced = replaced
   if (dryRunAborted) outcome.dryRun = true
   if (dryRunAborted) {
-    outcome.evidenceSupport = { activities: evidenceSupportActivities, fixedEvents: evidenceSupportFixedEvents }
+    outcome.evidenceSupport = {
+      activities: evidenceSupportActivities,
+      fixedEvents: evidenceSupportFixedEvents,
+      specialDays: evidenceSupportSpecialDays,
+    }
   }
   // U1: additive, present only when the caller opted in. invertibleOps holds
   // only field UPDATES to rows that already existed before this commit
