@@ -14,6 +14,7 @@ const REAL_SCREEN_KEYS = new Set([
   'cohorts', 'tiers', 'groups', 'days', 'timeblocks', 'activities',
   'locations', 'anchors', 'schedule',
   'schedule:manual', 'schedule:generated', 'schedule:special',
+  'events', 'specialdays', 'electives',
 ])
 
 describe('rootMapNav — every nav target is a real screen', () => {
@@ -63,26 +64,16 @@ describe('rootMapNav — every nav target is a real screen', () => {
     expect(screenForNode('Scheduling', null)).toBe('activities')
   })
 
-  it('screenForNode returns null for Context (no edit surface)', () => {
-    expect(screenForNode('Context', null)).toBe(null)
+  // Regroup slice (owner decision 2026-08-24) — Events/Special Days/
+  // Electives are now Scheduling children, each with its own setup-entity
+  // edit screen (not the Schedule-side build pickers).
+  it('resolves Events, Special Days, and Electives to their own setup screens under Scheduling', () => {
+    expect(screenForNode('Scheduling', 'Events')).toBe('events')
+    expect(screenForNode('Scheduling', 'Special Days')).toBe('specialdays')
+    expect(screenForNode('Scheduling', 'Electives')).toBe('electives')
   })
 
-  // ── Context wiring (Slice 3, docs/adr/2026-08-19-roots-census-and-persistent-inspector.md §(g)) ──
-
-  // docs/work/specs/2026-08-23-schedule-build-ia.md — building a special
-  // day/event's grid now lives under Schedule → Special Schedules, not
-  // Manual Build. A roster row's own resolved targetScreen (manual vs.
-  // generated) still wins when present (RootMapPanel.jsx); this is only the
-  // generic fallback for the "Open in..." button.
-  it('Field Trips / Special Events resolves to Special Schedules — inspect-mode-only child', () => {
-    expect(screenForNode('Context', 'Field Trips / Special Events')).toBe('schedule:special')
-  })
-
-  // T108 Phase 2 review round 2 (MED/HIGH #4) — the 'Day Overrides' node no
-  // longer exists (rootMapModel.js), so it must not resolve to anything;
-  // an unmapped child falls back to the domain screen (Context -> null),
-  // same as any other unrecognized child key.
-  it('Day Overrides (removed node/mapping) falls back to Context\'s null domain screen, not a dangling pointer', () => {
-    expect(screenForNode('Context', 'Day Overrides')).toBe(null)
+  it('the Context domain no longer exists in DOMAIN_SCREEN', () => {
+    expect(DOMAIN_SCREEN.Context).toBeUndefined()
   })
 })

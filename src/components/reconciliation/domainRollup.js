@@ -13,22 +13,20 @@ export const DOMAIN_OF = {
   locations: 'Facility',
   activities: 'Scheduling',
   anchor_activities: 'Scheduling',
-  // Slice 3a: an elective_candidate decision carries entity: 'elective_sets'
-  // (reconciliationReport.js), but 'elective_sets' is deliberately NOT added
-  // here — DOMAIN_OF's keys are pinned 1:1 against CHILD_OF/the census
-  // snapshot (existingSnapshot.test.js's R1 regression test), a separate
-  // concern this slice does not extend. domainOf() falls through to
-  // `undefined` for this decision, same as any other entity absent from this
-  // table — the decision still renders in the hold lane, just uncategorized
-  // in the domain-rollup chips. Revisit alongside a real CHILD_OF/census
-  // entry for elective_sets, not silently here.
+  // Regroup slice (docs/work/specs, owner decision 2026-08-24): Events,
+  // Special Days, and Electives are scheduling things and now live under the
+  // Scheduling domain alongside Activities/Recurring Events, not a separate
+  // 'Context' domain. They flow through the SAME DOMAIN_OF/CHILD_OF/census
+  // path every other Scheduling child already uses — no special-casing.
+  events: 'Scheduling',
+  special_days: 'Scheduling',
+  elective_sets: 'Scheduling',
 }
-// Root-map port (docs/adr/2026-08-18-rootmap-screen-port.md §3) widens this
-// from four domains to five. 'Context' intentionally has NO entry in
-// DOMAIN_OF/REQUIRED_GAP_DOMAIN below — no ingested entity maps to it today,
-// by design, so it organically renders zero decisions everywhere this
-// vocabulary is consulted, with no special-cased boolean anywhere.
-export const DOMAINS = ['Structure', 'Scheduling', 'Time', 'Facility', 'Context']
+// Root-map port (docs/adr/2026-08-18-rootmap-screen-port.md §3) originally
+// widened this from four domains to five, adding a 'Context' domain for
+// field trips/special events. The regroup slice above drops 'Context'
+// entirely: those three entities now live as ordinary Scheduling children.
+export const DOMAINS = ['Structure', 'Scheduling', 'Time', 'Facility']
 
 // Presentation-only label map (same ADR §3) — the canonical key stays
 // 'Facility' (DOMAIN_OF, filter chips, and existing tests all key on it);
@@ -40,7 +38,6 @@ export const DOMAIN_LABELS = {
   Scheduling: 'Scheduling',
   Time: 'Time',
   Facility: 'Facility',
-  Context: 'Context',
 }
 
 // F3 — required_gap decisions carry no `entity` (DOMAIN_OF is keyed by entity
@@ -75,6 +72,9 @@ export const CHILD_OF = {
   locations: 'Locations',
   activities: 'Activities',
   anchor_activities: 'Recurring Events',
+  events: 'Events',
+  special_days: 'Special Days',
+  elective_sets: 'Electives',
 }
 
 export const REQUIRED_GAP_CHILD_OF = {

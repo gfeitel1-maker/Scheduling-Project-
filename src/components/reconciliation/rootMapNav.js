@@ -4,14 +4,12 @@
 // rootMapNav.test.js, not left to fail silently at click time.
 
 // Domain-level fallback (used when a domain node itself is clicked, or a
-// child has no more specific entry below). 'Context' has no edit surface
-// today — no ingested entity maps to it (domainRollup.js) — so it stays null.
+// child has no more specific entry below).
 export const DOMAIN_SCREEN = {
   Structure: 'groups',
   Scheduling: 'activities',
   Time: 'timeblocks',
   Facility: 'locations',
-  Context: null,
 }
 
 // Child-level targets, keyed by the same child display names domainRollup.js's
@@ -25,24 +23,16 @@ export const CHILD_SCREEN = {
   Days: 'days',
   'Time Blocks': 'timeblocks',
   Locations: 'locations',
-  // Context wiring (Slice 3, docs/adr/2026-08-19-roots-census-and-persistent-
-  // inspector.md §(g)) — inspect-mode-only children (DOMAIN_SCREEN.Context
-  // stays null; import mode never produces a Context child, so these two
-  // entries are unreachable in import mode by construction). Field Trips/
-  // Special Events' fixed target is a default only — a roster row carries
-  // its own resolved `targetScreen` (manual vs. generated) that
-  // RootMapPanel prefers when present; this is the "Open in..." button's
-  // generic fallback.
-  // docs/work/specs/2026-08-23-schedule-build-ia.md — building a special
-  // day/event's grid now lives under Schedule → Special Schedules, not
-  // Manual Build. This is only the destination fix for the existing node;
-  // the RootMap domains/labels themselves (renaming 'Context', regrouping
-  // to events/special-days/electives) are a separate, later slice.
-  'Field Trips / Special Events': 'schedule:special',
-  // T108 Phase 2 review round 2 (MED/HIGH #4) — 'Day Overrides' removed: the
-  // node it pointed at (rootMapModel.js's Context child) is gone too, and
-  // there is no App.jsx SCREENS entry for it any more (overrides are
-  // authored in place on the schedule grid, not a separate screen).
+  // Regroup slice (owner decision 2026-08-24): Events/Special Days/Electives
+  // moved from the dropped 'Context' domain to ordinary Scheduling children.
+  // Each points at its own setup-entity edit screen (App.jsx's SCREENS map),
+  // same pattern as Activities->'activities'/Recurring Events->'anchors' —
+  // not the Schedule-side build pickers ('schedule:special',
+  // 'schedule:electives'), which are a separate destination for building the
+  // actual grid, not editing the entity list.
+  Events: 'events',
+  'Special Days': 'specialdays',
+  Electives: 'electives',
 }
 
 // Human labels for the "Open in {label} →" button. Reuses the plain screen
@@ -59,10 +49,13 @@ export const SCREEN_LABEL = {
   'schedule:manual': 'Schedule',
   'schedule:generated': 'Schedule',
   'schedule:special': 'Special Schedules',
+  events: 'Events',
+  specialdays: 'Special Days',
+  electives: 'Electives',
 }
 
 // Resolves a node selection ({ domainKey, childKey? }) to a screen key, or
-// null when the node has no edit surface (Context).
+// null when the node has no edit surface.
 export function screenForNode(domainKey, childKey) {
   if (childKey && CHILD_SCREEN[childKey]) return CHILD_SCREEN[childKey]
   return DOMAIN_SCREEN[domainKey] ?? null

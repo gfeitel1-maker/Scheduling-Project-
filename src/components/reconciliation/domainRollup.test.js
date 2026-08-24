@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest'
 import { DOMAIN_OF, CHILD_OF, DOMAINS, DOMAIN_LABELS } from './domainRollup.js'
-import { INGESTIBLE_ENTITIES } from '../../ingest/extractEntities.js'
 
 // W1 — vocabulary unification (docs/work/specs/2026-08-21-vocabulary-
 // unification-design.md). The root-map used to call cohorts "Units" —
@@ -21,25 +20,24 @@ describe('domainRollup — W1 vocabulary unification', () => {
   })
 })
 
-// Context invariant (Slice 3, docs/adr/2026-08-19-roots-census-and-persistent-
-// inspector.md §(g), accepted MEDIUM from Red Hat) — guards the exact
-// regression the audit named: a future parser widening INGESTIBLE_ENTITIES
-// to include, say, 'field_trips' as a spreadsheet-ingestible entity would
-// silently re-phantom Context's "only-authored-in-app" identity. Context's
-// realness in inspect mode comes ONLY from fetchCensusSnapshot's two
-// non-CHILD_OF-keyed calls (existingSnapshot.js), never from an ingested
-// entity — this test is the tripwire for that boundary eroding.
-describe('domainRollup — Context invariant', () => {
-  it('no INGESTIBLE_ENTITIES member ever maps to Context via DOMAIN_OF or CHILD_OF', () => {
-    for (const entity of INGESTIBLE_ENTITIES) {
-      expect(DOMAIN_OF[entity], `DOMAIN_OF.${entity}`).not.toBe('Context')
-      expect(CHILD_OF[entity], `CHILD_OF.${entity}`).not.toBe('Context')
-    }
+// Regroup slice (owner decision 2026-08-24) — the 'Context' domain is gone.
+// Events/Special Days/Electives are now ordinary Scheduling children.
+describe('domainRollup — Context removed / Scheduling regroup', () => {
+  it('has exactly four domains, no Context', () => {
+    expect(DOMAINS).toEqual(['Structure', 'Scheduling', 'Time', 'Facility'])
+    expect(DOMAINS).not.toContain('Context')
+    expect(Object.values(DOMAIN_LABELS)).not.toContain('Context')
   })
 
-  it('Context has no DOMAIN_OF/CHILD_OF entry at all today, by design, while still being a real domain', () => {
-    expect(Object.values(DOMAIN_OF)).not.toContain('Context')
-    expect(Object.values(CHILD_OF)).not.toContain('Context')
-    expect(DOMAINS).toContain('Context')
+  it('maps events, special_days, and elective_sets to Scheduling', () => {
+    expect(DOMAIN_OF.events).toBe('Scheduling')
+    expect(DOMAIN_OF.special_days).toBe('Scheduling')
+    expect(DOMAIN_OF.elective_sets).toBe('Scheduling')
+  })
+
+  it('gives events, special_days, and elective_sets their own child nodes', () => {
+    expect(CHILD_OF.events).toBe('Events')
+    expect(CHILD_OF.special_days).toBe('Special Days')
+    expect(CHILD_OF.elective_sets).toBe('Electives')
   })
 })

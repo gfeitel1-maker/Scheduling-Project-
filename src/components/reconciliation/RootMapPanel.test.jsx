@@ -204,16 +204,16 @@ describe('RootMapPanel node selection connects to the real edit screen', () => {
     expect(navigatedTo).toBe('locations')
   })
 
-  it('renders no Open button for the Context domain (no edit surface)', () => {
+  it('renders no Open button for a domain with no edit surface mapping', () => {
     const model = {
       domains: [
-        { key: 'Context', label: 'Context', state: 'absent', x: 0.5, y: 0.5, children: [] },
+        { key: 'Unmapped', label: 'Unmapped', state: 'absent', x: 0.5, y: 0.5, children: [] },
       ],
     }
     render(
       <RootMapPanel
         model={model}
-        selection={{ type: 'node', domainKey: 'Context' }}
+        selection={{ type: 'node', domainKey: 'Unmapped' }}
         lanes={lanes}
         dismissedGaps={new Set()}
         answers={{}}
@@ -580,19 +580,18 @@ describe('RootMapPanel census roster (Slice 2)', () => {
     expect(navigatedTo).toBe('groups')
   })
 
-  // Context wiring (Slice 3, docs/adr/2026-08-19-roots-census-and-persistent-
-  // inspector.md §(g)) — a Field Trips roster row carries its own resolved
-  // targetScreen (manual vs. generated route); it must win over the child's
-  // single fixed screenForNode target.
+  // A roster row can carry its own resolved targetScreen (e.g. an Events
+  // row deep-linking to a specific schedule route); it must win over the
+  // child's single fixed screenForNode target.
   it('a roster entry with its own targetScreen navigates there instead of the node-level target', () => {
     const model = {
       domains: [
         {
-          key: 'Context', label: 'Context', state: 'understood', x: 0.5, y: 0.5,
+          key: 'Scheduling', label: 'Scheduling', state: 'understood', x: 0.5, y: 0.5,
           children: [
             {
-              key: 'Field Trips / Special Events', name: 'Field Trips / Special Events', count: 0, state: 'understood', x: 0.5, y: 0.5, decisionIds: [],
-              roster: [{ entityId: 'ft1', name: 'Field Trip — Monday', state: 'understood', decisionId: null, group: null, targetScreen: 'schedule:generated' }],
+              key: 'Events', name: 'Events', count: 0, state: 'understood', x: 0.5, y: 0.5, decisionIds: [],
+              roster: [{ entityId: 'ev1', name: 'Field Trip — Monday', state: 'understood', decisionId: null, group: null, targetScreen: 'schedule:generated' }],
             },
           ],
         },
@@ -602,7 +601,7 @@ describe('RootMapPanel census roster (Slice 2)', () => {
     render(
       <RootMapPanel
         model={model}
-        selection={{ type: 'node', domainKey: 'Context', childKey: 'Field Trips / Special Events' }}
+        selection={{ type: 'node', domainKey: 'Scheduling', childKey: 'Events' }}
         lanes={lanes}
         dismissedGaps={new Set()}
         answers={{}}
@@ -624,14 +623,14 @@ describe('RootMapPanel census roster (Slice 2)', () => {
   // as "Everything here looks right.", which implies a check that found
   // nothing wrong. That copy is reserved for a populated, all-understood
   // roster (or a domain-only selection, which has no roster concept).
-  function contextModel(roster) {
+  function eventsModel(roster) {
     return {
       domains: [
         {
-          key: 'Context', label: 'Context', state: 'understood', x: 0.5, y: 0.5,
+          key: 'Scheduling', label: 'Scheduling', state: 'understood', x: 0.5, y: 0.5,
           children: [
             {
-              key: 'Field Trips / Special Events', name: 'Field Trips / Special Events', count: 0, state: 'understood', x: 0.5, y: 0.5, decisionIds: [],
+              key: 'Events', name: 'Events', count: 0, state: 'understood', x: 0.5, y: 0.5, decisionIds: [],
               roster,
             },
           ],
@@ -643,8 +642,8 @@ describe('RootMapPanel census roster (Slice 2)', () => {
   it('a child node with an EMPTY roster shows honest "nothing here yet" copy, not "Everything here looks right."', () => {
     render(
       <RootMapPanel
-        model={contextModel([])}
-        selection={{ type: 'node', domainKey: 'Context', childKey: 'Field Trips / Special Events' }}
+        model={eventsModel([])}
+        selection={{ type: 'node', domainKey: 'Scheduling', childKey: 'Events' }}
         lanes={lanes}
         dismissedGaps={new Set()}
         answers={{}}
@@ -664,8 +663,8 @@ describe('RootMapPanel census roster (Slice 2)', () => {
   it('a child node with a non-empty, all-understood roster still shows "Everything here looks right."', () => {
     render(
       <RootMapPanel
-        model={contextModel([{ entityId: 'ft1', name: 'Field Trip — Monday', state: 'understood', decisionId: null, group: null, targetScreen: 'schedule:manual' }])}
-        selection={{ type: 'node', domainKey: 'Context', childKey: 'Field Trips / Special Events' }}
+        model={eventsModel([{ entityId: 'ev1', name: 'Field Trip — Monday', state: 'understood', decisionId: null, group: null, targetScreen: 'schedule:manual' }])}
+        selection={{ type: 'node', domainKey: 'Scheduling', childKey: 'Events' }}
         lanes={lanes}
         dismissedGaps={new Set()}
         answers={{}}
@@ -678,9 +677,8 @@ describe('RootMapPanel census roster (Slice 2)', () => {
         onClearSelection={noop}
       />,
     )
-    // Every roster entry is 'understood' (Context inspect rows never have a
-    // pending decision), so `scoped` (the decision list) is empty here even
-    // though the roster itself is populated.
+    // Every roster entry is 'understood' here, so `scoped` (the decision
+    // list) is empty even though the roster itself is populated.
     expect(screen.getByText('Everything here looks right.')).toBeTruthy()
     expect(screen.queryByText('Nothing here yet — open the setup screen to add some.')).toBeFalsy()
   })

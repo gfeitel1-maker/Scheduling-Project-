@@ -68,6 +68,7 @@ export async function buildExistingSnapshot(list, cohortId, mode = 'add') {
 // stay in sync by construction, not by a second table someone has to update.
 const CENSUS_ENTITIES = [
   'cohorts', 'tiers', 'groups', 'days_of_operation', 'time_blocks', 'locations', 'activities', 'anchor_activities',
+  'events', 'special_days', 'elective_sets',
 ]
 
 // Each entity fetched independently and in parallel (this runs on every
@@ -78,19 +79,6 @@ const CENSUS_ENTITIES = [
 // read failure (e.g. a DB lock during LAN sync), which must never read as
 // "nothing set up yet".
 //
-// Context wiring (Slice 3, ADR docs/adr/2026-08-19-roots-census-and-
-// persistent-inspector.md §(e)/(g)) — two more calls, kept OUTSIDE
-// CENSUS_ENTITIES/CHILD_OF on purpose: Context has no CHILD_OF/DOMAIN_OF
-// entry (by design, guarded by domainRollup.test.js) and never will, so these
-// two keys ('field_trips', 'day_overrides') are not part of the
-// CHILD_OF-reverse-grouping loop rootMapModel.js runs over Object.keys of the
-// other eight. The PRESET_STAMPS list is duplicated (not imported) from
-// src/components/schedule/FieldTripDrawer.jsx — that file is a React
-// component and unexported constant; this module must stay importable
-// outside React/jsdom, and the value is a small, stable, camp-culture
-// vocabulary, not something that drifts silently.
-const FIELD_TRIP_PRESET_LABELS = new Set(['Field Trip', 'Special Event', 'Service Project'])
-
 export async function fetchCensusSnapshot(list) {
   const entries = await Promise.all(CENSUS_ENTITIES.map(async (entity) => {
     const nameCol = NAME_COLUMN[entity] ?? 'name'
@@ -98,34 +86,5 @@ export async function fetchCensusSnapshot(list) {
     try { rows = (await list(entity)) ?? [] } catch { rows = null }
     return [entity, rows ? rows.map((r) => ({ ...r, name: r[nameCol] })) : null]
   }))
-  const snapshot = Object.fromEntries(entries)
-
-  const [overlays, templates] = await Promise.all([
-    (async () => { try { return (await list('template_overlays')) ?? [] } catch { return null } })(),
-    (async () => { try { return (await list('schedule_templates')) ?? [] } catch { return null } })(),
-  ])
-
-  const dayNameById = new Map((snapshot.days_of_operation ?? []).map((d) => [d.id, d.name]))
-  // template_id -> which of the two schedule routes it belongs to, so a
-  // Field Trip roster row deep-links to the exact route it was stamped on,
-  // not a fixed per-child guess. A template whose kind can't be resolved
-  // (fetch failure, or a stray template_id) degrades to 'schedule:manual' —
-  // read-only navigation, never a write, so a wrong-route guess costs a
-  // click, not data.
-  const routeByTemplateId = new Map(
-    (templates ?? []).map((t) => [t.id, t.kind === 'manual' ? 'schedule:manual' : 'schedule:generated']),
-  )
-
-  snapshot.field_trips = overlays === null ? null : overlays
-    .filter((row) => FIELD_TRIP_PRESET_LABELS.has(row.label))
-    .map((row) => {
-      const dayName = row.day_id != null ? dayNameById.get(row.day_id) : null
-      return {
-        id: row.id,
-        name: dayName ? `${row.label} — ${dayName}` : row.label,
-        route: routeByTemplateId.get(row.template_id) ?? 'schedule:manual',
-      }
-    })
-
-  return snapshot
+  return Object.fromEntries(entries)
 }

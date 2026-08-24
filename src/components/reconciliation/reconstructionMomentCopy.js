@@ -19,15 +19,8 @@ const DOMAIN_LABELS = {
   Facility: 'Facility',
 }
 
-// Root-map port (docs/adr/2026-08-18-rootmap-screen-port.md §3) widened the
-// shared DOMAINS vocabulary to five, adding 'Context' — which this moment
-// (a rollup over INGESTED facts, not the root-map metaphor) never had a row
-// or label for and always renders zero for. Excluded explicitly here rather
-// than growing a fifth undefined-label row.
-const MOMENT_DOMAINS = DOMAINS.filter((domain) => domain !== 'Context')
-
 export function buildDomainRows(domainCounts) {
-  return MOMENT_DOMAINS.map((domain) => ({
+  return DOMAINS.map((domain) => ({
     key: domain,
     label: DOMAIN_LABELS[domain],
     state: (domainCounts?.[domain] ?? 0) > 0 ? 'attention' : 'understood',

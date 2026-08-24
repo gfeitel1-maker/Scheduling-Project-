@@ -5,21 +5,18 @@ import { DOMAINS, childOf, CHILD_OF } from '../components/reconciliation/domainR
 import { REQUIRED_AREAS } from '../engine/readiness.js'
 
 describe('buildRootMapModel', () => {
-  it('always returns all five domains, in DOMAINS order, and Context always renders absent with no children', () => {
+  it('always returns all four domains, in DOMAINS order', () => {
     const report = buildReconciliationReport({ planItems: [], readiness: [] })
     const model = buildRootMapModel(report, { answers: {}, dismissedGaps: new Set() })
 
     expect(model.domains.map((d) => d.key)).toEqual(DOMAINS)
-
-    const context = model.domains.find((d) => d.key === 'Context')
-    expect(context.state).toBe('absent')
-    expect(context.children).toEqual([])
+    expect(model.domains.map((d) => d.key)).not.toContain('Context')
   })
 
   it('a domain with zero decisions is understood, not absent', () => {
     // Only 'activities' (Scheduling) produces a decision; every other
-    // real domain (Structure, Time, Facility) has zero decisions and must
-    // read as understood, not absent — absence is reserved for Context.
+    // domain (Structure, Time, Facility) has zero decisions and must
+    // read as understood, not absent.
     const planItems = [
       {
         op: 'update', entity: 'activities', entity_id: 'a1',
@@ -328,61 +325,48 @@ describe('buildRootMapModel', () => {
     expect(groupsChild.roster).toEqual([])
   })
 
-  // ── Slice 3: Context wiring (docs/adr/2026-08-19-roots-census-and-persistent-inspector.md §(g)) ──
+  // ── Regroup slice (owner decision 2026-08-24): Events/Special Days/
+  // Electives are ordinary Scheduling children now, driven by the same
+  // snapshot-keys loop as Activities/Recurring Events — no special-casing. ──
 
-  // T108 Phase 2 review round 2 (MED/HIGH #4) — the "Day Overrides" Context
-  // child is retired (overrides are now authored in place on the schedule
-  // grid); these three cases drop it and assert on Field Trips alone.
-  it('import mode Context stays byte-unchanged even when the snapshot carries field_trips rows', () => {
+  it('Events/Special Days/Electives render as Scheduling children with live rosters, in both import and inspect mode', () => {
     const report = buildReconciliationReport({ planItems: [], readiness: [] })
     const snapshot = makeSnapshot({
-      field_trips: [{ id: 'ft1', name: 'Field Trip — Monday', route: 'schedule:manual' }],
+      events: [{ id: 'ev1', name: 'Trip to the Lake' }],
+      special_days: [{ id: 'sd1', name: 'Color War' }],
+      elective_sets: [{ id: 'es1', name: 'Afternoon Choice' }],
     })
     const model = buildRootMapModel(report, { answers: {}, dismissedGaps: new Set(), snapshot })
 
-    const context = model.domains.find((d) => d.key === 'Context')
-    expect(context.state).toBe('absent')
-    expect(context.children).toEqual([])
-  })
+    const scheduling = model.domains.find((d) => d.key === 'Scheduling')
+    const childKeys = scheduling.children.map((c) => c.key)
+    expect(childKeys).toEqual(expect.arrayContaining(['Events', 'Special Days', 'Electives']))
 
-  it('inspect mode Context with empty rosters reads understood (optional-3 treatment), never absent or not_set_up', () => {
-    const model = buildRootMapModel(null, { snapshot: makeSnapshot(), mode: 'inspect' })
-
-    const context = model.domains.find((d) => d.key === 'Context')
-    expect(context.state).toBe('understood')
-    expect(context.children.map((c) => c.key)).toEqual(['Field Trips / Special Events'])
-    expect(context.children.every((c) => c.roster.length === 0)).toBe(true)
-  })
-
-  it('inspect mode Context gets real rosters from field_trips, with per-row targetScreen', () => {
-    const snapshot = makeSnapshot({
-      field_trips: [{ id: 'ft1', name: 'Field Trip — Monday', route: 'schedule:generated' }],
-    })
-    const model = buildRootMapModel(null, { snapshot, mode: 'inspect' })
-
-    const context = model.domains.find((d) => d.key === 'Context')
-    expect(context.state).toBe('understood')
-    const fieldTrips = context.children.find((c) => c.key === 'Field Trips / Special Events')
-    expect(fieldTrips.roster).toEqual([
-      { entityId: 'ft1', name: 'Field Trip — Monday', state: 'understood', decisionId: null, group: null, targetScreen: 'schedule:generated' },
+    const events = scheduling.children.find((c) => c.key === 'Events')
+    expect(events.state).toBe('understood')
+    expect(events.roster).toEqual([
+      { entityId: 'ev1', name: 'Trip to the Lake', state: 'understood', decisionId: null, group: null },
     ])
   })
 
-  it('inspect-mode census-completeness: Context roster entries equal the filtered field_trips snapshot count, and the whole-model live-only total still holds', () => {
-    const snapshot = makeSnapshot({
-      field_trips: [{ id: 'ft1', name: 'Field Trip — Monday', route: 'schedule:manual' }],
-    })
-    const model = buildRootMapModel(null, { snapshot, mode: 'inspect' })
+  it('an empty camp with zero events/special_days/elective_sets reads understood, never not_set_up (optional, not required)', () => {
+    const model = buildRootMapModel(null, { snapshot: makeSnapshot({ events: [], special_days: [], elective_sets: [] }), mode: 'inspect' })
 
-    const context = model.domains.find((d) => d.key === 'Context')
-    const contextRosterCount = context.children.reduce((sum, c) => sum + c.roster.length, 0)
-    expect(contextRosterCount).toBe(snapshot.field_trips.length)
+    const scheduling = model.domains.find((d) => d.key === 'Scheduling')
+    const events = scheduling.children.find((c) => c.key === 'Events')
+    const specialDays = scheduling.children.find((c) => c.key === 'Special Days')
+    const electives = scheduling.children.find((c) => c.key === 'Electives')
+    for (const child of [events, specialDays, electives]) {
+      expect(child.state).toBe('understood')
+      expect(child.state).not.toBe('not_set_up')
+      expect(child.roster).toEqual([])
+    }
+  })
 
-    // Part 2's inspect-mode live-only collapse (existing invariant) still
-    // holds once Context's two new entity types are included in the total —
-    // no separate formula needed, since sumRoster already sums every child's
-    // roster and Context's roster is now populated from these same two keys.
-    expect(sumRoster(model)).toBe(Object.values(snapshot).flat().length)
+  it('the Context domain no longer exists in the model', () => {
+    const report = buildReconciliationReport({ planItems: [], readiness: [] })
+    const model = buildRootMapModel(report, { answers: {}, dismissedGaps: new Set(), snapshot: makeSnapshot() })
+    expect(model.domains.find((d) => d.key === 'Context')).toBeUndefined()
   })
 
   it('with no snapshot supplied, roster construction is a no-op and existing children are untouched (backward compatible default)', () => {
