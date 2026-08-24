@@ -460,9 +460,11 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
 
   // Slice 2a (two-rows split decline-memory) — record that the director said
   // "not now" to a split suggestion, so re-import does not re-suggest it.
-  // Same posture as confirmAliasHandler above: admin-only via
-  // 'declined_two_row_splits.record' (absent from the staff permission list),
-  // HOST ONLY (direct SQL, no op-log — see confirmAliasHandler's comment).
+  // 'declined_two_row_splits.record' is granted to staff (electron/auth/
+  // permissions.js) alongside admin — staff already hold 'activities.write'
+  // and can execute a Split themselves, so their decline must not silently
+  // fail (Slice 2b Red Hat HIGH #2). HOST ONLY (direct SQL, no op-log — see
+  // confirmAliasHandler's comment).
   function recordDeclinedSplitHandler({ token, activityName } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'declined_two_row_splits.record' })
@@ -476,9 +478,12 @@ export function makeHandlers(db, deviceId, { getMainWindow, dbPath, userDataPath
   }
 
   // Slice 2a — the names ImportScreen filters dualUseNames through before
-  // rendering the split-suggestion affordance. Read-only, same admin-only
-  // gate as the write above (this is only ever called from the import review
-  // flow, which is already admin-gated end to end).
+  // rendering the split-suggestion affordance. Read-only, same staff-reachable
+  // gate as the write above. NOTE: import review is NOT admin-gated end to
+  // end — Sidebar.jsx's ADMIN_MENU_ITEMS is misnamed and does not actually
+  // gate nav to Import, so staff can reach this screen (Slice 2b Red Hat
+  // HIGH #2); that's exactly why this action is staff-reachable now instead
+  // of admin-only.
   function listDeclinedSplitNamesHandler({ token } = {}) {
     if (!isNonEmptyString(token)) throw new Error('token is required')
     requireAuthorized(db, { token, action: 'declined_two_row_splits.record' })

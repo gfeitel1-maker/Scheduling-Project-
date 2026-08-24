@@ -239,6 +239,16 @@ describe('authorize', () => {
     expect(authorize({ db, token: staffToken, action: 'template_slots.delete' }).allowed).toBe(false)
   })
 
+  it('lets staff record and list declined two-row splits (Slice 2b Red Hat HIGH #2)', () => {
+    const staffId = insertUser({ role: 'staff' })
+    const staffToken = issueSessionToken(db, staffId, 'device-1')
+
+    // Staff already hold activities.write and can execute a Split; their
+    // decline ("Not now" / collision-Cancel) must not silently fail, or the
+    // suggestion reappears on every re-import.
+    expect(authorize({ db, token: staffToken, action: 'declined_two_row_splits.record' }).allowed).toBe(true)
+  })
+
   it('accepts an unused resourceId without affecting the result', () => {
     const userId = insertUser({ role: 'admin' })
     const token = issueSessionToken(db, userId, 'device-1')

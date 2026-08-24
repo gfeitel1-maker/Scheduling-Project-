@@ -71,6 +71,17 @@ export default function PostImportBanner({ outcome, readiness = [], censusReadFa
           {fixedEvents.moved.map((m) => `${m.name} (${m.reason})`).join('; ')}.
         </div>
       )}
+      {/* Staged two-row splits the director accepted that failed at commit
+          (rare — a name-collision created by the import itself, or the activity
+          list couldn't be read). Surfaced rather than left in console.error,
+          so an accepted split that didn't happen isn't an invisible broken
+          promise (Red Hat HIGH B). */}
+      {outcome.splitFailures?.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          {outcome.splitFailures.length === 1 ? 'A split you chose' : `${outcome.splitFailures.length} splits you chose`} couldn’t be applied:{' '}
+          {outcome.splitFailures.map((f) => f.message).join(' ')}
+        </div>
+      )}
       {/* What a Replace destroyed, stated rather than implied. */}
       {outcome.replaced && (
         <div style={{ marginTop: 8 }}>
