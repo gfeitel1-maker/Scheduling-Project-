@@ -41,8 +41,16 @@ function asText(cell) {
  * The header is the first row that has at least two labelled columns after the
  * first — the first column holds the times and is usually unlabelled, so it
  * cannot be used as the anchor the way "Time" is in the PDFs.
+ *
+ * `merges` is SheetJS's native `!merges` range array (`{ s: {r,c}, e: {r,c} }`,
+ * 0-indexed, inclusive, in the RAW worksheet's row/column space — the same
+ * space as `rows`' own array indices, since footnote/blank-row filtering
+ * happens inside this function, not before it reaches here). A vertical merge
+ * (spans more than one row, single column) is reconstructed as a `blockSpans`
+ * entry on its anchor row: docs/adr/2026-08-24-merged-cell-multiblock-ingest.md
+ * "Slice A design" addendum.
  */
-export function sheetToPage(rows, title) {
+export function sheetToPage(rows, title, merges = []) {
   const table = (rows ?? []).map((r) => (Array.isArray(r) ? r.map(asText) : []))
 
   let headerIndex = -1
@@ -59,6 +67,7 @@ export function sheetToPage(rows, title) {
   const columns = header.slice(1, width)
 
   const body = []
+  const bodyOrigRowIndex = []
   for (let i = headerIndex + 1; i < table.length; i++) {
     const row = table[i]
     const label = row[0] ?? ''
@@ -71,6 +80,31 @@ export function sheetToPage(rows, title) {
     if (!label && cells.every((c) => !c)) continue
 
     body.push({ label, cells })
+    bodyOrigRowIndex.push(i)
+  }
+
+  for (const merge of merges ?? []) {
+    const { s, e } = merge ?? {}
+    if (!s || !e) continue
+    // Vertical merges only (Slice A scope) — a single column, spanning more
+    // than one raw row. Horizontal and block merges are left un-reconstructed.
+    if (!(e.r > s.r) || s.c !== e.c) continue
+
+    const bodyIndex = bodyOrigRowIndex.indexOf(s.r)
+    if (bodyIndex === -1) continue // anchor row was filtered out — drop silently
+
+    const cellIndex = s.c - 1 // raw column 0 is the label column, dropped above
+    if (cellIndex < 0 || cellIndex >= columns.length) continue
+
+    // Block count, not raw-row count: only body rows (surviving time-blocks)
+    // inside the merge's raw range count, so a filler/footnote row inside the
+    // range doesn't inflate the span.
+    const blockCount = bodyOrigRowIndex.filter((idx) => idx >= s.r && idx <= e.r).length
+    if (blockCount < 2) continue
+
+    const anchorRow = body[bodyIndex]
+    if (!anchorRow.blockSpans) anchorRow.blockSpans = []
+    anchorRow.blockSpans[cellIndex] = blockCount
   }
 
   return { title: asText(title), columns, rows: body }
@@ -116,8 +150,8 @@ function sheetSample(rows, limit = 8) {
 export function workbookToPages(sheets, fileTitle) {
   const built = []
   const residual = []
-  for (const { name, rows } of sheets ?? []) {
-    const page = sheetToPage(rows, name)
+  for (const { name, rows, merges } of sheets ?? []) {
+    const page = sheetToPage(rows, name, merges)
     if (page && page.columns.length > 0 && page.rows.length > 0) {
       built.push({ name, page })
     } else if (sheetHasContent(rows)) {

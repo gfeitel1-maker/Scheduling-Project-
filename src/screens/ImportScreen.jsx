@@ -252,16 +252,36 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
             await handleWorkbookReimport(wb, file.name)
             return
           }
-          const sheets = wb.SheetNames.map((name) => ({
-            name,
-            // raw:false so Excel formats each cell the way the sheet displays it.
-            // A time typed as a time is stored as a fraction of a day — 9:15am
-            // is 0.3854166666666667 — and reading it raw puts that number in
-            // the camp as the name of a period.
-            // unescapeRow reverses any leading-apostrophe our own export wrote,
-            // so an escaped literal round-trips and never re-enters as a formula.
-            rows: XLSX.utils.sheet_to_json(wb.Sheets[name], { header: 1, blankrows: false, defval: '', raw: false }).map(unescapeRow),
-          }))
+          const sheets = wb.SheetNames.map((name) => {
+            const ws = wb.Sheets[name]
+            const ref = ws['!ref']
+            // Pin the read window to the absolute origin (row 0, col A) so each
+            // row's array index equals its absolute worksheet row, and each
+            // cell's index its absolute column — the coordinate space `!merges`
+            // uses (which is ALWAYS absolute, independent of the sheet's used
+            // range). Without this, a sheet whose data starts below/right of A1
+            // (a title/logo banner row) desyncs merge anchors from row indices
+            // and the span is silently dropped (Red Hat, Slice A). For an
+            // A1-origin sheet this range equals the default, so it is a no-op.
+            // blankrows:true then keeps the leading/interior blanks as array
+            // entries preserving that alignment — sheetToPage drops blank/
+            // footnote rows itself, so nothing downstream regresses
+            // (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md addendum).
+            const range = ref ? { s: { r: 0, c: 0 }, e: XLSX.utils.decode_range(ref).e } : undefined
+            return {
+              name,
+              // raw:false so Excel formats each cell the way the sheet displays
+              // it. A time typed as a time is stored as a fraction of a day —
+              // 9:15am is 0.3854166666666667 — and reading it raw puts that
+              // number in the camp as the name of a period. unescapeRow reverses
+              // any leading-apostrophe our own export wrote, so an escaped
+              // literal round-trips and never re-enters as a formula.
+              rows: XLSX.utils
+                .sheet_to_json(ws, { header: 1, blankrows: true, defval: '', raw: false, ...(range && { range }) })
+                .map(unescapeRow),
+              merges: ws['!merges'] ?? [],
+            }
+          })
           const sheetPages = workbookToPages(sheets, title)
           pages.push(...sheetPages)
           for (const r of sheetPages.residual ?? []) fileResidualSheets.push({ file: file.name, ...r })

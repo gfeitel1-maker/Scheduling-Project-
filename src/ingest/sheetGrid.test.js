@@ -65,6 +65,88 @@ describe('sheetToPage', () => {
   })
 })
 
+describe('sheetToPage merged cells (blockSpans)', () => {
+  // Row 0 = header, rows 1-3 = the merge's raw range. `!merges` coordinates
+  // are 0-indexed raw worksheet rows/columns, inclusive.
+  const rowsWithMerge = [
+    ['', 'Monday', 'Tuesday'],
+    ['9:00', 'Ruach & Shabbat', 'Opening'],
+    ['9:30', '', 'Judaic'],
+    ['10:00', '', 'Science'],
+  ]
+
+  it('is a no-op with no third argument — existing 2-arg call sites are unaffected', () => {
+    const page = sheetToPage(sheet(rowsWithMerge), 'K1')
+    expect(page.rows.every((r) => !('blockSpans' in r))).toBe(true)
+  })
+
+  it('records a vertical merge on its anchor row as blockSpans[col] = block count', () => {
+    const merges = [{ s: { r: 1, c: 1 }, e: { r: 3, c: 1 } }] // Monday column, 3 raw rows
+    const page = sheetToPage(sheet(rowsWithMerge), 'K1', merges)
+    expect(page.rows[0].blockSpans).toEqual([3])
+    expect(page.rows[0].cells).toEqual(['Ruach & Shabbat', 'Opening']) // occupancy untouched
+    expect(page.rows[1].blockSpans).toBeUndefined()
+    expect(page.rows[2].blockSpans).toBeUndefined()
+  })
+
+  it('counts blocks that survive filtering, not raw rows — a footnote/blank row inside the range is excluded', () => {
+    const rows = [
+      ['', 'Monday'],
+      ['9:00', 'Ruach & Shabbat'],
+      ['*note', ''], // footnote row: label matches FOOTNOTE, no cell content — filtered out
+      ['9:30', ''],
+    ]
+    const merges = [{ s: { r: 1, c: 1 }, e: { r: 3, c: 1 } }] // raw range covers 3 rows, only 2 survive
+    const page = sheetToPage(sheet(rows), 'K1', merges)
+    expect(page.rows[0].blockSpans).toEqual([2])
+  })
+
+  it('leaves a horizontal merge un-reconstructed — out of Slice A scope', () => {
+    const rows = [
+      ['', 'Monday', 'Tuesday'],
+      ['9:00', 'Special Event', ''],
+    ]
+    const merges = [{ s: { r: 1, c: 1 }, e: { r: 1, c: 2 } }] // same row, spans columns
+    const page = sheetToPage(sheet(rows), 'K1', merges)
+    expect(page.rows.every((r) => !('blockSpans' in r))).toBe(true)
+  })
+
+  it('reconstructs a merge when the sheet data does not start at A1 (offset !ref) — through real sheet_to_json (Red Hat)', () => {
+    // A real worksheet whose schedule starts at absolute row 5 (a title/banner
+    // above it). `!merges` coordinates are ALWAYS absolute, but sheet_to_json's
+    // default output is indexed relative to the used range's start — so without
+    // pinning the read to the origin, the anchor's absolute row (6) never
+    // matches the range-relative row index and the span is silently dropped.
+    const aoa = [
+      ['', 'Monday', 'Tuesday'],
+      ['9:00', 'Ruach & Shabbat', 'Opening'],
+      ['9:30', '', 'Judaic'],
+      ['10:00', '', 'Science'],
+    ]
+    const ws = XLSX.utils.aoa_to_sheet(aoa, { origin: 'A6' })
+    ws['!merges'] = [{ s: { r: 6, c: 1 }, e: { r: 8, c: 1 } }] // absolute worksheet coords
+    // The exact recipe ImportScreen uses: pin the range to (0,0) so array index
+    // === absolute row, blankrows:true, and pass the raw !merges.
+    const range = { s: { r: 0, c: 0 }, e: XLSX.utils.decode_range(ws['!ref']).e }
+    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: true, defval: '', raw: false, range })
+    const page = sheetToPage(rows, 'K1', ws['!merges'])
+    const anchor = page.rows.find((r) => r.cells?.includes('Ruach & Shabbat'))
+    expect(anchor?.blockSpans).toEqual([3])
+  })
+
+  it('drops a merge whose anchor row was filtered out, without crashing', () => {
+    const rows = [
+      ['', 'Monday'],
+      ['*note', ''], // anchor row 1 is a footnote, filtered — never becomes a body row
+      ['9:00', 'Opening'],
+    ]
+    const merges = [{ s: { r: 1, c: 1 }, e: { r: 2, c: 1 } }]
+    expect(() => sheetToPage(sheet(rows), 'K1', merges)).not.toThrow()
+    const page = sheetToPage(sheet(rows), 'K1', merges)
+    expect(page.rows.every((r) => !('blockSpans' in r))).toBe(true)
+  })
+})
+
 describe('workbookToPages', () => {
   const populated = { name: 'Sheet1', rows: [['', 'Monday'], ['9:00', 'Opening']] }
 
