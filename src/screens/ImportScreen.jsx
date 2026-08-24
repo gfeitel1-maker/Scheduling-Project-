@@ -10,6 +10,8 @@ import { inferFixedEvents } from '../ingest/fixedEvents'
 import { inferActivityRules } from '../ingest/activityRules'
 import { normalizeName } from '../ingest/preview'
 import { autoAccepts } from '../ingest/confidence'
+import { emitTwoRowSplit, DEFAULT_SPLIT_SUFFIX } from '../ingest/twoRowSplit'
+import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../utils/exportSanitize.js'
 import { downloadWorkbook, META_SHEET } from '../utils/exportWorkbook.js'
@@ -79,6 +81,36 @@ const PRIORITY_LABEL = { high: 'High', low: 'Low' }
 const formatEligibility = (groupNames) =>
   groupNames == null || groupNames.length === 0 ? 'All groups' : `Groups: ${groupNames.join(', ')}`
 
+// Slice 2b (docs/work/specs/2026-08-23-two-rows-slice2-affordance.md) —
+// twoRowSplit.js's createActivity call needs a `writeActivityFields(id,
+// fields)` method; setupCrudRepository only exposes the generic
+// `writeFields(entity, id, fields)`. Same one-line shim ElectiveSetDetail.jsx/
+// EventGridEditor.jsx/SpecialDayGridEditor.jsx each build for the same reason,
+// so a split-minted activity writes through the identical generic renderer
+// path every setup screen uses (this is also what keeps a split durably
+// human-confirmed with no separate provenance stamp — see twoRowSplit.js).
+const splitRepository = createSetupCrudRepository({ localClient })
+const splitActivityRepo = {
+  ...splitRepository,
+  writeActivityFields: (id, fields) => splitRepository.writeFields('activities', id, fields),
+}
+
+// Pure pre-check mirroring emitTwoRowSplit's own guards (same normalizeName),
+// so the UI can disable Split / swap to the collision three-way BEFORE ever
+// calling emitTwoRowSplit — the spec forbids calling it speculatively per
+// keystroke. Checked against both the file's own proposed activity names and
+// the camp's existing activities, since either could already hold the
+// suffixed name.
+function computeSplitPreview(name, suffix, proposalActivityNames, existingActivities) {
+  const newName = `${name}${suffix}`
+  if (normalizeName(newName) === normalizeName(name)) {
+    return { degenerate: true, collision: false, newName }
+  }
+  const collidesExisting = (existingActivities ?? []).some((a) => normalizeName(a.name) === normalizeName(newName))
+  const collidesProposal = (proposalActivityNames ?? []).some((n) => normalizeName(n) === normalizeName(newName))
+  return { degenerate: false, collision: collidesExisting || collidesProposal, newName }
+}
+
 export default function ImportScreen({ campId, onNavigate, onImported, deviceMode }) {
   // Units and time blocks are scoped to a Program; an import files them under
   // the active one so the setup screens will show them (T33).
@@ -111,6 +143,17 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
   // the guard that forces tier:'low' on that name, so it can never silently
   // mint into the catalog.
   const [pinOnlyActivityNames, setPinOnlyActivityNames] = useState(new Set())
+  // Slice 2b — dualUseNames lifted out of the throwaway destructure in
+  // readFiles (was computed only to seed pinOnlySet, then discarded). Filtered
+  // against declined_two_row_splits on every readFiles() pass so a director's
+  // earlier "Not now" is honored on the next re-import, not just this session
+  // (spec "Decline-memory"). Drives the split-suggestion disclosure rendered
+  // inline on the Recurring Events chip below.
+  const [dualUseNames, setDualUseNames] = useState(new Set())
+  // Per dual-use name: { expanded, accepted, suffix, outcome: 'idle'|'collision',
+  // confirmedName, errorMessage }. `accepted` true collapses the disclosure to
+  // the quiet confirmation line for the rest of this session.
+  const [splitDecisions, setSplitDecisions] = useState({})
   // ADR 2026-08-09 Decision 2 — the reviewable unit column's per-group state:
   // { [groupName]: unitName } (set) | { [groupName]: { clear: true } } (cleared)
   // | { [groupName]: { editing: true, value } } ("+ New unit…", still typing).
@@ -180,6 +223,8 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
     setActivityRules({})
     setGroupUnitOverrides({})
     setResidualSheets([])
+    setDualUseNames(new Set())
+    setSplitDecisions({})
     const files = [...(fileList ?? [])]
     if (files.length === 0) return
     setFileNames(files.map((f) => f.name))
@@ -268,7 +313,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
       // once its own already-configured time_blocks names are known — thread
       // the existing rows in so isBlockLabel can recognize them.
       const knownTimeBlockNames = (existingAll.time_blocks ?? []).map((t) => t.name)
-      const { fixedEvents: inferred, dualUseNames = [] } = inferFixedEvents({ pages }, proposal, { knownTimeBlockNames })
+      const { fixedEvents: inferred, dualUseNames: dualUseNamesRaw = [] } = inferFixedEvents({ pages }, proposal, { knownTimeBlockNames })
       setFixedEvents(inferred)
       setOperatingDayCount(proposal.entities.days_of_operation.length)
 
@@ -277,12 +322,21 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
       // free activity-catalog choice. This set travels to buildPlan as
       // `pinOnlyActivityNames` (buildCommitInputs, below), which forces
       // tier:'low' on that name so it can never silently mint.
-      const dualUseSet = new Set(dualUseNames)
+      const dualUseSet = new Set(dualUseNamesRaw)
       const initialTickedFixedEventNames = new Set(
         inferred.filter((fe) => autoAccepts(fe.confidence)).map((fe) => fe.name)
       )
       const pinOnlySet = new Set([...initialTickedFixedEventNames].filter((n) => !dualUseSet.has(n)))
       setPinOnlyActivityNames(pinOnlySet)
+
+      // Slice 2b — filter dualUseSet through decline-memory before it ever
+      // reaches render, so a declined name never shows the link, let alone
+      // calls emitTwoRowSplit (spec "Decline-memory"). `?.().catch` guards
+      // against older localClient test mocks that predate Slice 2a and don't
+      // implement listDeclinedSplitNames.
+      const declinedRaw = (await localClient.listDeclinedSplitNames?.().catch(() => [])) ?? []
+      const declined = new Set(declinedRaw)
+      setDualUseNames(new Set([...dualUseSet].filter((n) => !declined.has(normalizeName(n)))))
 
       // Rule inference (T35) — same "propose, director confirms" shape as the
       // entities and recurring events above.
@@ -422,6 +476,149 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
   // time (spec §"Preview UI changes").
   function clearInferredRules() {
     setActivityRules({})
+  }
+
+  // Slice 2b — the two-rows split suggestion. Defaults mirrored here (not in
+  // useState) so a name with no prior interaction still reads correctly.
+  function updateSplitDecision(name, patch) {
+    setSplitDecisions((prev) => ({
+      ...prev,
+      [name]: { expanded: false, accepted: false, suffix: DEFAULT_SPLIT_SUFFIX, outcome: 'idle', ...prev[name], ...patch },
+    }))
+  }
+
+  // "Not now" and collision-"Cancel" both decline the same way (spec: declining
+  // is a normal path, not destructive). This is only ever reachable once the
+  // director has opened the disclosure — the collapsed link itself has no
+  // decline affordance — so a stray click never records a decline (spec
+  // "DECLINE-REVOCATION": there is no unrecord path, so decline must stay a
+  // deliberate, expanded-state-only action).
+  async function declineSplit(name) {
+    setDualUseNames((prev) => {
+      const next = new Set(prev)
+      next.delete(name)
+      return next
+    })
+    try {
+      await localClient.recordDeclinedSplit(name)
+    } catch {
+      // Best-effort local bookkeeping — a failed write here only risks the
+      // suggestion reappearing on the next import; it must not block or
+      // error the director's decline click itself.
+    }
+  }
+
+  // HIGH #1 (Red Hat, Slice 2b round 2) — Split must NOT write during review:
+  // the screen's own contract ("Nothing is added until you have looked at the
+  // list and said so") forbids minting an activities row before the import is
+  // committed, or a discarded import leaves an orphaned split row behind.
+  // confirmSplit therefore only STAGES the decision (splitDecisions[name].
+  // accepted); the actual emitTwoRowSplit call happens once, at the single
+  // import-commit seam (applyStagedSplits, called from
+  // handleReconciliationCommitted). The client precheck (computeSplitPreview,
+  // same normalizeName emitTwoRowSplit itself uses) still decides
+  // degenerate/collision/clean here — a collision found at review time still
+  // routes to the three-way reuse/rename/cancel immediately; only the actual
+  // write is deferred.
+  function confirmSplit(name, existingActivity) {
+    const suffix = splitDecisions[name]?.suffix ?? DEFAULT_SPLIT_SUFFIX
+    const preview = computeSplitPreview(name, suffix, proposal?.entities.activities, existingRecordsAll.activities)
+    if (preview.degenerate) return // defense in depth — Split is disabled client-side in this state
+    if (preview.collision) {
+      updateSplitDecision(name, { outcome: 'collision', errorMessage: null })
+      return
+    }
+    updateSplitDecision(name, {
+      accepted: true,
+      kind: 'split',
+      existingActivityId: existingActivity.id,
+      suffix,
+      confirmedName: `${name}${suffix}`,
+      outcome: 'idle',
+      errorMessage: null,
+    })
+  }
+
+  // Collision "Reuse it" — stages the pin (existing row confirmed pinned,
+  // mirrors emitTwoRowSplit's own step 1) for the same commit-time apply as
+  // confirmSplit, rather than writing immediately (HIGH #1).
+  function reuseCollision(name, existingActivity) {
+    const suffix = splitDecisions[name]?.suffix ?? DEFAULT_SPLIT_SUFFIX
+    updateSplitDecision(name, {
+      accepted: true,
+      kind: 'reuse',
+      existingActivityId: existingActivity.id,
+      suffix,
+      confirmedName: `${name}${suffix}`,
+      outcome: 'idle',
+      errorMessage: null,
+    })
+  }
+
+  // Applies every staged split/reuse decision at the single import-commit
+  // seam (handleReconciliationCommitted), once the import itself has already
+  // landed. Re-fetches the current activities list rather than reusing
+  // existingRecordsAll (a stale readFiles() snapshot) for two reasons: (1) by
+  // this point the import's own proposed activities are committed real rows,
+  // so emitTwoRowSplit's Guard 2 collision check now naturally sees them too
+  // — no separate proposal-name parameter needed (LOW/MED #3); (2) any
+  // concurrent-device write since readFiles() is reflected. A failure on one
+  // decision is reported, not thrown — the import already committed, so one
+  // bad split must not look like the whole import failed.
+  async function applyStagedSplits() {
+    const accepted = Object.entries(splitDecisions).filter(([, d]) => d.accepted)
+    if (accepted.length === 0) return []
+    // A SYSTEMIC re-fetch failure (not an empty list) leaves every accepted
+    // split unapplied — report all of them rather than silently dropping the
+    // lot, and don't conflate it with a per-item "activity vanished" miss
+    // (Red Hat HIGH A). We must NOT .catch(()=>[]) here: an empty array is
+    // indistinguishable from a failed read and would silently skip everything.
+    let currentActivities
+    try {
+      currentActivities = await localClient.list('activities')
+    } catch (err) {
+      const failures = accepted.map(([name]) => ({
+        name,
+        message: describeWriteFailure(err, `The split for "${name}" couldn't be applied — your activity list couldn't be read. Nothing was split; try again from the Activities screen.`),
+      }))
+      console.error('Two-row split apply failures (activity re-fetch failed):', failures)
+      return failures
+    }
+    const failures = []
+    for (const [name, decision] of accepted) {
+      const existingActivity = currentActivities.find((a) => a.id === decision.existingActivityId)
+      if (!existingActivity) {
+        // The pinned activity vanished between staging and commit (edited,
+        // removed, or synced away). Report it — don't silently skip (Red Hat).
+        failures.push({ name, message: `The split for "${name}" couldn't be applied — that activity is no longer in your setup.` })
+        continue
+      }
+      try {
+        if (decision.kind === 'reuse') {
+          if (existingActivity.recurrence_truth_status !== 'asserted') {
+            await splitActivityRepo.writeFields('activities', existingActivity.id, { recurrence_truth_status: 'asserted' })
+          }
+        } else {
+          const result = await emitTwoRowSplit({
+            repo: splitActivityRepo,
+            existingActivity,
+            existingActivities: currentActivities,
+            suffix: decision.suffix,
+          })
+          if (result.outcome !== 'split') {
+            failures.push({ name, message: `"${name}" could not be split into two activities — that name is already in use.` })
+          }
+        }
+      } catch (err) {
+        failures.push({ name, message: describeWriteFailure(err, `The split for "${name}" could not be saved.`) })
+      }
+    }
+    if (failures.length > 0) {
+      // Not silently dropped: logged for the director/support to find, without
+      // blocking or reversing an import that already committed successfully.
+      console.error('Two-row split apply failures:', failures)
+    }
+    return failures
   }
 
   // ADR 2026-08-17-onescreen-reconciliation-merge.md §2 — every name the file
@@ -567,22 +764,35 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
   // director to Roots, where the post-import banner and the surviving
   // grace-window undo now live. The undo's invertibleOps/createdEntityIds
   // ride along on `outcome`, exactly as they did before.
-  function handleReconciliationCommitted(outcome) {
+  //
+  // HIGH #1 — this is the single seam where a staged two-row split is
+  // actually applied: the import has just committed, so writing the split
+  // rows here can no longer strand an orphan if the director had instead
+  // discarded (applyStagedSplits only ever runs from this path, never from
+  // handleReconciliationDiscard). Awaited before navigating away so a split
+  // failure is captured while this component is still mounted.
+  async function handleReconciliationCommitted(outcome) {
+    const splitFailures = await applyStagedSplits()
     setLedger(null)
     setFileNames([])
     setFixedEvents([])
     setActivityRules({})
     setGroupUnitOverrides({})
-    onImported?.(outcome)
+    setSplitDecisions({})
+    onImported?.(splitFailures.length > 0 ? { ...outcome, splitFailures } : outcome)
     onNavigate('roots')
   }
 
+  // Nothing was written for a staged split (HIGH #1) — discarding the import
+  // is just dropping splitDecisions state, same as every other piece of
+  // review-time state below.
   function handleReconciliationDiscard() {
     setLedger(null)
     setFileNames([])
     setFixedEvents([])
     setActivityRules({})
     setGroupUnitOverrides({})
+    setSplitDecisions({})
   }
 
   // R2'b cutover — once a report exists (the director has staged an import),
@@ -881,31 +1091,68 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
                   those on the next step.
                 </div>
               )}
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                {fixedEvents.map((fe) => {
-                  const key = `${fe.name} ${fe.time_block} ${fe.days.join(',')}`
-                  const scope = fe.scope.is_all_groups ? 'every group' : fe.scope.groups.join(', ')
-                  const daysLabel = operatingDayCount > 0 && fe.days.length >= operatingDayCount
-                    ? 'every day'
-                    : fe.days.join(', ')
-                  return (
-                    <div
-                      key={key}
-                      style={{
-                        fontSize: 12, padding: '5px 10px', borderRadius: 6,
-                        fontFamily: 'inherit', textAlign: 'left',
-                        background: 'color-mix(in srgb, var(--success) 12%, var(--surface))',
-                        border: '1px solid var(--success)',
-                        color: 'var(--text)',
-                      }}
-                    >
-                      {fe.name}
-                      <span style={{ marginLeft: 6, opacity: 0.6, fontSize: 11 }}>
-                        · {fe.time_block} · {scope} · {daysLabel}
-                      </span>
-                    </div>
-                  )
-                })}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'flex-start' }}>
+                {(() => {
+                  // Slice 2b — a dual-use name can appear as more than one
+                  // fixedEvents entry (different time/days); the disclosure
+                  // must render once per name, not once per entry.
+                  const suggestedNames = new Set()
+                  return fixedEvents.map((fe) => {
+                    const key = `${fe.name} ${fe.time_block} ${fe.days.join(',')}`
+                    const scope = fe.scope.is_all_groups ? 'every group' : fe.scope.groups.join(', ')
+                    const daysLabel = operatingDayCount > 0 && fe.days.length >= operatingDayCount
+                      ? 'every day'
+                      : fe.days.join(', ')
+                    // The split acts on a real existing camp activity row (it
+                    // stamps recurrence_truth_status on it and dedupes the new
+                    // row's name against existingActivities) — there is
+                    // nothing yet to split for a name that only exists inside
+                    // this not-yet-committed file.
+                    const existingActivity = existingRecordsAll.activities?.find(
+                      (a) => normalizeName(a.name) === normalizeName(fe.name)
+                    )
+                    const showSplit = dualUseNames.has(fe.name) && !!existingActivity && !suggestedNames.has(fe.name)
+                    if (showSplit) suggestedNames.add(fe.name)
+                    const decision = splitDecisions[fe.name]
+                    const preview = computeSplitPreview(
+                      fe.name,
+                      decision?.suffix ?? DEFAULT_SPLIT_SUFFIX,
+                      proposal.entities.activities,
+                      existingRecordsAll.activities
+                    )
+                    return (
+                      <div key={key} style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+                        <div
+                          style={{
+                            fontSize: 12, padding: '5px 10px', borderRadius: 6,
+                            fontFamily: 'inherit', textAlign: 'left',
+                            background: 'color-mix(in srgb, var(--success) 12%, var(--surface))',
+                            border: '1px solid var(--success)',
+                            color: 'var(--text)',
+                          }}
+                        >
+                          {fe.name}
+                          <span style={{ marginLeft: 6, opacity: 0.6, fontSize: 11 }}>
+                            · {fe.time_block} · {scope} · {daysLabel}
+                          </span>
+                        </div>
+                        {showSplit && (
+                          <TwoRowSplitSuggestion
+                            name={fe.name}
+                            decision={decision}
+                            preview={preview}
+                            onChangeSuffix={(suffix) => updateSplitDecision(fe.name, { suffix, errorMessage: null })}
+                            onToggleExpanded={() => updateSplitDecision(fe.name, { expanded: !decision?.expanded })}
+                            onSplit={() => confirmSplit(fe.name, existingActivity)}
+                            onDecline={() => declineSplit(fe.name)}
+                            onReuse={() => reuseCollision(fe.name, existingActivity)}
+                            onPickDifferent={() => updateSplitDecision(fe.name, { suffix: '', outcome: 'idle', errorMessage: null })}
+                          />
+                        )}
+                      </div>
+                    )
+                  })
+                })()}
               </div>
             </div>
           )}
@@ -1201,6 +1448,161 @@ function ActivityRuleRow({ name, rule, allGroups, onChange, onToggleGroup }) {
               </button>
             )
           })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Slice 2b — the two-rows split suggestion attached to a dual-use Recurring
+// Events chip (docs/work/specs/2026-08-23-two-rows-slice2-affordance.md).
+// Off-by-default, calm, easily ignored: a quiet disclosure link that expands
+// into the suffix editor, then either a quiet confirmation line or (on
+// collision) a three-way micro-decision. `decision` is undefined until the
+// director interacts with this name.
+//
+// Copy discipline: never surface "occurrence-pattern", "truth-status",
+// "asserted", "obligation", or "permission" here — plain scheduling language
+// only, matching ActivityRuleRow and the Keep-vs-Replace block above.
+function TwoRowSplitSuggestion({ name, decision, preview, onChangeSuffix, onToggleExpanded, onSplit, onDecline, onReuse, onPickDifferent }) {
+  const expanded = decision?.expanded ?? false
+  const accepted = decision?.accepted ?? false
+  const suffix = decision?.suffix ?? DEFAULT_SPLIT_SUFFIX
+  const errorMessage = decision?.errorMessage
+  // preview.collision is the live client precheck (recomputed every
+  // keystroke); outcome:'collision' is what emitTwoRowSplit itself reported
+  // (a race the precheck missed, or a surfaced write failure) — either swaps
+  // the card to the three-way.
+  const showCollision = preview.collision || decision?.outcome === 'collision'
+
+  if (accepted) {
+    // Calm, not celebratory — a plain line, no chevron (spec "Outcome handling").
+    return (
+      <div style={{ fontSize: 11, color: 'var(--text-secondary)', padding: '2px 6px' }}>
+        Split into {name} + {decision.confirmedName}.
+      </div>
+    )
+  }
+
+  const chevron = (
+    <svg
+      aria-hidden="true" width="10" height="10" viewBox="0 0 24 24" fill="none"
+      stroke="var(--text-secondary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+      style={{
+        flexShrink: 0, transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+        transition: 'transform var(--motion-base) var(--ease-standard)',
+      }}
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  )
+
+  if (!expanded) {
+    return (
+      <button
+        type="button"
+        onClick={onToggleExpanded}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          fontSize: 11, color: 'var(--text-secondary)', fontFamily: 'inherit',
+          border: 'none', background: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4,
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'color-mix(in srgb, var(--text) 5%, transparent)' }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'none' }}
+      >
+        Also a flexible activity — split into two?
+        {chevron}
+      </button>
+    )
+  }
+
+  const revealKeyframes = (
+    <style>{`
+      @keyframes importSplitReveal { from { max-height: 0; opacity: 0; } to { max-height: 200px; opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) { .import-split-reveal { animation: none !important; } }
+    `}</style>
+  )
+  const cardStyle = {
+    display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 10px',
+    borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)',
+    fontSize: 12, maxWidth: 360, overflow: 'hidden',
+  }
+  const revealStyle = { animation: 'importSplitReveal var(--motion-base) var(--ease-standard)' }
+
+  if (showCollision) {
+    // Reuses the Keep-vs-Replace radio-card idiom (import mode block above):
+    // bordered, clickable rows, no "on" state (these are one-shot actions,
+    // not a persisted toggle).
+    const optionStyle = {
+      display: 'block', width: '100%', textAlign: 'left', cursor: 'pointer',
+      padding: '8px 10px', borderRadius: 7, fontFamily: 'inherit',
+      background: 'var(--surface)', border: '1px solid var(--border)',
+    }
+    return (
+      <div style={cardStyle}>
+        {revealKeyframes}
+        <div className="import-split-reveal" style={revealStyle}>
+          {errorMessage && (
+            <div style={{ color: 'var(--danger)', fontSize: 11, marginBottom: 6 }}>{errorMessage}</div>
+          )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <button onClick={onReuse} style={optionStyle}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>Reuse it</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                Attach the flexible pattern to the existing "{preview.newName}" activity.
+              </div>
+            </button>
+            <button onClick={onPickDifferent} style={optionStyle}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>Pick a different name</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>Choose another suffix.</div>
+            </button>
+            <button onClick={onDecline} style={optionStyle}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)' }}>Cancel</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>Leave "{name}" as one activity.</div>
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div style={cardStyle}>
+      {revealKeyframes}
+      <div className="import-split-reveal" style={revealStyle}>
+        <div style={{ color: 'var(--text)', marginBottom: 6 }}>
+          "{name}" also appears on its own, outside the fixed time — split it into two activities?
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+          <span style={{ fontWeight: 600, color: 'var(--text)' }}>{name}</span>
+          <input
+            autoFocus
+            value={suffix}
+            onChange={(e) => onChangeSuffix(e.target.value)}
+            style={{ width: 90, padding: '3px 5px', fontSize: 12, borderRadius: 5, border: '1px solid var(--border)', color: 'var(--text)', background: 'var(--surface)' }}
+          />
+        </div>
+        {preview.degenerate ? (
+          <div style={{ color: 'var(--danger)', fontSize: 11, marginBottom: 6 }}>
+            Add a suffix so the two activities have different names.
+          </div>
+        ) : (
+          <div style={{ color: 'var(--text-secondary)', fontSize: 11, marginBottom: 6 }}>
+            → "{name}{suffix}" (flexible)
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button
+            className="press-97"
+            onClick={onSplit}
+            disabled={preview.degenerate}
+            style={{ ...S.btnPrimary, padding: '4px 10px', fontSize: 11, opacity: preview.degenerate ? 0.45 : 1 }}
+          >
+            Split
+          </button>
+          <button className="press-97" onClick={onDecline} style={{ ...S.btnSecondary, padding: '4px 10px', fontSize: 11 }}>
+            Not now
+          </button>
         </div>
       </div>
     </div>

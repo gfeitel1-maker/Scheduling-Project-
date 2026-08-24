@@ -121,6 +121,15 @@ export const PERMISSIONS = {
     // blast radius than editing one place (locations.write, which staff keep
     // unchanged, including map_geometry — only the shared image is narrowed).
     'camp_maps.read',
+    // Two-rows split decline-memory (Slice 2b Red Hat HIGH #2) — staff already
+    // hold 'activities.write' and can therefore execute a Split (mint the
+    // flexible-pattern row) themselves; without this grant their decline
+    // ("Not now" / collision-Cancel) silently failed (requireAuthorized threw,
+    // caught and swallowed by ImportScreen.declineSplit), so the suggestion
+    // reappeared on every re-import. Granting the same role that can split the
+    // ability to decline aligns the two halves of one interaction instead of
+    // leaving decline admin-only while split is staff-reachable.
+    'declined_two_row_splits.record',
   ],
   // devices.approve and devices.revoke are admin-only (via admin: ['*'])
   // devices.dev_authorize has been removed — superseded by devices.approve

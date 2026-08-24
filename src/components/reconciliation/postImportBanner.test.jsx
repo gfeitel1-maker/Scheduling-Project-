@@ -53,6 +53,17 @@ describe('PostImportBanner', () => {
     expect(screen.getByText('Ready to build a week.')).toBeTruthy()
   })
 
+  it('surfaces staged two-row split failures to the director (Red Hat HIGH B — not just console.error)', () => {
+    render(
+      <PostImportBanner
+        outcome={outcome({ splitFailures: [{ name: 'Ceramics', message: 'The split for "Ceramics" couldn’t be applied — that activity is no longer in your setup.' }] })}
+        readiness={getReadiness(READY_COLLECTIONS)}
+        graceWindow={idleGraceWindow()} onNavigate={vi.fn()} />
+    )
+    expect(screen.getByText(textNode(/A split you chose couldn’t be applied/))).toBeTruthy()
+    expect(screen.getByText(textNode(/no longer in your setup/))).toBeTruthy()
+  })
+
   it('shows the one-time brand celebration on completion', () => {
     render(
       <PostImportBanner outcome={outcome()} readiness={getReadiness(READY_COLLECTIONS)}
