@@ -147,6 +147,46 @@ describe('populateElectiveSet', () => {
     expect(ids1).toEqual(ids2)
   })
 
+  it('permission-tier: a newly-created offering activity is marked recurrence_truth_status permission', async () => {
+    const parsed = parsedWith([{ timeIndex: 0, groupIndex: 0, activityName: 'Archery', locationName: null }])
+
+    const result = await populateElectiveSet(parsed, {
+      electiveSetId: ELECTIVE_SET_ID, campId: CAMP_ID, repo, existingActivities: [], existingOfferings: [],
+    })
+
+    expect(result.ok).toBe(true)
+    const [newActivityId] = repo.writeActivityFields.mock.calls[0]
+    const permissionWrite = repo.calls.find((c) => c.entity === 'activities' && c.id === newActivityId && c.fields.recurrence_truth_status)
+    expect(permissionWrite.fields).toEqual({ recurrence_truth_status: 'permission' })
+  })
+
+  it('permission-tier: non-destructive — does NOT overwrite a prior obligation/asserted on a matched existing activity', async () => {
+    // "Swim" is a fixed/obligation block reused as an elective (routine name
+    // collision). The single recurrence_truth_status column can't hold both;
+    // collapsing to 'permission' would silently destroy the obligation evidence
+    // on a synced column. Coexistence is owner priority #5 (two-rows split).
+    const existingActivities = [{ id: 'act-swim', name: 'Swim', recurrence_truth_status: 'obligation' }]
+    const parsed = parsedWith([{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }])
+
+    await populateElectiveSet(parsed, {
+      electiveSetId: ELECTIVE_SET_ID, campId: CAMP_ID, repo, existingActivities, existingOfferings: [],
+    })
+
+    const truthWrite = repo.calls.find((c) => c.entity === 'activities' && c.id === 'act-swim' && c.fields.recurrence_truth_status)
+    expect(truthWrite).toBeUndefined()
+  })
+
+  it('permission-tier: idempotent — an already-permission matched activity gets no redundant write', async () => {
+    const existingActivities = [{ id: 'act-swim', name: 'Swim', recurrence_truth_status: 'permission' }]
+    const parsed = parsedWith([{ timeIndex: 0, groupIndex: 0, activityName: 'Swim', locationName: null }])
+
+    await populateElectiveSet(parsed, {
+      electiveSetId: ELECTIVE_SET_ID, campId: CAMP_ID, repo, existingActivities, existingOfferings: [],
+    })
+
+    expect(repo.calls.some((c) => c.entity === 'activities')).toBe(false)
+  })
+
   it('ignores timeIndex/groupIndex/locationName — a flat list, not a 2D grid', async () => {
     const existingActivities = [{ id: 'act-swim', name: 'Swim' }]
     const parsed = parsedWith([

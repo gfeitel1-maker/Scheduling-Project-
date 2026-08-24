@@ -17,6 +17,7 @@ import { parseTextGrid } from '../../ingest/textGrid'
 import { workbookToPages } from '../../ingest/sheetGrid'
 import { parseGridSchedule } from '../../ingest/parseGridSchedule'
 import { populateElectiveSet } from '../../ingest/electiveSetPopulate'
+import { markElectivePermissionTier } from '../../ingest/electivePermissionTier'
 import { createActivity } from '../schedule/createActivityHelper'
 import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../../utils/exportSanitize.js'
 
@@ -165,6 +166,8 @@ export default function ElectiveSetDetail({ set, role, activities, locations, ti
 
   async function addExistingOffering(activityId) {
     await add({ activityId })
+    const currentStatus = activities.find((a) => a.id === activityId)?.recurrence_truth_status
+    await markElectivePermissionTier(activityRepo, activityId, currentStatus)
   }
 
   // Part (a) — mints a new activity through the SAME path
@@ -174,8 +177,9 @@ export default function ElectiveSetDetail({ set, role, activities, locations, ti
   // location/eligibility at creation time, those are Activities-screen
   // concerns (spec's "what a newly-created activity gets").
   async function createAndAddOffering(name) {
-    const { activityId } = await createActivity({ name, campId: set.camp_id, activities }, activityRepo)
+    const { activityId, activity } = await createActivity({ name, campId: set.camp_id, activities }, activityRepo)
     await add({ activityId })
+    await markElectivePermissionTier(activityRepo, activityId, activity.recurrence_truth_status)
     await refreshActivities()
   }
 
