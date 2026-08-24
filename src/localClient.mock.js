@@ -327,7 +327,7 @@ export const MOCK_WRITE_ALLOWLIST = {
   // mirror of PROJECTIONS.camp_maps.fields, per this file's "do not import
   // from electron/" rule (kept honest by electron/ipcSurfaceParity.test.js).
   camp_maps: ['camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'],
-  anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id'],
+  anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id', 'span_blocks'],
   week_activity_exclusions: ['week_id', 'activity_id'],
   week_group_exclusions: ['week_id', 'group_id'],
   week_location_exclusions: ['week_id', 'location_id'],
@@ -562,7 +562,7 @@ export const mockShoresh = {
   // off localStorage on every call (never a live reference), so skipping the
   // final saveState() is sufficient to discard every mutation this run made —
   // CLONE-RUN-DISCARD without a second copy step.
-  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false, electiveHeaderFindings, activityPeriods, confirmedElectiveSets } = {}) {
+  async ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, dryRun = false, seenCounts, pinOnlyActivityNames, captureInverse = false, electiveHeaderFindings, activityPeriods, confirmedElectiveSets, multiBlockEvents } = {}) {
     const state = loadState()
     if (!state.camp) throw new Error('ingest: no camp')
     // U1 Invariant 3 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md) —
@@ -583,7 +583,7 @@ export const mockShoresh = {
     // "creation" (createdEntityIds). Sufficient to drive :5200's undo UI —
     // NOT a substitute for the real seq-gated "touched since" mechanism,
     // which only exists under electron:dev (CLAUDE.md's dev/mock split).
-    const captureEntities = [...INGESTIBLE_ENTITIES, 'anchor_activities']
+    const captureEntities = [...INGESTIBLE_ENTITIES, 'anchor_activities', 'events']
     const beforeSnapshot = captureInverse
       ? Object.fromEntries(captureEntities.map((e) => [e, new Map((state[e] ?? []).map((r) => [r.id, { ...r }]))]))
       : null
@@ -990,9 +990,34 @@ export const mockShoresh = {
         state.anchor_activities.push({
           id, camp_id: campId, cohort_id: targetCohort, day_id: dayId, time_block_id: tbId,
           name: String(fe.name ?? '').trim(), is_all_groups: isAll, group_ids: JSON.stringify(isAll ? [] : groupIds),
+          // Slice B (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md
+          // addendum): mirrors the real commitPlan's `fe.span_blocks ?? 1`
+          // default — a no-op for every fixedEvents caller that predates it.
+          span_blocks: fe.span_blocks ?? 1,
         })
         fixedCreatedIds.push(id)
       }
+    }
+
+    // Slice B one-off path: ingest's first-ever `events` writer. Catalog row
+    // only (surface-then-fill) — no template_slots placement, mirroring the
+    // real commitPlan's dedicated multiBlockEvents block below. Red Hat HIGH
+    // #1 — recognize-then-skip against any events row already live (by
+    // normalized name), same as the real ingest.js's liveEventNames scan, so
+    // re-confirming the same candidate on a re-import at :5200 does not mint
+    // a duplicate either.
+    if (!Array.isArray(state.events)) state.events = []
+    const liveEventNames = new Set((state.events ?? []).map((e) => norm(e.name)))
+    const multiBlockEventCreatedIds = []
+    const seenEventNames = new Set()
+    for (const ev of Array.isArray(multiBlockEvents) ? multiBlockEvents : []) {
+      const key = norm(ev.name)
+      if (!ev.name || seenEventNames.has(key)) continue
+      seenEventNames.add(key)
+      if (liveEventNames.has(key)) continue
+      const id = randomId()
+      state.events.push({ id, camp_id: campId, name: String(ev.name).trim(), notes: ev.notes ?? '' })
+      multiBlockEventCreatedIds.push(id)
     }
 
     let invertibleOps = null
@@ -1094,8 +1119,8 @@ export const mockShoresh = {
   // ADR), not an unqualified assertion made here.
   // clears/humanEditedFields are accepted by the real IPC surface but, like
   // ingestCommit above, the mock's decide layer doesn't consume them.
-  async ingestReconcile({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods } = {}) {
-    const outcome = await this.ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, dryRun: true })
+  async ingestReconcile({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents } = {}) {
+    const outcome = await this.ingestCommit({ approved, links, cohort_id, fixedEvents, activityRules, mode, resolutions, base_generation, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents, dryRun: true })
     return {
       dryRun: true,
       held: outcome.held,

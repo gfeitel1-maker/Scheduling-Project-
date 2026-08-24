@@ -616,7 +616,7 @@ function commitElectiveCandidates(db, { confirmedElectiveSets = [], camp_id, aut
   return { created, failed }
 }
 
-export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [] }) {
+export function commitIngest(db, { approved, links, clears = {}, humanEditedFields = {}, camp_id, cohort_id = null, author_user_id, device_id, fixedEvents = [], activityRules = {}, mode = 'add', resolutions = [], base_generation = 0, dryRun = false, seenCounts = null, pinOnlyActivityNames = [], captureInverse = false, electiveHeaderFindings = [], activityPeriods = {}, confirmedElectiveSets = [], multiBlockEvents = [] }) {
   if (!approved || typeof approved !== 'object') throw new Error('ingest: nothing to commit')
   if (!camp_id) throw new Error('ingest: camp_id is required')
 
@@ -653,7 +653,7 @@ export function commitIngest(db, { approved, links, clears = {}, humanEditedFiel
     // create confidence) and pinOnlyActivityNames (the A3 guard) flow straight
     // through the same way — additive, absent for any caller/fixture that
     // predates this change (S4b workbook re-import included — Risk 2/A4).
-    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode, base_generation, humanEditedFields, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods },
+    { approved: recordApproved, links, activityRules, fixedEvents, camp_id, cohort_id, mode, base_generation, humanEditedFields, seenCounts, pinOnlyActivityNames, electiveHeaderFindings, activityPeriods, multiBlockEvents },
     existing,
     // T73: a director's per-conflict decisions from a prior held commit. buildPlan
     // consumes only the ambiguous_identity picks; stale picks flow to commitPlan.
@@ -822,6 +822,19 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   // this run.
   const tierIdByName = new Map()
   const blockIdByName = new Map()
+  // Red Hat MEDIUM #3 (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md
+  // addendum) — span overflow guard. buildSchedule.js walks span_blocks-1
+  // TAIL blocks forward from the head using the SAME camp-wide,
+  // sort_order-ordered time_blocks list (`timeBlocksSorted`/`blockOrder`),
+  // silently skipping any tail block past the end of that list (`if
+  // (tailBlock)`). A confirmed recurring candidate whose span_blocks would
+  // walk off the end reserves fewer blocks than its span_blocks claims —
+  // clamped here, at write time, to the number of blocks actually
+  // remaining from the head, so what gets written never overruns what the
+  // engine can place. id -> 0-based index in this SAME sort_order, scoped
+  // to this cohort exactly like blockIdByName above.
+  const blockIndexById = new Map()
+  let cohortTimeBlockCount = 0
   const dayIdByName = new Map()
   const groupIdByName = new Map()
   // M4 §D1b/§13: TRIM-only, case-sensitive keys — NOT normalizeName — matching
@@ -1016,6 +1029,15 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
   const fixedRejected = []
   const fixedMoved = []
   const fixedScopeChanged = []
+  // Slice B one-off path (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md
+  // addendum) — a director-confirmed multi-block candidate marked "just this
+  // once" mints an `events` catalog row only, never a template_slots
+  // placement. Separate from the fixedEvents arrays above: this is not an
+  // anchor and carries no day/block/group resolution.
+  const multiBlockEventsCreated = []
+  // Red Hat HIGH #1 — a candidate recognized against an already-live events
+  // row (by normalized name) on a re-import; no op written for it.
+  const multiBlockEventsUnchanged = []
 
   // T72: slot identity of a fixed-event occurrence — "this activity, in this
   // block, on this day, for this cohort." is_all_groups/group_ids are attributes
@@ -1426,6 +1448,19 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       liveAnchorScope.set(slotKey, { is_all_groups: row.is_all_groups, group_ids: groupIds })
     }
 
+    // Slice B one-off recognition (Red Hat HIGH #1, docs/adr/2026-08-24-
+    // merged-cell-multiblock-ingest.md addendum). Mirrors anchorSlots above —
+    // a live scan of the camp's existing `events` rows, by normalized name,
+    // built once inside this same transaction, so re-confirming the same
+    // one-off candidate on a re-import recognizes the row that already
+    // exists instead of minting a second one. `events` has no slot-identity
+    // concept the way an anchor does (no day/time-block), so name is the
+    // whole identity here — same "by name" resolution the recurring path
+    // already relies on for fixedEvents.
+    const liveEventNames = new Set(
+      db.prepare('SELECT name FROM events WHERE camp_id = ?').all(camp_id).map((row) => normalizeName(row.name))
+    )
+
     // Fixed-event reimport tombstone fix: built right after the live-anchor
     // scan, inside the same transaction, so a held import rolls it back too.
     // Replace mode is an intentional clean slate — the director asked to rebuild
@@ -1711,6 +1746,20 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       })
     }
 
+    // Red Hat MEDIUM #3 — queried fresh HERE, after the toCreate/toUpdate
+    // loops above have already run (this transaction, this connection, so a
+    // time_block this SAME import just created is visible), rather than
+    // reused from seedNameMaps' earlier snapshot (which ran before any
+    // create). Same cohort scope as blockIdByName, ordered by sort_order —
+    // buildSchedule.js's own ordering key.
+    for (const row of db
+      .prepare('SELECT id, cohort_id, sort_order FROM time_blocks WHERE camp_id = ?')
+      .all(camp_id)
+      .filter((row) => (row.cohort_id ?? null) === (cohort_id ?? null))
+      .sort((a, b) => a.sort_order - b.sort_order)) {
+      blockIndexById.set(row.id, cohortTimeBlockCount++)
+    }
+
     // Fixed events, after the entity loop and INSIDE the same transaction, so
     // the whole import stays one atomic unit (ADR §4). anchor_activities is
     // written here and nowhere else in ingest; the generic whitelist never lets
@@ -1749,6 +1798,19 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           days: fe.days,
         })
       }
+      // Red Hat MEDIUM #3 — clamp span_blocks to what actually remains from
+      // the head block, in this SAME sort_order buildSchedule.js walks
+      // forward in (`timeBlocksSorted`/`blockOrder`). Unclamped, a confirmed
+      // span whose head sits near the day's last block would write a claim
+      // (e.g. "3 blocks") the engine can only partially honor — it silently
+      // drops any tail block past the end of the list (`if (tailBlock)`),
+      // so the director believes more is reserved than actually is. Computed
+      // once per fe (constant across its day fan-out below), on the SAME
+      // tbId every day of this fe shares.
+      const headIdx = blockIndexById.get(tbId)
+      const blocksRemaining = headIdx !== undefined ? cohortTimeBlockCount - headIdx : (fe.span_blocks ?? 1)
+      const clampedSpanBlocks = Math.min(fe.span_blocks ?? 1, Math.max(blocksRemaining, 1))
+
       // Per-day fan-out — one row per resolved day, each its own uuid. Matches
       // AnchorsScreen: is_all_groups 1|0, group_ids a JSON string.
       for (const dayId of dayIds) {
@@ -1852,6 +1914,15 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           name: String(fe.name ?? '').trim(),
           is_all_groups: isAll,
           group_ids: JSON.stringify(isAll ? [] : groupIds),
+          // Slice B (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md
+          // addendum): a director-confirmed recurring multi-block candidate
+          // is handed in as an ordinary fixedEvents entry with span_blocks
+          // set. Omitted (not written as an explicit 1) for every other
+          // fixedEvents caller — schema/engine both already treat a NULL
+          // span_blocks as 1 (buildSchedule.js: `anchor.span_blocks || 1`),
+          // so leaving it unset is a true byte-identical no-op at the
+          // op-log level, not just a value-equivalent one.
+          ...(clampedSpanBlocks > 1 ? { span_blocks: clampedSpanBlocks } : {}),
         }
         for (const [field, value] of Object.entries(fields)) {
           if (value === null || value === undefined) continue
@@ -1869,6 +1940,51 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         }
         fixedCreated.push({ anchorId, name: fe.name, confidence: fe.confidence, time_block: fe.time_block, days: fe.days })
       }
+    }
+
+    // Slice B one-off path. Ingest's first-ever `events` writer — a catalog
+    // row only (name/notes), via the SAME projection/op-log write path the
+    // Events UI already uses (ScheduleScreen event creation). No day/time-
+    // block/group resolution and no template_slots row: placement is a
+    // week+route decision ingest has no context for (ADR addendum §3), so the
+    // director places the new event onto whichever grid they choose via the
+    // existing Events UI. Dedup within THIS commit's batch by normalized
+    // name, AND recognize-then-skip against liveEventNames (Red Hat HIGH
+    // #1) so re-confirming the same candidate on a re-import does not mint a
+    // second row — same idempotency discipline T72 already gives the
+    // recurring path via anchorSlots above. Re-import provenance ON A FIELD
+    // (EVIDENCE_ENTITY_TYPES, hand-edit protection) is a separate, still-open
+    // question (addendum open question 2) — this is only identity
+    // recognition, the same mechanism anchorSlots provides for anchors,
+    // which is also not EVIDENCE_ENTITY_TYPES-based.
+    const seenMultiBlockEventNames = new Set()
+    for (const ev of plan.multiBlockEvents ?? []) {
+      const name = String(ev?.name ?? '').trim()
+      if (!name) continue
+      const norm = normalizeName(name)
+      if (seenMultiBlockEventNames.has(norm)) continue
+      seenMultiBlockEventNames.add(norm)
+      if (liveEventNames.has(norm)) {
+        multiBlockEventsUnchanged.push({ name })
+        continue
+      }
+      const eventId = randomUUID()
+      const fields = { camp_id, name, notes: ev.notes ?? '' }
+      for (const [field, value] of Object.entries(fields)) {
+        if (value === null || value === undefined) continue
+        write(db, {
+          entity: 'events',
+          entity_id: eventId,
+          field,
+          value,
+          author_user_id: author_user_id ?? null,
+          device_id,
+          parent_op_id: null,
+          client_write_id: randomUUID(),
+          source: IMPORT_SOURCE,
+        })
+      }
+      multiBlockEventsCreated.push({ eventId, name })
     }
 
     // D1: everything above ran and every count/drift array is populated —
@@ -1931,6 +2047,7 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         created: 0, unchanged: 0, skipped: [], partial: [], rejected: [], moved: [], scopeChanged: [],
         createdEntries: [], unchangedEntries: [],
       },
+      multiBlockEvents: { created: 0, unchanged: 0, createdEntries: [], unchangedEntries: [] },
     }
   }
 
@@ -1958,6 +2075,12 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
       // .unchanged for buildReconciliationReport to consume.
       createdEntries: fixedCreated,
       unchangedEntries: fixedUnchanged,
+    },
+    multiBlockEvents: {
+      created: multiBlockEventsCreated.length,
+      unchanged: multiBlockEventsUnchanged.length,
+      createdEntries: multiBlockEventsCreated,
+      unchangedEntries: multiBlockEventsUnchanged,
     },
   }
   if (replaced) outcome.replaced = replaced
