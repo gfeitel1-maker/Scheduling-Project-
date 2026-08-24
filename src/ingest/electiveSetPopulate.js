@@ -8,6 +8,7 @@
 // The real ElectivesScreen.jsx wires a repo backed by setupCrudRepository.
 
 import { createActivity } from '../screens/schedule/createActivityHelper.js'
+import { markElectivePermissionTier } from './electivePermissionTier.js'
 
 // Content-keyed on the RESOLVED activity (not source position, unlike
 // deriveEventImportId) — a flat set has no meaningful cell position, and
@@ -58,6 +59,7 @@ export async function populateElectiveSet(parsed, { electiveSetId, campId, repo,
       activity_id: activityId,
       camper_headcount: null,
     })
+    await markElectivePermissionTier(repo, activityId, activity.recurrence_truth_status)
   }
 
   return { ok: true }

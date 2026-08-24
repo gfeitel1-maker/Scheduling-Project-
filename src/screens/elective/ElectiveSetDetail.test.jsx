@@ -145,6 +145,52 @@ describe('ElectiveSetDetail — Add Offering (existing activity)', () => {
     expect(calls.some((c) => c[3] === 'activity_id' && c[4] === 'act-2')).toBe(true)
     expect(calls.some((c) => c[3] === 'elective_set_id' && c[4] === 'set-1')).toBe(true)
   })
+
+  it('marks a blank-status added activity recurrence_truth_status permission (electives are Permission-tier by construction)', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [] }))
+    // act-2 carries no prior truth-status → claimable as Permission.
+    renderDetail({ activities: [activity(), activity({ id: 'act-2', name: 'Ceramics' })] })
+    await waitFor(() => expect(screen.queryByText('No offerings yet')).not.toBeNull())
+
+    const input = screen.getByLabelText('Search or add an activity')
+    fireEvent.change(input, { target: { value: 'Ceramics' } })
+    fireEvent.mouseDown(screen.getByText('Ceramics'))
+
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'activities', 'act-2', 'recurrence_truth_status', 'permission')
+    )
+  })
+
+  it('non-destructive — does NOT overwrite a prior obligation/asserted when the added activity already has a truth-status', async () => {
+    // "Ceramics" already classified obligation (reused from the main schedule).
+    // Adding it as an elective must not collapse that truth to 'permission' on
+    // the single synced column — coexistence is owner priority #5 (two-rows).
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [] }))
+    renderDetail({ activities: [activity(), activity({ id: 'act-2', name: 'Ceramics', recurrence_truth_status: 'obligation' })] })
+    await waitFor(() => expect(screen.queryByText('No offerings yet')).not.toBeNull())
+
+    const input = screen.getByLabelText('Search or add an activity')
+    fireEvent.change(input, { target: { value: 'Ceramics' } })
+    fireEvent.mouseDown(screen.getByText('Ceramics'))
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+    expect(
+      localClient.write.mock.calls.some((c) => c[2] === 'act-2' && c[3] === 'recurrence_truth_status')
+    ).toBe(false)
+  })
+
+  it('does not write recurrence_truth_status again when the added activity is already permission-tier', async () => {
+    localClient.list.mockImplementation(byEntity({ elective_set_activities: [] }))
+    renderDetail({ activities: [activity(), activity({ id: 'act-2', name: 'Ceramics', recurrence_truth_status: 'permission' })] })
+    await waitFor(() => expect(screen.queryByText('No offerings yet')).not.toBeNull())
+
+    const input = screen.getByLabelText('Search or add an activity')
+    fireEvent.change(input, { target: { value: 'Ceramics' } })
+    fireEvent.mouseDown(screen.getByText('Ceramics'))
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+    expect(localClient.write.mock.calls.some((c) => c[3] === 'recurrence_truth_status')).toBe(false)
+  })
 })
 
 describe('ElectiveSetDetail — Add Offering (manual create-any-activity, electives-gap Part a)', () => {
@@ -167,6 +213,9 @@ describe('ElectiveSetDetail — Add Offering (manual create-any-activity, electi
     expect(calls.some((c) => c[1] === 'activities' && c[3] === 'camp_id' && c[4] === CAMP_ID)).toBe(true)
     // Then adds the newly-minted activity as an offering on this set.
     expect(calls.some((c) => c[1] === 'elective_set_activities' && c[3] === 'elective_set_id' && c[4] === 'set-1')).toBe(true)
+    // A freshly-minted activity is also marked Permission-tier — electives
+    // are Permission-tier by construction (ADR §4.1).
+    expect(calls.some((c) => c[1] === 'activities' && c[3] === 'recurrence_truth_status' && c[4] === 'permission')).toBe(true)
     await waitFor(() => expect(refreshActivities).toHaveBeenCalled())
   })
 
