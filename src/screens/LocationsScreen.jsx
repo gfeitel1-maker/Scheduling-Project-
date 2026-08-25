@@ -1264,7 +1264,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
           onSaveTileType={async (id, tileType) => {
             setTileBusy(true)
             try {
-              await localClient.writeFields('locations', id, { tile_type: tileType })
+              await repository.writeFields('locations', id, { tile_type: tileType })
               await reload()
             } catch (err) {
               setError(describeWriteFailure(err))
@@ -1275,7 +1275,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
           onSaveGridPos={async (id, gridX, gridY) => {
             setTileBusy(true)
             try {
-              await localClient.writeFields('locations', id, { grid_x: gridX, grid_y: gridY })
+              await repository.writeFields('locations', id, { grid_x: gridX, grid_y: gridY })
               await reload()
             } catch (err) {
               setError(describeWriteFailure(err))
@@ -1286,7 +1286,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
           onClearPlacement={async (id) => {
             setTileBusy(true)
             try {
-              await localClient.writeFields('locations', id, { tile_type: null, grid_x: null, grid_y: null })
+              await repository.writeFields('locations', id, { tile_type: null, grid_x: null, grid_y: null })
               await reload()
             } catch (err) {
               setError(describeWriteFailure(err))

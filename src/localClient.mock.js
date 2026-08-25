@@ -322,7 +322,7 @@ export const MOCK_WRITE_ALLOWLIST = {
     'location_id',
     'recurrence_truth_status',
   ],
-  locations: ['camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry'],
+  locations: ['camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry', 'tile_type', 'grid_x', 'grid_y'],
   // M6 (docs/adr/2026-08-16-locations-optional-map.md D1) — hand-transcribed
   // mirror of PROJECTIONS.camp_maps.fields, per this file's "do not import
   // from electron/" rule (kept honest by electron/ipcSurfaceParity.test.js).
