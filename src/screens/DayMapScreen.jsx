@@ -12,7 +12,6 @@ import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import { deriveOccupancy } from '../data/deriveOccupancy'
 import GroupMarker from '../components/schedule/GroupMarker'
-import TileWorldRenderer from '../components/locations/TileWorldRenderer'
 import '../components/locations/locationMap.css'
 
 // A location is renderable on the map only if its map_geometry parses to a real
@@ -161,41 +160,6 @@ export default function DayMapScreen({ campId, onNavigate, weekId }) {
     [data.locations]
   )
 
-  const tileOccupancy = useMemo(() => {
-    if (!hasTileWorld) return null
-    const tileLocIds = new Set(
-      data.locations
-        .filter((l) => l.grid_x != null && l.grid_y != null)
-        .map((l) => l.id)
-    )
-    return {
-      locations: data.locations.filter((l) => tileLocIds.has(l.id)),
-      placed: occupancy.located
-        .filter((e) => tileLocIds.has(e.locationId))
-        .flatMap((e) => e.groups.map((g) => ({
-          locationId: e.locationId,
-          groupId: g.groupId,
-          groupName: groupNameById(g.groupId),
-          groupColor: null,
-          isJam: e.isJam,
-        }))),
-    }
-  }, [hasTileWorld, data.locations, occupancy])
-
-  const [mapMode, setMapMode] = useState('tile-world')
-
-  const tileContainerRef = useRef(null)
-  const [tileSize, setTileSize] = useState({ width: 700, height: 480 })
-  useEffect(() => {
-    if (!tileContainerRef.current) return
-    const obs = new ResizeObserver(([entry]) => {
-      const w = Math.floor(entry.contentRect.width)
-      if (w > 0) setTileSize({ width: w, height: Math.floor(w * 0.6) })
-    })
-    obs.observe(tileContainerRef.current)
-    return () => obs.disconnect()
-  }, [])
-
   // A location can be LOCATED (an activity points at it) yet have no valid map
   // position — map_geometry NULL (added in the List, never dragged onto the map)
   // or malformed. Those must NOT silently vanish, especially a JAM at one, or the
@@ -224,44 +188,17 @@ export default function DayMapScreen({ campId, onNavigate, weekId }) {
         </div>
       </div>
 
-      {hasTileWorld && hasMap && (
-        <div style={{ display: 'flex', gap: 2, background: 'var(--border)', borderRadius: 8, padding: 3, marginBottom: 16, width: 'fit-content' }}>
-          {[['tile-world', 'Tile World'], ['floor-plan', 'Floor Plan']].map(([v, label]) => (
-            <button
-              key={v}
-              onClick={() => setMapMode(v)}
-              style={{
-                padding: '6px 14px', borderRadius: 6, border: 'none', cursor: 'pointer',
-                fontSize: 12, fontWeight: mapMode === v ? 700 : 600, fontFamily: 'var(--font-sans)',
-                background: mapMode === v ? 'var(--surface)' : 'none',
-                color: mapMode === v ? 'var(--primary)' : 'var(--text-secondary)',
-                boxShadow: mapMode === v ? '0 1px 4px rgba(0,0,0,0.12)' : 'none',
-                transition: 'color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)',
-              }}
-            >{label}</button>
-          ))}
-        </div>
-      )}
-
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>
-      ) : !hasMap && !hasTileWorld ? (
+      ) : !hasMap ? (
         <EmptyState
           title="No map yet"
-          body="Add a photo of your camp grounds on the Locations screen to see where the day is happening."
-          ctaLabel="Upload a map"
+          body={hasTileWorld
+            ? 'You\'ve placed locations in the Tile World — the viewer is coming soon. Add a photo of your camp grounds to see the day on the map now.'
+            : 'Add a photo of your camp grounds on the Locations screen to see where the day is happening.'}
+          ctaLabel="Go to Locations"
           onCta={() => onNavigate('locations')}
         />
-      ) : hasTileWorld && (!hasMap || mapMode === 'tile-world') ? (
-        <div ref={tileContainerRef} style={{ width: '100%' }}>
-          {tileOccupancy && (
-            <TileWorldRenderer
-              occupancy={tileOccupancy}
-              width={tileSize.width}
-              height={tileSize.height}
-            />
-          )}
-        </div>
       ) : !occupancy.templateFound ? (
         <EmptyState
           title={`No ${routeLabel.toLowerCase()} schedule built yet`}
