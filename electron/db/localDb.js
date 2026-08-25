@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 47
+export const CURRENT_SCHEMA_VERSION = 48
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1810,6 +1810,32 @@ export function initSchema(db) {
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (47, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v48 — tile world placement columns on locations
+  // (docs/work/specs/2026-08-25-tile-world-day-map.md §4).
+  // Three additive, nullable columns. A location is "tile-placed" when all
+  // three are non-null. No backfill — existing rows stay NULL. DDL-only, no
+  // op emitted, same posture as v33-v47.
+  if (getSchemaVersion(db) >= 47 && getSchemaVersion(db) < 48) {
+    db.transaction(() => {
+      const cols = db.pragma('table_info(locations)').map((c) => c.name)
+      if (!cols.includes('tile_type')) {
+        db.exec(`ALTER TABLE locations ADD COLUMN tile_type TEXT CHECK(
+          tile_type IS NULL OR tile_type IN ('building','pool','field','cabin','court','nature','generic')
+        ) DEFAULT NULL`)
+      }
+      if (!cols.includes('grid_x')) {
+        db.exec('ALTER TABLE locations ADD COLUMN grid_x INTEGER DEFAULT NULL')
+      }
+      if (!cols.includes('grid_y')) {
+        db.exec('ALTER TABLE locations ADD COLUMN grid_y INTEGER DEFAULT NULL')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (48, ?)').run(
       new Date().toISOString()
     )
   }

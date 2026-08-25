@@ -7,7 +7,7 @@
 // highlighted as a jam. Groups whose activity has no location go in the
 // "Not on the map" panel. Entirely read-only — see deriveOccupancy.js
 // (Decision 1) for why this never invokes buildSchedule.js.
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import { deriveOccupancy } from '../data/deriveOccupancy'
@@ -155,6 +155,11 @@ export default function DayMapScreen({ campId, onNavigate, weekId }) {
 
   const hasMap = Boolean(data.mapRow?.image_data)
 
+  const hasTileWorld = useMemo(
+    () => data.locations.some((l) => l.grid_x != null && l.grid_y != null),
+    [data.locations]
+  )
+
   // A location can be LOCATED (an activity points at it) yet have no valid map
   // position — map_geometry NULL (added in the List, never dragged onto the map)
   // or malformed. Those must NOT silently vanish, especially a JAM at one, or the
@@ -188,8 +193,10 @@ export default function DayMapScreen({ campId, onNavigate, weekId }) {
       ) : !hasMap ? (
         <EmptyState
           title="No map yet"
-          body="Add a photo of your camp grounds on the Locations screen to see where the day is happening."
-          ctaLabel="Upload a map"
+          body={hasTileWorld
+            ? 'You\'ve placed locations in the Tile World — the viewer is coming soon. Add a photo of your camp grounds to see the day on the map now.'
+            : 'Add a photo of your camp grounds on the Locations screen to see where the day is happening.'}
+          ctaLabel="Go to Locations"
           onCta={() => onNavigate('locations')}
         />
       ) : !occupancy.templateFound ? (

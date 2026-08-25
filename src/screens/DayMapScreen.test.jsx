@@ -8,6 +8,7 @@ vi.mock('../localClient', () => ({
   },
 }))
 
+
 import DayMapScreen from './DayMapScreen'
 import { localClient } from '../localClient'
 
@@ -47,7 +48,7 @@ describe('DayMapScreen', () => {
     mockTable({ maps: [] })
     render(<DayMapScreen campId={CAMP_ID} weekId={WEEK_ID} onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('No map yet')).not.toBeNull())
-    expect(screen.queryByText('Upload a map')).not.toBeNull()
+    expect(screen.queryByText('Go to Locations')).not.toBeNull()
   })
 
   it('shows an empty state pointing to the route screen when no schedule is built', async () => {
@@ -141,5 +142,14 @@ describe('DayMapScreen', () => {
     render(<DayMapScreen campId={CAMP_ID} weekId={WEEK_ID} onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Not on the map')).not.toBeNull())
     expect(screen.queryByText('Pool')).not.toBeNull()
+  })
+
+  it('shows tile-world hint in the empty state when locations have grid placements but no map', async () => {
+    mockTable({
+      locations: [locationRow({ grid_x: 3, grid_y: 5, map_geometry: null })],
+      maps: [],
+    })
+    render(<DayMapScreen campId={CAMP_ID} weekId={WEEK_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText(/Tile World/)).not.toBeNull())
   })
 })
