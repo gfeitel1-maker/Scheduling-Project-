@@ -9,6 +9,11 @@ import { WebSocketServer } from 'ws'
 import { fileURLToPath } from 'url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+const PROJECT_ROOT = path.resolve(__dirname, '..', '..')
+
+function mimeFor(ext) {
+  return { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp' }[ext.toLowerCase()] ?? 'application/octet-stream'
+}
 
 function getFreePort() {
   return new Promise((resolve, reject) => {
@@ -36,6 +41,21 @@ export async function startTileWorldServer() {
       const html = fs.readFileSync(path.join(__dirname, 'viewer.html'), 'utf8')
       res.writeHead(200, { 'Content-Type': 'text/html' })
       res.end(html.replace('__WS_PORT__', String(port)))
+      return
+    }
+
+    // Tileworld sprite assets: /tileworld-assets/** → src/assets/tileworld/**
+    if (pathname.startsWith('/tileworld-assets/')) {
+      const rel = pathname.slice('/tileworld-assets/'.length)
+      const file = path.join(PROJECT_ROOT, 'src', 'assets', 'tileworld', rel)
+      if (!file.startsWith(path.join(PROJECT_ROOT, 'src', 'assets', 'tileworld'))) {
+        res.writeHead(403); res.end(); return
+      }
+      try {
+        const data = fs.readFileSync(file)
+        res.writeHead(200, { 'Content-Type': mimeFor(path.extname(file)) })
+        res.end(data)
+      } catch { res.writeHead(404); res.end() }
       return
     }
 
