@@ -155,25 +155,22 @@ export default function DayMapScreen({ campId, onNavigate, weekId }) {
 
   const hasMap = Boolean(data.mapRow?.image_data)
 
-  const hasTileWorld = useMemo(
-    () => data.locations.some((l) => l.grid_x != null && l.grid_y != null),
-    [data.locations]
-  )
-
+  // Tile World viewer opens whenever there's a map image OR grid-placed locations.
+  const hasTileWorld = Boolean(data.mapRow?.image_data) || data.locations.some((l) => l.grid_x != null && l.grid_y != null)
 
   const tileOccupancyPayload = useMemo(() => {
     if (!hasTileWorld) return null
-    const tileLocIds = new Set(
-      data.locations.filter((l) => l.grid_x != null && l.grid_y != null).map((l) => l.id)
-    )
     const day = sortedDays.find((d) => d.id === dayId)
     const block = sortedBlocks.find((b) => b.id === blockId)
     return {
       dayLabel: day?.label ?? '',
       blockLabel: block?.name ?? '',
-      locations: data.locations.filter((l) => tileLocIds.has(l.id)),
+      // Include the map image so the viewer can render it as background.
+      mapImage: data.mapRow
+        ? { data: data.mapRow.image_data, mime: data.mapRow.image_mime ?? 'image/jpeg' }
+        : null,
+      locations: data.locations,
       placed: occupancy.located
-        .filter((e) => tileLocIds.has(e.locationId))
         .flatMap((e) => e.groups.map((g) => ({
           locationId: e.locationId,
           groupId: g.groupId,
@@ -181,7 +178,7 @@ export default function DayMapScreen({ campId, onNavigate, weekId }) {
           isJam: e.isJam,
         }))),
     }
-  }, [hasTileWorld, data.locations, occupancy, dayId, blockId, sortedDays, sortedBlocks])
+  }, [hasTileWorld, data.locations, data.mapRow, occupancy, dayId, blockId, sortedDays, sortedBlocks])
 
   // Push occupancy to the tile world viewer whenever it changes.
   useEffect(() => {
