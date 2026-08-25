@@ -160,6 +160,34 @@ export default function DayMapScreen({ campId, onNavigate, weekId }) {
     [data.locations]
   )
 
+  const tileOccupancyPayload = useMemo(() => {
+    if (!hasTileWorld) return null
+    const tileLocIds = new Set(
+      data.locations.filter((l) => l.grid_x != null && l.grid_y != null).map((l) => l.id)
+    )
+    const day = sortedDays.find((d) => d.id === dayId)
+    const block = sortedBlocks.find((b) => b.id === blockId)
+    return {
+      dayLabel: day?.label ?? '',
+      blockLabel: block?.name ?? '',
+      locations: data.locations.filter((l) => tileLocIds.has(l.id)),
+      placed: occupancy.located
+        .filter((e) => tileLocIds.has(e.locationId))
+        .flatMap((e) => e.groups.map((g) => ({
+          locationId: e.locationId,
+          groupId: g.groupId,
+          groupName: groupNameById(g.groupId),
+          isJam: e.isJam,
+        }))),
+    }
+  }, [hasTileWorld, data.locations, occupancy, dayId, blockId, sortedDays, sortedBlocks])
+
+  // Push occupancy to the tile world viewer whenever it changes.
+  useEffect(() => {
+    if (!tileOccupancyPayload) return
+    localClient.pushTileOccupancy(tileOccupancyPayload).catch(() => {})
+  }, [tileOccupancyPayload])
+
   // A location can be LOCATED (an activity points at it) yet have no valid map
   // position — map_geometry NULL (added in the List, never dragged onto the map)
   // or malformed. Those must NOT silently vanish, especially a JAM at one, or the
@@ -186,17 +214,25 @@ export default function DayMapScreen({ campId, onNavigate, weekId }) {
             {sortedBlocks.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
         </div>
+        {hasTileWorld && (
+          <button
+            onClick={() => localClient.startTileWorld().catch(() => {})}
+            style={{ ...S.buttonSecondary, fontSize: 12, padding: '6px 12px' }}
+          >
+            Open Tile World
+          </button>
+        )}
       </div>
 
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>
       ) : !hasMap ? (
         <EmptyState
-          title="No map yet"
+          title={hasTileWorld ? 'Tile World ready' : 'No map yet'}
           body={hasTileWorld
-            ? 'You\'ve placed locations in the Tile World — the viewer is coming soon. Add a photo of your camp grounds to see the day on the map now.'
+            ? 'Your locations are placed in the Tile World. Click "Open Tile World" above to launch the live viewer.'
             : 'Add a photo of your camp grounds on the Locations screen to see where the day is happening.'}
-          ctaLabel="Go to Locations"
+          ctaLabel={hasTileWorld ? 'Go to Locations' : 'Go to Locations'}
           onCta={() => onNavigate('locations')}
         />
       ) : !occupancy.templateFound ? (

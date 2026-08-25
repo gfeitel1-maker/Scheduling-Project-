@@ -5,6 +5,8 @@ import { render, screen, waitFor } from '@testing-library/react'
 vi.mock('../localClient', () => ({
   localClient: {
     list: vi.fn(),
+    pushTileOccupancy: vi.fn().mockResolvedValue({ ok: true }),
+    startTileWorld: vi.fn().mockResolvedValue({ port: null }),
   },
 }))
 
@@ -150,6 +152,6 @@ describe('DayMapScreen', () => {
       maps: [],
     })
     render(<DayMapScreen campId={CAMP_ID} weekId={WEEK_ID} onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText(/Tile World/)).not.toBeNull())
+    await waitFor(() => expect(screen.queryByText('Open Tile World')).not.toBeNull())
   })
 })

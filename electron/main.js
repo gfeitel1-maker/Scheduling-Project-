@@ -3,6 +3,7 @@ import path from 'node:path'
 import os from 'node:os'
 import fs from 'node:fs'
 import { randomUUID, randomBytes } from 'node:crypto'
+import { startTileWorldServer } from './tileWorld/server.js'
 import { fileURLToPath } from 'node:url'
 import { openLocalDb, getOrCreateDeviceId, CURRENT_SCHEMA_VERSION, getSchemaVersion } from './db/localDb.js'
 import { createUser, verifySessionToken, attemptLogin, ensureHostSigningKey } from './auth/localAuth.js'
@@ -1907,6 +1908,36 @@ if (isElectronEntryPoint()) {
   ipcMain.handle('shoresh:smoke-ready', () => {
     writeSmokeMarker()
     return { ok: true }
+  })
+
+  // Tile World viewer — standalone Phaser window served over a local HTTP+WS server.
+  // One server instance per session; a new BrowserWindow is opened each call if none exists.
+  let tileWorldServer = null
+  let tileWorldWindow = null
+  ipcMain.handle('shoresh:start-tile-world', async () => {
+    if (!tileWorldServer) {
+      tileWorldServer = await startTileWorldServer()
+    }
+    if (!tileWorldWindow || tileWorldWindow.isDestroyed()) {
+      tileWorldWindow = new BrowserWindow({
+        width: 1100, height: 720,
+        title: 'Tile World — Shoresh',
+        webPreferences: { nodeIntegration: false, contextIsolation: true },
+      })
+      tileWorldWindow.loadURL(`http://127.0.0.1:${tileWorldServer.port}/`)
+      tileWorldWindow.on('closed', () => { tileWorldWindow = null })
+    } else {
+      tileWorldWindow.focus()
+    }
+    return { port: tileWorldServer.port }
+  })
+  ipcMain.handle('shoresh:push-tile-occupancy', (_event, occupancy) => {
+    tileWorldServer?.broadcast(occupancy)
+    return { ok: true }
+  })
+  app.on('before-quit', () => {
+    tileWorldServer?.close()
+    tileWorldServer = null
   })
 
   function createWindow() {
