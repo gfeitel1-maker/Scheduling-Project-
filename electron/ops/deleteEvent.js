@@ -1,4 +1,5 @@
 import { appendOp, DELETE_FIELD } from './operations.js'
+import { clearSlotOccupant } from './slotOccupants.js'
 
 // Permanently delete an event and every row scoped to it, in one
 // transaction, children before parent, every delete routed through the
@@ -23,7 +24,11 @@ import { appendOp, DELETE_FIELD } from './operations.js'
 // "Event (removed)", so every referencing template_slots row has its
 // event_id cleared to null in the same transaction, via the same per-field
 // write path Slice 1 uses to set it (not DELETE_FIELD — the template_slots
-// row itself is not deleted, only this one field).
+// row itself is not deleted, only this one field). That clearing is the
+// shared occupant cascade, slotOccupants.js's clearSlotOccupant, which
+// deleteRecord.js uses identically for activity_id; the policy for every
+// template_slots occupant column is declared there and guarded by
+// slotOccupantCascadeParity.test.js.
 //
 // Not called from any IPC handler yet — Slice 1 shipped with no event-delete
 // UI at all (restore.js: "events: refused: no delete UI yet"). This is the
@@ -49,19 +54,14 @@ export function deleteEvent(db, { eventId }, { author_user_id, device_id } = {})
     const slots = db.prepare('SELECT id FROM event_slots WHERE event_id = ?').all(eventId)
     for (const s of slots) ops.push(del('event_slots', s.id))
 
-    const referencingTemplateSlots = db
-      .prepare('SELECT id FROM template_slots WHERE event_id = ?')
-      .all(eventId)
-    for (const ts of referencingTemplateSlots) {
-      ops.push(appendOp(db, {
-        entity: 'template_slots',
-        entity_id: ts.id,
+    ops.push(
+      ...clearSlotOccupant(db, {
         field: 'event_id',
-        value: null,
+        entityId: eventId,
         author_user_id,
         device_id,
-      }))
-    }
+      })
+    )
 
     const timeBlocks = db.prepare('SELECT id FROM event_time_blocks WHERE event_id = ?').all(eventId)
     for (const tb of timeBlocks) ops.push(del('event_time_blocks', tb.id))

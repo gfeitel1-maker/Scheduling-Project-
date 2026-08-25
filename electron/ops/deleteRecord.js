@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { appendOp, DELETE_FIELD } from './operations.js'
 import { nameFieldFor } from './restore.js'
+import { clearSlotOccupant } from './slotOccupants.js'
 
 // Deleting a setup record that a schedule uses.
 // docs/adr/2026-07-30-deleting-a-record-a-schedule-uses.md
@@ -259,17 +260,13 @@ function writeRouteSnapshot(db, { template_id, name, author_user_id, device_id }
 // Null the column and each cell reads as "not filled yet". The week keeps its
 // shape, so no version is saved — this is the non-destructive case and must not
 // be made to feel like the other one.
+//
+// The clearing itself is the shared occupant cascade (slotOccupants.js), which
+// deleteEvent.js uses for event_id the same way; `rows` are the ones already
+// read and counted above, so the rows the director was shown and the rows that
+// change cannot drift apart.
 function clearActivityPlacements(db, rows, { author_user_id, device_id }) {
-  return rows.map((row) =>
-    appendOp(db, {
-      entity: 'template_slots',
-      entity_id: row.id,
-      field: 'activity_id',
-      value: null,
-      author_user_id,
-      device_id,
-    })
-  )
+  return clearSlotOccupant(db, { field: 'activity_id', rows, author_user_id, device_id })
 }
 
 // Deleting a GROUP: the slots ARE the group's week, one row per day × block per
