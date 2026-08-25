@@ -1629,6 +1629,13 @@ export const mockShoresh = {
   async openRecentProject() {
     return { status: 'not-supported-in-browser-dev' }
   },
+  // Tile World viewer — no-op in browser dev (Electron BrowserWindow not available).
+  async startTileWorld() {
+    return { port: null }
+  },
+  async pushTileOccupancy() {
+    return { ok: true }
+  },
 }
 
 // Dev-only: expose the mock on window so a manual/automated browser session

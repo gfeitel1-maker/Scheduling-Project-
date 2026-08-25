@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Tile World — Shoresh</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #f5f3ee; overflow: hidden; display: flex; flex-direction: column; height: 100vh; font-family: -apple-system, sans-serif; }
+  #toolbar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: rgba(255,255,255,0.85); backdrop-filter: blur(8px); border-bottom: 1px solid #e0ddd6; font-size: 13px; color: #444; flex-shrink: 0; }
+  #toolbar strong { color: #2F6B58; font-size: 14px; }
+  #status { color: #888; font-size: 12px; margin-left: auto; }
+  #game { flex: 1; }
+</style>
+</head>
+<body>
+<div id="toolbar">
+  <strong>Tile World</strong>
+  <span id="day-label">—</span>
+  <span id="block-label">—</span>
+  <span id="status">Connecting…</span>
+</div>
+<div id="game"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js"></script>
+<script>
+const WS_PORT = __WS_PORT__
+const GRID_COLS = 20
+const GRID_ROWS = 16
+const TILE_W = 128
+const TILE_H = 64
+const DEFAULT_PALETTE = ['#2F6B58','#E07B39','#5B6FA6','#9C4E97','#C4373A']
+
+function tileScreenPos(gridX, gridY, originX, originY) {
+  return {
+    x: (gridX - gridY) * (TILE_W / 2) + originX,
+    y: (gridX + gridY) * (TILE_H / 2) + originY,
+  }
+}
+
+function subQuadrantOffsets(count) {
+  if (count <= 1) return [{ dx: 0, dy: 0, scale: 1 }]
+  if (count === 2) return [
+    { dx: -TILE_W * 0.25, dy: 0, scale: 0.5 },
+    { dx:  TILE_W * 0.25, dy: 0, scale: 0.5 },
+  ]
+  return [
+    { dx: -TILE_W * 0.25, dy: -TILE_H * 0.25, scale: 0.5 },
+    { dx:  TILE_W * 0.25, dy: -TILE_H * 0.25, scale: 0.5 },
+    { dx: -TILE_W * 0.25, dy:  TILE_H * 0.25, scale: 0.5 },
+    { dx:  TILE_W * 0.25, dy:  TILE_H * 0.25, scale: 0.5 },
+  ].slice(0, count)
+}
+
+class TileWorldScene extends Phaser.Scene {
+  constructor() { super({ key: 'TileWorld' }) }
+
+  preload() {
+    const b = '/tiles/'
+    this.load.image('tile_field',    b + 'kenney/bases/base_grass_flat_N.png')
+    this.load.image('tile_court',    b + 'kenney/bases/base_stone_flat_N.png')
+    this.load.image('tile_pool',     b + 'kenney/bases/base_stone_flat_N.png')
+    this.load.image('tile_generic',  b + 'kenney/bases/base_dirt_high_N.png')
+    this.load.image('tile_nature',   b + 'kenney/bases/square_grass_flat_N.png')
+    this.load.image('tile_building', b + 'kenney/farm/woodWallDoorClosed_S.png')
+    this.load.image('tile_cabin',    b + 'kenney/farm/woodWallWindow_S.png')
+  }
+
+  create() {
+    this._tileLayer  = this.add.group()
+    this._jamLayer   = this.add.group()
+    this._tokenLayer = this.add.group()
+    this.events.on('occupancy', d => this._render(d))
+  }
+
+  _originForGrid(w, h) {
+    const gridW = (GRID_COLS + GRID_ROWS) * (TILE_W / 2)
+    const gridH = (GRID_COLS + GRID_ROWS) * (TILE_H / 2)
+    return { originX: w / 2, originY: Math.max(32, (h - gridH) / 2) + TILE_H }
+  }
+
+  _render(data) {
+    const { locations = [], placed = [] } = data || {}
+    this._tileLayer.clear(true, true)
+    this._jamLayer.clear(true, true)
+    this._tokenLayer.clear(true, true)
+
+    const { originX, originY } = this._originForGrid(this.scale.width, this.scale.height)
+
+    // Group placed locations by cell for sub-quadrant split
+    const cellMap = {}
+    for (const loc of locations) {
+      if (loc.grid_x == null || loc.grid_y == null) continue
+      const key = `${loc.grid_x},${loc.grid_y}`
+      if (!cellMap[key]) cellMap[key] = []
+      cellMap[key].push(loc)
+    }
+
+    // Painter sort (back → front)
+    const sorted = locations
+      .filter(l => l.grid_x != null && l.grid_y != null)
+      .sort((a, b) => (a.grid_y * GRID_COLS + a.grid_x) - (b.grid_y * GRID_COLS + b.grid_x))
+
+    const jamLocIds = new Set(
+      placed.filter(p => p.isJam).map(p => p.locationId)
+    )
+
+    for (const loc of sorted) {
+      const cellKey = `${loc.grid_x},${loc.grid_y}`
+      const cellLocs = cellMap[cellKey]
+      const idx = cellLocs.indexOf(loc)
+      const offsets = subQuadrantOffsets(cellLocs.length)
+      const off = offsets[idx] ?? { dx: 0, dy: 0, scale: 1 }
+      const { x, y } = tileScreenPos(loc.grid_x, loc.grid_y, originX, originY)
+      const cx = x + off.dx
+      const cy = y + off.dy
+
+      const TILE_TYPE_KEY = {
+        field: 'tile_field', pool: 'tile_pool', court: 'tile_court',
+        nature: 'tile_nature', building: 'tile_building', cabin: 'tile_cabin',
+        generic: 'tile_generic',
+      }
+      const key = TILE_TYPE_KEY[loc.tile_type] ?? 'tile_generic'
+      const img = this.add.image(cx, cy, key)
+      img.setScale(off.scale)
+      img.setOrigin(0.5, 1)
+      this._tileLayer.add(img)
+
+      // Location name label
+      const lbl = this.add.text(cx, cy - TILE_H * off.scale * 0.9, loc.name ?? '', {
+        fontSize: Math.round(11 * off.scale) + 'px',
+        color: '#2a2016',
+        fontFamily: '-apple-system, sans-serif',
+        stroke: '#f5f3ee',
+        strokeThickness: 3,
+      }).setOrigin(0.5, 1)
+      this._tileLayer.add(lbl)
+
+      // Jam ring
+      if (jamLocIds.has(loc.id)) {
+        const ring = this.add.graphics()
+        ring.lineStyle(2, 0xe07b39, 1)
+        ring.strokeEllipse(cx, cy - TILE_H * off.scale * 0.4, 56 * off.scale, 28 * off.scale)
+        this._jamLayer.add(ring)
+      }
+    }
+
+    // Group tokens
+    const groupsAtLoc = {}
+    for (const p of placed) {
+      if (!groupsAtLoc[p.locationId]) groupsAtLoc[p.locationId] = []
+      groupsAtLoc[p.locationId].push(p)
+    }
+
+    let colorIdx = 0
+    const colorFor = {}
+    for (const loc of sorted) {
+      const groups = groupsAtLoc[loc.id] ?? []
+      if (!groups.length) continue
+      const cellKey = `${loc.grid_x},${loc.grid_y}`
+      const cellLocs = cellMap[cellKey]
+      const idx = cellLocs.indexOf(loc)
+      const offsets = subQuadrantOffsets(cellLocs.length)
+      const off = offsets[idx] ?? { dx: 0, dy: 0, scale: 1 }
+      const { x, y } = tileScreenPos(loc.grid_x, loc.grid_y, originX, originY)
+      const cx = x + off.dx
+      const cy = y - TILE_H * off.scale * 0.5 + off.dy
+
+      const r = Math.round(12 * off.scale)
+      const spacing = r * 2 + 4
+      const startX = cx - ((groups.length - 1) * spacing) / 2
+
+      for (let i = 0; i < groups.length; i++) {
+        const g = groups[i]
+        if (!colorFor[g.groupId]) {
+          colorFor[g.groupId] = DEFAULT_PALETTE[colorIdx % DEFAULT_PALETTE.length]
+          colorIdx++
+        }
+        const color = parseInt(colorFor[g.groupId].slice(1), 16)
+        const tx = startX + i * spacing
+
+        const circle = this.add.graphics()
+        circle.fillStyle(color, 1)
+        circle.fillCircle(tx, cy, r)
+        this._tokenLayer.add(circle)
+
+        const initials = (g.groupName ?? '?').slice(0, 2).toUpperCase()
+        const token = this.add.text(tx, cy, initials, {
+          fontSize: Math.round(9 * off.scale) + 'px',
+          color: '#fff',
+          fontFamily: '-apple-system, sans-serif',
+          fontStyle: 'bold',
+        }).setOrigin(0.5, 0.5)
+        this._tokenLayer.add(token)
+      }
+    }
+  }
+}
+
+const game = new Phaser.Game({
+  type: Phaser.AUTO,
+  parent: 'game',
+  width: window.innerWidth,
+  height: window.innerHeight - document.getElementById('toolbar').offsetHeight,
+  backgroundColor: 0xf5f3ee,
+  scene: [TileWorldScene],
+  audio: { noAudio: true },
+  input: { mouse: false, touch: false, keyboard: false },
+  scale: {
+    mode: Phaser.Scale.RESIZE,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+})
+
+// WebSocket connection
+const statusEl = document.getElementById('status')
+const dayEl = document.getElementById('day-label')
+const blockEl = document.getElementById('block-label')
+
+function connect() {
+  const ws = new WebSocket(`ws://127.0.0.1:${WS_PORT}`)
+  ws.onopen = () => { statusEl.textContent = 'Live' }
+  ws.onmessage = (e) => {
+    try {
+      const data = JSON.parse(e.data)
+      dayEl.textContent = data.dayLabel ?? '—'
+      blockEl.textContent = data.blockLabel ?? '—'
+      const scene = game.scene.getScene('TileWorld')
+      if (scene) scene.events.emit('occupancy', data)
+    } catch {}
+  }
+  ws.onclose = () => {
+    statusEl.textContent = 'Reconnecting…'
+    setTimeout(connect, 1500)
+  }
+  ws.onerror = () => ws.close()
+}
+
+connect()
+</script>
+</body>
+</html>
