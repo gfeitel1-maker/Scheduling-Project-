@@ -1582,6 +1582,11 @@ export const mockShoresh = {
     state.events = (state.events || []).filter((e) => e.id !== eventId)
     // Mirrors deleteEvent.js's template_slots clearing (Red Hat LOW, round 2):
     // a Slice-1 campwide placement referencing this event must not dangle.
+    // DOCUMENTED DIVERGENCE: the real cascade is the shared clearSlotOccupant
+    // (electron/ops/slotOccupants.js, event_id policy 'clear'), which cannot be
+    // reused here — it writes op-log rows against a SQLite handle, and this
+    // mock has neither. The mirror stays hand-maintained; the policy it mirrors
+    // is declared and guarded in SLOT_OCCUPANT_CASCADES.
     state.template_slots = (state.template_slots || []).map((ts) =>
       ts.event_id === eventId ? { ...ts, event_id: null } : ts
     )
