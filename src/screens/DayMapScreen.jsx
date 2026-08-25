@@ -160,6 +160,7 @@ export default function DayMapScreen({ campId, onNavigate, weekId }) {
     [data.locations]
   )
 
+
   const tileOccupancyPayload = useMemo(() => {
     if (!hasTileWorld) return null
     const tileLocIds = new Set(
@@ -187,6 +188,7 @@ export default function DayMapScreen({ campId, onNavigate, weekId }) {
     if (!tileOccupancyPayload) return
     localClient.pushTileOccupancy(tileOccupancyPayload).catch(() => {})
   }, [tileOccupancyPayload])
+
 
   // A location can be LOCATED (an activity points at it) yet have no valid map
   // position — map_geometry NULL (added in the List, never dragged onto the map)
@@ -232,7 +234,7 @@ export default function DayMapScreen({ campId, onNavigate, weekId }) {
           body={hasTileWorld
             ? 'Your locations are placed in the Tile World. Click "Open Tile World" above to launch the live viewer.'
             : 'Add a photo of your camp grounds on the Locations screen to see where the day is happening.'}
-          ctaLabel={hasTileWorld ? 'Go to Locations' : 'Go to Locations'}
+          ctaLabel="Go to Locations"
           onCta={() => onNavigate('locations')}
         />
       ) : !occupancy.templateFound ? (
