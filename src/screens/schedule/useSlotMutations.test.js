@@ -140,7 +140,7 @@ describe('useSlotMutations — replaceSlot', () => {
         { groupId: 'g1', dayId: 'd1', blockId: 'b1' }
       )
     })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} })
     expect(props.pushUndo).toHaveBeenCalledTimes(1)
   })
 
@@ -156,7 +156,7 @@ describe('useSlotMutations — replaceSlot', () => {
       )
     })
     expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(1)
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} })
   })
 
   it('grid-to-grid: clears the source slot in addition to writing the target', async () => {
@@ -171,8 +171,8 @@ describe('useSlotMutations — replaceSlot', () => {
         { groupId: 'g1', dayId: 'd1', blockId: 'b2' }
       )
     })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source', { activity_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source', { activity_id: null, elective_set_id: null, event_id: null, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(2)
   })
 
@@ -221,8 +221,8 @@ describe('useSlotMutations — replaceSlot', () => {
     const entry = props.pushUndo.mock.calls[0][0]
     props.repo.writeSlotFields.mockClear()
     await act(async () => { await entry.undo() })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-occupant', flags: {} })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source', { activity_id: 'act-1', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-occupant', elective_set_id: null, event_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source', { activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} })
   })
 })
 
@@ -246,7 +246,7 @@ describe('useSlotMutations — replaceSlot (T91: span-aware tail release)', () =
     await act(async () => {
       await hook.result.current.replaceSlot({ activityId: 'act-new' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
     })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-new', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-new', elective_set_id: null, event_id: null, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { activity_id: null, is_span_head: true, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(2)
   })
@@ -264,7 +264,7 @@ describe('useSlotMutations — replaceSlot (T91: span-aware tail release)', () =
     const entry = props.pushUndo.mock.calls[0][0]
     props.repo.writeSlotFields.mockClear()
     await act(async () => { await entry.undo() })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-old', flags: expandedFlag })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-old', elective_set_id: null, event_id: null, flags: expandedFlag })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { activity_id: 'act-old', is_span_head: false, flags: {} })
   })
 
@@ -283,7 +283,7 @@ describe('useSlotMutations — replaceSlot (T91: span-aware tail release)', () =
     await act(async () => {
       await hook.result.current.replaceSlot({ activityId: 'act-new' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
     })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-new', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-new', elective_set_id: null, event_id: null, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail1', { activity_id: null, is_span_head: true, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail2', { activity_id: null, is_span_head: true, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(3)
@@ -299,7 +299,7 @@ describe('useSlotMutations — replaceSlot (T91: span-aware tail release)', () =
       await hook.result.current.replaceSlot({ activityId: 'act-new' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
     })
     expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(1)
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-new', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-new', elective_set_id: null, event_id: null, flags: {} })
   })
 
   it('undo -> redo -> undo round-trip stays coherent for a span-head replace', async () => {
@@ -315,17 +315,17 @@ describe('useSlotMutations — replaceSlot (T91: span-aware tail release)', () =
 
     props.repo.writeSlotFields.mockClear()
     await act(async () => { await entry.undo() })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-old', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-old', elective_set_id: null, event_id: null, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { activity_id: 'act-old', is_span_head: false, flags: {} })
 
     props.repo.writeSlotFields.mockClear()
     await act(async () => { await entry.redo() })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-new', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-new', elective_set_id: null, event_id: null, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { activity_id: null, is_span_head: true, flags: {} })
 
     props.repo.writeSlotFields.mockClear()
     await act(async () => { await entry.undo() })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-old', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-old', elective_set_id: null, event_id: null, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { activity_id: 'act-old', is_span_head: false, flags: {} })
   })
 
@@ -339,7 +339,7 @@ describe('useSlotMutations — replaceSlot (T91: span-aware tail release)', () =
       await hook.result.current.replaceSlot({ activityId: 'act-new' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
     })
     expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(1)
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-new', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: 'act-new', elective_set_id: null, event_id: null, flags: {} })
   })
 })
 
@@ -368,8 +368,8 @@ describe('useSlotMutations — replaceSlot (T91: source-side span tail release)'
         { groupId: 'g1', dayId: 'd1', blockId: 'b3' }
       )
     })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-head', { activity_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-head', { activity_id: null, elective_set_id: null, event_id: null, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-tail', { activity_id: null, is_span_head: true, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(3)
   })
@@ -393,8 +393,8 @@ describe('useSlotMutations — replaceSlot (T91: source-side span tail release)'
         { groupId: 'g1', dayId: 'd1', blockId: 'b4' }
       )
     })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-head', { activity_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-head', { activity_id: null, elective_set_id: null, event_id: null, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-tail1', { activity_id: null, is_span_head: true, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-tail2', { activity_id: null, is_span_head: true, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(4)
@@ -417,7 +417,7 @@ describe('useSlotMutations — replaceSlot (T91: source-side span tail release)'
     const entry = props.pushUndo.mock.calls[0][0]
     props.repo.writeSlotFields.mockClear()
     await act(async () => { await entry.undo() })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-head', { activity_id: 'act-1', flags: expandedFlag })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-head', { activity_id: 'act-1', elective_set_id: null, event_id: null, flags: expandedFlag })
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source-tail', { activity_id: 'act-1', is_span_head: false, flags: {} })
   })
 })
@@ -448,8 +448,8 @@ describe('useSlotMutations — replaceSlot (T91: no double-write when target/sou
     })
     const tailCalls = props.repo.writeSlotFields.mock.calls.filter(([id]) => id === 'row-tail')
     expect(tailCalls).toHaveLength(1)
-    expect(tailCalls[0][1]).toEqual({ activity_id: 'act-1', flags: {} })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: null, flags: {} })
+    expect(tailCalls[0][1]).toEqual({ activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-head', { activity_id: null, elective_set_id: null, event_id: null, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(2)
   })
 
@@ -467,8 +467,8 @@ describe('useSlotMutations — replaceSlot (T91: no double-write when target/sou
     })
     const headCalls = props.repo.writeSlotFields.mock.calls.filter(([id]) => id === 'row-head')
     expect(headCalls).toHaveLength(1)
-    expect(headCalls[0][1]).toEqual({ activity_id: 'act-1', flags: {} })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { activity_id: null, flags: {} })
+    expect(headCalls[0][1]).toEqual({ activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-tail', { activity_id: null, elective_set_id: null, event_id: null, flags: {} })
     expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(2)
   })
 })
@@ -524,13 +524,13 @@ describe('useSlotMutations — replaceSlot fresh-read undo snapshot (Issue 2)', 
     // `slots` closure would have agreed on before this fix).
     props.repo.writeSlotFields.mockClear()
     await act(async () => { await secondEntry.undo() })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} })
 
     // And the first drag's own undo is untouched by this fix — still restores
     // the true original.
     props.repo.writeSlotFields.mockClear()
     await act(async () => { await firstEntry.undo() })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-orig', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-orig', elective_set_id: null, event_id: null, flags: {} })
   })
 
   it('a single drag keeps byte-identical undo/redo semantics (regression guard for the fresh-read change)', async () => {
@@ -547,11 +547,11 @@ describe('useSlotMutations — replaceSlot fresh-read undo snapshot (Issue 2)', 
 
     props.repo.writeSlotFields.mockClear()
     await act(async () => { await entry.undo() })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-occupant', flags: { someFlag: true } })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-occupant', elective_set_id: null, event_id: null, flags: { someFlag: true } })
 
     props.repo.writeSlotFields.mockClear()
     await act(async () => { await entry.redo() })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} })
   })
 })
 
@@ -636,7 +636,7 @@ describe('useSlotMutations — route-pinned redo closure', () => {
     await act(async () => { await entry.redo() })
 
     // Repo replays the NEW value against the ORIGINAL slot id.
-    expect(repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'act-1', flags: {} })
+    expect(repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} })
     // Driven through the entry's route setter — NOT the one now on screen.
     expect(originalSetSlots).toHaveBeenCalled()
     expect(afterSwitchSetSlots).not.toHaveBeenCalled()
@@ -784,6 +784,22 @@ describe('useSlotMutations — splitSlot', () => {
     expect(props.repo.writeSlotFields).toHaveBeenCalledWith('t3', { activity_id: null, is_span_head: true, flags: {} })
     expect(props.repo.writeSlotFields).not.toHaveBeenCalledWith('t1', expect.anything()) // before the cut: stays in the span
     expect(props.pushUndo).toHaveBeenCalledTimes(2) // one frame per released block
+  })
+
+  it('undo frame for an event-keyed span records backwardOwnWriteKind as event:<id>, not activity:<id>', async () => {
+    const headSlot = { id: 'h1', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, event_id: 'ev-1', is_span_head: true, flags: {} }
+    const tailSlot = { id: 't1', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, event_id: 'ev-1', is_span_head: false, flags: {} }
+    const setSlots = statefulSetSlots([headSlot, tailSlot])
+    const { hook, props } = setup({ slots: [headSlot, tailSlot], timeBlocks, days, routeState: { setSlots: setSlots.fn } })
+    await act(async () => { await hook.result.current.splitSlot('g1', 'd1', 'b1') })
+
+    const entry = props.pushUndo.mock.calls[0][0]
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await entry.undo() })
+
+    const ownWriteEntry = hook.result.current.ownWriteRef.current.get('manual|tid-manual|g1|d1|b2')
+    expect(ownWriteEntry).toBeTruthy()
+    expect(ownWriteEntry.kind).toBe('event:ev-1')
   })
 })
 
@@ -1113,7 +1129,7 @@ describe('useSlotMutations — placeActivityManual', () => {
     })
     await act(async () => { await hook.result.current.placeActivityManual('a1', 'g1', 'd1', 'b1') })
 
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'a1', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'a1', elective_set_id: null, event_id: null, flags: {} })
     expect(props.routeState.setSlots).toHaveBeenCalledTimes(1)
     expect(props.pushUndo).toHaveBeenCalledTimes(1)
   })
@@ -1128,7 +1144,7 @@ describe('useSlotMutations — placeActivityManual', () => {
     })
     await act(async () => { await hook.result.current.placeActivityManual('a1', 'g1', 'd1', 'b1') })
 
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'a1', flags: { UNFILLABLE: true } })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'a1', elective_set_id: null, event_id: null, flags: { UNFILLABLE: true } })
   })
 
   // M3b re-key: locationFull is now keyed by location_id -> locations.capacity
@@ -1154,7 +1170,7 @@ describe('useSlotMutations — placeActivityManual', () => {
       })
       await act(async () => { await hook.result.current.placeActivityManual('act-target', 'g2', 'd1', 'b1') })
 
-      expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', flags: { UNFILLABLE: true } })
+      expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', elective_set_id: null, event_id: null, flags: { UNFILLABLE: true } })
     })
 
     it('capacity 0 sentinel: does not spuriously flag UNFILLABLE (the `> 0` fix, was `!= null`)', async () => {
@@ -1165,7 +1181,7 @@ describe('useSlotMutations — placeActivityManual', () => {
       })
       await act(async () => { await hook.result.current.placeActivityManual('act-target', 'g2', 'd1', 'b1') })
 
-      expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', flags: {} })
+      expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', elective_set_id: null, event_id: null, flags: {} })
     })
 
     it('an activity with no location_id is never place-full (no place to be full at)', async () => {
@@ -1180,7 +1196,7 @@ describe('useSlotMutations — placeActivityManual', () => {
       })
       await act(async () => { await hook.result.current.placeActivityManual('act-target', 'g2', 'd1', 'b1') })
 
-      expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', flags: {} })
+      expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', elective_set_id: null, event_id: null, flags: {} })
     })
 
     it('the manual route never flags UNFILLABLE even when the shared place is over capacity', async () => {
@@ -1188,7 +1204,7 @@ describe('useSlotMutations — placeActivityManual', () => {
       const { hook, props } = setup({ slots: [occupied, target], groups, activities, locations })
       await act(async () => { await hook.result.current.placeActivityManual('act-target', 'g2', 'd1', 'b1') })
 
-      expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', flags: {} })
+      expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', elective_set_id: null, event_id: null, flags: {} })
     })
   })
 
@@ -1212,7 +1228,7 @@ describe('useSlotMutations — placeActivityManual', () => {
       })
       await act(async () => { await hook.result.current.placeActivityManual('act-target', 'g1', 'd1', 'b1') })
 
-      expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g1', { activity_id: 'act-target', flags: {} })
+      expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g1', { activity_id: 'act-target', elective_set_id: null, event_id: null, flags: {} })
     })
 
     describe('A3: activity-cap arm (max_groups_per_slot) restored ALONGSIDE the place-cap arm — either alone trips UNFILLABLE, no min()', () => {
@@ -1227,7 +1243,7 @@ describe('useSlotMutations — placeActivityManual', () => {
           routeState: { route: 'generated', templateId: 'tid-generated' },
         })
         await act(async () => { await hook.result.current.placeActivityManual('act-cap', 'g2', 'd1', 'b1') })
-        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-cap', flags: { UNFILLABLE: true } })
+        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-cap', elective_set_id: null, event_id: null, flags: { UNFILLABLE: true } })
       })
 
       it('over-activity-cap even though the bound PLACE itself has room (independent arms, not min())', async () => {
@@ -1238,7 +1254,7 @@ describe('useSlotMutations — placeActivityManual', () => {
           routeState: { route: 'generated', templateId: 'tid-generated' },
         })
         await act(async () => { await hook.result.current.placeActivityManual('act-cap', 'g2', 'd1', 'b1') })
-        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-cap', flags: { UNFILLABLE: true } })
+        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-cap', elective_set_id: null, event_id: null, flags: { UNFILLABLE: true } })
       })
 
       it('over-place-cap even though the activity cap itself has room', async () => {
@@ -1252,7 +1268,7 @@ describe('useSlotMutations — placeActivityManual', () => {
           routeState: { route: 'generated', templateId: 'tid-generated' },
         })
         await act(async () => { await hook.result.current.placeActivityManual('act-target', 'g2', 'd1', 'b1') })
-        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', flags: { UNFILLABLE: true } })
+        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-target', elective_set_id: null, event_id: null, flags: { UNFILLABLE: true } })
       })
 
       it('both caps exceeded at once — still just one UNFILLABLE flag', async () => {
@@ -1263,7 +1279,7 @@ describe('useSlotMutations — placeActivityManual', () => {
           routeState: { route: 'generated', templateId: 'tid-generated' },
         })
         await act(async () => { await hook.result.current.placeActivityManual('act-cap', 'g2', 'd1', 'b1') })
-        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-cap', flags: { UNFILLABLE: true } })
+        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-cap', elective_set_id: null, event_id: null, flags: { UNFILLABLE: true } })
       })
 
       it('neither cap exceeded — not flagged', async () => {
@@ -1274,7 +1290,7 @@ describe('useSlotMutations — placeActivityManual', () => {
           routeState: { route: 'generated', templateId: 'tid-generated' },
         })
         await act(async () => { await hook.result.current.placeActivityManual('act-cap', 'g2', 'd1', 'b1') })
-        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-cap', flags: {} })
+        expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s-g2', { activity_id: 'act-cap', elective_set_id: null, event_id: null, flags: {} })
       })
     })
   })
@@ -1313,7 +1329,7 @@ describe('useSlotMutations — placeActivityManual same-cell race (2026-08-12 AD
     // silent DB-divergence class finding 1 closed for replaceSlot/expandSlot/
     // splitSlot: repo.writeSlotFields must never fire for a superseded claim).
     expect(writeSlotFields).toHaveBeenCalledTimes(1)
-    expect(writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'a2', flags: {} })
+    expect(writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'a2', elective_set_id: null, event_id: null, flags: {} })
     expect(setSlots.get().find(s => s.id === 's1').activity_id).toBe('a2')
     expect(props.pushUndo).toHaveBeenCalledTimes(1) // only g2's — g1 pushes nothing
   })
@@ -1383,7 +1399,7 @@ describe('useSlotMutations — placeActivityManual same-cell race (2026-08-12 AD
     // The later claim (g2, the drag) wins; the earlier no-gestureId call is
     // superseded — proving no gestureId-undefined exemption exists here either.
     expect(writeSlotFields).toHaveBeenCalledTimes(1)
-    expect(writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'a2', flags: {} })
+    expect(writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'a2', elective_set_id: null, event_id: null, flags: {} })
     expect(setSlots.get().find(s => s.id === 's1').activity_id).toBe('a2')
   })
 })
@@ -1796,8 +1812,8 @@ describe('useSlotMutations — per-cell write serialization (write-serialization
     // overwritten pre-dispatch — was superseded before its own turn and was
     // NEVER sent to repo.writeSlotFields at all.
     expect(writeSlotFields).toHaveBeenCalledTimes(2)
-    expect(writeSlotFields).toHaveBeenNthCalledWith(1, 'row-target', { activity_id: 'act-0', flags: {} })
-    expect(writeSlotFields).toHaveBeenNthCalledWith(2, 'row-target', { activity_id: 'act-2', flags: {} })
+    expect(writeSlotFields).toHaveBeenNthCalledWith(1, 'row-target', { activity_id: 'act-0', elective_set_id: null, event_id: null, flags: {} })
+    expect(writeSlotFields).toHaveBeenNthCalledWith(2, 'row-target', { activity_id: 'act-2', elective_set_id: null, event_id: null, flags: {} })
     expect(setSlots.get().find(s => s.id === 'row-target').activity_id).toBe('act-2')
   })
 
@@ -1821,8 +1837,8 @@ describe('useSlotMutations — per-cell write serialization (write-serialization
     })
 
     expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(2)
-    expect(props.repo.writeSlotFields).toHaveBeenNthCalledWith(1, 'row-target', { activity_id: 'act-1', flags: {} })
-    expect(props.repo.writeSlotFields).toHaveBeenNthCalledWith(2, 'row-target', { activity_id: 'act-2', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenNthCalledWith(1, 'row-target', { activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenNthCalledWith(2, 'row-target', { activity_id: 'act-2', elective_set_id: null, event_id: null, flags: {} })
     expect(setSlots.get().find(s => s.id === 'row-target').activity_id).toBe('act-2')
     expect(props.pushUndo).toHaveBeenCalledTimes(2)
   })
@@ -1898,7 +1914,7 @@ describe('useSlotMutations — per-cell write serialization (write-serialization
     // g1's op must be dropped in full — no write to b1 (target) OR b2
     // (source). Only g2's single write reaches the repo.
     expect(writeSlotFields).toHaveBeenCalledTimes(1)
-    expect(writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-c', flags: {} })
+    expect(writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-c', elective_set_id: null, event_id: null, flags: {} })
     expect(writeSlotFields).not.toHaveBeenCalledWith('row-source', expect.anything())
     expect(props.pushUndo).toHaveBeenCalledTimes(1) // only g2's — g1 pushes nothing
   })
@@ -1921,7 +1937,7 @@ describe('useSlotMutations — per-cell write serialization (write-serialization
 
     // g1's expand must dispatch no write to head OR tail.
     expect(props.repo.writeSlotFields).not.toHaveBeenCalledWith('t1', expect.anything())
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('h1', { activity_id: 'actOther', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('h1', { activity_id: 'actOther', elective_set_id: null, event_id: null, flags: {} })
     expect(props.pushUndo).toHaveBeenCalledTimes(1) // only g2's replaceSlot
   })
 
@@ -1955,14 +1971,14 @@ describe('useSlotMutations — per-cell write serialization (write-serialization
     props.repo.writeSlotFields.mockClear()
     await act(async () => { await g1Entry.undo() })
     expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(1)
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-orig', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-orig', elective_set_id: null, event_id: null, flags: {} })
     expect(setSlots.get().find(s => s.id === 'row-target').activity_id).toBe('act-orig')
 
     // g2's redo re-claims for itself and restores cleanly.
     props.repo.writeSlotFields.mockClear()
     await act(async () => { await g2Entry.redo() })
     expect(props.repo.writeSlotFields).toHaveBeenCalledTimes(1)
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-2', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-2', elective_set_id: null, event_id: null, flags: {} })
     expect(setSlots.get().find(s => s.id === 'row-target').activity_id).toBe('act-2')
   })
 
@@ -1993,7 +2009,7 @@ describe('useSlotMutations — per-cell write serialization (write-serialization
     // Only the non-drag call's write reaches the repo — g1's drag write was
     // dropped, proving there is no gestureId === undefined exemption.
     expect(writeSlotFields).toHaveBeenCalledTimes(1)
-    expect(writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-click', flags: {} })
+    expect(writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-click', elective_set_id: null, event_id: null, flags: {} })
     expect(setSlots.get().find(s => s.id === 'row-target').activity_id).toBe('act-click')
   })
 
@@ -2054,7 +2070,7 @@ describe('useSlotMutations — createElectiveFromCell', () => {
 
     // The cell write: elective_set_id set, activity_id cleared, same
     // claim/chain/dispatch primitive as every other mutation.
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { elective_set_id: setId, activity_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { elective_set_id: setId, activity_id: null, event_id: null, flags: {} })
     expect(props.pushUndo).toHaveBeenCalledTimes(1)
   })
 
@@ -2105,7 +2121,7 @@ describe('useSlotMutations — createElectiveFromCell', () => {
       await hook.result.current.createElectiveFromCell('Water Sports', ['whatever'], { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
     })
     expect(props.repo.writeElectiveSetFields).not.toHaveBeenCalled()
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { elective_set_id: 'set-durable', activity_id: null, flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { elective_set_id: 'set-durable', activity_id: null, event_id: null, flags: {} })
   })
 
   it('converting a span HEAD to an elective releases its tail(s) atomically in the same gesture (T91/T105 §3)', async () => {
@@ -2460,7 +2476,7 @@ describe('useSlotMutations — override edit-block guard (is_overridden, not in 
     await act(async () => {
       await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
     })
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', { activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} })
     expect(props.setActionError).not.toHaveBeenCalledWith(OVERRIDE_MESSAGE)
   })
 })
@@ -2578,7 +2594,7 @@ describe('useSlotMutations — override-authoring mode (overrideMode: true)', ()
       await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd2', blockId: 'b1' })
     })
     expect(props.repo.writeDayOverrideFields).not.toHaveBeenCalled()
-    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'act-1', flags: {} })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('s1', { activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} })
   })
 
   it('pullOverrideDay batches pullOverrideCell across the day\'s non-span, non-overridden blocks for one group', async () => {
@@ -2692,6 +2708,117 @@ describe('useSlotMutations — override-authoring mode (overrideMode: true)', ()
       // find() (first match wins) now sees the fresh content immediately.
       expect(current).toHaveLength(1)
       expect(current[0].activity_id).toBe('act-boat')
+    })
+  })
+})
+
+// slot-occupant-write-builder — regression pins for the three defects the
+// occupant-triple builder (slotOccupant.js) exists to close. Each test here
+// was written and confirmed FAILING against the pre-fix handlers before the
+// fix landed (TDD); see the maker report for the raw before/after output.
+describe('useSlotMutations — occupant-triple defect regressions (slotOccupant.js)', () => {
+  it('Defect 1: replaceSlot dropping an activity onto an event-occupied cell nulls elective_set_id and event_id explicitly, not just activity_id', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: null, event_id: 'ev-old', flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', {
+      activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {},
+    })
+  })
+
+  it('Defect 1: placeActivityManual dropping an activity onto an elective-occupied cell nulls elective_set_id and event_id explicitly', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: 'set-old', event_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }] })
+    await act(async () => {
+      await hook.result.current.placeActivityManual('act-1', 'g1', 'd1', 'b1')
+    })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', {
+      activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {},
+    })
+  })
+
+  it('Defect 2: replaceSlot\'s optimistic setSlots patch sanitizes the stale event_id/elective_set_id off the target row, not just DB write', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: null, event_id: 'ev-old', flags: {} },
+    ]
+    const setSlots = statefulSetSlots(slots)
+    const { hook } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }], routeState: { setSlots: setSlots.fn } })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    const row = setSlots.get().find(s => s.id === 'row-target')
+    expect(row).toEqual(expect.objectContaining({ activity_id: 'act-1', elective_set_id: null, event_id: null }))
+  })
+
+  it('Defect 2: placeActivityManual\'s optimistic setSlots patch sanitizes the stale elective_set_id off the target row', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: 'set-old', event_id: null, flags: {} },
+    ]
+    const setSlots = statefulSetSlots(slots)
+    const { hook } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }], routeState: { setSlots: setSlots.fn } })
+    await act(async () => {
+      await hook.result.current.placeActivityManual('act-1', 'g1', 'd1', 'b1')
+    })
+    const row = setSlots.get().find(s => s.id === 'row-target')
+    expect(row).toEqual(expect.objectContaining({ activity_id: 'act-1', elective_set_id: null, event_id: null }))
+  })
+
+  it('Defect 3: undo after dropping an activity onto an event-occupied cell restores the event_id, not just clears activity_id', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: null, event_id: 'ev-old', flags: { foo: 1 } },
+    ]
+    const setSlots = statefulSetSlots(slots)
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }], routeState: { setSlots: setSlots.fn } })
+    await act(async () => {
+      await hook.result.current.replaceSlot({ activityId: 'act-1' }, { groupId: 'g1', dayId: 'd1', blockId: 'b1' })
+    })
+    const entry = props.pushUndo.mock.calls[0][0]
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await entry.undo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', {
+      activity_id: null, elective_set_id: null, event_id: 'ev-old', flags: { foo: 1 },
+    })
+    const row = setSlots.get().find(s => s.id === 'row-target')
+    expect(row).toEqual(expect.objectContaining({ activity_id: null, elective_set_id: null, event_id: 'ev-old' }))
+  })
+
+  it('Defect 3: undo after placeActivityManual onto an elective-occupied cell restores the elective_set_id', async () => {
+    const slots = [
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: null, elective_set_id: 'set-old', event_id: null, flags: { foo: 1 } },
+    ]
+    const setSlots = statefulSetSlots(slots)
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }], routeState: { setSlots: setSlots.fn } })
+    await act(async () => {
+      await hook.result.current.placeActivityManual('act-1', 'g1', 'd1', 'b1')
+    })
+    const entry = props.pushUndo.mock.calls[0][0]
+    props.repo.writeSlotFields.mockClear()
+    await act(async () => { await entry.undo() })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-target', {
+      activity_id: null, elective_set_id: 'set-old', event_id: null, flags: { foo: 1 },
+    })
+  })
+
+  it('Defect 3: replaceSlot\'s SOURCE row also gets the full triple treatment on clear and undo', async () => {
+    const slots = [
+      { id: 'row-source', group_id: 'g1', day_id: 'd1', time_block_id: 'b1', activity_id: 'act-1', elective_set_id: null, event_id: null, flags: {} },
+      { id: 'row-target', group_id: 'g1', day_id: 'd1', time_block_id: 'b2', activity_id: null, elective_set_id: null, event_id: null, flags: {} },
+    ]
+    const { hook, props } = setup({ slots, activities: [{ id: 'act-1', name: 'Swim' }] })
+    await act(async () => {
+      await hook.result.current.replaceSlot(
+        { groupId: 'g1', dayId: 'd1', blockId: 'b1', activityId: 'act-1' },
+        { groupId: 'g1', dayId: 'd1', blockId: 'b2' }
+      )
+    })
+    expect(props.repo.writeSlotFields).toHaveBeenCalledWith('row-source', {
+      activity_id: null, elective_set_id: null, event_id: null, flags: {},
     })
   })
 })
