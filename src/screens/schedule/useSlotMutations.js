@@ -4,6 +4,7 @@ import { normalizeName } from '../../ingest/preview.js'
 import { isActivityEligibleForGroup } from '../../engine/eligibility'
 import { createActivity } from './createActivityHelper'
 import { findOverrideId, upsertDayOverride } from '../../utils/dayOverrideCoordinate.js'
+import { occupantFields, readOccupant, occupantWriteKind } from './slotOccupant.js'
 
 // T91: collect the covered tail rows of a span head being replaced, via a
 // single walk that covers BOTH span representations identically (owner
@@ -577,9 +578,13 @@ export function useSlotMutations({
     const freshSourceRow = sourceRow
       ? (freshSlots.find(s => s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId) ?? sourceRow)
       : null
-    const prevTargetActivityId = freshTargetRow.activity_id ?? null
+    // slot-occupant-write-builder (Defect 3): the full occupant triple off
+    // the fresh row, not just activity_id — an undo must be able to restore
+    // whatever the cell held (activity, elective, or event), not only the
+    // one field replaceSlot itself writes.
+    const prevTargetOccupant = readOccupant(freshTargetRow)
     const prevTargetFlags = freshTargetRow.flags ?? {}
-    const prevSourceActivityId = freshSourceRow?.activity_id ?? null
+    const prevSourceOccupant = freshSourceRow ? readOccupant(freshSourceRow) : null
     const prevSourceFlags = freshSourceRow?.flags ?? {}
 
     // T91: span-aware — a replaced HEAD's covered tail(s) must be freed to an
@@ -625,8 +630,8 @@ export function useSlotMutations({
       claimId,
       dispatch: async () => {
         try {
-          const writes = [repo.writeSlotFields(targetRow.id, { activity_id: incoming.activityId, flags: {} })]
-          if (sourceRow) writes.push(repo.writeSlotFields(sourceRow.id, { activity_id: null, flags: {} }))
+          const writes = [repo.writeSlotFields(targetRow.id, { ...occupantFields('activity_id', incoming.activityId), flags: {} })]
+          if (sourceRow) writes.push(repo.writeSlotFields(sourceRow.id, { ...occupantFields('activity_id', null), flags: {} }))
           for (const tail of tailRows) {
             // ADR §4 — release whichever field this tail's chain was keyed
             // on (activity_id or event_id), not a hardcoded activity_id.
@@ -643,9 +648,9 @@ export function useSlotMutations({
         setSlots(prev => {
           const next = prev.map(s => {
             if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-              return { ...s, activity_id: incoming.activityId, flags: {} }
+              return { ...s, ...occupantFields('activity_id', incoming.activityId), flags: {} }
             if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
-              return { ...s, activity_id: null, flags: {} }
+              return { ...s, ...occupantFields('activity_id', null), flags: {} }
             const tail = tailRows.find(t => t.id === s.id)
             if (tail) return { ...s, [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} }
             return s
@@ -665,7 +670,7 @@ export function useSlotMutations({
     if (writeError || dropped) return // fully superseded before dispatch, or write failed: no setSlots, no pushUndo
 
     const incomingActivity = activities.find(a => a.id === incoming.activityId)
-    const occupantActivity = activities.find(a => a.id === prevTargetActivityId)
+    const occupantActivity = activities.find(a => a.id === prevTargetOccupant.activity_id)
     const description = occupantActivity
       ? `Replaced ${occupantActivity.name} with ${incomingActivity?.name ?? 'an activity'}`
       : `Placed ${incomingActivity?.name ?? 'an activity'}`
@@ -684,8 +689,8 @@ export function useSlotMutations({
           dispatch: async () => {
             try {
               await Promise.all([
-                repo.writeSlotFields(targetRow.id, { activity_id: prevTargetActivityId, flags: prevTargetFlags }),
-                ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { activity_id: prevSourceActivityId, flags: prevSourceFlags })] : []),
+                repo.writeSlotFields(targetRow.id, { ...prevTargetOccupant, flags: prevTargetFlags }),
+                ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { ...prevSourceOccupant, flags: prevSourceFlags })] : []),
                 // collectSpanTails only ever collects rows where is_span_head
                 // is exactly false and its chain field (activity_id or
                 // event_id, ADR §4) is set — restore whichever field that
@@ -704,9 +709,9 @@ export function useSlotMutations({
             setSlots(prev => {
               const next = prev.map(s => {
                 if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-                  return { ...s, activity_id: prevTargetActivityId, flags: prevTargetFlags }
+                  return { ...s, ...prevTargetOccupant, flags: prevTargetFlags }
                 if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
-                  return { ...s, activity_id: prevSourceActivityId, flags: prevSourceFlags }
+                  return { ...s, ...prevSourceOccupant, flags: prevSourceFlags }
                 const tail = tailRows.find(t => t.id === s.id)
                 if (tail) {
                   const field = refField(tail) ?? 'activity_id'
@@ -719,8 +724,8 @@ export function useSlotMutations({
             })
           },
           ownWriteKinds: {
-            [targetKey]: prevTargetActivityId ? `activity:${prevTargetActivityId}` : 'empty',
-            ...(sourceKey ? { [sourceKey]: prevSourceActivityId ? `activity:${prevSourceActivityId}` : 'empty' } : {}),
+            [targetKey]: occupantWriteKind(prevTargetOccupant),
+            ...(sourceKey ? { [sourceKey]: occupantWriteKind(prevSourceOccupant) } : {}),
             ...Object.fromEntries(tailRows.map(t => {
               const field = refField(t) ?? 'activity_id'
               return [cellKey(t.group_id, t.day_id, t.time_block_id), t[field] ? `activity:${t[field]}` : 'empty']
@@ -736,8 +741,8 @@ export function useSlotMutations({
           dispatch: async () => {
             try {
               await Promise.all([
-                repo.writeSlotFields(targetRow.id, { activity_id: incoming.activityId, flags: {} }),
-                ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { activity_id: null, flags: {} })] : []),
+                repo.writeSlotFields(targetRow.id, { ...occupantFields('activity_id', incoming.activityId), flags: {} }),
+                ...(sourceRow ? [repo.writeSlotFields(sourceRow.id, { ...occupantFields('activity_id', null), flags: {} })] : []),
                 ...tailRows.map(tail => repo.writeSlotFields(tail.id, { [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} })),
               ])
             } catch (err) { redoWriteError = err }
@@ -747,9 +752,9 @@ export function useSlotMutations({
             setSlots(prev => {
               const next = prev.map(s => {
                 if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-                  return { ...s, activity_id: incoming.activityId, flags: {} }
+                  return { ...s, ...occupantFields('activity_id', incoming.activityId), flags: {} }
                 if (sourceRow && s.group_id === incoming.groupId && s.day_id === incoming.dayId && s.time_block_id === incoming.blockId)
-                  return { ...s, activity_id: null, flags: {} }
+                  return { ...s, ...occupantFields('activity_id', null), flags: {} }
                 const tail = tailRows.find(t => t.id === s.id)
                 if (tail) return { ...s, [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} }
                 return s
@@ -959,7 +964,10 @@ export function useSlotMutations({
     const key = cellKey(groupId, dayId, blockId)
 
     const freshSlot = slotsRef.current.find(s => s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId) ?? slot
-    const prevActivityId = freshSlot.activity_id ?? null
+    // slot-occupant-write-builder (Defect 3): full occupant triple off the
+    // fresh row, so undo can restore whatever the cell held (an activity,
+    // elective, or event), not only activity_id.
+    const prevOccupant = readOccupant(freshSlot)
     const prevFlags = freshSlot.flags ?? {}
 
     setActionError(null)
@@ -969,7 +977,7 @@ export function useSlotMutations({
       claimId,
       dispatch: async () => {
         try {
-          await repo.writeSlotFields(slot.id, { activity_id: activityId, flags })
+          await repo.writeSlotFields(slot.id, { ...occupantFields('activity_id', activityId), flags })
         } catch (err) {
           writeError = err
         }
@@ -980,7 +988,7 @@ export function useSlotMutations({
         setSlots(prev => {
           const next = prev.map(s =>
             s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-              ? { ...s, activity_id: activityId, flags }
+              ? { ...s, ...occupantFields('activity_id', activityId), flags }
               : s
           )
           recalcStats(next)
@@ -1002,20 +1010,20 @@ export function useSlotMutations({
           keys: [key],
           claimId: crypto.randomUUID(),
           dispatch: async () => {
-            await repo.writeSlotFields(slot.id, { activity_id: prevActivityId, flags: prevFlags })
+            await repo.writeSlotFields(slot.id, { ...prevOccupant, flags: prevFlags })
           },
           onSuccess: () => {
             setSlots(prev => {
               const next = prev.map(s =>
                 s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-                  ? { ...s, activity_id: prevActivityId, flags: prevFlags }
+                  ? { ...s, ...prevOccupant, flags: prevFlags }
                   : s
               )
               slotsRef.current = next
               return next
             })
           },
-          ownWriteKinds: { [key]: prevActivityId ? `activity:${prevActivityId}` : 'empty' },
+          ownWriteKinds: { [key]: occupantWriteKind(prevOccupant) },
         })
       },
       redo: async () => {
@@ -1023,13 +1031,13 @@ export function useSlotMutations({
           keys: [key],
           claimId: crypto.randomUUID(),
           dispatch: async () => {
-            await repo.writeSlotFields(slot.id, { activity_id: activityId, flags })
+            await repo.writeSlotFields(slot.id, { ...occupantFields('activity_id', activityId), flags })
           },
           onSuccess: () => {
             setSlots(prev => {
               const next = prev.map(s =>
                 s.group_id === groupId && s.day_id === dayId && s.time_block_id === blockId
-                  ? { ...s, activity_id: activityId, flags }
+                  ? { ...s, ...occupantFields('activity_id', activityId), flags }
                   : s
               )
               slotsRef.current = next
@@ -1287,7 +1295,7 @@ export function useSlotMutations({
         isForwardState: (current) => current[headField] == null && current.is_span_head === true,
         mismatchMessage: 'This block changed since you split it — undo skipped for that cell.',
         backwardFields: { [headField]: prevFieldValue, is_span_head: prevIsSpanHead, flags: prevFlags },
-        backwardOwnWriteKind: prevFieldValue ? `activity:${prevFieldValue}` : 'empty',
+        backwardOwnWriteKind: ownWriteKindFor(headField, prevFieldValue),
         forwardFields: { [headField]: null, is_span_head: true, flags: {} },
         forwardOwnWriteKind: 'empty',
       })
@@ -1441,8 +1449,10 @@ export function useSlotMutations({
 
     const freshSlots = slotsRef.current
     const freshTargetRow = freshSlots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId) ?? targetRow
-    const prevTargetActivityId = freshTargetRow.activity_id ?? null
-    const prevTargetElectiveSetId = freshTargetRow.elective_set_id ?? null
+    // slot-occupant-write-builder (Defect 3 class, "elective-over-event"):
+    // the full occupant triple, so undo restores an event_id too, not only
+    // activity_id/elective_set_id.
+    const prevTargetOccupant = readOccupant(freshTargetRow)
     const prevTargetFlags = freshTargetRow.flags ?? {}
 
     const spanTailRows = collectSpanTails(freshSlots, timeBlocks, target, freshTargetRow)
@@ -1455,7 +1465,7 @@ export function useSlotMutations({
       claimId,
       dispatch: async () => {
         try {
-          const writes = [repo.writeSlotFields(targetRow.id, { elective_set_id: electiveSetId, activity_id: null, flags: {} })]
+          const writes = [repo.writeSlotFields(targetRow.id, { ...occupantFields('elective_set_id', electiveSetId), flags: {} })]
           for (const tail of spanTailRows) {
             writes.push(repo.writeSlotFields(tail.id, { [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} }))
           }
@@ -1470,7 +1480,7 @@ export function useSlotMutations({
         setSlots(prev => {
           const next = prev.map(s => {
             if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-              return { ...s, elective_set_id: electiveSetId, activity_id: null, flags: {} }
+              return { ...s, ...occupantFields('elective_set_id', electiveSetId), flags: {} }
             if (spanTailRows.some(t => t.id === s.id))
               return { ...s, [refField(s) ?? 'activity_id']: null, is_span_head: true, flags: {} }
             return s
@@ -1499,11 +1509,7 @@ export function useSlotMutations({
           dispatch: async () => {
             try {
               await Promise.all([
-                repo.writeSlotFields(targetRow.id, {
-                  elective_set_id: prevTargetElectiveSetId,
-                  activity_id: prevTargetActivityId,
-                  flags: prevTargetFlags,
-                }),
+                repo.writeSlotFields(targetRow.id, { ...prevTargetOccupant, flags: prevTargetFlags }),
                 ...spanTailRows.map(tail => {
                   const tailField = refField(tail) ?? 'activity_id'
                   return repo.writeSlotFields(tail.id, {
@@ -1520,7 +1526,7 @@ export function useSlotMutations({
             setSlots(prev => {
               const next = prev.map(s => {
                 if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-                  return { ...s, elective_set_id: prevTargetElectiveSetId, activity_id: prevTargetActivityId, flags: prevTargetFlags }
+                  return { ...s, ...prevTargetOccupant, flags: prevTargetFlags }
                 const tail = spanTailRows.find(t => t.id === s.id)
                 if (tail) {
                   const tailField = refField(tail) ?? 'activity_id'
@@ -1533,7 +1539,7 @@ export function useSlotMutations({
             })
           },
           ownWriteKinds: {
-            [targetKey]: prevTargetElectiveSetId ? `elective:${prevTargetElectiveSetId}` : ownWriteKindFor('activity_id', prevTargetActivityId),
+            [targetKey]: occupantWriteKind(prevTargetOccupant),
             ...Object.fromEntries(spanTailRows.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), ownWriteKindFor(refField(t) ?? 'activity_id', t[refField(t) ?? 'activity_id'])])),
           },
         })
@@ -1586,7 +1592,7 @@ export function useSlotMutations({
           claimId: crypto.randomUUID(),
           dispatch: async () => {
             try {
-              const writes = [repo.writeSlotFields(targetRow.id, { elective_set_id: liveElectiveSetId, activity_id: null, flags: {} })]
+              const writes = [repo.writeSlotFields(targetRow.id, { ...occupantFields('elective_set_id', liveElectiveSetId), flags: {} })]
               for (const tail of spanTailRows) {
                 writes.push(repo.writeSlotFields(tail.id, { [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} }))
               }
@@ -1598,7 +1604,7 @@ export function useSlotMutations({
             setSlots(prev => {
               const next = prev.map(s => {
                 if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-                  return { ...s, elective_set_id: liveElectiveSetId, activity_id: null, flags: {} }
+                  return { ...s, ...occupantFields('elective_set_id', liveElectiveSetId), flags: {} }
                 if (spanTailRows.some(t => t.id === s.id))
                   return { ...s, [refField(s) ?? 'activity_id']: null, is_span_head: true, flags: {} }
                 return s
@@ -1632,9 +1638,7 @@ export function useSlotMutations({
 
     const freshSlots = slotsRef.current
     const freshTargetRow = freshSlots.find(s => s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId) ?? targetRow
-    const prevTargetActivityId = freshTargetRow.activity_id ?? null
-    const prevTargetElectiveSetId = freshTargetRow.elective_set_id ?? null
-    const prevTargetEventId = freshTargetRow.event_id ?? null
+    const prevTargetOccupant = readOccupant(freshTargetRow)
     const prevTargetFlags = freshTargetRow.flags ?? {}
 
     const spanTailRows = collectSpanTails(freshSlots, timeBlocks, target, freshTargetRow)
@@ -1647,7 +1651,7 @@ export function useSlotMutations({
       claimId,
       dispatch: async () => {
         try {
-          const writes = [repo.writeSlotFields(targetRow.id, { event_id: eventId, activity_id: null, elective_set_id: null, flags: {} })]
+          const writes = [repo.writeSlotFields(targetRow.id, { ...occupantFields('event_id', eventId), flags: {} })]
           for (const tail of spanTailRows) {
             writes.push(repo.writeSlotFields(tail.id, { [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} }))
           }
@@ -1662,7 +1666,7 @@ export function useSlotMutations({
         setSlots(prev => {
           const next = prev.map(s => {
             if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-              return { ...s, event_id: eventId, activity_id: null, elective_set_id: null, flags: {} }
+              return { ...s, ...occupantFields('event_id', eventId), flags: {} }
             if (spanTailRows.some(t => t.id === s.id))
               return { ...s, [refField(s) ?? 'activity_id']: null, is_span_head: true, flags: {} }
             return s
@@ -1691,12 +1695,7 @@ export function useSlotMutations({
           dispatch: async () => {
             try {
               await Promise.all([
-                repo.writeSlotFields(targetRow.id, {
-                  event_id: prevTargetEventId,
-                  elective_set_id: prevTargetElectiveSetId,
-                  activity_id: prevTargetActivityId,
-                  flags: prevTargetFlags,
-                }),
+                repo.writeSlotFields(targetRow.id, { ...prevTargetOccupant, flags: prevTargetFlags }),
                 ...spanTailRows.map(tail => {
                   const tailField = refField(tail) ?? 'activity_id'
                   return repo.writeSlotFields(tail.id, {
@@ -1713,7 +1712,7 @@ export function useSlotMutations({
             setSlots(prev => {
               const next = prev.map(s => {
                 if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-                  return { ...s, event_id: prevTargetEventId, elective_set_id: prevTargetElectiveSetId, activity_id: prevTargetActivityId, flags: prevTargetFlags }
+                  return { ...s, ...prevTargetOccupant, flags: prevTargetFlags }
                 const tail = spanTailRows.find(t => t.id === s.id)
                 if (tail) {
                   const tailField = refField(tail) ?? 'activity_id'
@@ -1726,11 +1725,7 @@ export function useSlotMutations({
             })
           },
           ownWriteKinds: {
-            [targetKey]: prevTargetEventId
-              ? `event:${prevTargetEventId}`
-              : prevTargetElectiveSetId
-                ? `elective:${prevTargetElectiveSetId}`
-                : ownWriteKindFor('activity_id', prevTargetActivityId),
+            [targetKey]: occupantWriteKind(prevTargetOccupant),
             ...Object.fromEntries(spanTailRows.map(t => [cellKey(t.group_id, t.day_id, t.time_block_id), ownWriteKindFor(refField(t) ?? 'activity_id', t[refField(t) ?? 'activity_id'])])),
           },
         })
@@ -1742,7 +1737,7 @@ export function useSlotMutations({
           claimId: crypto.randomUUID(),
           dispatch: async () => {
             try {
-              const writes = [repo.writeSlotFields(targetRow.id, { event_id: eventId, activity_id: null, elective_set_id: null, flags: {} })]
+              const writes = [repo.writeSlotFields(targetRow.id, { ...occupantFields('event_id', eventId), flags: {} })]
               for (const tail of spanTailRows) {
                 writes.push(repo.writeSlotFields(tail.id, { [refField(tail) ?? 'activity_id']: null, is_span_head: true, flags: {} }))
               }
@@ -1754,7 +1749,7 @@ export function useSlotMutations({
             setSlots(prev => {
               const next = prev.map(s => {
                 if (s.group_id === target.groupId && s.day_id === target.dayId && s.time_block_id === target.blockId)
-                  return { ...s, event_id: eventId, activity_id: null, elective_set_id: null, flags: {} }
+                  return { ...s, ...occupantFields('event_id', eventId), flags: {} }
                 if (spanTailRows.some(t => t.id === s.id))
                   return { ...s, [refField(s) ?? 'activity_id']: null, is_span_head: true, flags: {} }
                 return s
