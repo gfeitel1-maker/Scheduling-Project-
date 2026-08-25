@@ -1,241 +1,373 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Tile World — Shoresh</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #f5f3ee; overflow: hidden; display: flex; flex-direction: column; height: 100vh; font-family: -apple-system, sans-serif; }
-  #toolbar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; background: rgba(255,255,255,0.85); backdrop-filter: blur(8px); border-bottom: 1px solid #e0ddd6; font-size: 13px; color: #444; flex-shrink: 0; }
-  #toolbar strong { color: #2F6B58; font-size: 14px; }
-  #status { color: #888; font-size: 12px; margin-left: auto; }
-  #game { flex: 1; }
-</style>
+  <meta charset="utf-8">
+  <title>Tile World — Shoresh</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #111;
+      color: #eee;
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    /* ── Toolbar ── */
+    #toolbar {
+      flex-shrink: 0;
+      background: #1a1a2e;
+      border-bottom: 1px solid #2a2a4a;
+      padding: 10px 18px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    #toolbar .wordmark {
+      font-size: 13px;
+      font-weight: 700;
+      color: #7c9eae;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    #period-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: #fff;
+    }
+    #day-label {
+      font-size: 13px;
+      color: #888;
+    }
+    #status {
+      margin-left: auto;
+      font-size: 11px;
+      color: #444;
+    }
+    #status.connected { color: #4a9; }
+    #status.disconnected { color: #944; }
+
+    /* ── Map area ── */
+    #map-area {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    /* The camp map image, sized to fit */
+    #map-img {
+      max-width: 100%;
+      max-height: 100%;
+      display: block;
+      object-fit: contain;
+      border-radius: 4px;
+      user-select: none;
+    }
+
+    /* Pin overlay — absolutely covers the image's rendered rect */
+    #pin-layer {
+      position: absolute;
+      pointer-events: none;
+    }
+
+    /* Each location pin */
+    .pin {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+    }
+    .pin-bubble {
+      background: rgba(10, 10, 30, 0.82);
+      border: 1px solid rgba(255,255,255,0.18);
+      backdrop-filter: blur(6px);
+      border-radius: 8px;
+      padding: 5px 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      min-width: 70px;
+      max-width: 140px;
+    }
+    .pin.jam .pin-bubble {
+      border-color: rgba(220, 80, 80, 0.6);
+      background: rgba(40, 10, 10, 0.88);
+    }
+    .pin-name {
+      font-size: 11px;
+      font-weight: 600;
+      color: #ccc;
+      text-align: center;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 120px;
+    }
+    .pin.jam .pin-name { color: #f88; }
+    .pin-groups {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+      justify-content: center;
+    }
+    .group-token {
+      width: 26px;
+      height: 26px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 9px;
+      font-weight: 800;
+      color: #fff;
+      border: 2px solid rgba(255,255,255,0.25);
+      letter-spacing: -0.02em;
+      text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+    }
+    .pin-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: rgba(255,255,255,0.3);
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    .pin.jam .pin-dot { background: rgba(220,80,80,0.6); }
+
+    /* Empty / loading states */
+    #empty {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      color: #444;
+      font-size: 14px;
+    }
+    #empty.hidden { display: none; }
+    #empty span { font-size: 32px; }
+
+    /* No-map fallback canvas */
+    #fallback-canvas {
+      display: none;
+      border-radius: 4px;
+    }
+    #fallback-canvas.visible { display: block; }
+
+    /* Capacity badge inside pin for jams */
+    .cap-badge {
+      font-size: 10px;
+      color: #f88;
+      font-weight: 700;
+    }
+  </style>
 </head>
 <body>
+
 <div id="toolbar">
-  <strong>Tile World</strong>
-  <span id="day-label">—</span>
-  <span id="block-label">—</span>
-  <span id="status">Connecting…</span>
+  <span class="wordmark">Shoresh</span>
+  <span id="period-label">—</span>
+  <span id="day-label"></span>
+  <span id="status" class="disconnected">● Connecting…</span>
 </div>
-<div id="game"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js"></script>
+<div id="map-area">
+  <img id="map-img" alt="Camp map" style="display:none">
+  <canvas id="fallback-canvas"></canvas>
+  <div id="pin-layer"></div>
+  <div id="empty"><span>🗺</span>Waiting for map data…</div>
+</div>
+
 <script>
+// ── WS connection ─────────────────────────────────────────────────────────────
 const WS_PORT = __WS_PORT__
-const GRID_COLS = 20
-const GRID_ROWS = 16
-const TILE_W = 128
-const TILE_H = 64
-const DEFAULT_PALETTE = ['#2F6B58','#E07B39','#5B6FA6','#9C4E97','#C4373A']
-
-function tileScreenPos(gridX, gridY, originX, originY) {
-  return {
-    x: (gridX - gridY) * (TILE_W / 2) + originX,
-    y: (gridX + gridY) * (TILE_H / 2) + originY,
-  }
-}
-
-function subQuadrantOffsets(count) {
-  if (count <= 1) return [{ dx: 0, dy: 0, scale: 1 }]
-  if (count === 2) return [
-    { dx: -TILE_W * 0.25, dy: 0, scale: 0.5 },
-    { dx:  TILE_W * 0.25, dy: 0, scale: 0.5 },
-  ]
-  return [
-    { dx: -TILE_W * 0.25, dy: -TILE_H * 0.25, scale: 0.5 },
-    { dx:  TILE_W * 0.25, dy: -TILE_H * 0.25, scale: 0.5 },
-    { dx: -TILE_W * 0.25, dy:  TILE_H * 0.25, scale: 0.5 },
-    { dx:  TILE_W * 0.25, dy:  TILE_H * 0.25, scale: 0.5 },
-  ].slice(0, count)
-}
-
-class TileWorldScene extends Phaser.Scene {
-  constructor() { super({ key: 'TileWorld' }) }
-
-  preload() {
-    const b = '/tiles/'
-    this.load.image('tile_field',    b + 'kenney/bases/base_grass_flat_N.png')
-    this.load.image('tile_court',    b + 'kenney/bases/base_stone_flat_N.png')
-    this.load.image('tile_pool',     b + 'kenney/bases/base_stone_flat_N.png')
-    this.load.image('tile_generic',  b + 'kenney/bases/base_dirt_high_N.png')
-    this.load.image('tile_nature',   b + 'kenney/bases/square_grass_flat_N.png')
-    this.load.image('tile_building', b + 'kenney/farm/woodWallDoorClosed_S.png')
-    this.load.image('tile_cabin',    b + 'kenney/farm/woodWallWindow_S.png')
-  }
-
-  create() {
-    this._tileLayer  = this.add.group()
-    this._jamLayer   = this.add.group()
-    this._tokenLayer = this.add.group()
-    this.events.on('occupancy', d => this._render(d))
-  }
-
-  _originForGrid(w, h) {
-    const gridW = (GRID_COLS + GRID_ROWS) * (TILE_W / 2)
-    const gridH = (GRID_COLS + GRID_ROWS) * (TILE_H / 2)
-    return { originX: w / 2, originY: Math.max(32, (h - gridH) / 2) + TILE_H }
-  }
-
-  _render(data) {
-    const { locations = [], placed = [] } = data || {}
-    this._tileLayer.clear(true, true)
-    this._jamLayer.clear(true, true)
-    this._tokenLayer.clear(true, true)
-
-    const { originX, originY } = this._originForGrid(this.scale.width, this.scale.height)
-
-    // Group placed locations by cell for sub-quadrant split
-    const cellMap = {}
-    for (const loc of locations) {
-      if (loc.grid_x == null || loc.grid_y == null) continue
-      const key = `${loc.grid_x},${loc.grid_y}`
-      if (!cellMap[key]) cellMap[key] = []
-      cellMap[key].push(loc)
-    }
-
-    // Painter sort (back → front)
-    const sorted = locations
-      .filter(l => l.grid_x != null && l.grid_y != null)
-      .sort((a, b) => (a.grid_y * GRID_COLS + a.grid_x) - (b.grid_y * GRID_COLS + b.grid_x))
-
-    const jamLocIds = new Set(
-      placed.filter(p => p.isJam).map(p => p.locationId)
-    )
-
-    for (const loc of sorted) {
-      const cellKey = `${loc.grid_x},${loc.grid_y}`
-      const cellLocs = cellMap[cellKey]
-      const idx = cellLocs.indexOf(loc)
-      const offsets = subQuadrantOffsets(cellLocs.length)
-      const off = offsets[idx] ?? { dx: 0, dy: 0, scale: 1 }
-      const { x, y } = tileScreenPos(loc.grid_x, loc.grid_y, originX, originY)
-      const cx = x + off.dx
-      const cy = y + off.dy
-
-      const TILE_TYPE_KEY = {
-        field: 'tile_field', pool: 'tile_pool', court: 'tile_court',
-        nature: 'tile_nature', building: 'tile_building', cabin: 'tile_cabin',
-        generic: 'tile_generic',
-      }
-      const key = TILE_TYPE_KEY[loc.tile_type] ?? 'tile_generic'
-      const img = this.add.image(cx, cy, key)
-      img.setScale(off.scale)
-      img.setOrigin(0.5, 1)
-      this._tileLayer.add(img)
-
-      // Location name label
-      const lbl = this.add.text(cx, cy - TILE_H * off.scale * 0.9, loc.name ?? '', {
-        fontSize: Math.round(11 * off.scale) + 'px',
-        color: '#2a2016',
-        fontFamily: '-apple-system, sans-serif',
-        stroke: '#f5f3ee',
-        strokeThickness: 3,
-      }).setOrigin(0.5, 1)
-      this._tileLayer.add(lbl)
-
-      // Jam ring
-      if (jamLocIds.has(loc.id)) {
-        const ring = this.add.graphics()
-        ring.lineStyle(2, 0xe07b39, 1)
-        ring.strokeEllipse(cx, cy - TILE_H * off.scale * 0.4, 56 * off.scale, 28 * off.scale)
-        this._jamLayer.add(ring)
-      }
-    }
-
-    // Group tokens
-    const groupsAtLoc = {}
-    for (const p of placed) {
-      if (!groupsAtLoc[p.locationId]) groupsAtLoc[p.locationId] = []
-      groupsAtLoc[p.locationId].push(p)
-    }
-
-    let colorIdx = 0
-    const colorFor = {}
-    for (const loc of sorted) {
-      const groups = groupsAtLoc[loc.id] ?? []
-      if (!groups.length) continue
-      const cellKey = `${loc.grid_x},${loc.grid_y}`
-      const cellLocs = cellMap[cellKey]
-      const idx = cellLocs.indexOf(loc)
-      const offsets = subQuadrantOffsets(cellLocs.length)
-      const off = offsets[idx] ?? { dx: 0, dy: 0, scale: 1 }
-      const { x, y } = tileScreenPos(loc.grid_x, loc.grid_y, originX, originY)
-      const cx = x + off.dx
-      const cy = y - TILE_H * off.scale * 0.5 + off.dy
-
-      const r = Math.round(12 * off.scale)
-      const spacing = r * 2 + 4
-      const startX = cx - ((groups.length - 1) * spacing) / 2
-
-      for (let i = 0; i < groups.length; i++) {
-        const g = groups[i]
-        if (!colorFor[g.groupId]) {
-          colorFor[g.groupId] = DEFAULT_PALETTE[colorIdx % DEFAULT_PALETTE.length]
-          colorIdx++
-        }
-        const color = parseInt(colorFor[g.groupId].slice(1), 16)
-        const tx = startX + i * spacing
-
-        const circle = this.add.graphics()
-        circle.fillStyle(color, 1)
-        circle.fillCircle(tx, cy, r)
-        this._tokenLayer.add(circle)
-
-        const initials = (g.groupName ?? '?').slice(0, 2).toUpperCase()
-        const token = this.add.text(tx, cy, initials, {
-          fontSize: Math.round(9 * off.scale) + 'px',
-          color: '#fff',
-          fontFamily: '-apple-system, sans-serif',
-          fontStyle: 'bold',
-        }).setOrigin(0.5, 0.5)
-        this._tokenLayer.add(token)
-      }
-    }
-  }
-}
-
-const game = new Phaser.Game({
-  type: Phaser.AUTO,
-  parent: 'game',
-  width: window.innerWidth,
-  height: window.innerHeight - document.getElementById('toolbar').offsetHeight,
-  backgroundColor: 0xf5f3ee,
-  scene: [TileWorldScene],
-  audio: { noAudio: true },
-  input: { mouse: false, touch: false, keyboard: false },
-  scale: {
-    mode: Phaser.Scale.RESIZE,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
-  },
-})
-
-// WebSocket connection
-const statusEl = document.getElementById('status')
-const dayEl = document.getElementById('day-label')
-const blockEl = document.getElementById('block-label')
+let ws = null
+let reconnectTimer = null
+let currentPayload = null
 
 function connect() {
-  const ws = new WebSocket(`ws://127.0.0.1:${WS_PORT}`)
-  ws.onopen = () => { statusEl.textContent = 'Live' }
-  ws.onmessage = (e) => {
-    try {
-      const data = JSON.parse(e.data)
-      dayEl.textContent = data.dayLabel ?? '—'
-      blockEl.textContent = data.blockLabel ?? '—'
-      const scene = game.scene.getScene('TileWorld')
-      if (scene) scene.events.emit('occupancy', data)
-    } catch {}
+  ws = new WebSocket(`ws://127.0.0.1:${WS_PORT}`)
+  ws.onopen = () => {
+    document.getElementById('status').textContent = '● Live'
+    document.getElementById('status').className = 'connected'
+    clearTimeout(reconnectTimer)
+  }
+  ws.onmessage = (evt) => {
+    try { currentPayload = JSON.parse(evt.data); render(currentPayload) } catch (e) {}
   }
   ws.onclose = () => {
-    statusEl.textContent = 'Reconnecting…'
-    setTimeout(connect, 1500)
+    document.getElementById('status').textContent = '● Reconnecting…'
+    document.getElementById('status').className = 'disconnected'
+    reconnectTimer = setTimeout(connect, 1500)
   }
   ws.onerror = () => ws.close()
 }
-
 connect()
+
+// ── Group colour palette ───────────────────────────────────────────────────────
+const PALETTE = [
+  '#2F6B58', '#6B3A2F', '#2F4B6B', '#6B5F2F',
+  '#5A2F6B', '#2F6B5A', '#6B2F4B', '#3D5A2F',
+  '#2F5A6B', '#6B432F', '#4B6B2F', '#2F6B43',
+]
+const groupColors = {}
+let colorIdx = 0
+function colorFor(groupId) {
+  if (!groupColors[groupId]) groupColors[groupId] = PALETTE[colorIdx++ % PALETTE.length]
+  return groupColors[groupId]
+}
+function initials(name) {
+  return name.split(/\s+/).map(w => w[0]).join('').toUpperCase().slice(0, 2)
+}
+
+// ── Map image loading ─────────────────────────────────────────────────────────
+let mapLoaded = false
+let mapNaturalW = 0
+let mapNaturalH = 0
+const mapImg = document.getElementById('map-img')
+
+function loadMap(callback) {
+  if (mapLoaded) { callback(); return }
+  mapImg.onload = () => {
+    mapLoaded = true
+    mapNaturalW = mapImg.naturalWidth
+    mapNaturalH = mapImg.naturalHeight
+    mapImg.style.display = 'block'
+    document.getElementById('fallback-canvas').classList.remove('visible')
+    callback()
+  }
+  mapImg.onerror = () => {
+    // No map — draw fallback grid canvas
+    mapImg.style.display = 'none'
+    drawFallback()
+    callback()
+  }
+  mapImg.src = '/map?' + Date.now()
+}
+
+function drawFallback() {
+  const canvas = document.getElementById('fallback-canvas')
+  canvas.classList.add('visible')
+  const W = 800, H = 500
+  canvas.width = W; canvas.height = H
+  const ctx = canvas.getContext('2d')
+  ctx.fillStyle = '#1a2a1a'
+  ctx.fillRect(0, 0, W, H)
+  ctx.strokeStyle = '#2a3a2a'
+  ctx.lineWidth = 1
+  for (let x = 0; x <= W; x += 40) { ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke() }
+  for (let y = 0; y <= H; y += 40) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke() }
+  // Label
+  ctx.fillStyle = '#2a4a2a'
+  ctx.font = '14px system-ui'
+  ctx.textAlign = 'center'
+  ctx.fillText('No map uploaded — upload one in Locations to see your camp', W / 2, H / 2)
+  mapNaturalW = W; mapNaturalH = H
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render(payload) {
+  document.getElementById('empty').classList.add('hidden')
+  document.getElementById('period-label').textContent = payload.blockLabel || '—'
+  document.getElementById('day-label').textContent = payload.dayLabel || ''
+
+  loadMap(() => renderPins(payload))
+}
+
+function renderPins(payload) {
+  const { locations = [], placed = [] } = payload
+
+  // Build a map from locationId → [placed entries]
+  const byLoc = {}
+  for (const p of placed) {
+    if (!byLoc[p.locationId]) byLoc[p.locationId] = []
+    byLoc[p.locationId].push(p)
+  }
+
+  // Compute the rendered image rect inside #map-area
+  const area = document.getElementById('map-area')
+  const areaW = area.offsetWidth
+  const areaH = area.offsetHeight
+  const imgRatio = mapNaturalW / mapNaturalH
+  const areaRatio = areaW / areaH
+  let renderW, renderH, offsetX, offsetY
+  if (imgRatio > areaRatio) {
+    renderW = areaW; renderH = areaW / imgRatio
+    offsetX = 0; offsetY = (areaH - renderH) / 2
+  } else {
+    renderH = areaH; renderW = areaH * imgRatio
+    offsetX = (areaW - renderW) / 2; offsetY = 0
+  }
+
+  const pinLayer = document.getElementById('pin-layer')
+  pinLayer.style.left = offsetX + 'px'
+  pinLayer.style.top = offsetY + 'px'
+  pinLayer.style.width = renderW + 'px'
+  pinLayer.style.height = renderH + 'px'
+  pinLayer.innerHTML = ''
+
+  for (const loc of locations) {
+    let geo = null
+    try { if (loc.map_geometry) geo = JSON.parse(loc.map_geometry) } catch {}
+    if (!geo) continue // off-map locations not pinned
+
+    const groups = byLoc[loc.id] || []
+    const isJam = groups.some(g => g.isJam)
+
+    const pin = document.createElement('div')
+    pin.className = 'pin' + (isJam ? ' jam' : '')
+    pin.style.left = (geo.x + geo.w / 2) * 100 + '%'
+    pin.style.top = (geo.y + geo.h / 2) * 100 + '%'
+
+    const bubble = document.createElement('div')
+    bubble.className = 'pin-bubble'
+
+    const nameEl = document.createElement('div')
+    nameEl.className = 'pin-name'
+    nameEl.textContent = loc.name
+
+    bubble.appendChild(nameEl)
+
+    if (groups.length > 0) {
+      if (isJam) {
+        const cap = document.createElement('div')
+        cap.className = 'cap-badge'
+        cap.textContent = `${groups.length}/${loc.capacity ?? '?'} groups`
+        bubble.appendChild(cap)
+      }
+      const groupsEl = document.createElement('div')
+      groupsEl.className = 'pin-groups'
+      for (const g of groups) {
+        const token = document.createElement('div')
+        token.className = 'group-token'
+        token.style.background = colorFor(g.groupId)
+        token.textContent = initials(g.groupName)
+        token.title = g.groupName
+        groupsEl.appendChild(token)
+      }
+      bubble.appendChild(groupsEl)
+    }
+
+    pin.appendChild(bubble)
+    const dot = document.createElement('div')
+    dot.className = 'pin-dot'
+    pin.appendChild(dot)
+
+    pinLayer.appendChild(pin)
+  }
+}
+
+// Rerender on window resize (image rect changes)
+window.addEventListener('resize', () => { if (currentPayload) renderPins(currentPayload) })
 </script>
 </body>
 </html>
