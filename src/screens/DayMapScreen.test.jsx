@@ -8,6 +8,12 @@ vi.mock('../localClient', () => ({
   },
 }))
 
+vi.mock('../components/locations/TileWorldRenderer', () => ({
+  default: ({ occupancy }) => (
+    <div data-testid="tile-world-renderer" data-location-count={occupancy?.locations?.length ?? 0} />
+  ),
+}))
+
 import DayMapScreen from './DayMapScreen'
 import { localClient } from '../localClient'
 
@@ -141,5 +147,14 @@ describe('DayMapScreen', () => {
     render(<DayMapScreen campId={CAMP_ID} weekId={WEEK_ID} onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Not on the map')).not.toBeNull())
     expect(screen.queryByText('Pool')).not.toBeNull()
+  })
+
+  it('renders TileWorldRenderer when locations have grid_x/grid_y (hasTileWorld)', async () => {
+    mockTable({
+      locations: [locationRow({ grid_x: 3, grid_y: 5, map_geometry: null })],
+      maps: [],
+    })
+    render(<DayMapScreen campId={CAMP_ID} weekId={WEEK_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByTestId('tile-world-renderer')).not.toBeNull())
   })
 })
