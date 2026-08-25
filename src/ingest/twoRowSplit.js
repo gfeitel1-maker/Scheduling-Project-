@@ -53,6 +53,22 @@ export const DEFAULT_SPLIT_SUFFIX = ' (rec)'
 // classifier (an elective flexible pattern: markElectivePermissionTier stamps
 // 'permission' later, when the elective membership is created — this
 // function must not race that write by pre-stamping a status here).
+// The recurrence ratchet, owned by the ingest seam. Pins an activity row as
+// director-asserted. Idempotent: already-'asserted' writes nothing, so a
+// re-run (a re-import re-suggesting a previously-accepted split, or a
+// re-confirmed collision reuse) doesn't churn the op-log. Deliberately
+// non-destructive-asymmetric — it overwrites a DIFFERENT existing status
+// because a split/reuse is a director-CONFIRMED action, not a passive
+// importer inference (see the module note above).
+//
+// Both split paths go through here: emitTwoRowSplit's step 1, and
+// ImportScreen's collision-"reuse" branch, which pins the existing row without
+// minting a counterpart. The screen layer must not decide truth-status itself.
+export async function pinActivityAsserted({ repo, existingActivity }) {
+  if (existingActivity.recurrence_truth_status === 'asserted') return
+  await repo.writeFields('activities', existingActivity.id, { recurrence_truth_status: 'asserted' })
+}
+
 export async function emitTwoRowSplit({ repo, existingActivity, existingActivities, suffix = DEFAULT_SPLIT_SUFFIX, newRowStatus }) {
   const activities = existingActivities ?? []
   const newName = `${existingActivity.name}${suffix}`
@@ -82,11 +98,8 @@ export async function emitTwoRowSplit({ repo, existingActivity, existingActiviti
     return { outcome: 'collision', existingActivityId: existingActivity.id, newActivityId: collidingRow.id, newActivityName: newName, created: false }
   }
 
-  // Only now, with a clean distinct name confirmed, do we mutate. Pin the
-  // existing row (idempotent — skipped when already 'asserted', no op-log churn).
-  if (existingActivity.recurrence_truth_status !== 'asserted') {
-    await repo.writeFields('activities', existingActivity.id, { recurrence_truth_status: 'asserted' })
-  }
+  // Only now, with a clean distinct name confirmed, do we mutate.
+  await pinActivityAsserted({ repo, existingActivity })
 
   const { activityId } = await createActivity(
     { name: newName, campId: existingActivity.camp_id, activities },

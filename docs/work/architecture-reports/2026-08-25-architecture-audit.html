@@ -1,0 +1,123 @@
+<title>Architecture Audit 2026-08-25</title>
+<style>
+  :root{
+    --bg:#FCFBF8; --card:#fff; --ink:#1c2321; --muted:#5c6b66; --line:#e4e0d6;
+    --green:#2F6B58; --amber:#b8791f; --red:#a33b2e; --chip:#eef1ee; --code:#f4f2ec;
+  }
+  :root:not([data-theme="light"]){}
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#14181a; --card:#1c2225; --ink:#e8eae7; --muted:#9aa8a2; --line:#2c3438;
+      --green:#5fb89c; --amber:#d9a94f; --red:#e0796a; --chip:#242c2e; --code:#20272a;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#14181a; --card:#1c2225; --ink:#e8eae7; --muted:#9aa8a2; --line:#2c3438;
+    --green:#5fb89c; --amber:#d9a94f; --red:#e0796a; --chip:#242c2e; --code:#20272a;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;padding:2.5rem 1.25rem}
+  .wrap{max-width:920px;margin:0 auto}
+  h1{font-size:1.9rem;margin:0 0 .25rem}
+  h2{font-size:1.3rem;margin:2.4rem 0 .6rem;border-bottom:2px solid var(--line);padding-bottom:.3rem}
+  h3{font-size:1.08rem;margin:1.4rem 0 .3rem}
+  .sub{color:var(--muted);margin:0 0 1.5rem}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:1.1rem 1.25rem;margin:1rem 0}
+  code{background:var(--code);padding:.1em .35em;border-radius:4px;font-size:.86em}
+  pre{background:var(--code);padding:.8rem 1rem;border-radius:8px;overflow-x:auto;font-size:.82rem}
+  .chip{display:inline-block;background:var(--chip);border:1px solid var(--line);border-radius:20px;padding:.12rem .7rem;font-size:.78rem;margin:.15rem .2rem .15rem 0}
+  .lev{font-weight:700}
+  .hi{color:var(--red)} .med{color:var(--amber)} .ok{color:var(--green)}
+  table{border-collapse:collapse;width:100%;font-size:.9rem;margin:.5rem 0}
+  th,td{border:1px solid var(--line);padding:.45rem .6rem;text-align:left;vertical-align:top}
+  th{background:var(--chip)}
+  .rank{font-size:1.5rem;font-weight:800;color:var(--green);margin-right:.4rem}
+  .verdict{border-left:4px solid var(--green);padding-left:1rem}
+  ul{margin:.4rem 0}
+  .scroll{overflow-x:auto}
+</style>
+<div class="wrap">
+
+<h1>Shoresh Architecture Audit</h1>
+<p class="sub">2026-08-25 &middot; branch <code>main</code> &middot; HEAD <code>1655c0d</code> &middot; schema v47 &middot; independent audit, no code changed</p>
+
+<div class="card verdict">
+<strong>Headline.</strong> The registry/parity discipline that this codebase depends on is <span class="ok">healthy</span> — every parallel registry named in the audit brief has an import-time assertion or a parity test, and all the new v39&rarr;v47 entities (<code>events</code>, <code>event_time_blocks</code>, <code>event_groups</code>, <code>event_slots</code>) are registered consistently across all of them. <code>declined_two_row_splits</code> is correctly and deliberately host-local (never in the sync manifest). The engine's highest-risk change (location contention) integrated cleanly and stays pure. <strong>The real debt is concentrated in one file:</strong> <code>useSlotMutations.js</code> (1833 lines) has absorbed the entire "special schedule things" family as repeated inline branches, with no internal seam for what occupies a slot. That is candidate 1 and dwarfs everything else by leverage.
+</div>
+
+<h2>Deepening candidates, ranked by leverage</h2>
+<table>
+<tr><th>#</th><th>Candidate</th><th>Leverage (impact &times; effort)</th></tr>
+<tr><td>1</td><td>Extract a <em>SlotOccupant</em> seam out of <code>useSlotMutations.js</code></td><td><span class="lev hi">HIGH</span> impact / MED effort</td></tr>
+<tr><td>2</td><td>Consolidate the ingest-commit logic duplicated between <code>ImportScreen.jsx</code> and <code>src/ingest/*</code></td><td><span class="lev med">MED</span> impact / LOW effort</td></tr>
+<tr><td>3</td><td>Unify the four per-entity delete-cascade modules under one cascade spec</td><td><span class="lev med">MED</span> impact / MED effort</td></tr>
+<tr><td>4</td><td>Resolve the overloaded <code>recurrence_truth_status</code> column (documented latent seam)</td><td><span class="lev">LOW-MED</span> impact / HIGH effort — <em>data-model, defer</em></td></tr>
+<tr><td>5</td><td>Affirm & lightly guard the registry family (no drift found)</td><td><span class="ok">confirm-only</span></td></tr>
+</table>
+
+<h2><span class="rank">1</span>Extract a SlotOccupant seam from useSlotMutations.js</h2>
+<div class="card">
+<p><strong>Evidence.</strong> <code>src/screens/schedule/useSlotMutations.js</code> is <strong>1833 lines</strong> (its test is 2697). It is now the single largest non-test module in <code>src/</code>, larger than any screen. A slot can be occupied by one of three mutually-exclusive things — an activity, an elective set, or an event — expressed as the triple <code>{ activity_id, elective_set_id, event_id }</code>. That triple appears <strong>31 times</strong> across the file, and the three placement handlers are structurally near-identical:</p>
+<pre>useSlotMutations.js:628   writeSlotFields(id, { activity_id: incoming.activityId, flags: {} })
+useSlotMutations.js:1650  writeSlotFields(id, { event_id: eventId, activity_id: null, elective_set_id: null, flags: {} })
+        (+ the elective_set_id variant between them)</pre>
+<p>Each of the three carries its own copy of: span-tail release, optimistic route-setter projection, undo/redo closure, and displacement bookkeeping. A change to span/undo semantics must be made three times and kept in lockstep by hand — the same class of hazard the registry parity tests exist to prevent, but here with <em>no</em> guard.</p>
+<p><strong>Deletion test.</strong> The file passes it — deleting it scatters real complexity across ScheduleScreen. It earns its keep. But it fails the <em>internal-seam</em> test: the interesting logic (what a slot occupant is, how it displaces, how it releases a span) cannot be reached by a test without going through the whole hook. The 2697-line test file is the symptom.</p>
+<p><strong>Deepening move.</strong> Introduce a pure <code>slotOccupant</code> module — a small value-object layer that answers <code>occupantFields(kind, id)</code> &rarr; the write-patch, <code>clearFields()</code>, <code>describe(occupant)</code> for undo labels, and <code>occupantOf(slot)</code>. The three placement handlers collapse to one that varies only by the occupant it is handed. The polymorphism moves behind one small, independently-testable interface; the hook shrinks and the 31 hand-maintained triples become one.</p>
+<span class="chip">1833 lines</span><span class="chip">31 occupant triples</span><span class="chip">3 parallel handlers</span><span class="chip">no lockstep guard</span>
+</div>
+
+<h2><span class="rank">2</span>Consolidate ImportScreen &harr; ingest duplication</h2>
+<div class="card">
+<p><strong>Evidence.</strong> <code>src/screens/ImportScreen.jsx</code> is <strong>1764 lines</strong> — now the largest screen (past ScheduleScreen at 1502). It correctly imports <code>emitTwoRowSplit</code> from <code>src/ingest/twoRowSplit.js</code>, but the "reuse" branch re-inlines a piece of that helper's own logic:</p>
+<pre>ImportScreen.jsx:647   if (existingActivity.recurrence_truth_status !== 'asserted')
+                         writeFields('activities', id, { recurrence_truth_status: 'asserted' })
+twoRowSplit.js:87      if (existingActivity.recurrence_truth_status !== 'asserted')
+                         writeFields('activities', id, { recurrence_truth_status: 'asserted' })
+</pre>
+<p>The truth-status ratchet is a data-integrity rule (a one-way, information-destroying write on a synced column, per the block comment in <code>electivePermissionTier.js</code>). Having it authored in two places invites exactly the drift the ingest layer was extracted to prevent. ImportScreen carries 32 top-level functions and mixes UI, staging state, and commit-time op-log writes.</p>
+<p><strong>Deepening move.</strong> Push the reuse-decision's truth-status write behind the same <code>src/ingest/</code> seam that already owns <code>emitTwoRowSplit</code> (e.g. an <code>applySplitDecision(decision)</code> that handles both <code>reuse</code> and <code>split</code>), so the screen calls one function and the rule lives once. Low effort, removes a real correctness-divergence risk on a synced column.</p>
+<span class="chip">1764 lines</span><span class="chip">duplicated ratchet rule</span><span class="chip">synced column</span>
+</div>
+
+<h2><span class="rank">3</span>Unify the special-things delete cascades</h2>
+<div class="card">
+<p><strong>Evidence.</strong> The "contend-vs-override" family now has four parallel delete modules plus the generic one: <code>deleteEvent.js</code>, <code>deleteElectiveSet.js</code>, <code>deleteSpecialDay.js</code>, <code>deleteWeek.js</code>, over <code>deleteRecord.js</code>. Each hand-walks its own child tables (<code>event_slots</code> / <code>special_day_slots</code> / <code>elective_set_activities</code>) and must also scrub the occupant id off any <code>template_slots</code> referencing it.</p>
+<p><strong>Assessment — partial candidate, not an urgent one.</strong> The cascades have genuinely different shapes (an event owns a whole sub-schedule; an elective set owns a member list and is referenced from slots; a special day owns its own time-block/slot grid), so this is real variation across the seam, not shallow duplication — the "two adapters = real seam" test is satisfied. The risk is the shared obligation each one re-implements: <em>when this parent dies, null its id out of every referencing template_slot, and record the op</em>. That obligation is what should become one small deep helper the four cascades call, rather than four hand-written copies. Do <strong>not</strong> collapse the four into one god-function.</p>
+<span class="chip">4 parallel cascades</span><span class="chip">shared slot-scrub obligation</span>
+</div>
+
+<h2><span class="rank">4</span>The overloaded truth-status column (watch, don't fix yet)</h2>
+<div class="card">
+<p><code>activities.recurrence_truth_status</code> was flagged in the brief as "writer but no reader." That is now <strong>outdated</strong> — it has readers: <code>twoRowSplit.js:87</code> gates on it, <code>electivePermissionTier.js</code> and <code>electivePermissionClear.js</code> write/clear it, and <code>ElectiveSetDetail.jsx</code> reads it. The real architectural note is different and documented in the code itself: a single column is being asked to hold truths the model says <em>coexist per occurrence-pattern</em> (<code>electivePermissionTier.js:10-20</code>: "the schema's single recurrence_truth_status column can't yet hold both"). The current writers all defensively refuse to overwrite an existing asserted/obligation truth to avoid a one-way ratchet on a synced column.</p>
+<p><strong>This is a data-model decision, not a refactor.</strong> It is intentional data-shape-forward work with a known successor (the two-rows-sharing-a-name split). Flagging for the record; it needs an ADR and owner input, not a Maker pass. High effort, deferred.</p>
+</div>
+
+<h2><span class="rank">5</span>Registry & parity family — affirmed healthy</h2>
+<div class="card">
+<p>The audit brief asked specifically whether the accreted parallel registries have drifted or lack guards. <strong>They have not, and they do not.</strong> Deterministic findings:</p>
+<ul>
+<li><code>PROJECTIONS</code> (electron/ops/projections.js) — 30 entities including all four event tables; guarded by <code>projectionsEntityParity.test.js</code>, <code>projectionsCoverage.test.js</code>, plus per-family <code>event.projections.test.js</code> / <code>electives.projections.test.js</code> / <code>specialDays.projections.test.js</code> / <code>dayOverrides.projections.test.js</code>.</li>
+<li><code>DOMAIN_SNAPSHOT_ORDER</code> (campScopedEntities.js) — lists all event sub-tables with FK-ordering comments; <code>syncClient.js:104</code> runs <code>assertColumnCoverage()</code> at <em>import time</em> so a table added to the order but missing from <code>DOMAIN_TABLE_COLUMNS</code> throws on module load. <code>assertDirectEntityParity()</code> guards the send/receive halves.</li>
+<li><code>MOCK_WRITE_ALLOWLIST</code>, <code>UNIQUE_FIRST_FIELD</code>, permission-matrix <code>ENTITIES</code> — each has a dedicated parity test (<code>ipcSurfaceParity</code>, <code>uniqueFirstFieldRegistryParity</code>, <code>permissionsEntityParity</code>, plus <code>*Registries.test.js</code> for locations/electives/specialDays/campMaps).</li>
+<li><code>declined_two_row_splits</code> — correctly excluded from the sync manifest: it is host-local by design (<code>declinedSplits.js:1-3</code>, "never synced", direct transactional SQL with no <code>appendOp</code>, mirroring <code>confirmAlias.js</code>). Registered in <code>permissions.js</code> and <code>main.js</code> as expected. No drift.</li>
+</ul>
+<p><strong>Only gap:</strong> the new event <em>sub-tables</em> lean on the generic parity tests rather than any test that asserts the whole event family (parent + 3 children) is registered <em>together</em> everywhere. Low-cost hardening: one family-completeness test, analogous to the existing per-family projection tests. Not urgent.</p>
+</div>
+
+<h2>Benchmarks & healthy signals</h2>
+<div class="card">
+<p><strong>The engine remains the depth benchmark.</strong> <code>src/engine/buildSchedule.js</code> (722 lines) absorbed the highest-risk slice — location contention across anchors, events, and electives — behind its unchanged pure interface. The overlay-occupancy registration is a <em>single</em> helper (<code>registerOverlayOccupancy</code>, called from three call sites at 238/251/plus the elective dedup at 271-274) rather than three copies, with the tricky "distinct offering locations contend simultaneously but same-location offerings dedup" rule expressed once. <code>locations</code> defaults to <code>[]</code> &rarr; unconstrained, so the seam stays backward-compatible. This is what candidate 1 should aspire to.</p>
+<p><strong>ScheduleScreen decoupling held.</strong> At 1502 lines it is down from its historical 2277; the extracted hooks in <code>src/screens/schedule/</code> are mostly deep and well-tested (useRouteState, useGeneration, useSnapshots, useScheduleData, useWeeks each pair a focused hook with a real test). The one that grew back into a god-hook is <code>useSlotMutations</code> — candidate 1.</p>
+<p><strong>scheduleRepository does not leak IPC.</strong> <code>src/data/scheduleRepository.js</code> (384 lines) wraps <code>localClient</code> behind a minimal domain vocabulary (<code>writeSlotFields</code>, <code>reloadSlots</code>, <code>replaceWeek</code>, ...); callers never see <code>window.shoresh</code> or op-log shape. Seam is correctly placed.</p>
+</div>
+
+<h2>Dead / superseded code</h2>
+<div class="card">
+<p><code>day_override_templates</code> (removed at v46) has clean residue only where expected: <code>schema.sql</code>, the <code>v46_down.js</code> rollback, and one comment path in <code>ImportScreen.jsx</code>. No live import references the retired table. No orphaned helpers found from the removed Context domain or retired screens in the grep sweep. Clean.</p>
+</div>
+
+<h2>Method & scope</h2>
+<p class="sub">Read across <code>src/screens/</code>, <code>src/screens/schedule/</code>, <code>src/data/</code>, <code>src/engine/</code>, <code>src/ingest/</code>, <code>electron/ops/</code>, <code>electron/sync/</code>, and <code>electron/auth/</code>. Line counts from <code>wc -l</code>; registry membership and duplication from <code>grep</code> at the file:line cited. <code>legacy/supabase/**</code>, <code>docs/**</code>, and <code>schema.sql</code> excluded per audit charter. No code modified; no PR opened.</p>
+
+</div>

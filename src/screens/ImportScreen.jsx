@@ -11,7 +11,7 @@ import { inferMultiBlockCandidates } from '../ingest/multiBlockCandidates'
 import { inferActivityRules } from '../ingest/activityRules'
 import { normalizeName } from '../ingest/preview'
 import { autoAccepts } from '../ingest/confidence'
-import { emitTwoRowSplit, DEFAULT_SPLIT_SUFFIX } from '../ingest/twoRowSplit'
+import { emitTwoRowSplit, pinActivityAsserted, DEFAULT_SPLIT_SUFFIX } from '../ingest/twoRowSplit'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { assertImportFileSize, assertWorkbookComplexity, unescapeRow } from '../utils/exportSanitize.js'
@@ -589,7 +589,8 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
   }
 
   // Collision "Reuse it" — stages the pin (existing row confirmed pinned,
-  // mirrors emitTwoRowSplit's own step 1) for the same commit-time apply as
+  // applied at commit via the ingest seam's own pinActivityAsserted, the same
+  // ratchet emitTwoRowSplit uses in step 1) for the same commit-time apply as
   // confirmSplit, rather than writing immediately (HIGH #1).
   function reuseCollision(name, existingActivity) {
     const suffix = splitDecisions[name]?.suffix ?? DEFAULT_SPLIT_SUFFIX
@@ -644,9 +645,7 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
       }
       try {
         if (decision.kind === 'reuse') {
-          if (existingActivity.recurrence_truth_status !== 'asserted') {
-            await splitActivityRepo.writeFields('activities', existingActivity.id, { recurrence_truth_status: 'asserted' })
-          }
+          await pinActivityAsserted({ repo: splitActivityRepo, existingActivity })
         } else {
           const result = await emitTwoRowSplit({
             repo: splitActivityRepo,

@@ -3,7 +3,7 @@
 // electiveSetPopulate.test.js's mock-repo shape (real createActivity, no
 // mocking of the dedup logic itself).
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { emitTwoRowSplit, DEFAULT_SPLIT_SUFFIX } from './twoRowSplit'
+import { emitTwoRowSplit, pinActivityAsserted, DEFAULT_SPLIT_SUFFIX } from './twoRowSplit'
 
 const CAMP_ID = 'camp-1'
 
@@ -141,5 +141,36 @@ describe('emitTwoRowSplit', () => {
       repo, existingActivity, existingActivities: [existingActivity], newRowStatus: 'obligation', suffix: ' (flex)',
     })
     expect(result.newActivityName).toBe('Swim (flex)')
+  })
+})
+
+// The ratchet itself, as its own seam. It was previously duplicated in
+// ImportScreen's collision-"reuse" branch; both call sites now share this.
+describe('pinActivityAsserted', () => {
+  it('stamps recurrence_truth_status asserted on a row that is not yet asserted', async () => {
+    const repo = mockRepo()
+    const existingActivity = { id: 'act-swim', name: 'Swim', camp_id: CAMP_ID, recurrence_truth_status: null }
+
+    await pinActivityAsserted({ repo, existingActivity })
+
+    expect(repo.calls).toEqual([{ entity: 'activities', id: 'act-swim', fields: { recurrence_truth_status: 'asserted' } }])
+  })
+
+  it('writes nothing when the row is already asserted (idempotent, no op-log churn)', async () => {
+    const repo = mockRepo()
+    const existingActivity = { id: 'act-swim', name: 'Swim', camp_id: CAMP_ID, recurrence_truth_status: 'asserted' }
+
+    await pinActivityAsserted({ repo, existingActivity })
+
+    expect(repo.calls).toEqual([])
+  })
+
+  it('stamps a row carrying a different status (a split is a director-confirmed action)', async () => {
+    const repo = mockRepo()
+    const existingActivity = { id: 'act-swim', name: 'Swim', camp_id: CAMP_ID, recurrence_truth_status: 'permission' }
+
+    await pinActivityAsserted({ repo, existingActivity })
+
+    expect(repo.calls).toEqual([{ entity: 'activities', id: 'act-swim', fields: { recurrence_truth_status: 'asserted' } }])
   })
 })
