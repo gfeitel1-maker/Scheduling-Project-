@@ -48,7 +48,7 @@ describe('v32 registry coverage — locations', () => {
     // campScopedEntities.js as of T88 — no more literal array to regex).
     expect(DOMAIN_SNAPSHOT_ORDER).toContain('locations')
     // ...and has a column list (so applyFullSync knows what to insert).
-    expect(src).toMatch(/locations:\s*\['id', 'camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry', 'kind', 'grid_x', 'grid_y'\]/)
+    expect(src).toMatch(/locations:\s*\['id', 'camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry', 'kind', 'grid_x', 'grid_y', 'map_id'\]/)
     // activities.location_id must also travel in the snapshot (migration side effect, no op).
     expect(src).toMatch(/activities:[\s\S]*?'location_id'/)
   })
