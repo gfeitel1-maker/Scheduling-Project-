@@ -75,7 +75,7 @@ describe('migration v49: kind column on locations', () => {
   })
 
   it('CURRENT_SCHEMA_VERSION is 49', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(49)
+    expect(CURRENT_SCHEMA_VERSION).toBe(50)
   })
 
   it('fresh db schema_migrations includes version 49', () => {
@@ -88,7 +88,7 @@ describe('migration v49: kind column on locations', () => {
     const db = preV48Db()
     expect(getSchemaVersion(db)).toBe(47)
     initSchema(db)
-    expect(getSchemaVersion(db)).toBe(49)
+    expect(getSchemaVersion(db)).toBe(50)
     const cols = db.pragma('table_info(locations)').map((c) => c.name)
     expect(cols).toContain('kind')
     expect(cols).toContain('grid_x')
@@ -159,7 +159,7 @@ describe('migration v49: kind column on locations', () => {
     const countBefore = db.prepare('SELECT COUNT(*) c FROM locations').get().c
     db.prepare('DELETE FROM schema_migrations WHERE version >= 49').run()
     initSchema(db)
-    expect(getSchemaVersion(db)).toBe(49)
+    expect(getSchemaVersion(db)).toBe(50)
     expect(db.prepare('SELECT COUNT(*) c FROM locations').get().c).toBe(countBefore)
     const row = db.prepare('SELECT * FROM locations WHERE id = ?').get('loc1')
     expect(row.kind).toBe('pool')
