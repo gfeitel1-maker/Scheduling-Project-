@@ -29,6 +29,7 @@ import { useMapDragFSM } from './locations/useMapDragFSM'
 import { MOVE, RESIZE } from './locations/mapDragFSM'
 import { defaultTrayGeometry } from './locations/mapGeometry'
 import { processMapImage, MapImageError } from './locations/mapImageProcessing'
+import { primaryMapId, locationsOnMap, mapSlotLabel, hasMapPair, defaultActiveMapId } from './locations/mapPairModel'
 
 // M3a — the Locations setup screen. docs/work/specs/2026-08-15-m3-locations-design.md Part 1.
 // M3c — the first-run migration review region (Part 3) + the delete path's
@@ -612,15 +613,17 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
       // placeholder row for the new id BEFORE the collision on `name` ever
       // fires, reintroducing this ADR's orphan-row defect via a different
       // field. Pinned by a regression test in LocationsScreen.test.jsx.
-      buildCreateFields: ({ name, capacity, notes, map_geometry }) => ({
+      buildCreateFields: ({ name, capacity, notes, map_geometry, map_id }) => ({
         name,
         camp_id: campId,
         capacity,
         notes: notes || null,
-        // Only the map's click-to-create path supplies this — the List add
+        // Only the map's click-to-create path supplies these — the List add
         // form never does, so ...spread keeps that path's write shape
-        // byte-identical to before this feature existed.
+        // byte-identical to before this feature existed. map_id is stamped only
+        // when a camp has two maps (v50 pair); NULL means the primary map.
         ...(map_geometry ? { map_geometry } : {}),
+        ...(map_id ? { map_id } : {}),
       }),
       addFailedText: 'That location could not be added.',
       saveFailedText: 'That location could not be saved.',
@@ -646,7 +649,11 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
   // M6 — the optional camp map. docs/adr/2026-08-16-locations-optional-map.md,
   // docs/work/specs/2026-08-16-m6-map-design.md.
   const [tab, setTab] = useState('list')
-  const [mapRow, setMapRow] = useState(null)
+  // v50 indoor/outdoor pair: a camp holds 0, 1, or 2 camp_maps rows. mapRows is
+  // the loaded set; activeMapId is the currently-shown one. Single-map camps
+  // (the common case) behave exactly as before — no toggle, activeMap = the one row.
+  const [mapRows, setMapRows] = useState([])
+  const [activeMapId, setActiveMapId] = useState(null)
   const [mapBusy, setMapBusy] = useState(false)
   const [mapError, setMapError] = useState(null)
   const [pendingRemoveMap, setPendingRemoveMap] = useState(false)
@@ -672,10 +679,14 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
 
   async function loadCampMap() {
     try {
-      const rows = (await localClient.list('camp_maps')) || []
-      setMapRow(rows.find((r) => r.camp_id === campId) ?? null)
+      const rows = ((await localClient.list('camp_maps')) || []).filter((r) => r.camp_id === campId)
+      setMapRows(rows)
+      // Keep the active selection valid: default to the primary map, and never
+      // point at a row that no longer exists.
+      setActiveMapId((prev) => (rows.some((r) => r.id === prev) ? prev : defaultActiveMapId(rows, campId)))
     } catch {
-      setMapRow(null)
+      setMapRows([])
+      setActiveMapId(null)
     }
   }
 
@@ -695,15 +706,12 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
     setMapBusy(true)
     try {
       const { base64, mime, width, height } = await processMapImage(file)
-      // camp_id must be included here, not left to the real backend's
-      // ensureExists to stamp: src/localClient.mock.js's write() only
-      // auto-stamps camp_id for UNIQUE_KEYS composite entities, and camp_maps
-      // is correctly not one (a singleton keyed by id = camp_id already) —
-      // so in the browser dev mock, an upload without this field is
-      // unfindable by camp_id and loadCampMap never matches it. Harmless on
-      // the real backend, and matches every other entity's create write in
-      // this same file (buildCreateFields above, and DaysScreen.jsx).
-      await repository.writeFields('camp_maps', campId, {
+      // Target the ACTIVE map row (its own id), or the legacy id = camp_id for a
+      // camp's very first map. camp_id must be included (see loadCampMap): the dev
+      // mock only auto-stamps camp_id for composite-key entities, and camp_maps
+      // isn't one, so an upload without it is unfindable by camp_id.
+      const targetId = activeMapId ?? campId
+      await repository.writeFields('camp_maps', targetId, {
         camp_id: campId,
         image_data: base64,
         image_mime: mime,
@@ -711,6 +719,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
         image_height: height,
       })
       await loadCampMap()
+      setActiveMapId(targetId)
     } catch (err) {
       setMapError(err instanceof MapImageError ? err.message : "That file isn't a photo Shoresh can use. Choose a JPG, PNG, or WEBP image.")
     } finally {
@@ -721,7 +730,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
   async function confirmRemoveMap() {
     setRemovingMap(true)
     try {
-      await repository.writeFields('camp_maps', campId, { image_data: null })
+      await repository.writeFields('camp_maps', activeMapId ?? campId, { image_data: null })
       await loadCampMap()
     } finally {
       setRemovingMap(false)
@@ -759,9 +768,15 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
         y: container.height > 0 ? centerYPx / container.height : 0.5,
       }
       const geometry = defaultTrayGeometry(dropFraction)
-      writeGeometry(locationId, geometry, crypto.randomUUID()).catch(() => {
-        setMapError('That change could not be saved. Try again.')
-      })
+      // Dropping onto the active map assigns the location to it (v50 pair). Write
+      // map_id first so a location can never be positioned-but-unassigned on a
+      // two-map camp; NULL-map_id (single-map) path is unchanged.
+      const assign = mapRows.length > 1 && activeMapId
+        ? repository.writeFields('locations', locationId, { map_id: activeMapId })
+        : Promise.resolve()
+      assign
+        .then(() => writeGeometry(locationId, geometry, crypto.randomUUID()))
+        .catch(() => setMapError('That change could not be saved. Try again.'))
     }
   }
   function handleMapDragCancel(event) {
@@ -785,10 +800,49 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
     setMapDraftBusy(true)
     try {
       const geometry = defaultTrayGeometry({ x: mapDraft.x, y: mapDraft.y })
-      const succeeded = await add({ name: trimmed, capacity: 1, notes: '', map_geometry: JSON.stringify(geometry) })
+      // Stamp map_id only when the camp has two maps — a marker created on the
+      // active map belongs to it. NULL (single-map) preserves today's shape.
+      const map_id = mapRows.length > 1 ? activeMapId : null
+      const succeeded = await add({ name: trimmed, capacity: 1, notes: '', map_geometry: JSON.stringify(geometry), map_id })
       if (succeeded) setMapDraft(null)
     } finally {
       setMapDraftBusy(false)
+    }
+  }
+
+  // ── Derived map-pair state ────────────────────────────────────────────────
+  const isPair = hasMapPair(mapRows)
+  const activeMap = mapRows.find((m) => m.id === activeMapId) ?? mapRows[0] ?? null
+  // Locations shown/placeable on the active map. For a single-map camp this is
+  // every location (unchanged); for a pair it's those resolving to the active map.
+  const mapScopedLocations = isPair ? locationsOnMap(locations, activeMap?.id, mapRows, campId) : locations
+  // Which map-kinds a second slot could take (the ones not already present).
+  const usedKinds = new Set(mapRows.map((m) => m.kind).filter(Boolean))
+  const canAddSecondMap = role === 'admin' && mapRows.length === 1 && Boolean(mapRows[0]?.image_data)
+
+  // Add a second map of `kind` ('indoor'|'outdoor'). The existing (primary) map,
+  // if still unlabeled, is set to the COMPLEMENT — one action both creates the
+  // second map and labels the first, no separate modal. Then the new slot becomes
+  // active so the next upload fills it.
+  async function startSecondMap(kind) {
+    const complement = kind === 'indoor' ? 'outdoor' : 'indoor'
+    setMapError(null)
+    setMapBusy(true)
+    try {
+      const primary = mapRows.find((m) => m.id === primaryMapId(mapRows, campId))
+      if (primary && !primary.kind) {
+        await repository.writeFields('camp_maps', primary.id, { kind: complement })
+      }
+      const newId = crypto.randomUUID()
+      // Create the (empty) second row and switch to it; its empty state then
+      // offers the upload button for the new slot's image.
+      await repository.writeFields('camp_maps', newId, { camp_id: campId, kind })
+      await loadCampMap()
+      setActiveMapId(newId)
+    } catch {
+      setMapError('That change could not be saved. Try again.')
+    } finally {
+      setMapBusy(false)
     }
   }
 
@@ -1187,7 +1241,27 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
             onChange={handleMapFileSelected}
           />
           {mapError && <div style={S.errorBanner}>{mapError}</div>}
-          {!mapRow?.image_data ? (
+
+          {/* Buildings | Grounds toggle — only when a camp has two maps. A
+              single-map camp never sees this (same UI as before v50). */}
+          {isPair && (
+            <div style={mapPairToggleStyles.wrap} role="tablist" aria-label="Which map">
+              {mapRows.map((m) => (
+                <button
+                  key={m.id}
+                  role="tab"
+                  aria-selected={m.id === activeMapId}
+                  className="press-97"
+                  onClick={() => { setActiveMapId(m.id); setMapDraft(null) }}
+                  style={m.id === activeMapId ? { ...mapPairToggleStyles.tab, ...mapPairToggleStyles.tabActive } : mapPairToggleStyles.tab}
+                >
+                  {mapSlotLabel(m)}{!m.image_data ? ' (empty)' : ''}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {!activeMap?.image_data ? (
             <MapEmptyState role={role} onUploadClick={triggerMapUpload} busy={mapBusy} />
           ) : (
             <>
@@ -1197,11 +1271,18 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                     {mapBusy ? 'Preparing…' : 'Replace image'}
                   </button>
                   <button className="press-97" onClick={() => setPendingRemoveMap(true)} disabled={mapBusy} style={S.btnDanger}>Remove image</button>
+                  {/* Offer a second map only from a single-map camp. Buttons show the
+                      kinds not yet used; picking one labels this first map the complement. */}
+                  {canAddSecondMap && ['indoor', 'outdoor'].filter((k) => !usedKinds.has(k)).map((k) => (
+                    <button key={k} className="press-97" onClick={() => startSecondMap(k)} disabled={mapBusy} style={S.btnSecondary}>
+                      + Add {k === 'indoor' ? 'Buildings' : 'Grounds'} map
+                    </button>
+                  ))}
                 </div>
               )}
               <MapCanvas
-                mapRow={mapRow}
-                locations={locations}
+                mapRow={activeMap}
+                locations={mapScopedLocations}
                 dragFsm={dragFsm}
                 containerRef={mapContainerRef}
                 draft={mapDraft}
@@ -1546,5 +1627,22 @@ const trayStyles = {
 }
 
 const mapToolbarStyles = {
-  wrap: { display: 'flex', gap: 8, marginBottom: 12 },
+  wrap: { display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' },
+}
+
+// Segmented "Buildings | Grounds" control — same visual language as the
+// List|Map tab strip, shown only for two-map camps.
+const mapPairToggleStyles = {
+  wrap: {
+    display: 'inline-flex', gap: 2, marginBottom: 12, padding: 3,
+    background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10,
+  },
+  tab: {
+    padding: '5px 14px', borderRadius: 7, border: '1px solid transparent',
+    background: 'none', color: 'var(--text-secondary)', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+  },
+  tabActive: {
+    background: 'var(--surface)', color: 'var(--primary)',
+    boxShadow: '0 1px 4px rgba(0,0,0,0.12)',
+  },
 }
