@@ -347,6 +347,10 @@ function LocationMarker({ location, color, geometry, registerLocationEl, dragFsm
     >
       <span style={markerStyles.chip(color)}>
         <span style={markerStyles.dot(color)} />
+        {/* Kind icon: at 27+ markers on one image the 6-colour cycle repeats and
+            stops distinguishing rooms — the kind glyph becomes the real
+            differentiator (Designer, Gesher facility spec). Absent when kind is unset. */}
+        {(() => { const k = KIND_OPTIONS.find((o) => o.value === location.kind); return k ? <span aria-hidden="true" style={{ marginRight: 3 }}>{k.icon}</span> : null })()}
         {location.name}
       </span>
       <button
@@ -590,7 +594,7 @@ const KIND_OPTIONS = [
 ]
 
 export default function LocationsScreen({ campId, role, onNavigate, weekId, weeks = [], onSelectWeek }) {
-  const { rows: unsortedLocations, loading, error, setError, adding, add, save, deleteAll: deleteAllRecords, reload } =
+  const { rows: unsortedLocations, loading, error, setError, adding, add, save, deleteAll: deleteAllRecords, importRows, reload } =
     useCrudScreen({
       entity: 'locations',
       campId,
@@ -628,6 +632,9 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
   const [newName, setNewName] = useState('')
   const [newCapacity, setNewCapacity] = useState(1)
   const [newNotes, setNewNotes] = useState('')
+  const [seedCount, setSeedCount] = useState(10)
+  const [seeding, setSeeding] = useState(false)
+  const [seedResult, setSeedResult] = useState(null) // { added, skipped } | null
   const [pendingDelete, setPendingDelete] = useState(null)
   const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
@@ -956,6 +963,27 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
     if (succeeded) { setNewName(''); setNewCapacity(1); setNewNotes('') }
   }
 
+  // Bulk-seed "Room 1"…"Room N" in one pass — the friction-killer for a school
+  // like Gesher with ~27 numbered rooms (Designer + Tester: never make the
+  // director add them one at a time). Reuses the shared importRows path (one
+  // reload, skips any name that already exists), and stamps kind:'classroom'
+  // directly (importRows' mapRow bypasses buildCreateFields, which omits kind).
+  async function seedNumberedRooms() {
+    const n = Number(seedCount)
+    if (!Number.isFinite(n) || n < 1) return
+    setSeeding(true)
+    try {
+      const rows = Array.from({ length: Math.min(n, 200) }, (_, i) => ({ n: i + 1 }))
+      const { added, skipped } = await importRows(rows, {
+        mapRow: (row) => ({ name: `Room ${row.n}`, camp_id: campId, capacity: 1, kind: 'classroom' }),
+        duplicateCheck: (seen, row) => seen.some((s) => s.name === `Room ${row.n}`),
+      })
+      setSeedResult({ added, skipped })
+    } finally {
+      setSeeding(false)
+    }
+  }
+
   // Deleting a record a schedule uses: count first, confirm with the count
   // shown, then clear and delete in one Host-side transaction — the shared
   // host path (D2), not a bespoke in-screen unbind.
@@ -1112,6 +1140,38 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                 <input placeholder="e.g. shared with the town" value={newNotes} onChange={(e) => setNewNotes(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && addLocation()} style={S.input} />
               </div>
               <button className="press-97" onClick={addLocation} disabled={adding || !newName.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
+            </div>
+
+            {/* Bulk-seed numbered rooms — a school like Gesher has ~27 numbered
+                rooms; adding them one at a time is the friction the director quits
+                over. Names that already exist are skipped, so it's safe to re-run. */}
+            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+              <div>
+                <label style={fieldLabel}>Add numbered rooms</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Room 1 to</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    aria-label="Number of rooms"
+                    value={seedCount}
+                    onChange={(e) => setSeedCount(e.target.value === '' ? '' : Math.max(1, Math.min(200, Number(e.target.value))))}
+                    style={{ ...S.input, width: 72 }}
+                  />
+                </div>
+              </div>
+              <button
+                className="press-97"
+                onClick={seedNumberedRooms}
+                disabled={seeding || Number(seedCount) < 1}
+                style={{ ...S.btnSecondary, flexShrink: 0 }}
+              >{seeding ? 'Adding…' : `+ Add ${Number(seedCount) || 0} rooms`}</button>
+              {seedResult && (
+                <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+                  Added {seedResult.added}{seedResult.skipped ? ` · ${seedResult.skipped} already existed` : ''}. Set each room’s kind and capacity in the list above.
+                </span>
+              )}
             </div>
           </div>
         </>

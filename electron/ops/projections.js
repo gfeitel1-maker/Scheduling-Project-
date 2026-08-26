@@ -231,7 +231,7 @@ export const PROJECTIONS = {
   locations: {
     table: 'locations',
     key: 'id',
-    fields: ['camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry', 'kind', 'grid_x', 'grid_y'],
+    fields: ['camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry', 'kind', 'grid_x', 'grid_y', 'map_id'],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/etc.ensureExists above.
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
@@ -256,15 +256,17 @@ export const PROJECTIONS = {
     ensureExists: ensureWeekJoinRow('week_location_exclusions', 'location_id'),
   },
   // Camp map background image (M6, schema v33,
-  // docs/adr/2026-08-16-locations-optional-map.md D1). A camp-scoped
-  // singleton — id = camp_id, not a minted uuid — so ensureExists always
-  // targets the one row a camp can ever have. image_data is size-capped by
+  // docs/adr/2026-08-16-locations-optional-map.md D1; pair extension schema v50,
+  // docs/adr/2026-08-26-indoor-outdoor-map-pair-and-sim-seed.md D1). Originally a
+  // camp-scoped singleton (id = camp_id); now up to two rows per camp keyed by
+  // (camp_id, kind). ensureExists still stamps only id + camp_id — `kind` and the
+  // image fields arrive as ordinary field-level ops. image_data is size-capped by
   // MAX_FIELD_VALUE_LENGTH in operations.js (D2), enforced in appendOp
   // itself, before this projection ever runs.
   camp_maps: {
     table: 'camp_maps',
     key: 'id',
-    fields: ['camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'],
+    fields: ['camp_id', 'image_data', 'image_mime', 'image_width', 'image_height', 'kind'],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/etc.ensureExists above.
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()

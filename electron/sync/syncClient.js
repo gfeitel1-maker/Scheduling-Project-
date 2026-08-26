@@ -53,8 +53,12 @@ const DOMAIN_TABLE_COLUMNS = {
     'recurrence_truth_status', // v44 — truth-status x binding-vector activity ontology, storage-only
   ],
   anchor_activities: ['id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id'],
-  locations: ['id', 'camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry', 'kind', 'grid_x', 'grid_y'], // kind/grid_x/grid_y (tile-world v48/v49) are op-log-synced fields — they MUST travel in the first-pairing snapshot or a new Client sees NULL for a location's tile placement until each field next receives a fresh op-log write.
-  camp_maps: ['id', 'camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'],
+  // kind/grid_x/grid_y (tile-world v48/v49) and map_id (indoor/outdoor pair v50)
+  // are op-log-synced fields — they MUST travel in the first-pairing snapshot or a
+  // new Client sees NULL for a location's tile placement / map assignment until each
+  // field next receives a fresh op-log write.
+  locations: ['id', 'camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry', 'kind', 'grid_x', 'grid_y', 'map_id'],
+  camp_maps: ['id', 'camp_id', 'image_data', 'image_mime', 'image_width', 'image_height', 'kind'],
   schedule_weeks: ['id', 'camp_id', 'name', 'sort_order', 'is_archived'], // T88 — required so week_*_exclusions' NOT NULL FK to schedule_weeks.id can be satisfied
   // T108 (day-overrides re-point, ADR 2026-08-21-day-overrides-repoint-shape.md D1)
   day_overrides: ['id', 'camp_id', 'schedule_week_id', 'day_id', 'group_id', 'time_block_id', 'activity_id', 'kind', 'note', 'created_at'],

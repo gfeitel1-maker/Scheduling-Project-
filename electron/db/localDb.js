@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 49
+export const CURRENT_SCHEMA_VERSION = 50
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1892,6 +1892,57 @@ export function initSchema(db) {
       new Date().toISOString()
     )
   }
+
+  // v50 — indoor/outdoor map pair per camp + per-location map reference
+  // (docs/adr/2026-08-26-indoor-outdoor-map-pair-and-sim-seed.md D1/D2).
+  // camp_maps: add `kind` and relax UNIQUE(camp_id) → UNIQUE(camp_id, kind) so a
+  // camp can hold up to two maps (indoor floor plan + outdoor grounds). Changing
+  // a UNIQUE constraint requires a table recreate (SQLite can't ALTER it) — same
+  // recreate-and-copy shape as v49's locations rewrite. Existing single-map rows
+  // (id = camp_id) copy across with kind = NULL and are never reclassified.
+  // locations: add nullable `map_id` naming which camp_maps row a location's
+  // map_geometry is drawn against (NULL = the camp's only map — today's behavior,
+  // unchanged for every camp that never adds a second map).
+  //
+  // Guard is `>= 49 && < 50`, NOT a bare `< 50`: the MAX-version continuity chain
+  // (v27–v48) requires each block to fire ONLY from its immediate predecessor. A
+  // bare lower bound lets this block fire from any earlier version — e.g. if v26
+  // withholds its stamp (getSchemaVersion stays 25), a bare `< 50` would run anyway,
+  // stamp 50, and push MAX() past the unstamped v26 so its data-safety cleanup never
+  // retries. That is exactly the retireOrphanSlots bug #194's bare `< 49` reintroduced.
+  if (getSchemaVersion(db) >= 49 && getSchemaVersion(db) < 50) {
+    db.transaction(() => {
+      const mapCols = db.pragma('table_info(camp_maps)').map((c) => c.name)
+      if (!mapCols.includes('kind')) {
+        db.pragma('foreign_keys = OFF')
+        db.exec(`
+          CREATE TABLE camp_maps_v50 (
+            id TEXT PRIMARY KEY,
+            camp_id TEXT NOT NULL REFERENCES camps(id),
+            image_data TEXT,
+            image_mime TEXT,
+            image_width INTEGER,
+            image_height INTEGER,
+            kind TEXT,
+            UNIQUE(camp_id, kind)
+          );
+          INSERT INTO camp_maps_v50 (id, camp_id, image_data, image_mime, image_width, image_height)
+            SELECT id, camp_id, image_data, image_mime, image_width, image_height FROM camp_maps;
+          DROP TABLE camp_maps;
+          ALTER TABLE camp_maps_v50 RENAME TO camp_maps;
+        `)
+        db.pragma('foreign_keys = ON')
+      }
+      const locCols = db.pragma('table_info(locations)').map((c) => c.name)
+      if (!locCols.includes('map_id')) {
+        db.exec('ALTER TABLE locations ADD COLUMN map_id TEXT DEFAULT NULL')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (50, ?)').run(
+      new Date().toISOString()
+    )
+  }
 }
 
 // Deterministic v32 backfill (INV-1). One `locations` row per distinct
@@ -2045,11 +2096,13 @@ export const WEEK_LOCATION_EXCLUSIONS_INDEX_DDL =
 // LOCATIONS_DDL above.
 export const CAMP_MAPS_DDL = `CREATE TABLE IF NOT EXISTS camp_maps (
   id TEXT PRIMARY KEY,
-  camp_id TEXT NOT NULL UNIQUE REFERENCES camps(id),
+  camp_id TEXT NOT NULL REFERENCES camps(id),
   image_data TEXT,
   image_mime TEXT,
   image_width INTEGER,
-  image_height INTEGER
+  image_height INTEGER,
+  kind TEXT,
+  UNIQUE(camp_id, kind)
 )`
 
 // Byte-identical duplicates of the special_days / special_day_time_blocks /
