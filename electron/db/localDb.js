@@ -1903,7 +1903,14 @@ export function initSchema(db) {
   // locations: add nullable `map_id` naming which camp_maps row a location's
   // map_geometry is drawn against (NULL = the camp's only map — today's behavior,
   // unchanged for every camp that never adds a second map).
-  if (getSchemaVersion(db) < 50) {
+  //
+  // Guard is `>= 49 && < 50`, NOT a bare `< 50`: the MAX-version continuity chain
+  // (v27–v48) requires each block to fire ONLY from its immediate predecessor. A
+  // bare lower bound lets this block fire from any earlier version — e.g. if v26
+  // withholds its stamp (getSchemaVersion stays 25), a bare `< 50` would run anyway,
+  // stamp 50, and push MAX() past the unstamped v26 so its data-safety cleanup never
+  // retries. That is exactly the retireOrphanSlots bug #194's bare `< 49` reintroduced.
+  if (getSchemaVersion(db) >= 49 && getSchemaVersion(db) < 50) {
     db.transaction(() => {
       const mapCols = db.pragma('table_info(camp_maps)').map((c) => c.name)
       if (!mapCols.includes('kind')) {
