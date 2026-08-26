@@ -54,7 +54,7 @@ describe('v33 registry coverage — camp_maps', () => {
     expect(DOMAIN_SNAPSHOT_ORDER).toContain('camp_maps')
     const src = fs.readFileSync(path.join(__dirname, '../sync/syncClient.js'), 'utf8')
     expect(src).toMatch(
-      /camp_maps:\s*\['id', 'camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'\]/
+      /camp_maps:\s*\['id', 'camp_id', 'image_data', 'image_mime', 'image_width', 'image_height', 'kind'\]/
     )
   })
 
