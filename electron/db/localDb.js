@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 48
+export const CURRENT_SCHEMA_VERSION = 49
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1836,6 +1836,59 @@ export function initSchema(db) {
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (48, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v49 — rename tile_type → kind and expand the allowed-value set with
+  // 'classroom' and 'office'. grid_x / grid_y stay for op-log replay.
+  // SQLite RENAME COLUMN (3.25+) carries the old CHECK constraint, which only
+  // allows 7 values. We recreate the table to widen the constraint to 9 values.
+  // Foreign-key references to locations (operations, week_location_exclusions,
+  // activities, etc.) use TEXT ids and are unaffected by a table recreation.
+  if (getSchemaVersion(db) < 49) {
+    db.transaction(() => {
+      const cols = db.pragma('table_info(locations)').map((c) => c.name)
+      const hasTileType = cols.includes('tile_type')
+      const hasKind = cols.includes('kind')
+      const hasGridX = cols.includes('grid_x')
+      const hasGridY = cols.includes('grid_y')
+
+      if (hasTileType || hasKind || hasGridX || hasGridY) {
+        // Recreate with expanded CHECK and canonical column name 'kind'.
+        const srcKind = hasTileType ? 'tile_type' : (hasKind ? 'kind' : 'NULL')
+        const srcGridX = hasGridX ? 'grid_x' : 'NULL'
+        const srcGridY = hasGridY ? 'grid_y' : 'NULL'
+        db.pragma('foreign_keys = OFF')
+        db.exec(`
+          CREATE TABLE locations_v49 (
+            id TEXT PRIMARY KEY,
+            camp_id TEXT NOT NULL REFERENCES camps(id),
+            name TEXT NOT NULL,
+            capacity INTEGER NOT NULL DEFAULT 1,
+            notes TEXT,
+            sort_order INTEGER,
+            map_geometry TEXT,
+            kind TEXT CHECK(
+              kind IS NULL OR kind IN ('building','classroom','pool','field','cabin','court','nature','office','generic')
+            ) DEFAULT NULL,
+            grid_x INTEGER DEFAULT NULL,
+            grid_y INTEGER DEFAULT NULL,
+            UNIQUE(camp_id, name)
+          );
+          INSERT INTO locations_v49
+            SELECT id, camp_id, name, capacity, notes, sort_order, map_geometry,
+                   ${srcKind}, ${srcGridX}, ${srcGridY}
+            FROM locations;
+          DROP TABLE locations;
+          ALTER TABLE locations_v49 RENAME TO locations;
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_locations_camp_name ON locations(camp_id, name);
+        `)
+        db.pragma('foreign_keys = ON')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (49, ?)').run(
       new Date().toISOString()
     )
   }

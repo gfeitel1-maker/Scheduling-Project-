@@ -231,7 +231,7 @@ export const PROJECTIONS = {
   locations: {
     table: 'locations',
     key: 'id',
-    fields: ['camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry', 'tile_type', 'grid_x', 'grid_y'],
+    fields: ['camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry', 'kind', 'grid_x', 'grid_y'],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/etc.ensureExists above.
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()

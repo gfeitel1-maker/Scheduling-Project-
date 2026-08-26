@@ -246,7 +246,7 @@ function CapacityAdvisoryStrip({ items, locations, onAccept, busyId }) {
 function ListMapToggle({ tab, onChange }) {
   return (
     <div style={{ display: 'flex', gap: 2, background: 'var(--border)', borderRadius: 8, padding: 3, marginBottom: 20 }}>
-      {[['list', 'List'], ['map', 'Map'], ['tile-world', 'Tile World']].map(([v, label]) => (
+      {[['list', 'List'], ['map', 'Map']].map(([v, label]) => (
         <button
           key={v}
           onClick={() => onChange(v)}
@@ -510,13 +510,14 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle }) {
   const [name, setName] = useState(location.name)
   const [capacity, setCapacity] = useState(location.capacity)
   const [notes, setNotes] = useState(location.notes || '')
+  const [kind, setKind] = useState(location.kind || '')
   const [saving, setSaving] = useState(false)
 
   async function save() {
     if (!name.trim()) return
     setSaving(true)
     try {
-      await onSave(location.id, { name: name.trim(), capacity: Number(capacity), notes: notes.trim() || null })
+      await onSave(location.id, { name: name.trim(), capacity: Number(capacity), notes: notes.trim() || null, kind: kind || null })
       setEditing(false)
     } catch {
       // onSave already surfaced the error; stay in edit mode so nothing is lost.
@@ -535,13 +536,23 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle }) {
         <td style={S.td}>
           <input value={notes} onChange={(e) => setNotes(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input} />
         </td>
+        <td style={S.td}>
+          <select value={kind} onChange={(e) => setKind(e.target.value)} style={{ ...S.input, padding: '4px 6px' }}>
+            <option value="">— none —</option>
+            {KIND_OPTIONS.map(({ value, icon, label }) => (
+              <option key={value} value={value}>{icon} {label}</option>
+            ))}
+          </select>
+        </td>
         <td style={{ ...S.td, textAlign: 'right' }}>
           <button className="press-97" onClick={save} disabled={saving} style={S.btnPrimary}>{saving ? 'Saving…' : 'Save'}</button>
-          <button className="press-97" onClick={() => { setName(location.name); setCapacity(location.capacity); setNotes(location.notes || ''); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>Cancel</button>
+          <button className="press-97" onClick={() => { setName(location.name); setCapacity(location.capacity); setNotes(location.notes || ''); setKind(location.kind || ''); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>Cancel</button>
         </td>
       </tr>
     )
   }
+
+  const kindInfo = KIND_OPTIONS.find((k) => k.value === location.kind)
 
   return (
     <tr style={{ borderBottom: '1px solid var(--border)' }}
@@ -551,6 +562,7 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle }) {
       <td style={{ ...S.td, fontWeight: 500 }}>{location.name}</td>
       <td style={{ ...S.td, fontVariantNumeric: 'tabular-nums' }}>{capacityWord(location.capacity)}</td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }}>{location.notes || '—'}</td>
+      <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 12 }} title={kindInfo?.label}>{kindInfo ? `${kindInfo.icon} ${kindInfo.label}` : '—'}</td>
       {weekToggle}
       <td style={{ ...S.td, textAlign: 'right', borderLeft: weekToggle ? '1px solid var(--border)' : undefined }}>
         <button className="press-97" onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
@@ -565,165 +577,17 @@ function LocationRow({ location, role, onSave, onDelete, weekToggle }) {
   )
 }
 
-const TILE_TYPES = [
+const KIND_OPTIONS = [
   { value: 'building', icon: '🏢', label: 'Building' },
+  { value: 'classroom', icon: '🏫', label: 'Classroom / Group Space' },
   { value: 'pool', icon: '🏊', label: 'Pool' },
   { value: 'field', icon: '🌿', label: 'Field' },
   { value: 'cabin', icon: '🏕️', label: 'Cabin' },
   { value: 'court', icon: '🏀', label: 'Court' },
   { value: 'nature', icon: '🌲', label: 'Nature' },
+  { value: 'office', icon: '🗂️', label: 'Office / Admin' },
   { value: 'generic', icon: '⬜', label: 'Generic' },
 ]
-
-const GRID_BUILDER_COLS = 20
-const GRID_BUILDER_ROWS = 16
-const DIAMOND_W = 28
-const DIAMOND_H = 14
-
-function builderScreenPos(gx, gy, originX, originY) {
-  return {
-    x: (gx - gy) * (DIAMOND_W / 2) + originX,
-    y: (gx + gy) * (DIAMOND_H / 2) + originY,
-  }
-}
-
-function TileWorldBuilder({ locations, selectedId, onSelect, busy, onSaveTileType, onSaveGridPos, onClearPlacement }) {
-  const selected = locations.find((l) => l.id === selectedId) ?? null
-
-  const totalW = (GRID_BUILDER_COLS + GRID_BUILDER_ROWS) * (DIAMOND_W / 2) + DIAMOND_W
-  const totalH = (GRID_BUILDER_COLS + GRID_BUILDER_ROWS) * (DIAMOND_H / 2) + DIAMOND_H
-  const originX = totalW / 2
-  const originY = GRID_BUILDER_COLS * (DIAMOND_H / 2) + DIAMOND_H / 2
-
-  const placedByCell = new Map()
-  for (const loc of locations) {
-    if (loc.grid_x != null && loc.grid_y != null) {
-      const key = `${loc.grid_x},${loc.grid_y}`
-      if (!placedByCell.has(key)) placedByCell.set(key, [])
-      placedByCell.get(key).push(loc)
-    }
-  }
-
-  const selectedCellKey = selected?.grid_x != null ? `${selected.grid_x},${selected.grid_y}` : null
-  const cellConflict = selectedCellKey && placedByCell.has(selectedCellKey)
-    ? placedByCell.get(selectedCellKey).filter((l) => l.id !== selectedId)
-    : []
-
-  return (
-    <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-      <div style={{ width: 220, flexShrink: 0 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 8 }}>Locations</div>
-        <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
-          {locations.length === 0 ? (
-            <div style={{ padding: '12px 14px', color: 'var(--text-secondary)', fontSize: 13 }}>No locations yet. Add them in the List tab.</div>
-          ) : locations.map((loc) => (
-            <div
-              key={loc.id}
-              onClick={() => onSelect(loc.id === selectedId ? null : loc.id)}
-              style={{
-                padding: '8px 14px',
-                borderBottom: '1px solid var(--border)',
-                cursor: 'pointer',
-                background: loc.id === selectedId ? 'var(--primary-light, color-mix(in srgb, var(--primary) 10%, var(--surface)))' : 'transparent',
-                display: 'flex', alignItems: 'center', gap: 8,
-              }}
-            >
-              <span style={{ fontSize: 15 }}>{TILE_TYPES.find((t) => t.value === loc.tile_type)?.icon ?? '·'}</span>
-              <span style={{ flex: 1, fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{loc.name}</span>
-              <span style={{ fontSize: 11, color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
-                {loc.grid_x != null ? `(${loc.grid_x},${loc.grid_y})` : 'Not placed'}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {selected ? (
-        <div style={{ flex: 1, minWidth: 280 }}>
-          <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-secondary)', marginBottom: 8 }}>
-            Editing: {selected.name}
-          </div>
-
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>Tile type</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {TILE_TYPES.map(({ value, icon, label }) => (
-                <button
-                  key={value}
-                  className="press-97"
-                  disabled={busy}
-                  onClick={() => onSaveTileType(selected.id, value)}
-                  title={label}
-                  style={{
-                    padding: '6px 10px', borderRadius: 8, border: '2px solid',
-                    borderColor: selected.tile_type === value ? 'var(--primary)' : 'var(--border)',
-                    background: selected.tile_type === value ? 'var(--primary-light, color-mix(in srgb, var(--primary) 12%, var(--surface)))' : 'var(--surface)',
-                    fontSize: 18, cursor: 'pointer', lineHeight: 1,
-                  }}
-                >{icon}</button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 6 }}>Grid position — click to place</div>
-            <div style={{ overflowX: 'auto' }}>
-              <svg width={totalW} height={totalH} style={{ display: 'block' }}>
-                {Array.from({ length: GRID_BUILDER_ROWS }, (_, gy) =>
-                  Array.from({ length: GRID_BUILDER_COLS }, (_, gx) => {
-                    const key = `${gx},${gy}`
-                    const isSelected = selected.grid_x === gx && selected.grid_y === gy
-                    const otherHere = (placedByCell.get(key) || []).filter((l) => l.id !== selectedId)
-                    const pos = builderScreenPos(gx, gy, originX, originY)
-                    const hw = DIAMOND_W / 2
-                    const hh = DIAMOND_H / 2
-                    const points = `${pos.x},${pos.y - hh} ${pos.x + hw},${pos.y} ${pos.x},${pos.y + hh} ${pos.x - hw},${pos.y}`
-                    return (
-                      <g key={key} onClick={() => { if (!busy) onSaveGridPos(selected.id, gx, gy) }} style={{ cursor: 'pointer' }}>
-                        <polygon
-                          points={points}
-                          fill={isSelected ? 'var(--primary)' : otherHere.length > 0 ? 'color-mix(in srgb, var(--text-secondary) 15%, transparent)' : 'transparent'}
-                          stroke={isSelected ? 'var(--primary)' : 'var(--border)'}
-                          strokeWidth={isSelected ? 1.5 : 0.8}
-                        />
-                        {otherHere.length > 0 && !isSelected && (
-                          <text x={pos.x} y={pos.y + 4} textAnchor="middle" fontSize={6} fill="var(--text-secondary)" style={{ pointerEvents: 'none' }}>
-                            {otherHere[0].name.slice(0, 3)}
-                          </text>
-                        )}
-                      </g>
-                    )
-                  })
-                )}
-              </svg>
-            </div>
-          </div>
-
-          {cellConflict.length > 0 && (
-            <div style={{ fontSize: 12, color: 'var(--warning, #c4373a)', marginBottom: 10 }}>
-              {cellConflict.length === 1
-                ? `Two locations share this cell: "${cellConflict[0].name}" is also here.`
-                : `${cellConflict.length + 1} locations share this cell.`}
-            </div>
-          )}
-
-          {(selected.grid_x != null || selected.tile_type != null) && (
-            <button
-              className="press-97"
-              disabled={busy}
-              onClick={() => onClearPlacement(selected.id)}
-              style={S.btnDanger}
-            >Clear placement</button>
-          )}
-        </div>
-      ) : (
-        <div style={{ flex: 1, minWidth: 280, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
-          Select a location to place it on the grid.
-        </div>
-      )}
-    </div>
-  )
-}
 
 export default function LocationsScreen({ campId, role, onNavigate, weekId, weeks = [], onSelectWeek }) {
   const { rows: unsortedLocations, loading, error, setError, adding, add, save, deleteAll: deleteAllRecords, reload } =
@@ -788,9 +652,6 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
   const [mapDraftBusy, setMapDraftBusy] = useState(false)
   const { writeGeometry } = useLocationGeometryMutations({ repository })
 
-  // Tile World builder state
-  const [tileSelectedId, setTileSelectedId] = useState(null)
-  const [tileBusy, setTileBusy] = useState(false)
   const handleGeometryCommitError = useCallback(() => {
     setMapError('That change could not be saved. Try again.')
   }, [])
@@ -1203,6 +1064,7 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
                       <th style={S.th}>Name</th>
                       <th style={S.th}>Groups at once</th>
                       <th style={S.th}>Notes</th>
+                      <th style={S.th}>Kind</th>
                       {weekId && <th style={{ ...S.th, textAlign: 'center' }}>{currentWeek?.name ?? 'Week'}</th>}
                       <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
                     </tr>
@@ -1253,48 +1115,6 @@ export default function LocationsScreen({ campId, role, onNavigate, weekId, week
             </div>
           </div>
         </>
-      )}
-
-      {tab === 'tile-world' && (
-        <TileWorldBuilder
-          locations={locations}
-          selectedId={tileSelectedId}
-          onSelect={setTileSelectedId}
-          busy={tileBusy}
-          onSaveTileType={async (id, tileType) => {
-            setTileBusy(true)
-            try {
-              await repository.writeFields('locations', id, { tile_type: tileType })
-              await reload()
-            } catch (err) {
-              setError(describeWriteFailure(err))
-            } finally {
-              setTileBusy(false)
-            }
-          }}
-          onSaveGridPos={async (id, gridX, gridY) => {
-            setTileBusy(true)
-            try {
-              await repository.writeFields('locations', id, { grid_x: gridX, grid_y: gridY })
-              await reload()
-            } catch (err) {
-              setError(describeWriteFailure(err))
-            } finally {
-              setTileBusy(false)
-            }
-          }}
-          onClearPlacement={async (id) => {
-            setTileBusy(true)
-            try {
-              await repository.writeFields('locations', id, { tile_type: null, grid_x: null, grid_y: null })
-              await reload()
-            } catch (err) {
-              setError(describeWriteFailure(err))
-            } finally {
-              setTileBusy(false)
-            }
-          }}
-        />
       )}
 
       {tab === 'map' && (

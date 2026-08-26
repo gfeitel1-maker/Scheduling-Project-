@@ -57,19 +57,28 @@ function initials(n)  { return n.split(/\s+/).map(w => w[0]).join('').toUpperCas
 // Unmatched locations cycle through the remaining pool.
 const BUILDING_KEYS = ['Castle','Tavern','Library','Forge','Arena','Chapel','Alchemist','Tower']
 let _bPoolIdx = 0; const _bAssign = {}
-function buildingFor(locId, name) {
+const KIND_MAP = {
+  pool: 'Forge', field: 'Arena', cabin: 'Tower', court: 'Arena',
+  building: 'Castle', classroom: 'Library', nature: 'Alchemist',
+  office: 'Chapel', generic: 'Castle',
+}
+function buildingFor(locId, name, kind) {
   if (_bAssign[locId]) return _bAssign[locId]
-  const n = name.toLowerCase()
   let key
-  if      (/water|pool|swim|front|dock/.test(n)) key = 'Forge'
-  else if (/art|craft|paint|studio/.test(n))     key = 'Library'
-  else if (/arch|range|target/.test(n))          key = 'Arena'
-  else if (/fire|circle|pit/.test(n))            key = 'Forge'
-  else if (/health|nurse|med|first/.test(n))     key = 'Chapel'
-  else if (/bunk|cabin|sleep|dorm/.test(n))      key = 'Tower'
-  else if (/din|eat|food|hall|mess|cafe/.test(n)) key = 'Tavern'
-  else if (/court|field|sport|ball|gym/.test(n)) key = 'Arena'
-  else { key = BUILDING_KEYS[_bPoolIdx % BUILDING_KEYS.length]; _bPoolIdx++ }
+  if (kind && KIND_MAP[kind]) {
+    key = KIND_MAP[kind]
+  } else {
+    const n = (name || '').toLowerCase()
+    if      (/water|pool|swim|front|dock/.test(n)) key = 'Forge'
+    else if (/art|craft|paint|studio/.test(n))     key = 'Library'
+    else if (/arch|range|target/.test(n))          key = 'Arena'
+    else if (/fire|circle|pit/.test(n))            key = 'Forge'
+    else if (/health|nurse|med|first/.test(n))     key = 'Chapel'
+    else if (/bunk|cabin|sleep|dorm/.test(n))      key = 'Tower'
+    else if (/din|eat|food|hall|mess|cafe/.test(n)) key = 'Tavern'
+    else if (/court|field|sport|ball|gym/.test(n)) key = 'Arena'
+    else { key = BUILDING_KEYS[_bPoolIdx % BUILDING_KEYS.length]; _bPoolIdx++ }
+  }
   _bAssign[locId] = key
   return key
 }
@@ -213,7 +222,7 @@ class CampScene extends Phaser.Scene {
 
     locations.forEach((loc, i) => {
       const pos = positions[i] ?? { x: W/2, y: H/2 }
-      const key = `bldg-${buildingFor(loc.id, loc.name)}`
+      const key = `bldg-${buildingFor(loc.id, loc.name, loc.kind)}`
       const img = this.add.image(pos.x, pos.y, key)
         .setScale(0.38)
         .setOrigin(0.5, 0.85)  // anchor at base so building sits on the path
