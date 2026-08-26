@@ -53,13 +53,13 @@ const DOMAIN_TABLE_COLUMNS = {
     'recurrence_truth_status', // v44 — truth-status x binding-vector activity ontology, storage-only
   ],
   anchor_activities: ['id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id'],
-  locations: ['id', 'camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry'],
+  locations: ['id', 'camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry', 'kind', 'grid_x', 'grid_y'], // kind/grid_x/grid_y (tile-world v48/v49) are op-log-synced fields — they MUST travel in the first-pairing snapshot or a new Client sees NULL for a location's tile placement until each field next receives a fresh op-log write.
   camp_maps: ['id', 'camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'],
   schedule_weeks: ['id', 'camp_id', 'name', 'sort_order', 'is_archived'], // T88 — required so week_*_exclusions' NOT NULL FK to schedule_weeks.id can be satisfied
   // T108 (day-overrides re-point, ADR 2026-08-21-day-overrides-repoint-shape.md D1)
   day_overrides: ['id', 'camp_id', 'schedule_week_id', 'day_id', 'group_id', 'time_block_id', 'activity_id', 'kind', 'note', 'created_at'],
   schedule_templates: ['id', 'camp_id', 'name', 'kind', 'week_id'],
-  template_slots: ['id', 'template_id', 'group_id', 'activity_id', 'day_id', 'time_block_id', 'flags', 'is_released', 'is_span_head', 'anchor_id', 'is_anchor', 'elective_set_id'],
+  template_slots: ['id', 'template_id', 'group_id', 'activity_id', 'day_id', 'time_block_id', 'flags', 'is_released', 'is_span_head', 'anchor_id', 'is_anchor', 'elective_set_id', 'event_id'],
   template_overlays: ['id', 'template_id', 'unit_id', 'day_id', 'from_block_order', 'to_block_order', 'label'],
   week_activity_exclusions: ['id', 'week_id', 'activity_id'],
   week_group_exclusions: ['id', 'week_id', 'group_id'],
@@ -73,7 +73,7 @@ const DOMAIN_TABLE_COLUMNS = {
     'id', 'camp_id', 'name', 'sort_order', 'is_reusable',
     'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'schedule_week_id', 'recurrence_level',
   ],
-  elective_set_activities: ['id', 'elective_set_id', 'activity_id'],
+  elective_set_activities: ['id', 'elective_set_id', 'activity_id', 'camper_headcount'],
   // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-placement.md)
   events: ['id', 'camp_id', 'name', 'sort_order', 'notes', 'location_id'],
   // Events internal sub-schedule Slice 2 (docs/adr/2026-08-22-event-internal-subschedule.md)
@@ -91,11 +91,34 @@ const DOMAIN_TABLE_COLUMNS = {
 // parity up front (exported so campScopedEntities/syncClient tests can
 // exercise the throw path directly with synthetic input) so the failure is
 // immediate and names the offending table.
-export function assertColumnCoverage(snapshotOrder, tableColumns) {
+//
+// Beyond table-level presence, we also assert COLUMN-level completeness against
+// PROJECTIONS: every op-log-synced field a table projects must appear in its
+// DOMAIN_TABLE_COLUMNS list, or that field would materialize correctly via
+// ordinary field-level op-log sync yet be silently dropped from the
+// first-pairing snapshot — a location's kind/grid_x/grid_y set before a device
+// ever paired would arrive NULL until the next fresh write. (This is exactly
+// the gap that shipped for locations.kind/grid_x/grid_y, template_slots.event_id,
+// and elective_set_activities.camper_headcount.) Extra columns in the snapshot
+// list beyond a table's projected fields are allowed (real columns the snapshot
+// legitimately carries), so this is a subset check, not equality.
+export function assertColumnCoverage(snapshotOrder, tableColumns, projections = PROJECTIONS) {
   for (const table of snapshotOrder) {
-    if (!tableColumns[table]) {
+    const columns = tableColumns[table]
+    if (!columns) {
       throw new Error(
         `syncClient: DOMAIN_TABLE_COLUMNS is missing an entry for '${table}' (listed in DOMAIN_SNAPSHOT_ORDER) — insertSnapshotRows would fail applying it.`
+      )
+    }
+    const projection = projections[table]
+    if (!projection) continue
+    const present = new Set(columns)
+    // The projection key (usually 'id') plus every synced field must be carried.
+    const required = [projection.key ?? 'id', ...projection.fields]
+    const missing = required.filter((field) => !present.has(field))
+    if (missing.length > 0) {
+      throw new Error(
+        `syncClient: DOMAIN_TABLE_COLUMNS['${table}'] is missing op-log-synced column(s) [${missing.join(', ')}] that PROJECTIONS['${table}'] materializes — they would be dropped from the first-pairing snapshot and arrive NULL on a new device.`
       )
     }
   }

@@ -42,14 +42,35 @@ describe('campScopedEntities manifest parity', () => {
     )
   })
 
-  it('does not throw for the real DOMAIN_SNAPSHOT_ORDER + DOMAIN_TABLE_COLUMNS pairing (already proven by syncClient.js loading without error)', () => {
+  it('does not throw for a table-present map when projection checking is disabled (table-presence path only)', () => {
     const columnsForEveryEntity = Object.fromEntries(DOMAIN_SNAPSHOT_ORDER.map((entity) => [entity, ['id']]))
-    expect(() => assertColumnCoverage(DOMAIN_SNAPSHOT_ORDER, columnsForEveryEntity)).not.toThrow()
+    // Pass empty projections so only the table-presence rule is exercised here;
+    // the column-level rule is covered by its own tests below.
+    expect(() => assertColumnCoverage(DOMAIN_SNAPSHOT_ORDER, columnsForEveryEntity, {})).not.toThrow()
   })
 
   it('throws when a table in the snapshot order has no DOMAIN_TABLE_COLUMNS entry', () => {
     const snapshotOrder = ['groups', 'week_location_exclusions']
     const tableColumns = { groups: ['id', 'camp_id', 'name'] }
-    expect(() => assertColumnCoverage(snapshotOrder, tableColumns)).toThrow(/week_location_exclusions/)
+    // Empty projections isolates the table-presence rule from the column-level one.
+    expect(() => assertColumnCoverage(snapshotOrder, tableColumns, {})).toThrow(/week_location_exclusions/)
+  })
+
+  it('throws when a snapshot table omits an op-log-synced column its projection materializes', () => {
+    // groups projects camp_id/name/tier_id/availability; a snapshot list that
+    // carries only some of them would silently drop the rest on first pairing.
+    const snapshotOrder = ['groups']
+    const tableColumns = { groups: ['id', 'camp_id', 'name'] } // missing tier_id, availability
+    const projections = { groups: { key: 'id', fields: ['camp_id', 'name', 'tier_id', 'availability'] } }
+    expect(() => assertColumnCoverage(snapshotOrder, tableColumns, projections)).toThrow(
+      /groups.*tier_id.*availability|tier_id, availability/
+    )
+  })
+
+  it('does not throw when the snapshot list is a superset of the projected columns (extra columns allowed)', () => {
+    const snapshotOrder = ['groups']
+    const tableColumns = { groups: ['id', 'camp_id', 'name', 'created_at'] } // created_at is a real extra column
+    const projections = { groups: { key: 'id', fields: ['camp_id', 'name'] } }
+    expect(() => assertColumnCoverage(snapshotOrder, tableColumns, projections)).not.toThrow()
   })
 })

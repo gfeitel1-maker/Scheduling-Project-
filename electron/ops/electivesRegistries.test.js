@@ -84,7 +84,7 @@ describe('v35 registry coverage — elective_set_activities', () => {
     expect(DOMAIN_SNAPSHOT_ORDER).toContain('elective_set_activities')
     const src = fs.readFileSync(path.join(__dirname, '../sync/syncClient.js'), 'utf8')
     expect(src).toMatch(
-      /elective_set_activities:\s*\['id', 'elective_set_id', 'activity_id'\]/
+      /elective_set_activities:\s*\['id', 'elective_set_id', 'activity_id', 'camper_headcount'\]/
     )
   })
 })
@@ -97,7 +97,7 @@ describe('v35 registry coverage — template_slots.elective_set_id', () => {
   it('is in the client first-pairing snapshot column list', () => {
     const src = fs.readFileSync(path.join(__dirname, '../sync/syncClient.js'), 'utf8')
     expect(src).toMatch(
-      /template_slots:\s*\[[^\]]*'elective_set_id'\]/
+      /template_slots:\s*\[[^\]]*'elective_set_id'[^\]]*\]/
     )
   })
 })
