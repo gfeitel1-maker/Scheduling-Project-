@@ -1846,7 +1846,11 @@ export function initSchema(db) {
   // allows 7 values. We recreate the table to widen the constraint to 9 values.
   // Foreign-key references to locations (operations, week_location_exclusions,
   // activities, etc.) use TEXT ids and are unaffected by a table recreation.
-  if (getSchemaVersion(db) < 49) {
+  // Gated `>= 48 && < 49`, not a bare `< 49`, to honour the MAX-version
+  // continuity chain the v26 block above documents: a bare lower bound would
+  // fire while v26 is still deferred (getSchemaVersion === 25), stamp 49, and
+  // push MAX past 26 so v26's orphan cleanup never retries.
+  if (getSchemaVersion(db) >= 48 && getSchemaVersion(db) < 49) {
     db.transaction(() => {
       const cols = db.pragma('table_info(locations)').map((c) => c.name)
       const hasTileType = cols.includes('tile_type')
