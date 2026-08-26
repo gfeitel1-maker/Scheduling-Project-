@@ -75,7 +75,7 @@ export default function DayMapScreen({ campId, onNavigate, weekId }) {
   const [blockId, setBlockId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState({
-    templates: [], slots: [], activities: [], locations: [], groups: [], days: [], blocks: [], mapRow: null,
+    templates: [], slots: [], activities: [], locations: [], groups: [], days: [], blocks: [], mapRow: null, campMaps: [],
   })
   const [expandedLocationId, setExpandedLocationId] = useState(null)
 
@@ -103,6 +103,9 @@ export default function DayMapScreen({ campId, onNavigate, weekId }) {
         days: (days || []).filter((d) => d.camp_id === campId),
         blocks: (blocks || []).filter((b) => b.camp_id === campId),
         mapRow: (mapRows || []).find((r) => r.camp_id === campId) ?? null,
+        // All camp_maps rows (v50 pair) — the Day Simulation seed needs kind +
+        // dimensions per map to place indoor rooms inside the outdoor building.
+        campMaps: (mapRows || []).filter((r) => r.camp_id === campId),
       })
       setLoading(false)
     }
@@ -170,6 +173,12 @@ export default function DayMapScreen({ campId, onNavigate, weekId }) {
         ? { data: data.mapRow.image_data, mime: data.mapRow.image_mime ?? 'image/jpeg' }
         : null,
       locations: data.locations,
+      // Map metadata for the layout seed — id/kind/dimensions only, never the
+      // heavy image_data (that rides the /map route, not the WS payload).
+      campMaps: (data.campMaps || []).map((m) => ({
+        id: m.id, camp_id: m.camp_id, kind: m.kind ?? null,
+        image_width: m.image_width, image_height: m.image_height,
+      })),
       placed: occupancy.located
         .flatMap((e) => e.groups.map((g) => ({
           locationId: e.locationId,
@@ -178,7 +187,7 @@ export default function DayMapScreen({ campId, onNavigate, weekId }) {
           isJam: e.isJam,
         }))),
     }
-  }, [hasTileWorld, data.locations, data.mapRow, occupancy, dayId, blockId, sortedDays, sortedBlocks])
+  }, [hasTileWorld, data.locations, data.mapRow, data.campMaps, occupancy, dayId, blockId, sortedDays, sortedBlocks])
 
   // Push occupancy to the tile world viewer whenever it changes.
   useEffect(() => {

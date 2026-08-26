@@ -44,6 +44,15 @@ export async function startTileWorldServer() {
       return
     }
 
+    // The Day-Simulation layout seed module (ADR 2026-08-26 D4). Served so the
+    // viewer loads the exact file simLayout.test.js pins, not a drifting copy.
+    if (pathname === '/simLayout.js') {
+      const js = fs.readFileSync(path.join(__dirname, 'simLayout.js'), 'utf8')
+      res.writeHead(200, { 'Content-Type': 'text/javascript' })
+      res.end(js)
+      return
+    }
+
     // Tileworld sprite assets: /tileworld-assets/** → src/assets/tileworld/**
     if (pathname.startsWith('/tileworld-assets/')) {
       const rel = pathname.slice('/tileworld-assets/'.length)

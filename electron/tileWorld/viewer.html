@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <title>Tile World — Shoresh</title>
 <script src="https://cdn.jsdelivr.net/npm/phaser@3.90.0/dist/phaser.min.js"></script>
+<!-- Day-Simulation layout seed (ADR 2026-08-26 D4). Sets window.__deriveSimLayout. -->
+<script type="module" src="/simLayout.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -213,15 +215,31 @@ class CampScene extends Phaser.Scene {
 
   // ── Buildings ────────────────────────────────────────────────────────────
 
-  _initBuildings(locations) {
+  _initBuildings(locations, campMaps) {
     const { W, H } = this
     const r        = Math.min(W, H) * 0.29
-    const positions = computeLayout(locations.length, W/2, H/2, r)
 
-    this._drawPaths(positions)
+    // Seed from the director's REAL placements when available (ADR D4); ring only
+    // what they haven't placed. Falls back to a full ring if the seed module or
+    // any map/geometry is missing, so the viewer never regresses to blank.
+    let placements = {}, unplaced = locations.map((l) => l.id)
+    if (typeof window.__deriveSimLayout === 'function' && campMaps && campMaps.length) {
+      try {
+        const out = window.__deriveSimLayout({ locations, campMaps, worldWidth: W, worldHeight: H })
+        placements = out.placements || {}
+        unplaced = out.unplaced || []
+      } catch { placements = {}; unplaced = locations.map((l) => l.id) }
+    }
+    // Ring-position exactly the unplaced subset, in the same ring space as before.
+    const ringPositions = computeLayout(unplaced.length, W/2, H/2, r)
+    const ringFor = {}
+    unplaced.forEach((id, i) => { ringFor[id] = ringPositions[i] ?? { x: W/2, y: H/2 } })
 
-    locations.forEach((loc, i) => {
-      const pos = positions[i] ?? { x: W/2, y: H/2 }
+    // Paths connect whatever ended up placed (seed centers + ring fallbacks).
+    this._drawPaths(locations.map((loc) => placements[loc.id] ?? ringFor[loc.id] ?? { x: W/2, y: H/2 }))
+
+    locations.forEach((loc) => {
+      const pos = placements[loc.id] ?? ringFor[loc.id] ?? { x: W/2, y: H/2 }
       const key = `bldg-${buildingFor(loc.id, loc.name, loc.kind)}`
       const img = this.add.image(pos.x, pos.y, key)
         .setScale(0.38)
@@ -347,7 +365,7 @@ class CampScene extends Phaser.Scene {
     document.getElementById('day-label').textContent   = payload.dayLabel   || ''
 
     if (!this.initialized && payload.locations?.length) {
-      this._initBuildings(payload.locations)
+      this._initBuildings(payload.locations, payload.campMaps)
       this.initialized = true
     }
     if (payload.placed) this._placeHeroes(payload.placed)
