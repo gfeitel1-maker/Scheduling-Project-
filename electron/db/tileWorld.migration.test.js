@@ -1,7 +1,7 @@
 // @vitest-environment node
 //
-// Migration v48 — tile world placement columns on `locations`.
-// docs/work/specs/2026-08-25-tile-world-day-map.md §4
+// Migration v49 — rename tile_type → kind on `locations` + expand vocabulary.
+// v48 added tile_type/grid_x/grid_y; v49 renames tile_type to kind.
 //
 // Same shape as campMaps.migration.test.js: fresh-vs-migrated equivalence +
 // idempotency + column-level assertions + CURRENT_SCHEMA_VERSION canary.
@@ -31,17 +31,16 @@ function tmpFile(tag) {
 }
 
 function freshDb() {
-  return openLocalDb(tmpFile('v48-fresh'))
+  return openLocalDb(tmpFile('v49-fresh'))
 }
 
-// A database at v47 shape: fully migrated then rolled back to just before v48.
-function preV48Db(tag = 'v48-migrated') {
+// A database at v47 shape (before tile_type/grid_x/grid_y existed).
+// When initSchema runs it will apply v48 (add tile_type) then v49 (rename → kind).
+function preV48Db(tag = 'v49-migrated') {
   const db = new Database(tmpFile(tag))
   db.pragma('foreign_keys = ON')
-  initSchema(db) // fully migrate to current (v48)
-  // Roll back v48 by dropping the three columns via table recreation.
-  // SQLite doesn't support DROP COLUMN below v3.35, so recreate the table
-  // without the new columns, preserving data.
+  initSchema(db) // fully migrate to current
+  // Roll back to v47 by recreating locations without the tile-world columns.
   db.pragma('foreign_keys = OFF')
   db.exec(`
     CREATE TABLE locations_v47 (
@@ -64,47 +63,49 @@ function preV48Db(tag = 'v48-migrated') {
   return db
 }
 
-describe('migration v48: tile world columns on locations', () => {
-  it('fresh db at v48 has tile_type, grid_x, grid_y on locations', () => {
+describe('migration v49: kind column on locations', () => {
+  it('fresh db at v49 has kind, grid_x, grid_y on locations (no tile_type)', () => {
     const db = freshDb()
     const cols = db.pragma('table_info(locations)').map((c) => c.name)
-    expect(cols).toContain('tile_type')
+    expect(cols).toContain('kind')
     expect(cols).toContain('grid_x')
     expect(cols).toContain('grid_y')
+    expect(cols).not.toContain('tile_type')
     db.close()
   })
 
-  it('CURRENT_SCHEMA_VERSION is 48', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(48)
+  it('CURRENT_SCHEMA_VERSION is 49', () => {
+    expect(CURRENT_SCHEMA_VERSION).toBe(49)
   })
 
-  it('fresh db schema_migrations includes version 48', () => {
+  it('fresh db schema_migrations includes version 49', () => {
     const db = freshDb()
-    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 48').get().c).toBe(1)
+    expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 49').get().c).toBe(1)
     db.close()
   })
 
-  it('migrated db from v47 has the same three columns', () => {
+  it('migrated db from v47 ends up with kind, grid_x, grid_y', () => {
     const db = preV48Db()
     expect(getSchemaVersion(db)).toBe(47)
     initSchema(db)
-    expect(getSchemaVersion(db)).toBe(48)
+    expect(getSchemaVersion(db)).toBe(49)
     const cols = db.pragma('table_info(locations)').map((c) => c.name)
-    expect(cols).toContain('tile_type')
+    expect(cols).toContain('kind')
     expect(cols).toContain('grid_x')
     expect(cols).toContain('grid_y')
+    expect(cols).not.toContain('tile_type')
     db.close()
   })
 
-  it('existing locations rows survive migration with NULLs in all three columns', () => {
-    const db = preV48Db('v48-survive')
+  it('existing locations rows survive migration with NULLs in kind, grid_x, grid_y', () => {
+    const db = preV48Db('v49-survive')
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('c1', 'Camp', 'sec')").run()
     db.prepare(
       "INSERT INTO locations (id, camp_id, name, capacity) VALUES ('loc1', 'c1', 'Pool', 2)"
     ).run()
     initSchema(db)
     const row = db.prepare('SELECT * FROM locations WHERE id = ?').get('loc1')
-    expect(row.tile_type).toBeNull()
+    expect(row.kind).toBeNull()
     expect(row.grid_x).toBeNull()
     expect(row.grid_y).toBeNull()
     expect(row.name).toBe('Pool')
@@ -112,56 +113,56 @@ describe('migration v48: tile world columns on locations', () => {
     db.close()
   })
 
-  it('CHECK constraint rejects tile_type values outside the enum', () => {
+  it('CHECK constraint rejects kind values outside the enum', () => {
     const db = freshDb()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('c1', 'Camp', 'sec')").run()
     expect(() => {
       db.prepare(
-        "INSERT INTO locations (id, camp_id, name, capacity, tile_type) VALUES ('loc1', 'c1', 'Pool', 1, 'swamp')"
+        "INSERT INTO locations (id, camp_id, name, capacity, kind) VALUES ('loc1', 'c1', 'Pool', 1, 'swamp')"
       ).run()
     }).toThrow()
     db.close()
   })
 
-  it('CHECK constraint allows all valid tile_type values', () => {
+  it('CHECK constraint allows all valid kind values including classroom and office', () => {
     const db = freshDb()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('c1', 'Camp', 'sec')").run()
-    const validTypes = ['building', 'pool', 'field', 'cabin', 'court', 'nature', 'generic']
-    for (let i = 0; i < validTypes.length; i++) {
+    const validKinds = ['building', 'classroom', 'pool', 'field', 'cabin', 'court', 'nature', 'office', 'generic']
+    for (let i = 0; i < validKinds.length; i++) {
       db.prepare(
-        `INSERT INTO locations (id, camp_id, name, capacity, tile_type) VALUES (?, 'c1', ?, 1, ?)`
-      ).run(`loc${i}`, `Loc${i}`, validTypes[i])
+        `INSERT INTO locations (id, camp_id, name, capacity, kind) VALUES (?, 'c1', ?, 1, ?)`
+      ).run(`loc${i}`, `Loc${i}`, validKinds[i])
     }
     const count = db.prepare('SELECT COUNT(*) c FROM locations').get().c
-    expect(count).toBe(validTypes.length)
+    expect(count).toBe(validKinds.length)
     db.close()
   })
 
-  it('CHECK constraint allows NULL tile_type', () => {
+  it('CHECK constraint allows NULL kind', () => {
     const db = freshDb()
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('c1', 'Camp', 'sec')").run()
     db.prepare(
-      "INSERT INTO locations (id, camp_id, name, capacity, tile_type) VALUES ('loc1', 'c1', 'Pool', 1, NULL)"
+      "INSERT INTO locations (id, camp_id, name, capacity, kind) VALUES ('loc1', 'c1', 'Pool', 1, NULL)"
     ).run()
-    const row = db.prepare('SELECT tile_type FROM locations WHERE id = ?').get('loc1')
-    expect(row.tile_type).toBeNull()
+    const row = db.prepare('SELECT kind FROM locations WHERE id = ?').get('loc1')
+    expect(row.kind).toBeNull()
     db.close()
   })
 
-  it('is idempotent — re-running v48 does not duplicate columns or rows', () => {
-    const db = preV48Db('v48-idempotent')
+  it('is idempotent — re-running v49 does not duplicate columns or rows', () => {
+    const db = preV48Db('v49-idempotent')
     db.prepare("INSERT INTO camps (id, name, signing_secret) VALUES ('c1', 'Camp', 'sec')").run()
     initSchema(db)
     db.prepare(
-      "INSERT INTO locations (id, camp_id, name, capacity, tile_type, grid_x, grid_y) VALUES ('loc1', 'c1', 'Pool', 1, 'pool', 3, 5)"
+      "INSERT INTO locations (id, camp_id, name, capacity, kind, grid_x, grid_y) VALUES ('loc1', 'c1', 'Pool', 1, 'pool', 3, 5)"
     ).run()
     const countBefore = db.prepare('SELECT COUNT(*) c FROM locations').get().c
-    db.prepare('DELETE FROM schema_migrations WHERE version >= 48').run()
+    db.prepare('DELETE FROM schema_migrations WHERE version >= 49').run()
     initSchema(db)
-    expect(getSchemaVersion(db)).toBe(48)
+    expect(getSchemaVersion(db)).toBe(49)
     expect(db.prepare('SELECT COUNT(*) c FROM locations').get().c).toBe(countBefore)
     const row = db.prepare('SELECT * FROM locations WHERE id = ?').get('loc1')
-    expect(row.tile_type).toBe('pool')
+    expect(row.kind).toBe('pool')
     expect(row.grid_x).toBe(3)
     expect(row.grid_y).toBe(5)
     db.close()
