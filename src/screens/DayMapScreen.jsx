@@ -7,7 +7,7 @@
 // highlighted as a jam. Groups whose activity has no location go in the
 // "Not on the map" panel. Entirely read-only — see deriveOccupancy.js
 // (Decision 1) for why this never invokes buildSchedule.js.
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { localClient } from '../localClient'
 import { S, useEnterTransition } from '../styles/shared'
 import { deriveOccupancy } from '../data/deriveOccupancy'

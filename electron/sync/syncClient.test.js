@@ -1686,6 +1686,54 @@ describe('full_sync handling', () => {
 
     client.close()
   })
+
+  it('carries a location\'s kind/grid_x/grid_y through the first-pairing snapshot to the new device (regression: these three tile-world columns were absent from DOMAIN_TABLE_COLUMNS)', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const ws = client.__getWs()
+    const locationId = randomUUID()
+    const msg = JSON.stringify({
+      type: 'full_sync',
+      users: [],
+      camps: [],
+      ...EMPTY_DOMAIN_SNAPSHOT_TABLES,
+      // A location whose tile placement was set on the Host BEFORE this device
+      // ever paired. It only reaches the new device via this snapshot — no
+      // op-log write for these fields will ever replay to it otherwise.
+      locations: [
+        {
+          id: locationId,
+          camp_id: campId,
+          name: 'Waterfront',
+          capacity: 40,
+          notes: null,
+          sort_order: 3,
+          map_geometry: null,
+          kind: 'field',
+          grid_x: 7,
+          grid_y: 12,
+        },
+      ],
+    })
+
+    // full_sync is applied synchronously in one transaction before emit() returns.
+    ws.emit('message', Buffer.from(msg))
+
+    const row = clientDb.prepare('SELECT * FROM locations WHERE id = ?').get(locationId)
+    expect(row).toBeTruthy()
+    expect(row.kind).toBe('field')
+    expect(row.grid_x).toBe(7)
+    expect(row.grid_y).toBe(12)
+    expect(row.name).toBe('Waterfront')
+
+    client.close()
+  })
 })
 
 describe('reconnect catch-up (Task 10 round-4 Fix 3)', () => {

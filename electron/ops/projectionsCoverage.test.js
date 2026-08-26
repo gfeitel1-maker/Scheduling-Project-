@@ -209,6 +209,31 @@ const UNRESOLVED_SPREAD_SOURCES = [
     // warning/_dayLabel/_blockName/_tierNames).
     fields: ['name', 'is_all_groups', 'group_ids', 'time_block_id', 'notes', 'day_id', 'camp_id', 'cohort_id', 'schedule_week_id'],
   },
+  {
+    file: 'src/screens/schedule/useSlotMutations.js',
+    entity: 'template_slots',
+    // Human-verified: every repo.writeSlotFields(id, { ... }) call site in
+    // this hook. The unresolved spreads are `...occupantFields(field, value)`
+    // and `...readOccupant(row)` (src/screens/schedule/slotOccupant.js), each
+    // of which expands to exactly the three occupant columns
+    // activity_id/elective_set_id/event_id (SLOT_OCCUPANT_FIELDS). The
+    // remaining top-level keys written across the forward/undo/redo paths
+    // (replaceSlot, placeActivityManual, expandSlot, splitSlot, the elective
+    // and event placement paths, dismissFlag, releaseCell, and
+    // pushGranularCellUndo's backward/forward field objects) are `flags`,
+    // `is_span_head`, and `is_released`. `displaced` is NOT a column — it is a
+    // key inside the `flags` JSON value (displacedFlagFor), not a template_slots
+    // field. All six declared fields are registered in
+    // PROJECTIONS.template_slots.fields (electron/ops/projections.js).
+    fields: [
+      'activity_id',
+      'elective_set_id',
+      'event_id',
+      'flags',
+      'is_span_head',
+      'is_released',
+    ],
+  },
 ]
 
 // ---------------------------------------------------------------------------

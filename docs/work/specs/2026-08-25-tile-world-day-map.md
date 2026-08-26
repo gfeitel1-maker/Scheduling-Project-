@@ -1,3 +1,14 @@
+---
+title: "Tile World — Day Map Extension"
+document_type: spec
+status: active
+authority: informative
+created: 2026-08-25
+archive_when: the Tile World Day Map slices ship (merged/deferred) or the parent ADR is superseded
+governing_docs: [docs/governance/standards/ARCHITECTURE_STANDARD.md]
+parent_spec: [docs/adr/2026-08-24-run-the-day-on-the-map.md]
+---
+
 # Tile World — Day Map Extension
 
 > **Spec status:** Implementation-ready  
