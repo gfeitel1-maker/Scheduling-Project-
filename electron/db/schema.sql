@@ -647,10 +647,15 @@ CREATE TABLE IF NOT EXISTS week_location_exclusions (
 );
 
 -- Camp map background image (schema v33, M6,
--- docs/adr/2026-08-16-locations-optional-map.md D1). ONE row per camp, id =
--- camp_id (not a minted uuid) — the map is a singleton the same way `camps`
--- itself is, so there is nothing for two devices to disagree about the
--- identity of. Isolated from `camps` deliberately: `camps` is read on nearly
+-- docs/adr/2026-08-16-locations-optional-map.md D1). Originally ONE row per
+-- camp (id = camp_id); schema v50 relaxed that to a camp-scoped PAIR keyed by
+-- (camp_id, kind) so a camp can hold an indoor floor plan AND an outdoor
+-- grounds map (docs/adr/2026-08-26-indoor-outdoor-map-pair-and-sim-seed.md
+-- D1). kind is 'indoor' | 'outdoor' | NULL; the legacy single-map row keeps
+-- id = camp_id and kind = NULL and is never rewritten. The app layer caps this
+-- at two slots — the DB does not (UNIQUE(camp_id, kind) with a nullable kind
+-- allows more, deliberately, the same way locations.kind is an app-enforced
+-- enum, not a DB CHECK). Isolated from `camps` deliberately: `camps` is read on nearly
 -- every screen (CLAUDE.md's single-camp-lookup pattern); a background image
 -- large enough to matter must not ride along with that read. image_data is
 -- ALWAYS re-encoded JPEG (never the uploaded file's original bytes — see D5),
@@ -662,11 +667,13 @@ CREATE TABLE IF NOT EXISTS week_location_exclusions (
 -- campMaps.migration.test.js.
 CREATE TABLE IF NOT EXISTS camp_maps (
   id TEXT PRIMARY KEY,
-  camp_id TEXT NOT NULL UNIQUE REFERENCES camps(id),
+  camp_id TEXT NOT NULL REFERENCES camps(id),
   image_data TEXT,
   image_mime TEXT,
   image_width INTEGER,
-  image_height INTEGER
+  image_height INTEGER,
+  kind TEXT,
+  UNIQUE(camp_id, kind)
 );
 
 -- C4 (scope-filtered IPC reads): indexes for the three template-scoped

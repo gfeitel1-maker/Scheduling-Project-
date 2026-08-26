@@ -322,11 +322,15 @@ export const MOCK_WRITE_ALLOWLIST = {
     'location_id',
     'recurrence_truth_status',
   ],
-  locations: ['camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry', 'kind', 'grid_x', 'grid_y'],
+  // Mirrors PROJECTIONS.locations.fields (kept honest by ipcSurfaceParity). map_id
+  // is the v50 indoor/outdoor pair field; grid_x/grid_y ride along for op-log replay
+  // of retired grid-builder writes.
+  locations: ['camp_id', 'name', 'capacity', 'notes', 'sort_order', 'map_geometry', 'kind', 'grid_x', 'grid_y', 'map_id'],
   // M6 (docs/adr/2026-08-16-locations-optional-map.md D1) — hand-transcribed
   // mirror of PROJECTIONS.camp_maps.fields, per this file's "do not import
   // from electron/" rule (kept honest by electron/ipcSurfaceParity.test.js).
-  camp_maps: ['camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'],
+  // v50 pair extension adds `kind` (docs/adr/2026-08-26-indoor-outdoor-map-pair-and-sim-seed.md D1).
+  camp_maps: ['camp_id', 'image_data', 'image_mime', 'image_width', 'image_height', 'kind'],
   anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id', 'span_blocks'],
   week_activity_exclusions: ['week_id', 'activity_id'],
   week_group_exclusions: ['week_id', 'group_id'],

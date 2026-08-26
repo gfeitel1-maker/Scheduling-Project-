@@ -91,7 +91,7 @@ describe('migration v33: fresh vs migrated equivalence', () => {
   it('declares every camp_maps column from the CREATE TABLE — no ALTER-added column, no column-order trap', () => {
     const db = freshDb()
     const cols = db.pragma('table_info(camp_maps)').map((c) => c.name)
-    expect(cols).toEqual(['id', 'camp_id', 'image_data', 'image_mime', 'image_width', 'image_height'])
+    expect(cols).toEqual(['id', 'camp_id', 'image_data', 'image_mime', 'image_width', 'image_height', 'kind'])
     db.close()
   })
 
@@ -169,7 +169,7 @@ describe('rollback v32 does not touch camp_maps (M6, v33 is independent of locat
     const row = db.prepare('SELECT * FROM camp_maps WHERE id = ?').get('camp1')
     expect(row).toEqual({
       id: 'camp1', camp_id: 'camp1', image_data: 'fake-base64-jpeg-bytes',
-      image_mime: 'image/jpeg', image_width: 800, image_height: 600,
+      image_mime: 'image/jpeg', image_width: 800, image_height: 600, kind: null,
     })
     db.close()
   })
