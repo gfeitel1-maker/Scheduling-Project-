@@ -15,32 +15,14 @@ import { resolveLocationCandidateId } from '../../electron/ops/locationId.js'
 import { CONFIDENCE_COPY, plainEvidenceSentence } from '../components/reconciliation/reconciliationCards.jsx'
 import { deriveActivityProvenance, hasAnyEvidence, worstTier } from '../utils/ruleProvenance.js'
 import uiClipboard from '../assets/brand/icons/ui-clipboard.png'
-
-const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+import { DOW, parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
 
 // operations.value only accepts strings/null (better-sqlite3 throws on a raw
 // boolean/array) — every write must pre-serialize through these before
 // hitting localClient.write. Reads go through normalizeActivity below.
 const BOOL_FIELDS = new Set(['is_outdoor', 'same_tier_only'])
 const ARRAY_FIELDS = new Set(['eligible_tier_ids', 'eligible_group_ids'])
-
-function serializeFieldValue(field, value) {
-  if (BOOL_FIELDS.has(field)) return value ? 1 : 0
-  if (ARRAY_FIELDS.has(field)) return JSON.stringify(value ?? [])
-  return value ?? null
-}
-
-// Defense-in-depth: malformed JSON in an eligible_*_ids column (e.g. from a
-// corrupted/tampered op) must not crash the list render — default to [].
-function parseIdList(raw) {
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
+const serializeFieldValue = makeSerializeFieldValue(BOOL_FIELDS, ARRAY_FIELDS)
 
 function normalizeActivity(row) {
   return {

@@ -9,6 +9,7 @@ import CohortPicker from '../components/CohortPicker'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import { LocationPicker } from '../components/LocationPicker'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
+import { parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
 
 // Repository-only migration (not the full useCrudScreen hook): load() fans out
 // across five parallel list() calls with per-cohort scoping, and the create
@@ -24,12 +25,7 @@ const repository = createSetupCrudRepository({ localClient })
 // hitting localClient.write. Mirrors ActivitiesScreen.jsx's identical pattern.
 const BOOL_FIELDS = new Set(['is_all_groups'])
 const ARRAY_FIELDS = new Set(['group_ids'])
-
-function serializeFieldValue(field, value) {
-  if (BOOL_FIELDS.has(field)) return value ? 1 : 0
-  if (ARRAY_FIELDS.has(field)) return JSON.stringify(value ?? [])
-  return value ?? null
-}
+const serializeFieldValue = makeSerializeFieldValue(BOOL_FIELDS, ARRAY_FIELDS)
 
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024
 
@@ -48,18 +44,6 @@ const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024
 // generation fence at the localClient/IPC layer, which is out of scope for a
 // single-screen migration task — flagged as a genuine, not-yet-scheduled
 // follow-up (project memory).
-
-// Defense-in-depth: malformed JSON in group_ids (e.g. from a corrupted/
-// tampered op) must not crash the list render — default to [].
-function parseIdList(raw) {
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
 
 function normalizeAnchor(row) {
   return {

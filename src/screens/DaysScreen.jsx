@@ -8,11 +8,10 @@ import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
+import { DOW } from './setup/setupHelpers'
 
 const repository = createSetupCrudRepository({ localClient })
 const scopeFilter = (row, campId) => row.camp_id === campId
-
-const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
 function DayRow({ day, role, onSave, onDelete }) {
   const [editing, setEditing] = useState(false)
