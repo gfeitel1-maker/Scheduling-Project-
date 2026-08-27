@@ -998,6 +998,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
         fileInputRef={fileRef}
         onFileChange={onFileChange}
+        maxWidth={820}
         nextLabel="Next: Recurring Events →"
         onNext={() => onNavigate('anchors')}
         error={error}

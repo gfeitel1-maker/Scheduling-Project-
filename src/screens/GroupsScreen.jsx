@@ -364,6 +364,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
       fileInputRef={fileRef}
       onFileChange={onFileChange}
+      maxWidth={720}
       nextLabel="Next: Days →"
       onNext={() => onNavigate('days')}
       error={error}

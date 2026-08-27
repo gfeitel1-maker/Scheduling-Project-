@@ -4,13 +4,14 @@ const eyebrow = { fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize
 
 export default function SetupScreenShell({
   countLabel, role, actions = {}, fileInputRef, onFileChange,
-  nextLabel, onNext, error, cohortPicker, children,
+  nextLabel, onNext, error, cohortPicker, children, maxWidth = 680,
 }) {
-  const { onDownloadTemplate, onImport, onDeleteAll, deleteAllProminent = true } = actions
-  const deleteStyle = role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger
+  const { onDownloadTemplate, onImport, onDeleteAll, deleteAllProminent = true, deleteAllDisabled = false } = actions
+  const deleteBlocked = deleteAllDisabled || role !== 'admin'
+  const deleteStyle = deleteBlocked ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger
 
   return (
-    <div style={{ maxWidth: 680 }}>
+    <div style={{ maxWidth }}>
       {error && <div style={S.errorBanner}>{error}</div>}
       {cohortPicker}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
@@ -22,7 +23,7 @@ export default function SetupScreenShell({
             <input ref={fileInputRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
           </>}
           {onDeleteAll && (
-            <button onClick={onDeleteAll} disabled={role !== 'admin'}
+            <button onClick={onDeleteAll} disabled={deleteBlocked}
               title={role !== 'admin' ? 'Admin only' : undefined}
               style={deleteAllProminent ? deleteStyle : { ...deleteStyle, opacity: 0.6 }}>Delete All</button>
           )}

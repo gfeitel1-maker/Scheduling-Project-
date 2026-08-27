@@ -361,9 +361,10 @@ export default function TiersScreen({ campId, role, onNavigate }) {
     <SetupScreenShell
       countLabel={`${tiers.length} age division${tiers.length !== 1 ? 's' : ''}`}
       role={role}
-      actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
+      actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll, deleteAllDisabled: !activeCohort }}
       fileInputRef={fileRef}
       onFileChange={onFileChange}
+      maxWidth={700}
       nextLabel="Next: Groups →"
       onNext={() => onNavigate('groups')}
       error={error}

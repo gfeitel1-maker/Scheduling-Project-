@@ -38,4 +38,26 @@ describe('SetupScreenShell', () => {
     render(<SetupScreenShell {...base} actions={{}} cohortPicker={<div>PICKER</div>}><div /></SetupScreenShell>)
     expect(screen.queryByText('PICKER')).not.toBeNull()
   })
+
+  it('applies the default maxWidth of 680 when none is passed', () => {
+    const { container } = render(<SetupScreenShell {...base} actions={{}}><div /></SetupScreenShell>)
+    expect(container.firstChild.style.maxWidth).toBe('680px')
+  })
+
+  it('applies a custom maxWidth when passed', () => {
+    const { container } = render(<SetupScreenShell {...base} maxWidth={820} actions={{}}><div /></SetupScreenShell>)
+    expect(container.firstChild.style.maxWidth).toBe('820px')
+  })
+
+  it('disables Delete All when deleteAllDisabled is true, even for admins', () => {
+    render(<SetupScreenShell {...base} role="admin" actions={{ onDeleteAll: () => {}, deleteAllDisabled: true }}><div /></SetupScreenShell>)
+    const btn = screen.getByText('Delete All')
+    expect(btn.disabled).toBe(true)
+  })
+
+  it('leaves Delete All enabled for admins when deleteAllDisabled is not set', () => {
+    render(<SetupScreenShell {...base} role="admin" actions={{ onDeleteAll: () => {} }}><div /></SetupScreenShell>)
+    const btn = screen.getByText('Delete All')
+    expect(btn.disabled).toBe(false)
+  })
 })

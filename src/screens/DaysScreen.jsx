@@ -177,7 +177,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
               {days.length === 0 ? (
                 <tr><td colSpan={4} style={S.emptyState}>
                   <div style={S.emptyStateTitle}>No days yet</div>
-                  <div style={S.emptyStateBody}>Add your first day below or import from Excel.</div>
+                  <div style={S.emptyStateBody}>Add your first day below.</div>
                 </td></tr>
               ) : days.map(day => (
                 <DayRow key={day.id} day={day} role={role} onSave={save} onDelete={deleteDay} />

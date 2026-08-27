@@ -622,6 +622,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
         actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
         fileInputRef={fileRef}
         onFileChange={onFileChange}
+        maxWidth={760}
         nextLabel="Go to Schedule"
         onNext={() => onNavigate('schedule')}
         error={error}
