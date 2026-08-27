@@ -145,6 +145,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: Run the Day on the Map (B1) — read-only spatial schedule view](../../docs/adr/2026-08-24-run-the-day-on-the-map.md) | accepted | proposed | [2026-08-26-indoor-outdoor-map-pair-and-sim-seed](../../docs/adr/2026-08-26-indoor-outdoor-map-pair-and-sim-seed.md) · [2026-08-25-tile-world-day-map](../../docs/work/specs/2026-08-25-tile-world-day-map.md) |
 | [ADR: Indoor/outdoor map pair per camp + Day Simulation reads real placements as a seed](../../docs/adr/2026-08-26-indoor-outdoor-map-pair-and-sim-seed.md) | proposed | proposed | — |
 | [Roots hub — Bento layout for the census/domain map (augment, not replace)](../../docs/adr/2026-08-27-roots-hub-bento-layout.md) | accepted | planned | — |
+| [Roots hub — census tiles are the interface (Bento demoted to the Understood tile's view)](../../docs/adr/2026-08-27-roots-hub-tiles-are-interface.md) | accepted | planned | — |
 
 ## Runs
 
