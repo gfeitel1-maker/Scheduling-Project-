@@ -54,5 +54,9 @@ Add a tiny shared helper `minutesFromMidnight(hhmm)` (guard null/malformed → 0
 - `day_of_week` — stays exactly as-is (the weekday dropdown is kept).
 - Any other screen or field.
 
+## Accepted tradeoff (Governor, 2026-08-27)
+
+Existing camps could have hand-typed `sort_order` values (e.g. 1,2,3) while newly added/edited rows get derived values (day_of_week 0–6, minutes 540/600, or max+1). Until every row is re-saved, edited rows can interleave oddly with legacy ones. **Accepted as intentional** — Shoresh has no live users/camp data yet and the owner's standing preference is clean hard cutovers (`feedback_preproduction_bias_bold`). Deliberately **not** fixed by changing `buildPlan`/ingest: `sort_order` is index-derived there on purpose so it does not create false reconciliation diffs (`buildPlan.js:384`), so import-side derivation is a separate Red-Hat-gated change, not part of this ticket.
+
 ## Verification
 Per-file focused tests, then full gate. Because a downstream (engine) reads `time_blocks.sort_order`, Task 2 gets a code-review + an engine sanity test specifically. Machine under load: background long runs with real exit-code capture.
