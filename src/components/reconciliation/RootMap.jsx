@@ -254,11 +254,24 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
   // inside the currently focused/selected domain layer, never all at once.
   const focusedDomainKey = selection.type === 'node' ? selection.domainKey : null
 
+  // Census tiles are the interface (docs/adr/2026-08-27-roots-hub-tiles-are-
+  // interface.md §2) — the domain/chip grid is demoted from always-on to
+  // Understood-only: it renders when the director has entered the
+  // Understood tile's context (or a node reached from inside it), never for
+  // the default {type:'none'} hub or the other three tile selections.
+  const showDomainStack = selection.type === 'node'
+    || (selection.type === 'tile' && selection.state === 'understood')
+
   return (
     <div>
       <div style={styles.filterRow}>
         {TILE_STATES.map((state) => {
-          const active = selection.type === 'tile' && selection.state === state
+          // §5 — the default hub view IS the needs-attention queue
+          // (RootMapPanel's unresolved-only default). The attention tile
+          // reads visually active for {type:'none'} too, presentation-only
+          // — the selection state machine stays {type:'none'}.
+          const active = (selection.type === 'tile' && selection.state === state)
+            || (state === 'attention' && selection.type === 'none')
           return (
             <CensusTile
               key={state}
@@ -271,6 +284,7 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
         })}
       </div>
 
+      {showDomainStack && (
       <div style={styles.domainStack} ref={canvasWrapRef}>
         {wholeCampEmpty ? (
           <div style={{ ...styles.wholeCampEmpty, ...wholeCampEnter }}>
@@ -331,6 +345,7 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
           )
         })}
       </div>
+      )}
     </div>
   )
 }

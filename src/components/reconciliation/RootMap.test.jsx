@@ -11,6 +11,14 @@ import { DOMAIN_LABELS } from './domainRollup.js'
 
 function noop() {}
 
+// Census tiles are the interface (docs/adr/2026-08-27-roots-hub-tiles-are-
+// interface.md) — a synthetic node selection whose domainKey matches
+// nothing in any fixture model here, used purely to satisfy the new
+// showDomainStack gate (selection.type === 'node') without matching any
+// real chip/domain and thus without changing aria-pressed/dimming
+// assertions that previously relied on {type:'none'}.
+const GRID_OPEN = { type: 'node', domainKey: '__grid-open__' }
+
 function model({ domainState = 'attention', domains } = {}) {
   return {
     domains: domains ?? [
@@ -50,7 +58,7 @@ describe('RootMap domain layers', () => {
     render(
       <RootMap
         model={fourDomainModel()}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -67,7 +75,7 @@ describe('RootMap domain layers', () => {
     render(
       <RootMap
         model={model}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -93,7 +101,7 @@ describe('RootMap whole-camp empty state', () => {
     render(
       <RootMap
         model={allEmptyModel}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -109,7 +117,7 @@ describe('RootMap whole-camp empty state', () => {
     render(
       <RootMap
         model={fourDomainModel()}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -124,7 +132,7 @@ describe('RootMap chips', () => {
     render(
       <RootMap
         model={model()}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -153,7 +161,7 @@ describe('RootMap chips', () => {
             },
           ],
         })}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -179,7 +187,7 @@ describe('RootMap chips', () => {
             },
           ],
         })}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={onSelectNode}
         onClearSelection={noop}
@@ -225,7 +233,7 @@ describe('RootMap info layer (provenance + why)', () => {
     render(
       <RootMap
         model={model()}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -250,7 +258,7 @@ describe('RootMap info layer (provenance + why)', () => {
             },
           ],
         })}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -280,6 +288,10 @@ describe('RootMap filter row (tile toggles)', () => {
   })
 
   it('toggles aria-pressed per tag and clicking twice clears the selection', () => {
+    // Uses the "Changed" tile, not "Needs attention" — the attention tile is
+    // now visually active by default at {type:'none'} (§5), which is
+    // covered by its own dedicated test; this test's intent is the generic
+    // tile toggle/clear mechanic, unrelated to that default-active affordance.
     let selection = { type: 'none' }
     const onSelectTile = vi.fn((state) => { selection = { type: 'tile', state } })
     const onClearSelection = vi.fn(() => { selection = { type: 'none' } })
@@ -292,21 +304,21 @@ describe('RootMap filter row (tile toggles)', () => {
         onClearSelection={onClearSelection}
       />,
     )
-    const attentionTag = screen.getByText('Needs attention').closest('button')
+    const attentionTag = screen.getByText('Changed').closest('button')
     expect(attentionTag.getAttribute('aria-pressed')).toBe('false')
 
     fireEvent.click(attentionTag)
-    expect(onSelectTile).toHaveBeenCalledWith('attention')
+    expect(onSelectTile).toHaveBeenCalledWith('changed')
     rerender(
       <RootMap
         model={model()}
-        selection={{ type: 'tile', state: 'attention' }}
+        selection={{ type: 'tile', state: 'changed' }}
         onSelectTile={onSelectTile}
         onSelectNode={noop}
         onClearSelection={onClearSelection}
       />,
     )
-    const activeTag = screen.getByText('Needs attention').closest('button')
+    const activeTag = screen.getByText('Changed').closest('button')
     expect(activeTag.getAttribute('aria-pressed')).toBe('true')
 
     fireEvent.click(activeTag)
@@ -320,7 +332,7 @@ describe('RootMap domain-level selection', () => {
     render(
       <RootMap
         model={model()}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={onSelectNode}
         onClearSelection={noop}
@@ -371,7 +383,7 @@ describe('RootMap attention pulse scoping', () => {
     const { container } = render(
       <RootMap
         model={twoDomainModel()}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -387,7 +399,7 @@ describe('RootMap canvasWrap ref', () => {
     render(
       <RootMap
         model={model()}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -409,7 +421,7 @@ describe('RootMap hover confirm-hint (attention-only, focus-visible unconditiona
     render(
       <RootMap
         model={model()}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -439,7 +451,7 @@ describe('RootMap reduced motion', () => {
     render(
       <RootMap
         model={fourDomainModel()}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -468,7 +480,7 @@ describe('RootMap bento emphasis', () => {
     const { container } = render(
       <RootMap
         model={fourDomainModel()}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -488,7 +500,7 @@ describe('RootMap bento emphasis', () => {
     const { container } = render(
       <RootMap
         model={m}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -504,7 +516,7 @@ describe('RootMap bento emphasis', () => {
     const { container } = render(
       <RootMap
         model={fourDomainModel()}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -537,7 +549,7 @@ describe('RootMap bento emphasis', () => {
     const { container } = render(
       <RootMap
         model={allUnderstood}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -565,7 +577,7 @@ describe('RootMap bento emphasis', () => {
     const { container } = render(
       <RootMap
         model={m}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -591,7 +603,7 @@ describe('RootMap bento emphasis', () => {
     const { container } = render(
       <RootMap
         model={m}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -625,7 +637,7 @@ describe('RootMap "takes root" lifecycle (attention -> understood)', () => {
     const { container, rerender } = render(
       <RootMap
         model={rootingModel('attention')}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -636,7 +648,7 @@ describe('RootMap "takes root" lifecycle (attention -> understood)', () => {
     rerender(
       <RootMap
         model={rootingModel('understood')}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -652,7 +664,7 @@ describe('RootMap "takes root" lifecycle (attention -> understood)', () => {
     const { container, rerender } = render(
       <RootMap
         model={rootingModel('attention')}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -661,7 +673,7 @@ describe('RootMap "takes root" lifecycle (attention -> understood)', () => {
     rerender(
       <RootMap
         model={rootingModel('changed')}
-        selection={{ type: 'none' }}
+        selection={GRID_OPEN}
         onSelectTile={noop}
         onSelectNode={noop}
         onClearSelection={noop}
@@ -682,7 +694,7 @@ describe('RootMap "takes root" lifecycle (attention -> understood)', () => {
       const { container, rerender } = render(
         <RootMap
           model={rootingModel('attention')}
-          selection={{ type: 'none' }}
+          selection={GRID_OPEN}
           onSelectTile={noop}
           onSelectNode={noop}
           onClearSelection={noop}
@@ -691,7 +703,7 @@ describe('RootMap "takes root" lifecycle (attention -> understood)', () => {
       rerender(
         <RootMap
           model={rootingModel('understood')}
-          selection={{ type: 'none' }}
+          selection={GRID_OPEN}
           onSelectTile={noop}
           onSelectNode={noop}
           onClearSelection={noop}
@@ -704,5 +716,117 @@ describe('RootMap "takes root" lifecycle (attention -> understood)', () => {
     } finally {
       window.matchMedia = originalMatchMedia
     }
+  })
+})
+
+// Census tiles are the interface (docs/adr/2026-08-27-roots-hub-tiles-are-
+// interface.md §2/§5) — the domain/chip grid is demoted from always-on to
+// Understood-only, and the attention tile reads active for the default
+// {type:'none'} hub, presentation-only.
+describe('RootMap grid visibility gating', () => {
+  it('does not render the grid for the default {type: none} selection', () => {
+    render(
+      <RootMap
+        model={fourDomainModel()}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(screen.queryByText(DOMAIN_LABELS.Structure)).toBeNull()
+  })
+
+  it('does not render the grid for a "changed" tile selection', () => {
+    render(
+      <RootMap
+        model={fourDomainModel()}
+        selection={{ type: 'tile', state: 'changed' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(screen.queryByText(DOMAIN_LABELS.Structure)).toBeNull()
+  })
+
+  it('does not render the grid for an "attention" tile selection', () => {
+    render(
+      <RootMap
+        model={fourDomainModel()}
+        selection={{ type: 'tile', state: 'attention' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(screen.queryByText(DOMAIN_LABELS.Structure)).toBeNull()
+  })
+
+  it('does not render the grid for an "absent" tile selection', () => {
+    render(
+      <RootMap
+        model={fourDomainModel()}
+        selection={{ type: 'tile', state: 'absent' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(screen.queryByText(DOMAIN_LABELS.Structure)).toBeNull()
+  })
+
+  it('renders the grid for the "understood" tile selection', () => {
+    render(
+      <RootMap
+        model={fourDomainModel()}
+        selection={{ type: 'tile', state: 'understood' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(screen.getByText(DOMAIN_LABELS.Structure)).toBeTruthy()
+  })
+
+  it('renders the grid for a node selection', () => {
+    render(
+      <RootMap
+        model={fourDomainModel()}
+        selection={{ type: 'node', domainKey: 'Structure' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(screen.getByText(DOMAIN_LABELS.Structure)).toBeTruthy()
+  })
+
+  it('shows the "Needs attention" census tile visually active when selection is {type: none}', () => {
+    render(
+      <RootMap
+        model={fourDomainModel()}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    const attentionTile = screen.getByText('Needs attention').closest('button')
+    expect(attentionTile.getAttribute('aria-pressed')).toBe('true')
+  })
+
+  it('does not show the "Needs attention" census tile active once a different tile is explicitly selected', () => {
+    render(
+      <RootMap
+        model={fourDomainModel()}
+        selection={{ type: 'tile', state: 'understood' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    const attentionTile = screen.getByText('Needs attention').closest('button')
+    expect(attentionTile.getAttribute('aria-pressed')).toBe('false')
   })
 })

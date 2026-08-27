@@ -186,6 +186,12 @@ describe('root-map selection (replaces the old chip-row filter)', () => {
     // Default view shows the one decision unfiltered.
     expect(screen.getByText('Keep current')).toBeTruthy()
 
+    // Census tiles are the interface (docs/adr/2026-08-27-roots-hub-tiles-
+    // are-interface.md §3) — the domain grid is no longer a standing
+    // surface; a director reaches a node only after opening the Understood
+    // tile's grid first.
+    await userEvent.click(screen.getByText('Understood').closest('button'))
+
     // The Facility domain node has zero decisions — selecting it clears the
     // Scheduling decision from view (single-select, node replaces node).
     await userEvent.click(screen.getByLabelText(/Facility — /))
@@ -202,6 +208,13 @@ describe('root-map selection (replaces the old chip-row filter)', () => {
   })
 
   it('a tile click filters the root map to that state across domains; clicking it again toggles off', async () => {
+    // Census tiles are the interface (docs/adr/2026-08-27-roots-hub-tiles-
+    // are-interface.md §5) — the attention tile is visually active by
+    // default at {type:'none'}, so "toggling off" this tile lands back on
+    // the default view, where it still reads active. That default-active
+    // affordance is intentional and covered elsewhere; here we assert the
+    // tile's selection actually clears (onClearSelection path), via the
+    // panel's heading reverting to the default "Needs your attention" one.
     localClient.ingestReconcile.mockResolvedValue(oneChangedResult())
     render(<ReconciliationScreen baseInputs={baseInputs} sourceLabel="camp.xlsx" onCommitted={vi.fn()} onDiscard={vi.fn()} onNavigate={vi.fn()} />)
     await screen.findByText(/0 of 1 done/)
@@ -211,8 +224,11 @@ describe('root-map selection (replaces the old chip-row filter)', () => {
     expect(screen.getByText('Keep current')).toBeTruthy()
     expect(attentionTile.getAttribute('aria-pressed')).toBe('true')
 
-    await userEvent.click(attentionTile) // toggle back off
-    expect(attentionTile.getAttribute('aria-pressed')).toBe('false')
+    await userEvent.click(attentionTile) // toggle back off — clears the explicit tile selection
+    // Still reads active (default-active for {type:'none'}), but the panel
+    // heading has reverted to the generic default, proving selection cleared.
+    expect(attentionTile.getAttribute('aria-pressed')).toBe('true')
+    expect(screen.getByLabelText('Needs your attention')).toBeTruthy()
   })
 })
 
@@ -579,6 +595,11 @@ describe('inspect mode (persistent inspector, mode="inspect")', () => {
     })
     render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
 
+    // Census tiles are the interface (docs/adr/2026-08-27-roots-hub-tiles-
+    // are-interface.md §3) — open the Understood tile's grid first; there
+    // is no longer a standing grid to click a node from cold.
+    await userEvent.click((await screen.findByText('Understood')).closest('button'))
+
     const groupsNode = await screen.findByLabelText(/^Groups — /)
     await userEvent.click(groupsNode)
     expect(screen.getByText('Bogrim')).toBeTruthy()
@@ -591,6 +612,10 @@ describe('inspect mode (persistent inspector, mode="inspect")', () => {
   it('a fresh, empty camp marks a required area not_set_up, never a false "Understood" (ADR §(d))', async () => {
     localClient.list.mockResolvedValue([])
     render(<ReconciliationScreen mode="inspect" onNavigate={vi.fn()} />)
+
+    // Open the Understood tile's grid first (census tiles are the
+    // interface, §3) — Not-set-up children still render inside it.
+    await userEvent.click((await screen.findByText('Understood')).closest('button'))
 
     const groupsNode = await screen.findByLabelText('Groups — Not started')
     expect(groupsNode.getAttribute('aria-label')).not.toMatch(/Understood/)

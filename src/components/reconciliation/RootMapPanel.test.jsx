@@ -683,3 +683,131 @@ describe('RootMapPanel census roster (Slice 2)', () => {
     expect(screen.queryByText('Nothing here yet — open the setup screen to add some.')).toBeFalsy()
   })
 })
+
+// Census tiles are the interface (docs/adr/2026-08-27-roots-hub-tiles-are-
+// interface.md §4/§6) — the Understood tile reads roster rows directly
+// (not decisionIds), grouped by domain; each tile gets its own empty copy.
+describe('RootMapPanel — Understood tile (census tiles are the interface)', () => {
+  function understoodModel() {
+    return {
+      domains: [
+        {
+          key: 'Structure', label: 'Structure', state: 'understood', x: 0.5, y: 0.5,
+          children: [
+            {
+              key: 'Groups', name: 'Groups', count: 2, state: 'understood', x: 0.5, y: 0.5, decisionIds: [],
+              roster: [
+                // No decisionId — proves the fix: a rooted row never
+                // attached to any decision would be invisible under the old
+                // decisionsForTileState routing.
+                { entityId: 'g1', name: 'Bogrim', state: 'understood', decisionId: null, group: null },
+                { entityId: 'g2', name: 'Amitim', state: 'attention', decisionId: 'd1', group: null },
+              ],
+            },
+          ],
+        },
+        {
+          key: 'Facility', label: 'Facility', state: 'understood', x: 0.5, y: 0.5,
+          children: [
+            {
+              key: 'Locations', name: 'Locations', count: 1, state: 'understood', x: 0.5, y: 0.5, decisionIds: [],
+              roster: [{ entityId: 'l1', name: 'Pool', state: 'understood', decisionId: 'd2', group: null }],
+            },
+          ],
+        },
+      ],
+    }
+  }
+
+  it('renders rooted items grouped by domain, including a row with no decision id', () => {
+    render(
+      <RootMapPanel
+        model={understoodModel()}
+        selection={{ type: 'tile', state: 'understood' }}
+        lanes={lanes}
+        dismissedGaps={new Set()}
+        answers={{}}
+        onAnswer={noop}
+        onDismissGap={noop}
+        onUndismissGap={noop}
+        expandedEvidence={new Set()}
+        onToggleEvidence={noop}
+        onNavigate={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(screen.getByText('Bogrim')).toBeTruthy()
+    expect(screen.getByText('Pool')).toBeTruthy()
+    // The unresolved 'Amitim' row is not understood, so it must not appear.
+    expect(screen.queryByText('Amitim')).toBeFalsy()
+    expect(screen.getByText('Structure')).toBeTruthy()
+    expect(screen.getByText('Facility')).toBeTruthy()
+  })
+
+  it('shows the understood-specific empty copy when nothing is rooted', () => {
+    const model = { domains: [{ key: 'Structure', label: 'Structure', state: 'attention', x: 0.5, y: 0.5, children: [] }] }
+    render(
+      <RootMapPanel
+        model={model}
+        selection={{ type: 'tile', state: 'understood' }}
+        lanes={lanes}
+        dismissedGaps={new Set()}
+        answers={{}}
+        onAnswer={noop}
+        onDismissGap={noop}
+        onUndismissGap={noop}
+        expandedEvidence={new Set()}
+        onToggleEvidence={noop}
+        onNavigate={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(screen.getByText('Nothing rooted yet — import something to get started.')).toBeTruthy()
+  })
+})
+
+describe('RootMapPanel — per-tile empty copy (§6)', () => {
+  function emptyDomainModel() {
+    return { domains: [] }
+  }
+
+  it('shows the changed-tile empty copy', () => {
+    render(
+      <RootMapPanel
+        model={emptyDomainModel()}
+        selection={{ type: 'tile', state: 'changed' }}
+        lanes={{ hold: [], standard: [] }}
+        dismissedGaps={new Set()}
+        answers={{}}
+        onAnswer={noop}
+        onDismissGap={noop}
+        onUndismissGap={noop}
+        expandedEvidence={new Set()}
+        onToggleEvidence={noop}
+        onNavigate={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(screen.getByText('Nothing has changed since your last import.')).toBeTruthy()
+  })
+
+  it('shows the absent-tile empty copy', () => {
+    render(
+      <RootMapPanel
+        model={emptyDomainModel()}
+        selection={{ type: 'tile', state: 'absent' }}
+        lanes={{ hold: [], standard: [] }}
+        dismissedGaps={new Set()}
+        answers={{}}
+        onAnswer={noop}
+        onDismissGap={noop}
+        onUndismissGap={noop}
+        expandedEvidence={new Set()}
+        onToggleEvidence={noop}
+        onNavigate={noop}
+        onClearSelection={noop}
+      />,
+    )
+    expect(screen.getByText('Nothing left out — everything in this file matched your camp.')).toBeTruthy()
+  })
+})
