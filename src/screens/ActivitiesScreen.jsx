@@ -6,6 +6,8 @@ import { localClient } from '../localClient'
 import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
+import ImportModal from '../components/setup/ImportModal'
+import SetupScreenShell from '../components/setup/SetupScreenShell'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { createScheduleRepository } from '../data/scheduleRepository'
@@ -15,32 +17,15 @@ import { resolveLocationCandidateId } from '../../electron/ops/locationId.js'
 import { CONFIDENCE_COPY, plainEvidenceSentence } from '../components/reconciliation/reconciliationCards.jsx'
 import { deriveActivityProvenance, hasAnyEvidence, worstTier } from '../utils/ruleProvenance.js'
 import uiClipboard from '../assets/brand/icons/ui-clipboard.png'
-
-const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
+import { DOW, parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
+import { createLocationRecord, updateLocationCapacityRecord } from '../lib/locationDedup'
 
 // operations.value only accepts strings/null (better-sqlite3 throws on a raw
 // boolean/array) — every write must pre-serialize through these before
 // hitting localClient.write. Reads go through normalizeActivity below.
 const BOOL_FIELDS = new Set(['is_outdoor', 'same_tier_only'])
 const ARRAY_FIELDS = new Set(['eligible_tier_ids', 'eligible_group_ids'])
-
-function serializeFieldValue(field, value) {
-  if (BOOL_FIELDS.has(field)) return value ? 1 : 0
-  if (ARRAY_FIELDS.has(field)) return JSON.stringify(value ?? [])
-  return value ?? null
-}
-
-// Defense-in-depth: malformed JSON in an eligible_*_ids column (e.g. from a
-// corrupted/tampered op) must not crash the list render — default to [].
-function parseIdList(raw) {
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
+const serializeFieldValue = makeSerializeFieldValue(BOOL_FIELDS, ARRAY_FIELDS)
 
 function normalizeActivity(row) {
   return {
@@ -617,15 +602,10 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   // inline-create has no such gate, so it stays random-UUID/case-insensitive,
   // as the ADR decided. T81's scope is the CSV-template importer only.
   async function createLocation(name) {
-    const trimmedName = String(name ?? '').trim()
-    if (!trimmedName) return null
-    const existing = locations.find(l => String(l.name ?? '').trim().toLowerCase() === trimmedName.toLowerCase())
-    if (existing) return existing.id
-    const newId = crypto.randomUUID()
-    const fields = { name: trimmedName, camp_id: campId, capacity: 1, notes: null }
-    await repository.createRecord('locations', newId, fields)
-    setLocations(prev => [...prev, { id: newId, ...fields }])
-    return newId
+    const result = await createLocationRecord({ repository, campId, name, existing: locations })
+    if (!result) return null
+    if (result.created) setLocations(prev => [...prev, result.location])
+    return result.location.id
   }
 
   // C2: the in-place capacity stepper LocationPicker shows for a place it
@@ -633,7 +613,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   // path as the Locations screen's own capacity edit, so the change is
   // indistinguishable from one made there.
   async function updateLocationCapacity(locationId, capacity) {
-    await repository.writeFields('locations', locationId, { capacity })
+    await updateLocationCapacityRecord({ repository, locationId, capacity })
     setLocations(prev => prev.map(l => l.id === locationId ? { ...l, capacity } : l))
   }
 
@@ -1008,27 +988,19 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
           entityLabel="activities"
         />
       )}
-      {error && (
-        <div style={S.errorBanner}>
-          {error}
-        </div>
-      )}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          {activities.length} activit{activities.length !== 1 ? 'ies' : 'y'}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
-          <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
-          <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button
-            onClick={deleteAll}
-            disabled={role !== 'admin'}
-            title={role !== 'admin' ? 'Admin only' : undefined}
-            style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-          >Delete All</button>
-          <button className="press-97" onClick={() => setModal({ activity: null })} style={S.btnPrimary}>+ Add Activity</button>
-        </div>
+      <SetupScreenShell
+        countLabel={`${activities.length} activit${activities.length !== 1 ? 'ies' : 'y'}`}
+        role={role}
+        actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
+        fileInputRef={fileRef}
+        onFileChange={onFileChange}
+        maxWidth={820}
+        nextLabel="Next: Recurring Events →"
+        onNext={() => onNavigate('anchors')}
+        error={error}
+      >
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button className="press-97" onClick={() => setModal({ activity: null })} style={S.btnPrimary}>+ Add Activity</button>
       </div>
 
       {loading ? (
@@ -1145,6 +1117,8 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         </div>
       </div>
 
+      </SetupScreenShell>
+
       {modal && (
         <ActivityModal
           activity={modal.activity}
@@ -1159,53 +1133,34 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         />
       )}
 
-      {importStep && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width: 620, maxHeight: '80vh', overflow: 'auto' }}>
-            {importStep === 'preview' && (
-              <>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>{readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings (skipped)`}</div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 18 }}>
-                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Name</th><th style={S.th}>Location</th><th style={S.th}>Priority</th><th style={S.th}>Status</th></tr></thead>
-                  <tbody>
-                    {importRows.map((r, i) => (
-                      <tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}>
-                        <td style={S.td}>{r.name || '—'}</td>
-                        <td style={S.td}>
-                          {r.location || '—'}
-                          {r.locationResolution === 'new' && (
-                            <span style={importAnnotation.newPlace}>+ new location</span>
-                          )}
-                        </td>
-                        <td style={S.td}>{r.priority}</td>
-                        <td style={{ ...S.td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
-                  <button className="press-97" onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
-                </div>
-              </>
-            )}
-            {importStep === 'done' && (
-              <>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 12 }}>Import Complete</div>
-                <div style={{ fontSize: 14 }}><span style={{ color: 'var(--success)', fontWeight: 600 }}>{importResult.added} added</span>{importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped</span>}</div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      <ImportModal
+        step={importStep}
+        title={importStep === 'done' ? 'Import Complete' : 'Import Preview'}
+        width={620}
+        columns={[{ key: 'name', label: 'Name' }, { key: 'location', label: 'Location' }, { key: 'priority', label: 'Priority' }, { key: 'status', label: 'Status' }]}
+        rows={importRows}
+        readyCount={readyRows.length}
+        warnCount={warnRows.length}
+        result={importResult}
+        importing={importing}
+        onConfirm={confirmImport}
+        onCancel={() => { setImportStep(null); setImportRows([]) }}
+        previewSubtitle={<>{readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings (skipped)`}</>}
+        renderCell={(r, c) => {
+          if (c.key === 'name') return r.name || '—'
+          if (c.key === 'location') return (
+            <>
+              {r.location || '—'}
+              {r.locationResolution === 'new' && (
+                <span style={importAnnotation.newPlace}>+ new location</span>
+              )}
+            </>
+          )
+          if (c.key === 'priority') return r.priority
+          if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
+        }}
+      />
 
-      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button className="press-97" onClick={() => onNavigate('anchors')} style={S.btnPrimary}>Next: Recurring Events →</button>
-      </div>
       {pendingDelete && (
         <DeleteRecordDialog
           preview={pendingDelete}

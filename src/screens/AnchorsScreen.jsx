@@ -7,8 +7,12 @@ import { S, useEnterTransition } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
+import ImportModal from '../components/setup/ImportModal'
+import SetupScreenShell from '../components/setup/SetupScreenShell'
 import { LocationPicker } from '../components/LocationPicker'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
+import { parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
+import { createLocationRecord, updateLocationCapacityRecord } from '../lib/locationDedup'
 
 // Repository-only migration (not the full useCrudScreen hook): load() fans out
 // across five parallel list() calls with per-cohort scoping, and the create
@@ -24,12 +28,7 @@ const repository = createSetupCrudRepository({ localClient })
 // hitting localClient.write. Mirrors ActivitiesScreen.jsx's identical pattern.
 const BOOL_FIELDS = new Set(['is_all_groups'])
 const ARRAY_FIELDS = new Set(['group_ids'])
-
-function serializeFieldValue(field, value) {
-  if (BOOL_FIELDS.has(field)) return value ? 1 : 0
-  if (ARRAY_FIELDS.has(field)) return JSON.stringify(value ?? [])
-  return value ?? null
-}
+const serializeFieldValue = makeSerializeFieldValue(BOOL_FIELDS, ARRAY_FIELDS)
 
 const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024
 
@@ -48,18 +47,6 @@ const MAX_IMPORT_FILE_BYTES = 5 * 1024 * 1024
 // generation fence at the localClient/IPC layer, which is out of scope for a
 // single-screen migration task — flagged as a genuine, not-yet-scheduled
 // follow-up (project memory).
-
-// Defense-in-depth: malformed JSON in group_ids (e.g. from a corrupted/
-// tampered op) must not crash the list render — default to [].
-function parseIdList(raw) {
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed : []
-  } catch {
-    return []
-  }
-}
 
 function normalizeAnchor(row) {
   return {
@@ -248,7 +235,6 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
   const deleteInFlight = useRef(false)
   const fileRef = useRef()
   const { cohorts, activeCohort, setActiveCohortId } = useCohorts(campId)
-  const importEnterStyle = useEnterTransition('liftFade')
 
   useEffect(() => {
     if (activeCohort) load()
@@ -396,19 +382,14 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
   // ActivitiesScreen.createLocation exactly (same case-insensitive dedupe
   // rationale; see that screen's comment for the full ADR reasoning).
   async function createLocation(name) {
-    const trimmedName = String(name ?? '').trim()
-    if (!trimmedName) return null
-    const existing = locations.find(l => String(l.name ?? '').trim().toLowerCase() === trimmedName.toLowerCase())
-    if (existing) return existing.id
-    const newId = crypto.randomUUID()
-    const fields = { name: trimmedName, camp_id: campId, capacity: 1, notes: null }
-    await repository.createRecord('locations', newId, fields)
-    setLocations(prev => [...prev, { id: newId, ...fields }])
-    return newId
+    const result = await createLocationRecord({ repository, campId, name, existing: locations })
+    if (!result) return null
+    if (result.created) setLocations(prev => [...prev, result.location])
+    return result.location.id
   }
 
   async function updateLocationCapacity(locationId, capacity) {
-    await repository.writeFields('locations', locationId, { capacity })
+    await updateLocationCapacityRecord({ repository, locationId, capacity })
     setLocations(prev => prev.map(l => l.id === locationId ? { ...l, capacity } : l))
   }
 
@@ -630,34 +611,26 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 760 }}>
-      <CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />
-      {error && (
-        <div style={S.errorBanner}>
-          {error}
-        </div>
-      )}
+      <SetupScreenShell
+        countLabel={`${anchors.length} recurring event${anchors.length !== 1 ? 's' : ''}`}
+        role={role}
+        actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
+        fileInputRef={fileRef}
+        onFileChange={onFileChange}
+        maxWidth={760}
+        nextLabel="Go to Schedule"
+        onNext={() => onNavigate('schedule')}
+        error={error}
+        cohortPicker={<CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />}
+      >
       {timeBlocks.length === 0 && !loading && (
         <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#7a5100' }}>
           No time blocks found. Set these up before adding recurring events.
         </div>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          {anchors.length} recurring event{anchors.length !== 1 ? 's' : ''}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
-          <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
-          <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button
-            onClick={deleteAll}
-            disabled={role !== 'admin'}
-            title={role !== 'admin' ? 'Admin only' : undefined}
-            style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-          >Delete All</button>
-          <button className="press-97" onClick={() => setModal({ anchor: null })} style={S.btnPrimary}>+ Add Recurring Event</button>
-        </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button className="press-97" onClick={() => setModal({ anchor: null })} style={S.btnPrimary}>+ Add Recurring Event</button>
       </div>
 
       {loading ? (
@@ -723,6 +696,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
           )}
         </div>
       )}
+      </SetupScreenShell>
 
       {modal && (
         <AnchorModal
@@ -739,53 +713,31 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
         />
       )}
 
-      {importStep && (
-        <div style={{ ...S.overlay, ...importEnterStyle }}>
-          <div style={{ ...S.modalLg, width: 620 }}>
-            {importStep === 'preview' && (
-              <>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>{readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings`}</div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 18 }}>
-                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Name</th><th style={S.th}>Day</th><th style={S.th}>Block</th><th style={S.th}>Age Divisions</th><th style={S.th}>Status</th></tr></thead>
-                  <tbody>
-                    {importRows.map((r, i) => (
-                      <tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}>
-                        <td style={S.td}>{r.name || '—'}</td>
-                        <td style={S.td}>{r._dayLabel || '—'}</td>
-                        <td style={S.td}>{r._blockName || '—'}</td>
-                        <td style={S.td}>{r._tierNames}</td>
-                        <td style={{ ...S.td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
-                  <button className="press-97" onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
-                </div>
-              </>
-            )}
-            {importStep === 'done' && (
-              <>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 12 }}>Import Complete</div>
-                <div style={{ fontSize: 14 }}>
-                  <span style={{ color: 'var(--success)', fontWeight: 600 }}>{importResult.added} added</span>
-                  {importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped</span>}
-                  {importResult.skippedWithOrphan > 0 && (
-                    <span style={{ color: 'var(--warning)', marginLeft: 10 }}>
-                      {importResult.skippedWithOrphan} skipped but couldn't be fully rolled back (admin required) — stray row(s) may remain
-                    </span>
-                  )}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      <ImportModal
+        step={importStep}
+        title={importStep === 'done' ? 'Import Complete' : 'Import Preview'}
+        width={620}
+        columns={[{ key: 'name', label: 'Name' }, { key: 'day', label: 'Day' }, { key: 'block', label: 'Block' }, { key: 'tiers', label: 'Age Divisions' }, { key: 'status', label: 'Status' }]}
+        rows={importRows}
+        readyCount={readyRows.length}
+        warnCount={warnRows.length}
+        result={importResult}
+        importing={importing}
+        onConfirm={confirmImport}
+        onCancel={() => { setImportStep(null); setImportRows([]) }}
+        doneExtra={importResult?.skippedWithOrphan > 0 && (
+          <span style={{ color: 'var(--warning)', marginLeft: 10 }}>
+            {importResult.skippedWithOrphan} skipped but couldn't be fully rolled back (admin required) — stray row(s) may remain
+          </span>
+        )}
+        renderCell={(r, c) => {
+          if (c.key === 'name') return r.name || '—'
+          if (c.key === 'day') return r._dayLabel || '—'
+          if (c.key === 'block') return r._blockName || '—'
+          if (c.key === 'tiers') return r._tierNames
+          if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
+        }}
+      />
 
       {pendingDelete && (
         <ConfirmDangerDialog
@@ -809,10 +761,6 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
           onCancel={() => setPendingDeleteAll(false)}
         />
       )}
-
-      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button className="press-97" onClick={() => onNavigate('schedule')} style={S.btnPrimary}>Go to Schedule</button>
-      </div>
     </div>
   )
 }

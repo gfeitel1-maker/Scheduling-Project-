@@ -147,6 +147,16 @@ export const S = {
     zIndex: 1000,
     padding: 16,
   },
+  // Import-preview warning row — replaces the hardcoded #FFF8E7 / #F5A623
+  // literals previously pasted into every setup screen's import table.
+  importWarnRow: {
+    background: 'color-mix(in srgb, var(--warning) 12%, var(--surface))',
+  },
+  importWarnText: {
+    color: 'var(--warning)',
+    fontFamily: 'var(--font-mono)',
+    fontSize: 12,
+  },
   errorBanner: {
     background: 'color-mix(in srgb, var(--danger) 8%, var(--surface))',
     border: '1px solid color-mix(in srgb, var(--danger) 35%, var(--border))',

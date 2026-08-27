@@ -8,6 +8,8 @@ import { S, useEnterTransition } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
+import ImportModal from '../components/setup/ImportModal'
+import SetupScreenShell from '../components/setup/SetupScreenShell'
 import uiPeople from '../assets/brand/icons/ui-people.png'
 
 // Tiers' load is cohort-scoped (camp_id AND cohort_id), fetches groups
@@ -355,31 +357,19 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   const warnRows = importRows.filter(r => r.warning || !r.name)
 
   return (
-    <div style={{ maxWidth: 700 }}>
-      <CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />
-      {error && (
-        <div style={S.errorBanner}>
-          {error}
-        </div>
-      )}
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-          {tiers.length} age division{tiers.length !== 1 ? 's' : ''}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
-          <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
-          <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button
-            onClick={deleteAll}
-            disabled={!activeCohort || role !== 'admin'}
-            title={role !== 'admin' ? 'Admin only' : undefined}
-            style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-          >Delete All</button>
-        </div>
-      </div>
-
+    <>
+    <SetupScreenShell
+      countLabel={`${tiers.length} age division${tiers.length !== 1 ? 's' : ''}`}
+      role={role}
+      actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll, deleteAllDisabled: !activeCohort }}
+      fileInputRef={fileRef}
+      onFileChange={onFileChange}
+      maxWidth={700}
+      nextLabel="Next: Groups →"
+      onNext={() => onNavigate('groups')}
+      error={error}
+      cohortPicker={<CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />}
+    >
       {/* Table */}
       {showLoading ? (
         <div style={S.stateLoading}>Loading…</div>
@@ -448,62 +438,29 @@ export default function TiersScreen({ campId, role, onNavigate }) {
           </button>
         </div>
       </div>
+      </SetupScreenShell>
 
-      {/* Import modal */}
-      {importStep && (
-        <div style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
-        }}>
-          <div style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width: 520, maxHeight: '80vh', overflow: 'auto' }}>
-            {importStep === 'preview' && (
-              <>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
-                  {readyRows.length} row{readyRows.length !== 1 ? 's' : ''} ready
-                  {warnRows.length > 0 && `, ${warnRows.length} with warnings (will be skipped)`}
-                </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 18 }}>
-                  <thead>
-                    <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                      <th style={S.th}>Name</th><th style={S.th}>Sort Order</th><th style={S.th}>Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {importRows.map((r, i) => (
-                      <tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}>
-                        <td style={S.td}>{r.name || <span style={{ color: 'var(--warning)' }}>—</span>}</td>
-                        <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.sort_order ?? '—'}</td>
-                        <td style={{ ...S.td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                          {r.warning || '✓ Ready'}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
-                  <button className="press-97" onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>
-                    {importing ? 'Importing…' : `Import ${readyRows.length} age division${readyRows.length !== 1 ? 's' : ''}`}
-                  </button>
-                </div>
-              </>
-            )}
-            {importStep === 'done' && (
-              <>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 12 }}>Import Complete</div>
-                <div style={{ fontSize: 14, marginBottom: 6 }}>
-                  <span style={{ color: 'var(--success)', fontWeight: 600 }}>{importResult.added} added</span>
-                  {importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped (duplicate or invalid)</span>}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      <ImportModal
+        step={importStep}
+        title={importStep === 'done' ? 'Import Complete' : 'Import Preview'}
+        width={520}
+        columns={[{ key: 'name', label: 'Name' }, { key: 'sort_order', label: 'Sort Order', mono: true }, { key: 'status', label: 'Status' }]}
+        rows={importRows}
+        readyCount={readyRows.length}
+        warnCount={warnRows.length}
+        result={importResult}
+        importing={importing}
+        onConfirm={confirmImport}
+        onCancel={() => { setImportStep(null); setImportRows([]) }}
+        previewSubtitle={<>{readyRows.length} row{readyRows.length !== 1 ? 's' : ''} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings (will be skipped)`}</>}
+        confirmLabel={`Import ${readyRows.length} age division${readyRows.length !== 1 ? 's' : ''}`}
+        doneSkippedSuffix=" (duplicate or invalid)"
+        renderCell={(r, c) => {
+          if (c.key === 'name') return r.name || <span style={{ color: 'var(--warning)' }}>—</span>
+          if (c.key === 'sort_order') return r.sort_order ?? '—'
+          if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
+        }}
+      />
 
       {pendingDelete && (
         <ConfirmDangerDialog
@@ -531,10 +488,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
           onCancel={() => setPendingDeleteAll(false)}
         />
       )}
-
-      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button className="press-97" onClick={() => onNavigate('groups')} style={S.btnPrimary}>Next: Groups →</button>
-      </div>
-    </div>
+    </>
   )
 }

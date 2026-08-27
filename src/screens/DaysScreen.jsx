@@ -1,18 +1,18 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorMessage'
 import * as XLSX from 'xlsx'
-import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
+import { aoaToSanitizedSheet } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
+import SetupScreenShell from '../components/setup/SetupScreenShell'
+import { DOW } from './setup/setupHelpers'
 
 const repository = createSetupCrudRepository({ localClient })
 const scopeFilter = (row, campId) => row.camp_id === campId
-
-const DOW = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday']
 
 function DayRow({ day, role, onSave, onDelete }) {
   const [editing, setEditing] = useState(false)
@@ -68,7 +68,7 @@ function DayRow({ day, role, onSave, onDelete }) {
 }
 
 export default function DaysScreen({ campId, role, onNavigate }) {
-  const { rows: unsortedDays, loading, error, setError, adding, add, save, deleteAll: deleteAllRecords, importRows: importViaHook, reload } =
+  const { rows: unsortedDays, loading, error, setError, adding, add, save, deleteAll: deleteAllRecords, reload } =
     useCrudScreen({
       entity: 'days_of_operation',
       campId,
@@ -92,14 +92,9 @@ export default function DaysScreen({ campId, role, onNavigate }) {
   const [newLabel, setNewLabel] = useState('')
   const [newDow, setNewDow] = useState(1)
   const [newSort, setNewSort] = useState('')
-  const [importStep, setImportStep] = useState(null)
-  const [importRows, setImportRows] = useState([])
-  const [importResult, setImportResult] = useState(null)
-  const [importing, setImporting] = useState(false)
   const [pendingDelete, setPendingDelete] = useState(null)
   const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
-  const fileRef = useRef()
 
   async function addDay() {
     if (!newLabel.trim()) return
@@ -155,75 +150,16 @@ export default function DaysScreen({ campId, role, onNavigate }) {
     XLSX.writeFile(wb, 'days_template.xlsx')
   }
 
-  function onFileChange(e) {
-    const file = e.target.files[0]; if (!file) return
-    const reader = new FileReader()
-    reader.onload = ev => {
-      const wb = XLSX.read(ev.target.result, { type: 'array' })
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(unescapeRow)
-      const parsed = rows.map(r => {
-        const label = String(r.label || '').trim()
-        const dow = Number(r.day_of_week)
-        const sort = r.sort_order !== '' ? Number(r.sort_order) : null
-        let warning = null
-        if (!label) warning = 'Missing label'
-        else if (!Number.isInteger(dow) || dow < 0 || dow > 6) warning = 'day_of_week must be a whole number 0–6'
-        else if (sort !== null && !Number.isFinite(sort)) warning = 'sort_order must be a number'
-        return { label, day_of_week: dow, sort_order: sort, warning }
-      })
-      setImportRows(parsed); setImportStep('preview')
-    }
-    reader.readAsArrayBuffer(file); e.target.value = ''
-  }
-
-  async function confirmImport() {
-    setImporting(true)
-    try {
-      const duplicateCheck = (existing, row) =>
-        existing.some((r) => String(r.label ?? '').toLowerCase() === String(row.label).toLowerCase())
-      const result = await importViaHook(importRows, {
-        mapRow: (row, addedSoFar) => ({
-          label: row.label,
-          camp_id: campId,
-          day_of_week: row.day_of_week,
-          sort_order: row.sort_order !== null ? row.sort_order : (days.length + addedSoFar + 1),
-        }),
-        duplicateCheck,
-      })
-      setImportResult(result); setImportStep('done')
-    } finally {
-      setImporting(false)
-    }
-  }
-
-  const readyRows = importRows.filter(r => r.label && !r.warning)
-  const warnRows = importRows.filter(r => r.warning || !r.label)
-
   return (
-    <div style={{ maxWidth: 680 }}>
-      {error && (
-        <div style={S.errorBanner}>
-          {error}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          {days.length} day{days.length !== 1 ? 's' : ''}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
-          <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
-          <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button
-            onClick={deleteAll}
-            disabled={role !== 'admin'}
-            title={role !== 'admin' ? 'Admin only' : undefined}
-            style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-          >Delete All</button>
-        </div>
-      </div>
-
+    <>
+    <SetupScreenShell
+      countLabel={`${days.length} day${days.length !== 1 ? 's' : ''}`}
+      role={role}
+      actions={{ onDownloadTemplate: downloadTemplate, onDeleteAll: deleteAll, deleteAllProminent: false }}
+      nextLabel="Next: Time Blocks →"
+      onNext={() => onNavigate('timeblocks')}
+      error={error}
+    >
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>
       ) : (
@@ -241,7 +177,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
               {days.length === 0 ? (
                 <tr><td colSpan={4} style={S.emptyState}>
                   <div style={S.emptyStateTitle}>No days yet</div>
-                  <div style={S.emptyStateBody}>Add your first day below or import from Excel.</div>
+                  <div style={S.emptyStateBody}>Add your first day below.</div>
                 </td></tr>
               ) : days.map(day => (
                 <DayRow key={day.id} day={day} role={role} onSave={save} onDelete={deleteDay} />
@@ -262,49 +198,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
           <button className="press-97" onClick={addDay} disabled={adding || !newLabel.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
         </div>
       </div>
-
-      {importStep && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--surface)', borderRadius: 12, padding: 28, width: 520, maxHeight: '80vh', overflow: 'auto' }}>
-            {importStep === 'preview' && (
-              <>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>{readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings`}</div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 18 }}>
-                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Label</th><th style={S.th}>Day</th><th style={S.th}>Order</th><th style={S.th}>Status</th></tr></thead>
-                  <tbody>
-                    {importRows.map((r, i) => (
-                      <tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}>
-                        <td style={S.td}>{r.label || '—'}</td>
-                        <td style={S.td}>{DOW[r.day_of_week] || '—'}</td>
-                        <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.sort_order ?? '—'}</td>
-                        <td style={{ ...S.td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
-                  <button className="press-97" onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
-                </div>
-              </>
-            )}
-            {importStep === 'done' && (
-              <>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 12 }}>Import Complete</div>
-                <div style={{ fontSize: 14 }}><span style={{ color: 'var(--success)', fontWeight: 600 }}>{importResult.added} added</span>{importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped</span>}</div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button className="press-97" onClick={() => onNavigate('timeblocks')} style={S.btnPrimary}>Next: Time Blocks →</button>
-      </div>
+      </SetupScreenShell>
       {pendingDelete && (
         <DeleteRecordDialog
           preview={pendingDelete}
@@ -322,6 +216,6 @@ export default function DaysScreen({ campId, role, onNavigate }) {
           onCancel={() => setPendingDeleteAll(false)}
         />
       )}
-    </div>
+    </>
   )
 }
