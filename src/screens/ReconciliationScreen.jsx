@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { localClient } from '../localClient'
 import { useCohorts } from '../hooks/useCohorts'
 import { S, useEnterTransition, prefersReducedMotion } from '../styles/shared'
@@ -38,22 +38,6 @@ function readinessCollectionsFromCensus(snapshot) {
     locations: snapshot.locations,
   }
 }
-
-// T94. Device-local UI chrome, not camp data — same rationale as T92's
-// RA-10 (docs/adr/2026-08-21-roots-tree-as-primary.md §(c)) — comfortably
-// above the maxWidth: 920 column this screen is already capped at, so "wide"
-// in practice means the column is at or near its own max width. Two
-// thresholds (not one) — round-2 review fix (edge case): a plain single
-// breakpoint flip-flops on a slow resize drag across 900px; entering wide at
-// >=900 and only exiting at <880 gives a dead zone so that doesn't happen.
-const ROOT_MAP_PANEL_WIDE_ENTER = 900
-const ROOT_MAP_PANEL_WIDE_EXIT = 880
-// Wide-layout panel geometry (provisional, per Governor — visual confirm
-// pending): starts partway down the measured canvas height rather than at
-// its own two-thirds mark, and never shrinks below a usable floor even when
-// the canvas itself is short.
-const ROOT_MAP_PANEL_TOP_FRACTION = 0.47
-const ROOT_MAP_PANEL_MIN_HEIGHT = 320
 
 // docs/work/specs/2026-08-17-reconciliation-onescreen-design.md — the one
 // continuous surface that replaces ImportScreen's six-gate reconciliation
@@ -130,40 +114,6 @@ export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, 
   const requestGenRef = useRef(0)
   const lastGoodReportRef = useRef(null)
   const debounceRef = useRef(null)
-
-  // RA-10 — RootMap exposes canvasWrap's DOM node via a forwarded ref (its
-  // only new prop); this screen measures it to decide where RootMapPanel
-  // renders. A callback ref (not a plain useRef) so the ResizeObserver effect
-  // re-runs once the node is actually attached.
-  //
-  // Round-2 review fix (MEDIUM-HIGH) — RootMapPanel must NOT move between two
-  // different parent elements (that unmounts/remounts it, losing its own
-  // `showResolved` state and replaying its enter animation on a plain
-  // resize). This effect only ever toggles `wideCanvas` (a style switch) and
-  // records the canvas's own measured geometry (`canvasMetrics`) so the wide
-  // layout can be positioned in CSS relative to a shared ancestor — the
-  // panel's position in the React tree never changes.
-  const [canvasWrapEl, setCanvasWrapEl] = useState(null)
-  const canvasWrapRef = useCallback((node) => setCanvasWrapEl(node), [])
-  const [wideCanvas, setWideCanvas] = useState(false)
-  const [canvasMetrics, setCanvasMetrics] = useState({ top: 0, height: 0 })
-  useEffect(() => {
-    if (!canvasWrapEl || typeof ResizeObserver === 'undefined') return
-    const measure = (width) => {
-      setWideCanvas((prev) => {
-        if (!prev && width >= ROOT_MAP_PANEL_WIDE_ENTER) return true
-        if (prev && width < ROOT_MAP_PANEL_WIDE_EXIT) return false
-        return prev
-      })
-      setCanvasMetrics({ top: canvasWrapEl.offsetTop, height: canvasWrapEl.offsetHeight })
-    }
-    measure(canvasWrapEl.getBoundingClientRect().width)
-    const observer = new ResizeObserver((entries) => {
-      measure(entries[0]?.contentRect?.width ?? 0)
-    })
-    observer.observe(canvasWrapEl)
-    return () => observer.disconnect()
-  }, [canvasWrapEl])
 
   // Roots reconstruction moment (docs/adr/2026-08-18-roots-reconstruction-
   // moment-gating.md) — the show/skip decision is made ONCE, before the
@@ -480,20 +430,11 @@ export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, 
     return <EndState onNavigate={onNavigate} />
   }
 
-  // RA-10 — on a wide canvasWrap, the panel wrapper switches to absolute
-  // positioning (measured off canvasWrapEl's own offsetTop/offsetHeight
-  // within the shared `position: relative` ancestor below) so it visually
-  // sits over the lower-canvas dead zone. Round-2 review fix: this is a
-  // style-only switch on ONE wrapper element — RootMapPanel itself always
-  // renders at the same JSX position, so it is never unmounted/remounted by
-  // a breakpoint crossing (no createPortal, no conditionally-different
-  // parent elements).
   // The panel always flows BELOW the domain map. The former RA-10 wide-screen
-  // overlay (absolutely positioned partway down the canvas) assumed the lower
-  // half of the map was a dead zone; the Bento grid (docs/adr/2026-08-27-roots-
-  // hub-bento-layout.md) fills that space, so the overlay landed on top of real
-  // content. `wideCanvas` is retained only to keep the measurement wiring
-  // stable; it no longer switches the panel to absolute positioning.
+  // overlay (absolutely positioned partway down the canvas, docs/adr/2026-08-21-
+  // roots-tree-as-primary.md §(c)) assumed the lower half of the map was a dead
+  // zone; the Bento grid (docs/adr/2026-08-27-roots-hub-bento-layout.md) fills
+  // that space, so the overlay landed on top of real content — retired.
   const rootMapPanelWrapperStyle = styles.rootMapPanelNormalFlow
 
   return (
@@ -556,12 +497,9 @@ export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, 
         </div>
       )}
 
-      {/* RA-10 — this wrapper is the positioning context RootMapPanel's wide
-          layout measures against (canvasWrapEl.offsetTop/offsetHeight are
-          read relative to it). The panel is always rendered here, at the
-          same JSX position, regardless of wideCanvas — only its own wrapper
-          style below switches between absolute (wide) and normal flow
-          (narrow), so it is never remounted by a breakpoint crossing. */}
+      {/* The panel is always rendered here, at the same JSX position — it is
+          never remounted by a breakpoint crossing, so its own local state
+          (e.g. RootMapPanel's `showResolved`) survives a resize. */}
       <div style={{ position: 'relative' }}>
         <RootMap
           model={rootMapModel}
@@ -569,7 +507,6 @@ export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, 
           onSelectTile={selectTile}
           onSelectNode={selectNode}
           onClearSelection={clearSelection}
-          canvasWrapRef={canvasWrapRef}
           decisionsById={decisionsById}
         />
 
@@ -649,24 +586,6 @@ function EndState({ onNavigate }) {
 }
 
 const styles = {
-  // RA-10 — `top` and `height` are both computed inline per-render from the
-  // measured canvasWrap geometry (see rootMapPanelWrapperStyle above), not
-  // set here as static CSS — this object only carries the values that don't
-  // depend on that measurement. The box's vertical extent is therefore
-  // bounded explicitly by that computed `height` (floored at
-  // ROOT_MAP_PANEL_MIN_HEIGHT), not by an implicit top+bottom pairing or a
-  // separate max-height rule.
-  rootMapPanelOverlay: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    background: 'var(--surface-elevated)',
-    opacity: 0.97,
-    borderTop: '1px solid var(--border)',
-    borderRadius: '0 0 8px 8px',
-    overflowY: 'auto',
-    padding: 16,
-  },
   rootMapPanelNormalFlow: {
     marginTop: 16,
   },

@@ -46,3 +46,4 @@ Lay the domain cards out as a **Bento grid** instead of a single vertical column
 - `RootMap`'s `domainStack` styling and the domain-card sizing become grid-driven; a small amount of per-domain sizing logic (which card is emphasized) is derived from the domain `state` already present on the model.
 - `RootMap.test.jsx` gains assertions for the grid/emphasis behavior; existing chip/tile/selection tests must stay green (presentation-only change).
 - Reversible: the layout is contained to `RootMap`'s styles; reverting to the vertical stack is a local change.
+- Retires the RA-10 wide-panel overlay (docs/adr/2026-08-21-roots-tree-as-primary.md §c): that overlay assumed the lower half of the canvas was a dead zone at wide widths, but the Bento grid now fills that space, so `RootMapPanel` always flows in normal document flow below the map, at every width.
