@@ -453,6 +453,104 @@ describe('RootMap reduced motion', () => {
 // (useTakesRoot in RootMap.jsx) had only reduced-motion suppression tested,
 // never the lifecycle itself firing on a real attention -> understood
 // transition.
+// Bento layout (docs/adr/2026-08-27-roots-hub-bento-layout.md) — weight
+// follows attention: an emphasized domain card (attention / not_set_up)
+// gets a larger grid span + minHeight than a resting (understood/changed/
+// absent) card. Cards are never reordered.
+describe('RootMap bento emphasis', () => {
+  function domainCardFor(container, name) {
+    const header = screen.getByText(name)
+    // domain card is the ancestor div wrapping the DomainHead button + chip row
+    return header.closest('button').parentElement
+  }
+
+  it('gives an attention domain a span-2, taller card', () => {
+    const { container } = render(
+      <RootMap
+        model={fourDomainModel()}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    const card = domainCardFor(container, DOMAIN_LABELS.Facility)
+    const style = card.getAttribute('style') ?? ''
+    expect(style).toContain('grid-column: span 2')
+    expect(style).toContain('min-height: 220px')
+  })
+
+  it('gives a not_set_up domain the same emphasis as attention', () => {
+    const m = fourDomainModel()
+    m.domains[3] = { key: 'Facility', label: 'Facility', state: 'not_set_up', children: [
+      { key: 'Locations', name: 'Locations', count: 0, state: 'not_set_up', decisionIds: [] },
+    ] }
+    const { container } = render(
+      <RootMap
+        model={m}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    const card = domainCardFor(container, DOMAIN_LABELS.Facility)
+    const style = card.getAttribute('style') ?? ''
+    expect(style).toContain('grid-column: span 2')
+    expect(style).toContain('min-height: 220px')
+  })
+
+  it('gives a resting (understood) domain span-1, the smaller minHeight', () => {
+    const { container } = render(
+      <RootMap
+        model={fourDomainModel()}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    const card = domainCardFor(container, DOMAIN_LABELS.Structure)
+    const style = card.getAttribute('style') ?? ''
+    expect(style).toContain('grid-column: span 1')
+    expect(style).toContain('min-height: 148px')
+  })
+
+  it('the resting case (all domains understood) sizes every card uniformly (span 1)', () => {
+    const allUnderstood = {
+      domains: [
+        { key: 'Structure', label: 'Structure', state: 'understood', children: [
+          { key: 'Program', name: 'Program', count: 1, state: 'understood', decisionIds: [] },
+        ] },
+        { key: 'Scheduling', label: 'Scheduling', state: 'understood', children: [
+          { key: 'Activities', name: 'Activities', count: 1, state: 'understood', decisionIds: [] },
+        ] },
+        { key: 'Time', label: 'Time', state: 'understood', children: [
+          { key: 'Days', name: 'Days', count: 1, state: 'understood', decisionIds: [] },
+        ] },
+        { key: 'Facility', label: 'Facility', state: 'understood', children: [
+          { key: 'Locations', name: 'Locations', count: 1, state: 'understood', decisionIds: [] },
+        ] },
+      ],
+    }
+    const { container } = render(
+      <RootMap
+        model={allUnderstood}
+        selection={{ type: 'none' }}
+        onSelectTile={noop}
+        onSelectNode={noop}
+        onClearSelection={noop}
+      />,
+    )
+    for (const key of Object.values(DOMAIN_LABELS)) {
+      const card = domainCardFor(container, key)
+      const style = card.getAttribute('style') ?? ''
+      expect(style).toContain('grid-column: span 1')
+      expect(style).toContain('min-height: 148px')
+    }
+  })
+})
+
 describe('RootMap "takes root" lifecycle (attention -> understood)', () => {
   function rootingModel(state) {
     return {
