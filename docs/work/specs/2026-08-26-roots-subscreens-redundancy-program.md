@@ -1,6 +1,16 @@
+---
+title: "Roots sub-screens: redundancy & minimalism program"
+document_type: spec
+status: active
+created: 2026-08-26
+archive_when: W1–W3 implementation ships (merged/deferred) or this program is superseded by a new owner decision
+governing_docs: [docs/governance/standards/DESIGN_STANDARD.md, docs/governance/standards/ARCHITECTURE_STANDARD.md]
+parent_spec: [docs/adr/2026-08-22-roots-as-hub-setup-ia.md]
+---
+
 # Roots sub-screens: redundancy & minimalism program
 
-Status: **Draft — pending owner review**
+Status: **Active — W1 shared-shell shipped; W1b/W2/W3 gated**
 Date: 2026-08-26
 Owner-approved decisions embedded (2026-08-26 session). Author: Governor (peer session, worktree `priceless-germain-a67641`).
 Related: `docs/adr/2026-08-22-roots-as-hub-setup-ia.md` (LOCKED), `docs/work/specs/2026-08-22-roots-as-hub-setup-ia-slices.md`, memory `project_roots_as_hub_setup_ia`.

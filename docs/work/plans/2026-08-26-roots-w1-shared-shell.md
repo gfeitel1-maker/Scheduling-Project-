@@ -1,3 +1,11 @@
+---
+title: "Roots W1 — Shared Setup-Screen Shell Implementation Plan"
+document_type: plan
+status: complete
+created: 2026-08-26
+governing_docs: [docs/work/specs/2026-08-26-roots-subscreens-redundancy-program.md]
+---
+
 # Roots W1 — Shared Setup-Screen Shell Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
