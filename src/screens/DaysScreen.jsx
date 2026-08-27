@@ -14,6 +14,10 @@ import { DOW } from './setup/setupHelpers'
 const repository = createSetupCrudRepository({ localClient })
 const scopeFilter = (row, campId) => row.camp_id === campId
 
+// Edit-mode Save/Cancel (and Delete, where present) must sit on one line —
+// never wrap/stack — at the screen's normal width.
+const rowActionsFlex = { display: 'flex', flexWrap: 'nowrap', gap: 6, justifyContent: 'flex-end' }
+
 function DayRow({ day, role, onSave, onDelete }) {
   const [editing, setEditing] = useState(false)
   const [label, setLabel] = useState(day.label)
@@ -39,8 +43,10 @@ function DayRow({ day, role, onSave, onDelete }) {
         </td>
         <td style={S.td}><input type="number" value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{ ...S.input, width: 70 }} /></td>
         <td style={{ ...S.td, textAlign: 'right' }}>
-          <button className="press-97" onClick={save} disabled={saving} style={S.btnPrimary}>{saving ? 'Saving…' : 'Save'}</button>
-          <button className="press-97" onClick={() => { setLabel(day.label); setDow(day.day_of_week); setSortOrder(day.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>Cancel</button>
+          <div style={rowActionsFlex}>
+            <button className="press-97" onClick={save} disabled={saving} style={{ ...S.btnPrimary, whiteSpace: 'nowrap' }}>{saving ? 'Saving…' : 'Save'}</button>
+            <button className="press-97" onClick={() => { setLabel(day.label); setDow(day.day_of_week); setSortOrder(day.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
+          </div>
         </td>
       </tr>
     )

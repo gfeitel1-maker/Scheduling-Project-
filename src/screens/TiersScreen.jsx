@@ -23,6 +23,10 @@ import uiPeople from '../assets/brand/icons/ui-people.png'
 // setupCrudRepository. See docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md.
 const repository = createSetupCrudRepository({ localClient })
 
+// Edit-mode Save/Cancel (and Delete, where present) must sit on one line —
+// never wrap/stack — at the screen's normal width.
+const rowActionsFlex = { display: 'flex', flexWrap: 'nowrap', gap: 6, justifyContent: 'flex-end' }
+
 function TierRow({ tier, groupCount, role, onSave, onDelete }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(tier.name)
@@ -64,12 +68,14 @@ function TierRow({ tier, groupCount, role, onSave, onDelete }) {
         </td>
         <td style={S.td}>{groupCount}</td>
         <td style={{ ...S.td, textAlign: 'right' }}>
-          <button className="press-97" onClick={save} disabled={saving} style={S.btnPrimary}>
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          <button className="press-97" onClick={() => { setName(tier.name); setSortOrder(tier.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>
-            Cancel
-          </button>
+          <div style={rowActionsFlex}>
+            <button className="press-97" onClick={save} disabled={saving} style={{ ...S.btnPrimary, whiteSpace: 'nowrap' }}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button className="press-97" onClick={() => { setName(tier.name); setSortOrder(tier.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>
+              Cancel
+            </button>
+          </div>
         </td>
       </tr>
     )
