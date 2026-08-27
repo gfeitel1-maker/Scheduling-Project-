@@ -11,6 +11,7 @@ import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
 import uiClock from '../assets/brand/icons/ui-clock.png'
+import { minutesFromMidnight } from './setup/setupHelpers'
 
 // TimeBlocks' load is cohort-scoped (camp_id AND cohort_id) and guards
 // against a stale response overwriting the UI when the user switches
@@ -36,14 +37,13 @@ function BlockRow({ block, role, onSave, onDelete }) {
   const [start, setStart] = useState(block.start_time)
   const [end, setEnd] = useState(block.end_time)
   const [pod, setPod] = useState(block.part_of_day)
-  const [sortOrder, setSortOrder] = useState(block.sort_order)
   const [saving, setSaving] = useState(false)
 
   async function save() {
     if (!name.trim()) return
     setSaving(true)
     try {
-      await onSave(block.id, { name: name.trim(), start_time: start, end_time: end, part_of_day: pod, sort_order: Number(sortOrder) })
+      await onSave(block.id, { name: name.trim(), start_time: start, end_time: end, part_of_day: pod, sort_order: minutesFromMidnight(start) })
       setEditing(false)
     } catch {
       // onSave already surfaced the error; stay in edit mode so nothing is lost.
@@ -63,11 +63,10 @@ function BlockRow({ block, role, onSave, onDelete }) {
             {POD_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </td>
-        <td style={S.td}><input type="number" value={sortOrder} onChange={e => setSortOrder(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={{ ...S.input, width: 60 }} /></td>
         <td style={{ ...S.td, textAlign: 'right' }}>
           <div style={rowActionsFlex}>
             <button className="press-97" onClick={save} disabled={saving} style={{ ...S.btnPrimary, whiteSpace: 'nowrap' }}>{saving ? 'Saving…' : 'Save'}</button>
-            <button className="press-97" onClick={() => { setName(block.name); setStart(block.start_time); setEnd(block.end_time); setPod(block.part_of_day); setSortOrder(block.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
+            <button className="press-97" onClick={() => { setName(block.name); setStart(block.start_time); setEnd(block.end_time); setPod(block.part_of_day); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
           </div>
         </td>
       </tr>
@@ -101,7 +100,6 @@ function BlockRow({ block, role, onSave, onDelete }) {
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.start_time)}</td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.end_time)}</td>
       <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{POD_OPTIONS.find(o => o.value === block.part_of_day)?.label ?? '—'}</td>
-      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{block.sort_order}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button
           onClick={e => { e.stopPropagation(); onDelete(block.id) }}
@@ -122,7 +120,6 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
   const [newStart, setNewStart] = useState('')
   const [newEnd, setNewEnd] = useState('')
   const [newPod, setNewPod] = useState('morning')
-  const [newSort, setNewSort] = useState('')
   const [adding, setAdding] = useState(false)
   const [importStep, setImportStep] = useState(null)
   const [importRows, setImportRows] = useState([])
@@ -191,7 +188,6 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
     setAdding(true)
     try {
       const id = crypto.randomUUID()
-      const sortVal = newSort !== '' ? Number(newSort) : (blocks.length + 1)
       // `name` written FIRST — mirrors GroupsScreen.jsx's addGroup ordering.
       // ensureExists creates the row as part of applying whichever field
       // write lands first, so a UNIQUE(camp_id, cohort_id, name) collision
@@ -205,9 +201,9 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
         start_time: newStart,
         end_time: newEnd,
         part_of_day: newPod,
-        sort_order: sortVal,
+        sort_order: minutesFromMidnight(newStart),
       })
-      setNewName(''); setNewStart(''); setNewEnd(''); setNewSort('')
+      setNewName(''); setNewStart(''); setNewEnd('')
       await load()
     } catch (err) {
       setError(
@@ -408,13 +404,12 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
                 <th style={S.th}>Start</th>
                 <th style={S.th}>End</th>
                 <th style={S.th}>Part of Day</th>
-                <th style={S.th}>Order</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {blocks.length === 0 ? (
-                <tr><td colSpan={6} style={S.emptyState}>
+                <tr><td colSpan={5} style={S.emptyState}>
                   <div style={emptyEnter}>
                     <img src={uiClock} alt="" style={S.emptyStateIcon} />
                     <div style={S.emptyStateTitle}>No time blocks yet</div>
@@ -438,7 +433,6 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
           <select value={newPod} onChange={e => setNewPod(e.target.value)} style={{ ...S.input, flex: '0 0 130px' }}>
             {POD_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <input type="number" placeholder="Order" value={newSort} onChange={e => setNewSort(e.target.value)} onKeyDown={e => e.key === 'Enter' && addBlock()} style={{ ...S.input, flex: '0 0 70px' }} />
           <button className="press-97" onClick={addBlock} disabled={adding || !newName.trim() || !newStart || !newEnd || !activeCohort} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
         </div>
       </div>

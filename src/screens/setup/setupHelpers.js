@@ -24,3 +24,16 @@ export function makeSerializeFieldValue(boolFields, arrayFields) {
     return value ?? null
   }
 }
+
+// Time Blocks derive sort_order from start_time so directors never type an
+// order number and blocks always sort chronologically regardless of entry
+// order — see docs/work/plans/2026-08-27-retire-sort-order-input.md.
+export function minutesFromMidnight(hhmm) {
+  if (typeof hhmm !== 'string') return 0
+  const match = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim())
+  if (!match) return 0
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return 0
+  return hours * 60 + minutes
+}

@@ -159,6 +159,48 @@ describe('TimeBlocksScreen — add', () => {
     expect(fieldsWritten).toEqual(expect.arrayContaining(['name', 'camp_id', 'cohort_id', 'start_time', 'end_time', 'part_of_day', 'sort_order']))
   })
 
+  it('has no Sort Order input or column anywhere in the DOM', async () => {
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
+
+    expect(screen.queryByText('Order')).toBeNull()
+    expect(screen.queryByPlaceholderText('Order')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Block 1' }))
+    expect(screen.queryByPlaceholderText('Order')).toBeNull()
+  })
+
+  it('derives sort_order from start_time (minutesFromMidnight) instead of reading a UI value, even when entered out of chronological order', async () => {
+    localClient.list.mockReset().mockImplementation(entity => {
+      if (entity === 'cohorts') return Promise.resolve([cohort()])
+      if (entity === 'time_blocks') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('0 blocks')).not.toBeNull())
+
+    // Enter "10:00" first, then "09:00" — a director typing blocks in the
+    // wrong order must still get chronological sort_order values.
+    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Late Block' } })
+    let timeInputs = document.querySelectorAll('input[type="time"]')
+    fireEvent.change(timeInputs[0], { target: { value: '10:00' } })
+    fireEvent.change(timeInputs[1], { target: { value: '10:40' } })
+    fireEvent.click(screen.getByText('+ Add'))
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+    let sortCall = localClient.write.mock.calls.find(c => c[3] === 'sort_order')
+    expect(sortCall[4]).toBe(600)
+
+    localClient.write.mockClear()
+    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Early Block' } })
+    timeInputs = document.querySelectorAll('input[type="time"]')
+    fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
+    fireEvent.change(timeInputs[1], { target: { value: '09:40' } })
+    fireEvent.click(screen.getByText('+ Add'))
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+    sortCall = localClient.write.mock.calls.find(c => c[3] === 'sort_order')
+    expect(sortCall[4]).toBe(540)
+  })
+
   it('cleans up a partial row if a later field write fails during add', async () => {
     localClient.list.mockReset().mockImplementation(entity => {
       if (entity === 'cohorts') return Promise.resolve([cohort()])
@@ -200,24 +242,6 @@ describe('TimeBlocksScreen — add', () => {
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
   })
 
-  it('commits the add on Enter from the sort-order field, a secondary field, when the row is valid', async () => {
-    localClient.list.mockReset().mockImplementation(entity => {
-      if (entity === 'cohorts') return Promise.resolve([cohort()])
-      if (entity === 'time_blocks') return Promise.resolve([])
-      return Promise.resolve([])
-    })
-    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 blocks')).not.toBeNull())
-
-    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Block 1' } })
-    const timeInputs = document.querySelectorAll('input[type="time"]')
-    fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
-    fireEvent.change(timeInputs[1], { target: { value: '10:00' } })
-    fireEvent.keyDown(screen.getByPlaceholderText('Order'), { key: 'Enter' })
-
-    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
-  })
-
   it('does not add on Enter from a secondary field when the row is invalid (missing start/end time)', async () => {
     localClient.list.mockReset().mockImplementation(entity => {
       if (entity === 'cohorts') return Promise.resolve([cohort()])
@@ -228,7 +252,7 @@ describe('TimeBlocksScreen — add', () => {
     await waitFor(() => expect(screen.queryByText('0 blocks')).not.toBeNull())
 
     fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Block 1' } })
-    fireEvent.keyDown(screen.getByPlaceholderText('Order'), { key: 'Enter' })
+    fireEvent.keyDown(screen.getByPlaceholderText('Name (e.g. Block 1)'), { key: 'Enter' })
 
     expect(localClient.write).not.toHaveBeenCalled()
   })
@@ -270,6 +294,30 @@ describe('TimeBlocksScreen — save', () => {
 
     await waitFor(() =>
       expect(localClient.write).toHaveBeenCalledWith('token-abc', 'time_blocks', 'block-1', 'name', 'Block One')
+    )
+  })
+
+  it('re-derives sort_order from start_time (minutesFromMidnight) when saving an edited time block', async () => {
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Block 1' }))
+    let timeInputs = document.querySelectorAll('input[type="time"]')
+    fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
+    fireEvent.click(screen.getByText('Save'))
+
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'time_blocks', 'block-1', 'sort_order', 540)
+    )
+
+    localClient.write.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Block 1' }))
+    timeInputs = document.querySelectorAll('input[type="time"]')
+    fireEvent.change(timeInputs[0], { target: { value: '10:00' } })
+    fireEvent.click(screen.getByText('Save'))
+
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'time_blocks', 'block-1', 'sort_order', 600)
     )
   })
 })

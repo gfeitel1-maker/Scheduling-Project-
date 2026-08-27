@@ -1470,3 +1470,37 @@ describe('computeFindings eligible_group_ids as a raw array (T69)', () => {
     expect(findings.filter(f => f.kind === 'DISTRIBUTION').map(f => f.groupId)).toEqual(['g2'])
   })
 })
+
+// Sanity check for docs/work/plans/2026-08-27-retire-sort-order-input.md —
+// Time Blocks now derive sort_order from start_time (minutesFromMidnight) in
+// the UI rather than reading a director-typed value. The engine itself is
+// untouched (still sorts timeBlocks by sort_order, buildSchedule.js:91); this
+// proves that contract still holds when blocks are handed to the engine out
+// of chronological ARRAY order — as happens whenever a director enters a
+// later time block before an earlier one — as long as sort_order is
+// chronological (which the derivation guarantees).
+describe('derived time-block sort_order keeps span placement chronological (out-of-array-order input)', () => {
+  it('places a 2-block span across consecutive blocks by sort_order, not array order', () => {
+    const day = { id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 0 }
+    // "10:00" block entered/passed FIRST in the array (as if added before
+    // "09:00" in the UI), but its derived sort_order (600) still reflects
+    // its later start_time relative to the second block's (540).
+    const laterBlock = { id: 'b-later', name: 'Later', start_time: '10:00', end_time: '10:45', sort_order: 600, part_of_day: 'morning' }
+    const earlierBlock = { id: 'b-earlier', name: 'Earlier', start_time: '09:00', end_time: '09:45', sort_order: 540, part_of_day: 'morning' }
+    const span = {
+      id: 'a1', name: 'Swim', priority: 'high', max_per_week: 5, min_per_week: 0, span_blocks: 2,
+      is_outdoor: false, location: null, location_id: null, max_groups_per_slot: 5, same_tier_only: false,
+      eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null,
+    }
+
+    const { slots } = buildSchedule(minimal({
+      days: [day], timeBlocks: [laterBlock, earlierBlock], activities: [span],
+    }))
+
+    const placed = slots.filter(s => s.type === 'activity' && s.activityId === 'a1')
+    const blockIds = placed.map(s => s.blockId).sort()
+    // The span must occupy the two chronologically consecutive blocks
+    // (earlier then later by start_time), regardless of their array order.
+    expect(blockIds).toEqual(['b-earlier', 'b-later'])
+  })
+})

@@ -192,6 +192,44 @@ describe('TiersScreen — add', () => {
     expect(fieldsWritten).toEqual(expect.arrayContaining(['name', 'camp_id', 'cohort_id', 'sort_order']))
   })
 
+  it('has no Sort Order input or column anywhere in the DOM', async () => {
+    localClient.list.mockReset().mockImplementation(entity => {
+      if (entity === 'cohorts') return Promise.resolve([cohort()])
+      if (entity === 'tiers') return Promise.resolve([tier()])
+      if (entity === 'groups') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+    render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
+
+    expect(screen.queryByText('Sort Order')).toBeNull()
+    expect(screen.queryByPlaceholderText('Order')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Yeladim' }))
+    expect(screen.queryByPlaceholderText('Order')).toBeNull()
+  })
+
+  it('appends new tiers after the highest existing sort_order, in add order', async () => {
+    localClient.list.mockReset().mockImplementation(entity => {
+      if (entity === 'cohorts') return Promise.resolve([cohort()])
+      if (entity === 'tiers') return Promise.resolve([
+        tier({ id: 't1', name: 'Yeladim', sort_order: 1 }),
+        tier({ id: 't2', name: 'Bogrim', sort_order: 5 }),
+      ])
+      if (entity === 'groups') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+    render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('2 age divisions')).not.toBeNull())
+
+    fireEvent.change(screen.getByPlaceholderText('Age division name (e.g. Yeladim)'), { target: { value: 'Chalutzim' } })
+    fireEvent.click(screen.getByText('+ Add'))
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+    const sortCall = localClient.write.mock.calls.find(c => c[3] === 'sort_order')
+    expect(sortCall[4]).toBe(6)
+  })
+
   it('cleans up a partial row if a later field write fails during add', async () => {
     localClient.list.mockReset().mockImplementation(entity => {
       if (entity === 'cohorts') return Promise.resolve([cohort()])

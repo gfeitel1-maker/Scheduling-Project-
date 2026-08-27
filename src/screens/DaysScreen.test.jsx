@@ -62,7 +62,7 @@ beforeEach(() => {
 })
 
 describe('DaysScreen', () => {
-  it('loads days scoped to campId via localClient.list, sorted by sort_order', async () => {
+  it('loads days scoped to campId via localClient.list, sorted by day_of_week (weekday order)', async () => {
     localClient.list.mockResolvedValue([
       day({ id: 'd2', label: 'Tuesday', day_of_week: 2, sort_order: 2 }),
       day({ id: 'd1', label: 'Monday', day_of_week: 1, sort_order: 1 }),
@@ -80,7 +80,19 @@ describe('DaysScreen', () => {
     expect(rows[1].textContent).toContain('Tuesday')
   })
 
-  it('adds a day by writing each field via localClient.write, label first', async () => {
+  it('has no Sort Order input or column anywhere in the DOM', async () => {
+    localClient.list.mockResolvedValue([day()])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+
+    expect(screen.queryByText('Sort Order')).toBeNull()
+    expect(screen.queryByPlaceholderText('Order')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Monday' }))
+    expect(screen.queryByPlaceholderText('Order')).toBeNull()
+  })
+
+  it('adds a day by writing each field via localClient.write, label first, deriving sort_order from day_of_week', async () => {
     localClient.list.mockResolvedValue([])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
@@ -93,6 +105,9 @@ describe('DaysScreen', () => {
     expect(firstField).toBe('label')
     const fieldsWritten = localClient.write.mock.calls.map(c => c[3])
     expect(fieldsWritten).toEqual(expect.arrayContaining(['label', 'camp_id', 'day_of_week', 'sort_order']))
+    const sortOrderCall = localClient.write.mock.calls.find(c => c[3] === 'sort_order')
+    const dayOfWeekCall = localClient.write.mock.calls.find(c => c[3] === 'day_of_week')
+    expect(sortOrderCall[4]).toBe(dayOfWeekCall[4])
   })
 
   it('cleans up a partial row if a later field write fails during add', async () => {
@@ -123,23 +138,12 @@ describe('DaysScreen', () => {
     await waitFor(() => expect(localClient.write).toHaveBeenCalled())
   })
 
-  it('commits the add on Enter from the sort-order field, a secondary field, when the row is valid', async () => {
-    localClient.list.mockResolvedValue([])
-    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
-
-    fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Saturday' } })
-    fireEvent.keyDown(screen.getByPlaceholderText('Order'), { key: 'Enter' })
-
-    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
-  })
-
   it('does not add on Enter from a secondary field when the row is invalid (no label)', async () => {
     localClient.list.mockResolvedValue([])
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
 
-    fireEvent.keyDown(screen.getByPlaceholderText('Order'), { key: 'Enter' })
+    fireEvent.keyDown(screen.getByDisplayValue('Monday'), { key: 'Enter' })
 
     expect(localClient.write).not.toHaveBeenCalled()
   })
@@ -281,6 +285,22 @@ describe('DaysScreen', () => {
     await waitFor(() =>
       expect(localClient.write).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'day-1', 'label', 'Mon')
     )
+  })
+
+  it('re-derives sort_order from day_of_week when saving an edited day', async () => {
+    localClient.list.mockResolvedValue([day()])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Monday' }))
+    const dowSelect = screen.getAllByDisplayValue('Monday')[1]
+    fireEvent.change(dowSelect, { target: { value: '3' } })
+    fireEvent.click(screen.getByText('Save'))
+
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'day-1', 'sort_order', 3)
+    )
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'day-1', 'day_of_week', 3)
   })
 
   // Days deliberately omits bulk Excel import (SetupScreenShell `actions` config

@@ -30,14 +30,13 @@ const rowActionsFlex = { display: 'flex', flexWrap: 'nowrap', gap: 6, justifyCon
 function TierRow({ tier, groupCount, role, onSave, onDelete }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(tier.name)
-  const [sortOrder, setSortOrder] = useState(tier.sort_order)
   const [saving, setSaving] = useState(false)
 
   async function save() {
     if (!name.trim()) return
     setSaving(true)
     try {
-      await onSave(tier.id, { name: name.trim(), sort_order: Number(sortOrder) })
+      await onSave(tier.id, { name: name.trim() })
       setEditing(false)
     } catch {
       // onSave already surfaced the error; stay in edit mode so nothing is lost.
@@ -58,21 +57,13 @@ function TierRow({ tier, groupCount, role, onSave, onDelete }) {
             style={S.input}
           />
         </td>
-        <td style={S.td}>
-          <input
-            type="number"
-            value={sortOrder}
-            onChange={e => setSortOrder(e.target.value)}
-            style={{ ...S.input, width: 70 }}
-          />
-        </td>
         <td style={S.td}>{groupCount}</td>
         <td style={{ ...S.td, textAlign: 'right' }}>
           <div style={rowActionsFlex}>
             <button className="press-97" onClick={save} disabled={saving} style={{ ...S.btnPrimary, whiteSpace: 'nowrap' }}>
               {saving ? 'Saving…' : 'Save'}
             </button>
-            <button className="press-97" onClick={() => { setName(tier.name); setSortOrder(tier.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>
+            <button className="press-97" onClick={() => { setName(tier.name); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>
               Cancel
             </button>
           </div>
@@ -98,7 +89,6 @@ function TierRow({ tier, groupCount, role, onSave, onDelete }) {
           style={{ cursor: 'pointer' }}
         >{tier.name}</span>
       </td>
-      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{tier.sort_order}</td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{groupCount}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button onClick={e => { e.stopPropagation(); onDelete(tier.id) }}
@@ -117,7 +107,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   const [groupCounts, setGroupCounts] = useState({})
   const [loading, setLoading] = useState(true)
   const [newName, setNewName] = useState('')
-  const [newSort, setNewSort] = useState('')
   const [adding, setAdding] = useState(false)
   const [importStep, setImportStep] = useState(null) // null | 'preview' | 'done'
   const [importRows, setImportRows] = useState([])
@@ -192,7 +181,10 @@ export default function TiersScreen({ campId, role, onNavigate }) {
     setAdding(true)
     try {
       const id = crypto.randomUUID()
-      const sortVal = newSort !== '' ? Number(newSort) : (tiers.length + 1)
+      // No natural key to derive order from — append after the highest
+      // existing sort_order. Directors add age divisions in the order they
+      // want them displayed; there is no manual reorder surface.
+      const sortVal = tiers.reduce((max, t) => Math.max(max, t.sort_order ?? 0), 0) + 1
       // `name` written FIRST — ensureExists creates the row as part of
       // applying whichever field write lands first, so a UNIQUE(camp_id,
       // cohort_id, name) collision on the `name` write fails atomically
@@ -206,7 +198,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
         sort_order: sortVal,
       })
       setNewName('')
-      setNewSort('')
       await load()
     } catch (err) {
       setError(
@@ -400,14 +391,13 @@ export default function TiersScreen({ campId, role, onNavigate }) {
             <thead>
               <tr style={{ borderBottom: '1.5px solid var(--border)', background: 'var(--surface-elevated)' }}>
                 <th style={S.th}>Name</th>
-                <th style={S.th}>Sort Order</th>
                 <th style={S.th}>Groups</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {tiers.length === 0 ? (
-                <tr><td colSpan={4} style={S.emptyState}>
+                <tr><td colSpan={3} style={S.emptyState}>
                   <div style={emptyEnter}>
                     <img src={uiPeople} alt="" style={S.emptyStateIcon} />
                     <div style={S.emptyStateTitle}>No age divisions yet</div>
@@ -442,14 +432,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
             onKeyDown={e => e.key === 'Enter' && addTier()}
             style={{ ...S.input, flex: 1 }}
           />
-          <input
-            type="number"
-            placeholder="Order"
-            value={newSort}
-            onChange={e => setNewSort(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && addTier()}
-            style={{ ...S.input, width: 80 }}
-          />
           <button className="press-97" onClick={addTier} disabled={adding || !newName.trim() || !activeCohort} style={S.btnPrimary}>
             {adding ? 'Adding…' : '+ Add'}
           </button>
@@ -461,7 +443,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
         step={importStep}
         title={importStep === 'done' ? 'Import Complete' : 'Import Preview'}
         width={520}
-        columns={[{ key: 'name', label: 'Name' }, { key: 'sort_order', label: 'Sort Order', mono: true }, { key: 'status', label: 'Status' }]}
+        columns={[{ key: 'name', label: 'Name' }, { key: 'status', label: 'Status' }]}
         rows={importRows}
         readyCount={readyRows.length}
         warnCount={warnRows.length}
@@ -474,7 +456,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
         doneSkippedSuffix=" (duplicate or invalid)"
         renderCell={(r, c) => {
           if (c.key === 'name') return r.name || <span style={{ color: 'var(--warning)' }}>—</span>
-          if (c.key === 'sort_order') return r.sort_order ?? '—'
           if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
         }}
       />
