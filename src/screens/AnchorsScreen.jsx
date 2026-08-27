@@ -12,6 +12,7 @@ import SetupScreenShell from '../components/setup/SetupScreenShell'
 import { LocationPicker } from '../components/LocationPicker'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
+import { createLocationRecord, updateLocationCapacityRecord } from '../lib/locationDedup'
 
 // Repository-only migration (not the full useCrudScreen hook): load() fans out
 // across five parallel list() calls with per-cohort scoping, and the create
@@ -381,19 +382,14 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
   // ActivitiesScreen.createLocation exactly (same case-insensitive dedupe
   // rationale; see that screen's comment for the full ADR reasoning).
   async function createLocation(name) {
-    const trimmedName = String(name ?? '').trim()
-    if (!trimmedName) return null
-    const existing = locations.find(l => String(l.name ?? '').trim().toLowerCase() === trimmedName.toLowerCase())
-    if (existing) return existing.id
-    const newId = crypto.randomUUID()
-    const fields = { name: trimmedName, camp_id: campId, capacity: 1, notes: null }
-    await repository.createRecord('locations', newId, fields)
-    setLocations(prev => [...prev, { id: newId, ...fields }])
-    return newId
+    const result = await createLocationRecord({ repository, campId, name, existing: locations })
+    if (!result) return null
+    if (result.created) setLocations(prev => [...prev, result.location])
+    return result.location.id
   }
 
   async function updateLocationCapacity(locationId, capacity) {
-    await repository.writeFields('locations', locationId, { capacity })
+    await updateLocationCapacityRecord({ repository, locationId, capacity })
     setLocations(prev => prev.map(l => l.id === locationId ? { ...l, capacity } : l))
   }
 

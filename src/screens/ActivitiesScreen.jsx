@@ -18,6 +18,7 @@ import { CONFIDENCE_COPY, plainEvidenceSentence } from '../components/reconcilia
 import { deriveActivityProvenance, hasAnyEvidence, worstTier } from '../utils/ruleProvenance.js'
 import uiClipboard from '../assets/brand/icons/ui-clipboard.png'
 import { DOW, parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
+import { createLocationRecord, updateLocationCapacityRecord } from '../lib/locationDedup'
 
 // operations.value only accepts strings/null (better-sqlite3 throws on a raw
 // boolean/array) — every write must pre-serialize through these before
@@ -601,15 +602,10 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   // inline-create has no such gate, so it stays random-UUID/case-insensitive,
   // as the ADR decided. T81's scope is the CSV-template importer only.
   async function createLocation(name) {
-    const trimmedName = String(name ?? '').trim()
-    if (!trimmedName) return null
-    const existing = locations.find(l => String(l.name ?? '').trim().toLowerCase() === trimmedName.toLowerCase())
-    if (existing) return existing.id
-    const newId = crypto.randomUUID()
-    const fields = { name: trimmedName, camp_id: campId, capacity: 1, notes: null }
-    await repository.createRecord('locations', newId, fields)
-    setLocations(prev => [...prev, { id: newId, ...fields }])
-    return newId
+    const result = await createLocationRecord({ repository, campId, name, existing: locations })
+    if (!result) return null
+    if (result.created) setLocations(prev => [...prev, result.location])
+    return result.location.id
   }
 
   // C2: the in-place capacity stepper LocationPicker shows for a place it
@@ -617,7 +613,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
   // path as the Locations screen's own capacity edit, so the change is
   // indistinguishable from one made there.
   async function updateLocationCapacity(locationId, capacity) {
-    await repository.writeFields('locations', locationId, { capacity })
+    await updateLocationCapacityRecord({ repository, locationId, capacity })
     setLocations(prev => prev.map(l => l.id === locationId ? { ...l, capacity } : l))
   }
 
