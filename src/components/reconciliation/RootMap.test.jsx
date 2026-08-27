@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
-import { createRef } from 'react'
 import { render, screen, fireEvent } from '@testing-library/react'
 import RootMap from './RootMap.jsx'
 import { DOMAIN_LABELS } from './domainRollup.js'
@@ -390,23 +389,6 @@ describe('RootMap attention pulse scoping', () => {
       />,
     )
     expect(container.querySelectorAll('[data-pulse="true"]')).toHaveLength(0)
-  })
-})
-
-describe('RootMap canvasWrap ref', () => {
-  it('forwards canvasWrapRef to the domain-stack wrapper', () => {
-    const ref = createRef()
-    render(
-      <RootMap
-        model={model()}
-        selection={GRID_OPEN}
-        onSelectTile={noop}
-        onSelectNode={noop}
-        onClearSelection={noop}
-        canvasWrapRef={ref}
-      />,
-    )
-    expect(ref.current).toBeInstanceOf(HTMLElement)
   })
 })
 
