@@ -75,7 +75,7 @@ describe('DaysScreen', () => {
     expect(localClient.list).toHaveBeenCalledWith('days_of_operation')
     expect(screen.queryByText('Wrong Camp')).toBeNull()
 
-    const rows = screen.getAllByRole('row').slice(1) // skip header
+    const rows = document.querySelectorAll('tbody tr')
     expect(rows[0].textContent).toContain('Monday')
     expect(rows[1].textContent).toContain('Tuesday')
   })
@@ -273,7 +273,7 @@ describe('DaysScreen', () => {
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Edit'))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Monday' }))
     const labelInput = screen.getAllByDisplayValue('Monday')[0]
     fireEvent.change(labelInput, { target: { value: 'Mon' } })
     fireEvent.click(screen.getByText('Save'))
@@ -286,4 +286,35 @@ describe('DaysScreen', () => {
   // Days deliberately omits bulk Excel import (SetupScreenShell `actions` config
   // — a director does not bulk-import 5 weekday rows); the old import-preview
   // test was removed along with the in-screen import UI it exercised.
+})
+
+describe('DaysScreen — row-click to edit', () => {
+  it('has no visible Edit button', async () => {
+    localClient.list.mockResolvedValue([day()])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+    expect(screen.queryByText('Edit')).toBeNull()
+  })
+
+  it('Enter on a focused row enters edit mode', async () => {
+    localClient.list.mockResolvedValue([day()])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+
+    const row = screen.getByRole('button', { name: 'Edit Monday' })
+    fireEvent.keyDown(row, { key: 'Enter' })
+
+    expect(screen.getAllByDisplayValue('Monday')[0]).not.toBeNull()
+  })
+
+  it('clicking Delete does not enter edit mode', async () => {
+    localClient.list.mockResolvedValue([day()])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+
+    await waitFor(() => expect(localClient.previewDelete).toHaveBeenCalled())
+    expect(screen.queryByText('Save')).toBeNull()
+  })
 })

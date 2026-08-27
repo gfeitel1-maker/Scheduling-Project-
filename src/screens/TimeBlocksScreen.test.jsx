@@ -130,7 +130,7 @@ describe('TimeBlocksScreen — cohort-scoped load', () => {
     await waitFor(() => expect(screen.queryByText('2 blocks')).not.toBeNull())
     expect(screen.queryByText('Wrong Cohort')).toBeNull()
     expect(screen.queryByText('Wrong Camp')).toBeNull()
-    const rows = screen.getAllByRole('row').slice(1)
+    const rows = document.querySelectorAll('tbody tr')
     expect(rows[0].textContent).toContain('Block A')
     expect(rows[1].textContent).toContain('Block B')
   })
@@ -263,7 +263,7 @@ describe('TimeBlocksScreen — save', () => {
     render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Edit'))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Block 1' }))
     const nameInput = screen.getAllByDisplayValue('Block 1')[0]
     fireEvent.change(nameInput, { target: { value: 'Block One' } })
     fireEvent.click(screen.getByText('Save'))
@@ -394,5 +394,33 @@ describe('TimeBlocksScreen — import', () => {
     expect(screen.queryByText(/2 skipped/)).not.toBeNull()
     const namesWritten = localClient.write.mock.calls.filter(c => c[3] === 'name').map(c => c[4])
     expect(namesWritten).toEqual(['Block 2'])
+  })
+})
+
+describe('TimeBlocksScreen — row-click to edit', () => {
+  it('has no visible Edit button', async () => {
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
+    expect(screen.queryByText('Edit')).toBeNull()
+  })
+
+  it('Enter on a focused row enters edit mode', async () => {
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
+
+    const row = screen.getByRole('button', { name: 'Edit Block 1' })
+    fireEvent.keyDown(row, { key: 'Enter' })
+
+    expect(screen.getAllByDisplayValue('Block 1')[0]).not.toBeNull()
+  })
+
+  it('clicking Delete does not enter edit mode', async () => {
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+
+    await waitFor(() => expect(screen.queryByText('Delete "Block 1"?')).not.toBeNull())
+    expect(screen.queryByDisplayValue('Block 1')).toBeNull()
   })
 })

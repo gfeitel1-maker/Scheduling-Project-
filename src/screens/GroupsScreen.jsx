@@ -74,19 +74,25 @@ function GroupRow({ group, tiers, role, onSave, onDelete, onHistory, weekToggle 
   }
 
   return (
-    <tr style={{ borderBottom: '1px solid var(--border)' }}
+    <tr style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+      role="button"
+      tabIndex={0}
+      aria-label={`Edit ${group.name}`}
+      onClick={() => setEditing(true)}
+      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
       onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
       onMouseLeave={e => e.currentTarget.style.background = ''}
+      onFocus={e => e.currentTarget.style.background = 'var(--bg)'}
+      onBlur={e => e.currentTarget.style.background = ''}
     >
       <td style={S.td}>{group.name}</td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{tierName}</td>
       <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{AVAIL_OPTIONS.find(o => o.value === group.availability)?.label || '—'}</td>
       {weekToggle}
       <td style={{ ...S.td, textAlign: 'right', borderLeft: weekToggle ? '1px solid var(--border)' : undefined }}>
-        <button className="press-97" onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
-        <button className="press-97" onClick={() => onHistory(group)} style={{ ...S.btnSecondary, marginLeft: 6 }}>History</button>
+        <button className="press-97" onClick={e => { e.stopPropagation(); onHistory(group) }} style={S.btnSecondary}>History</button>
         <button
-          onClick={() => onDelete(group.id)}
+          onClick={e => { e.stopPropagation(); onDelete(group.id) }}
           disabled={role !== 'admin'}
           title={role !== 'admin' ? 'Admin only' : undefined}
           style={role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
@@ -526,7 +532,7 @@ function WeekToggle({ on, label, onToggle }) {
       role="switch"
       aria-checked={on}
       aria-label={label}
-      onClick={onToggle}
+      onClick={e => { e.stopPropagation(); onToggle() }}
       style={{
         display: 'inline-flex',
         alignItems: 'center',

@@ -177,14 +177,14 @@ function RuleProvenanceDot({ activity, evidenceByField, fieldSources, onConfirmF
   const shape = tierShapeStyle(worst)
 
   return (
-    <span style={{ position: 'relative', display: 'inline-block', marginLeft: 6 }}>
+    <span style={{ position: 'relative', display: 'inline-block', marginLeft: 6 }} onClick={e => e.stopPropagation()}>
       <button
         ref={btnRef}
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={ariaLabel}
-        onClick={() => setOpen(v => !v)}
+        onClick={e => { e.stopPropagation(); setOpen(v => !v) }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         onFocus={() => setHovered(true)}
@@ -1041,6 +1041,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                     {rows.map(a => (
                       <tr key={a.id} style={{
                           borderBottom: '1px solid var(--border)',
+                          cursor: 'pointer',
                           // justConfirmed wins over hover so the settle survives a hover.
                           background: justConfirmed?.activityId === a.id
                             ? 'color-mix(in srgb, var(--secondary) 10%, transparent)'
@@ -1049,8 +1050,15 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                           transition: (justConfirmed?.activityId === a.id && !prefersReducedMotion())
                             ? 'background-color var(--motion-settle) var(--ease-out)' : 'none',
                         }}
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Edit ${a.name}`}
+                        onClick={() => setModal({ activity: a })}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ activity: a }) } }}
                         onMouseEnter={() => setHoveredRow(a.id)}
                         onMouseLeave={() => setHoveredRow(null)}
+                        onFocus={() => setHoveredRow(a.id)}
+                        onBlur={() => setHoveredRow(null)}
                       >
                         <td style={{ ...S.td, fontWeight: 500 }}>
                           {a.name}
@@ -1081,10 +1089,9 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                           </td>
                         )}
                         <td style={{ ...S.td, textAlign: 'right', borderLeft: weekId ? '1px solid var(--border)' : undefined }}>
-                          <button className="press-97" onClick={() => setModal({ activity: a })} style={S.btnSecondary}>Edit</button>
-                          <button className="press-97" onClick={() => duplicateActivity(a)} style={{ ...S.btnSecondary, marginLeft: 6 }}>Duplicate</button>
+                          <button className="press-97" onClick={e => { e.stopPropagation(); duplicateActivity(a) }} style={S.btnSecondary}>Duplicate</button>
                           <button
-                            onClick={() => deleteActivity(a.id)}
+                            onClick={e => { e.stopPropagation(); deleteActivity(a.id) }}
                             disabled={role !== 'admin'}
                             title={role !== 'admin' ? 'Admin only' : undefined}
                             style={role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
@@ -1201,7 +1208,7 @@ function WeekToggle({ on, label, onToggle }) {
       role="switch"
       aria-checked={on}
       aria-label={label}
-      onClick={onToggle}
+      onClick={e => { e.stopPropagation(); onToggle() }}
       style={{
         display: 'inline-flex',
         alignItems: 'center',

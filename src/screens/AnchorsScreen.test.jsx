@@ -166,6 +166,45 @@ describe('AnchorsScreen — which weeks control (schedule_week_id)', () => {
       'token-abc', 'anchor_activities', 'anc-1', 'schedule_week_id', null
     ))
   })
+
+  it('has no visible Edit button', async () => {
+    mockList()
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+    expect(screen.queryByText('Edit')).toBeNull()
+  })
+
+  it('Enter on a focused row opens the edit modal', async () => {
+    mockList()
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+
+    const row = screen.getByRole('button', { name: 'Edit Mifkad' })
+    fireEvent.keyDown(row, { key: 'Enter' })
+
+    expect(screen.queryByText('Edit: Mifkad')).not.toBeNull()
+  })
+
+  it('changing the week select does not open the edit modal', async () => {
+    mockList()
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+
+    fireEvent.change(screen.getByDisplayValue('All weeks'), { target: { value: 'week-2' } })
+
+    expect(screen.queryByText('Edit: Mifkad')).toBeNull()
+  })
+
+  it('clicking Delete does not open the edit modal', async () => {
+    mockList()
+    render(<AnchorsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Mifkad')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+
+    await waitFor(() => expect(screen.queryByText('Delete "Mifkad"?')).not.toBeNull())
+    expect(screen.queryByText('Edit: Mifkad')).toBeNull()
+  })
 })
 
 // W7b (docs/work/specs/camp-setup-ingestion-program.md): location_id picker
@@ -198,7 +237,7 @@ describe('AnchorsScreen — location picker (location_id)', () => {
     render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Swim')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Edit'))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Swim' }))
     await waitFor(() => expect(screen.getByPlaceholderText('Search or add a location…')).not.toBeNull())
 
     fireEvent.change(screen.getByPlaceholderText('Search or add a location…'), { target: { value: 'Pool' } })
@@ -216,7 +255,7 @@ describe('AnchorsScreen — location picker (location_id)', () => {
     render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Swim')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Edit'))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Swim' }))
     await waitFor(() => expect(screen.getByText('The location set here no longer exists — pick a new one.')).not.toBeNull())
 
     fireEvent.click(screen.getByText('Save Changes'))
