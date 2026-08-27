@@ -488,17 +488,13 @@ export default function ReconciliationScreen({ campId, baseInputs, sourceLabel, 
   // renders at the same JSX position, so it is never unmounted/remounted by
   // a breakpoint crossing (no createPortal, no conditionally-different
   // parent elements).
-  const rootMapPanelWrapperStyle = wideCanvas
-    ? {
-        ...styles.rootMapPanelOverlay,
-        top: canvasMetrics.top + canvasMetrics.height * ROOT_MAP_PANEL_TOP_FRACTION,
-        // Explicit height (not top+bottom) so it doesn't depend on the
-        // shared wrapper's own flow height (which also includes the
-        // first-timer caption when shown) — floored at MIN_HEIGHT so short
-        // canvases still leave the panel usable.
-        height: Math.max(ROOT_MAP_PANEL_MIN_HEIGHT, canvasMetrics.height * (1 - ROOT_MAP_PANEL_TOP_FRACTION)),
-      }
-    : styles.rootMapPanelNormalFlow
+  // The panel always flows BELOW the domain map. The former RA-10 wide-screen
+  // overlay (absolutely positioned partway down the canvas) assumed the lower
+  // half of the map was a dead zone; the Bento grid (docs/adr/2026-08-27-roots-
+  // hub-bento-layout.md) fills that space, so the overlay landed on top of real
+  // content. `wideCanvas` is retained only to keep the measurement wiring
+  // stable; it no longer switches the panel to absolute positioning.
+  const rootMapPanelWrapperStyle = styles.rootMapPanelNormalFlow
 
   return (
     <div style={{ maxWidth: 920, margin: '0 auto' }}>

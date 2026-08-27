@@ -281,10 +281,18 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
           </div>
         ) : model.domains.map((domain) => {
           const emphasized = domain.state === 'attention' || domain.state === 'not_set_up'
+          // Mosaic: a card's footprint follows its content weight (how many
+          // entities it holds) AND its state. A busy or attention-needing
+          // domain claims a wider, taller tile; a light one stays compact — so
+          // the grid reads as a considered Bento, not four equal cards. Widths
+          // are whole grid tracks (span 1/2); height scales continuously with
+          // the entity count so tiles vary in both axes.
+          const weight = domain.children.length
+          const wide = emphasized || weight >= 4
           const cardStyle = {
             ...styles.domainLayer,
-            gridColumn: emphasized ? 'span 2' : 'span 1',
-            minHeight: emphasized ? 220 : 148,
+            gridColumn: wide ? 'span 2' : 'span 1',
+            minHeight: emphasized ? 188 : Math.min(188, 104 + weight * 22),
             borderLeftWidth: emphasized ? 3 : 1,
             borderLeftColor: emphasized ? STATE_TOKEN[domain.state] : 'var(--border)',
             background: emphasized
@@ -349,15 +357,17 @@ const styles = {
   tileLabel: { fontSize: 12, color: 'var(--text-secondary)' },
   domainStack: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+    // Lower floor (240 vs 320) so the mosaic forms 3–4 columns at normal app
+    // width, not just on wide screens; still collapses to one column below it.
+    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
     gridAutoFlow: 'dense',
-    gap: 12,
+    gap: 10,
   },
   domainLayer: {
     background: 'var(--surface)',
     border: '1px solid var(--border)',
     borderRadius: 8,
-    padding: '18px 20px 20px',
+    padding: '14px 16px 16px',
   },
   domainHead: {
     display: 'flex',
