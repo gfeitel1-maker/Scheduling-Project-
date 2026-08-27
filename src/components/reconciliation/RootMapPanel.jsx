@@ -250,7 +250,7 @@ export default function RootMapPanel({
       ) : scoped.length === 0 ? (
         selection.type !== 'node' && (
           <div style={styles.empty}>
-            {TILE_EMPTY_COPY[selection.type === 'tile' ? selection.state : 'attention'] ?? TILE_EMPTY_COPY.attention}
+            {TILE_EMPTY_COPY[selection.type === 'tile' ? selection.state : 'attention']}
           </div>
         )
       ) : (

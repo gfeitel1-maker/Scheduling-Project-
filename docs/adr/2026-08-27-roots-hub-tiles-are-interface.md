@@ -3,7 +3,7 @@ title: "Roots hub — census tiles are the interface (Bento demoted to the Under
 document_type: adr
 status: accepted
 authority: normative
-implementation_state: planned
+implementation_state: implemented
 date: 2026-08-27
 approved: 2026-08-27 (owner-approved concept from iterated prototype; Governor accepted the design + the default-active-tile affordance)
 task_class: ui-ux-design
@@ -34,13 +34,14 @@ Investigating the current code (`src/ingest/rootMapModel.js`, `src/components/re
 4. **The Understood tile's panel content stops depending on `decisionIds` and reads `model.domains[].children[].roster` directly**, filtered to rows with `state === 'understood'`, grouped by domain (`DOMAIN_LABELS`) and rendered through the existing `RosterList` component the node-selection path already uses (`RootMapPanel.jsx:198-209`). This is the fix for the latent gap in the Context section above. 'Changed' and 'Needs attention' keep their existing `decisionIds`-based routing unchanged — it is already correct for those two states.
 5. **Default hub state stays `{type:'none'}`** (`ReconciliationScreen.jsx:99`) — no change to the selection state machine. The Needs-attention framing is achieved by treating the `attention` `CensusTile` as visually active whenever `selection.type === 'none'`, a presentational-only addition, because `{type:'none'}`'s existing unresolved-only filtering (`RootMapPanel.jsx:140-142`, the H1 fix) and "resolved · Show all" footer are strictly better than the tile-scoped query and must not be replaced by it.
 6. **Empty buckets render one honest line, never an empty card shell**, per tile: reuse the existing line for Needs-attention (`RootMapPanel.jsx:220`, "Nothing needs you right now. Shoresh understood everything it found."); add one comparably short line each for Understood, Changed, and Not-in-source (see companion spec for exact copy). This is state, not instruction, and stays inside the existing `styles.empty` treatment.
-7. **Applies to both `mode="import"` and `mode="inspect"`.** `RootMap`/`RootMapPanel` are the same shared components in both modes today, and the `decisionIds` gap affects both equally (a cleanly-matched row with no decision is just as invisible during an import dry run as it is in the persistent inspector). The import-only tray, progress header, and apply flow (`ReconciliationScreen.jsx:479-489`, `540-566`) are untouched.
+8. **The Roots banner is trimmed to two honest actions.** The prior "Facility map" banner button is removed: it pointed at the spatial-layer surface (Locations Map / Day Map / Canvas) that was deleted from the app in PR #201, so the button was a dead affordance leading nowhere. The Import action stays on the banner permanently as "Re-import last year" (for a non-brand-new camp) rather than receding to Settings as an earlier slice ("Slice C") had it: re-importing a prior season is a recurring, top-of-mind director action on the hub, not a buried setting, so a standing banner affordance is the honest placement. This is a two-button banner change (`rootsBanner.jsx`), not new explanatory copy — see Non-goals.
+9. **Applies to both `mode="import"` and `mode="inspect"`.** `RootMap`/`RootMapPanel` are the same shared components in both modes today, and the `decisionIds` gap affects both equally (a cleanly-matched row with no decision is just as invisible during an import dry run as it is in the persistent inspector). The import-only tray, progress header, and apply flow (`ReconciliationScreen.jsx:479-489`, `540-566`) are untouched.
 
 ## Non-goals
 
 - No change to `buildReconciliationReport`, `buildRootMapModel`'s data shape, the op-log, or any IPC/wire contract. This is a rendering/selection-consumption change only, inside the existing pure-projection boundary (`docs/adr/2026-08-17-onescreen-reconciliation-projection.md`).
 - No new `selection` variant. `{type:'none'|'tile'|'node'}` is unchanged.
-- No explanatory or instructional copy added anywhere on the hub.
+- No explanatory or instructional copy added anywhere on the hub. (The banner-button trim in Decision §8 is a change to *action* buttons, not explanatory copy — the banner carries no instructional text.)
 - Does not touch the `'absent'` row-level gap noted in Context — that is a separate, pre-existing scoping question (domain-level `absent` is effectively dormant today) and is out of scope for this restructure.
 
 ## Consequences

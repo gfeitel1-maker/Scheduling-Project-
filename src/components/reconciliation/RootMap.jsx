@@ -229,7 +229,7 @@ function DomainHead({ domainKey, state, selected, onSelect }) {
   )
 }
 
-export default function RootMap({ model, selection, onSelectTile, onSelectNode, onClearSelection, canvasWrapRef, decisionsById }) {
+export default function RootMap({ model, selection, onSelectTile, onSelectNode, onClearSelection, decisionsById }) {
   const wholeCampEnter = useEnterTransition('settle')
   const wholeCampEmpty = model.domains.every((d) => d.children.length === 0)
   const dimmed = (domainKey, childKey) => {
@@ -285,7 +285,7 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
       </div>
 
       {showDomainStack && (
-      <div style={styles.domainStack} ref={canvasWrapRef}>
+      <div style={styles.domainStack}>
         {wholeCampEmpty ? (
           <div style={{ ...styles.wholeCampEmpty, ...wholeCampEnter }}>
             <img src={forestCircle} alt="" style={styles.wholeCampEmptyIcon} />
