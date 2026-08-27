@@ -13,12 +13,21 @@ export default function ImportModal({
   const primaryRef = useRef(null)
   const enterStyle = useEnterTransition('liftFade')
 
+  // Host screens pass an inline onCancel, so a new function identity arrives
+  // on every re-render (e.g. `importing` toggling during confirm). Reading it
+  // through a ref lets the effect below depend on [step] only — it must run
+  // once per open, not once per host render, or focus gets yanked back to the
+  // primary button mid-interaction.
+  const onCancelRef = useRef(onCancel)
+  useEffect(() => { onCancelRef.current = onCancel })
+
   useEffect(() => {
     if (!step) return
+    const prevFocus = document.activeElement
     // Initial focus lands on the primary action.
     primaryRef.current?.focus()
     function onKey(e) {
-      if (e.key === 'Escape') { onCancel(); return }
+      if (e.key === 'Escape') { onCancelRef.current(); return }
       if (e.key !== 'Tab') return
       // Focus-trap: keep Tab within the dialog.
       const focusables = dialogRef.current?.querySelectorAll(
@@ -31,8 +40,11 @@ export default function ImportModal({
       else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
     }
     document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [step, onCancel])
+    return () => {
+      document.removeEventListener('keydown', onKey)
+      prevFocus?.focus?.()
+    }
+  }, [step])
 
   if (!step) return null
 
