@@ -93,6 +93,16 @@ Give the census tiles a considered Bento-grid structure **above** the existing c
 
 Gates: (1) **amendment** to `docs/adr/2026-08-22-roots-as-hub-setup-ia.md` (the "entity screens KEPT as collapsible list" clause), not a fresh ADR. (2) CSS boundary: per CLAUDE.md the single scoped-stylesheet exception is bounded to `src/components/schedule/`; Bento per-tile hover/pseudo-states must stay inline/data-attribute driven — do **not** add a second stylesheet. (3) Rebase around the peer's incoming Locations/Day-Map removal (see Coordination) — confirm no census tile or readiness rollup references the Locations "map"/Day-Map concept before building.
 
+### W2-UX — Setup-screen interaction polish *(owner-requested 2026-08-26, after W1 shell lands)*
+
+Small, high-value interaction wins across the setup screens. Do after W1's shell so they land once in the shared surface, not six times.
+
+1. **Enter-to-save on add.** Pressing Enter in an add-row field (e.g. adding an activity) commits the add — no reach for the mouse. Applies to every setup screen's add-card. Guard against submitting an empty/invalid row.
+2. **Stepper (+/−) for capacity numbers.** Group min/max and any capacity/count field gets +/− affordances around the number (a `CapacityStepper` already exists on Activities — reuse/generalize it, don't reinvent). Keep direct typing too.
+3. **One-line edit/save/delete row.** When a row is pulled up for editing, the edit / save / delete controls sit on a single line, compact — not a stacked or wrapping cluster.
+
+These are presentational/interaction only; no schema. Fold into the shared shell + add-card components so each fix is written once.
+
 ## Sequencing
 
 1. **W1** (presentational, no schema) — build now, own branch, non-Locations only.

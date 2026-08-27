@@ -611,7 +611,6 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
 
   return (
     <div style={{ maxWidth: 760 }}>
-      <CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />
       <SetupScreenShell
         countLabel={`${anchors.length} recurring event${anchors.length !== 1 ? 's' : ''}`}
         role={role}
@@ -622,6 +621,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
         nextLabel="Go to Schedule"
         onNext={() => onNavigate('schedule')}
         error={error}
+        cohortPicker={<CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />}
       >
       {timeBlocks.length === 0 && !loading && (
         <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#7a5100' }}>
