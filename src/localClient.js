@@ -164,6 +164,4 @@ export const localClient = {
   listRecentProjects: () => shoresh.listRecentProjects(),
   openRecentProject: (targetPath) => shoresh.openRecentProject(targetPath),
   // Tile World — opens the standalone Phaser viewer window.
-  startTileWorld: () => (shoresh.startTileWorld ? shoresh.startTileWorld() : Promise.resolve({ port: null })),
-  pushTileOccupancy: (occupancy) => (shoresh.pushTileOccupancy ? shoresh.pushTileOccupancy(occupancy) : Promise.resolve({ ok: true })),
 }
