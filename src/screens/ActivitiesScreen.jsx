@@ -7,6 +7,7 @@ import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
+import SetupScreenShell from '../components/setup/SetupScreenShell'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
 import { createScheduleRepository } from '../data/scheduleRepository'
@@ -991,27 +992,18 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
           entityLabel="activities"
         />
       )}
-      {error && (
-        <div style={S.errorBanner}>
-          {error}
-        </div>
-      )}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          {activities.length} activit{activities.length !== 1 ? 'ies' : 'y'}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
-          <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
-          <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button
-            onClick={deleteAll}
-            disabled={role !== 'admin'}
-            title={role !== 'admin' ? 'Admin only' : undefined}
-            style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-          >Delete All</button>
-          <button className="press-97" onClick={() => setModal({ activity: null })} style={S.btnPrimary}>+ Add Activity</button>
-        </div>
+      <SetupScreenShell
+        countLabel={`${activities.length} activit${activities.length !== 1 ? 'ies' : 'y'}`}
+        role={role}
+        actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
+        fileInputRef={fileRef}
+        onFileChange={onFileChange}
+        nextLabel="Next: Recurring Events →"
+        onNext={() => onNavigate('anchors')}
+        error={error}
+      >
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button className="press-97" onClick={() => setModal({ activity: null })} style={S.btnPrimary}>+ Add Activity</button>
       </div>
 
       {loading ? (
@@ -1128,6 +1120,8 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         </div>
       </div>
 
+      </SetupScreenShell>
+
       {modal && (
         <ActivityModal
           activity={modal.activity}
@@ -1170,9 +1164,6 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
         }}
       />
 
-      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button className="press-97" onClick={() => onNavigate('anchors')} style={S.btnPrimary}>Next: Recurring Events →</button>
-      </div>
       {pendingDelete && (
         <DeleteRecordDialog
           preview={pendingDelete}

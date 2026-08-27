@@ -7,6 +7,7 @@ import { S, prefersReducedMotion } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
+import SetupScreenShell from '../components/setup/SetupScreenShell'
 import RecordHistory from '../components/RecordHistory'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
@@ -346,44 +347,32 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
   const currentWeek = weeks.find(w => w.id === weekId)
 
   return (
-    <div style={{ maxWidth: 720 }}>
-      {weeks.length > 0 && (
-        <WeekContextBar
-          weekId={weekId}
-          weeks={weeks}
-          onSelectWeek={onSelectWeek}
-          exclusionCount={excludedGroupIds.size}
-          totalCount={groups.length}
-          entityLabel="groups"
-        />
-      )}
-      {error && (
-        <div style={S.errorBanner}>
-          {error}
-        </div>
-      )}
+    <>
+    {weeks.length > 0 && (
+      <WeekContextBar
+        weekId={weekId}
+        weeks={weeks}
+        onSelectWeek={onSelectWeek}
+        exclusionCount={excludedGroupIds.size}
+        totalCount={groups.length}
+        entityLabel="groups"
+      />
+    )}
+    <SetupScreenShell
+      countLabel={`${groups.length} group${groups.length !== 1 ? 's' : ''}`}
+      role={role}
+      actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
+      fileInputRef={fileRef}
+      onFileChange={onFileChange}
+      nextLabel="Next: Days →"
+      onNext={() => onNavigate('days')}
+      error={error}
+    >
       {tiers.length === 0 && !loading && (
         <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#7a5100' }}>
           No age divisions found. Set up age divisions first so you can assign groups to them.
         </div>
       )}
-
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          {groups.length} group{groups.length !== 1 ? 's' : ''}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
-          <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
-          <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button
-            onClick={deleteAll}
-            disabled={role !== 'admin'}
-            title={role !== 'admin' ? 'Admin only' : undefined}
-            style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-          >Delete All</button>
-        </div>
-      </div>
 
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>
@@ -458,6 +447,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
           </button>
         </div>
       </div>
+      </SetupScreenShell>
 
       <ImportModal
         step={importStep}
@@ -479,10 +469,6 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
           if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
         }}
       />
-
-      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button className="press-97" onClick={() => onNavigate('days')} style={S.btnPrimary}>Next: Days →</button>
-      </div>
 
       {pendingDelete && (
         <DeleteRecordDialog
@@ -520,7 +506,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
           onConfirm={confirmExclusion}
         />
       )}
-    </div>
+    </>
   )
 }
 

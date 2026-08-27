@@ -9,6 +9,7 @@ import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
+import SetupScreenShell from '../components/setup/SetupScreenShell'
 import uiClock from '../assets/brand/icons/ui-clock.png'
 
 // TimeBlocks' load is cohort-scoped (camp_id AND cohort_id) and guards
@@ -362,30 +363,18 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
   const warnRows = importRows.filter(r => r.warning || !r.name)
 
   return (
-    <div style={{ maxWidth: 780 }}>
-      <CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />
-      {error && (
-        <div style={S.errorBanner}>
-          {error}
-        </div>
-      )}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          {blocks.length} block{blocks.length !== 1 ? 's' : ''}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
-          <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
-          <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button
-            onClick={deleteAll}
-            disabled={!activeCohort || role !== 'admin'}
-            title={role !== 'admin' ? 'Admin only' : undefined}
-            style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-          >Delete All</button>
-        </div>
-      </div>
-
+    <>
+    <SetupScreenShell
+      countLabel={`${blocks.length} block${blocks.length !== 1 ? 's' : ''}`}
+      role={role}
+      actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll, deleteAllProminent: false }}
+      fileInputRef={fileRef}
+      onFileChange={onFileChange}
+      nextLabel="Next: Activities →"
+      onNext={() => onNavigate('activities')}
+      error={error}
+      cohortPicker={<CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />}
+    >
       {showLoading ? (
         <div style={S.stateLoading}>Loading…</div>
       ) : !activeCohort ? (
@@ -436,6 +425,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
           <button className="press-97" onClick={addBlock} disabled={adding || !newName.trim() || !newStart || !newEnd || !activeCohort} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
         </div>
       </div>
+      </SetupScreenShell>
 
       <ImportModal
         step={importStep}
@@ -480,10 +470,6 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
           onCancel={() => setPendingDeleteAll(false)}
         />
       )}
-
-      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button className="press-97" onClick={() => onNavigate('activities')} style={S.btnPrimary}>Next: Activities →</button>
-      </div>
-    </div>
+    </>
   )
 }

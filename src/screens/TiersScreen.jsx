@@ -9,6 +9,7 @@ import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
+import SetupScreenShell from '../components/setup/SetupScreenShell'
 import uiPeople from '../assets/brand/icons/ui-people.png'
 
 // Tiers' load is cohort-scoped (camp_id AND cohort_id), fetches groups
@@ -356,31 +357,18 @@ export default function TiersScreen({ campId, role, onNavigate }) {
   const warnRows = importRows.filter(r => r.warning || !r.name)
 
   return (
-    <div style={{ maxWidth: 700 }}>
-      <CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />
-      {error && (
-        <div style={S.errorBanner}>
-          {error}
-        </div>
-      )}
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
-          {tiers.length} age division{tiers.length !== 1 ? 's' : ''}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
-          <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
-          <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button
-            onClick={deleteAll}
-            disabled={!activeCohort || role !== 'admin'}
-            title={role !== 'admin' ? 'Admin only' : undefined}
-            style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-          >Delete All</button>
-        </div>
-      </div>
-
+    <>
+    <SetupScreenShell
+      countLabel={`${tiers.length} age division${tiers.length !== 1 ? 's' : ''}`}
+      role={role}
+      actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
+      fileInputRef={fileRef}
+      onFileChange={onFileChange}
+      nextLabel="Next: Groups →"
+      onNext={() => onNavigate('groups')}
+      error={error}
+      cohortPicker={<CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />}
+    >
       {/* Table */}
       {showLoading ? (
         <div style={S.stateLoading}>Loading…</div>
@@ -449,6 +437,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
           </button>
         </div>
       </div>
+      </SetupScreenShell>
 
       <ImportModal
         step={importStep}
@@ -498,10 +487,6 @@ export default function TiersScreen({ campId, role, onNavigate }) {
           onCancel={() => setPendingDeleteAll(false)}
         />
       )}
-
-      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button className="press-97" onClick={() => onNavigate('groups')} style={S.btnPrimary}>Next: Groups →</button>
-      </div>
-    </div>
+    </>
   )
 }

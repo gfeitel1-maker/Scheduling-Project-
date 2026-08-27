@@ -8,6 +8,7 @@ import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
+import SetupScreenShell from '../components/setup/SetupScreenShell'
 import { LocationPicker } from '../components/LocationPicker'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
@@ -615,33 +616,24 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
   return (
     <div style={{ maxWidth: 760 }}>
       <CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />
-      {error && (
-        <div style={S.errorBanner}>
-          {error}
-        </div>
-      )}
+      <SetupScreenShell
+        countLabel={`${anchors.length} recurring event${anchors.length !== 1 ? 's' : ''}`}
+        role={role}
+        actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
+        fileInputRef={fileRef}
+        onFileChange={onFileChange}
+        nextLabel="Go to Schedule"
+        onNext={() => onNavigate('schedule')}
+        error={error}
+      >
       {timeBlocks.length === 0 && !loading && (
         <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#7a5100' }}>
           No time blocks found. Set these up before adding recurring events.
         </div>
       )}
 
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          {anchors.length} recurring event{anchors.length !== 1 ? 's' : ''}
-        </div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="press-97" onClick={downloadTemplate} style={S.btnSecondary}>Download Template</button>
-          <button className="press-97" onClick={() => fileRef.current.click()} style={S.btnSecondary}>Import from Excel</button>
-          <input ref={fileRef} type="file" accept=".xlsx" style={{ display: 'none' }} onChange={onFileChange} />
-          <button
-            onClick={deleteAll}
-            disabled={role !== 'admin'}
-            title={role !== 'admin' ? 'Admin only' : undefined}
-            style={role !== 'admin' ? { ...S.btnDanger, ...S.buttonDisabled } : S.btnDanger}
-          >Delete All</button>
-          <button className="press-97" onClick={() => setModal({ anchor: null })} style={S.btnPrimary}>+ Add Recurring Event</button>
-        </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button className="press-97" onClick={() => setModal({ anchor: null })} style={S.btnPrimary}>+ Add Recurring Event</button>
       </div>
 
       {loading ? (
@@ -707,6 +699,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
           )}
         </div>
       )}
+      </SetupScreenShell>
 
       {modal && (
         <AnchorModal
@@ -771,10 +764,6 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
           onCancel={() => setPendingDeleteAll(false)}
         />
       )}
-
-      <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
-        <button className="press-97" onClick={() => onNavigate('schedule')} style={S.btnPrimary}>Go to Schedule</button>
-      </div>
     </div>
   )
 }

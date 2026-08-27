@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 
 vi.mock('../localClient', () => ({
   localClient: {
@@ -251,32 +250,7 @@ describe('DaysScreen', () => {
     )
   })
 
-  it('imports rows from Excel, skipping duplicates (case-insensitive) and rows with a validation warning', async () => {
-    localClient.list.mockResolvedValue([day({ label: 'Monday' })])
-    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
-
-    const file = new File(['dummy'], 'days.xlsx')
-    const fileInput = document.querySelector('input[type="file"]')
-
-    const rows = [
-      { label: 'monday', day_of_week: 1, sort_order: 1 }, // duplicate, case-insensitive
-      { label: '', day_of_week: 2, sort_order: 2 }, // missing label -> warning
-      { label: 'Tuesday', day_of_week: 2, sort_order: 2 }, // new, valid
-    ]
-    XLSX.utils.sheet_to_json.mockReturnValue(rows)
-    XLSX.read.mockReturnValue({ SheetNames: ['Days'], Sheets: { Days: {} } })
-
-    await userEvent.upload(fileInput, file)
-
-    // The preview's ready/warning split reflects PARSE validity only ("monday"
-    // parses fine — the name-collision check happens later, at commit).
-    await waitFor(() => expect(screen.queryByText(/2 ready/)).not.toBeNull())
-    fireEvent.click(screen.getByText(/Import 2/))
-
-    await waitFor(() => expect(screen.queryByText(/1 added/)).not.toBeNull())
-    expect(screen.queryByText(/2 skipped/)).not.toBeNull()
-    const labelsWritten = localClient.write.mock.calls.filter(c => c[3] === 'label').map(c => c[4])
-    expect(labelsWritten).toEqual(['Tuesday'])
-  })
+  // Days deliberately omits bulk Excel import (SetupScreenShell `actions` config
+  // — a director does not bulk-import 5 weekday rows); the old import-preview
+  // test was removed along with the in-screen import UI it exercised.
 })
