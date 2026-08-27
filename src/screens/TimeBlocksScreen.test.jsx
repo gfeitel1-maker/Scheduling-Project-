@@ -296,6 +296,30 @@ describe('TimeBlocksScreen — save', () => {
       expect(localClient.write).toHaveBeenCalledWith('token-abc', 'time_blocks', 'block-1', 'name', 'Block One')
     )
   })
+
+  it('re-derives sort_order from start_time (minutesFromMidnight) when saving an edited time block', async () => {
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Block 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Block 1' }))
+    let timeInputs = document.querySelectorAll('input[type="time"]')
+    fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
+    fireEvent.click(screen.getByText('Save'))
+
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'time_blocks', 'block-1', 'sort_order', 540)
+    )
+
+    localClient.write.mockClear()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Block 1' }))
+    timeInputs = document.querySelectorAll('input[type="time"]')
+    fireEvent.change(timeInputs[0], { target: { value: '10:00' } })
+    fireEvent.click(screen.getByText('Save'))
+
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'time_blocks', 'block-1', 'sort_order', 600)
+    )
+  })
 })
 
 describe('TimeBlocksScreen — deleteAll', () => {

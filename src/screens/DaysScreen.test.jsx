@@ -287,6 +287,22 @@ describe('DaysScreen', () => {
     )
   })
 
+  it('re-derives sort_order from day_of_week when saving an edited day', async () => {
+    localClient.list.mockResolvedValue([day()])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Monday' }))
+    const dowSelect = screen.getAllByDisplayValue('Monday')[1]
+    fireEvent.change(dowSelect, { target: { value: '3' } })
+    fireEvent.click(screen.getByText('Save'))
+
+    await waitFor(() =>
+      expect(localClient.write).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'day-1', 'sort_order', 3)
+    )
+    expect(localClient.write).toHaveBeenCalledWith('token-abc', 'days_of_operation', 'day-1', 'day_of_week', 3)
+  })
+
   // Days deliberately omits bulk Excel import (SetupScreenShell `actions` config
   // — a director does not bulk-import 5 weekday rows); the old import-preview
   // test was removed along with the in-screen import UI it exercised.
