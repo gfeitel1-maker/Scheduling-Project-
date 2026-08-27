@@ -279,8 +279,23 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
               Nothing imported yet — bring in your roster to get started.
             </div>
           </div>
-        ) : model.domains.map((domain) => (
-          <div key={domain.key} style={styles.domainLayer}>
+        ) : model.domains.map((domain) => {
+          const emphasized = domain.state === 'attention' || domain.state === 'not_set_up'
+          const cardStyle = {
+            ...styles.domainLayer,
+            gridColumn: emphasized ? 'span 2' : 'span 1',
+            minHeight: emphasized ? 220 : 148,
+            borderLeftWidth: emphasized ? 3 : 1,
+            borderLeftColor: emphasized ? STATE_TOKEN[domain.state] : 'var(--border)',
+            background: emphasized
+              ? `color-mix(in srgb, var(--surface) 95%, ${STATE_TOKEN[domain.state]} 5%)`
+              : 'var(--surface)',
+            transition: prefersReducedMotion()
+              ? undefined
+              : 'min-height var(--motion-settle) var(--ease-out), border-color var(--motion-settle) var(--ease-out), background var(--motion-settle) var(--ease-out)',
+          }
+          return (
+          <div key={domain.key} style={cardStyle}>
             <DomainHead
               domainKey={domain.key}
               state={domain.state}
@@ -305,7 +320,8 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
               </div>
             )}
           </div>
-        ))}
+          )
+        })}
       </div>
     </div>
   )
@@ -332,9 +348,10 @@ const styles = {
   tileCount: { fontSize: 20, fontWeight: 600, color: 'var(--text)' },
   tileLabel: { fontSize: 12, color: 'var(--text-secondary)' },
   domainStack: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 10,
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+    gridAutoFlow: 'dense',
+    gap: 12,
   },
   domainLayer: {
     background: 'var(--surface)',
