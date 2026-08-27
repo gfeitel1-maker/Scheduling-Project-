@@ -13,6 +13,7 @@ import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialo
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { LocationPicker } from '../components/LocationPicker'
+import { CapacityStepper } from '../components/CapacityStepper'
 import { resolveLocationCandidateId } from '../../electron/ops/locationId.js'
 import { CONFIDENCE_COPY, plainEvidenceSentence } from '../components/reconciliation/reconciliationCards.jsx'
 import { deriveActivityProvenance, hasAnyEvidence, worstTier } from '../utils/ruleProvenance.js'
@@ -301,7 +302,7 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
           {maxGroups > 1 && (
             <div style={{ paddingLeft: 22, marginTop: 10, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
               <Field label="Max groups at once">
-                <input type="number" min={2} value={maxGroups} onChange={e => setMaxGroups(Math.max(2, Number(e.target.value)))} style={{ ...S.input, width: 80 }} />
+                <CapacityStepper value={maxGroups} onChange={setMaxGroups} min={2} ariaLabel="Max groups at once" />
               </Field>
               <div style={{ paddingTop: 22 }}>
                 <label style={checkLabel}>
@@ -315,13 +316,13 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
 
         <div style={grid3}>
           <Field label="Min per week">
-            <input type="number" min={0} value={minWeek} onChange={e => setMinWeek(e.target.value)} style={S.input} />
+            <CapacityStepper value={minWeek} onChange={setMinWeek} min={0} ariaLabel="Minimum per week" />
           </Field>
           <Field label="Max per week">
-            <input type="number" min={0} value={maxWeek} onChange={e => setMaxWeek(e.target.value)} style={S.input} />
+            <CapacityStepper value={maxWeek} onChange={setMaxWeek} min={0} ariaLabel="Maximum per week" />
           </Field>
           <Field label="Blocks per session">
-            <input type="number" min={1} value={spanBlocks} onChange={e => setSpanBlocks(Math.max(1, Number(e.target.value)))} style={S.input} />
+            <CapacityStepper value={spanBlocks} onChange={setSpanBlocks} min={1} ariaLabel="Blocks per session" />
           </Field>
         </div>
 

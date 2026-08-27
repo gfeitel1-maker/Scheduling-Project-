@@ -717,7 +717,11 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
 
     // createLocation stays crypto.randomUUID()-based (unchanged from pre-T81)
     // — the default beforeEach stub returns 'new-activity-id' for every call.
-    fireEvent.click(screen.getByLabelText('Increase'))
+    // Scoped to the location stepper's own wrapper — the modal now also
+    // holds CapacitySteppers for min/max/span/max-groups, all sharing the
+    // generic "Increase" aria-label.
+    const groupsStepper = screen.getByLabelText('Groups at once').closest('div')
+    fireEvent.click(within(groupsStepper).getByLabelText('Increase'))
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'locations', 'new-activity-id', 'capacity', 2))
   })
 
