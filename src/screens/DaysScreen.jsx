@@ -22,13 +22,12 @@ function DayRow({ day, role, onSave, onDelete }) {
   const [editing, setEditing] = useState(false)
   const [label, setLabel] = useState(day.label)
   const [dow, setDow] = useState(day.day_of_week)
-  const [sortOrder, setSortOrder] = useState(day.sort_order)
   const [saving, setSaving] = useState(false)
 
   async function save() {
     if (!label.trim()) return
     setSaving(true)
-    await onSave(day.id, { label: label.trim(), day_of_week: Number(dow), sort_order: Number(sortOrder) })
+    await onSave(day.id, { label: label.trim(), day_of_week: Number(dow), sort_order: Number(dow) })
     setSaving(false); setEditing(false)
   }
 
@@ -41,11 +40,10 @@ function DayRow({ day, role, onSave, onDelete }) {
             {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
           </select>
         </td>
-        <td style={S.td}><input type="number" value={sortOrder} onChange={e => setSortOrder(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={{ ...S.input, width: 70 }} /></td>
         <td style={{ ...S.td, textAlign: 'right' }}>
           <div style={rowActionsFlex}>
             <button className="press-97" onClick={save} disabled={saving} style={{ ...S.btnPrimary, whiteSpace: 'nowrap' }}>{saving ? 'Saving…' : 'Save'}</button>
-            <button className="press-97" onClick={() => { setLabel(day.label); setDow(day.day_of_week); setSortOrder(day.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
+            <button className="press-97" onClick={() => { setLabel(day.label); setDow(day.day_of_week); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
           </div>
         </td>
       </tr>
@@ -70,7 +68,6 @@ function DayRow({ day, role, onSave, onDelete }) {
         >{day.label}</span>
       </td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{DOW[day.day_of_week]}</td>
-      <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{day.sort_order}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
         <button
           onClick={e => { e.stopPropagation(); onDelete(day.id) }}
@@ -107,16 +104,14 @@ export default function DaysScreen({ campId, role, onNavigate }) {
 
   const [newLabel, setNewLabel] = useState('')
   const [newDow, setNewDow] = useState(1)
-  const [newSort, setNewSort] = useState('')
   const [pendingDelete, setPendingDelete] = useState(null)
   const [pendingDeleteAll, setPendingDeleteAll] = useState(false)
   const [deletingAll, setDeletingAll] = useState(false)
 
   async function addDay() {
     if (!newLabel.trim()) return
-    const sortVal = newSort !== '' ? Number(newSort) : (days.length + 1)
-    const succeeded = await add({ label: newLabel.trim(), dayOfWeek: Number(newDow), sortOrder: sortVal })
-    if (succeeded) { setNewLabel(''); setNewSort('') }
+    const succeeded = await add({ label: newLabel.trim(), dayOfWeek: Number(newDow), sortOrder: Number(newDow) })
+    if (succeeded) { setNewLabel('') }
   }
 
   // Deleting a record a schedule uses: count first, confirm with the count
@@ -185,13 +180,12 @@ export default function DaysScreen({ campId, role, onNavigate }) {
               <tr style={{ borderBottom: '1px solid var(--border)', background: 'var(--bg)' }}>
                 <th style={S.th}>Label</th>
                 <th style={S.th}>Day of Week</th>
-                <th style={S.th}>Sort Order</th>
                 <th style={{ ...S.th, textAlign: 'right' }}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {days.length === 0 ? (
-                <tr><td colSpan={4} style={S.emptyState}>
+                <tr><td colSpan={3} style={S.emptyState}>
                   <div style={S.emptyStateTitle}>No days yet</div>
                   <div style={S.emptyStateBody}>Add your first day below.</div>
                 </td></tr>
@@ -210,7 +204,6 @@ export default function DaysScreen({ campId, role, onNavigate }) {
           <select value={newDow} onChange={e => setNewDow(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDay()} style={{ ...S.input, flex: '0 0 140px' }}>
             {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
           </select>
-          <input type="number" placeholder="Order" value={newSort} onChange={e => setNewSort(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDay()} style={{ ...S.input, flex: '0 0 80px' }} />
           <button className="press-97" onClick={addDay} disabled={adding || !newLabel.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
         </div>
       </div>
