@@ -23,7 +23,6 @@ const TITLES = {
   'schedule:manual':     'Manual Build',
   'schedule:special':    'Special Schedules',
   'schedule:electives':  'Elective Schedules',
-  'schedule:map':        'Day Map',
   camp:         'Camp',
   conflicts:    'Conflicts',
   trash:        'Trash',

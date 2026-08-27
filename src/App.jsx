@@ -22,7 +22,6 @@ import SpecialDaysScreen from './screens/SpecialDaysScreen'
 import SpecialSchedulesScreen from './screens/SpecialSchedulesScreen'
 import ScheduleElectivesScreen from './screens/ScheduleElectivesScreen'
 import ScheduleScreen from './screens/ScheduleScreen'
-import DayMapScreen from './screens/DayMapScreen'
 import ConflictsScreen from './screens/ConflictsScreen'
 import TrashScreen from './screens/TrashScreen'
 import DeviceManagerScreen from './screens/DeviceManagerScreen'
@@ -85,7 +84,6 @@ const SCREENS = {
   // a fixed-route sidebar destination for this screen as the same
   // "remembered schedule" anti-pattern the plural-candidate-schedules ADR
   // forbids.
-  'schedule:map':         DayMapScreen,
   devices:      DeviceManagerScreen,
 }
 
@@ -228,7 +226,7 @@ export function AppShell({ campId, role, mode, onLogout }) {
   const resolvedScreen = screen === 'readiness' ? 'roots' : screen
   const Screen = SCREENS[resolvedScreen] || TiersScreen
   const scheduleRoute = SCHEDULE_ROUTE_BY_SCREEN[resolvedScreen]
-  const isWeekScreen = resolvedScreen === 'activities' || resolvedScreen === 'groups' || resolvedScreen === 'locations' || resolvedScreen === 'schedule:map'
+  const isWeekScreen = resolvedScreen === 'activities' || resolvedScreen === 'groups' || resolvedScreen === 'locations'
   const screenProps = resolvedScreen === 'conflicts'
     ? { campId, role, onNavigate: navigate, pendingConflicts }
     : {

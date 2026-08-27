@@ -45,9 +45,9 @@ describe('NAV_SECTIONS setup items (Slice B)', () => {
 describe('NAV_SECTIONS schedule items — both routes stay distinct (ADR §3)', () => {
   const scheduleItems = NAV_SECTIONS.find(s => s.key === 'schedule').items
 
-  it('lists both schedule routes as separate rows, plus the Special Schedules, Electives, and Day Map pickers after them', () => {
+  it('lists both schedule routes as separate rows, plus the Special Schedules and Electives pickers after them', () => {
     const keys = scheduleItems.map(i => i.key)
-    expect(keys).toEqual(['schedule:generated', 'schedule:manual', 'schedule:special', 'schedule:electives', 'schedule:map'])
+    expect(keys).toEqual(['schedule:generated', 'schedule:manual', 'schedule:special', 'schedule:electives'])
   })
 
   it('does not collapse the two routes into one neutral entry', () => {
@@ -65,7 +65,7 @@ describe('NAV_SECTIONS schedule:special row (schedule-build-ia)', () => {
   it('is present, labeled "Special Schedules", after Manual Build', () => {
     expect(specialRow).toBeTruthy()
     expect(specialRow.label).toBe('Special Schedules')
-    expect(scheduleItems.indexOf(specialRow)).toBe(scheduleItems.length - 3)
+    expect(scheduleItems.indexOf(specialRow)).toBe(scheduleItems.length - 2)
   })
 
   it('carries no badge', () => {
@@ -80,10 +80,10 @@ describe('NAV_SECTIONS schedule:electives row (electives-gap)', () => {
   const scheduleItems = NAV_SECTIONS.find(s => s.key === 'schedule').items
   const electivesRow = scheduleItems.find(i => i.key === 'schedule:electives')
 
-  it('is present, labeled "Elective Schedules" (distinct from Roots\'s "Electives" authoring row), before the Day Map row', () => {
+  it('is present, labeled "Elective Schedules" (distinct from Roots\'s "Electives" authoring row), as the last schedule row', () => {
     expect(electivesRow).toBeTruthy()
     expect(electivesRow.label).toBe('Elective Schedules')
-    expect(scheduleItems.indexOf(electivesRow)).toBe(scheduleItems.length - 2)
+    expect(scheduleItems.indexOf(electivesRow)).toBe(scheduleItems.length - 1)
   })
 
   it('carries no badge', () => {
