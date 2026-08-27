@@ -51,15 +51,15 @@ function GroupRow({ group, tiers, role, onSave, onDelete, onHistory, weekToggle 
   if (editing) {
     return (
       <tr style={{ background: 'var(--surface-elevated)' }}>
-        <td style={S.td}><input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} /></td>
+        <td style={S.td}><input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input} /></td>
         <td style={S.td}>
-          <select value={tierId} onChange={e => setTierId(e.target.value)} style={S.input}>
+          <select value={tierId} onChange={e => setTierId(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input}>
             <option value="">— No age division —</option>
             {tiers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </td>
         <td style={S.td}>
-          <select value={avail} onChange={e => setAvail(e.target.value)} style={S.input}>
+          <select value={avail} onChange={e => setAvail(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input}>
             {AVAIL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </td>
@@ -75,17 +75,21 @@ function GroupRow({ group, tiers, role, onSave, onDelete, onHistory, weekToggle 
 
   return (
     <tr style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
-      role="button"
-      tabIndex={0}
-      aria-label={`Edit ${group.name}`}
       onClick={() => setEditing(true)}
-      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
       onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
       onMouseLeave={e => e.currentTarget.style.background = ''}
       onFocus={e => e.currentTarget.style.background = 'var(--bg)'}
       onBlur={e => e.currentTarget.style.background = ''}
     >
-      <td style={S.td}>{group.name}</td>
+      <td style={S.td}>
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label={`Edit ${group.name}`}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
+          style={{ cursor: 'pointer' }}
+        >{group.name}</span>
+      </td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{tierName}</td>
       <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{AVAIL_OPTIONS.find(o => o.value === group.availability)?.label || '—'}</td>
       {weekToggle}

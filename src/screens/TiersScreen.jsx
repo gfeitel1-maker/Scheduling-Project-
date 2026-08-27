@@ -83,17 +83,21 @@ function TierRow({ tier, groupCount, role, onSave, onDelete }) {
 
   return (
     <tr style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
-      role="button"
-      tabIndex={0}
-      aria-label={`Edit ${tier.name}`}
       onClick={() => setEditing(true)}
-      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
       onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
       onMouseLeave={e => e.currentTarget.style.background = ''}
       onFocus={e => e.currentTarget.style.background = 'var(--bg)'}
       onBlur={e => e.currentTarget.style.background = ''}
     >
-      <td style={S.td}>{tier.name}</td>
+      <td style={S.td}>
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label={`Edit ${tier.name}`}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
+          style={{ cursor: 'pointer' }}
+        >{tier.name}</span>
+      </td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{tier.sort_order}</td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{groupCount}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>

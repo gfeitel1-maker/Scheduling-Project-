@@ -165,7 +165,7 @@ describe('TiersScreen — cohort-scoped load', () => {
     await waitFor(() => expect(screen.queryByText('2 age divisions')).not.toBeNull())
     expect(screen.queryByText('Wrong Cohort')).toBeNull()
     expect(screen.queryByText('Wrong Camp')).toBeNull()
-    const rows = document.querySelectorAll('tbody tr')
+    const rows = screen.getAllByRole('row').slice(1)
     expect(rows[0].textContent).toContain('Yeladim')
     expect(rows[1].textContent).toContain('Bogrim')
   })

@@ -35,13 +35,13 @@ function DayRow({ day, role, onSave, onDelete }) {
   if (editing) {
     return (
       <tr style={{ background: 'var(--surface-elevated)' }}>
-        <td style={S.td}><input autoFocus value={label} onChange={e => setLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} /></td>
+        <td style={S.td}><input autoFocus value={label} onChange={e => setLabel(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input} /></td>
         <td style={S.td}>
-          <select value={dow} onChange={e => setDow(e.target.value)} style={S.input}>
+          <select value={dow} onChange={e => setDow(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input}>
             {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
           </select>
         </td>
-        <td style={S.td}><input type="number" value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{ ...S.input, width: 70 }} /></td>
+        <td style={S.td}><input type="number" value={sortOrder} onChange={e => setSortOrder(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={{ ...S.input, width: 70 }} /></td>
         <td style={{ ...S.td, textAlign: 'right' }}>
           <div style={rowActionsFlex}>
             <button className="press-97" onClick={save} disabled={saving} style={{ ...S.btnPrimary, whiteSpace: 'nowrap' }}>{saving ? 'Saving…' : 'Save'}</button>
@@ -54,17 +54,21 @@ function DayRow({ day, role, onSave, onDelete }) {
 
   return (
     <tr style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
-      role="button"
-      tabIndex={0}
-      aria-label={`Edit ${day.label}`}
       onClick={() => setEditing(true)}
-      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
       onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
       onMouseLeave={e => e.currentTarget.style.background = ''}
       onFocus={e => e.currentTarget.style.background = 'var(--bg)'}
       onBlur={e => e.currentTarget.style.background = ''}
     >
-      <td style={S.td}>{day.label}</td>
+      <td style={S.td}>
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label={`Edit ${day.label}`}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
+          style={{ cursor: 'pointer' }}
+        >{day.label}</span>
+      </td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{DOW[day.day_of_week]}</td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{day.sort_order}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>

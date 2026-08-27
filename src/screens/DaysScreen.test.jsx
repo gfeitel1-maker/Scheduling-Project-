@@ -75,7 +75,7 @@ describe('DaysScreen', () => {
     expect(localClient.list).toHaveBeenCalledWith('days_of_operation')
     expect(screen.queryByText('Wrong Camp')).toBeNull()
 
-    const rows = document.querySelectorAll('tbody tr')
+    const rows = screen.getAllByRole('row').slice(1) // skip header
     expect(rows[0].textContent).toContain('Monday')
     expect(rows[1].textContent).toContain('Tuesday')
   })

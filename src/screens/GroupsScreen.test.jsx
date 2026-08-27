@@ -491,4 +491,36 @@ describe('GroupsScreen — row-click to edit', () => {
     await waitFor(() => expect(localClient.previewDelete).toHaveBeenCalled())
     expect(screen.queryByDisplayValue('Yeladim 1')).toBeNull()
   })
+
+  it('clicking History does not enter edit mode', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [group()] : [tier()])
+    )
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('History'))
+
+    expect(screen.queryByDisplayValue('Yeladim 1')).toBeNull()
+  })
+
+  it('toggling the WeekToggle does not enter edit mode', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [group()] : [tier()])
+    )
+    render(
+      <GroupsScreen
+        campId={CAMP_ID}
+        role="admin"
+        onNavigate={() => {}}
+        weekId="week-1"
+        weeks={[{ id: 'week-1', name: 'Week 1' }]}
+      />
+    )
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByRole('switch'))
+
+    expect(screen.queryByDisplayValue('Yeladim 1')).toBeNull()
+  })
 })

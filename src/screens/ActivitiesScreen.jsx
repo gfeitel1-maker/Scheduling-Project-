@@ -1050,18 +1050,20 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                           transition: (justConfirmed?.activityId === a.id && !prefersReducedMotion())
                             ? 'background-color var(--motion-settle) var(--ease-out)' : 'none',
                         }}
-                        role="button"
-                        tabIndex={0}
-                        aria-label={`Edit ${a.name}`}
                         onClick={() => setModal({ activity: a })}
-                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ activity: a }) } }}
                         onMouseEnter={() => setHoveredRow(a.id)}
                         onMouseLeave={() => setHoveredRow(null)}
                         onFocus={() => setHoveredRow(a.id)}
                         onBlur={() => setHoveredRow(null)}
                       >
                         <td style={{ ...S.td, fontWeight: 500 }}>
-                          {a.name}
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Edit ${a.name}`}
+                            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ activity: a }) } }}
+                            style={{ cursor: 'pointer' }}
+                          >{a.name}</span>
                           <RuleProvenanceDot
                             activity={a}
                             evidenceByField={evidenceByActivity[a.id] || {}}

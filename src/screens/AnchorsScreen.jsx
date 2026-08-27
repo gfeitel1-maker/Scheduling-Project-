@@ -656,11 +656,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
                 </td></tr>
               ) : anchors.map(a => (
                 <tr key={a.id} style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
-                  role="button"
-                  tabIndex={0}
-                  aria-label={`Edit ${a.name}`}
                   onClick={() => setModal({ anchor: a })}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ anchor: a }) } }}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
                   onMouseLeave={e => e.currentTarget.style.background = ''}
                   onFocus={e => e.currentTarget.style.background = 'var(--bg)'}
@@ -668,7 +664,13 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
                 >
                   <td style={{ ...S.td, fontWeight: 500 }}>
                     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--anchor)', marginRight: 8 }} />
-                    {a.name}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Edit ${a.name}`}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ anchor: a }) } }}
+                      style={{ cursor: 'pointer' }}
+                    >{a.name}</span>
                   </td>
                   <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{dayMap[a.day_id] || '—'}</td>
                   <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)' }}>{blockMap[a.time_block_id] || '—'}</td>
