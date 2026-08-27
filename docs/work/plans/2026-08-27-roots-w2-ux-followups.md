@@ -42,5 +42,17 @@ When a row is pulled up for editing, its controls (Save / Cancel, and Delete whe
 - Purely a layout fix — no handler/logic change.
 - Test/verify: visual (the built-in row tests already assert the buttons exist); add an assertion only if a screen's test can check the actions container's flex-nowrap without brittleness — otherwise rely on the visual pass.
 
+## Task 4 — Row-click to edit (owner-confirmed 2026-08-27, supersedes the Edit button)
+
+Unify row interaction: **clicking a row edits it**, and the visible "Edit" button disappears everywhere.
+
+- **Simple table screens (Tiers, Groups, Days, Time Blocks):** clicking a non-editing row enters inline edit immediately (fields go live, focus lands in the first field). **Enter saves** (already wired) and returns the row to rest; **Escape** cancels. The **Edit** button is removed. **Delete** stays in the row as a control.
+- **Activities & Anchors (modal editors):** clicking a row (not on a control) opens its edit **modal** — the same modal the Edit button opened. The **Edit** button is removed. **Duplicate**, the **toggle**, and any other per-row control stay and keep working — every interactive control in a row calls `stopPropagation` so clicking it does its own action, never a stray row-edit.
+- **Accessibility (required — do not regress):** since the row is now the affordance, each row gets `role="button"`, `tabIndex={0}`, an `aria-label` naming the record, `cursor: pointer`, and an `onKeyDown` so **Enter/Space** on a focused row triggers edit (inline or modal). Editing-state rows and control buttons keep their own focus/semantics.
+- **Selection highlight:** a hovered/focused row shows a clear affordance via existing tokens (`--bg`/hover), so it reads as clickable.
+- No data-model change; handlers are the same ones the Edit button called.
+
+**Test impact:** existing tests that do `getByText('Edit').click()` to enter edit mode must switch to clicking the row (and, for Activities/Anchors, asserting the modal opens on row click). Update those; do not delete coverage.
+
 ## Verification
 Per-file focused tests (`npm run test -- --no-file-parallelism <path>`), then the full gate + a visual pass (dev server + mock) before the PR. Machine under load: background long runs with real exit-code capture; never `| tail`.
