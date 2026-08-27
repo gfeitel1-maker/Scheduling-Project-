@@ -16,7 +16,7 @@ const ROSTER_GROUP_FIELD = { Groups: 'group' }
 // Display labels for the four ingested states — match RootMap's tile labels so the
 // panel heading reads "Needs attention", not the raw state key "attention".
 const STATE_LABEL = {
-  understood: 'Understood', attention: 'Needs attention', changed: 'Changed', absent: 'Not in this source',
+  understood: 'Understood', attention: 'Needs attention', changed: 'Changed', absent: 'Not in source',
 }
 
 // Census tiles are the interface (docs/adr/2026-08-27-roots-hub-tiles-are-
