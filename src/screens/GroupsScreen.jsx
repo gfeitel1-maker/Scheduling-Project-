@@ -6,6 +6,7 @@ import { localClient } from '../localClient'
 import { S, prefersReducedMotion } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
+import ImportModal from '../components/setup/ImportModal'
 import RecordHistory from '../components/RecordHistory'
 import WeekContextBar from '../components/schedule/WeekContextBar'
 import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialog'
@@ -458,49 +459,26 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         </div>
       </div>
 
-      {importStep && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--surface-elevated)', borderRadius: 12, padding: 28, width: 560, maxHeight: '80vh', overflow: 'auto' }}>
-            {importStep === 'preview' && (
-              <>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
-                  {readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings (skipped)`}
-                </div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 18 }}>
-                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Name</th><th style={S.th}>Age Division</th><th style={S.th}>Availability</th><th style={S.th}>Status</th></tr></thead>
-                  <tbody>
-                    {importRows.map((r, i) => (
-                      <tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}>
-                        <td style={S.td}>{r.name || <span style={{ color: 'var(--warning)' }}>—</span>}</td>
-                        <td style={S.td}>{r.tierName || '—'}</td>
-                        <td style={S.td}>{AVAIL_OPTIONS.find(o => o.value === r.availability)?.label ?? '—'}</td>
-                        <td style={{ ...S.td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
-                  <button className="press-97" onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
-                </div>
-              </>
-            )}
-            {importStep === 'done' && (
-              <>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 12 }}>Import Complete</div>
-                <div style={{ fontSize: 14, marginBottom: 6 }}>
-                  <span style={{ color: 'var(--success)', fontWeight: 600 }}>{importResult.added} added</span>
-                  {importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped</span>}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      <ImportModal
+        step={importStep}
+        title={importStep === 'done' ? 'Import Complete' : 'Import Preview'}
+        width={560}
+        columns={[{ key: 'name', label: 'Name' }, { key: 'tier', label: 'Age Division' }, { key: 'availability', label: 'Availability' }, { key: 'status', label: 'Status' }]}
+        rows={importRows}
+        readyCount={readyRows.length}
+        warnCount={warnRows.length}
+        result={importResult}
+        importing={importing}
+        onConfirm={confirmImport}
+        onCancel={() => { setImportStep(null); setImportRows([]) }}
+        previewSubtitle={<>{readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings (skipped)`}</>}
+        renderCell={(r, c) => {
+          if (c.key === 'name') return r.name || <span style={{ color: 'var(--warning)' }}>—</span>
+          if (c.key === 'tier') return r.tierName || '—'
+          if (c.key === 'availability') return AVAIL_OPTIONS.find(o => o.value === r.availability)?.label ?? '—'
+          if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
+        }}
+      />
 
       <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
         <button className="press-97" onClick={() => onNavigate('days')} style={S.btnPrimary}>Next: Days →</button>

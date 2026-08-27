@@ -7,6 +7,7 @@ import { S, useEnterTransition } from '../styles/shared'
 import { useCohorts } from '../hooks/useCohorts'
 import CohortPicker from '../components/CohortPicker'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
+import ImportModal from '../components/setup/ImportModal'
 import { LocationPicker } from '../components/LocationPicker'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { parseIdList, makeSerializeFieldValue } from './setup/setupHelpers'
@@ -232,7 +233,6 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
   const deleteInFlight = useRef(false)
   const fileRef = useRef()
   const { cohorts, activeCohort, setActiveCohortId } = useCohorts(campId)
-  const importEnterStyle = useEnterTransition('liftFade')
 
   useEffect(() => {
     if (activeCohort) load()
@@ -723,53 +723,31 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
         />
       )}
 
-      {importStep && (
-        <div style={{ ...S.overlay, ...importEnterStyle }}>
-          <div style={{ ...S.modalLg, width: 620 }}>
-            {importStep === 'preview' && (
-              <>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 4 }}>Import Preview</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>{readyRows.length} ready{warnRows.length > 0 && `, ${warnRows.length} with warnings`}</div>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, marginBottom: 18 }}>
-                  <thead><tr style={{ borderBottom: '1px solid var(--border)' }}><th style={S.th}>Name</th><th style={S.th}>Day</th><th style={S.th}>Block</th><th style={S.th}>Age Divisions</th><th style={S.th}>Status</th></tr></thead>
-                  <tbody>
-                    {importRows.map((r, i) => (
-                      <tr key={i} style={{ background: r.warning ? '#FFF8E7' : '', borderBottom: '1px solid var(--border)' }}>
-                        <td style={S.td}>{r.name || '—'}</td>
-                        <td style={S.td}>{r._dayLabel || '—'}</td>
-                        <td style={S.td}>{r._blockName || '—'}</td>
-                        <td style={S.td}>{r._tierNames}</td>
-                        <td style={{ ...S.td, color: r.warning ? '#F5A623' : 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnSecondary}>Cancel</button>
-                  <button className="press-97" onClick={confirmImport} disabled={importing || readyRows.length === 0} style={S.btnPrimary}>{importing ? 'Importing…' : `Import ${readyRows.length}`}</button>
-                </div>
-              </>
-            )}
-            {importStep === 'done' && (
-              <>
-                <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 17, marginBottom: 12 }}>Import Complete</div>
-                <div style={{ fontSize: 14 }}>
-                  <span style={{ color: 'var(--success)', fontWeight: 600 }}>{importResult.added} added</span>
-                  {importResult.skipped > 0 && <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>{importResult.skipped} skipped</span>}
-                  {importResult.skippedWithOrphan > 0 && (
-                    <span style={{ color: 'var(--warning)', marginLeft: 10 }}>
-                      {importResult.skippedWithOrphan} skipped but couldn't be fully rolled back (admin required) — stray row(s) may remain
-                    </span>
-                  )}
-                </div>
-                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                  <button className="press-97" onClick={() => { setImportStep(null); setImportRows([]) }} style={S.btnPrimary}>Done</button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      <ImportModal
+        step={importStep}
+        title={importStep === 'done' ? 'Import Complete' : 'Import Preview'}
+        width={620}
+        columns={[{ key: 'name', label: 'Name' }, { key: 'day', label: 'Day' }, { key: 'block', label: 'Block' }, { key: 'tiers', label: 'Age Divisions' }, { key: 'status', label: 'Status' }]}
+        rows={importRows}
+        readyCount={readyRows.length}
+        warnCount={warnRows.length}
+        result={importResult}
+        importing={importing}
+        onConfirm={confirmImport}
+        onCancel={() => { setImportStep(null); setImportRows([]) }}
+        doneExtra={importResult?.skippedWithOrphan > 0 && (
+          <span style={{ color: 'var(--warning)', marginLeft: 10 }}>
+            {importResult.skippedWithOrphan} skipped but couldn't be fully rolled back (admin required) — stray row(s) may remain
+          </span>
+        )}
+        renderCell={(r, c) => {
+          if (c.key === 'name') return r.name || '—'
+          if (c.key === 'day') return r._dayLabel || '—'
+          if (c.key === 'block') return r._blockName || '—'
+          if (c.key === 'tiers') return r._tierNames
+          if (c.key === 'status') return <span style={r.warning ? S.importWarnText : { color: 'var(--success)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{r.warning || '✓ Ready'}</span>
+        }}
+      />
 
       {pendingDelete && (
         <ConfirmDangerDialog
