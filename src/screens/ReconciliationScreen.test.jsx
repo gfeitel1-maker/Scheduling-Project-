@@ -6,7 +6,7 @@
 // resolution; read-only reconciliation never mutates; the last-issued-wins
 // guard protects the debounced dry-run re-issue (ADR Risk #3).
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
