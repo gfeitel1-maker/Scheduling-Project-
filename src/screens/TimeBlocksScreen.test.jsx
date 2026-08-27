@@ -182,6 +182,57 @@ describe('TimeBlocksScreen — add', () => {
     await waitFor(() => expect(screen.queryByText(/That time block could not be added/)).not.toBeNull())
   })
 
+  it('commits the add on Enter from the end-time field, a secondary field, when the row is valid', async () => {
+    localClient.list.mockReset().mockImplementation(entity => {
+      if (entity === 'cohorts') return Promise.resolve([cohort()])
+      if (entity === 'time_blocks') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('0 blocks')).not.toBeNull())
+
+    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Block 1' } })
+    const timeInputs = document.querySelectorAll('input[type="time"]')
+    fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
+    fireEvent.change(timeInputs[1], { target: { value: '10:00' } })
+    fireEvent.keyDown(timeInputs[1], { key: 'Enter' })
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+  })
+
+  it('commits the add on Enter from the sort-order field, a secondary field, when the row is valid', async () => {
+    localClient.list.mockReset().mockImplementation(entity => {
+      if (entity === 'cohorts') return Promise.resolve([cohort()])
+      if (entity === 'time_blocks') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('0 blocks')).not.toBeNull())
+
+    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Block 1' } })
+    const timeInputs = document.querySelectorAll('input[type="time"]')
+    fireEvent.change(timeInputs[0], { target: { value: '09:00' } })
+    fireEvent.change(timeInputs[1], { target: { value: '10:00' } })
+    fireEvent.keyDown(screen.getByPlaceholderText('Order'), { key: 'Enter' })
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+  })
+
+  it('does not add on Enter from a secondary field when the row is invalid (missing start/end time)', async () => {
+    localClient.list.mockReset().mockImplementation(entity => {
+      if (entity === 'cohorts') return Promise.resolve([cohort()])
+      if (entity === 'time_blocks') return Promise.resolve([])
+      return Promise.resolve([])
+    })
+    render(<TimeBlocksScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('0 blocks')).not.toBeNull())
+
+    fireEvent.change(screen.getByPlaceholderText('Name (e.g. Block 1)'), { target: { value: 'Block 1' } })
+    fireEvent.keyDown(screen.getByPlaceholderText('Order'), { key: 'Enter' })
+
+    expect(localClient.write).not.toHaveBeenCalled()
+  })
+
   it('shows a collision-specific message when the underlying write fails with UNIQUE', async () => {
     localClient.list.mockReset().mockImplementation(entity => {
       if (entity === 'cohorts') return Promise.resolve([cohort()])

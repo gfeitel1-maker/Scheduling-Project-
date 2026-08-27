@@ -436,11 +436,11 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Group</div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <input placeholder="Group name" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGroup()} style={{ ...S.input, flex: '1 1 160px', minWidth: 120 }} />
-          <select value={newTierId} onChange={e => setNewTierId(e.target.value)} style={{ ...S.input, flex: '0 0 140px' }}>
+          <select value={newTierId} onChange={e => setNewTierId(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGroup()} style={{ ...S.input, flex: '0 0 140px' }}>
             <option value="">— No age division —</option>
             {tiers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
-          <select value={newAvail} onChange={e => setNewAvail(e.target.value)} style={{ ...S.input, flex: '0 0 150px' }}>
+          <select value={newAvail} onChange={e => setNewAvail(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGroup()} style={{ ...S.input, flex: '0 0 150px' }}>
             {AVAIL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <button className="press-97" onClick={addGroup} disabled={adding || !newName.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>

@@ -111,6 +111,39 @@ describe('DaysScreen', () => {
     await waitFor(() => expect(screen.queryByText(/That day could not be added/)).not.toBeNull())
   })
 
+  it('commits the add on Enter from the day-of-week select, a secondary field, when the row is valid', async () => {
+    localClient.list.mockResolvedValue([])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+
+    fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Friday' } })
+    const dowSelect = screen.getByDisplayValue('Monday')
+    fireEvent.keyDown(dowSelect, { key: 'Enter' })
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+  })
+
+  it('commits the add on Enter from the sort-order field, a secondary field, when the row is valid', async () => {
+    localClient.list.mockResolvedValue([])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+
+    fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Saturday' } })
+    fireEvent.keyDown(screen.getByPlaceholderText('Order'), { key: 'Enter' })
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+  })
+
+  it('does not add on Enter from a secondary field when the row is invalid (no label)', async () => {
+    localClient.list.mockResolvedValue([])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+
+    fireEvent.keyDown(screen.getByPlaceholderText('Order'), { key: 'Enter' })
+
+    expect(localClient.write).not.toHaveBeenCalled()
+  })
+
   it('names the schedule cells, recurring events and overlays a day holds, before deleting it', async () => {
     localClient.list.mockResolvedValue([day()])
     localClient.previewDelete.mockResolvedValue({

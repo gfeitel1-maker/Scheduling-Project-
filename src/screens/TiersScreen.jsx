@@ -431,6 +431,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
             placeholder="Order"
             value={newSort}
             onChange={e => setNewSort(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addTier()}
             style={{ ...S.input, width: 80 }}
           />
           <button className="press-97" onClick={addTier} disabled={adding || !newName.trim() || !activeCohort} style={S.btnPrimary}>
