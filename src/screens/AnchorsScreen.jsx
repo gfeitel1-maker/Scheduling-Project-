@@ -655,13 +655,22 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
                   <div style={S.emptyStateBody}>Add your first recurring event below.</div>
                 </td></tr>
               ) : anchors.map(a => (
-                <tr key={a.id} style={{ borderBottom: '1px solid var(--border)' }}
+                <tr key={a.id} style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+                  onClick={() => setModal({ anchor: a })}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
                   onMouseLeave={e => e.currentTarget.style.background = ''}
+                  onFocus={e => e.currentTarget.style.background = 'var(--bg)'}
+                  onBlur={e => e.currentTarget.style.background = ''}
                 >
                   <td style={{ ...S.td, fontWeight: 500 }}>
                     <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: '50%', background: 'var(--anchor)', marginRight: 8 }} />
-                    {a.name}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Edit ${a.name}`}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ anchor: a }) } }}
+                      style={{ cursor: 'pointer' }}
+                    >{a.name}</span>
                   </td>
                   <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{dayMap[a.day_id] || '—'}</td>
                   <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)' }}>{blockMap[a.time_block_id] || '—'}</td>
@@ -670,6 +679,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
                     <select
                       value={a.schedule_week_id || ''}
                       onChange={e => changeAnchorWeek(a.id, e.target.value || null)}
+                      onClick={e => e.stopPropagation()}
                       style={{ ...S.input, padding: '5px 8px', fontSize: 12, width: 'auto' }}
                     >
                       <option value="">All weeks</option>
@@ -677,9 +687,8 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
                     </select>
                   </td>
                   <td style={{ ...S.td, textAlign: 'right' }}>
-                    <button className="press-97" onClick={() => setModal({ anchor: a })} style={S.btnSecondary}>Edit</button>
                     <button
-                      onClick={() => deleteAnchor(a.id)}
+                      onClick={e => { e.stopPropagation(); deleteAnchor(a.id) }}
                       disabled={role !== 'admin'}
                       title={role !== 'admin' ? 'Admin only' : undefined}
                       style={role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}

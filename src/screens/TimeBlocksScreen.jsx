@@ -20,6 +20,10 @@ import uiClock from '../assets/brand/icons/ui-clock.png'
 // setupCrudRepository. See docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md.
 const repository = createSetupCrudRepository({ localClient })
 
+// Edit-mode Save/Cancel (and Delete, where present) must sit on one line —
+// never wrap/stack — at the screen's normal width.
+const rowActionsFlex = { display: 'flex', flexWrap: 'nowrap', gap: 6, justifyContent: 'flex-end' }
+
 const POD_OPTIONS = [
   { value: 'morning', label: 'Morning' },
   { value: 'afternoon', label: 'Afternoon' },
@@ -51,18 +55,20 @@ function BlockRow({ block, role, onSave, onDelete }) {
   if (editing) {
     return (
       <tr style={{ background: 'var(--surface-elevated)' }}>
-        <td style={S.td}><input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} /></td>
-        <td style={S.td}><input type="time" value={start} onChange={e => setStart(e.target.value)} style={{ ...S.input, width: 110 }} /></td>
-        <td style={S.td}><input type="time" value={end} onChange={e => setEnd(e.target.value)} style={{ ...S.input, width: 110 }} /></td>
+        <td style={S.td}><input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input} /></td>
+        <td style={S.td}><input type="time" value={start} onChange={e => setStart(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={{ ...S.input, width: 110 }} /></td>
+        <td style={S.td}><input type="time" value={end} onChange={e => setEnd(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={{ ...S.input, width: 110 }} /></td>
         <td style={S.td}>
-          <select value={pod} onChange={e => setPod(e.target.value)} style={{ ...S.input, width: 120 }}>
+          <select value={pod} onChange={e => setPod(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={{ ...S.input, width: 120 }}>
             {POD_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </td>
-        <td style={S.td}><input type="number" value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{ ...S.input, width: 60 }} /></td>
+        <td style={S.td}><input type="number" value={sortOrder} onChange={e => setSortOrder(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={{ ...S.input, width: 60 }} /></td>
         <td style={{ ...S.td, textAlign: 'right' }}>
-          <button className="press-97" onClick={save} disabled={saving} style={S.btnPrimary}>{saving ? 'Saving…' : 'Save'}</button>
-          <button className="press-97" onClick={() => { setName(block.name); setStart(block.start_time); setEnd(block.end_time); setPod(block.part_of_day); setSortOrder(block.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>Cancel</button>
+          <div style={rowActionsFlex}>
+            <button className="press-97" onClick={save} disabled={saving} style={{ ...S.btnPrimary, whiteSpace: 'nowrap' }}>{saving ? 'Saving…' : 'Save'}</button>
+            <button className="press-97" onClick={() => { setName(block.name); setStart(block.start_time); setEnd(block.end_time); setPod(block.part_of_day); setSortOrder(block.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
+          </div>
         </td>
       </tr>
     )
@@ -76,19 +82,29 @@ function BlockRow({ block, role, onSave, onDelete }) {
   }
 
   return (
-    <tr style={{ borderBottom: '1px solid var(--border)' }}
+    <tr style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+      onClick={() => setEditing(true)}
       onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
       onMouseLeave={e => e.currentTarget.style.background = ''}
+      onFocus={e => e.currentTarget.style.background = 'var(--bg)'}
+      onBlur={e => e.currentTarget.style.background = ''}
     >
-      <td style={S.td}>{block.name}</td>
+      <td style={S.td}>
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label={`Edit ${block.name}`}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
+          style={{ cursor: 'pointer' }}
+        >{block.name}</span>
+      </td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.start_time)}</td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12 }}>{fmt(block.end_time)}</td>
       <td style={{ ...S.td, fontSize: 12, color: 'var(--text-secondary)' }}>{POD_OPTIONS.find(o => o.value === block.part_of_day)?.label ?? '—'}</td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{block.sort_order}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
-        <button className="press-97" onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
         <button
-          onClick={() => onDelete(block.id)}
+          onClick={e => { e.stopPropagation(); onDelete(block.id) }}
           disabled={role !== 'admin'}
           title={role !== 'admin' ? 'Admin only' : undefined}
           style={role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
@@ -417,12 +433,12 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Time Block</div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <input placeholder="Name (e.g. Block 1)" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addBlock()} style={{ ...S.input, flex: '1 1 120px' }} />
-          <input type="time" value={newStart} onChange={e => setNewStart(e.target.value)} style={{ ...S.input, flex: '0 0 120px' }} />
-          <input type="time" value={newEnd} onChange={e => setNewEnd(e.target.value)} style={{ ...S.input, flex: '0 0 120px' }} />
+          <input type="time" value={newStart} onChange={e => setNewStart(e.target.value)} onKeyDown={e => e.key === 'Enter' && addBlock()} style={{ ...S.input, flex: '0 0 120px' }} />
+          <input type="time" value={newEnd} onChange={e => setNewEnd(e.target.value)} onKeyDown={e => e.key === 'Enter' && addBlock()} style={{ ...S.input, flex: '0 0 120px' }} />
           <select value={newPod} onChange={e => setNewPod(e.target.value)} style={{ ...S.input, flex: '0 0 130px' }}>
             {POD_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
-          <input type="number" placeholder="Order" value={newSort} onChange={e => setNewSort(e.target.value)} style={{ ...S.input, flex: '0 0 70px' }} />
+          <input type="number" placeholder="Order" value={newSort} onChange={e => setNewSort(e.target.value)} onKeyDown={e => e.key === 'Enter' && addBlock()} style={{ ...S.input, flex: '0 0 70px' }} />
           <button className="press-97" onClick={addBlock} disabled={adding || !newName.trim() || !newStart || !newEnd || !activeCohort} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
         </div>
       </div>

@@ -13,6 +13,7 @@ import ExclusionConfirmDialog from '../components/schedule/ExclusionConfirmDialo
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { LocationPicker } from '../components/LocationPicker'
+import { CapacityStepper } from '../components/CapacityStepper'
 import { resolveLocationCandidateId } from '../../electron/ops/locationId.js'
 import { CONFIDENCE_COPY, plainEvidenceSentence } from '../components/reconciliation/reconciliationCards.jsx'
 import { deriveActivityProvenance, hasAnyEvidence, worstTier } from '../utils/ruleProvenance.js'
@@ -176,14 +177,14 @@ function RuleProvenanceDot({ activity, evidenceByField, fieldSources, onConfirmF
   const shape = tierShapeStyle(worst)
 
   return (
-    <span style={{ position: 'relative', display: 'inline-block', marginLeft: 6 }}>
+    <span style={{ position: 'relative', display: 'inline-block', marginLeft: 6 }} onClick={e => e.stopPropagation()}>
       <button
         ref={btnRef}
         type="button"
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={ariaLabel}
-        onClick={() => setOpen(v => !v)}
+        onClick={e => { e.stopPropagation(); setOpen(v => !v) }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
         onFocus={() => setHovered(true)}
@@ -301,7 +302,7 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
           {maxGroups > 1 && (
             <div style={{ paddingLeft: 22, marginTop: 10, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
               <Field label="Max groups at once">
-                <input type="number" min={2} value={maxGroups} onChange={e => setMaxGroups(Math.max(2, Number(e.target.value)))} style={{ ...S.input, width: 80 }} />
+                <CapacityStepper value={maxGroups} onChange={setMaxGroups} min={2} ariaLabel="Max groups at once" />
               </Field>
               <div style={{ paddingTop: 22 }}>
                 <label style={checkLabel}>
@@ -315,13 +316,13 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
 
         <div style={grid3}>
           <Field label="Min per week">
-            <input type="number" min={0} value={minWeek} onChange={e => setMinWeek(e.target.value)} style={S.input} />
+            <CapacityStepper value={minWeek} onChange={setMinWeek} min={0} ariaLabel="Minimum per week" />
           </Field>
           <Field label="Max per week">
-            <input type="number" min={0} value={maxWeek} onChange={e => setMaxWeek(e.target.value)} style={S.input} />
+            <CapacityStepper value={maxWeek} onChange={setMaxWeek} min={0} ariaLabel="Maximum per week" />
           </Field>
           <Field label="Blocks per session">
-            <input type="number" min={1} value={spanBlocks} onChange={e => setSpanBlocks(Math.max(1, Number(e.target.value)))} style={S.input} />
+            <CapacityStepper value={spanBlocks} onChange={setSpanBlocks} min={1} ariaLabel="Blocks per session" />
           </Field>
         </div>
 
@@ -1040,6 +1041,7 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                     {rows.map(a => (
                       <tr key={a.id} style={{
                           borderBottom: '1px solid var(--border)',
+                          cursor: 'pointer',
                           // justConfirmed wins over hover so the settle survives a hover.
                           background: justConfirmed?.activityId === a.id
                             ? 'color-mix(in srgb, var(--secondary) 10%, transparent)'
@@ -1048,11 +1050,20 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                           transition: (justConfirmed?.activityId === a.id && !prefersReducedMotion())
                             ? 'background-color var(--motion-settle) var(--ease-out)' : 'none',
                         }}
+                        onClick={() => setModal({ activity: a })}
                         onMouseEnter={() => setHoveredRow(a.id)}
                         onMouseLeave={() => setHoveredRow(null)}
+                        onFocus={() => setHoveredRow(a.id)}
+                        onBlur={() => setHoveredRow(null)}
                       >
                         <td style={{ ...S.td, fontWeight: 500 }}>
-                          {a.name}
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            aria-label={`Edit ${a.name}`}
+                            onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ activity: a }) } }}
+                            style={{ cursor: 'pointer' }}
+                          >{a.name}</span>
                           <RuleProvenanceDot
                             activity={a}
                             evidenceByField={evidenceByActivity[a.id] || {}}
@@ -1080,10 +1091,9 @@ export default function ActivitiesScreen({ campId, role, onNavigate, weekId, wee
                           </td>
                         )}
                         <td style={{ ...S.td, textAlign: 'right', borderLeft: weekId ? '1px solid var(--border)' : undefined }}>
-                          <button className="press-97" onClick={() => setModal({ activity: a })} style={S.btnSecondary}>Edit</button>
-                          <button className="press-97" onClick={() => duplicateActivity(a)} style={{ ...S.btnSecondary, marginLeft: 6 }}>Duplicate</button>
+                          <button className="press-97" onClick={e => { e.stopPropagation(); duplicateActivity(a) }} style={S.btnSecondary}>Duplicate</button>
                           <button
-                            onClick={() => deleteActivity(a.id)}
+                            onClick={e => { e.stopPropagation(); deleteActivity(a.id) }}
                             disabled={role !== 'admin'}
                             title={role !== 'admin' ? 'Admin only' : undefined}
                             style={role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
@@ -1200,7 +1210,7 @@ function WeekToggle({ on, label, onToggle }) {
       role="switch"
       aria-checked={on}
       aria-label={label}
-      onClick={onToggle}
+      onClick={e => { e.stopPropagation(); onToggle() }}
       style={{
         display: 'inline-flex',
         alignItems: 'center',

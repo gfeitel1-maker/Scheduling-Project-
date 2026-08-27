@@ -21,6 +21,10 @@ const repo = createScheduleRepository({ localClient })
 // See docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md.
 const repository = createSetupCrudRepository({ localClient })
 
+// Edit-mode Save/Cancel (and Delete, where present) must sit on one line —
+// never wrap/stack — at the screen's normal width.
+const rowActionsFlex = { display: 'flex', flexWrap: 'nowrap', gap: 6, justifyContent: 'flex-end' }
+
 const AVAIL_OPTIONS = [
   { value: 'all', label: 'All Day' },
   { value: 'morning', label: 'Morning Only' },
@@ -47,40 +51,52 @@ function GroupRow({ group, tiers, role, onSave, onDelete, onHistory, weekToggle 
   if (editing) {
     return (
       <tr style={{ background: 'var(--surface-elevated)' }}>
-        <td style={S.td}><input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} /></td>
+        <td style={S.td}><input autoFocus value={name} onChange={e => setName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input} /></td>
         <td style={S.td}>
-          <select value={tierId} onChange={e => setTierId(e.target.value)} style={S.input}>
+          <select value={tierId} onChange={e => setTierId(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input}>
             <option value="">— No age division —</option>
             {tiers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
         </td>
         <td style={S.td}>
-          <select value={avail} onChange={e => setAvail(e.target.value)} style={S.input}>
+          <select value={avail} onChange={e => setAvail(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input}>
             {AVAIL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </td>
         <td style={{ ...S.td, textAlign: 'right' }}>
-          <button className="press-97" onClick={save} disabled={saving} style={S.btnPrimary}>{saving ? 'Saving…' : 'Save'}</button>
-          <button className="press-97" onClick={() => { setName(group.name); setTierId(group.tier_id||''); setAvail(group.availability); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>Cancel</button>
+          <div style={rowActionsFlex}>
+            <button className="press-97" onClick={save} disabled={saving} style={{ ...S.btnPrimary, whiteSpace: 'nowrap' }}>{saving ? 'Saving…' : 'Save'}</button>
+            <button className="press-97" onClick={() => { setName(group.name); setTierId(group.tier_id||''); setAvail(group.availability); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
+          </div>
         </td>
       </tr>
     )
   }
 
   return (
-    <tr style={{ borderBottom: '1px solid var(--border)' }}
+    <tr style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+      onClick={() => setEditing(true)}
       onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
       onMouseLeave={e => e.currentTarget.style.background = ''}
+      onFocus={e => e.currentTarget.style.background = 'var(--bg)'}
+      onBlur={e => e.currentTarget.style.background = ''}
     >
-      <td style={S.td}>{group.name}</td>
+      <td style={S.td}>
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label={`Edit ${group.name}`}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
+          style={{ cursor: 'pointer' }}
+        >{group.name}</span>
+      </td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{tierName}</td>
       <td style={{ ...S.td, fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)' }}>{AVAIL_OPTIONS.find(o => o.value === group.availability)?.label || '—'}</td>
       {weekToggle}
       <td style={{ ...S.td, textAlign: 'right', borderLeft: weekToggle ? '1px solid var(--border)' : undefined }}>
-        <button className="press-97" onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
-        <button className="press-97" onClick={() => onHistory(group)} style={{ ...S.btnSecondary, marginLeft: 6 }}>History</button>
+        <button className="press-97" onClick={e => { e.stopPropagation(); onHistory(group) }} style={S.btnSecondary}>History</button>
         <button
-          onClick={() => onDelete(group.id)}
+          onClick={e => { e.stopPropagation(); onDelete(group.id) }}
           disabled={role !== 'admin'}
           title={role !== 'admin' ? 'Admin only' : undefined}
           style={role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
@@ -436,11 +452,11 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Group</div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <input placeholder="Group name" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGroup()} style={{ ...S.input, flex: '1 1 160px', minWidth: 120 }} />
-          <select value={newTierId} onChange={e => setNewTierId(e.target.value)} style={{ ...S.input, flex: '0 0 140px' }}>
+          <select value={newTierId} onChange={e => setNewTierId(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGroup()} style={{ ...S.input, flex: '0 0 140px' }}>
             <option value="">— No age division —</option>
             {tiers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
           </select>
-          <select value={newAvail} onChange={e => setNewAvail(e.target.value)} style={{ ...S.input, flex: '0 0 150px' }}>
+          <select value={newAvail} onChange={e => setNewAvail(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGroup()} style={{ ...S.input, flex: '0 0 150px' }}>
             {AVAIL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
           <button className="press-97" onClick={addGroup} disabled={adding || !newName.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>
@@ -520,7 +536,7 @@ function WeekToggle({ on, label, onToggle }) {
       role="switch"
       aria-checked={on}
       aria-label={label}
-      onClick={onToggle}
+      onClick={e => { e.stopPropagation(); onToggle() }}
       style={{
         display: 'inline-flex',
         alignItems: 'center',

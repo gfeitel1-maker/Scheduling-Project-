@@ -136,7 +136,7 @@ describe('GroupsScreen', () => {
     render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Edit'))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Yeladim 1' }))
     const nameInput = screen.getByDisplayValue('Yeladim 1')
     fireEvent.change(nameInput, { target: { value: 'Renamed' } })
 
@@ -453,5 +453,74 @@ describe('GroupsScreen — import', () => {
     await userEvent.upload(fileInput, file)
 
     await waitFor(() => expect(screen.queryByText('Age Division "Nonexistent Age Division" not found')).not.toBeNull())
+  })
+})
+
+describe('GroupsScreen — row-click to edit', () => {
+  it('has no visible Edit button', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [group()] : [tier()])
+    )
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+    expect(screen.queryByText('Edit')).toBeNull()
+  })
+
+  it('Enter on a focused row enters edit mode', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [group()] : [tier()])
+    )
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+
+    const row = screen.getByRole('button', { name: 'Edit Yeladim 1' })
+    fireEvent.keyDown(row, { key: 'Enter' })
+
+    expect(screen.getByDisplayValue('Yeladim 1')).not.toBeNull()
+  })
+
+  it('clicking Delete does not enter edit mode', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [group()] : [tier()])
+    )
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+
+    await waitFor(() => expect(localClient.previewDelete).toHaveBeenCalled())
+    expect(screen.queryByDisplayValue('Yeladim 1')).toBeNull()
+  })
+
+  it('clicking History does not enter edit mode', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [group()] : [tier()])
+    )
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('History'))
+
+    expect(screen.queryByDisplayValue('Yeladim 1')).toBeNull()
+  })
+
+  it('toggling the WeekToggle does not enter edit mode', async () => {
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'groups' ? [group()] : [tier()])
+    )
+    render(
+      <GroupsScreen
+        campId={CAMP_ID}
+        role="admin"
+        onNavigate={() => {}}
+        weekId="week-1"
+        weeks={[{ id: 'week-1', name: 'Week 1' }]}
+      />
+    )
+    await waitFor(() => expect(screen.queryByText('Yeladim 1')).not.toBeNull())
+
+    fireEvent.click(screen.getByRole('switch'))
+
+    expect(screen.queryByDisplayValue('Yeladim 1')).toBeNull()
   })
 })

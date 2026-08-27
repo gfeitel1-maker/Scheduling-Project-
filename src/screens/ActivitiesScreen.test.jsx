@@ -717,7 +717,11 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
 
     // createLocation stays crypto.randomUUID()-based (unchanged from pre-T81)
     // — the default beforeEach stub returns 'new-activity-id' for every call.
-    fireEvent.click(screen.getByLabelText('Increase'))
+    // Scoped to the location stepper's own wrapper — the modal now also
+    // holds CapacitySteppers for min/max/span/max-groups, all sharing the
+    // generic "Increase" aria-label.
+    const groupsStepper = screen.getByLabelText('Groups at once').closest('div')
+    fireEvent.click(within(groupsStepper).getByLabelText('Increase'))
     await waitFor(() => expect(localClient.write).toHaveBeenCalledWith('token-abc', 'locations', 'new-activity-id', 'capacity', 2))
   })
 
@@ -754,7 +758,7 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Edit'))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Archery' }))
     await waitFor(() => expect(screen.queryByText('The location set here no longer exists — pick a new one.')).not.toBeNull())
     // The search box is shown (not a stale-looking selected token) so the
     // director can immediately pick a replacement.
@@ -770,7 +774,7 @@ describe('ActivitiesScreen — location picker round-2 polish (C1-C5)', () => {
     render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
     await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Edit'))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Archery' }))
     await waitFor(() => expect(screen.queryByText('The location set here no longer exists — pick a new one.')).not.toBeNull())
 
     fireEvent.click(screen.getByRole('button', { name: 'Save Changes' }))
@@ -1045,5 +1049,49 @@ describe('ActivitiesScreen — motion + depth pass (Slice E)', () => {
 
     fireEvent.mouseLeave(dot)
     expect(dot.style.boxShadow).not.toBe('0 0 0 3px color-mix(in srgb, var(--text) 10%, transparent)')
+  })
+})
+
+describe('ActivitiesScreen — row-click to edit', () => {
+  beforeEach(() => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([activity()])
+      return Promise.resolve([])
+    })
+  })
+
+  it('has no visible Edit button', async () => {
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+    expect(screen.queryByText('Edit')).toBeNull()
+  })
+
+  it('Enter on a focused row opens the edit modal', async () => {
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    const row = screen.getByRole('button', { name: 'Edit Archery' })
+    fireEvent.keyDown(row, { key: 'Enter' })
+
+    expect(screen.queryByText('Edit: Archery')).not.toBeNull()
+  })
+
+  it('clicking Duplicate does not open the edit modal', async () => {
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Duplicate'))
+
+    expect(screen.queryByText('Edit: Archery')).toBeNull()
+  })
+
+  it('clicking Delete does not open the edit modal', async () => {
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+
+    await waitFor(() => expect(localClient.previewDelete).toHaveBeenCalled())
+    expect(screen.queryByText('Edit: Archery')).toBeNull()
   })
 })

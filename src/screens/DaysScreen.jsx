@@ -14,6 +14,10 @@ import { DOW } from './setup/setupHelpers'
 const repository = createSetupCrudRepository({ localClient })
 const scopeFilter = (row, campId) => row.camp_id === campId
 
+// Edit-mode Save/Cancel (and Delete, where present) must sit on one line —
+// never wrap/stack — at the screen's normal width.
+const rowActionsFlex = { display: 'flex', flexWrap: 'nowrap', gap: 6, justifyContent: 'flex-end' }
+
 function DayRow({ day, role, onSave, onDelete }) {
   const [editing, setEditing] = useState(false)
   const [label, setLabel] = useState(day.label)
@@ -31,33 +35,45 @@ function DayRow({ day, role, onSave, onDelete }) {
   if (editing) {
     return (
       <tr style={{ background: 'var(--surface-elevated)' }}>
-        <td style={S.td}><input autoFocus value={label} onChange={e => setLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && save()} style={S.input} /></td>
+        <td style={S.td}><input autoFocus value={label} onChange={e => setLabel(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input} /></td>
         <td style={S.td}>
-          <select value={dow} onChange={e => setDow(e.target.value)} style={S.input}>
+          <select value={dow} onChange={e => setDow(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={S.input}>
             {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
           </select>
         </td>
-        <td style={S.td}><input type="number" value={sortOrder} onChange={e => setSortOrder(e.target.value)} style={{ ...S.input, width: 70 }} /></td>
+        <td style={S.td}><input type="number" value={sortOrder} onChange={e => setSortOrder(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false) }} style={{ ...S.input, width: 70 }} /></td>
         <td style={{ ...S.td, textAlign: 'right' }}>
-          <button className="press-97" onClick={save} disabled={saving} style={S.btnPrimary}>{saving ? 'Saving…' : 'Save'}</button>
-          <button className="press-97" onClick={() => { setLabel(day.label); setDow(day.day_of_week); setSortOrder(day.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>Cancel</button>
+          <div style={rowActionsFlex}>
+            <button className="press-97" onClick={save} disabled={saving} style={{ ...S.btnPrimary, whiteSpace: 'nowrap' }}>{saving ? 'Saving…' : 'Save'}</button>
+            <button className="press-97" onClick={() => { setLabel(day.label); setDow(day.day_of_week); setSortOrder(day.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>Cancel</button>
+          </div>
         </td>
       </tr>
     )
   }
 
   return (
-    <tr style={{ borderBottom: '1px solid var(--border)' }}
+    <tr style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+      onClick={() => setEditing(true)}
       onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
       onMouseLeave={e => e.currentTarget.style.background = ''}
+      onFocus={e => e.currentTarget.style.background = 'var(--bg)'}
+      onBlur={e => e.currentTarget.style.background = ''}
     >
-      <td style={S.td}>{day.label}</td>
+      <td style={S.td}>
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label={`Edit ${day.label}`}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
+          style={{ cursor: 'pointer' }}
+        >{day.label}</span>
+      </td>
       <td style={{ ...S.td, color: 'var(--text-secondary)', fontSize: 13 }}>{DOW[day.day_of_week]}</td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{day.sort_order}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
-        <button className="press-97" onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
         <button
-          onClick={() => onDelete(day.id)}
+          onClick={e => { e.stopPropagation(); onDelete(day.id) }}
           disabled={role !== 'admin'}
           title={role !== 'admin' ? 'Admin only' : undefined}
           style={role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
@@ -191,10 +207,10 @@ export default function DaysScreen({ campId, role, onNavigate }) {
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Day</div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <input placeholder="Label (e.g. Monday)" value={newLabel} onChange={e => setNewLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDay()} style={{ ...S.input, flex: '1 1 150px' }} />
-          <select value={newDow} onChange={e => setNewDow(e.target.value)} style={{ ...S.input, flex: '0 0 140px' }}>
+          <select value={newDow} onChange={e => setNewDow(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDay()} style={{ ...S.input, flex: '0 0 140px' }}>
             {DOW.map((d, i) => <option key={i} value={i}>{d}</option>)}
           </select>
-          <input type="number" placeholder="Order" value={newSort} onChange={e => setNewSort(e.target.value)} style={{ ...S.input, flex: '0 0 80px' }} />
+          <input type="number" placeholder="Order" value={newSort} onChange={e => setNewSort(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDay()} style={{ ...S.input, flex: '0 0 80px' }} />
           <button className="press-97" onClick={addDay} disabled={adding || !newLabel.trim()} style={{ ...S.btnPrimary, flexShrink: 0 }}>{adding ? 'Adding…' : '+ Add'}</button>
         </div>
       </div>

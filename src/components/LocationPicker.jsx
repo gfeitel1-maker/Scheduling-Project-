@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useEnterTransition } from '../styles/shared'
-import { CapacityStepper } from '../screens/LocationsScreen'
+import { CapacityStepper } from './CapacityStepper'
 
 const LOCATION_QUERY_MAXLENGTH = 60
 

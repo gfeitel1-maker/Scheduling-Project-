@@ -115,7 +115,7 @@ describe('TiersScreen delete confirmation', () => {
     await waitFor(() => expect(screen.queryByText('Delete "Yeladim"?')).not.toBeNull())
     expect(screen.queryByText('This age division has no groups, so nothing in your schedules is affected.')).not.toBeNull()
 
-    fireEvent.click(screen.getByText('Edit'))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Yeladim' }))
     fireEvent.click(screen.getByText('Save'))
 
     await waitFor(() => expect(screen.queryByText(/This age division still has 1 group assigned to it/)).not.toBeNull())
@@ -245,7 +245,7 @@ describe('TiersScreen — save', () => {
     render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Edit'))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Yeladim' }))
     const nameInput = screen.getAllByDisplayValue('Yeladim')[0]
     fireEvent.change(nameInput, { target: { value: 'Yeladim Tzeirim' } })
     fireEvent.click(screen.getByText('Save'))
@@ -377,5 +377,33 @@ describe('TiersScreen — import', () => {
     expect(screen.queryByText(/2 skipped/)).not.toBeNull()
     const namesWritten = localClient.write.mock.calls.filter(c => c[3] === 'name').map(c => c[4])
     expect(namesWritten).toEqual(['Bogrim'])
+  })
+})
+
+describe('TiersScreen — row-click to edit', () => {
+  it('has no visible Edit button', async () => {
+    render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
+    expect(screen.queryByText('Edit')).toBeNull()
+  })
+
+  it('Space on a focused row enters edit mode', async () => {
+    render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
+
+    const row = screen.getByRole('button', { name: 'Edit Yeladim' })
+    fireEvent.keyDown(row, { key: ' ' })
+
+    expect(screen.getByDisplayValue('Yeladim')).not.toBeNull()
+  })
+
+  it('clicking Delete does not enter edit mode', async () => {
+    render(<TiersScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Yeladim')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+
+    await waitFor(() => expect(screen.queryByText('Delete "Yeladim"?')).not.toBeNull())
+    expect(screen.queryByDisplayValue('Yeladim')).toBeNull()
   })
 })

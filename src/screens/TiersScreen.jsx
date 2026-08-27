@@ -23,6 +23,10 @@ import uiPeople from '../assets/brand/icons/ui-people.png'
 // setupCrudRepository. See docs/adr/2026-08-12-setup-crud-shared-persistence-seam.md.
 const repository = createSetupCrudRepository({ localClient })
 
+// Edit-mode Save/Cancel (and Delete, where present) must sit on one line —
+// never wrap/stack — at the screen's normal width.
+const rowActionsFlex = { display: 'flex', flexWrap: 'nowrap', gap: 6, justifyContent: 'flex-end' }
+
 function TierRow({ tier, groupCount, role, onSave, onDelete }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(tier.name)
@@ -64,28 +68,40 @@ function TierRow({ tier, groupCount, role, onSave, onDelete }) {
         </td>
         <td style={S.td}>{groupCount}</td>
         <td style={{ ...S.td, textAlign: 'right' }}>
-          <button className="press-97" onClick={save} disabled={saving} style={S.btnPrimary}>
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          <button className="press-97" onClick={() => { setName(tier.name); setSortOrder(tier.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, marginLeft: 6 }}>
-            Cancel
-          </button>
+          <div style={rowActionsFlex}>
+            <button className="press-97" onClick={save} disabled={saving} style={{ ...S.btnPrimary, whiteSpace: 'nowrap' }}>
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button className="press-97" onClick={() => { setName(tier.name); setSortOrder(tier.sort_order); setEditing(false) }} style={{ ...S.btnSecondary, whiteSpace: 'nowrap' }}>
+              Cancel
+            </button>
+          </div>
         </td>
       </tr>
     )
   }
 
   return (
-    <tr style={{ borderBottom: '1px solid var(--border)' }}
+    <tr style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+      onClick={() => setEditing(true)}
       onMouseEnter={e => e.currentTarget.style.background = 'var(--bg)'}
       onMouseLeave={e => e.currentTarget.style.background = ''}
+      onFocus={e => e.currentTarget.style.background = 'var(--bg)'}
+      onBlur={e => e.currentTarget.style.background = ''}
     >
-      <td style={S.td}>{tier.name}</td>
+      <td style={S.td}>
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label={`Edit ${tier.name}`}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setEditing(true) } }}
+          style={{ cursor: 'pointer' }}
+        >{tier.name}</span>
+      </td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{tier.sort_order}</td>
       <td style={{ ...S.td, fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-secondary)' }}>{groupCount}</td>
       <td style={{ ...S.td, textAlign: 'right' }}>
-        <button className="press-97" onClick={() => setEditing(true)} style={S.btnSecondary}>Edit</button>
-        <button onClick={() => onDelete(tier.id)}
+        <button onClick={e => { e.stopPropagation(); onDelete(tier.id) }}
           style={groupCount > 0 || role !== 'admin' ? { ...S.btnDanger, marginLeft: 6, ...S.buttonDisabled } : { ...S.btnDanger, marginLeft: 6 }}
           disabled={groupCount > 0 || role !== 'admin'}
           title={groupCount > 0 ? 'Remove groups from this age division first' : role !== 'admin' ? 'Admin only' : ''}
@@ -431,6 +447,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
             placeholder="Order"
             value={newSort}
             onChange={e => setNewSort(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addTier()}
             style={{ ...S.input, width: 80 }}
           />
           <button className="press-97" onClick={addTier} disabled={adding || !newName.trim() || !activeCohort} style={S.btnPrimary}>

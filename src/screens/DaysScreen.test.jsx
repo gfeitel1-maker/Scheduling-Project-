@@ -111,6 +111,39 @@ describe('DaysScreen', () => {
     await waitFor(() => expect(screen.queryByText(/That day could not be added/)).not.toBeNull())
   })
 
+  it('commits the add on Enter from the day-of-week select, a secondary field, when the row is valid', async () => {
+    localClient.list.mockResolvedValue([])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+
+    fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Friday' } })
+    const dowSelect = screen.getByDisplayValue('Monday')
+    fireEvent.keyDown(dowSelect, { key: 'Enter' })
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+  })
+
+  it('commits the add on Enter from the sort-order field, a secondary field, when the row is valid', async () => {
+    localClient.list.mockResolvedValue([])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+
+    fireEvent.change(screen.getByPlaceholderText('Label (e.g. Monday)'), { target: { value: 'Saturday' } })
+    fireEvent.keyDown(screen.getByPlaceholderText('Order'), { key: 'Enter' })
+
+    await waitFor(() => expect(localClient.write).toHaveBeenCalled())
+  })
+
+  it('does not add on Enter from a secondary field when the row is invalid (no label)', async () => {
+    localClient.list.mockResolvedValue([])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('0 days')).not.toBeNull())
+
+    fireEvent.keyDown(screen.getByPlaceholderText('Order'), { key: 'Enter' })
+
+    expect(localClient.write).not.toHaveBeenCalled()
+  })
+
   it('names the schedule cells, recurring events and overlays a day holds, before deleting it', async () => {
     localClient.list.mockResolvedValue([day()])
     localClient.previewDelete.mockResolvedValue({
@@ -240,7 +273,7 @@ describe('DaysScreen', () => {
     render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
     await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
 
-    fireEvent.click(screen.getByText('Edit'))
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Monday' }))
     const labelInput = screen.getAllByDisplayValue('Monday')[0]
     fireEvent.change(labelInput, { target: { value: 'Mon' } })
     fireEvent.click(screen.getByText('Save'))
@@ -253,4 +286,35 @@ describe('DaysScreen', () => {
   // Days deliberately omits bulk Excel import (SetupScreenShell `actions` config
   // — a director does not bulk-import 5 weekday rows); the old import-preview
   // test was removed along with the in-screen import UI it exercised.
+})
+
+describe('DaysScreen — row-click to edit', () => {
+  it('has no visible Edit button', async () => {
+    localClient.list.mockResolvedValue([day()])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+    expect(screen.queryByText('Edit')).toBeNull()
+  })
+
+  it('Enter on a focused row enters edit mode', async () => {
+    localClient.list.mockResolvedValue([day()])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+
+    const row = screen.getByRole('button', { name: 'Edit Monday' })
+    fireEvent.keyDown(row, { key: 'Enter' })
+
+    expect(screen.getAllByDisplayValue('Monday')[0]).not.toBeNull()
+  })
+
+  it('clicking Delete does not enter edit mode', async () => {
+    localClient.list.mockResolvedValue([day()])
+    render(<DaysScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Monday')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Delete'))
+
+    await waitFor(() => expect(localClient.previewDelete).toHaveBeenCalled())
+    expect(screen.queryByText('Save')).toBeNull()
+  })
 })
