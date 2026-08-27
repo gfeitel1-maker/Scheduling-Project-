@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { DOW, parseIdList, makeSerializeFieldValue } from './setupHelpers'
+import { DOW, parseIdList, makeSerializeFieldValue, minutesFromMidnight } from './setupHelpers'
 
 describe('setupHelpers', () => {
   it('DOW is Sunday-first and 7 long', () => {
@@ -23,5 +23,21 @@ describe('setupHelpers', () => {
     expect(serialize('group_ids', null)).toBe('[]')
     expect(serialize('name', 'Swim')).toBe('Swim')
     expect(serialize('notes', undefined)).toBe(null)
+  })
+
+  it('minutesFromMidnight parses "HH:MM" into minutes since midnight', () => {
+    expect(minutesFromMidnight('09:00')).toBe(540)
+    expect(minutesFromMidnight('10:00')).toBe(600)
+    expect(minutesFromMidnight('00:00')).toBe(0)
+    expect(minutesFromMidnight('23:59')).toBe(1439)
+  })
+
+  it('minutesFromMidnight guards null/malformed input to 0', () => {
+    expect(minutesFromMidnight(null)).toBe(0)
+    expect(minutesFromMidnight(undefined)).toBe(0)
+    expect(minutesFromMidnight('')).toBe(0)
+    expect(minutesFromMidnight('not a time')).toBe(0)
+    expect(minutesFromMidnight('25:00')).toBe(0)
+    expect(minutesFromMidnight('09:70')).toBe(0)
   })
 })
