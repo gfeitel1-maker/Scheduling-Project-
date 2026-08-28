@@ -64,7 +64,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
   }
 
   return (
-    <div style={{ maxWidth: 920, margin: '0 auto', ...enterStyle }}>
+    <div data-testid="roots-screen" style={{ maxWidth: 920, margin: '0 auto', ...enterStyle }}>
       <h1 style={styles.title}>Roots</h1>
 
       <button className="press-97" onClick={() => onNavigate('schedule')} style={styles.scheduleBar}>
