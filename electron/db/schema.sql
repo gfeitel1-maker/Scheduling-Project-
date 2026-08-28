@@ -493,10 +493,19 @@ CREATE TABLE IF NOT EXISTS time_blocks (
 -- location_id (v45, docs/work/specs/2026-08-23-slice4-engine-location-
 -- contention.md §1/§6): nullable FK-by-convention to locations(id), NO
 -- DB-level FOREIGN KEY — matches activities.location_id exactly. NULL =
--- unconstrained, identical to today's behavior. Appended LAST: it is
--- ALTER-added on a migrated db (localDb.js v45), which always appends, so
--- declaring it last here keeps a fresh install's column order byte-identical
--- to a migrated one (column-order trap).
+-- unconstrained, identical to today's behavior. Appended before v51's kind
+-- column below: it is ALTER-added on a migrated db (localDb.js v45), which
+-- always appends, so declaring it here keeps a fresh install's column order
+-- byte-identical to a migrated one (column-order trap).
+-- kind (v51, docs/adr/2026-08-28-fixed-vs-recurring-events.md §3/§5):
+-- Fixed = all-camp (is_all_groups=1, unit_id/group_ids empty), Recurring =
+-- group- or division-scoped. Classification-only — the engine already
+-- resolves scope from unit_id/is_all_groups/group_ids identically for both
+-- kinds (§4: zero engine change). The CHECK below stores the §1 decision
+-- table as a DB-enforced invariant rather than an app-layer convention: a
+-- 'fixed' row cannot be saved scoped to less than all groups. Appended LAST
+-- (v51 recreates the table via ALTER on a migrated db — see localDb.js —
+-- so this column always lands after location_id there too).
 CREATE TABLE IF NOT EXISTS anchor_activities (
   id TEXT PRIMARY KEY,
   camp_id TEXT NOT NULL REFERENCES camps(id),
@@ -511,7 +520,13 @@ CREATE TABLE IF NOT EXISTS anchor_activities (
   notes TEXT,
   schedule_week_id TEXT REFERENCES schedule_weeks(id),
   recurrence_level TEXT NOT NULL DEFAULT 'daily',
-  location_id TEXT
+  location_id TEXT,
+  kind TEXT NOT NULL DEFAULT 'fixed' CHECK (kind IN ('fixed', 'recurring')),
+  CHECK (
+    kind = 'recurring'
+    OR (kind = 'fixed' AND is_all_groups = 1 AND unit_id IS NULL
+        AND (group_ids IS NULL OR group_ids = '[]'))
+  )
 );
 
 -- A week is director-named text (e.g. "Week 1"), not a `template`/`slot`/

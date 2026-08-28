@@ -301,6 +301,11 @@ export function inferFixedEvents(parsed, proposal, options = {}) {
       name: entry.name,
       time_block: entry.time_block,
       days: entry.days,
+      // Fixed vs Recurring (docs/adr/2026-08-28-fixed-vs-recurring-events.md
+      // §6) — same isAll test the scope object below is built from. unit_id
+      // is never written by ingest (§6's asymmetry note), so this is purely
+      // is_all_groups vs. group_ids, unlike the hand-authoring form.
+      kind: isAll ? 'fixed' : 'recurring',
       scope: isAll
         ? { is_all_groups: true, groups: null }
         : {

@@ -1504,3 +1504,77 @@ describe('derived time-block sort_order keeps span placement chronological (out-
     expect(blockIds).toEqual(['b-earlier', 'b-later'])
   })
 })
+
+// Fixed vs Recurring events (docs/adr/2026-08-28-fixed-vs-recurring-events.md
+// §4/§8.3): WS2 adds a classification-only `kind` column to anchor_activities
+// — no engine change, no engine code path should ever branch on it. This is
+// the regression gate: the engine already resolves scope from unit_id/
+// is_all_groups/group_ids identically regardless of `kind` (or its absence),
+// so adding `kind` to an anchor object (as every writer now does) must
+// produce BYTE-IDENTICAL output to the same fixture without it, for a
+// fixture containing both an all-groups anchor (Fixed) and a group-scoped
+// anchor (Recurring).
+describe('kind is classification-only — engine placement parity (v51)', () => {
+  const flagpole = { id: 'flagpole', name: 'Flagpole', priority: 'high', max_per_week: 10, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+  const lunch = { id: 'lunch', name: 'Lunch', priority: 'high', max_per_week: 10, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+  const archery = { id: 'archery', name: 'Archery', priority: 'low', max_per_week: 5, min_per_week: 0, is_outdoor: false, location: null, max_groups_per_slot: 1, same_tier_only: false, eligible_tier_ids: [], eligible_group_ids: [], prefer_before_day: null, prefer_before_day_min: null }
+
+  const g2 = { id: 'g2', name: 'Bet', tier_id: 't1', availability: 'all' }
+  const block2 = { id: 'b2', name: 'Late Morning', start_time: '10:30', end_time: '11:45', sort_order: 1, part_of_day: 'morning' }
+
+  // Fixed: all-groups (kind='fixed' per the §1 decision table).
+  const fixedAnchor = { id: 'anc-fixed', activity_id: 'flagpole', unit_id: null, is_all_groups: true, group_ids: [], day_id: null, time_block_id: 'b1', span_blocks: 1 }
+  // Recurring: group-scoped, a proper subset (kind='recurring').
+  const recurringAnchor = { id: 'anc-recurring', activity_id: 'lunch', unit_id: null, is_all_groups: false, group_ids: ['g1'], day_id: null, time_block_id: 'b2', span_blocks: 1 }
+
+  const fixture = () => minimal({
+    groups: [baseGroup, g2],
+    timeBlocks: [baseBlock, block2],
+    activities: [flagpole, lunch, archery],
+    anchors: [fixedAnchor, recurringAnchor],
+  })
+
+  it('adding kind to both anchors produces byte-identical slots/conflicts/findings to the same fixture without kind', () => {
+    const without = buildSchedule(fixture())
+    const withKind = buildSchedule({
+      ...fixture(),
+      anchors: [
+        { ...fixedAnchor, kind: 'fixed' },
+        { ...recurringAnchor, kind: 'recurring' },
+      ],
+    })
+    expect(withKind).toEqual(without)
+  })
+
+  it('a mismatched/nonsense kind value also changes nothing — the engine never reads it', () => {
+    const without = buildSchedule(fixture())
+    const withWrongKind = buildSchedule({
+      ...fixture(),
+      anchors: [
+        // Deliberately backwards/garbage values: if any engine code path ever
+        // branched on `kind`, this fixture would diverge from `without`.
+        { ...fixedAnchor, kind: 'recurring' },
+        { ...recurringAnchor, kind: 'bogus' },
+      ],
+    })
+    expect(withWrongKind).toEqual(without)
+  })
+
+  it('both anchors are placed as identical hard pre-placements regardless of kind', () => {
+    const { slots } = buildSchedule({
+      ...fixture(),
+      anchors: [
+        { ...fixedAnchor, kind: 'fixed' },
+        { ...recurringAnchor, kind: 'recurring' },
+      ],
+    })
+    const fixedSlots = slots.filter(s => s.type === 'anchor' && s.anchorId === 'anc-fixed')
+    const recurringSlots = slots.filter(s => s.type === 'anchor' && s.anchorId === 'anc-recurring')
+    expect(fixedSlots.length).toBeGreaterThan(0)
+    expect(recurringSlots.length).toBeGreaterThan(0)
+    // Fixed (all-groups) occupies every group's cell; Recurring (g1-scoped)
+    // occupies only g1's — both as unconditional hard blocks, same mechanism.
+    expect(new Set(fixedSlots.map(s => s.groupId))).toEqual(new Set(['g1', 'g2']))
+    expect(new Set(recurringSlots.map(s => s.groupId))).toEqual(new Set(['g1']))
+  })
+})

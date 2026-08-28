@@ -132,6 +132,21 @@ describe('inferFixedEvents — detection over a fabricated grid', () => {
     expect(find('Free', '15:00-15:30')).toBeUndefined()
   })
 
+  // Fixed vs Recurring (docs/adr/2026-08-28-fixed-vs-recurring-events.md §6/§8.4)
+  // — table-driven over the §1 decision table: kind is the same isAll test the
+  // scope object above is built from, all-groups => 'fixed', anything else
+  // (a scoped subset) => 'recurring'.
+  it.each([
+    ['Mifkad', '09:00-09:30', 'fixed'],
+    ['Lunch 1', '12:00-12:30', 'recurring'],
+    ['Lunch 2', '12:00-12:30', 'recurring'],
+    ['Swim', '14:00-14:30', 'recurring'],
+  ])('attaches kind=%3$s to %s matching its is_all_groups scope', (name, block, expectedKind) => {
+    const event = find(name, block)
+    expect(event.kind).toBe(expectedKind)
+    expect(event.kind).toBe(event.scope.is_all_groups ? 'fixed' : 'recurring')
+  })
+
   it('proposes exactly the four surviving events', () => {
     expect(fixedEvents.map((e) => e.name).sort()).toEqual(['Lunch 1', 'Lunch 2', 'Mifkad', 'Swim'])
   })

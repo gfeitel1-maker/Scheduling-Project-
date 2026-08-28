@@ -285,14 +285,23 @@ export const PROJECTIONS = {
       // (buildSchedule.js reads anchor.span_blocks || 1) — this just makes
       // it a writable field for the op-log path too.
       'span_blocks',
+      // v51 (docs/adr/2026-08-28-fixed-vs-recurring-events.md §6) — Fixed
+      // vs Recurring classification. A director never toggles this directly;
+      // it is implied by which screen/form wrote the row (AnchorsScreen)
+      // and set here as an ordinary field-level op, same as is_all_groups.
+      'kind',
     ],
     ensureExists: (db, id) => {
       // Same zero-camps caveat as cohorts/groups/days_of_operation/time_blocks/tiers/activities.ensureExists above.
+      // is_all_groups=1 is set explicitly (not left NULL) so this stub row
+      // satisfies the v51 CHECK for its DEFAULT 'fixed' kind at the moment
+      // it's inserted, before any subsequent field-level op narrows its
+      // scope — see docs/adr/2026-08-28-fixed-vs-recurring-events.md §9.
       const camp = getStmt(db, 'SELECT id FROM camps LIMIT 1').get()
-      getStmt(db, "INSERT OR IGNORE INTO anchor_activities (id, camp_id, name) VALUES (?, ?, '')").run(
-        id,
-        camp?.id ?? null
-      )
+      getStmt(
+        db,
+        "INSERT OR IGNORE INTO anchor_activities (id, camp_id, name, is_all_groups) VALUES (?, ?, '', 1)"
+      ).run(id, camp?.id ?? null)
     },
   },
   // Special days (T40 slice 1, data shape only,

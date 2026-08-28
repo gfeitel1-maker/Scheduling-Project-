@@ -52,7 +52,7 @@ const DOMAIN_TABLE_COLUMNS = {
     'location_id', // v32 — the migration sets this as a side effect (no op), so it must travel in the snapshot or a first-pairing Client's activities land unbound from their place.
     'recurrence_truth_status', // v44 — truth-status x binding-vector activity ontology, storage-only
   ],
-  anchor_activities: ['id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id'],
+  anchor_activities: ['id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id', 'kind'],
   // kind/grid_x/grid_y (tile-world v48/v49) and map_id (indoor/outdoor pair v50)
   // are op-log-synced fields — they MUST travel in the first-pairing snapshot or a
   // new Client sees NULL for a location's tile placement / map assignment until each

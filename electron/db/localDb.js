@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 50
+export const CURRENT_SCHEMA_VERSION = 51
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -1944,6 +1944,80 @@ export function initSchema(db) {
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (50, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v51 — Fixed vs Recurring events: anchor_activities.kind
+  // (docs/adr/2026-08-28-fixed-vs-recurring-events.md §3/§5). Fixed =
+  // all-camp (is_all_groups=1, unit_id/group_ids empty), Recurring =
+  // group- or division-scoped — classification-only, zero engine change
+  // (ADR §4). SQLite ADD COLUMN cannot attach a cross-column CHECK to an
+  // existing table, so this needs the same recreate-and-copy shape v48/v49/
+  // v50 already used, not a bare ALTER TABLE ADD COLUMN.
+  //
+  // Backfill is NOT a free DEFAULT (the trap this ADR names explicitly,
+  // §5/§9): `kind = 'fixed'` only if the row is already all-groups-scoped
+  // (is_all_groups=1 AND unit_id IS NULL AND group_ids empty); every other
+  // existing row — anything unit_id- or group_ids-scoped — backfills to
+  // 'recurring'. A free `DEFAULT 'fixed'` would mis-backfill every scoped
+  // row and immediately violate the new CHECK. The rule is a deterministic
+  // function of columns every row already has (ADR §5's data-safety
+  // verdict: zero rows lost or silently misclassified).
+  //
+  // No op-log write for the backfill — a DDL-time side effect, same
+  // precedent as the v32 locations backfill (see backfillLocations below)
+  // and v42/v43's recurrence-axis migrations: this is a local schema fact,
+  // not a director-authored change, and must not appear in `operations`/
+  // sync as a phantom bulk edit.
+  //
+  // Guard is `>= 50 && < 51`, NOT a bare `< 51` — see the v50 block's
+  // comment above for the load-bearing reason (bug #194).
+  if (getSchemaVersion(db) >= 50 && getSchemaVersion(db) < 51) {
+    db.transaction(() => {
+      const cols = db.pragma('table_info(anchor_activities)').map((c) => c.name)
+      if (!cols.includes('kind')) {
+        db.pragma('foreign_keys = OFF')
+        db.exec(`
+          CREATE TABLE anchor_activities_v51 (
+            id TEXT PRIMARY KEY,
+            camp_id TEXT NOT NULL REFERENCES camps(id),
+            cohort_id TEXT REFERENCES cohorts(id),
+            day_id TEXT REFERENCES days_of_operation(id),
+            time_block_id TEXT,
+            name TEXT,
+            unit_id TEXT,
+            span_blocks INTEGER,
+            is_all_groups INTEGER,
+            group_ids TEXT,
+            notes TEXT,
+            schedule_week_id TEXT REFERENCES schedule_weeks(id),
+            recurrence_level TEXT NOT NULL DEFAULT 'daily',
+            location_id TEXT,
+            kind TEXT NOT NULL DEFAULT 'fixed' CHECK (kind IN ('fixed', 'recurring')),
+            CHECK (
+              kind = 'recurring'
+              OR (kind = 'fixed' AND is_all_groups = 1 AND unit_id IS NULL
+                  AND (group_ids IS NULL OR group_ids = '[]'))
+            )
+          );
+          INSERT INTO anchor_activities_v51
+            SELECT id, camp_id, cohort_id, day_id, time_block_id, name, unit_id, span_blocks,
+                   is_all_groups, group_ids, notes, schedule_week_id, recurrence_level, location_id,
+                   CASE
+                     WHEN is_all_groups = 1 AND unit_id IS NULL AND (group_ids IS NULL OR group_ids = '[]')
+                       THEN 'fixed'
+                     ELSE 'recurring'
+                   END
+            FROM anchor_activities;
+          DROP TABLE anchor_activities;
+          ALTER TABLE anchor_activities_v51 RENAME TO anchor_activities;
+        `)
+        db.pragma('foreign_keys = ON')
+      }
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (51, ?)').run(
       new Date().toISOString()
     )
   }

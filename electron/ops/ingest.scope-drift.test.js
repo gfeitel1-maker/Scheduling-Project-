@@ -192,17 +192,23 @@ describe('C1a — anchor group-scope drift signal', () => {
   })
 
   it('round 2 fix 1: corrupted live group_ids on an unrelated anchor never crashes the import', () => {
-    commit({ ...BASE, fixedEvents: [MIFKAD_ALL] })
+    // MIFKAD_BUNK1 (group-scoped, kind='recurring'), not MIFKAD_ALL: the v51
+    // CHECK constraint (docs/adr/2026-08-28-fixed-vs-recurring-events.md §3)
+    // requires kind='fixed' rows to have group_ids NULL/'[]', so the
+    // malformed non-JSON value written below would violate the CHECK on an
+    // all-groups row. A 'recurring' row has no such constraint on group_ids,
+    // so this scenario (malformed group_ids from partial sync / hand-edited
+    // SQLite / old migration) stays representable exactly as before.
+    commit({ ...BASE, fixedEvents: [MIFKAD_BUNK1] })
     const [anchor] = anchorRows()
-    // Simulate malformed group_ids (partial sync / hand-edited SQLite / old
-    // migration) directly on the live row, bypassing appendOp's normal
-    // JSON.stringify write path.
+    // Simulate malformed group_ids directly on the live row, bypassing
+    // appendOp's normal JSON.stringify write path.
     db.prepare("UPDATE anchor_activities SET group_ids = '' WHERE id = ?").run(anchor.id)
 
     // Re-import the SAME unchanged fixed event — must not throw, and must not
     // report a spurious scopeChanged for the corrupted slot.
     let result
-    expect(() => { result = commit({ ...BASE, fixedEvents: [MIFKAD_ALL] }) }).not.toThrow()
+    expect(() => { result = commit({ ...BASE, fixedEvents: [MIFKAD_BUNK1] }) }).not.toThrow()
     expect(result.fixedEvents.scopeChanged).toEqual([])
     expect(result.fixedEvents.unchanged).toBe(1)
     expect(result.fixedEvents.created).toBe(0)

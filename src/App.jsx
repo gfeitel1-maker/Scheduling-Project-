@@ -64,9 +64,9 @@ const SCREENS = {
   locations:    LocationsScreen,
   anchors:      AnchorsScreen,
   // Fixed vs Recurring un-conflation (docs/adr/2026-08-28-fixed-vs-recurring-
-  // events.md) is WS2's job — WS1 (docs/adr/2026-08-28-stage-aware-nav-
-  // landing.md Decision 3) only wires the nav entry, routed to the same
-  // AnchorsScreen as a placeholder until WS2 lands the real entity split.
+  // events.md §7) — both nav keys point at the same AnchorsScreen, filtered
+  // by the fixed `kind` prop below (same pattern as SCHEDULE_ROUTE_BY_SCREEN's
+  // fixed `route` prop), not two screens.
   fixedevents:  AnchorsScreen,
   electives:    ElectivesScreen,
   events:       EventScreen,
@@ -103,6 +103,14 @@ const SCREENS = {
 const SCHEDULE_ROUTE_BY_SCREEN = {
   'schedule:manual': 'manual',
   'schedule:generated': 'generated',
+}
+
+// Fixed vs Recurring events (docs/adr/2026-08-28-fixed-vs-recurring-events.md
+// §7) — one AnchorsScreen, filtered by a fixed `kind` prop per nav key, same
+// pattern as SCHEDULE_ROUTE_BY_SCREEN above.
+const ANCHOR_KIND_BY_SCREEN = {
+  fixedevents: 'fixed',
+  anchors: 'recurring',
 }
 
 // Exported (in addition to the default App below) so App.test.jsx can drive
@@ -259,6 +267,7 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
         ...(resolvedScreen === 'schedule:electives' ? { initialElectiveSetId: electiveFocusSetId } : {}),
         ...(resolvedScreen === 'events' ? { initialEventId: eventFocusId } : {}),
         ...(resolvedScreen === 'schedule:special' ? { initialSelection: specialScheduleFocus } : {}),
+        ...(ANCHOR_KIND_BY_SCREEN[resolvedScreen] ? { kind: ANCHOR_KIND_BY_SCREEN[resolvedScreen] } : {}),
       }
 
   return (

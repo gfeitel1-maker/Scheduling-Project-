@@ -92,7 +92,7 @@ describe('migration v44: fresh vs migrated equivalence', () => {
   it('declares schema version 44 on a fresh db and gives activities the recurrence_truth_status column', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(50)
+    expect(CURRENT_SCHEMA_VERSION).toBe(51)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 44').get().c).toBe(1)
     const cols = db.pragma('table_info(activities)').map((c) => c.name)
     expect(cols).toContain('recurrence_truth_status')

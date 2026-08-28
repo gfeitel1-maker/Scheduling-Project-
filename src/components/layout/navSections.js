@@ -55,10 +55,13 @@ export const NAV_SECTIONS = [
     items: [
       { key: 'activities',   label: 'Activities',    area: 'activities' },
       // Fixed vs Recurring un-conflation (docs/adr/2026-08-28-fixed-vs-
-      // recurring-events.md, WS2) — a scope split, not built here. WS1 wires
-      // the nav entry only: 'fixedevents' is a placeholder route to the same
-      // AnchorsScreen 'anchors' already points at (real all-camp-scope
-      // filtering is WS2's job — no FixedEventsScreen is built by WS1).
+      // recurring-events.md, WS2) — one AnchorsScreen, two nav keys, each
+      // fixed to a `kind` prop by ANCHOR_KIND_BY_SCREEN in App.jsx (same
+      // pattern as SCHEDULE_ROUTE_BY_SCREEN's fixed `route` prop) — not two
+      // separate screens (§7's routing question, resolved this way per WS1's
+      // nav entry + WS2's data model landing together). AREA_TABLE below
+      // still counts the whole anchor_activities table for both rows
+      // (unfiltered by kind) — a known limitation, not a WS2 requirement.
       // buildSchedule.js places both first and locks their cells before
       // anything else can be scheduled (see src/engine/readiness.js
       // OPTIONAL_AREAS comment). No `optional` chip on either — they read as
@@ -66,7 +69,7 @@ export const NAV_SECTIONS = [
       // readiness.js's OPTIONAL_AREAS entry) is what tells Sidebar.jsx to
       // show a "needs a look" affordance instead of either "optional" or the
       // blocking "needed" — it still does not block building a draft.
-      { key: 'fixedevents',  label: 'Fixed Events',    expected: true },
+      { key: 'fixedevents',  label: 'Fixed Events',    area: 'anchors', expected: true },
       { key: 'anchors',      label: 'Recurring Events', area: 'anchors', expected: true },
       // Electives Slice 1 (docs/adr/2026-08-22-nested-schedules-electives-
       // and-events.md §2): the "schedule within a schedule" — a director

@@ -337,6 +337,10 @@ describe('fixed events land as anchor_activities (T34)', () => {
       expect(dayIds).toContain(r.day_id)   // a real, created day id
       expect(r.is_all_groups).toBe(1)
       expect(JSON.parse(r.group_ids)).toEqual([])
+      // Fixed vs Recurring (docs/adr/2026-08-28-fixed-vs-recurring-events.md
+      // §6/§8.4) — an all-groups scope commits as kind='fixed', derived from
+      // the same isAll boolean is_all_groups above is built from.
+      expect(r.kind).toBe('fixed')
     }
     expect(new Set(rows.map((r) => r.day_id)).size).toBe(2)  // one per day
   })
@@ -350,8 +354,11 @@ describe('fixed events land as anchor_activities (T34)', () => {
       }],
       camp_id: campId, cohort_id: coMain, device_id: deviceId,
     })
-    const row = db.prepare('SELECT is_all_groups, group_ids FROM anchor_activities').get()
+    const row = db.prepare('SELECT is_all_groups, group_ids, kind FROM anchor_activities').get()
     expect(row.is_all_groups).toBe(0)
+    // Fixed vs Recurring (§6/§8.4) — a group-scoped subset commits as
+    // kind='recurring', the same isAll test as the all-groups case above.
+    expect(row.kind).toBe('recurring')
     const aId = db.prepare('SELECT id FROM groups WHERE name = ?').get('A').id
     const bId = db.prepare('SELECT id FROM groups WHERE name = ?').get('B').id
     const cId = db.prepare('SELECT id FROM groups WHERE name = ?').get('C').id
