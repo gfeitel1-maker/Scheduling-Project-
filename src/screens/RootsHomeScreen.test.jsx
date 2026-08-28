@@ -54,12 +54,15 @@ describe('RootsHomeScreen', () => {
     const onNavigate = vi.fn()
 
     render(<RootsHomeScreen campId={CAMP_ID} onNavigate={onNavigate} />)
-    await waitFor(() => expect(screen.queryByText('Schedule →')).not.toBeNull())
+    // The arrow renders in its own <span> (WS4 polish — only the arrow nudges
+    // on hover), so the accessible name is checked via role rather than exact
+    // text, which doesn't match across sibling elements.
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Schedule →' })).not.toBeNull())
 
     expect(screen.queryByText(/STANDING/i)).toBeNull()
     expect(screen.queryByText(/Ready to build a week/i)).toBeNull()
 
-    fireEvent.click(screen.getByText('Schedule →'))
+    fireEvent.click(screen.getByRole('button', { name: 'Schedule →' }))
     expect(onNavigate).toHaveBeenCalledWith('schedule')
   })
 
@@ -115,5 +118,91 @@ describe('RootsHomeScreen', () => {
     fireEvent.click(screen.getByText('Download worksheet'))
 
     await waitFor(() => expect(downloadWorkbook).toHaveBeenCalled())
+  })
+
+  it('renders name chips on the large/wide cards but not on the small cards, with overflow', async () => {
+    const collections = collectionsFor({
+      activities: [
+        { id: 'a1', name: 'Kayak' },
+        { id: 'a2', name: 'Archery' },
+        { id: 'a3', name: 'Arts & Crafts' },
+        { id: 'a4', name: 'Ropes Course' },
+        { id: 'a5', name: 'Sailing' },
+      ],
+      groups: [{ id: 'g1', name: 'Falcons', tier_id: 't1' }],
+      anchor_activities: [{ id: 'an1', name: 'Flagpole' }],
+      tiers: [{ id: 't1', name: 'Seniors' }],
+      locations: [{ id: 'l1', name: 'Field' }],
+    })
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Activities')).not.toBeNull())
+
+    // Large card (Activities) caps at 4 names, overflow pill for the rest.
+    expect(screen.queryByText('Kayak')).not.toBeNull()
+    expect(screen.queryByText('Ropes Course')).not.toBeNull()
+    expect(screen.queryByText('Sailing')).toBeNull()
+    expect(screen.queryByText('+1 more')).not.toBeNull()
+
+    // Large card (Groups) shows its chip.
+    expect(screen.queryByText('Falcons')).not.toBeNull()
+
+    // Wide card (Anchors) shows its chip.
+    expect(screen.queryByText('Flagpole')).not.toBeNull()
+
+    // Small cards (Age Divisions / Locations) stay count-only, no chips.
+    expect(screen.queryByText('Seniors')).toBeNull()
+    expect(screen.queryByText('Field')).toBeNull()
+  })
+
+  it('colors the card count with the rooted (secondary) token only when count > 0', async () => {
+    const collections = collectionsFor({ tiers: [] })
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Age Divisions')).not.toBeNull())
+
+    const zeroCount = screen.getByText('Age Divisions').closest('div').parentElement.querySelector('span:last-child')
+    expect(zeroCount.style.color).toBe('var(--text-secondary)')
+
+    const rootedCount = screen.getByText('Groups').closest('div').parentElement.querySelector('span:last-child')
+    expect(rootedCount.style.color).toBe('var(--secondary)')
+  })
+
+  it('renders attention domain tags with the accent (bronze) color mix, not the secondary green', async () => {
+    const collections = collectionsFor({ tiers: [] })
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Age divisions')).not.toBeNull())
+
+    const domainChip = screen.getByText('Structure')
+    // jsdom doesn't parse color-mix() into CSSOM, so assert on the raw
+    // inline style attribute rather than the computed .style.background.
+    expect(domainChip.getAttribute('style')).toContain('var(--accent)')
+    expect(domainChip.getAttribute('style')).not.toContain('var(--secondary)')
+  })
+
+  it('places every bento card at a deterministic, explicit grid position (no auto-placement gap)', async () => {
+    const collections = collectionsFor()
+    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
+
+    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.queryByText('Activities')).not.toBeNull())
+
+    const expected = {
+      'Activities': { gridColumn: '1 / span 2', gridRow: '1 / span 2' },
+      'Groups': { gridColumn: '1 / span 2', gridRow: '3 / span 2' },
+      'Age Divisions': { gridColumn: '3', gridRow: '1' },
+      'Locations': { gridColumn: '3', gridRow: '2' },
+      'Days & Blocks': { gridColumn: '3', gridRow: '3' },
+      'Anchors': { gridColumn: '1 / span 3', gridRow: '5' },
+    }
+    for (const [label, coords] of Object.entries(expected)) {
+      const card = screen.getByText(label).closest('div').parentElement
+      expect(card.style.gridColumn).toBe(coords.gridColumn)
+      expect(card.style.gridRow).toBe(coords.gridRow)
+    }
   })
 })
