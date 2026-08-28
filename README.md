@@ -100,7 +100,7 @@ The integration harness spawns real child processes to cover cross-process behav
 
 ## Status
 
-Active development. Used internally at Shoresh camp.
+Active development, pre-production. Being built for Shoresh camp; not yet running with live camp data.
 
 Self-hosting guide and contributing guidelines coming with the first stable release.
 
