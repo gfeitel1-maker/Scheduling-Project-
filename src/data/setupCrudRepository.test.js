@@ -2,7 +2,7 @@
 // captures every call) — no React render, no Electron. Mirrors
 // scheduleRepository.test.js's fake-collaborator style.
 import { describe, it, expect, vi } from 'vitest'
-import { createSetupCrudRepository, UNIQUE_FIRST_FIELD } from './setupCrudRepository'
+import { createSetupCrudRepository, UNIQUE_FIRST_FIELD, REQUIRED_FIRST_ON_WRITE, orderFieldsForWrite } from './setupCrudRepository'
 
 function makeFakeClient({ writeResult = { status: 'applied' }, deleteResult = { status: 'applied' } } = {}) {
   const calls = { write: [], deleteEntity: [] }
@@ -50,6 +50,46 @@ describe('createSetupCrudRepository — writeFields', () => {
     await repo.writeFields('days_of_operation', 'd1', { label: 'X' })
     expect(globalThis.localStorage.getItem).toHaveBeenCalledWith('shoresh-token')
     expect(client.calls.write[0][0]).toBe('ls-token')
+  })
+})
+
+// Fixed vs Recurring events (docs/adr/2026-08-28-fixed-vs-recurring-events.md
+// §3, Red Hat HIGH): anchor_activities.kind must always be written FIRST,
+// automatically, for every caller — not remembered at each call site. This is
+// the fast JS-level test for the reordering mechanism itself; see
+// electron/anchorKindWriteOrder.integration.test.js for the REAL-SQLite
+// proof that the reordered write actually satisfies the CHECK constraint.
+describe('orderFieldsForWrite / REQUIRED_FIRST_ON_WRITE', () => {
+  it('registers anchor_activities -> kind', () => {
+    expect(REQUIRED_FIRST_ON_WRITE.anchor_activities).toBe('kind')
+  })
+
+  it('moves the registered field to the front regardless of caller order', () => {
+    const ordered = orderFieldsForWrite('anchor_activities', {
+      name: 'Lunch', is_all_groups: false, group_ids: '["g1"]', kind: 'recurring', notes: null,
+    })
+    expect(ordered.map(([field]) => field)).toEqual(['kind', 'name', 'is_all_groups', 'group_ids', 'notes'])
+  })
+
+  it('is a no-op when the registered field is absent from this particular write', () => {
+    const ordered = orderFieldsForWrite('anchor_activities', { notes: 'updated' })
+    expect(ordered.map(([field]) => field)).toEqual(['notes'])
+  })
+
+  it('is a no-op for an entity not registered in REQUIRED_FIRST_ON_WRITE', () => {
+    const ordered = orderFieldsForWrite('days_of_operation', { sort_order: 1, label: 'Monday' })
+    expect(ordered.map(([field]) => field)).toEqual(['sort_order', 'label'])
+  })
+
+  it('writeFields writes kind first even when the caller built the object with kind last (the exact shape the XLSX import bug had)', async () => {
+    const client = makeFakeClient()
+    const repo = createSetupCrudRepository({ localClient: client, getToken })
+    await repo.writeFields('anchor_activities', 'a1', {
+      name: 'Lunch A', day_id: 'd1', time_block_id: 'b1', is_all_groups: false, group_ids: '["g1"]', kind: 'recurring', notes: null,
+    })
+    expect(client.calls.write.map((c) => c[3])).toEqual([
+      'kind', 'name', 'day_id', 'time_block_id', 'is_all_groups', 'group_ids', 'notes',
+    ])
   })
 })
 

@@ -288,7 +288,11 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
         localClient.list('locations'),
       ])
       const list = (aData || [])
-        .filter(a => a.camp_id === campId && a.cohort_id === activeCohort.id && (a.kind ?? 'fixed') === kind)
+        // kind is NOT NULL post-migration (v51 CHECK, docs/adr/2026-08-28-
+        // fixed-vs-recurring-events.md §3) — no `?? 'fixed'` fallback here:
+        // a row with a missing/mismatched kind is a real bug to surface
+        // (an unfiltered row disappearing from both lists), not to mask.
+        .filter(a => a.camp_id === campId && a.cohort_id === activeCohort.id && a.kind === kind)
         .map(normalizeAnchor)
         .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? '')))
       setAnchors(list)
@@ -568,15 +572,24 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
 
         const tierLabel = tierNames.join(', ') || (isAllTiers ? 'All age divisions' : '—')
 
-        // This screen's import is kind-scoped by which nav entry launched it
-        // (mirrors the modal): an all-tiers row imported into Fixed Events
-        // becomes 'fixed', anything else stays 'recurring' — same is_all_groups
-        // test as §1's decision table, applied per-row here instead of at
-        // ingest time.
+        // kind follows the ROW'S OWN scope (the §1 decision table's is_all_groups
+        // test), NOT which nav entry (Fixed vs Recurring) launched this import —
+        // it CANNOT be forced to the screen's kind, or a scoped row would be
+        // written kind='fixed' with a non-empty group_ids and violate the v51
+        // CHECK constraint (docs/adr/2026-08-28-fixed-vs-recurring-events.md §3).
+        // A row whose derived kind differs from this screen's `kind` prop still
+        // imports correctly, but is filed onto the OTHER list — surfaced to the
+        // director in confirmImport's result (`filedElsewhere`), not silently.
+        // kind is placed FIRST in these objects (also enforced structurally by
+        // REQUIRED_FIRST_ON_WRITE in setupCrudRepository.js — see that file's
+        // comment for why per-call-site ordering alone isn't trusted): each
+        // field lands as its own op-log UPDATE, and the CHECK is evaluated
+        // after every one, so kind must be applied before is_all_groups/
+        // group_ids narrow a fresh row's scope.
         const rowKind = isAllTiers ? 'fixed' : 'recurring'
         if (dayLabels.length === 0) {
           parsed.push({
-            name, day_id: null, time_block_id, is_all_groups: isAllTiers, group_ids, kind: rowKind,
+            kind: rowKind, name, day_id: null, time_block_id, is_all_groups: isAllTiers, group_ids,
             notes: String(r.notes || '').trim() || null,
             warning: baseWarning || 'Missing day_label',
             _dayLabel: '—', _blockName: blockName, _tierNames: tierLabel,
@@ -586,7 +599,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
             const day_id = dayMap[dayLabel.toLowerCase()] || null
             const warning = baseWarning || (!day_id ? `Day "${dayLabel}" not found` : null)
             parsed.push({
-              name, day_id, time_block_id, is_all_groups: isAllTiers, group_ids, kind: rowKind,
+              kind: rowKind, name, day_id, time_block_id, is_all_groups: isAllTiers, group_ids,
               notes: String(r.notes || '').trim() || null,
               warning,
               _dayLabel: dayLabel, _blockName: blockName, _tierNames: tierLabel,
@@ -605,7 +618,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
     if (!activeCohort) return
     setImporting(true)
     try {
-      let added = 0, skipped = 0, skippedWithOrphan = 0
+      let added = 0, skipped = 0, skippedWithOrphan = 0, filedElsewhere = 0
       for (const row of importRows) {
         if (!row.name || row.warning) { skipped++; continue }
         const { warning: _warning, _dayLabel, _blockName, _tierNames, ...record } = row
@@ -622,8 +635,12 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
           continue
         }
         added++
+        // A scoped row's kind can differ from this screen's `kind` (see the
+        // comment above rowKind's derivation) — never silent: the director
+        // sees a count of how many landed on the other list.
+        if (record.kind !== kind) filedElsewhere++
       }
-      setImportResult({ added, skipped, skippedWithOrphan }); setImportStep('done')
+      setImportResult({ added, skipped, skippedWithOrphan, filedElsewhere }); setImportStep('done')
     } catch (err) {
       setError(describeWriteFailure(err, 'That import could not be completed.'))
       setImportStep(null); setImportRows([])
@@ -776,10 +793,19 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
         importing={importing}
         onConfirm={confirmImport}
         onCancel={() => { setImportStep(null); setImportRows([]) }}
-        doneExtra={importResult?.skippedWithOrphan > 0 && (
-          <span style={{ color: 'var(--warning)', marginLeft: 10 }}>
-            {importResult.skippedWithOrphan} skipped but couldn't be fully rolled back (admin required) — stray row(s) may remain
-          </span>
+        doneExtra={(
+          <>
+            {importResult?.skippedWithOrphan > 0 && (
+              <span style={{ color: 'var(--warning)', marginLeft: 10 }}>
+                {importResult.skippedWithOrphan} skipped but couldn't be fully rolled back (admin required) — stray row(s) may remain
+              </span>
+            )}
+            {importResult?.filedElsewhere > 0 && (
+              <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>
+                {importResult.filedElsewhere} were group-scoped and filed under {kind === 'fixed' ? 'Recurring Events' : 'Fixed Events'} instead
+              </span>
+            )}
+          </>
         )}
         renderCell={(r, c) => {
           if (c.key === 'name') return r.name || '—'

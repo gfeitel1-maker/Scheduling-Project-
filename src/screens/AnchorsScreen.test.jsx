@@ -113,7 +113,7 @@ describe('AnchorsScreen — which weeks control (schedule_week_id)', () => {
   ]
   const anchorRow = {
     id: 'anc-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Mifkad',
-    day_id: 'd1', time_block_id: 'block-1', is_all_groups: 1, group_ids: '[]',
+    day_id: 'd1', time_block_id: 'block-1', is_all_groups: 1, group_ids: '[]', kind: 'fixed',
     notes: null, schedule_week_id: null,
   }
 
@@ -215,7 +215,7 @@ describe('AnchorsScreen — location picker (location_id)', () => {
   ]
   const anchorRow = {
     id: 'anc-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Swim',
-    day_id: 'd1', time_block_id: 'block-1', is_all_groups: 1, group_ids: '[]',
+    day_id: 'd1', time_block_id: 'block-1', is_all_groups: 1, group_ids: '[]', kind: 'fixed',
     notes: null, schedule_week_id: null, location_id: null,
   }
 
@@ -357,7 +357,7 @@ describe('AnchorsScreen deleteAll (characterization)', () => {
   function existing(overrides = {}) {
     return {
       id: 'anchor-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Mifkad',
-      day_id: 'd1', time_block_id: 'block-1', is_all_groups: 1, group_ids: null,
+      day_id: 'd1', time_block_id: 'block-1', is_all_groups: 1, group_ids: null, kind: 'fixed',
       ...overrides,
     }
   }
@@ -463,7 +463,7 @@ describe('AnchorsScreen delete confirmation', () => {
   function existingAnchor(overrides = {}) {
     return {
       id: 'anchor-1', camp_id: CAMP_ID, cohort_id: COHORT_ID, name: 'Mifkad',
-      day_id: 'd1', time_block_id: 'block-1', is_all_groups: 1, group_ids: null,
+      day_id: 'd1', time_block_id: 'block-1', is_all_groups: 1, group_ids: null, kind: 'fixed',
       ...overrides,
     }
   }
