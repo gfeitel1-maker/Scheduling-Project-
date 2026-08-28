@@ -63,3 +63,47 @@ describe('localClient.deleteWeek', () => {
     })
   })
 })
+
+// docs/adr/2026-08-28-stage-aware-nav-landing.md Decision 1 — the wrapper
+// forwards to shoresh.campHasSetupData() with no args (pre-auth, like
+// getCamp), and the browser-mock's own implementation (localClient.mock.js)
+// must resolve the same false-on-bare/true-once-populated shape so the dev
+// path at localhost:5200 lands on the same screen the real app would.
+describe('localClient.campHasSetupData', () => {
+  beforeEach(() => {
+    vi.resetModules()
+    globalThis.localStorage = makeLocalStorage()
+  })
+
+  it('forwards to shoresh.campHasSetupData() with no arguments', async () => {
+    const spy = vi.fn().mockResolvedValue(true)
+    globalThis.window = {
+      shoresh: { campHasSetupData: spy },
+      location: { pathname: '/', search: '', replace: vi.fn() },
+    }
+    const { localClient } = await import('./localClient.js')
+
+    await localClient.campHasSetupData()
+
+    expect(spy).toHaveBeenCalledWith()
+  })
+
+  it('mirror-parity: the browser-mock resolves false on a bare camp', async () => {
+    globalThis.window = { location: { pathname: '/', search: '', replace: vi.fn() } }
+    const { localClient } = await import('./localClient.js')
+
+    expect(await localClient.campHasSetupData()).toBe(false)
+  })
+
+  it('mirror-parity: the browser-mock resolves true once a required-setup table has a row', async () => {
+    globalThis.localStorage.setItem('shoresh-mock-state', JSON.stringify({
+      camp: { id: 'camp-1', name: 'Camp Test' },
+      users: [], conflicts: [], devices: [],
+      tiers: [{ id: 't1', camp_id: 'camp-1', name: 'Seniors' }],
+    }))
+    globalThis.window = { location: { pathname: '/', search: '', replace: vi.fn() } }
+    const { localClient } = await import('./localClient.js')
+
+    expect(await localClient.campHasSetupData()).toBe(true)
+  })
+})

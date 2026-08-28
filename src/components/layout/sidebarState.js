@@ -12,8 +12,20 @@ import { REQUIRED_AREAS } from '../../engine/readiness'
 // Roots-as-Hub Slice B: 'system' is no longer a foldable nav section — Camp,
 // Conflicts, Trash and LAN & Devices moved to the Settings gear menu, which
 // is a popup (open/closed while mounted), not persisted fold state.
-export const SECTION_KEYS = ['setup', 'schedule']
-export const SECTION_DEFAULTS = { setup: true, schedule: true }
+//
+// Lifecycle IA (docs/adr/2026-08-28-stage-aware-nav-landing.md Decision 3):
+// the former 'setup'/'schedule' two-section model is replaced by three
+// collapsible stages. Roots is no longer one of them — it is a fixed,
+// chevron-less top row (navSections.js's ROOTS_ITEM) with no fold state of
+// its own, so the persisted `rootsOpen` key is retired.
+export const SECTION_KEYS = ['germination', 'sprouts', 'plants']
+export const SECTION_DEFAULTS = { germination: true, sprouts: true, plants: true }
+
+// REQUIRED_AREAS split by which stage each area's row now lives in
+// (navSections.js) — used only to attribute a collapsed section's rollup
+// mark to the right stage. tiers/groups/days/timeblocks are Germination;
+// activities is the one REQUIRED_AREAS entry that lives in Sprouts.
+const GERMINATION_AREA_KEYS = new Set(['tiers', 'groups', 'days', 'timeblocks'])
 
 const STORAGE_KEY = 'shoresh-sidebar-state'
 
@@ -29,15 +41,19 @@ const STORAGE_KEY = 'shoresh-sidebar-state'
 export function sectionRollup({ section, open, gaps = [], startedRoutes = 0 }) {
   if (open) return null
 
-  if (section === 'setup') {
-    const total = REQUIRED_AREAS.length
-    const done = total - gaps.length
-    return gaps.length > 0
+  if (section === 'germination' || section === 'sprouts') {
+    const inSection = section === 'germination'
+      ? (area) => GERMINATION_AREA_KEYS.has(area)
+      : (area) => !GERMINATION_AREA_KEYS.has(area)
+    const total = REQUIRED_AREAS.filter((a) => inSection(a.key)).length
+    const sectionGaps = gaps.filter((g) => inSection(g.key))
+    const done = total - sectionGaps.length
+    return sectionGaps.length > 0
       ? { mark: '!', text: `${done} / ${total}`, tone: 'danger' }
       : { mark: '✓', text: `${done} / ${total}`, tone: 'success' }
   }
 
-  if (section === 'schedule') {
+  if (section === 'plants') {
     return startedRoutes > 0 ? { mark: null, text: String(startedRoutes), tone: 'secondary' } : null
   }
 
@@ -65,7 +81,7 @@ export function shouldOfferFold({ gaps, previousGaps, alreadyOffered }) {
  */
 export function nextFoldStateAfterAnswer(sections, answer) {
   return {
-    sections: { ...sections, setup: answer !== 'tuck' },
+    sections: { ...sections, germination: answer !== 'tuck' },
     offered: true,
   }
 }
@@ -78,7 +94,7 @@ export function nextFoldStateAfterAnswer(sections, answer) {
  * (private browsing, a locked profile, a test environment).
  */
 export function loadSidebarState(storage) {
-  const fallback = { sections: { ...SECTION_DEFAULTS }, offered: false, rootsOpen: true }
+  const fallback = { sections: { ...SECTION_DEFAULTS }, offered: false }
 
   let raw
   try {
@@ -106,11 +122,7 @@ export function loadSidebarState(storage) {
     }
   }
 
-  // Roots's own child-list fold (Slice B) — independent of the "Camp Set
-  // Up" section fold above, and defaults open like every other section.
-  const rootsOpen = typeof parsed.rootsOpen === 'boolean' ? parsed.rootsOpen : true
-
-  return { sections, offered: parsed.offered === true, rootsOpen }
+  return { sections, offered: parsed.offered === true }
 }
 
 // T27 — what the LAN row says, in camp language. A director does not know what
@@ -140,7 +152,7 @@ export function syncStatusLabel(status) {
 export function saveSidebarState(storage, state) {
   try {
     storage?.setItem?.(STORAGE_KEY, JSON.stringify({
-      sections: state.sections, offered: state.offered, rootsOpen: state.rootsOpen,
+      sections: state.sections, offered: state.offered,
     }))
   } catch {
     // Persisting a preference must never break navigation.

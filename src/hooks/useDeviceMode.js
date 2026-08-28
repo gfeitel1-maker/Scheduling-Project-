@@ -46,6 +46,13 @@ export function useDeviceMode() {
   // until verifySession confirms it below.
   const [role, setRole] = useState(() => localStorage.getItem(ROLE_KEY))
   const [camp, setCamp] = useState(null)
+  // Stage-aware landing (docs/adr/2026-08-28-stage-aware-nav-landing.md
+  // Decision 1) — resolved once per app open inside the init() effect below,
+  // alongside refreshCamp/verifySession, so it is available synchronously at
+  // AppShell's mount (App.jsx reads it as the `screen` useState initializer).
+  // null until resolved; App.jsx's `phase === 'loading'` gate means nothing
+  // reads this before it settles to a boolean.
+  const [campIsEmpty, setCampIsEmpty] = useState(null)
   const [error, setError] = useState(null)
   const [initNonce, setInitNonce] = useState(0)
   const [pairingStatus, setPairingStatus] = useState(null) // null | 'pending' | 'approved' | 'denied'
@@ -79,6 +86,14 @@ export function useDeviceMode() {
       try {
         const c = await refreshCamp()
         if (!active) return
+
+        // Stage-aware landing predicate (ADR Decision 1) — a single cheap
+        // existence query, not getReadiness's five-collection engine pass;
+        // the landing decision only ever needs the one "is this camp truly
+        // untouched" bit. Runs regardless of mode/token, same as refreshCamp.
+        const hasSetupData = await localClient.campHasSetupData()
+        if (!active) return
+        setCampIsEmpty(!hasSetupData)
 
         // T87 (docs/adr/2026-08-16-client-reauth-on-restart.md, Part 1):
         // verify the stored token BEFORE chooseMode, not after, so a
@@ -256,6 +271,7 @@ export function useDeviceMode() {
     phase,
     mode,
     camp,
+    campIsEmpty,
     role,
     joinHost,
     pairingStatus,

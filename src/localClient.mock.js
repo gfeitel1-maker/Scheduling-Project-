@@ -25,6 +25,11 @@ const STORE_KEY = 'shoresh-mock-state'
 // committer feeds buildPlan: names aliased for recognition, comparable VALUES for
 // the field diff, tiers/time_blocks cohort-scoped. Same src/-never-imports-electron/
 // duplication discipline as MOCK_WRITE_ALLOWLIST — a verbatim copy, not shared code.
+// The tables campHasSetupData() checks — same set REQUIRED_AREAS (src/engine/
+// readiness.js) treats as the blocking core, mirrored here as raw table names
+// (not the getSetupGaps() key aliases) to match electron/main.js's SQL check.
+const REQUIRED_SETUP_TABLES = ['tiers', 'groups', 'days_of_operation', 'time_blocks']
+
 const MOCK_NAME_COLUMN = { days_of_operation: 'label' }
 const mockNameColumnFor = (entity) => MOCK_NAME_COLUMN[entity] ?? 'name'
 const MOCK_COHORT_SCOPED = new Set(['tiers', 'time_blocks'])
@@ -1247,6 +1252,15 @@ export const mockShoresh = {
   },
   async getCamp() {
     return loadState().camp
+  },
+  // Mirrors electron/main.js's 'shoresh:camp-has-setup-data' handler — same
+  // required-area table set (docs/adr/2026-08-28-stage-aware-nav-landing.md
+  // Decision 1: tiers/groups/days_of_operation/time_blocks), so the browser-
+  // mock dev path (localhost:5200) lands on the same screen the real app
+  // would for the same camp state.
+  async campHasSetupData() {
+    const state = loadState()
+    return REQUIRED_SETUP_TABLES.some((table) => Array.isArray(state[table]) && state[table].length > 0)
   },
   // token param intentionally unnamed — the mock has no role model to check
   // against, but the real preload bridge (electron/preload.js) always sends

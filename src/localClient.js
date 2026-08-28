@@ -82,6 +82,10 @@ export const localClient = {
   // docs/adr/2026-08-15-locations-concurrent-create-collision.md
   onOpRejected: (cb) => shoresh.onOpRejected(cb),
   getCamp: () => shoresh.getCamp(),
+  // Stage-aware landing (docs/adr/2026-08-28-stage-aware-nav-landing.md
+  // Decision 1) — a single existence check over the required-setup tables,
+  // called pre-auth (same window as getCamp) by useDeviceMode's init effect.
+  campHasSetupData: () => shoresh.campHasSetupData(),
   // Slice D (docs/adr/2026-08-22-roots-as-hub-setup-ia.md §7) — batched
   // provenance read for the Activities screen's row-level dot.
   listImportEvidence: () => shoresh.listImportEvidence(currentToken()),

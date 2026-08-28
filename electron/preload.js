@@ -39,6 +39,8 @@ contextBridge.exposeInMainWorld('shoresh', {
     return () => ipcRenderer.removeListener('shoresh:full-sync-applied', wrapped)
   },
   getCamp: () => ipcRenderer.invoke('shoresh:get-camp'),
+  // Stage-aware landing (docs/adr/2026-08-28-stage-aware-nav-landing.md)
+  campHasSetupData: () => ipcRenderer.invoke('shoresh:camp-has-setup-data'),
   listUsers: (token) => ipcRenderer.invoke('shoresh:list-users', { token }),
   list: (token, entity) => ipcRenderer.invoke('shoresh:list', { token, entity }),
   listByScope: (token, entity, scopeId) => ipcRenderer.invoke('shoresh:list-by-scope', { token, entity, scopeId }),

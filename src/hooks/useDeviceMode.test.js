@@ -12,6 +12,7 @@ import { renderHook, waitFor } from '@testing-library/react'
 
 const mockLocalClient = {
   getCamp: vi.fn(),
+  campHasSetupData: vi.fn(),
   chooseMode: vi.fn(),
   verifySession: vi.fn(),
   getDevicePairingStatus: vi.fn(),
@@ -56,6 +57,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   authRejectedCallback = undefined
   mockLocalClient.getCamp.mockResolvedValue(null)
+  mockLocalClient.campHasSetupData.mockResolvedValue(false)
   mockLocalClient.chooseMode.mockResolvedValue({ mode: 'client' })
   mockLocalClient.getDevicePairingStatus.mockResolvedValue({ isPaired: true })
   mockLocalClient.onAuthRejected.mockImplementation((cb) => { authRejectedCallback = cb })
@@ -212,5 +214,36 @@ describe('useDeviceMode: sessionEndedReason (T87 fix round — director-facing e
 
     await result.current.login('Sarah', '1234')
     await waitFor(() => expect(result.current.sessionEndedReason).toBeNull())
+  })
+})
+
+// docs/adr/2026-08-28-stage-aware-nav-landing.md Decision 1 — campIsEmpty is
+// resolved inside the same init() effect that already blocks first paint
+// (App.jsx's `phase === 'loading'` gate), from a single campHasSetupData()
+// call, not getReadiness's five-collection engine pass.
+describe('useDeviceMode: campIsEmpty (stage-aware landing, ADR Decision 1)', () => {
+  it('calls campHasSetupData once per init, alongside getCamp/verifySession', async () => {
+    const { result } = renderHook(() => useDeviceMode())
+    await waitFor(() => expect(result.current.phase).not.toBe('loading'))
+
+    expect(mockLocalClient.campHasSetupData).toHaveBeenCalledTimes(1)
+  })
+
+  it('is true when campHasSetupData resolves false (a bare, untouched camp)', async () => {
+    mockLocalClient.campHasSetupData.mockResolvedValue(false)
+
+    const { result } = renderHook(() => useDeviceMode())
+    await waitFor(() => expect(result.current.phase).not.toBe('loading'))
+
+    expect(result.current.campIsEmpty).toBe(true)
+  })
+
+  it('is false once any required-area row exists', async () => {
+    mockLocalClient.campHasSetupData.mockResolvedValue(true)
+
+    const { result } = renderHook(() => useDeviceMode())
+    await waitFor(() => expect(result.current.phase).not.toBe('loading'))
+
+    expect(result.current.campIsEmpty).toBe(false)
   })
 })

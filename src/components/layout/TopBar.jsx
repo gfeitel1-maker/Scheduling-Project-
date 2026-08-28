@@ -6,6 +6,7 @@ import { CHILD_SCREEN, DOMAIN_SCREEN } from '../reconciliation/rootMapNav'
 // were all doing that.
 const TITLES = {
   import:       'Import last year',
+  seed:         'Seed your camp',
   roots:        'Roots',
   cohorts:      'Programs',
   tiers:        'Age Divisions',
@@ -14,6 +15,7 @@ const TITLES = {
   timeblocks:   'Time Blocks',
   activities:   'Activities',
   locations:    'Locations',
+  fixedevents:  'Fixed Events',
   anchors:      'Recurring Events',
   electives:    'Electives',
   events:       'Events',
