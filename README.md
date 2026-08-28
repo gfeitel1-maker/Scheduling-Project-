@@ -91,8 +91,8 @@ rm -rf node_modules/better-sqlite3/build && npm rebuild better-sqlite3
 ## Tests
 
 ```bash
-npm run test                          # Vitest unit tests (~2,500+ across ~160 files)
-node test/integration/run.js          # 21 multi-process integration scenarios
+npm run test                          # Vitest unit tests (~4,300 across ~270 files)
+node test/integration/run.js          # 27 multi-process integration scenarios
 npm run lint                          # ESLint
 ```
 
@@ -100,7 +100,7 @@ The integration harness spawns real child processes to cover cross-process behav
 
 ## Status
 
-Active development. Used internally at Shoresh camp.
+Active development, pre-production. Being built for Shoresh camp; not yet running with live camp data.
 
 Self-hosting guide and contributing guidelines coming with the first stable release.
 
