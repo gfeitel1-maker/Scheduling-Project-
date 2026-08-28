@@ -36,7 +36,18 @@ vi.mock('../ingest/extractEntities', async () => {
     extractEntities: vi.fn(),
   }
 })
-vi.mock('../ingest/fixedEvents', () => ({ inferFixedEvents: () => ({ fixedEvents: [] }) }))
+vi.mock('../ingest/fixedEvents', () => ({ inferFixedEvents: vi.fn(() => ({ fixedEvents: [] })) }))
+// HIGH regression test (split-failure surfacing) — mocked so a staged
+// two-row split can be forced to fail at commit time without exercising
+// twoRowSplit.js's own real write logic (that module has its own tests).
+vi.mock('../ingest/twoRowSplit', async () => {
+  const actual = await vi.importActual('../ingest/twoRowSplit')
+  return {
+    ...actual,
+    emitTwoRowSplit: vi.fn(),
+    pinActivityAsserted: vi.fn(),
+  }
+})
 vi.mock('../hooks/useCohorts', () => ({ useCohorts: () => ({ activeCohort: { id: 'cohort-1' } }) }))
 vi.mock('../localClient', () => ({
   localClient: {
@@ -56,6 +67,8 @@ import ImportScreen from './ImportScreen'
 import { localClient } from '../localClient'
 import { extractEntities } from '../ingest/extractEntities'
 import { parseTextGrid } from '../ingest/textGrid'
+import { inferFixedEvents } from '../ingest/fixedEvents'
+import { emitTwoRowSplit } from '../ingest/twoRowSplit'
 import { IMPORT_LIMITS } from '../utils/exportSanitize'
 
 beforeEach(() => {
@@ -63,6 +76,7 @@ beforeEach(() => {
   extractEntities.mockReturnValue(baseProposal)
   localClient.list.mockResolvedValue([])
   localClient.ingestCommit.mockResolvedValue({ total: 3, fixedEvents: { created: 0, skipped: [], partial: [] } })
+  inferFixedEvents.mockReturnValue({ fixedEvents: [] })
 })
 
 // The Replace warning sentences use JSX fragments with a <strong> in the
@@ -476,30 +490,68 @@ describe('ImportScreen — Replace warning names Recurring Events and separates 
   })
 })
 
-// Roots-as-dashboard plan, Task 4: a finished import no longer rests on a
-// local ImportScreen receipt — it hands the commit outcome UP to App (via
-// onImported) and routes the director to Roots, where the post-import banner
-// and the surviving grace-window undo now live.
-describe('ImportScreen — routes a finished import to Roots (plan T4)', () => {
-  it('hands the commit outcome up via onImported and navigates to roots, with no local receipt as the resting surface', async () => {
-    const onImported = vi.fn()
+// ADR docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md — a finished
+// import no longer rests on a local ImportScreen receipt, and Roots itself
+// has no post-import banner of its own (that mechanism was retired along
+// with the `onImported` carrier). A finished import just navigates to Roots.
+describe('ImportScreen — routes a finished import to Roots', () => {
+  it('navigates to roots, with no local receipt as the resting surface', async () => {
     const onNavigate = vi.fn()
     localClient.ingestCommit.mockResolvedValue({
       total: 3,
       fixedEvents: { created: 0, skipped: [], partial: [] },
       invertibleOps: [],
     })
-    render(<ImportScreen campId="camp-1" onNavigate={onNavigate} onImported={onImported} />)
+    render(<ImportScreen campId="camp-1" onNavigate={onNavigate} />)
     const input = document.querySelector('input[type="file"]')
     const file = new File(['irrelevant'], 'schedule.txt', { type: 'text/plain' })
     await userEvent.upload(input, file)
     await waitFor(() => expect(screen.getAllByText(/Swim/).length).toBeGreaterThan(0))
     await goToCommit()
 
-    await waitFor(() => expect(onImported).toHaveBeenCalledWith(expect.objectContaining({ total: 3 })))
-    expect(onNavigate).toHaveBeenCalledWith('roots')
+    await waitFor(() => expect(onNavigate).toHaveBeenCalledWith('roots'))
     // The old local receipt must NOT be the resting surface anymore.
     expect(screen.queryByText(/Imported 3 record/)).toBeNull()
+  })
+})
+
+// Code review HIGH fix — removing the `justImported` carrier (correct per
+// the ADR, since Roots no longer has a post-import banner) had silently
+// orphaned split-failure reporting: applyStagedSplits' failures used to ride
+// on the outcome handed to onImported, a prop App.jsx never passes anymore.
+// A partial split failure must still be visible to the director — surfaced
+// locally in ImportScreen, at the moment it happens, not carried anywhere.
+describe('ImportScreen — a partial split failure is surfaced (not silently dropped)', () => {
+  function stageADualUseSplit() {
+    inferFixedEvents.mockReturnValue({
+      fixedEvents: [{
+        name: 'Swim', time_block: 'Period 1', days: ['Monday'],
+        scope: { is_all_groups: true, groups: [] }, confidence: 'high',
+      }],
+      dualUseNames: ['Swim'],
+    })
+    localClient.list.mockImplementation((entity) =>
+      Promise.resolve(entity === 'activities' ? [{ id: 'act-swim', name: 'Swim' }] : [])
+    )
+  }
+
+  it('holds the director on ImportScreen and names the failed split, instead of navigating to Roots as if nothing went wrong', async () => {
+    stageADualUseSplit()
+    emitTwoRowSplit.mockRejectedValue(new Error('disk full'))
+    const onNavigate = vi.fn()
+    render(<ImportScreen campId="camp-1" onNavigate={onNavigate} />)
+
+    const input = document.querySelector('input[type="file"]')
+    const file = new File(['irrelevant'], 'schedule.txt', { type: 'text/plain' })
+    await userEvent.upload(input, file)
+    await waitFor(() => expect(screen.getAllByText(/Swim/).length).toBeGreaterThan(0))
+
+    await userEvent.click(screen.getByText(/split into two\?/))
+    await userEvent.click(await screen.findByText('Split'))
+    await goToCommit()
+
+    await waitFor(() => expect(screen.getByText(/couldn.t be saved/)).toBeTruthy())
+    expect(onNavigate).not.toHaveBeenCalledWith('roots')
   })
 })
 

@@ -86,16 +86,6 @@ describe('RootsHomeScreen', () => {
     await waitFor(() => expect(screen.queryByText('Nothing needs you right now.')).not.toBeNull())
   })
 
-  it('lists a genuine structure issue in "Needs your attention" (a required area left empty)', async () => {
-    const collections = collectionsFor({ locations: [] })
-    localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))
-
-    render(<RootsHomeScreen campId={CAMP_ID} onNavigate={() => {}} />)
-    await waitFor(() => expect(screen.queryByText('Locations')).not.toBeNull())
-    // locations isn't a required area, but Activities being empty would flag —
-    // use tiers empty instead to exercise a real required-area gap.
-  })
-
   it('flags an empty required area as an attention row', async () => {
     const collections = collectionsFor({ tiers: [] })
     localClient.list.mockImplementation((entity) => Promise.resolve(collections[entity] ?? []))

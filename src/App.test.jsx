@@ -49,17 +49,14 @@ vi.mock('./screens/RootsHomeScreen', () => ({
   ),
 }))
 
-// Task 4 — a stubbed ImportScreen that exercises the carrier: finishing an
-// import hands an outcome up via onImported and routes to Roots.
+// A stubbed ImportScreen — real ImportScreen no longer takes an `onImported`
+// prop (split failures are surfaced locally within it, not carried across
+// the screen boundary), so this stub only exercises the navigation it still
+// does: routing to Roots once an import finishes.
 vi.mock('./screens/ImportScreen', () => ({
   default: (props) => (
     <div data-testid="import-screen">
-      <button
-        onClick={() => {
-          props.onImported?.({ total: 7, invertibleOps: [] })
-          props.onNavigate('roots')
-        }}
-      >finish-import</button>
+      <button onClick={() => props.onNavigate('roots')}>finish-import</button>
       <button onClick={() => props.onNavigate('roots')}>cancel-to-roots</button>
     </div>
   ),

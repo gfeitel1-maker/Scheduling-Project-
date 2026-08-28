@@ -14,7 +14,6 @@ const STRUCTURE_ENTITIES = [
 export function useCurrentStructureCounts(campId) {
   const [collections, setCollections] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
 
   useEffect(() => {
     let cancelled = false
@@ -27,13 +26,9 @@ export function useCurrentStructureCounts(campId) {
       setCollections(next)
       setLoading(false)
     }
-    load().catch((err) => {
-      if (cancelled) return
-      setError(err)
-      setLoading(false)
-    })
+    load()
     return () => { cancelled = true }
   }, [campId])
 
-  return { collections, loading, error }
+  return { collections, loading }
 }

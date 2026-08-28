@@ -123,7 +123,7 @@ function computeSplitPreview(name, suffix, proposalActivityNames, existingActivi
   return { degenerate: false, collision: collidesExisting || collidesProposal, newName }
 }
 
-export default function ImportScreen({ campId, onNavigate, onImported, deviceMode }) {
+export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // Units and time blocks are scoped to a Program; an import files them under
   // the active one so the setup screens will show them (T33).
   const { activeCohort } = useCohorts(campId)
@@ -839,13 +839,11 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
     stageLedger(buildCommitInputs(), fileNames.join(', '), 'schedule', approvedCount)
   }
 
-  // ReconciliationScreen's onCommitted/onDiscard. Task 4 (Roots-as-dashboard
-  // plan) — a finished import no longer rests on a local receipt here. It
-  // tears the staged ledger down, hands the commit outcome UP to App (which
-  // carries it across the screen boundary as `justImported`), and routes the
-  // director to Roots, where the post-import banner and the surviving
-  // grace-window undo now live. The undo's invertibleOps/createdEntityIds
-  // ride along on `outcome`, exactly as they did before.
+  // ReconciliationScreen's onCommitted/onDiscard. A finished import tears
+  // the staged ledger down and routes the director to Roots — Roots itself
+  // is a plain live-structure read (docs/adr/2026-08-28-roots-home-is-a-
+  // distinct-screen.md) with no post-import receipt of its own, so a split
+  // failure has to be surfaced HERE, before navigating away, or it is lost.
   //
   // HIGH #1 — this is the single seam where a staged two-row split is
   // actually applied: the import has just committed, so writing the split
@@ -853,7 +851,12 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
   // discarded (applyStagedSplits only ever runs from this path, never from
   // handleReconciliationDiscard). Awaited before navigating away so a split
   // failure is captured while this component is still mounted.
-  async function handleReconciliationCommitted(outcome) {
+  //
+  // A partial split failure holds the director on this screen with the
+  // failure(s) named in the existing error banner, rather than silently
+  // routing to Roots as if nothing went wrong (repo convention: every write
+  // failure is surfaced, never swallowed) — see describeWriteFailure.
+  async function handleReconciliationCommitted() {
     const splitFailures = await applyStagedSplits()
     setLedger(null)
     setFileNames([])
@@ -861,7 +864,12 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
     setActivityRules({})
     setGroupUnitOverrides({})
     setSplitDecisions({})
-    onImported?.(splitFailures.length > 0 ? { ...outcome, splitFailures } : outcome)
+    if (splitFailures.length > 0) {
+      setError(
+        `Your import finished, but ${splitFailures.length === 1 ? 'a split' : `${splitFailures.length} splits`} couldn't be saved: ${splitFailures.map((f) => f.message).join(' ')}`
+      )
+      return
+    }
     onNavigate('roots')
   }
 
@@ -884,7 +892,6 @@ export default function ImportScreen({ campId, onNavigate, onImported, deviceMod
   if (ledger) {
     return (
       <ReconciliationScreen
-        campId={campId}
         baseInputs={ledger.context}
         sourceLabel={ledger.fileName}
         onCommitted={handleReconciliationCommitted}
