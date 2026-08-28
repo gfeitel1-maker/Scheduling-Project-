@@ -89,12 +89,12 @@ The import is not a spinner — it is **the camp coming to life, narrated in the
 
 ## 6. Domain-model refinement — Fixed vs Recurring events
 
-The "Fixed Events → Recurring Events" rename (PR #158) blurred two genuinely different concepts. This program **un-conflates** them (its own ADR — see WS2), because the engine treats them differently:
+The "Fixed Events → Recurring Events" rename (PR #158) blurred two genuinely different concepts. This program **un-conflates** them (its own ADR — see WS2). The axis is **scope** (owner-decided 2026-08-28, ADR `2026-08-28-fixed-vs-recurring-events.md`):
 
-- **Fixed events** — campwide invariants, the same slot for *everyone*, unchanging week-to-week and day-to-day: flagpole, bussing, meals. (Revert the name to "Fixed Events.")
-- **Recurring events** — regular for *one group or division* on a cadence, **not** campwide-simultaneous: e.g. Division A swims every Tuesday, 1st period.
+- **Fixed events** — **all-camp**: the same slot for *every* group, at the same time: carpool, flagpole, mifkad, bussing. (Revert the name to "Fixed Events.")
+- **Recurring events** — scoped to **one group or age division** (primarily group), at the same time across days: lunch, meals. (These *feel* fixed — locked, daily — but they are group-scoped, which is what makes them Recurring.)
 
-This is a data-model + engine + ingest distinction (universal anchor vs group-scoped cadence), not a cosmetic rename. It is the program's long pole.
+**Both are scheduled first (hard pre-placement); the engine treats them identically.** The distinction is for **legibility and editing**, not scheduling behavior — the engine already blocks all-camp vs group cells correctly from the existing scope columns. So WS2 is a **classification** change (a `kind` column + constraint + migration + ingest + UI split), not an engine change. *(An earlier draft of this section framed Recurring as "contending like an activity" — that was wrong and is corrected here.)* **Special events** (field trips, some-weeks-only) are a third, separate thing that lives in the existing `special_days`/events/overlay layer — out of WS2's scope.
 
 ## 7. Design constraints (carried from the design work)
 
@@ -111,7 +111,7 @@ Each is its own ADR + ticket — small, reversible, independently shippable. **N
 | # | Workstream | Risk | Depends on | Notes |
 |---|---|---|---|---|
 | **WS1** | Lifecycle IA + stage-aware navigation | Low | — | Regroup/relabel the nav into the five stages; landing adapts to the camp's stage. Mostly routing + labels, reversible. **Best first visible step.** Designer + Architect (state machine). |
-| **WS2** | **Fixed vs Recurring events split** (§6) | **High** | — | Schema + engine + ingest + sync + migration. The long pole. Architect-led ADR, test-first at the engine/migration seams. Start its *thinking* early; ship it late and carefully. |
+| **WS2** | **Fixed vs Recurring events split** (§6) | Med | — | Classification only (a `kind` column + CHECK constraint + migration + ingest + sync + UI split); **no engine change**. See ADR `2026-08-28-fixed-vs-recurring-events.md` (proposed). Test-first at the migration/ingest seams; the migration backfill is the main risk. |
 | **WS3** | "Seed your camp" import-first entry + the seed-to-root narration (§5) | Med | WS1 | Onboarding flow; extract locations/facility/electives; honest plant-staged progress. Designer + Architect (onboarding state machine). |
 | **WS4** | Roots = pure understanding layer | Med | WS1 | Sheds setup duties → the panel-vs-bar contradiction dissolves *structurally*. Where the clean cultivation clarity lands. |
 | **WS5** | Plants grouping | Med | WS1 | Unify the schedule surfaces + fold the special-schedule "sprouts" with their grids. |
