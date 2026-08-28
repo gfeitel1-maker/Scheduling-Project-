@@ -108,16 +108,18 @@ The "Fixed Events → Recurring Events" rename (PR #158) blurred two genuinely d
 
 Each is its own ADR + ticket — small, reversible, independently shippable. **Nothing touches code until its ADR is approved.**
 
-| # | Workstream | Risk | Depends on | Notes |
+| # | Workstream | Risk | Status | Notes |
 |---|---|---|---|---|
-| **WS1** | Lifecycle IA + stage-aware navigation | Low | — | Regroup/relabel the nav into the five stages; landing adapts to the camp's stage. Mostly routing + labels, reversible. **Best first visible step.** Designer + Architect (state machine). |
-| **WS2** | **Fixed vs Recurring events split** (§6) | Med | — | Classification only (a `kind` column + CHECK constraint + migration + ingest + sync + UI split); **no engine change**. See ADR `2026-08-28-fixed-vs-recurring-events.md` (proposed). Test-first at the migration/ingest seams; the migration backfill is the main risk. |
-| **WS3** | "Seed your camp" import-first entry + the seed-to-root narration (§5) | Med | WS1 | Onboarding flow; extract locations/facility/electives; honest plant-staged progress. Designer + Architect (onboarding state machine). |
-| **WS4** | Roots = pure understanding layer | Med | WS1 | Sheds setup duties → the panel-vs-bar contradiction dissolves *structurally*. Where the clean cultivation clarity lands. |
-| **WS5** | Plants grouping | Med | WS1 | Unify the schedule surfaces + fold the special-schedule "sprouts" with their grids. |
-| **fix** | Banner-vs-census count bug | Low | — | The `getReadiness` vs `buildRootMapModel` disagreement — a real defect found during design review. Fix early, on its own, independent of the IA work. |
+| **WS1** | Lifecycle IA + stage-aware navigation | Low | ✅ **shipped** (ADR #211, code #212) | Nav regrouped into the five stages; stage-aware landing (empty camp → Seed, has-data → Roots). |
+| **WS2** | **Fixed vs Recurring events split** (§6) | Med | ✅ **shipped** (ADR #210, code #213) | Classification-only `kind` column + CHECK + v51 migration + ingest + sync + UI. No engine change. |
+| **WS4** | Roots = pure understanding layer | Med | ✅ **shipped** (ADR #214, code #215) | The Roots home redesign — `RootsHomeScreen`, "what has taken root" + "needs your attention", census moved to the import flow (rescoped #206). |
+| **WS4a** | Roots-home **targeted polish** + bento grid fix | Low | 🔵 **in flight** | Owner-approved polish: name-chips (ACTIVITY_COLORS dots), rooted-green counts, bronze attention tags, structured `--space-*`/`--radius-*` token scale, restrained reduced-motion-aware motion; plus the explicit-grid-coordinate fix for the latent bento auto-placement gap. |
+| **WS4b** | Roots-home **general whole-screen polish** | Low | ⏳ queued (after WS4a) | The holistic feel/flow pass on the whole Roots home (emil/karpathy lens) — judge the screen as a whole, not piece-by-piece. Distinct from WS4a's targeted changes. |
+| **WS3** | "Seed your camp" import-first entry + the seed-to-root narration (§5) | Med | ⏳ queued | Onboarding flow; extract locations/facility/electives; honest plant-staged progress. Designer + Architect. |
+| **WS5** | **The schedule screens (Plants)** | High | ⏳ queued — a big arc | NOT a single pass: tackling `ScheduleScreen` + the schedule surfaces is its own multi-step design arc (like the Roots home was) — start with a design conversation + owner reactions before any ADR. Unify the schedule surfaces + fold the special-schedule "sprouts" with their grids; the deferred Schedule-toolbar IA question lives here. **Protect the grid's restraint — it is the strongest surface in the app.** |
+| **debt** | Deferred / tracked | — | tracked | (a) **Persist unresolved import items to the Roots home** — the home's attention union is wired; needs a persisted decision store (own workstream, running in a separate session). (b) **`getReadiness` vs `buildRootMapModel` count-bug** — no longer surfaces on the home (numberless), carried as debt, not falsely closed. (c) Full `buildSchedule` findings in "needs attention" — deferred (gated on the two-routes "which route's findings count" question). |
 
-**Sequence:** this spec (WS0) → WS1 (the visible reframe) and WS2's ADR in parallel tracks → WS4 → WS3 / WS5. The count-bug fix drops in anytime early.
+**Sequence (done + ahead):** WS1 + WS2 + WS4 shipped → **WS4a targeted polish (now)** → **WS4b general whole-screen polish of the Roots home** → **WS5 the schedule screens** (its own design arc) → WS3 as fits. The debt items run/land independently.
 
 ## 9. Settled vs open
 
