@@ -1912,6 +1912,25 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
           day_id: dayId,
           time_block_id: tbId,
           name: String(fe.name ?? '').trim(),
+          // Fixed vs Recurring (docs/adr/2026-08-28-fixed-vs-recurring-events.md
+          // §6/§9) — re-derived from the same isAll boolean the scope fields
+          // below already use, not re-read from fe.kind, so this stays
+          // correct even if plan.fixedEvents' kind and the commit-time isAll
+          // ever disagreed (they don't today — same source, same test).
+          //
+          // Written BEFORE is_all_groups/group_ids below, deliberately: each
+          // field below lands as its OWN op-log write/UPDATE (the loop right
+          // after this object), never batched into one atomic row-write, so
+          // the CHECK constraint (§3) is evaluated after every single-field
+          // UPDATE, not just at the end. ensureExists (projections.js) stubs
+          // a fresh row with is_all_groups=1, kind DEFAULT 'fixed' — writing
+          // 'kind' first, when it's 'recurring', satisfies the CHECK's first
+          // OR-branch unconditionally, so the is_all_groups=0/group_ids write
+          // that follows never hits an intermediate state the CHECK rejects.
+          // Writing kind AFTER is_all_groups would violate the CHECK on that
+          // very UPDATE for every non-all-groups row (caught by this file's
+          // own test suite, not merely theoretical).
+          kind: isAll ? 'fixed' : 'recurring',
           is_all_groups: isAll,
           group_ids: JSON.stringify(isAll ? [] : groupIds),
           // Slice B (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md

@@ -2687,3 +2687,79 @@ describe('T85 Part 3: a Host-local (no-serverUrl) write broadcasts to connected 
     expect(result.status).toBe('applied')
   })
 })
+
+// anchor_activities.kind sync manifest test (docs/adr/2026-08-28-fixed-vs-
+// recurring-events.md §8.5) — extends this file's existing remote-client-mode
+// coverage to prove `kind` specifically round-trips through a real WS sync
+// cycle, both directions: a Client-authored write reaches the Host's
+// projected table, AND the Host's broadcast reaches a peer Client's
+// projected table. §6 named this allowlist (syncClient.js's FIELD_ALLOWLIST)
+// as the one hand-maintained list that silently drops a column if forgotten
+// — this test would fail loudly if 'kind' were missing from it, since an
+// unlisted field never reaches applyProjection on the receiving side.
+describe('anchor_activities.kind sync round-trip (v51)', () => {
+  it('Client -> Host: a client-authored kind write projects onto the anchor_activities row on both the host and the originating client', async () => {
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    hostDb.prepare(
+      "INSERT INTO anchor_activities (id, camp_id, name, unit_id, is_all_groups, group_ids, kind) VALUES ('anc-sync-1', ?, 'Division Swim', 't1', 0, NULL, 'recurring')"
+    ).run(campId)
+    clientDb.prepare(
+      "INSERT INTO anchor_activities (id, camp_id, name, unit_id, is_all_groups, group_ids, kind) VALUES ('anc-sync-1', ?, 'Division Swim', 't1', 0, NULL, 'recurring')"
+    ).run(campId)
+
+    const result = await client.write({ entity: 'anchor_activities', entity_id: 'anc-sync-1', field: 'kind', value: 'recurring' })
+    expect(result.status).toBe('applied')
+
+    // Client -> Host: the write's own submit_op is projected by the host.
+    const hostRow = hostDb.prepare('SELECT kind FROM anchor_activities WHERE id = ?').get('anc-sync-1')
+    expect(hostRow.kind).toBe('recurring')
+
+    // Host -> Client: the host's op_applied broadcast reaches back to the
+    // originating client and is projected onto its own local table too —
+    // not just recorded in its operations log.
+    await waitFor(() => clientDb.prepare('SELECT kind FROM anchor_activities WHERE id = ?').get('anc-sync-1')?.kind === 'recurring')
+    const clientRow = clientDb.prepare('SELECT kind FROM anchor_activities WHERE id = ?').get('anc-sync-1')
+    expect(clientRow.kind).toBe('recurring')
+
+    client.close()
+  })
+
+  it('Host -> Client: a host-authored kind write broadcasts to a connected peer client and projects onto its anchor_activities row', async () => {
+    hostDb.prepare(
+      "INSERT INTO anchor_activities (id, camp_id, name, is_all_groups, group_ids) VALUES ('anc-sync-2', ?, 'Flagpole', 1, NULL)"
+    ).run(campId)
+    clientDb.prepare(
+      "INSERT INTO anchor_activities (id, camp_id, name, is_all_groups, group_ids) VALUES ('anc-sync-2', ?, 'Flagpole', 1, NULL)"
+    ).run(campId)
+
+    // The peer client connects and authenticates BEFORE the host's write, so
+    // it is a live broadcast target (not a fresh-pairing full_sync recipient).
+    const client = createSyncClient(clientDb, {
+      device_id: deviceId,
+      author_user_id: userId,
+      serverUrl: `ws://localhost:${PORT}`,
+      token,
+    })
+    await client.waitUntilConnected()
+
+    const hostClient = createSyncClient(hostDb, { device_id: deviceId, author_user_id: userId, wss: server.wss })
+    const result = await hostClient.write({ entity: 'anchor_activities', entity_id: 'anc-sync-2', field: 'kind', value: 'fixed' })
+    expect(result.status).toBe('applied')
+
+    const hostRow = hostDb.prepare('SELECT kind FROM anchor_activities WHERE id = ?').get('anc-sync-2')
+    expect(hostRow.kind).toBe('fixed')
+
+    await waitFor(() => clientDb.prepare('SELECT kind FROM anchor_activities WHERE id = ?').get('anc-sync-2')?.kind === 'fixed')
+    const clientRow = clientDb.prepare('SELECT kind FROM anchor_activities WHERE id = ?').get('anc-sync-2')
+    expect(clientRow.kind).toBe('fixed')
+
+    client.close()
+  })
+})

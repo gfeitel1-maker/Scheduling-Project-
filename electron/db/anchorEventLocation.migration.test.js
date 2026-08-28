@@ -98,7 +98,7 @@ describe('migration v45: fresh vs migrated equivalence', () => {
   it('declares schema version 45 on a fresh db and gives both tables the location_id column', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(50)
+    expect(CURRENT_SCHEMA_VERSION).toBe(51)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 45').get().c).toBe(1)
     expect(db.pragma('table_info(anchor_activities)').map((c) => c.name)).toContain('location_id')
     expect(db.pragma('table_info(events)').map((c) => c.name)).toContain('location_id')
@@ -131,11 +131,11 @@ describe('migration v45: fresh vs migrated equivalence', () => {
     migrated.close()
   }, 30000)
 
-  it('declares anchor_activities columns in order, location_id appended last', () => {
+  it('declares anchor_activities columns in order, location_id before v51\'s kind', () => {
     const db = freshDb()
     expect(db.pragma('table_info(anchor_activities)').map((c) => c.name)).toEqual([
       'id', 'camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'unit_id', 'span_blocks',
-      'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id',
+      'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id', 'kind',
     ])
     db.close()
   })
@@ -189,7 +189,7 @@ describe('migration v45: fresh vs migrated equivalence', () => {
     const schemaText = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
     const match = schemaText.match(/CREATE TABLE IF NOT EXISTS anchor_activities \([\s\S]*?\n\);/)
     expect(match, 'expected an anchor_activities CREATE TABLE block in schema.sql').toBeTruthy()
-    expect(match[0]).toContain("recurrence_level TEXT NOT NULL DEFAULT 'daily',\n  location_id TEXT\n);")
+    expect(match[0]).toContain("recurrence_level TEXT NOT NULL DEFAULT 'daily',\n  location_id TEXT,")
   })
 
   it('schema.sql declares location_id last (before UNIQUE) in the events CREATE block', () => {

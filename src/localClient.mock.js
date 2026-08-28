@@ -336,7 +336,11 @@ export const MOCK_WRITE_ALLOWLIST = {
   // from electron/" rule (kept honest by electron/ipcSurfaceParity.test.js).
   // v50 pair extension adds `kind` (docs/adr/2026-08-26-indoor-outdoor-map-pair-and-sim-seed.md D1).
   camp_maps: ['camp_id', 'image_data', 'image_mime', 'image_width', 'image_height', 'kind'],
-  anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id', 'span_blocks'],
+  // kind (v51, docs/adr/2026-08-28-fixed-vs-recurring-events.md §6) — mirror
+  // of PROJECTIONS.anchor_activities.fields, kept honest by
+  // electron/ipcSurfaceParity.test.js's drift check like every other entry
+  // in this allowlist.
+  anchor_activities: ['camp_id', 'cohort_id', 'day_id', 'time_block_id', 'name', 'is_all_groups', 'group_ids', 'notes', 'schedule_week_id', 'recurrence_level', 'location_id', 'span_blocks', 'kind'],
   week_activity_exclusions: ['week_id', 'activity_id'],
   week_group_exclusions: ['week_id', 'group_id'],
   week_location_exclusions: ['week_id', 'location_id'],
@@ -978,6 +982,7 @@ export const mockShoresh = {
       const requestedDays = (fe.days ?? []).length
       const dayIds = (fe.days ?? []).map((d) => dayIdByName.get(norm(d))).filter(Boolean)
       if (!tbId || dayIds.length === 0) { fixedSkipped.push({ name: fe.name, reason: 'time block or day not created' }); continue }
+      const kindValue = fe.kind ?? (fe.scope?.is_all_groups ? 'fixed' : 'recurring')
       const isAll = fe.scope?.is_all_groups ? 1 : 0
       let groupIds = []
       const requestedGroups = isAll ? 0 : (fe.scope?.groups ?? []).length
@@ -999,6 +1004,7 @@ export const mockShoresh = {
         state.anchor_activities.push({
           id, camp_id: campId, cohort_id: targetCohort, day_id: dayId, time_block_id: tbId,
           name: String(fe.name ?? '').trim(), is_all_groups: isAll, group_ids: JSON.stringify(isAll ? [] : groupIds),
+          kind: kindValue,
           // Slice B (docs/adr/2026-08-24-merged-cell-multiblock-ingest.md
           // addendum): mirrors the real commitPlan's `fe.span_blocks ?? 1`
           // default — a no-op for every fixedEvents caller that predates it.

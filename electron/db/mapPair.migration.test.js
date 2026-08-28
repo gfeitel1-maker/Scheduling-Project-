@@ -80,8 +80,8 @@ function preV50Db(tag = 'v50-migrated') {
 }
 
 describe('migration v50: indoor/outdoor map pair + locations.map_id', () => {
-  it('CURRENT_SCHEMA_VERSION is 50', () => {
-    expect(CURRENT_SCHEMA_VERSION).toBe(50)
+  it('CURRENT_SCHEMA_VERSION is at least 50', () => {
+    expect(CURRENT_SCHEMA_VERSION).toBeGreaterThanOrEqual(50)
   })
 
   it('fresh db: camp_maps has kind, locations has map_id', () => {
@@ -97,7 +97,7 @@ describe('migration v50: indoor/outdoor map pair + locations.map_id', () => {
     expect(db.pragma('table_info(camp_maps)').map((c) => c.name)).not.toContain('kind')
     expect(db.pragma('table_info(locations)').map((c) => c.name)).not.toContain('map_id')
     initSchema(db)
-    expect(getSchemaVersion(db)).toBe(50)
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     expect(db.pragma('table_info(camp_maps)').map((c) => c.name)).toContain('kind')
     expect(db.pragma('table_info(locations)').map((c) => c.name)).toContain('map_id')
     db.close()
@@ -157,7 +157,7 @@ describe('migration v50: indoor/outdoor map pair + locations.map_id', () => {
     const before = db.prepare('SELECT COUNT(*) c FROM camp_maps').get().c
     db.prepare('DELETE FROM schema_migrations WHERE version >= 50').run()
     initSchema(db)
-    expect(getSchemaVersion(db)).toBe(50)
+    expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
     expect(db.prepare('SELECT COUNT(*) c FROM camp_maps').get().c).toBe(before)
     expect(
       db.prepare("SELECT COUNT(*) c FROM sqlite_master WHERE type='table' AND name='camp_maps'").get().c

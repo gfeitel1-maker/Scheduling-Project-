@@ -56,10 +56,25 @@ function normalizeAnchor(row) {
   }
 }
 
-function AnchorModal({ anchor, tiers, groups, days, timeBlocks, locations, onSave, onClose, onCreateLocation, onUpdateLocationCapacity }) {
+function AnchorModal({ anchor, kind, tiers, groups, days, timeBlocks, locations, onSave, onClose, onCreateLocation, onUpdateLocationCapacity }) {
   const isNew = !anchor?.id
+  // Fixed = all-camp by construction (docs/adr/2026-08-28-fixed-vs-recurring-
+  // events.md §3 CHECK: kind='fixed' requires is_all_groups=1, unit_id/
+  // group_ids empty) — the scope control below is hidden entirely on this
+  // form, not merely defaulted, so an invalid Fixed row is unrepresentable in
+  // the UI rather than caught only by the DB constraint after a save attempt
+  // (ADR §7's recommended default).
+  const isFixed = kind === 'fixed'
+  // Threaded through this modal's copy so "Fixed" vs "Recurring" reads
+  // consistently everywhere (docs/adr/2026-08-28-fixed-vs-recurring-events.md
+  // §7: no explainer copy, but the label itself must not lie about which
+  // kind of event this form is creating).
+  const kindLabel = isFixed ? 'Fixed Event' : 'Recurring Event'
   const [name, setName] = useState(anchor?.name || '')
-  const [isAllTiers, setIsAllTiers] = useState(anchor?.is_all_groups ?? true)
+  // Fixed is always all-groups, Recurring is never all-groups (the CHECK
+  // constraint forbids both other combinations) — this form never toggles
+  // it, so it's a constant derived from `kind`, not React state.
+  const isAllTiers = isFixed
   // Multi-day: editing an existing anchor pre-selects its single day
   const [selectedDays, setSelectedDays] = useState(anchor?.day_id ? [anchor.day_id] : [])
   const [blockId, setBlockId] = useState(anchor?.time_block_id || '')
@@ -91,17 +106,31 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, locations, onSav
     if (!canSave) return
     setSaving(true)
     setSaveError(null)
-    const group_ids = isAllTiers
+    const group_ids = isFixed
       ? []
       : groups.filter(g => selectedTiers.includes(g.tier_id)).map(g => g.id)
     // C5: a location_id left dangling (set, but the place it pointed at is
     // gone — deleted, cross-device race, stale import) is never persisted
     // silently on save — mirrors ActivityModal's identical guard.
     const resolvedLocationId = locationId && locations.some(l => l.id === locationId) ? locationId : null
+    // kind is derived from which form the director used (this screen's fixed
+    // `kind` prop), never toggled by hand — the CHECK constraint (ADR §3) is
+    // the backstop, this is the by-construction guarantee (ADR §6).
+    //
+    // kind is placed BEFORE is_all_groups/group_ids in this object,
+    // deliberately: writeFields (setupCrudRepository.js) fires ONE op-log
+    // write per field, in this object's key order, each its own UPDATE — the
+    // CHECK constraint is evaluated after every single-field write, not just
+    // at the end. A fresh row's ensureExists stub defaults kind='fixed',
+    // is_all_groups=1; writing kind='recurring' FIRST satisfies the CHECK's
+    // first OR-branch unconditionally, so the is_all_groups=false/group_ids
+    // write that follows never hits an intermediate state the CHECK rejects
+    // (same reasoning as electron/ops/ingest.js's identical field ordering).
     // When editing, update only the existing record's day; when creating, one record per day
     try {
       await onSave(anchor?.id || null, {
         name: name.trim(),
+        kind,
         is_all_groups: isAllTiers,
         group_ids,
         selectedDays,
@@ -125,7 +154,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, locations, onSav
     <div style={{ ...S.overlay, ...enterStyle }}>
       <div style={{ ...S.modalLg, width: 520 }}>
         <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 18, marginBottom: 20 }}>
-          {isNew ? 'Add Recurring Event' : `Edit: ${anchor.name}`}
+          {isNew ? `Add ${kindLabel}` : `Edit: ${anchor.name}`}
         </div>
 
         <Field label="Name">
@@ -159,12 +188,8 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, locations, onSav
           <LocationPicker value={locationId} locations={locations} onChange={setLocationId} onCreate={onCreateLocation} onUpdateCapacity={onUpdateLocationCapacity} />
         </Field>
 
-        <Field label="Age Divisions">
-          <label style={{ fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-            <input type="checkbox" checked={isAllTiers} onChange={e => setIsAllTiers(e.target.checked)} />
-            All age divisions
-          </label>
-          {!isAllTiers && (
+        {!isFixed && (
+          <Field label="Age Divisions">
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', paddingLeft: 4 }}>
               {tiers.length === 0
                 ? <span style={{ fontSize: 13, color: 'var(--text-secondary)' }}>No age divisions set up yet</span>
@@ -175,8 +200,8 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, locations, onSav
                 ))
               }
             </div>
-          )}
-        </Field>
+          </Field>
+        )}
 
         <Field label="Notes">
           <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} style={{ ...S.input, resize: 'vertical' }} />
@@ -184,7 +209,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, locations, onSav
 
         {isNew && selectedDays.length > 1 && (
           <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, fontFamily: 'var(--font-mono)' }}>
-            Will create {selectedDays.length} recurring events (one per day)
+            Will create {selectedDays.length} {isFixed ? 'fixed' : 'recurring'} events (one per day)
           </div>
         )}
 
@@ -196,7 +221,7 @@ function AnchorModal({ anchor, tiers, groups, days, timeBlocks, locations, onSav
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 8 }}>
           <button className="press-97" onClick={onClose} style={S.btnSecondary}>Cancel</button>
           <button className="press-97" onClick={save} disabled={saving || !canSave} style={{ ...S.btnPrimary, opacity: (!canSave || saving) ? 0.5 : 1 }}>
-            {saving ? 'Saving…' : isNew ? `Add Recurring Event${selectedDays.length > 1 ? ` (×${selectedDays.length})` : ''}` : 'Save Changes'}
+            {saving ? 'Saving…' : isNew ? `Add ${kindLabel}${selectedDays.length > 1 ? ` (×${selectedDays.length})` : ''}` : 'Save Changes'}
           </button>
         </div>
       </div>
@@ -213,7 +238,15 @@ function Field({ label, children }) {
   )
 }
 
-export default function AnchorsScreen({ campId, role, onNavigate }) {
+export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurring' }) {
+  // Threaded through this screen's copy (delete dialogs, error messages,
+  // empty state) so "fixed" vs "recurring" reads consistently everywhere —
+  // no stray hardcoded "recurring event" left over when kind='fixed'
+  // (docs/adr/2026-08-28-fixed-vs-recurring-events.md §7).
+  const eventLabel = kind === 'fixed' ? 'fixed event' : 'recurring event'
+  const eventLabelPlural = kind === 'fixed' ? 'fixed events' : 'recurring events'
+  const eventLabelCap = kind === 'fixed' ? 'Fixed Event' : 'Recurring Event'
+  const eventLabelPluralCap = kind === 'fixed' ? 'Fixed Events' : 'Recurring Events'
   const [anchors, setAnchors] = useState([])
   const [days, setDays] = useState([])
   const [timeBlocks, setTimeBlocks] = useState([])
@@ -238,7 +271,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
 
   useEffect(() => {
     if (activeCohort) load()
-  }, [campId, activeCohort?.id])
+  }, [campId, activeCohort?.id, kind])
 
   async function load() {
     if (!activeCohort) return
@@ -255,7 +288,11 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
         localClient.list('locations'),
       ])
       const list = (aData || [])
-        .filter(a => a.camp_id === campId && a.cohort_id === activeCohort.id)
+        // kind is NOT NULL post-migration (v51 CHECK, docs/adr/2026-08-28-
+        // fixed-vs-recurring-events.md §3) — no `?? 'fixed'` fallback here:
+        // a row with a missing/mismatched kind is a real bug to surface
+        // (an unfiltered row disappearing from both lists), not to mask.
+        .filter(a => a.camp_id === campId && a.cohort_id === activeCohort.id && a.kind === kind)
         .map(normalizeAnchor)
         .sort((a, b) => String(a.name ?? '').localeCompare(String(b.name ?? '')))
       setAnchors(list)
@@ -356,7 +393,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       setError(
         err.cleanupFailed
           ? `Save failed partway through and couldn't be fully rolled back (admin required) — ${err.orphanCount} incomplete recurring-event row(s) may remain; ask an admin to review/delete them.`
-          : describeWriteFailure(err, 'That recurring event could not be saved.')
+          : describeWriteFailure(err, `That ${eventLabel} could not be saved.`)
       )
       throw err
     }
@@ -414,8 +451,8 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
     } catch (err) {
       setError(
         /admin role required/i.test(err?.message ?? '')
-          ? 'Only an admin can delete recurring events.'
-          : describeWriteFailure(err, 'That recurring event could not be deleted.')
+          ? `Only an admin can delete ${eventLabelPlural}.`
+          : describeWriteFailure(err, `That ${eventLabel} could not be deleted.`)
       )
       setPendingDelete(null)
     } finally {
@@ -444,12 +481,12 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       if (failed > 0) {
         setError(
           failedDueToRole
-            ? 'Only an admin can delete recurring events — no recurring events were deleted.'
-            : `Deleted ${succeeded} of ${ids.length} recurring events — please try again for the rest.`
+            ? `Only an admin can delete ${eventLabelPlural} — no ${eventLabelPlural} were deleted.`
+            : `Deleted ${succeeded} of ${ids.length} ${eventLabelPlural} — please try again for the rest.`
         )
       }
     } catch (err) {
-      setError(describeWriteFailure(err, 'That recurring events could not be deleted.'))
+      setError(describeWriteFailure(err, `Those ${eventLabelPlural} could not be deleted.`))
     } finally {
       setDeletingAll(false)
       setPendingDeleteAll(false)
@@ -535,9 +572,24 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
 
         const tierLabel = tierNames.join(', ') || (isAllTiers ? 'All age divisions' : '—')
 
+        // kind follows the ROW'S OWN scope (the §1 decision table's is_all_groups
+        // test), NOT which nav entry (Fixed vs Recurring) launched this import —
+        // it CANNOT be forced to the screen's kind, or a scoped row would be
+        // written kind='fixed' with a non-empty group_ids and violate the v51
+        // CHECK constraint (docs/adr/2026-08-28-fixed-vs-recurring-events.md §3).
+        // A row whose derived kind differs from this screen's `kind` prop still
+        // imports correctly, but is filed onto the OTHER list — surfaced to the
+        // director in confirmImport's result (`filedElsewhere`), not silently.
+        // kind is placed FIRST in these objects (also enforced structurally by
+        // REQUIRED_FIRST_ON_WRITE in setupCrudRepository.js — see that file's
+        // comment for why per-call-site ordering alone isn't trusted): each
+        // field lands as its own op-log UPDATE, and the CHECK is evaluated
+        // after every one, so kind must be applied before is_all_groups/
+        // group_ids narrow a fresh row's scope.
+        const rowKind = isAllTiers ? 'fixed' : 'recurring'
         if (dayLabels.length === 0) {
           parsed.push({
-            name, day_id: null, time_block_id, is_all_groups: isAllTiers, group_ids,
+            kind: rowKind, name, day_id: null, time_block_id, is_all_groups: isAllTiers, group_ids,
             notes: String(r.notes || '').trim() || null,
             warning: baseWarning || 'Missing day_label',
             _dayLabel: '—', _blockName: blockName, _tierNames: tierLabel,
@@ -547,7 +599,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
             const day_id = dayMap[dayLabel.toLowerCase()] || null
             const warning = baseWarning || (!day_id ? `Day "${dayLabel}" not found` : null)
             parsed.push({
-              name, day_id, time_block_id, is_all_groups: isAllTiers, group_ids,
+              kind: rowKind, name, day_id, time_block_id, is_all_groups: isAllTiers, group_ids,
               notes: String(r.notes || '').trim() || null,
               warning,
               _dayLabel: dayLabel, _blockName: blockName, _tierNames: tierLabel,
@@ -566,7 +618,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
     if (!activeCohort) return
     setImporting(true)
     try {
-      let added = 0, skipped = 0, skippedWithOrphan = 0
+      let added = 0, skipped = 0, skippedWithOrphan = 0, filedElsewhere = 0
       for (const row of importRows) {
         if (!row.name || row.warning) { skipped++; continue }
         const { warning: _warning, _dayLabel, _blockName, _tierNames, ...record } = row
@@ -583,8 +635,12 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
           continue
         }
         added++
+        // A scoped row's kind can differ from this screen's `kind` (see the
+        // comment above rowKind's derivation) — never silent: the director
+        // sees a count of how many landed on the other list.
+        if (record.kind !== kind) filedElsewhere++
       }
-      setImportResult({ added, skipped, skippedWithOrphan }); setImportStep('done')
+      setImportResult({ added, skipped, skippedWithOrphan, filedElsewhere }); setImportStep('done')
     } catch (err) {
       setError(describeWriteFailure(err, 'That import could not be completed.'))
       setImportStep(null); setImportRows([])
@@ -612,7 +668,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
   return (
     <div style={{ maxWidth: 760 }}>
       <SetupScreenShell
-        countLabel={`${anchors.length} recurring event${anchors.length !== 1 ? 's' : ''}`}
+        countLabel={`${anchors.length} ${kind} event${anchors.length !== 1 ? 's' : ''}`}
         role={role}
         actions={{ onDownloadTemplate: downloadTemplate, onImport: () => fileRef.current.click(), onDeleteAll: deleteAll }}
         fileInputRef={fileRef}
@@ -625,12 +681,14 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       >
       {timeBlocks.length === 0 && !loading && (
         <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#7a5100' }}>
-          No time blocks found. Set these up before adding recurring events.
+          No time blocks found. Set these up before adding {eventLabelPlural}.
         </div>
       )}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
-        <button className="press-97" onClick={() => setModal({ anchor: null })} style={S.btnPrimary}>+ Add Recurring Event</button>
+        <button className="press-97" onClick={() => setModal({ anchor: null })} style={S.btnPrimary}>
+          + Add {kind === 'fixed' ? 'Fixed' : 'Recurring'} Event
+        </button>
       </div>
 
       {loading ? (
@@ -651,8 +709,8 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
             <tbody>
               {anchors.length === 0 ? (
                 <tr><td colSpan={6} style={S.emptyState}>
-                  <div style={S.emptyStateTitle}>No recurring events yet</div>
-                  <div style={S.emptyStateBody}>Add your first recurring event below.</div>
+                  <div style={S.emptyStateTitle}>No {kind} events yet</div>
+                  <div style={S.emptyStateBody}>Add your first {kind} event below.</div>
                 </td></tr>
               ) : anchors.map(a => (
                 <tr key={a.id} style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
@@ -700,7 +758,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
           </table>
           {anchors.length > 0 && (
             <div style={{ padding: '8px 16px', fontSize: 12, color: 'var(--text-secondary)', borderTop: '1px solid var(--border)' }}>
-              Changing a recurring event's week won't move it on weeks already built — regenerate or re-place those to pick up the change.
+              Changing a {eventLabel}'s week won't move it on weeks already built — regenerate or re-place those to pick up the change.
             </div>
           )}
         </div>
@@ -710,6 +768,7 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       {modal && (
         <AnchorModal
           anchor={modal.anchor}
+          kind={kind}
           tiers={tiers}
           groups={groups}
           days={days}
@@ -734,10 +793,19 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
         importing={importing}
         onConfirm={confirmImport}
         onCancel={() => { setImportStep(null); setImportRows([]) }}
-        doneExtra={importResult?.skippedWithOrphan > 0 && (
-          <span style={{ color: 'var(--warning)', marginLeft: 10 }}>
-            {importResult.skippedWithOrphan} skipped but couldn't be fully rolled back (admin required) — stray row(s) may remain
-          </span>
+        doneExtra={(
+          <>
+            {importResult?.skippedWithOrphan > 0 && (
+              <span style={{ color: 'var(--warning)', marginLeft: 10 }}>
+                {importResult.skippedWithOrphan} skipped but couldn't be fully rolled back (admin required) — stray row(s) may remain
+              </span>
+            )}
+            {importResult?.filedElsewhere > 0 && (
+              <span style={{ color: 'var(--text-secondary)', marginLeft: 10 }}>
+                {importResult.filedElsewhere} were group-scoped and filed under {kind === 'fixed' ? 'Recurring Events' : 'Fixed Events'} instead
+              </span>
+            )}
+          </>
         )}
         renderCell={(r, c) => {
           if (c.key === 'name') return r.name || '—'
@@ -751,9 +819,9 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
       {pendingDelete && (
         <ConfirmDangerDialog
           title={`Delete "${pendingDelete.name}"?`}
-          body="This recurring event will be removed from your schedules."
+          body={`This ${eventLabel} will be removed from your schedules.`}
           recovery={`"${pendingDelete.name}" goes to Trash, and you can put it back from there.`}
-          confirmLabel="Delete Recurring Event"
+          confirmLabel={`Delete ${eventLabelCap}`}
           busy={deleting}
           onConfirm={confirmAnchorDelete}
           onCancel={() => setPendingDelete(null)}
@@ -762,9 +830,9 @@ export default function AnchorsScreen({ campId, role, onNavigate }) {
 
       {pendingDeleteAll && (
         <ConfirmDangerDialog
-          title="Delete all recurring events?"
+          title={`Delete all ${eventLabelPlural}?`}
           recovery="They can be restored from Trash."
-          confirmLabel="Delete All Recurring Events"
+          confirmLabel={`Delete All ${eventLabelPluralCap}`}
           busy={deletingAll}
           onConfirm={confirmDeleteAll}
           onCancel={() => setPendingDeleteAll(false)}

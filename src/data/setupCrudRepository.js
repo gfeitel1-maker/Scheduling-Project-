@@ -30,16 +30,55 @@ export const UNIQUE_FIRST_FIELD = {
   activities: 'name',
 }
 
+// Fixed vs Recurring events (docs/adr/2026-08-28-fixed-vs-recurring-events.md
+// §3): anchor_activities has a cross-column CHECK (`kind='fixed' requires
+// is_all_groups=1, unit_id/group_ids empty`) evaluated after EVERY
+// single-field UPDATE, since writeFields below fires one op-log write per
+// field. A fresh row's ensureExists stub defaults kind='fixed',
+// is_all_groups=1 — narrowing it to Recurring (is_all_groups=false/
+// group_ids set) while `kind` is still 'fixed' violates the CHECK on that
+// UPDATE, even though the SAME field set narrows correctly once `kind` is
+// applied first.
+//
+// Unlike UNIQUE_FIRST_FIELD above (a programmer-error guard that THROWS if a
+// caller gets the order wrong, because getting it wrong there needs a human
+// to notice and fix the call site), this is enforced automatically, silently,
+// for every caller — a Red Hat review found the FIRST version of this ADR's
+// work had gotten the ordering right in two writers (electron/ops/ingest.js,
+// AnchorModal.save) and wrong in a third (AnchorsScreen's XLSX import),
+// proving per-call-site discipline is not enough. Registering the field here
+// means a future writer can't reintroduce the bug by forgetting.
+export const REQUIRED_FIRST_ON_WRITE = {
+  anchor_activities: 'kind',
+}
+
+// Returns `fields`' entries as [field, value] pairs, with the entity's
+// REQUIRED_FIRST_ON_WRITE field (if registered and present) moved to the
+// front. A no-op for an unregistered entity, or when the field isn't present
+// in this particular write (e.g. a write that only touches `notes`). Exported
+// so a test can assert the reordering directly, independent of the write loop.
+export function orderFieldsForWrite(entity, fields) {
+  const requiredFirst = REQUIRED_FIRST_ON_WRITE[entity]
+  const entries = Object.entries(fields)
+  if (!requiredFirst || !(requiredFirst in fields)) return entries
+  const first = entries.find(([field]) => field === requiredFirst)
+  const rest = entries.filter(([field]) => field !== requiredFirst)
+  return [first, ...rest]
+}
+
 export function createSetupCrudRepository({
   localClient,
   getToken = () => localStorage.getItem('shoresh-token'),
 }) {
   // Fires one write() per field (the op-log is field-level) and surfaces the
   // first failure rather than a silent partial write. Field order is
-  // preserved from the caller's object.
+  // preserved from the caller's object, EXCEPT for an entity registered in
+  // REQUIRED_FIRST_ON_WRITE above: that field (when present) is always moved
+  // to the front, regardless of the order the caller built its object in.
   async function writeFields(entity, id, fields) {
     const token = getToken()
-    for (const [field, value] of Object.entries(fields)) {
+    const orderedEntries = orderFieldsForWrite(entity, fields)
+    for (const [field, value] of orderedEntries) {
       const result = await localClient.write(token, entity, id, field, value)
       if (!(result && (result.status === 'applied' || result.status === 'queued'))) {
         throw new Error(`write failed for field "${field}"`)
