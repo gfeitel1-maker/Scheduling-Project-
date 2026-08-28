@@ -4,7 +4,11 @@ import { render, screen, fireEvent, within } from '@testing-library/react'
 
 import Sidebar from './Sidebar'
 
-// docs/work/specs/2026-07-31-sidebar-and-setup-readiness-handoff.md §3, §5, §6, §11, §12.
+// docs/adr/2026-08-28-stage-aware-nav-landing.md Decision 3,
+// docs/work/specs/2026-08-28-lifecycle-ia-program.md §3 — the five-stage
+// lifecycle IA: Roots is a fixed, chevron-less top row; the former Camp Set
+// Up/Schedule two-section model is replaced by three collapsible stages —
+// Germination / Sprouts / Plants.
 
 const DEFAULT_COUNTS = {
   cohorts: 1, tiers: 4, groups: 14, days: 5, timeblocks: 6, activities: 8,
@@ -45,24 +49,27 @@ function renderSidebar(props = {}) {
   )
 }
 
-describe('Sidebar: Roots hub with its collapsible entity children (Slice B)', () => {
+describe('Sidebar: Roots — fixed, chevron-less top row (ADR Decision 3)', () => {
   it('does not list Programs, because every camp is given one', () => {
     // Product owner, 2026-08-01: "hide programs from the sidebar and
     // auto-create main." A row a director can only ever look at is a question
     // they should not be asked.
     renderSidebar()
-    expect(screen.getByText('Camp Set Up')).toBeTruthy()
+    expect(screen.getByText('Roots')).toBeTruthy()
     expect(screen.queryByText('Programs')).toBeNull()
   })
 
-  it('shows Camp Set Up and Schedule — no third System section', () => {
+  it('shows Germination, Sprouts and Plants — no third System section', () => {
     renderSidebar()
-    expect(screen.getByText('Camp Set Up')).toBeTruthy()
-    expect(screen.getByText('Schedule')).toBeTruthy()
+    expect(screen.getByText('Germination')).toBeTruthy()
+    expect(screen.getByText('Sprouts')).toBeTruthy()
+    expect(screen.getByText('Plants')).toBeTruthy()
     expect(screen.queryByText('System')).toBeNull()
+    expect(screen.queryByText('Camp Set Up')).toBeNull()
+    expect(screen.queryByText('Schedule')).toBeNull()
   })
 
-  it('shows Roots and its entity children by default', () => {
+  it('shows Roots always, alongside the stage rows', () => {
     renderSidebar()
     expect(screen.getByText('Roots')).toBeTruthy()
     expect(screen.getByText('Groups')).toBeTruthy()
@@ -76,26 +83,10 @@ describe('Sidebar: Roots hub with its collapsible entity children (Slice B)', ()
     expect(onNavigate).toHaveBeenCalledWith('roots')
   })
 
-  it('the chevron toggles the child list without navigating', () => {
-    const onNavigate = vi.fn()
-    renderSidebar({ onNavigate })
-    expect(screen.getByText('Groups')).toBeTruthy()
-
-    fireEvent.click(screen.getByTitle('Collapse Roots'))
-    expect(screen.queryByText('Groups')).toBeNull()
-    expect(onNavigate).not.toHaveBeenCalled()
-
-    fireEvent.click(screen.getByTitle('Expand Roots'))
-    expect(screen.getByText('Groups')).toBeTruthy()
-  })
-
-  it('remembers whether Roots was collapsed', () => {
-    const { unmount } = renderSidebar()
-    fireEvent.click(screen.getByTitle('Collapse Roots'))
-    unmount()
-
+  it('carries no chevron/toggle button for Roots — it has no fold state', () => {
     renderSidebar()
-    expect(screen.queryByText('Groups')).toBeNull()
+    expect(screen.queryByTitle('Collapse Roots')).toBeNull()
+    expect(screen.queryByTitle('Expand Roots')).toBeNull()
   })
 
   it('marks a complete area with a tick and its count', () => {
@@ -116,13 +107,9 @@ describe('Sidebar: Roots hub with its collapsible entity children (Slice B)', ()
   it('never shows the blocking mark on an optional area', () => {
     // A camp with no locations is finished, not unfinished. Marking it
     // otherwise trains directors to ignore the mark that matters.
-    // T108 Phase 2 — the standalone Day Overrides nav entry/area is retired
-    // (overrides are now authored in place on the schedule grid), so it is
-    // no longer one of the optional rows this test checks.
-    //
-    // Recurring Events is no longer one of these: it is `expected`, not
-    // `optional` (see the dedicated describe block below) — it reads
-    // "attention", not "optional", though it still never shows '!'.
+    // Fixed Events/Recurring Events are not among these: they are
+    // `expected`, not `optional` (see the dedicated describe block below) —
+    // they read "attention", not "optional", though they still never show '!'.
     renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 0, locations: 0 } })
     // Electives (Slice 1) and Events (Slice 1, docs/adr/2026-08-22-events-
     // overlay-placement.md) are the 3rd and 4th optional entities, alongside
@@ -135,7 +122,7 @@ describe('Sidebar: Roots hub with its collapsible entity children (Slice B)', ()
   })
 })
 
-describe('Sidebar: Recurring Events is expected, not merely optional', () => {
+describe('Sidebar: Fixed Events and Recurring Events are two separate, expected rows (not merely optional)', () => {
   it('reads "attention" (not "optional", not the blocking "needed") when a camp has zero recurring events', () => {
     renderSidebar({ counts: { ...DEFAULT_COUNTS, anchors: 0 } })
     const anchorsRow = screen.getByText('Recurring Events').closest('button')
@@ -150,12 +137,20 @@ describe('Sidebar: Recurring Events is expected, not merely optional', () => {
     expect(within(anchorsRow).getByText('3')).toBeTruthy()
     expect(within(anchorsRow).getByText('✓')).toBeTruthy()
   })
+
+  it('lists Fixed Events as its own row, distinct from Recurring Events', () => {
+    const onNavigate = vi.fn()
+    renderSidebar({ onNavigate })
+    expect(screen.getByText('Fixed Events')).toBeTruthy()
+    fireEvent.click(screen.getByText('Fixed Events').closest('button'))
+    expect(onNavigate).toHaveBeenCalledWith('fixedevents')
+  })
 })
 
-describe('Sidebar: Events and Special Days read as one family under a shared heading (Slice B, override-family-model ADR §6c)', () => {
-  it('renders a "Special Schedule" heading among the Roots children', () => {
+describe('Sidebar: Events and Special Days read as one family under a shared heading (override-family-model ADR §6c)', () => {
+  it('renders a "Special Events" heading among the Sprouts rows', () => {
     renderSidebar()
-    expect(screen.getByText('Special Schedule')).toBeTruthy()
+    expect(screen.getByText('Special Events')).toBeTruthy()
   })
 
   it('keeps Events and Special Days as their own navigable rows under the heading', () => {
@@ -171,13 +166,13 @@ describe('Sidebar: Events and Special Days read as one family under a shared hea
   it('does not treat the heading itself as a navigable row', () => {
     const onNavigate = vi.fn()
     renderSidebar({ onNavigate })
-    fireEvent.click(screen.getByText('Special Schedule'))
+    fireEvent.click(screen.getByText('Special Events'))
     expect(onNavigate).not.toHaveBeenCalled()
   })
 
   it('gives the heading no count, checkmark, or optional affordance', () => {
     renderSidebar()
-    const heading = screen.getByText('Special Schedule')
+    const heading = screen.getByText('Special Events')
     expect(within(heading.closest('div')).queryByText('optional')).toBeNull()
     expect(within(heading.closest('div')).queryByText('✓')).toBeNull()
   })
@@ -264,24 +259,24 @@ describe('Sidebar: System items live behind the Settings gear', () => {
 })
 
 describe('Sidebar: collapsing never hides a problem', () => {
-  it('carries the unmet count out to the collapsed header', () => {
-    renderSidebar({ counts: { ...DEFAULT_COUNTS, days: 0, activities: 0 } })
+  it('carries the unmet count out to the collapsed Germination header', () => {
+    renderSidebar({ counts: { ...DEFAULT_COUNTS, days: 0 } })
     expect(screen.getByText('Days')).toBeTruthy()
 
-    fireEvent.click(screen.getByText('Camp Set Up').closest('button'))
+    fireEvent.click(screen.getByText('Germination').closest('button'))
 
     expect(screen.queryByText('Days')).toBeNull()
-    expect(screen.getByText('3 / 5')).toBeTruthy()
+    expect(screen.getByText('3 / 4')).toBeTruthy()
   })
 
   it('remembers which sections were collapsed', () => {
     const { unmount } = renderSidebar()
     expect(screen.getByText('Groups')).toBeTruthy()
-    fireEvent.click(screen.getByText('Camp Set Up').closest('button'))
+    fireEvent.click(screen.getByText('Germination').closest('button'))
     unmount()
 
     renderSidebar()
-    expect(screen.getByText('Camp Set Up')).toBeTruthy()
+    expect(screen.getByText('Germination')).toBeTruthy()
     expect(screen.queryByText('Groups')).toBeNull()
   })
 })
@@ -302,7 +297,7 @@ describe('Sidebar: the tuck-away offer', () => {
     // same silent imposition in slower motion. sidebar.offered=true means
     // offerOpen=false even when offerShown=true.
     storage['shoresh-sidebar-state'] = JSON.stringify({
-      sections: { setup: true, schedule: true }, offered: true,
+      sections: { germination: true, sprouts: true, plants: true }, offered: true,
     })
     renderSidebar({ offerShown: true })
     expect(screen.queryByText(/Setup looks complete/)).toBeNull()

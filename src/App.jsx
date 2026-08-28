@@ -26,6 +26,7 @@ import ConflictsScreen from './screens/ConflictsScreen'
 import TrashScreen from './screens/TrashScreen'
 import DeviceManagerScreen from './screens/DeviceManagerScreen'
 import PairingPendingScreen from './screens/PairingPendingScreen'
+import SeedScreen from './screens/SeedScreen'
 import { useDeviceMode } from './hooks/useDeviceMode'
 import { usePendingConflicts } from './hooks/usePendingConflicts'
 import { ensureCohort } from './utils/ensureCohort'
@@ -40,6 +41,10 @@ import { S } from './styles/shared'
 const SCREENS = {
   camp:         CampScreen,
   import:       ImportScreen,
+  // Stage-aware landing (docs/adr/2026-08-28-stage-aware-nav-landing.md
+  // Decision 1) — the first-run landing for a camp with no setup data yet.
+  // Never reachable once campHasSetupData() is true.
+  seed:         SeedScreen,
   // Roots as a persistent inspector (docs/adr/2026-08-19-roots-census-and-
   // persistent-inspector.md §(e)) — the first time ReconciliationScreen is
   // reachable outside the ImportScreen takeover. Fixed `mode="inspect"` prop
@@ -58,6 +63,11 @@ const SCREENS = {
   activities:   ActivitiesScreen,
   locations:    LocationsScreen,
   anchors:      AnchorsScreen,
+  // Fixed vs Recurring un-conflation (docs/adr/2026-08-28-fixed-vs-recurring-
+  // events.md) is WS2's job — WS1 (docs/adr/2026-08-28-stage-aware-nav-
+  // landing.md Decision 3) only wires the nav entry, routed to the same
+  // AnchorsScreen as a placeholder until WS2 lands the real entity split.
+  fixedevents:  AnchorsScreen,
   electives:    ElectivesScreen,
   events:       EventScreen,
   specialdays:  SpecialDaysScreen,
@@ -98,12 +108,16 @@ const SCHEDULE_ROUTE_BY_SCREEN = {
 // Exported (in addition to the default App below) so App.test.jsx can drive
 // it directly with fixed props, bypassing useDeviceMode's async init — the
 // same reasoning every screen test already applies to its own component.
-export function AppShell({ campId, role, mode, onLogout }) {
-  // Roots is the in-session landing (S5, OF-1; plan T3): every director lands
-  // on the honest "what does Shoresh know about this camp" home base — now
-  // carrying the readiness verdict banner — rather than mid-setup on Units.
-  // Every other screen stays reachable from the sidebar.
-  const [screen, setScreen] = useState('roots')
+export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
+  // Stage-aware landing (docs/adr/2026-08-28-stage-aware-nav-landing.md
+  // Decision 1): an empty camp lands on the "Seed your camp" screen; every
+  // other camp lands on Roots (S5, OF-1; plan T3) — the honest "what does
+  // Shoresh know about this camp" home base, carrying the readiness verdict
+  // banner. `campIsEmpty` is resolved by useDeviceMode before AppShell ever
+  // mounts (the pre-paint 'loading' gate in App() below), so this initializer
+  // reads it synchronously rather than recomputing it in-tree. Every other
+  // screen stays reachable from the sidebar.
+  const [screen, setScreen] = useState(() => campIsEmpty ? 'seed' : 'roots')
   // Roots-as-dashboard plan, Task 4 — the carrier that lifts a finished
   // import's commit outcome across the screen boundary. ImportScreen hands it
   // up (onImported) as it routes to Roots; ReconciliationScreen (inspect mode)
@@ -375,5 +389,13 @@ export default function App() {
     return <LoginScreen campName={device.camp?.name} onSubmit={device.login} notice={device.sessionEndedReason} />
   }
 
-  return <AppShell campId={device.camp?.id} role={device.role} mode={device.mode} onLogout={device.logout} />
+  return (
+    <AppShell
+      campId={device.camp?.id}
+      role={device.role}
+      mode={device.mode}
+      onLogout={device.logout}
+      campIsEmpty={device.campIsEmpty}
+    />
+  )
 }

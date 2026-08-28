@@ -15,34 +15,49 @@ import {
 // stop seeing a problem in August.
 
 const NO_GAPS = []
+// tiers/groups/days/timeblocks live in Germination; activities lives in
+// Sprouts (docs/adr/2026-08-28-stage-aware-nav-landing.md Decision 3) — a
+// gap in 'days' is attributed to Germination's rollup, a gap in 'activities'
+// to Sprouts's.
 const TWO_GAPS = [{ key: 'days' }, { key: 'activities' }]
 
 describe('sectionRollup', () => {
   it('says nothing while a section is open — the rows speak for themselves', () => {
-    expect(sectionRollup({ section: 'setup', open: true, gaps: TWO_GAPS })).toBeNull()
+    expect(sectionRollup({ section: 'germination', open: true, gaps: TWO_GAPS })).toBeNull()
   })
 
-  it('carries the unmet count out to a collapsed Camp Set Up header', () => {
-    const rollup = sectionRollup({ section: 'setup', open: false, gaps: TWO_GAPS })
-    expect(rollup).toEqual({ mark: '!', text: '3 / 5', tone: 'danger' })
+  it('carries the unmet count out to a collapsed Germination header (3 required areas: tiers/groups/days/timeblocks minus the "days" gap)', () => {
+    const rollup = sectionRollup({ section: 'germination', open: false, gaps: TWO_GAPS })
+    expect(rollup).toEqual({ mark: '!', text: '3 / 4', tone: 'danger' })
   })
 
-  it('shows a complete setup as complete, not as silence', () => {
-    const rollup = sectionRollup({ section: 'setup', open: false, gaps: NO_GAPS })
-    expect(rollup).toEqual({ mark: '✓', text: '5 / 5', tone: 'success' })
+  it('shows a complete Germination as complete, not as silence', () => {
+    const rollup = sectionRollup({ section: 'germination', open: false, gaps: NO_GAPS })
+    expect(rollup).toEqual({ mark: '✓', text: '4 / 4', tone: 'success' })
+  })
+
+  it('carries the unmet count out to a collapsed Sprouts header (1 required area: activities)', () => {
+    const rollup = sectionRollup({ section: 'sprouts', open: false, gaps: TWO_GAPS })
+    expect(rollup).toEqual({ mark: '!', text: '0 / 1', tone: 'danger' })
+  })
+
+  it('shows a complete Sprouts as complete, not as silence', () => {
+    const rollup = sectionRollup({ section: 'sprouts', open: false, gaps: NO_GAPS })
+    expect(rollup).toEqual({ mark: '✓', text: '1 / 1', tone: 'success' })
   })
 
   // Roots-as-Hub Slice B: 'system' is no longer a foldable nav section —
   // Camp/Conflicts/Trash/LAN & Devices live in the Settings gear instead,
   // which is a popup with no persisted rollup of its own (the gear button
-  // itself carries the conflicts badge — see Sidebar.jsx).
+  // itself carries the conflicts badge — see Sidebar.jsx). Roots itself is
+  // a fixed row with no fold state at all (ADR Decision 3).
   it('rolls up nothing — never a zero — when a collapsed section has nothing to report', () => {
     // "0" reads as a value worth looking at. Absence is the honest rendering.
-    expect(sectionRollup({ section: 'schedule', open: false, gaps: NO_GAPS })).toBeNull()
+    expect(sectionRollup({ section: 'plants', open: false, gaps: NO_GAPS })).toBeNull()
   })
 
-  it('counts started weeks on a collapsed Schedule header', () => {
-    expect(sectionRollup({ section: 'schedule', open: false, gaps: NO_GAPS, startedRoutes: 2 }))
+  it('counts started weeks on a collapsed Plants header', () => {
+    expect(sectionRollup({ section: 'plants', open: false, gaps: NO_GAPS, startedRoutes: 2 }))
       .toEqual({ mark: null, text: '2', tone: 'secondary' })
   })
 })
@@ -71,11 +86,11 @@ describe('shouldOfferFold', () => {
 
 describe('nextFoldStateAfterAnswer', () => {
   it('records that the question was asked, whichever answer was given', () => {
-    expect(nextFoldStateAfterAnswer({ setup: true }, 'tuck')).toEqual({
-      sections: { setup: false }, offered: true,
+    expect(nextFoldStateAfterAnswer({ germination: true }, 'tuck')).toEqual({
+      sections: { germination: false }, offered: true,
     })
-    expect(nextFoldStateAfterAnswer({ setup: true }, 'keep')).toEqual({
-      sections: { setup: true }, offered: true,
+    expect(nextFoldStateAfterAnswer({ germination: true }, 'keep')).toEqual({
+      sections: { germination: true }, offered: true,
     })
   })
 })
@@ -91,16 +106,14 @@ describe('loadSidebarState', () => {
   })
 
   it('restores what the director chose last time', () => {
-    const saved = JSON.stringify({ sections: { setup: false, schedule: true }, offered: true })
+    const saved = JSON.stringify({ sections: { germination: false, sprouts: true, plants: true }, offered: true })
     const state = loadSidebarState(storage(saved))
-    expect(state.sections.setup).toBe(false)
+    expect(state.sections.germination).toBe(false)
     expect(state.offered).toBe(true)
   })
 
-  it('opens roots by default, and restores a persisted collapse', () => {
-    expect(loadSidebarState(storage(null)).rootsOpen).toBe(true)
-    const saved = JSON.stringify({ sections: { setup: true, schedule: true }, offered: false, rootsOpen: false })
-    expect(loadSidebarState(storage(saved)).rootsOpen).toBe(false)
+  it('carries no rootsOpen — Roots is a fixed row with no fold state (ADR Decision 3)', () => {
+    expect(loadSidebarState(storage(null)).rootsOpen).toBeUndefined()
   })
 
   it('falls back to defaults on malformed state instead of throwing', () => {
@@ -112,10 +125,10 @@ describe('loadSidebarState', () => {
   })
 
   it('ignores a persisted section that no longer exists', () => {
-    const saved = JSON.stringify({ sections: { setup: false, operations: false }, offered: false })
+    const saved = JSON.stringify({ sections: { germination: false, setup: false }, offered: false })
     const state = loadSidebarState(storage(saved))
-    expect(state.sections).toEqual({ setup: false, schedule: true })
-    expect('operations' in state.sections).toBe(false)
+    expect(state.sections).toEqual({ germination: false, sprouts: true, plants: true })
+    expect('setup' in state.sections).toBe(false)
     expect('system' in state.sections).toBe(false)
   })
 

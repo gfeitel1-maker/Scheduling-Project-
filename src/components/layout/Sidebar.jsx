@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect, forwardRef } from 'react'
 
-import { NAV_SECTIONS, ADMIN_MENU_ITEMS, ADMIN_ONLY_MENU_ITEMS } from './navSections'
+import { NAV_SECTIONS, ROOTS_ITEM, ADMIN_MENU_ITEMS, ADMIN_ONLY_MENU_ITEMS } from './navSections'
 import { getSetupGaps } from '../../engine/readiness'
 import { loadSidebarState, saveSidebarState, sectionRollup, nextFoldStateAfterAnswer, syncStatusLabel } from './sidebarState'
 import { useEnterTransition } from '../../styles/shared'
@@ -58,7 +58,6 @@ export default function Sidebar({
   const offerOpen = offerShown && !sidebar.offered
   const conflictsCount = Number(badges.conflicts) || 0
   const adminMenuItems = [...ADMIN_MENU_ITEMS, ...(role === 'admin' ? ADMIN_ONLY_MENU_ITEMS : [])]
-  const rootsOpen = sidebar.rootsOpen !== false
 
   // Closing on outside click / Escape, and returning focus to the gear
   // button on close, are both required for a popup menu to be keyboard- and
@@ -92,10 +91,6 @@ export default function Sidebar({
 
   function toggleSection(key) {
     persist({ ...sidebar, sections: { ...sidebar.sections, [key]: !sidebar.sections[key] } })
-  }
-
-  function toggleRoots() {
-    persist({ ...sidebar, rootsOpen: !rootsOpen })
   }
 
   function answerOffer(answer) {
@@ -189,6 +184,13 @@ export default function Sidebar({
       </div>
 
       <nav style={{ flex: 1, padding: '8px 0', overflowY: 'auto' }}>
+        {/* Roots — a fixed, chevron-less top row (docs/adr/2026-08-28-stage-
+            aware-nav-landing.md Decision 3). It is no longer doing setup's
+            job (lifecycle-IA spec §3/§4), so it carries no fold state and no
+            mark: renderItem's `item.area` is undefined for ROOTS_ITEM, which
+            already renders no mark/count. */}
+        {renderItem(ROOTS_ITEM)}
+
         {NAV_SECTIONS.map((section, sIdx) => {
           const items = section.items
           const open = sidebar.sections[section.key] !== false
@@ -246,7 +248,7 @@ export default function Sidebar({
 
               {/* Setup never folds itself silently. Asked once, on the render
                   where the last gap closes; both answers are remembered. */}
-              {open && offerOpen && section.key === 'setup' && (
+              {open && offerOpen && section.key === 'germination' && (
                 <div style={{
                   margin: '2px 12px 8px', padding: '10px 12px',
                   background: 'var(--surface-elevated, var(--surface))',
@@ -263,38 +265,15 @@ export default function Sidebar({
                 </div>
               )}
 
-              {open && items.map(item => {
-                if (!item.children) return renderItem(item)
-
-                // Roots — the parent row navigates on click same as any
-                // other row; a separate chevron button toggles its child
-                // list, independent of the "Camp Set Up" section fold above.
-                return (
-                  <div key={item.key}>
-                    <div style={{ display: 'flex', alignItems: 'center' }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>{renderItem(item)}</div>
-                      <button
-                        onClick={toggleRoots}
-                        aria-expanded={rootsOpen}
-                        title={rootsOpen ? `Collapse ${item.label}` : `Expand ${item.label}`}
-                        style={{
-                          flexShrink: 0, width: 24, height: 24, marginRight: 6,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          background: 'none', border: 'none', cursor: 'pointer',
-                          color: 'var(--text-secondary)', opacity: 0.75, fontSize: 9,
-                          transform: rootsOpen ? 'rotate(90deg)' : 'rotate(0deg)',
-                          transition: 'transform var(--motion-base, 0.15s) var(--ease-out, ease)',
-                        }}
-                      >▶</button>
-                    </div>
-                    {rootsOpen && item.children.map(child => (
-                      child.heading
-                        ? <div key={child.key} style={subHeadingStyle}>{child.heading}</div>
-                        : renderItem(child, { indent: true })
-                    ))}
-                  </div>
-                )
-              })}
+              {/* Special Events sub-heading (lifecycle-IA spec §9): a plain
+                  label between Events/Special Days, not a row — no fold, no
+                  chevron, no click target. Every other item is a flat row;
+                  the old Roots-children nesting is gone (ADR Decision 3). */}
+              {open && items.map(item => (
+                item.heading
+                  ? <div key={item.key} style={subHeadingStyle}>{item.heading}</div>
+                  : renderItem(item)
+              ))}
             </div>
           )
         })}
@@ -474,12 +453,13 @@ const GearMenu = forwardRef(function GearMenu({ items, current, badges, onSelect
   )
 })
 
-// A quiet grouping label between Roots children — echoes the section-title
-// treatment (condensed, uppercase, tracked-out) at Roots-child indent depth,
-// so it reads as a sub-heading rather than a row: no hover state, no click
-// target, no mark/count/optional affordance.
+// A quiet grouping label between nav rows ("Special Events", between Events
+// and Special Days) — echoes the section-title treatment (condensed,
+// uppercase, tracked-out) at the row's own indent depth, so it reads as a
+// sub-heading rather than a row: no hover state, no click target, no
+// mark/count/optional affordance.
 const subHeadingStyle = {
-  padding: '10px 12px 4px 33px',
+  padding: '10px 12px 4px',
   fontFamily: 'var(--font-condensed)', fontSize: 10, fontWeight: 700,
   letterSpacing: '0.1em', textTransform: 'uppercase',
   color: 'var(--text-secondary)', opacity: 0.75,

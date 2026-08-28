@@ -32,6 +32,7 @@ import { deleteElectiveSet } from './ops/deleteElectiveSet.js'
 import { deleteSpecialDay } from './ops/deleteSpecialDay.js'
 import { deleteEvent } from './ops/deleteEvent.js'
 import { listDurableElectiveSets } from './ops/durableElectiveSets.js'
+import { campHasSetupData } from './ops/campHasSetupData.js'
 import { listPendingRestores } from './sync/pendingRestores.js'
 import { PROJECTIONS } from './ops/projections.js'
 import {
@@ -1497,6 +1498,7 @@ if (isElectronEntryPoint()) {
     'shoresh:bulk-replace',
     'shoresh:verify-session',
     'shoresh:get-camp',
+    'shoresh:camp-has-setup-data',
     'shoresh:list-users',
     'shoresh:list',
     'shoresh:list-by-scope',
@@ -1546,6 +1548,15 @@ if (isElectronEntryPoint()) {
     // bootstrap-vs-join phase). See the note in the original registration
     // block for the full justification.
     ipcMain.handle('shoresh:get-camp', () => currentDb.prepare('SELECT id, name FROM camps LIMIT 1').get())
+    // Stage-aware landing (docs/adr/2026-08-28-stage-aware-nav-landing.md
+    // Decision 1) — pre-auth like get-camp above (called before a session
+    // exists, inside useDeviceMode's init effect). A single cheap existence
+    // check over the required-setup tables (same set REQUIRED_AREAS in
+    // src/engine/readiness.js treats as the blocking core), never
+    // getReadiness's full five-collection engine pass — the landing decision
+    // only ever needs the one "is this camp truly untouched" bit. Returns
+    // true the moment ANY required table has a row.
+    ipcMain.handle('shoresh:camp-has-setup-data', () => campHasSetupData(currentDb))
     ipcMain.handle('shoresh:list-users', (_event, args) => handlers.listUsers(args && args.token))
     ipcMain.handle('shoresh:list', (_event, args) => {
       const { token, entity } = args || {}

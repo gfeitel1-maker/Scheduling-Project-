@@ -1974,18 +1974,35 @@ describe('ingestCommit: who may import, and from where', () => {
     return token
   }
 
-  it('refuses a staff token before a single row is touched', async () => {
+  // docs/adr/2026-08-28-stage-aware-nav-landing.md Decision 2(a): staff (not
+  // just admin) can now trigger import on the Host device — 'groups.import'
+  // was added to the staff permission list so the Seed screen's "Import
+  // last year" action is staff-reachable, not admin-only. This is a role
+  // loosening ONLY; the mode==='client' device gate below is untouched.
+  it('allows a staff token to run an import on the Host (ADR Decision 2a)', async () => {
     const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7193 })
     await seedCampAndUser({ name: 'Alice', pin: '1234', role: 'staff' })
     const { token } = await handlers.login({ name: 'Alice', pin: '1234' })
+    const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)')
+      .run(randomUUID(), campIdHere, 'Swim')
+
+    const result = handlers.ingestCommit({ token, mode: 'replace', approved: { activities: ['Archery'] } })
+
+    expect(result.replaced.entities.activities).toBe(1)
+    expect(db.prepare('SELECT name FROM activities').all().map((r) => r.name)).toEqual(['Archery'])
+  })
+
+  it('still refuses an unauthenticated (no-token) import before a single row is touched', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await seedCampAndUser({ name: 'Alice', pin: '1234', role: 'staff' })
     db.prepare('INSERT INTO activities (id, camp_id, name) VALUES (?, ?, ?)')
       .run(randomUUID(), db.prepare('SELECT id FROM camps LIMIT 1').get().id, 'Swim')
 
-    expect(() => handlers.ingestCommit({ token, mode: 'replace', approved: { activities: ['Archery'] } }))
-      .toThrow(/admin role required/i)
+    expect(() => handlers.ingestCommit({ token: null, mode: 'replace', approved: { activities: ['Archery'] } }))
+      .toThrow(/token is required/i)
 
-    // 'groups.import' is absent from the staff permission list, so the refusal
-    // comes from default-deny — and it comes before the transaction opens.
     expect(db.prepare('SELECT COUNT(*) c FROM activities').get().c).toBe(1)
     expect(db.prepare("SELECT COUNT(*) c FROM operations WHERE field = '__deleted__'").get().c).toBe(0)
   })

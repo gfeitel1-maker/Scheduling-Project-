@@ -130,6 +130,15 @@ export const PERMISSIONS = {
     // ability to decline aligns the two halves of one interaction instead of
     // leaving decline admin-only while split is staff-reachable.
     'declined_two_row_splits.record',
+    // docs/adr/2026-08-28-stage-aware-nav-landing.md Decision 2(a) — the
+    // Seed screen's "Import last year" action must be reachable by staff
+    // (not admin-only) on the Host device: "creating a camp's whole
+    // structure in one action" is still a different blast radius than a
+    // per-record write, but the owner confirmed staff on the main computer
+    // is enough (2026-08-28). The mode==='client' device gate on
+    // ingestCommit (electron/main.js) is UNCHANGED — this loosens only the
+    // role check, not the data-integrity guard.
+    'groups.import',
   ],
   // devices.approve and devices.revoke are admin-only (via admin: ['*'])
   // devices.dev_authorize has been removed — superseded by devices.approve
