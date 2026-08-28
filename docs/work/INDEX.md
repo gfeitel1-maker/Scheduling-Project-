@@ -146,6 +146,7 @@ Backlinks are generated. An ADR does not name the tickets it came from; this doe
 | [ADR: Indoor/outdoor map pair per camp + Day Simulation reads real placements as a seed](../../docs/adr/2026-08-26-indoor-outdoor-map-pair-and-sim-seed.md) | proposed | proposed | — |
 | [Roots hub — Bento layout for the census/domain map (augment, not replace)](../../docs/adr/2026-08-27-roots-hub-bento-layout.md) | accepted | planned | — |
 | [Roots hub — census tiles are the interface (Bento demoted to the Understood tile's view)](../../docs/adr/2026-08-27-roots-hub-tiles-are-interface.md) | accepted | implemented | [2026-08-28-lifecycle-ia-program](../../docs/work/specs/2026-08-28-lifecycle-ia-program.md) |
+| [Fixed vs Recurring events: un-conflating anchor_activities (WS2 of the lifecycle-IA program)](../../docs/adr/2026-08-28-fixed-vs-recurring-events.md) | proposed | not started | — |
 
 ## Runs
 
