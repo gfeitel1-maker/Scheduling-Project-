@@ -31,6 +31,21 @@
   --motion-settle: 340ms;
   --ease-out:      cubic-bezier(0.22, 1, 0.36, 1);
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Spacing scale — 4px base, names the 4/8/12/16/24 rhythm already visible
+     ad hoc across S.* and screen styles (WS4 polish, RootsHomeScreen). */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* Radius scale — three named steps for new work; existing components keep
+     their current ad hoc values (out of scope to retrofit). */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-pill: 999px;
 }
 
 html, body, #root {
