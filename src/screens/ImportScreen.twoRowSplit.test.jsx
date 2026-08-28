@@ -122,8 +122,8 @@ beforeEach(() => {
   }))
 })
 
-async function uploadFile(onNavigate = () => {}, onImported = () => {}) {
-  render(<ImportScreen campId="camp-1" onNavigate={onNavigate} onImported={onImported} />)
+async function uploadFile(onNavigate = () => {}) {
+  render(<ImportScreen campId="camp-1" onNavigate={onNavigate} />)
   const input = document.querySelector('input[type="file"]')
   const file = new File(['irrelevant, parseTextGrid is mocked'], 'schedule.txt', { type: 'text/plain' })
   await userEvent.upload(input, file)
@@ -210,9 +210,15 @@ describe('ImportScreen — two-rows split suggestion (Slice 2b)', () => {
     expect(call.existingActivities).toEqual([EXISTING_CERAMICS])
   })
 
-  it('reports every staged split when the activity re-fetch FAILS at commit — not silently dropped (Red Hat HIGH A)', async () => {
-    const onImported = vi.fn()
-    await uploadFile(() => {}, onImported)
+  // ADR docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md retired the
+  // onImported carrier (Roots has no post-import banner of its own anymore)
+  // — a split failure is now surfaced locally in ImportScreen's own danger
+  // banner, and the screen holds the director there instead of navigating
+  // to Roots. The property this guards (a split failure is never silently
+  // dropped) is unchanged; only the surfacing mechanism moved.
+  it('surfaces every staged split failure when the activity re-fetch FAILS at commit — not silently dropped (Red Hat HIGH A)', async () => {
+    const onNavigate = vi.fn()
+    await uploadFile(onNavigate)
     await userEvent.click(screen.getByText('Also a flexible activity — split into two?'))
     await userEvent.click(await screen.findByText('Split'))
 
@@ -223,17 +229,16 @@ describe('ImportScreen — two-rows split suggestion (Slice 2b)', () => {
     })
     await goToCommit()
 
-    await waitFor(() => expect(onImported).toHaveBeenCalled())
-    const outcome = onImported.mock.calls.at(-1)[0]
-    expect(outcome.splitFailures).toHaveLength(1)
-    expect(outcome.splitFailures[0].name).toBe('Ceramics')
-    expect(outcome.splitFailures[0].message).toMatch(/could.?n.?t be applied/)
+    await waitFor(() => expect(screen.getByText(/couldn.t be saved/)).toBeTruthy())
+    expect(screen.getByText(/Ceramics/)).toBeTruthy()
+    expect(screen.getByText(/could.?n.?t be applied/)).toBeTruthy()
+    expect(onNavigate).not.toHaveBeenCalledWith('roots')
     expect(emitTwoRowSplitMock).not.toHaveBeenCalled()
   })
 
-  it('reports a staged split whose activity vanished between staging and commit (Red Hat)', async () => {
-    const onImported = vi.fn()
-    await uploadFile(() => {}, onImported)
+  it('surfaces a staged split whose activity vanished between staging and commit (Red Hat)', async () => {
+    const onNavigate = vi.fn()
+    await uploadFile(onNavigate)
     await userEvent.click(screen.getByText('Also a flexible activity — split into two?'))
     await userEvent.click(await screen.findByText('Split'))
 
@@ -244,10 +249,8 @@ describe('ImportScreen — two-rows split suggestion (Slice 2b)', () => {
     })
     await goToCommit()
 
-    await waitFor(() => expect(onImported).toHaveBeenCalled())
-    const outcome = onImported.mock.calls.at(-1)[0]
-    expect(outcome.splitFailures).toHaveLength(1)
-    expect(outcome.splitFailures[0].message).toMatch(/no longer in your setup/)
+    await waitFor(() => expect(screen.getByText(/no longer in your setup/)).toBeTruthy())
+    expect(onNavigate).not.toHaveBeenCalledWith('roots')
   })
 
   it('discarding the import drops the staged split — no write happens', async () => {

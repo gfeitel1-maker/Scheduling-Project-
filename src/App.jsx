@@ -8,6 +8,7 @@ import LoginScreen from './screens/LoginScreen'
 import CampScreen from './screens/CampScreen'
 import ImportScreen from './screens/ImportScreen'
 import ReconciliationScreen from './screens/ReconciliationScreen'
+import RootsHomeScreen from './screens/RootsHomeScreen'
 import TiersScreen from './screens/TiersScreen'
 import GroupsScreen from './screens/GroupsScreen'
 import TimeBlocksScreen from './screens/TimeBlocksScreen'
@@ -45,14 +46,14 @@ const SCREENS = {
   // Decision 1) — the first-run landing for a camp with no setup data yet.
   // Never reachable once campHasSetupData() is true.
   seed:         SeedScreen,
-  // Roots as a persistent inspector (docs/adr/2026-08-19-roots-census-and-
-  // persistent-inspector.md §(e)) — the first time ReconciliationScreen is
-  // reachable outside the ImportScreen takeover. Fixed `mode="inspect"` prop
-  // threaded at the render site below, same pattern as
-  // SCHEDULE_ROUTE_BY_SCREEN's fixed `route` prop. Also the in-session
+  // Roots home is a distinct screen (docs/adr/2026-08-28-roots-home-is-a-
+  // distinct-screen.md §2) — route-level split, not a `mode` fork. Census
+  // tiles / RootMap / RootMapPanel stay scoped to ReconciliationScreen's
+  // `mode="import"` reconcile-a-file flow (reached via the bottom "Import
+  // last year" action below), never inlined here. Also the in-session
   // landing screen (see the 'readiness' redirect below) — Setup Readiness
-  // (ReadinessHub) is retired; its verdict now lives on the Roots banner.
-  roots:        ReconciliationScreen,
+  // (ReadinessHub) is retired; there is no verdict banner on this screen.
+  roots:        RootsHomeScreen,
   conflicts:    ConflictsScreen,
   trash:        TrashScreen,
   cohorts:      CohortsScreen,
@@ -126,22 +127,12 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   // reads it synchronously rather than recomputing it in-tree. Every other
   // screen stays reachable from the sidebar.
   const [screen, setScreen] = useState(() => campIsEmpty ? 'seed' : 'roots')
-  // Roots-as-dashboard plan, Task 4 — the carrier that lifts a finished
-  // import's commit outcome across the screen boundary. ImportScreen hands it
-  // up (onImported) as it routes to Roots; ReconciliationScreen (inspect mode)
-  // reads it to show the post-import banner and start the surviving
-  // grace-window undo. Held here, above both screens, so it outlives
-  // ImportScreen unmounting. Cleared the moment the director leaves Roots —
-  // the least-surprising lifecycle: the post-import moment belongs to the
-  // landing, not to every later visit.
-  const [justImported, setJustImported] = useState(null)
   // Slice 2 drill-in (docs/work/specs/2026-08-22-electives-nested-schedule-
   // slices.md), redirected by docs/work/specs/2026-08-23-electives-gap.md —
   // the elective_set_id an elective cell's drill-in button, or the "Open"
   // row action on Roots's Electives list, wants the Schedule-side Electives
-  // builder to open focused on. Carried the same way justImported carries
-  // the post-import outcome: lifted above the screen swap, cleared whenever
-  // navigation heads anywhere other than 'schedule:electives'.
+  // builder to open focused on. Lifted above the screen swap, cleared
+  // whenever navigation heads anywhere other than 'schedule:electives'.
   const [electiveFocusSetId, setElectiveFocusSetId] = useState(null)
   // Events overlay placement Slice 1 (docs/adr/2026-08-22-events-overlay-
   // placement.md §5) — the event_id an event cell's drill-in button wants
@@ -154,17 +145,14 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
   // a pre-selection, carried the same way electiveFocusSetId/eventFocusId
   // carry their own drill-in targets. `{ type: 'day'|'event', id }`.
   const [specialScheduleFocus, setSpecialScheduleFocus] = useState(null)
-  // Every in-session navigation goes through this: it clears the carried
-  // import outcome the moment the director leaves Roots, so the post-import
-  // banner belongs to the landing, not to every later visit. Clearing at the
-  // navigation edge (rather than in an effect keyed on `screen`) keeps the
-  // transition in one synchronous update, no cascading re-render.
+  // Every in-session navigation goes through this: it clears any carried
+  // drill-in focus once the director leaves the screen it targets. Clearing
+  // at the navigation edge (rather than in an effect keyed on `screen`)
+  // keeps the transition in one synchronous update, no cascading re-render.
   const navigate = (next, opts) => {
     // 'readiness' redirects to 'roots' at render (resolvedScreen below), so
-    // treat it as 'roots' here too — otherwise a nav to 'readiness' would
-    // clear the post-import banner while visually staying on Roots.
+    // treat it as 'roots' here too.
     const target = next === 'readiness' ? 'roots' : next
-    if (target !== 'roots') setJustImported(null)
     if (target !== 'schedule:electives') setElectiveFocusSetId(null)
     if (opts?.electiveSetId) setElectiveFocusSetId(opts.electiveSetId)
     if (target !== 'events') setEventFocusId(null)
@@ -255,13 +243,6 @@ export function AppShell({ campId, role, mode, onLogout, campIsEmpty }) {
         campId, role, deviceMode: mode, onNavigate: navigate,
         ...(scheduleRoute ? { initialRoute: scheduleRoute } : {}),
         ...(isWeekScreen ? weekProps : {}),
-        // Roots as persistent inspector — fixed prop per route key, same
-        // pattern as scheduleRoute above (docs/adr/2026-08-19-roots-census-
-        // and-persistent-inspector.md §(e)). Task 4 also threads the carried
-        // import outcome so Roots can show its post-import banner + undo.
-        ...(resolvedScreen === 'roots' ? { mode: 'inspect', justImported } : {}),
-        // Task 4 — ImportScreen hands a finished import's outcome up here.
-        ...(resolvedScreen === 'import' ? { onImported: setJustImported } : {}),
         // Slice 2 — the set id a schedule cell's drill-in (or Roots's "Open"
         // row action) wants the Schedule-side Electives builder focused on.
         ...(resolvedScreen === 'schedule:electives' ? { initialElectiveSetId: electiveFocusSetId } : {}),

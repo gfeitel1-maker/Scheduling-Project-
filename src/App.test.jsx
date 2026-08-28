@@ -37,33 +37,26 @@ vi.mock('./components/layout/Shell', () => ({
   default: ({ children }) => <div data-testid="shell">{children}</div>,
 }))
 
-// AppShell's default screen is now 'roots', which renders ReconciliationScreen —
+// AppShell's default screen is now 'roots', which renders RootsHomeScreen —
 // a heavy screen with its own data layer, irrelevant to this notice-only
 // test, so it's stubbed out the same way Shell is above.
-vi.mock('./screens/ReconciliationScreen', () => ({
+vi.mock('./screens/RootsHomeScreen', () => ({
   default: (props) => (
-    <div
-      data-testid="roots-screen"
-      data-mode={props.mode}
-      data-just-imported={props.justImported ? String(props.justImported.total) : ''}
-    >
+    <div data-testid="roots-screen">
       <button onClick={() => props.onNavigate('readiness')}>go-to-readiness</button>
       <button onClick={() => props.onNavigate('import')}>go-to-import</button>
     </div>
   ),
 }))
 
-// Task 4 — a stubbed ImportScreen that exercises the carrier: finishing an
-// import hands an outcome up via onImported and routes to Roots.
+// A stubbed ImportScreen — real ImportScreen no longer takes an `onImported`
+// prop (split failures are surfaced locally within it, not carried across
+// the screen boundary), so this stub only exercises the navigation it still
+// does: routing to Roots once an import finishes.
 vi.mock('./screens/ImportScreen', () => ({
   default: (props) => (
     <div data-testid="import-screen">
-      <button
-        onClick={() => {
-          props.onImported({ total: 7, invertibleOps: [] })
-          props.onNavigate('roots')
-        }}
-      >finish-import</button>
+      <button onClick={() => props.onNavigate('roots')}>finish-import</button>
       <button onClick={() => props.onNavigate('roots')}>cancel-to-roots</button>
     </div>
   ),
@@ -129,56 +122,30 @@ describe('AppShell: offline op-rejected notice (item 7, owner decision)', () => 
 // hub) is the in-session landing screen, and any stale 'readiness' deep-link
 // or nav target redirects to it rather than rendering nothing.
 describe('AppShell: Roots as landing screen (plan T3)', () => {
-  it('default-renders the roots screen in inspect mode', () => {
+  it('default-renders the roots screen', () => {
     render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
-    const roots = screen.getByTestId('roots-screen')
-    expect(roots.dataset.mode).toBe('inspect')
+    expect(screen.getByTestId('roots-screen')).toBeTruthy()
   })
 
-  it('redirects a stale readiness nav target to the roots screen, still in inspect mode', () => {
+  it('redirects a stale readiness nav target to the roots screen', () => {
     render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
     fireEvent.click(screen.getByText('go-to-readiness'))
 
-    const roots = screen.getByTestId('roots-screen')
-    expect(roots.dataset.mode).toBe('inspect')
+    expect(screen.getByTestId('roots-screen')).toBeTruthy()
   })
 })
 
-// Roots-as-dashboard plan, Task 4: a finished import routes to Roots carrying
-// the commit outcome, which App holds and clears when the director leaves.
-describe('AppShell: finished import carries to Roots (plan T4)', () => {
-  it('lands a finished import on Roots carrying the outcome', () => {
+// ADR docs/adr/2026-08-28-roots-home-is-a-distinct-screen.md §2 — Roots home
+// is a distinct screen from ReconciliationScreen's import flow; it no longer
+// takes a `mode` prop or a carried `justImported` outcome (deleted, not
+// moved, per the ADR's "Shared vs. forked" list). A finished import still
+// routes to Roots, it just doesn't carry a receipt there anymore.
+describe('AppShell: finished import routes to Roots', () => {
+  it('lands a finished import on the roots screen', () => {
     render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
     fireEvent.click(screen.getByText('go-to-import'))
     fireEvent.click(screen.getByText('finish-import'))
 
-    const roots = screen.getByTestId('roots-screen')
-    expect(roots.dataset.mode).toBe('inspect')
-    expect(roots.dataset.justImported).toBe('7')
-  })
-
-  it('clears the carried outcome once the director leaves Roots', () => {
-    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
-    fireEvent.click(screen.getByText('go-to-import'))
-    fireEvent.click(screen.getByText('finish-import'))
-    expect(screen.getByTestId('roots-screen').dataset.justImported).toBe('7')
-
-    // Leave Roots (to Import) and come back — the outcome must not persist.
-    fireEvent.click(screen.getByText('go-to-import'))
-    fireEvent.click(screen.getByText('cancel-to-roots'))
-    expect(screen.getByTestId('roots-screen').dataset.justImported).toBe('')
-  })
-
-  // Whole-branch review fix: 'readiness' redirects to 'roots' at render, so a
-  // nav to 'readiness' must not clear justImported — that would silently drop
-  // the post-import banner while the director visually stays on Roots.
-  it('does not clear the carried outcome when navigating to the stale readiness target', () => {
-    render(<AppShell campId="camp-1" role="admin" onLogout={() => {}} />)
-    fireEvent.click(screen.getByText('go-to-import'))
-    fireEvent.click(screen.getByText('finish-import'))
-    expect(screen.getByTestId('roots-screen').dataset.justImported).toBe('7')
-
-    fireEvent.click(screen.getByText('go-to-readiness'))
-    expect(screen.getByTestId('roots-screen').dataset.justImported).toBe('7')
+    expect(screen.getByTestId('roots-screen')).toBeTruthy()
   })
 })
