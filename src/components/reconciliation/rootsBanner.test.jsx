@@ -67,13 +67,11 @@ describe('RootsBanner', () => {
     expect(onDownloadWorksheet).toHaveBeenCalled()
   })
 
-  it('the Facility control calls onNavigate("locations")', async () => {
+  it('there is no Facility map control (the spatial layer was removed)', () => {
     const readiness = getReadiness(READY_COLLECTIONS)
-    const onNavigate = vi.fn()
-    render(<RootsBanner readiness={readiness} brandNew={false} onNavigate={onNavigate} onDownloadWorksheet={vi.fn()} />)
+    render(<RootsBanner readiness={readiness} brandNew={false} onNavigate={vi.fn()} onDownloadWorksheet={vi.fn()} />)
 
-    await userEvent.click(screen.getByText('Facility map'))
-    expect(onNavigate).toHaveBeenCalledWith('locations')
+    expect(screen.queryByText('Facility map')).toBeNull()
   })
 
   it('when brandNew, the Import control is shown and primary (S.btnPrimary background)', () => {
@@ -84,10 +82,14 @@ describe('RootsBanner', () => {
     expect(importBtn.style.background).toBe('var(--primary)')
   })
 
-  it('when not brandNew, the Import control is not rendered in the banner (Slice C: it recedes to Settings)', () => {
+  it('when not brandNew, the Import control stays on the banner as a secondary "Re-import last year" and navigates to import', async () => {
     const readiness = getReadiness(READY_COLLECTIONS)
-    render(<RootsBanner readiness={readiness} brandNew={false} onNavigate={vi.fn()} onDownloadWorksheet={vi.fn()} />)
+    const onNavigate = vi.fn()
+    render(<RootsBanner readiness={readiness} brandNew={false} onNavigate={onNavigate} onDownloadWorksheet={vi.fn()} />)
 
-    expect(screen.queryByText('Import last year')).toBeNull()
+    const importBtn = screen.getByText('Re-import last year')
+    expect(importBtn.style.background).not.toBe('var(--primary)')
+    await userEvent.click(importBtn)
+    expect(onNavigate).toHaveBeenCalledWith('import')
   })
 })

@@ -229,7 +229,7 @@ function DomainHead({ domainKey, state, selected, onSelect }) {
   )
 }
 
-export default function RootMap({ model, selection, onSelectTile, onSelectNode, onClearSelection, canvasWrapRef, decisionsById }) {
+export default function RootMap({ model, selection, onSelectTile, onSelectNode, onClearSelection, decisionsById }) {
   const wholeCampEnter = useEnterTransition('settle')
   const wholeCampEmpty = model.domains.every((d) => d.children.length === 0)
   const dimmed = (domainKey, childKey) => {
@@ -254,11 +254,24 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
   // inside the currently focused/selected domain layer, never all at once.
   const focusedDomainKey = selection.type === 'node' ? selection.domainKey : null
 
+  // Census tiles are the interface (docs/adr/2026-08-27-roots-hub-tiles-are-
+  // interface.md §2) — the domain/chip grid is demoted from always-on to
+  // Understood-only: it renders when the director has entered the
+  // Understood tile's context (or a node reached from inside it), never for
+  // the default {type:'none'} hub or the other three tile selections.
+  const showDomainStack = selection.type === 'node'
+    || (selection.type === 'tile' && selection.state === 'understood')
+
   return (
     <div>
       <div style={styles.filterRow}>
         {TILE_STATES.map((state) => {
-          const active = selection.type === 'tile' && selection.state === state
+          // §5 — the default hub view IS the needs-attention queue
+          // (RootMapPanel's unresolved-only default). The attention tile
+          // reads visually active for {type:'none'} too, presentation-only
+          // — the selection state machine stays {type:'none'}.
+          const active = (selection.type === 'tile' && selection.state === state)
+            || (state === 'attention' && selection.type === 'none')
           return (
             <CensusTile
               key={state}
@@ -271,7 +284,8 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
         })}
       </div>
 
-      <div style={styles.domainStack} ref={canvasWrapRef}>
+      {showDomainStack && (
+      <div style={styles.domainStack}>
         {wholeCampEmpty ? (
           <div style={{ ...styles.wholeCampEmpty, ...wholeCampEnter }}>
             <img src={forestCircle} alt="" style={styles.wholeCampEmptyIcon} />
@@ -281,10 +295,18 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
           </div>
         ) : model.domains.map((domain) => {
           const emphasized = domain.state === 'attention' || domain.state === 'not_set_up'
+          // Mosaic: a card's footprint follows its content weight (how many
+          // entities it holds) AND its state. A busy or attention-needing
+          // domain claims a wider, taller tile; a light one stays compact — so
+          // the grid reads as a considered Bento, not four equal cards. Widths
+          // are whole grid tracks (span 1/2); height scales continuously with
+          // the entity count so tiles vary in both axes.
+          const weight = domain.children.length
+          const wide = emphasized || weight >= 4
           const cardStyle = {
             ...styles.domainLayer,
-            gridColumn: emphasized ? 'span 2' : 'span 1',
-            minHeight: emphasized ? 220 : 148,
+            gridColumn: wide ? 'span 2' : 'span 1',
+            minHeight: emphasized ? 188 : Math.min(188, 104 + weight * 22),
             borderLeftWidth: emphasized ? 3 : 1,
             borderLeftColor: emphasized ? STATE_TOKEN[domain.state] : 'var(--border)',
             background: emphasized
@@ -323,6 +345,7 @@ export default function RootMap({ model, selection, onSelectTile, onSelectNode, 
           )
         })}
       </div>
+      )}
     </div>
   )
 }
@@ -349,15 +372,17 @@ const styles = {
   tileLabel: { fontSize: 12, color: 'var(--text-secondary)' },
   domainStack: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
+    // Lower floor (240 vs 320) so the mosaic forms 3–4 columns at normal app
+    // width, not just on wide screens; still collapses to one column below it.
+    gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))',
     gridAutoFlow: 'dense',
-    gap: 12,
+    gap: 10,
   },
   domainLayer: {
     background: 'var(--surface)',
     border: '1px solid var(--border)',
     borderRadius: 8,
-    padding: '18px 20px 20px',
+    padding: '14px 16px 16px',
   },
   domainHead: {
     display: 'flex',

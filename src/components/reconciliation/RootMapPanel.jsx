@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { DecisionCard, RequiredGapCard, RequiredGapSummaryCard } from './reconciliationCards.jsx'
-import { DOMAIN_LABELS } from './domainRollup.js'
+import { DOMAIN_LABELS, understoodRosterByDomain } from './domainRollup.js'
 import { screenForNode, SCREEN_LABEL } from './rootMapNav.js'
 import { prefersReducedMotion, S } from '../../styles/shared'
 import { isDecisionResolvedFor } from '../../screens/reconciliationTriage.js'
@@ -16,7 +16,18 @@ const ROSTER_GROUP_FIELD = { Groups: 'group' }
 // Display labels for the four ingested states — match RootMap's tile labels so the
 // panel heading reads "Needs attention", not the raw state key "attention".
 const STATE_LABEL = {
-  understood: 'Understood', attention: 'Needs attention', changed: 'Changed', absent: 'Not in this source',
+  understood: 'Understood', attention: 'Needs attention', changed: 'Changed', absent: 'Not in source',
+}
+
+// Census tiles are the interface (docs/adr/2026-08-27-roots-hub-tiles-are-
+// interface.md §6) — one honest line per tile's empty bucket, never a
+// hardcoded shared line. 'attention' also covers the default {type:'none'}
+// hub view, which is the same "nothing needs you" framing.
+const TILE_EMPTY_COPY = {
+  attention: 'Nothing needs you right now. Shoresh understood everything it found.',
+  understood: 'Nothing rooted yet — import something to get started.',
+  changed: 'Nothing has changed since your last import.',
+  absent: 'Nothing left out — everything in this file matched your camp.',
 }
 
 // RootMapPanel — root-map port, docs/adr/2026-08-18-rootmap-screen-port.md §1/§3.
@@ -127,11 +138,19 @@ export default function RootMapPanel({
   let targetScreen = null
   let resolvedCount = 0
   const roster = rosterForNode(model, selection)
+  // §4 — the Understood tile reads roster rows directly (fixes the latent
+  // decisionIds gap in the Context section of the ADR); 'Changed' and
+  // 'Needs attention' keep their existing decisionsForTileState routing.
+  const isUnderstoodTile = selection.type === 'tile' && selection.state === 'understood'
+  const understoodByDomain = isUnderstoodTile ? understoodRosterByDomain(model) : []
   if (selection.type === 'node') {
     const ids = decisionsForNode(model, selection.domainKey, selection.childKey)
     scoped = ids.map((id) => byId.get(id)).filter(Boolean)
     heading = headingForNode(model, selection)
     targetScreen = screenForNode(selection.domainKey, selection.childKey)
+  } else if (isUnderstoodTile) {
+    scoped = []
+    heading = STATE_LABEL.understood
   } else if (selection.type === 'tile') {
     const ids = decisionsForTileState(model, selection.state)
     scoped = allDecisions.filter((d) => ids.has(d.id))
@@ -214,10 +233,24 @@ export default function RootMapPanel({
           </div>
         )
       )}
-      {scoped.length === 0 ? (
+      {isUnderstoodTile ? (
+        understoodByDomain.length === 0 ? (
+          <div style={styles.empty}>{TILE_EMPTY_COPY.understood}</div>
+        ) : (
+          understoodByDomain.map((d) => (
+            <div key={d.key} style={styles.domainGroup}>
+              <div style={styles.domainGroupHeading}>{d.label}</div>
+              <RosterList
+                roster={d.roster}
+                onRowClick={(entry) => { if (entry?.targetScreen) onNavigate?.(entry.targetScreen) }}
+              />
+            </div>
+          ))
+        )
+      ) : scoped.length === 0 ? (
         selection.type !== 'node' && (
           <div style={styles.empty}>
-            Nothing needs you right now. Shoresh understood everything it found.
+            {TILE_EMPTY_COPY[selection.type === 'tile' ? selection.state : 'attention']}
           </div>
         )
       ) : (
@@ -299,6 +332,17 @@ const styles = {
     fontSize: 13,
     color: 'var(--text-secondary)',
     padding: '8px 0',
+  },
+  domainGroup: {
+    marginBottom: 14,
+  },
+  domainGroupHeading: {
+    fontSize: 11.5,
+    fontWeight: 600,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    color: 'var(--text-secondary)',
+    marginBottom: 4,
   },
   resolvedFooter: {
     marginTop: 10,

@@ -103,3 +103,24 @@ export function computeDomainCounts(decisions, isResolved) {
   }
   return counts
 }
+
+// Census tiles are the interface (docs/adr/2026-08-27-roots-hub-tiles-are-
+// interface.md §4) — the Understood tile's panel must not route through
+// decisionIds (a rooted row that was never attached to any decision has no
+// decisionIds entry and would be invisible there). Reads each child's own
+// `roster` rows directly, filters to state === 'understood', and groups by
+// domain — the real fix for the latent gap the ADR's Context section
+// documents. Domains with zero understood rows are omitted, never rendered
+// as an empty section.
+export function understoodRosterByDomain(model) {
+  const result = []
+  for (const domain of model.domains) {
+    const roster = domain.children.flatMap(
+      (child) => (child.roster ?? []).filter((entry) => entry.state === 'understood'),
+    )
+    if (roster.length > 0) {
+      result.push({ key: domain.key, label: DOMAIN_LABELS[domain.key] ?? domain.key, roster })
+    }
+  }
+  return result
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { DOMAIN_OF, CHILD_OF, DOMAINS, DOMAIN_LABELS } from './domainRollup.js'
+import { DOMAIN_OF, CHILD_OF, DOMAINS, DOMAIN_LABELS, understoodRosterByDomain } from './domainRollup.js'
 
 // W1 — vocabulary unification (docs/work/specs/2026-08-21-vocabulary-
 // unification-design.md). The root-map used to call cohorts "Units" —
@@ -39,5 +39,65 @@ describe('domainRollup — Context removed / Scheduling regroup', () => {
     expect(CHILD_OF.events).toBe('Events')
     expect(CHILD_OF.special_days).toBe('Special Days')
     expect(CHILD_OF.elective_sets).toBe('Electives')
+  })
+})
+
+// Census tiles are the interface (docs/adr/2026-08-27-roots-hub-tiles-are-
+// interface.md §4) — the Understood tile reads roster rows directly instead
+// of decisionIds, so a rooted row with no decision id is still visible.
+describe('understoodRosterByDomain', () => {
+  function model() {
+    return {
+      domains: [
+        {
+          key: 'Structure',
+          children: [
+            {
+              key: 'Groups',
+              roster: [
+                { entityId: 'g1', name: 'Bogrim', state: 'understood', decisionId: null, group: null },
+                { entityId: 'g2', name: 'Amitim', state: 'attention', decisionId: 'd1', group: null },
+              ],
+            },
+            {
+              key: 'Program',
+              roster: [
+                { entityId: 'p1', name: 'Summer 2026', state: 'understood', decisionId: 'd2', group: null },
+              ],
+            },
+          ],
+        },
+        {
+          key: 'Facility',
+          children: [
+            { key: 'Locations', roster: [{ entityId: 'l1', name: 'Pool', state: 'changed', decisionId: 'd3', group: null }] },
+          ],
+        },
+      ],
+    }
+  }
+
+  it('groups only understood roster rows by domain, across children within a domain', () => {
+    const result = understoodRosterByDomain(model())
+    expect(result).toHaveLength(1)
+    expect(result[0].key).toBe('Structure')
+    expect(result[0].roster.map((r) => r.name).sort()).toEqual(['Bogrim', 'Summer 2026'])
+  })
+
+  it('includes a rooted row with no decision id — the fix for the latent decisionIds gap', () => {
+    const result = understoodRosterByDomain(model())
+    const bogrim = result[0].roster.find((r) => r.name === 'Bogrim')
+    expect(bogrim).toBeTruthy()
+    expect(bogrim.decisionId).toBeNull()
+  })
+
+  it('omits a domain with zero understood rows rather than rendering an empty bucket', () => {
+    const result = understoodRosterByDomain(model())
+    expect(result.find((d) => d.key === 'Facility')).toBeUndefined()
+  })
+
+  it('returns an empty array when nothing is understood anywhere', () => {
+    const m = { domains: [{ key: 'Structure', children: [{ key: 'Groups', roster: [{ entityId: 'g1', name: 'X', state: 'attention', decisionId: 'd1', group: null }] }] }] }
+    expect(understoodRosterByDomain(m)).toEqual([])
   })
 })

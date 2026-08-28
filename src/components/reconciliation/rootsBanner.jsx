@@ -21,20 +21,15 @@ export default function RootsBanner({ readiness, brandNew, onNavigate, onDownloa
         {attention && <div style={styles.attentionLine}>{attention}</div>}
       </div>
       <div style={styles.actions}>
-        {brandNew && (
-          <button
-            className="press-97"
-            onClick={() => onNavigate('import')}
-            style={S.btnPrimary}
-          >
-            Import last year
-          </button>
-        )}
+        <button
+          className="press-97"
+          onClick={() => onNavigate('import')}
+          style={brandNew ? S.btnPrimary : S.btnSecondary}
+        >
+          {brandNew ? 'Import last year' : 'Re-import last year'}
+        </button>
         <button className="press-97" onClick={onDownloadWorksheet} style={S.btnSecondary}>
           Download worksheet
-        </button>
-        <button className="press-97" onClick={() => onNavigate('locations')} style={S.btnSecondary}>
-          Facility map
         </button>
       </div>
     </div>
