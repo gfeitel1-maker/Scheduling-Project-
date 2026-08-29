@@ -12,7 +12,7 @@ import ElectiveSetDetail from './elective/ElectiveSetDetail'
 
 const LABELS = {
   heading: 'Elective Sets',
-  emptyMessage: 'No elective sets yet. Author one from Roots.',
+  emptyMessage: 'No elective sets yet.',
 }
 
 // 150ms opacity-only crossfade, dropped to 0ms under prefers-reduced-motion —
