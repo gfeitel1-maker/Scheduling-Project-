@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useDraggable } from '@dnd-kit/core'
 import { activityColor } from './slotCellConstants'
 
@@ -87,6 +88,7 @@ export default function ActivityPalette({
   onToggleCollapse,
 }) {
   const nonAnchorSlots = (slots || []).filter(s => !s.is_anchor)
+  const [filter, setFilter] = useState('')
 
   if (collapsed) {
     return (
@@ -181,10 +183,90 @@ export default function ActivityPalette({
           No activities defined.{'\n'}Go to Camp Setup to add some.
         </div>
       ) : (
-        activities.map((activity) => {
-          const scheduledCount = nonAnchorSlots.filter(s => s.activity_id === activity.id).length
-          const atMax = activity.max_per_week != null && scheduledCount >= activity.max_per_week
-          return (
+        <>
+          <div style={{ position: 'relative', flexShrink: 0, marginBottom: 2 }}>
+            <span style={{
+              position: 'absolute',
+              left: 8,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              fontSize: 11,
+              color: 'var(--text-secondary)',
+              pointerEvents: 'none',
+            }}>⌕</span>
+            <input
+              type="text"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              placeholder="Filter…"
+              aria-label="Filter activities"
+              style={{
+                width: '100%',
+                boxSizing: 'border-box',
+                padding: '5px 8px 5px 22px',
+                fontFamily: 'var(--font-sans)',
+                fontSize: 12,
+                color: 'var(--text)',
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 6,
+                outline: 'none',
+              }}
+            />
+          </div>
+          <PaletteLedger
+            activities={activities}
+            filter={filter}
+            nonAnchorSlots={nonAnchorSlots}
+            draggable={draggable}
+            showTargets={showTargets}
+          />
+        </>
+      )}
+    </div>
+  )
+}
+
+function PaletteLedger({ activities, filter, nonAnchorSlots, draggable, showTargets }) {
+  const needle = filter.trim().toLowerCase()
+  const matched = needle
+    ? activities.filter(a => a.name.toLowerCase().includes(needle))
+    : activities
+
+  if (matched.length === 0) {
+    return (
+      <div style={{
+        padding: '20px 0 0',
+        fontFamily: 'var(--font-mono)',
+        fontSize: 11,
+        color: 'var(--text-secondary)',
+        textAlign: 'center',
+      }}>
+        No matches
+      </div>
+    )
+  }
+
+  const withCounts = matched.map(activity => {
+    const scheduledCount = nonAnchorSlots.filter(s => s.activity_id === activity.id).length
+    const target = activity.min_per_week ?? 0
+    return {
+      activity,
+      scheduledCount,
+      atMax: activity.max_per_week != null && scheduledCount >= activity.max_per_week,
+      needed: target > 0 && scheduledCount < target,
+    }
+  })
+
+  const byName = (a, b) => a.activity.name.localeCompare(b.activity.name)
+  const stillNeeded = withCounts.filter(x => x.needed).sort(byName)
+  const placed = withCounts.filter(x => !x.needed).sort(byName)
+
+  return (
+    <>
+      {stillNeeded.length > 0 && (
+        <div data-testid="palette-zone-needed" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {stillNeeded.map(({ activity, scheduledCount, atMax }) => (
             <DraggablePaletteItem
               key={activity.id}
               activity={activity}
@@ -193,9 +275,29 @@ export default function ActivityPalette({
               draggable={draggable}
               showTarget={showTargets}
             />
-          )
-        })
+          ))}
+        </div>
       )}
-    </div>
+      {stillNeeded.length > 0 && placed.length > 0 && (
+        <div style={{ borderTop: '1px solid var(--border)', margin: '4px 0', flexShrink: 0 }} />
+      )}
+      {placed.length > 0 && (
+        <div
+          data-testid="palette-zone-placed"
+          style={{ display: 'flex', flexDirection: 'column', gap: 6, opacity: 0.85 }}
+        >
+          {placed.map(({ activity, scheduledCount, atMax }) => (
+            <DraggablePaletteItem
+              key={activity.id}
+              activity={activity}
+              scheduledCount={scheduledCount}
+              atMax={atMax}
+              draggable={draggable}
+              showTarget={showTargets}
+            />
+          ))}
+        </div>
+      )}
+    </>
   )
 }
