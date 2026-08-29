@@ -106,7 +106,9 @@ function ChipRow({ card, collections }) {
 
 function scheduleBarHover(e, on) {
   if (prefersReducedMotion()) return
-  e.currentTarget.style.borderColor = on ? 'color-mix(in srgb, var(--primary) 35%, var(--border))' : 'var(--border)'
+  e.currentTarget.style.borderColor = on
+    ? 'color-mix(in srgb, var(--primary) 40%, var(--border))'
+    : 'color-mix(in srgb, var(--primary) 24%, var(--border))'
   e.currentTarget.style.transform = on ? 'translateY(-1px)' : 'none'
   const arrow = e.currentTarget.querySelector('[data-arrow]')
   if (arrow) arrow.style.transform = on ? 'translateX(var(--space-1))' : 'none'
@@ -128,6 +130,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
   const { collections, loading } = useCurrentStructureCounts(campId)
   const [preparingWorksheet, setPreparingWorksheet] = useState(false)
   const enterStyle = useEnterTransition('liftFade')
+  const emptyStateEnterStyle = useEnterTransition('liftFade')
   const bentoStyleFor = useStaggerEnter(!loading, 40)
   const attentionStyleFor = useStaggerEnter(!loading, 30)
 
@@ -176,6 +179,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
           <div style={styles.bentoGrid}>
             {BENTO_CARDS.map((card, index) => {
               const count = countFor(collections, card.key)
+              const hasChips = Boolean(CHIP_CAP[card.size])
               return (
                 <div
                   key={card.key}
@@ -185,7 +189,7 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
                 >
                   <div style={cardHeaderStyle(card.size)}>
                     <span>{card.label}</span>
-                    <span style={count > 0 ? styles.cardCountRooted : styles.cardCount}>{count}</span>
+                    <span style={countStyle(count, hasChips)}>{count}</span>
                   </div>
                   <ChipRow card={card} collections={collections} />
                 </div>
@@ -195,10 +199,27 @@ export default function RootsHomeScreen({ campId, onNavigate }) {
         )}
       </section>
 
-      <section style={{ marginTop: 'var(--space-5)' }}>
+      <section style={{ marginTop: 'var(--space-6)' }}>
         <div style={styles.sectionLabel}>Needs your attention</div>
         {attentionRows.length === 0 ? (
-          <div style={styles.emptyState}>Nothing needs you right now.</div>
+          <div style={{ ...styles.emptyState, ...emptyStateEnterStyle }}>
+            <svg
+              data-testid="attention-empty-check"
+              width="24"
+              height="24"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="var(--success)"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              style={styles.emptyStateIcon}
+            >
+              <circle cx="12" cy="12" r="9.5" />
+              <path d="M8 12.5l2.5 2.5L16 9.5" />
+            </svg>
+            <div>Nothing needs you right now.</div>
+          </div>
         ) : (
           <div>
             {attentionRows.map((row, index) => (
@@ -233,6 +254,15 @@ function cardHeaderStyle(size) {
   return { ...styles.cardHeader, fontSize: size === 'small' ? 13.5 : 14.5 }
 }
 
+// WS4b refinement #4 — the count steps up to 18px/tabular-nums only on
+// chip-bearing cards (large/wide), so it holds its own next to the chip row
+// without competing with it. Small cards have no chips to balance against
+// and keep inheriting cardHeader's 14.5px.
+function countStyle(count, hasChips) {
+  const base = count > 0 ? styles.cardCountRooted : styles.cardCount
+  return hasChips ? { ...base, fontSize: 18, fontVariantNumeric: 'tabular-nums' } : base
+}
+
 const styles = {
   title: {
     fontFamily: 'var(--font-condensed)',
@@ -249,8 +279,11 @@ const styles = {
     width: '100%',
     textAlign: 'left',
     padding: 'var(--space-4)',
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
+    // WS4b refinement #1 — a light navy tint weights this as the forward
+    // door, distinct from the plain-surface bento cards below it. Resting
+    // fill/border only; the existing press-97/hover behavior is untouched.
+    background: 'color-mix(in srgb, var(--primary) 6%, var(--surface))',
+    border: '1px solid color-mix(in srgb, var(--primary) 24%, var(--border))',
     borderRadius: 'var(--radius-md)',
     color: 'var(--text)',
     fontSize: 15,
@@ -261,6 +294,9 @@ const styles = {
   },
   scheduleArrow: {
     display: 'inline-block',
+    color: 'var(--primary)',
+    fontSize: 17,
+    fontWeight: 700,
     transition: 'transform var(--motion-fast) var(--ease-out)',
   },
   sectionLabel: {
@@ -338,10 +374,16 @@ const styles = {
     color: 'var(--text-secondary)',
   },
   emptyState: {
-    padding: '24px 4px',
+    // WS4b refinement #3 — steps from 24px 4px to the token scale, per
+    // DESIGN_STANDARD §5a: no card, no border, but real presence.
+    padding: 'var(--space-6) var(--space-1)',
     textAlign: 'center',
     fontSize: 13,
     color: 'var(--text-secondary)',
+  },
+  emptyStateIcon: {
+    display: 'block',
+    margin: '0 auto var(--space-2)',
   },
   attentionRow: {
     display: 'flex',
