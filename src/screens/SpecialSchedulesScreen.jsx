@@ -14,7 +14,7 @@ import EventGridEditor from './event/EventGridEditor'
 const LABELS = {
   specialDaysHeading: 'Special Days',
   eventsHeading: 'Events',
-  emptyMessage: 'No special days or events yet. Author one from Roots.',
+  emptyMessage: 'No special days or events yet.',
   notStarted: 'Not started',
   partiallyFilled: 'Partially filled',
   complete: 'Complete',
