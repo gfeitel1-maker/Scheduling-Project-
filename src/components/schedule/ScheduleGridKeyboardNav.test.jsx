@@ -260,7 +260,8 @@ describe('T59/T112 — keys inside an open inline editor do not leak to grid nav
 
   it('EmptyCell editor: arrow/Home/End inside the input do not move grid focus or close the editor', () => {
     const emptyCell = cellAt(container, 4, 2) // 'Open, Block 3, Monday'
-    fireEvent.click(emptyCell)
+    // WS5 Excel-style: the inline editor opens on double-click, not single.
+    fireEvent.doubleClick(emptyCell)
     const input = emptyCell.querySelector('.cell-inline-editor-input')
     expect(input).not.toBeNull()
 

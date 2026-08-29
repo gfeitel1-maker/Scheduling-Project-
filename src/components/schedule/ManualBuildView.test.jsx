@@ -127,11 +127,18 @@ describe('ManualBuildView — CSS Grid conversion (T56)', () => {
     expect(empty.style.gridColumn).toBe('3 / span 1')
   })
 
-  it('T112 — click on an empty cell opens the inline editor', () => {
+  it('T112 — a single plain click on an empty cell does NOT open the inline editor (WS5 double-click-to-edit)', () => {
+    const container = renderView()
+    const empty = cellAt(container, 'g1|d2|b2')
+    fireEvent.click(empty)
+    expect(empty.querySelector('.cell-inline-editor-input')).toBeNull()
+  })
+
+  it('T112 — double-click on an empty cell opens the inline editor', () => {
     const container = renderView()
     const empty = cellAt(container, 'g1|d2|b2')
     expect(empty.querySelector('.cell-inline-editor-input')).toBeNull()
-    fireEvent.click(empty)
+    fireEvent.doubleClick(empty)
     expect(empty.querySelector('.cell-inline-editor-input')).not.toBeNull()
   })
 
@@ -142,7 +149,7 @@ describe('ManualBuildView — CSS Grid conversion (T56)', () => {
       onPlace: (slot, activityId) => placed.push([slot, activityId]),
     })
     const empty = cellAt(container, 'g1|d2|b2')
-    fireEvent.click(empty)
+    fireEvent.doubleClick(empty)
     const input = empty.querySelector('.cell-inline-editor-input')
     fireEvent.change(input, { target: { value: 'Soccer' } })
     fireEvent.keyDown(input, { key: 'Enter' })
@@ -155,6 +162,12 @@ describe('ManualBuildView — CSS Grid conversion (T56)', () => {
     fireEvent.click(cellAt(container, 'g1|d2|b1'))
     expect(selected.length).toBe(1)
     expect(cellAt(container, 'g1|d2|b1').querySelector('.cell-inline-editor-input')).toBeNull()
+  })
+
+  it('T112 — filled-cell double-click opens the inline editor even though onCellSelect is wired (WS5 double-click-to-edit)', () => {
+    const container = renderView({ onCellSelect: () => {} })
+    fireEvent.doubleClick(cellAt(container, 'g1|d2|b1'))
+    expect(cellAt(container, 'g1|d2|b1').querySelector('.cell-inline-editor-input')).not.toBeNull()
   })
 
   it('drives row tracks from buildRowTracks via --grid-rows', () => {

@@ -49,7 +49,16 @@ export default function EmptyCell({
     return false
   }
 
+  // WS5 follow-up "double-click to edit" (owner directive 2026-08-29): a
+  // single plain click no longer opens the editor — it only carries stamp/
+  // paste-mode activation, mirroring handleDoubleClick below minus the
+  // editor fallback. That leaves plain click free for the grid's other
+  // affordances (selection, merge, swap) at the SlotCell layer.
   function handleClick(e) {
+    activate(e)
+  }
+
+  function handleDoubleClick(e) {
     if (activate(e)) return
     setEditing(true)
   }
@@ -75,6 +84,7 @@ export default function EmptyCell({
       aria-label={cellAccessibleName({ subject: 'Open', blockNames, column })}
       style={{ gridRow, gridColumn }}
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       onKeyDown={e => { if (e.key === 'Enter') handleEnterKeyDown(e) }}
     >
       {editing ? (
