@@ -216,7 +216,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   const bumpFlagAckResync = () => setFlagAckResync(t => t + 1)
   useFlagChangeAck(slots, route, flagAckResync)
 
-  const [view, setView] = useState('group') // 'group' | 'activity' | 'day'
+  const [view, setView] = useState('day') // 'group' | 'activity' | 'day'
   const [selectedGroup, setSelectedGroup] = useState(null)
   const [selectedDay, setSelectedDay] = useState(null)
   // T108 Phase 2 (design §6, Designer spec §1) — "Override this day" mode.
@@ -991,7 +991,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
             {/* View toggle — how to LOOK at this route's week. "Manual Build"
                 is gone from here: it was never a view, it was a route. */}
             <div style={{ display: 'flex', gap: 2, background: 'var(--border)', borderRadius: 8, padding: 3 }}>
-              {[['group','Group View'],['day','Daily View'],['activity','Activity View']].map(([v, label]) => (
+              {[['day','Daily View'],['group','Group View'],['activity','Activity View']].map(([v, label]) => (
                 <button key={v} onClick={() => { setView(v); if (v !== 'activity') setSelectedActivity(null) }} style={{ padding: '6px 14px', borderRadius: 6, border: 'none', borderBottom: view === v ? '2px solid var(--primary)' : '2px solid transparent', cursor: 'pointer', fontSize: 12, fontWeight: view === v ? 700 : 600, fontFamily: 'var(--font-sans)', background: view === v ? 'var(--surface)' : 'none', color: view === v ? 'var(--primary)' : 'var(--text-secondary)', boxShadow: view === v ? '0 1px 4px rgba(0,0,0,0.12)' : 'none', transition: 'color var(--motion-fast) var(--ease-out), background var(--motion-fast) var(--ease-out)' }}>{label}</button>
               ))}
             </div>
@@ -1232,13 +1232,6 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               <div style={{ display: 'flex', marginBottom: 8 }}>{routeOffer(route)}</div>
             )}
 
-            {/* Which week am I looking at — in plain language, always present. */}
-            {hasSchedule && (
-              <div style={{ marginBottom: 12 }}>
-                <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{ROUTE_COPY[route].caption}</span>
-              </div>
-            )}
-
             {/* T108 Phase 2 (Designer spec §1.3a) — the override-mode banner.
                 Reuses the recoverable-error banner's shape in --secondary
                 instead of --danger (a deliberate mode, not an error). */}
@@ -1376,6 +1369,9 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                 isContentRaced={isContentRaced}
                 onDismissContentRace={dismissContentRace}
                 fillState={fillState}
+                onExpandSlot={expandSlot}
+                onSplitSlot={splitSlot}
+                onSpanExtendStart={onSpanExtendStart}
                 showIdentityDot={isManual}
                 highlightMap={highlightMap}
                 highlightColor={highlightColor}

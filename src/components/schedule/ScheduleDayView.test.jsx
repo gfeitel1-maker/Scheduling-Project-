@@ -174,6 +174,64 @@ describe('ScheduleDayView — CSS Grid conversion (T56)', () => {
   })
 })
 
+// WS5 follow-up "Daily-first + restore Daily merge" — merge/split/extend was
+// wired into ScheduleGroupView (T107 item 1) but never threaded into this view
+// when the modern span system landed, so Daily view silently lost the
+// affordance Group view has. These mirror ScheduleGroupView.test.jsx's
+// coverage of the same contract, scoped to this view's group-columns layout.
+describe('ScheduleDayView — merge/split/extend parity with Group view (WS5 Daily-first)', () => {
+  it('renders the merge-down affordance on an unmerged head with a block below it', () => {
+    // g1|d1|b1 is a single-block activity with an empty b2 below it —
+    // mergeable, but not yet merged (unlike g2's b1/b2, already a span).
+    const container = renderView({ onExpandSlot: () => {}, onSplitSlot: () => {} })
+    const head = cellAt(container, 'g1|d1|b1')
+    const mergeBtn = head.querySelector('.cell-action')
+    expect(mergeBtn, 'merge affordance should exist on a cell with a block below it').not.toBeNull()
+    expect(mergeBtn.getAttribute('title')).toMatch(/run into the next period/i)
+  })
+
+  it('calls onExpandSlot with (groupId, dayId, blockId, nextBlockId) on merge-down click', () => {
+    const calls = []
+    const container = renderView({
+      onExpandSlot: (...args) => calls.push(args),
+      onSplitSlot: () => {},
+    })
+    const head = cellAt(container, 'g1|d1|b1')
+    fireEvent.click(head.querySelector('.cell-action'))
+    expect(calls).toEqual([['g1', 'd1', 'b1', 'b2']])
+  })
+
+  it('calls onSplitSlot(groupId, dayId, blockId) when splitting an already-merged span', () => {
+    const merged = [
+      { id: 's1', group_id: 'g2', day_id: 'd1', time_block_id: 'b1', activity_id: 'a1', is_anchor: false },
+      { id: 's2', group_id: 'g2', day_id: 'd1', time_block_id: 'b2', activity_id: 'a1', is_anchor: false, is_span_head: false },
+    ]
+    const geometry = makeGridGeometry({ slots: merged, timeBlocks, groups, overlays: [], fillState: null })
+    const calls = []
+    const container = renderView({ geometry, onExpandSlot: () => {}, onSplitSlot: (...args) => calls.push(args) })
+    const head = cellAt(container, 'g2|d1|b1')
+    const splitBtn = head.querySelector('.cell-action--split')
+    expect(splitBtn).not.toBeNull()
+    fireEvent.click(splitBtn)
+    expect(calls).toEqual([['g2', 'd1', 'b1']])
+  })
+
+  it('wires the drag-to-extend grab handle to onSpanExtendStart', () => {
+    const calls = []
+    const container = renderView({
+      onExpandSlot: () => {},
+      onSplitSlot: () => {},
+      onSpanExtendStart: (...args) => calls.push(args),
+    })
+    const head = cellAt(container, 'g2|d1|b1')
+    const grab = head.querySelector('.span-extend-handle')
+    expect(grab, 'extend grab handle should be mounted when onSpanExtendStart is wired').not.toBeNull()
+
+    fireEvent.pointerDown(grab)
+    expect(calls).toEqual([['g2', 'd1', 'b1', 'a1']])
+  })
+})
+
 describe('ScheduleDayView — collapse (T56 extends T55)', () => {
   const rowHeaderFor = (c, name) =>
     [...c.querySelectorAll('[role="rowheader"]')].find(h => h.textContent.includes(name))
