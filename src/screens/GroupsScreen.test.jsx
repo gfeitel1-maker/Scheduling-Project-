@@ -504,6 +504,17 @@ describe('GroupsScreen — row-click to edit', () => {
     expect(screen.queryByDisplayValue('Yeladim 1')).toBeNull()
   })
 
+  it('shows the no-age-divisions caution through the shared bronze --accent primitive, not hardcoded amber', async () => {
+    localClient.list.mockImplementation(() => Promise.resolve([]))
+    render(<GroupsScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+
+    const banner = await waitFor(() =>
+      screen.getByText('No age divisions found. Set up age divisions first so you can assign groups to them.')
+    )
+    expect(banner.style.background).toMatch(/var\(--accent\)/)
+    expect(banner.style.background).not.toMatch(/#FFF8E7/i)
+  })
+
   it('toggling the WeekToggle does not enter edit mode', async () => {
     localClient.list.mockImplementation((entity) =>
       Promise.resolve(entity === 'groups' ? [group()] : [tier()])

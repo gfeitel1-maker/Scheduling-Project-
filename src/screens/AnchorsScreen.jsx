@@ -214,7 +214,7 @@ function AnchorModal({ anchor, kind, tiers, groups, days, timeBlocks, locations,
         )}
 
         {saveError && (
-          <div style={{ fontSize: 12, color: 'var(--warning)', marginBottom: 10, padding: '8px 10px', background: '#fff5f5', borderRadius: 5, border: '1px solid #f5c6c6' }}>
+          <div style={S.errorBanner}>
             {saveError}
           </div>
         )}
@@ -680,7 +680,7 @@ export default function AnchorsScreen({ campId, role, onNavigate, kind = 'recurr
         cohortPicker={<CohortPicker cohorts={cohorts} activeCohort={activeCohort} onChange={setActiveCohortId} />}
       >
       {timeBlocks.length === 0 && !loading && (
-        <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#7a5100' }}>
+        <div style={S.cautionBanner}>
           No time blocks found. Set these up before adding {eventLabelPlural}.
         </div>
       )}

@@ -508,3 +508,39 @@ describe('AnchorsScreen delete confirmation', () => {
     expect(localClient.deleteEntity).not.toHaveBeenCalled()
   })
 })
+
+describe('AnchorsScreen — caution and error banners use shared primitives', () => {
+  it('shows the no-time-blocks caution through the shared bronze --accent primitive, not hardcoded amber', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'days_of_operation') return Promise.resolve([day()])
+      return Promise.resolve([])
+    })
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+
+    const banner = await waitFor(() => screen.getByText(/No time blocks found\./))
+    expect(banner.style.background).toMatch(/var\(--accent\)/)
+    expect(banner.style.background).not.toMatch(/#FFF8E7/i)
+  })
+
+  it('shows a save failure through the shared danger error primitive, not hardcoded red', async () => {
+    localClient.list.mockImplementation((entity) => {
+      if (entity === 'anchor_activities') return Promise.resolve([])
+      if (entity === 'days_of_operation') return Promise.resolve([day({ id: 'd1' })])
+      if (entity === 'time_blocks') return Promise.resolve([block()])
+      return Promise.resolve([])
+    })
+    localClient.write.mockRejectedValue(new Error('disk failure'))
+    render(<AnchorsScreen campId={CAMP_ID} onNavigate={() => {}} kind="fixed" />)
+    await waitFor(() => expect(screen.queryByText('No fixed events yet')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('+ Add Fixed Event'))
+    fireEvent.change(screen.getByPlaceholderText('e.g. Mifkad, Lunch, Swim'), { target: { value: 'Mifkad' } })
+    fireEvent.click(screen.getByText('Monday'))
+    fireEvent.change(screen.getByDisplayValue('— Select block —'), { target: { value: 'block-1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add Fixed Event' }))
+
+    const banner = await waitFor(() => screen.getByText(/Your changes could not be saved/))
+    expect(banner.style.background).toMatch(/var\(--danger\)/)
+    expect(banner.style.background).not.toMatch(/#fff5f5/i)
+  })
+})
