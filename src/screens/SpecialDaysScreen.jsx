@@ -14,11 +14,9 @@ import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { S, useEnterTransition } from '../styles/shared'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import { seedFailureMessage } from './specialDay/seedFailureMessage'
-import uiCalendar from '../assets/brand/icons/ui-calendar.png'
 
 const LABELS = {
   emptyTitle: 'No special days yet',
-  emptyBody: "Build a standalone schedule for Color War, a field trip, or any day that doesn't follow your normal program.",
   createCta: '+ New Special Day',
   seedPrompt: 'Special Day created. Start with your camp’s regular time blocks (you can edit them after), or start empty?',
   seedFromBlocks: 'Seed from Time Blocks',
@@ -190,9 +188,7 @@ export default function SpecialDaysScreen({ campId, role, onNavigate }) {
         <div style={S.stateLoading}>Loading…</div>
       ) : days.length === 0 && !creating ? (
         <div style={{ ...S.emptyState, ...enterStyle }}>
-          <img src={uiCalendar} alt="" style={S.emptyStateIcon} />
           <div style={S.emptyStateTitle}>{LABELS.emptyTitle}</div>
-          <div style={S.emptyStateBody}>{LABELS.emptyBody}</div>
           <button className="press-97" onClick={() => setCreating(true)} style={{ ...S.btnPrimary, marginTop: 12 }}>{LABELS.createCta}</button>
         </div>
       ) : (

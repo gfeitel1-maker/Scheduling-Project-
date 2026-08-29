@@ -132,15 +132,7 @@ export default function ElectivesScreen({ campId, role, onNavigate }) {
         <div style={S.stateLoading}>Loading…</div>
       ) : sets.length === 0 ? (
         <div style={{ ...emptyStyles.wrap, ...enter }}>
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="1.5">
-            <rect x="3" y="4" width="18" height="16" rx="2" />
-            <path d="M8 10h8M8 14h5" />
-          </svg>
           <div style={emptyStyles.title}>No elective sets yet</div>
-          <div style={emptyStyles.body}>
-            An elective set is a named period's worth of choices — like "Afternoon Chugim". Add one below, then pick
-            which activities are offered.
-          </div>
           <button className="press-97" onClick={() => nameRef.current?.focus()} style={{ ...S.btnPrimary, marginTop: 14 }}>
             Add your first elective set
           </button>
@@ -232,10 +224,5 @@ const emptyStyles = {
     fontSize: 15,
     color: 'var(--text)',
     marginTop: 8,
-  },
-  body: {
-    fontSize: 13,
-    color: 'var(--text-secondary)',
-    maxWidth: '56ch',
   },
 }
