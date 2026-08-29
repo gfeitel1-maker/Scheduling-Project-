@@ -6,11 +6,10 @@ import { openDecisionsToModel } from '../ingest/openDecisionsToModel.js'
 // decisionsById } shape (docs/adr/2026-08-28-persisted-reconciliation-
 // decisions.md §5). Mirrors usePendingConflicts.js's mount-fetch shape.
 //
-// FOLLOW-UP: RootsHomeScreen.jsx does not exist on this branch yet (it lives
-// on the unmerged feat/ws4-roots-home). Once that branch merges, wire this
-// hook's `{ model, decisionsById }` into RootsHomeScreen's existing
-// buildAttentionList({ model, decisionsById, structureIssues }) call — see
-// src/ingest/openDecisionsToModel.js's own follow-up comment.
+// Wired into RootsHomeScreen.jsx's buildAttentionList({ model, decisionsById,
+// structureIssues }) call — this hook's { model, decisionsById } supplies the
+// reconciliation half (the snapshot-derived inspect-mode model it replaced
+// only ever produced 'understood' rows, i.e. an empty reconciliation half).
 export function useOpenReconciliationDecisions() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)

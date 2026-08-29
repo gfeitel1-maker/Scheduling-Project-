@@ -12,6 +12,8 @@ vi.mock('./localClient', () => ({
   localClient: {
     list: vi.fn(() => Promise.resolve([])),
     onOpRejected: vi.fn(() => () => {}),
+    listOpenReconciliationDecisions: vi.fn(() => Promise.resolve([])),
+    dismissOpenReconciliationDecisions: vi.fn(() => Promise.resolve({ ok: true, dismissed: 0 })),
   },
 }))
 

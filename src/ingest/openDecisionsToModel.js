@@ -1,18 +1,14 @@
 // Adapts electron/ops/openReconciliationDecisions.js's persisted rows into
 // the exact shape buildAttentionList({ model, decisionsById, structureIssues })
-// already reads (src/ingest/attentionList.js, on the unmerged
-// feat/ws4-roots-home branch) — WITHOUT changing that function's signature.
+// already reads (src/ingest/attentionList.js) — WITHOUT changing that
+// function's signature.
 // docs/adr/2026-08-28-persisted-reconciliation-decisions.md §5.
 //
-// FOLLOW-UP (blocked on feat/ws4-roots-home merging): RootsHomeScreen.jsx
-// does not exist on this branch yet. Once it merges, wire this module's
-// output — via useOpenReconciliationDecisions(campId) — into
-// RootsHomeScreen's existing buildAttentionList({ model, decisionsById,
-// structureIssues }) call as the `model`/`decisionsById` arguments
-// (merged/unioned with whatever it already builds from
-// buildRootMapModel(null, { snapshot: collections, mode: 'inspect' })). That
-// one-line wiring is the ONLY remaining step — this module is otherwise
-// complete and independently unit-tested.
+// Consumed by useOpenReconciliationDecisions.js and wired into
+// RootsHomeScreen.jsx: its { model, decisionsById } output supplies the
+// reconciliation half of the attention list, replacing the snapshot-derived
+// buildRootMapModel(null, { snapshot, mode: 'inspect' }) model, which only
+// ever produced 'understood' rows (an empty reconciliation half).
 
 // §1: 'confirm_change' rows are the only kind whose roster state is
 // 'changed'; every other persisted kind (confirm_value, resolve_conflict)
