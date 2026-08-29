@@ -93,6 +93,8 @@ See [legacy/supabase/README.md](legacy/supabase/README.md) for more, and [PLATFO
 
 A graphify knowledge graph of this repo lives in `graphify-out/` **in the main checkout only** (git-ignored, never committed). It maps the code — functions, files, calls, and cross-references — plus the ADRs and governance docs, into something queryable. Use it to *locate* and to check *blast radius*; it is a map, not an authority.
 
+**Reaching the graph from a worktree.** The graph and the `graphify` MCP server exist only in the main checkout (`/Users/gregfeitel/dev/shoresh`); worktrees under `.claude/worktrees/` do **not** have their own copy, and there is no value in building one — the graph reflects committed `main`, so a single shared graph is correct. From a worktree, pass the absolute path to every command: `--graph /Users/gregfeitel/dev/shoresh/graphify-out/graph.json` (the `graphify affected`/`query`/`explain`/`god-nodes` examples below all accept it). The bare-path examples below assume you are in the main checkout.
+
 **When to reach for it**
 - Before changing a shared or load-bearing symbol, get the downstream impact: `graphify affected "<symbolName>"`. This is more reliable than eyeballing imports and is the expected pre-change check for structural edits.
 - To answer "how does X work / what connects to Y", query it first: `graphify query "<question>"` — it cites `file:line`, which you then open.
