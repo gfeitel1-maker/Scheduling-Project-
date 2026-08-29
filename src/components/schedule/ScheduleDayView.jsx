@@ -3,7 +3,7 @@ import EmptyCell from './EmptyCell'
 import PulledCell from './PulledCell'
 import OverlayCell from '../schedule/OverlayCell'
 import OverrideToggleButton from './OverrideToggleButton'
-import { decideCell } from '../../screens/schedule/gridGeometry'
+import { decideCell, computeSpanCellProps } from '../../screens/schedule/gridGeometry'
 import { buildRowTracks, columnTracks } from '../../screens/schedule/gridTracks'
 import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
@@ -27,6 +27,11 @@ export default function ScheduleDayView({
   geometry,
   handleFillEnter, startFill, removeOverlay, handleStampClick,
   eligibleActivitiesFor, onPlace, onCreateNew, fillState,
+  // WS5 follow-up "Daily-first + restore Daily merge" — same handler
+  // instances Group view already receives (route- and view-agnostic).
+  onExpandSlot,
+  onSplitSlot,
+  onSpanExtendStart,
   // Generated "track changes" review; empty/true on the manual route so its
   // day view is unchanged. highlightMap is Map<slotId, reason>.
   showIdentityDot = true,
@@ -213,6 +218,17 @@ export default function ScheduleDayView({
                         ? () => handleStampClick(group.id, selectedDay, block.id)
                         : undefined
 
+                      const {
+                        isMerged, nextBlock, hasMergeDown, spanTailBlockIds,
+                        onSplit, onSplitAt, onExtendGrab,
+                      } = computeSpanCellProps({
+                        geometry, selectedGroup: group.id, day: { id: selectedDay }, block, blockIndex, timeBlocks, rowSpan, slot,
+                        onSplitSlot, onSpanExtendStart,
+                      })
+                      const onMergeDown = hasMergeDown && onExpandSlot ? () => {
+                        onExpandSlot(group.id, selectedDay, block.id, nextBlock.id)
+                      } : undefined
+
                       return (
                         <SlotCell
                           key={group.id}
@@ -240,6 +256,13 @@ export default function ScheduleDayView({
                           onRelease={s => releaseCell(s.id)}
                           isLocked={isLocked}
                           isDndEnabled={!isLocked && !stampMode}
+                          hasMergeDown={hasMergeDown}
+                          isMerged={isMerged}
+                          onMergeDown={onMergeDown}
+                          onSplitSlot={onSplit}
+                          spanTailBlockIds={spanTailBlockIds}
+                          onSplitAt={onSplitAt}
+                          onExtendGrab={onExtendGrab}
                           showIdentityDot={showIdentityDot}
                           isFlagHighlighted={highlightMap?.has(slot.id) ?? false}
                           highlightColor={highlightColor}

@@ -259,6 +259,46 @@ describe('WS5 S2a — toolbar slims: Field Trips removed, route label removed, c
   })
 })
 
+// WS5 follow-up "Daily-first + restore Daily merge" — Daily is now the
+// default view and leftmost in the toggle, and the redundant "which route am
+// I on" caption under the toolbar is gone (route legibility already lives in
+// the sidebar, per WS5 S1).
+describe('WS5 Daily-first — default view, toggle order, and no redundant caption', () => {
+  it('renders Daily view by default, with no click on the view toggle', async () => {
+    mockList()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+
+    // Daily view puts GROUPS in the column headers (all groups for one day)
+    // and days in the row selector; Group view is the reverse. So the tell is
+    // which entity heads the columns: a group ("Group A") is a columnheader
+    // here, and no day is.
+    expect(scheduleCell('Swim')).toBeTruthy()
+    const colHeaders = screen.getAllByRole('columnheader').map(h => h.textContent || '')
+    expect(colHeaders.some(t => /Group A/.test(t))).toBe(true)
+    expect(colHeaders.some(t => /Monday/.test(t))).toBe(false)
+  })
+
+  it('orders the view toggle Daily, Group, Activity — Daily leftmost', async () => {
+    mockList()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+
+    const labels = [screen.getByText('Daily View'), screen.getByText('Group View'), screen.getByText('Activity View')]
+    const positions = labels.map(el => Array.prototype.indexOf.call(el.parentElement.children, el))
+    expect(positions).toEqual([0, 1, 2])
+  })
+
+  it('renders no "week you\'re building" / "week the app proposed" caption once a schedule exists', async () => {
+    mockList()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
+
+    expect(screen.queryByText('The week the app proposed')).toBeNull()
+    expect(screen.queryByText('The week you’re building')).toBeNull()
+  })
+})
+
 // Round 2 Fix 1: bulk_replace rows carry `flags` JSON.stringify'd (the op-log
 // only accepts string/null row values — see validateBulkReplaceRows in
 // electron/ops/operations.js). generate()/placeAnchors()/restoreSnapshot()
@@ -407,19 +447,21 @@ describe('ScheduleScreen mutation functions exercised via rendered component', (
     })
   })
 
-  // Round 2 B1: ScheduleGroupView (the default, primary view) destructures
-  // and calls `releaseCell` from SlotCell's onRelease, but ScheduleScreen
-  // never passed the prop down — clicking a locked cell in group view threw
-  // "releaseCell is not a function". Day view got the prop; group view did
-  // not. This test renders in the DEFAULT view (no "Daily View" click) so it
-  // fails with that TypeError if the prop wiring regresses.
-  it('releaseCell in GROUP view (default view): clicking a locked slot cell writes template_slots.is_released without throwing', async () => {
+  // Round 2 B1: ScheduleGroupView destructures and calls `releaseCell` from
+  // SlotCell's onRelease, but ScheduleScreen never passed the prop down —
+  // clicking a locked cell in group view threw "releaseCell is not a
+  // function". Day view got the prop; group view did not. WS5 made Daily the
+  // default view, so this test explicitly switches to Group view to keep
+  // covering that prop wiring.
+  it('releaseCell in GROUP view: clicking a locked slot cell writes template_slots.is_released without throwing', async () => {
     mockList({
       activities: [activity({ is_locked: true })],
       template_slots: [slotRow({ is_released: 0 })],
     })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
 
+    await waitFor(() => expect(screen.getByText('Group View')).toBeTruthy())
+    fireEvent.click(screen.getByText('Group View'))
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
     fireEvent.click(scheduleCell('Swim'))
 
@@ -676,6 +718,11 @@ describe('placeActivityManual eligibility (T6 — DB-shaped eligible_tier_ids/el
   // the "Soccer" cell (slot-2, block b2), which is what drives
   // placeActivityManual('act-1', 'g1', 'd1', 'b2') without touching dnd-kit.
   async function copySwimPasteOntoSoccer() {
+    // These placement tests were written against Group View (the former default
+    // view). Daily is the default now, so select Group View first to preserve
+    // the cell layout and the Swim→Soccer paste target this helper assumes.
+    await waitFor(() => expect(screen.getByText('Group View')).toBeTruthy())
+    fireEvent.click(screen.getByText('Group View'))
     // Two consecutive waitFor calls: the second one forces a macrotask boundary
     // so any weekId-triggered secondary loadAll() can fire and settle before
     // we query cells for interaction.
@@ -892,7 +939,7 @@ describe('separate manual and generated routes', () => {
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
 
     rerender(routeScreen('manual'))
-    await waitFor(() => expect(screen.getByText('The week you’re building')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Block')).toBeTruthy())
     expect(scheduleCell('Swim')).toBeFalsy()
   })
 
@@ -919,7 +966,7 @@ describe('separate manual and generated routes', () => {
     expect(screen.queryAllByText('Swim').some(el => el.closest(CELL_SELECTOR))).toBe(false)
 
     fireEvent.click(screen.getByText('Manual'))
-    await waitFor(() => expect(screen.getByText('The week you’re building')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Block')).toBeTruthy())
     expect(navigated).toContain('schedule:manual')
   })
 
@@ -946,7 +993,7 @@ describe('separate manual and generated routes', () => {
     }
     check()
     rerender(routeScreen('manual'))
-    await waitFor(() => expect(screen.getByText('The week you’re building')).toBeTruthy())
+    await waitFor(() => expect(screen.getByText('Block')).toBeTruthy())
     check()
   })
 
@@ -1417,6 +1464,10 @@ describe('T3: selecting, copying and pasting cells', () => {
   it('selects a cell on cmd/ctrl-click rather than opening the editor', async () => {
     mockList({ template_slots: [slotRow()] })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    // Cell select/copy/paste was authored against Group View (former default);
+    // Daily is default now, so select Group View for the original cell layout.
+    await waitFor(() => expect(screen.getByText('Group View')).toBeTruthy())
+    fireEvent.click(screen.getByText('Group View'))
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
 
     const cell = scheduleCell('Swim').closest(CELL_SELECTOR)
@@ -1430,6 +1481,8 @@ describe('T3: selecting, copying and pasting cells', () => {
   it('cmd+C on a selection offers the copy to be placed', async () => {
     mockList({ template_slots: [slotRow()] })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Group View')).toBeTruthy())
+    fireEvent.click(screen.getByText('Group View'))
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
 
     fireEvent.click(scheduleCell('Swim').closest(CELL_SELECTOR), { metaKey: true })
@@ -1443,6 +1496,8 @@ describe('T3: selecting, copying and pasting cells', () => {
   it('Escape leaves paste mode without writing anything', async () => {
     mockList({ template_slots: [slotRow()] })
     render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Group View')).toBeTruthy())
+    fireEvent.click(screen.getByText('Group View'))
     await waitFor(() => expect(scheduleCell('Swim')).toBeTruthy())
 
     fireEvent.click(scheduleCell('Swim').closest(CELL_SELECTOR), { metaKey: true })
