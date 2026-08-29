@@ -204,6 +204,50 @@ describe('Sidebar: neither schedule is canonical — both routes stay distinct r
   })
 })
 
+describe('Sidebar: Plants is pinned — its schedule rows can never be hidden (WS5 S1)', () => {
+  // Owner, 2026-08-29: "the 4 sidebar rows should be visible so you can see
+  // which one you are in." Route legibility lives in the sidebar highlight,
+  // so the section that holds the four schedule rows must never collapse them
+  // out of view — otherwise a director can be inside Generated with nothing
+  // on screen telling them so. Germination/Sprouts keep their collapse (the
+  // tuck-away-setup affordance); only Plants is pinned.
+  const PLANTS_ROWS = ['Generated Schedule', 'Manual Build', 'Special Schedules', 'Elective Schedules']
+
+  it('carries no collapse/expand toggle for Plants', () => {
+    renderSidebar()
+    expect(screen.queryByTitle('Collapse Plants')).toBeNull()
+    expect(screen.queryByTitle('Expand Plants')).toBeNull()
+  })
+
+  it('shows all four schedule rows by default', () => {
+    renderSidebar()
+    for (const label of PLANTS_ROWS) {
+      expect(screen.getByText(label)).toBeTruthy()
+    }
+  })
+
+  it('shows the four rows even when persisted state marks Plants collapsed', () => {
+    // Stale localStorage from before Plants was pinned must not hide the rows.
+    storage['shoresh-sidebar-state'] = JSON.stringify({
+      sections: { germination: true, sprouts: true, plants: false }, offered: true,
+    })
+    renderSidebar()
+    for (const label of PLANTS_ROWS) {
+      expect(screen.getByText(label)).toBeTruthy()
+    }
+  })
+
+  it('still highlights the active schedule row so the current route is legible', () => {
+    renderSidebar({ current: 'schedule:generated' })
+    const generated = screen.getByText('Generated Schedule').closest('button')
+    const manual = screen.getByText('Manual Build').closest('button')
+    // The active row diverges in style from an inactive sibling — that
+    // divergence IS the "which schedule am I in" signal.
+    expect(generated.getAttribute('style')).not.toBe(manual.getAttribute('style'))
+    expect(generated.getAttribute('style')).toContain('var(--primary)')
+  })
+})
+
 describe('Sidebar: System items live behind the Settings gear', () => {
   it('does not show Camp/Conflicts/Trash/LAN & Devices in the main nav', () => {
     renderSidebar()

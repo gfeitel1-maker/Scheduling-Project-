@@ -103,6 +103,13 @@ export const NAV_SECTIONS = [
   {
     key: 'plants',
     title: 'Plants',
+    // Pinned: never collapsible (WS5 S1, docs/work/specs/2026-08-29-ws5-
+    // schedule-screens.md §1a). Route legibility lives in the sidebar — the
+    // active schedule row's highlight is how a director knows which of the
+    // four schedules they're in, so these rows must never fold out of view.
+    // Germination/Sprouts stay collapsible (the tuck-away-setup affordance);
+    // only Plants carries this.
+    pinned: true,
     // The tree that grows above — the schedules.
     items: [
       // Two ways to build a week, side by side. Order is alphabetical and
