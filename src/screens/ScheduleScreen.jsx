@@ -745,6 +745,18 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // paint must already have the right colours, and it is idempotent.
   useMemo(() => setActivityPalette(activities), [activities])
 
+  // "Still needed" and "Spread across the week" measure per-activity targets
+  // (min_per_week, prefer_before_day/_min) that many camps never configure —
+  // in that case the finding count is structurally always 0, not a real
+  // "checked and clean" zero, so the badge must not render at all. Field
+  // access mirrors buildSchedule.js exactly (src/engine/buildSchedule.js
+  // ~line 627 and ~644) so the badge-gate and the finding-emit agree.
+  const hasCoverageTargets = useMemo(() => activities.some(a => (a.min_per_week ?? 0) > 0), [activities])
+  const hasSpreadTargets = useMemo(
+    () => activities.some(a => a.prefer_before_day != null && a.prefer_before_day_min != null),
+    [activities]
+  )
+
   // Which saved version, if any, is the week currently displayed. Derived from
   // the payloads on every change rather than stored, so the label cannot go
   // stale after an edit or a restore — and so it is never inferred from list
@@ -1119,20 +1131,24 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
               onClick={() => toggleRail('UNFILLABLE')}
             />
           )}
-          <StatBadge
-            label="Still needed"
-            value={activeFindings.filter(f => f.kind === 'UNDERSERVED').length}
-            color={activeFindings.some(f => f.kind === 'UNDERSERVED') ? 'var(--accent)' : 'var(--text-secondary)'}
-            active={!isManual && railView === 'UNDERSERVED'}
-            onClick={() => toggleRail(isManual ? 'ALL' : 'UNDERSERVED')}
-          />
-          <StatBadge
-            label="Spread across the week"
-            value={activeFindings.filter(f => f.kind === 'DISTRIBUTION').length}
-            color={activeFindings.some(f => f.kind === 'DISTRIBUTION') ? 'var(--secondary)' : 'var(--text-secondary)'}
-            active={!isManual && railView === 'DISTRIBUTION'}
-            onClick={() => toggleRail(isManual ? 'ALL' : 'DISTRIBUTION')}
-          />
+          {hasCoverageTargets && (
+            <StatBadge
+              label="Still needed"
+              value={activeFindings.filter(f => f.kind === 'UNDERSERVED').length}
+              color={activeFindings.some(f => f.kind === 'UNDERSERVED') ? 'var(--accent)' : 'var(--text-secondary)'}
+              active={!isManual && railView === 'UNDERSERVED'}
+              onClick={() => toggleRail(isManual ? 'ALL' : 'UNDERSERVED')}
+            />
+          )}
+          {hasSpreadTargets && (
+            <StatBadge
+              label="Spread across the week"
+              value={activeFindings.filter(f => f.kind === 'DISTRIBUTION').length}
+              color={activeFindings.some(f => f.kind === 'DISTRIBUTION') ? 'var(--secondary)' : 'var(--text-secondary)'}
+              active={!isManual && railView === 'DISTRIBUTION'}
+              onClick={() => toggleRail(isManual ? 'ALL' : 'DISTRIBUTION')}
+            />
+          )}
           {/* Read the whole list without picking a concern first — opens the
               list showing everything and leaves the grid calm. */}
           {!isManual && findingsRows.length > 0 && (
