@@ -72,7 +72,7 @@ describe('migration v46: day_override_templates/day_override_template_slots remo
   it('declares schema version 46 on a fresh db and does not create either table', () => {
     const db = freshDb()
     expect(getSchemaVersion(db)).toBe(CURRENT_SCHEMA_VERSION)
-    expect(CURRENT_SCHEMA_VERSION).toBe(51)
+    expect(CURRENT_SCHEMA_VERSION).toBe(52)
     expect(db.prepare('SELECT COUNT(*) c FROM schema_migrations WHERE version = 46').get().c).toBe(1)
     expect(tableExists(db, 'day_override_templates')).toBe(false)
     expect(tableExists(db, 'day_override_template_slots')).toBe(false)

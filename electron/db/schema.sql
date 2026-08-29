@@ -164,6 +164,36 @@ CREATE TABLE IF NOT EXISTS import_evidence (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_import_evidence_latest
   ON import_evidence (camp_id, entity_type, entity_id, field);
 
+-- Host-only table, like source_aliases/import_evidence/host_signing_key.
+-- NEVER included in any full-sync SELECT/payload, NEVER sent over the wire,
+-- NEVER added to DIRECT_CAMP_ENTITIES or PROJECTIONS. One row per still-
+-- unresolved reconciliation decision, written only from inside commitPlan's
+-- commit transaction (electron/ops/ingest.js), admin-gated by the same
+-- import IPC boundary as everything else in that transaction. Read/dismissed
+-- via electron/ops/openReconciliationDecisions.js, host-only IPC.
+-- docs/adr/2026-08-28-persisted-reconciliation-decisions.md.
+CREATE TABLE IF NOT EXISTS open_reconciliation_decisions (
+  id TEXT PRIMARY KEY,          -- decisionId/fixedEventDecisionId verbatim (confirm_value/
+                                 -- confirm_change only) — never a new UUID. Held conflicts are
+                                 -- out of scope (ADR §1a): they never reach the commit write.
+  camp_id TEXT NOT NULL REFERENCES camps(id),
+  entity_type TEXT NOT NULL,    -- one of the 6 ingestible entity types
+  cohort_id TEXT,                -- populated ONLY for cohort-scoped types (tiers, time_blocks); NULL otherwise
+  entity_id TEXT,                -- plain TEXT, not a FK; null for creates, fixed-event decisions, conflict decisions
+  identity_key TEXT NOT NULL,   -- entity_id when present; otherwise a stable (name/timeBlock/days) or
+                                 -- (entity/name/heldKind/field) tuple string — always populated
+  kind TEXT NOT NULL,           -- 'confirm_value' | 'confirm_change' | 'resolve_conflict'
+  domain_key TEXT NOT NULL,     -- precomputed via domainOf() at write time
+  child_key TEXT NOT NULL,      -- precomputed via childOf() at write time
+  entity_name TEXT,             -- display name
+  reason TEXT,                  -- the decision's .reason/why text
+  import_run_id TEXT NOT NULL,  -- same value import_evidence.import_run_id gets for this commit
+  created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_open_reconciliation_decisions_lookup
+  ON open_reconciliation_decisions (camp_id, entity_type, cohort_id);
+
 -- DRIFTED TABLE: a migrated database has one additional column not listed below.
 -- Migration-added columns (see localDb.js):
 --   v8:  client_write_id TEXT  (already present in this CREATE TABLE — added here

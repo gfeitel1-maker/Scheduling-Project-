@@ -14,7 +14,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 // The highest schema_migrations.version this build of the app knows about.
 // If an opened DB file has a higher version, the app refuses to migrate it
 // (it was written by a newer build) and returns { code: 'schema_too_new' }.
-export const CURRENT_SCHEMA_VERSION = 51
+export const CURRENT_SCHEMA_VERSION = 52
 
 export function initSchema(db) {
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8')
@@ -2018,6 +2018,38 @@ export function initSchema(db) {
     })()
 
     db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (51, ?)').run(
+      new Date().toISOString()
+    )
+  }
+
+  // v52 — open_reconciliation_decisions (docs/adr/2026-08-28-persisted-
+  // reconciliation-decisions.md). Host-local journal of still-unresolved
+  // reconciliation decisions, same posture as source_aliases/import_evidence.
+  // No backfill: every camp starts with zero open decisions.
+  if (getSchemaVersion(db) >= 51 && getSchemaVersion(db) < 52) {
+    db.transaction(() => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS open_reconciliation_decisions (
+          id TEXT PRIMARY KEY,
+          camp_id TEXT NOT NULL REFERENCES camps(id),
+          entity_type TEXT NOT NULL,
+          cohort_id TEXT,
+          entity_id TEXT,
+          identity_key TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          domain_key TEXT NOT NULL,
+          child_key TEXT NOT NULL,
+          entity_name TEXT,
+          reason TEXT,
+          import_run_id TEXT NOT NULL,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_open_reconciliation_decisions_lookup
+          ON open_reconciliation_decisions (camp_id, entity_type, cohort_id);
+      `)
+    })()
+
+    db.prepare('INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (52, ?)').run(
       new Date().toISOString()
     )
   }

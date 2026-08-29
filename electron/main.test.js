@@ -2140,6 +2140,68 @@ describe('confirmAlias handler: who may confirm, and from where (S1b)', () => {
   })
 })
 
+// docs/adr/2026-08-28-persisted-reconciliation-decisions.md §4b.
+describe('listOpenReconciliationDecisions / dismissOpenReconciliationDecisions handlers — host-only, admin-gated', () => {
+  async function adminToken(handlers) {
+    await seedCampAndUser({ name: 'RuthORD', pin: '4321', role: 'admin' })
+    const { token } = await handlers.login({ name: 'RuthORD', pin: '4321' })
+    return token
+  }
+
+  it('list rejects with no token', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.listOpenReconciliationDecisions({})).toThrow('token is required')
+  })
+
+  it('dismiss rejects with no token', () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    expect(() => handlers.dismissOpenReconciliationDecisions({})).toThrow('token is required')
+  })
+
+  it('refuses a staff token for list', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7501 })
+    await seedCampAndUser({ name: 'StaffORD', pin: '1234', role: 'staff' })
+    const { token } = await handlers.login({ name: 'StaffORD', pin: '1234' })
+
+    expect(() => handlers.listOpenReconciliationDecisions({ token })).toThrow(/admin role required/i)
+  })
+
+  it('refuses a device in Client mode for both list and dismiss', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    const token = await adminToken(handlers)
+    await handlers.chooseMode({ mode: 'client', hostAddress: 'ws://192.168.1.5:7100' })
+
+    expect(() => handlers.listOpenReconciliationDecisions({ token })).toThrow(
+      'Reconciliation decisions can only be read on the main computer.'
+    )
+    expect(() => handlers.dismissOpenReconciliationDecisions({ token, ids: ['x'] })).toThrow(
+      'Reconciliation decisions can only be dismissed on the main computer.'
+    )
+  })
+
+  it('lets an admin on the Host list and dismiss rows', async () => {
+    const handlers = makeHandlers(db, deviceId, {})
+    await handlers.chooseMode({ mode: 'host', campName: 'Camp Test', port: 7502 })
+    const token = await adminToken(handlers)
+    const campIdHere = db.prepare('SELECT id FROM camps LIMIT 1').get().id
+    db.prepare(
+      `INSERT INTO open_reconciliation_decisions
+         (id, camp_id, entity_type, cohort_id, entity_id, identity_key, kind, domain_key, child_key, entity_name, reason, import_run_id, created_at)
+       VALUES ('groups:g1', ?, 'groups', NULL, 'g1', 'g1', 'confirm_value', 'Structure', 'Groups', 'Bunk 1', 'r', 'run1', ?)`
+    ).run(campIdHere, new Date().toISOString())
+
+    const rows = handlers.listOpenReconciliationDecisions({ token })
+    expect(rows.map((r) => r.id)).toEqual(['groups:g1'])
+
+    // Dismiss succeeds even for an id whose entity no longer exists —
+    // no join to entity liveness (§4c's dead-end guarantee).
+    const result = handlers.dismissOpenReconciliationDecisions({ token, ids: ['groups:g1', 'not-a-real-id'] })
+    expect(result).toEqual({ ok: true, dismissed: 1 })
+    expect(handlers.listOpenReconciliationDecisions({ token })).toEqual([])
+  })
+})
+
 describe('the generic write() path refuses source_aliases (S1b)', () => {
   it('throws rather than silently no-opping', async () => {
     const handlers = makeHandlers(db, deviceId, {})

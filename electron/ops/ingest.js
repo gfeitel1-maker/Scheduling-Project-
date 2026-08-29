@@ -26,6 +26,8 @@ import { activityTruthStatus } from '../../src/ingest/truthStatus.js'
 import { resolveLocationCreateId } from './locationCreate.js'
 import { PROJECTIONS } from './projections.js'
 import { U2_DELETABLE_ENTITIES, referencesInto } from './undoReferences.js'
+import { buildReconciliationReport } from '../../src/ingest/reconciliationReport.js'
+import { replaceOpenDecisionsForCommit } from './openReconciliationDecisions.js'
 
 // U2 (docs/adr/2026-08-17-onescreen-reconciliation-undo.md, "Finding 4 fix").
 // Delete order: reverse of INGESTIBLE_ENTITIES with anchor_activities first —
@@ -2004,6 +2006,38 @@ export function commitPlan(db, plan, { author_user_id = null, device_id, resolut
         })
       }
       multiBlockEventsCreated.push({ eventId, name })
+    }
+
+    // Persisted open reconciliation decisions (docs/adr/2026-08-28-persisted-
+    // reconciliation-decisions.md §3). Symmetrical to the import_evidence
+    // writes above: computed from plan.items — the same input the director's
+    // preview report was built from — after buildPlan has already folded in
+    // whatever `resolutions` T73 resolved (a resolved conflict item is no
+    // longer op:'conflict' by this point). Runs inside this same transaction
+    // (rolled back together with everything else on HELD/dryRun/any throw),
+    // scoped to every entity_type this plan touched so an untouched type's
+    // open rows are never amnestied (§4c).
+    {
+      const openReport = buildReconciliationReport({ planItems: plan.items })
+      // Held/identity conflicts (kind:'resolve_conflict') never reach this
+      // write step: any op:'conflict' item in the plan trips the
+      // hold-the-whole-import throw above (conflicts.length > 0 → HELD), and
+      // the UI's commit inputs strip resolve_conflict via filterQueueDecisions
+      // — so buildReconciliationReport({planItems}) here only ever yields
+      // confirm_value/confirm_change. Held conflicts are out of scope for this
+      // store (ADR §1a); they are surfaced pre-commit on the held-resolution
+      // lane, never persisted as durable rows.
+      const OPEN_KINDS = new Set(['confirm_value', 'confirm_change'])
+      const openDecisions = openReport.decisions.filter((d) => OPEN_KINDS.has(d.kind))
+      const touchedEntityTypes = [...new Set(plan.items.map((item) => item.entity))]
+      replaceOpenDecisionsForCommit(db, {
+        campId: camp_id,
+        decisions: openDecisions,
+        touchedEntityTypes,
+        cohortId: cohort_id,
+        importRunId: evidenceRunId,
+        createdAt: evidenceCommittedAt,
+      })
     }
 
     // D1: everything above ran and every count/drift array is populated —
