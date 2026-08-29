@@ -698,6 +698,26 @@ export const S = {
     fontSize: 12,
     color: 'var(--text-secondary)',
   },
+  // --- Chips / pills (colored fill + white text) ---
+  // The "colored pill, white text" shape used by toggleable filter chips
+  // (group/day pickers, reconciliation decision chips) and static status
+  // badges (device authorization, activity priority tags). `selected`
+  // switches between the filled/on look and the surface/off look; overrides
+  // tune radius/padding/size per call site without re-deriving the fill
+  // logic. This is the one place #fff is allowed as a chip text color.
+  chip: (color, selected, overrides = {}) => ({
+    borderRadius: 20,
+    padding: '5px 12px',
+    fontSize: 13,
+    fontWeight: 600,
+    fontFamily: 'inherit',
+    cursor: 'pointer',
+    border: `1.5px solid ${selected ? color : 'var(--border)'}`,
+    background: selected ? color : 'var(--surface)',
+    color: selected ? '#fff' : 'var(--text)',
+    ...overrides,
+  }),
+
   // W12b (docs/work/specs/2026-08-22-brand-placement-round2.md §3) — optional
   // icon slot for S.emptyState. Sits directly on the page/table background,
   // no card, matching DESIGN_STANDARD §5a's "calm, not boxed" rule for
