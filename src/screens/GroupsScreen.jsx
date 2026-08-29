@@ -386,7 +386,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       error={error}
     >
       {tiers.length === 0 && !loading && (
-        <div style={{ background: '#FFF8E7', border: '1px solid #F5A623', borderRadius: 6, padding: '10px 14px', marginBottom: 16, fontSize: 13, color: '#7a5100' }}>
+        <div style={S.cautionBanner}>
           No age divisions found. Set up age divisions first so you can assign groups to them.
         </div>
       )}

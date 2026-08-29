@@ -174,10 +174,11 @@ To detect violations mechanically: `grep -r "from '.*electron/" src/ --include="
 
 ## 7. Styling is inline React style objects, with one scoped exception
 
-**Global design tokens live in CSS.** `src/index.css` defines `--primary` and the whole token set;
-`src/App.css` holds app-shell rules. This has always been true — the pre-2026-08-06 wording of this
-section ("no CSS files for component styling") described a convention that the codebase never
-actually matched.
+**Global design tokens live in CSS.** `src/index.css` defines `--primary` and the whole token set.
+(A dead `src/App.css` of unimported Vite boilerplate — never referenced by any code — was removed
+2026-08-29.) The pre-2026-08-06 wording of this section ("no CSS files for component styling")
+described a convention that the codebase never actually matched: the token layer has always lived
+in `index.css`.
 
 **Component styles are inline React style objects.** Shared constants live in
 `src/styles/shared.js`. Token values and their meanings are governed by

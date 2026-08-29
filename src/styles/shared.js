@@ -166,6 +166,17 @@ export const S = {
     fontSize: 13,
     color: 'var(--danger)',
   },
+  // Advisory/caution copy (e.g. "set this up first") — bronze --accent per
+  // DESIGN_STANDARD §4, never a separately-named amber.
+  cautionBanner: {
+    background: 'color-mix(in srgb, var(--accent) 12%, var(--surface))',
+    border: '1px solid color-mix(in srgb, var(--accent) 45%, var(--border))',
+    borderRadius: 6,
+    padding: '10px 14px',
+    marginBottom: 16,
+    fontSize: 13,
+    color: 'color-mix(in srgb, var(--accent) 65%, var(--text))',
+  },
 
   // --- Auth / onboarding shared primitives ---
   authPage: {

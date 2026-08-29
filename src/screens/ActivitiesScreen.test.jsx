@@ -1094,4 +1094,20 @@ describe('ActivitiesScreen — row-click to edit', () => {
     await waitFor(() => expect(localClient.previewDelete).toHaveBeenCalled())
     expect(screen.queryByText('Edit: Archery')).toBeNull()
   })
+
+  it('shows a save failure through the shared danger error primitive, not hardcoded red', async () => {
+    localClient.write.mockRejectedValue(new Error('disk failure'))
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    const row = screen.getByRole('button', { name: 'Edit Archery' })
+    fireEvent.keyDown(row, { key: 'Enter' })
+    await waitFor(() => expect(screen.queryByText('Edit: Archery')).not.toBeNull())
+
+    fireEvent.click(screen.getByText('Save Changes'))
+
+    const banner = await waitFor(() => screen.getByText(/Your changes could not be saved/))
+    expect(banner.style.background).toMatch(/var\(--danger\)/)
+    expect(banner.style.background).not.toMatch(/#fff5f5/i)
+  })
 })

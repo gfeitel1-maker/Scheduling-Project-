@@ -405,7 +405,7 @@ function ActivityModal({ activity, tiers, groups, activities, locations, onSave,
         </div>
 
         {saveError && (
-          <div style={{ fontSize: 12, color: 'var(--warning)', marginBottom: 10, padding: '8px 10px', background: '#fff5f5', borderRadius: 5, border: '1px solid #f5c6c6' }}>
+          <div style={S.errorBanner}>
             {saveError}
           </div>
         )}
