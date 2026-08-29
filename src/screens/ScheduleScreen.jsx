@@ -1049,6 +1049,12 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
                     ⛅ Weather Mode {weatherMode ? 'ON' : 'OFF'}
                   </button>
 
+                  {/* VersionsDropdown owns its own outside-mousedown-closes
+                      listener, independent of this menu's. Clicking a sibling
+                      control below (Weather/Export/Rebuild) while Versions is
+                      open is "outside" VersionsDropdown but still "inside"
+                      this overflow menu, so it closes the Versions panel
+                      without closing the overflow menu itself — intentional. */}
                   <VersionsDropdown
                     snapshots={versionRows}
                     isOpen={showVersions}

@@ -200,6 +200,63 @@ describe('WS5 S2a — toolbar slims: Field Trips removed, route label removed, c
     expect(rebuildBtn.disabled).toBe(true)
     expect(rebuildBtn.getAttribute('title')).toBe('Admin only')
   })
+
+  // Code-review round 2: the "⋯" menu's own dismissal was only implicitly
+  // covered (via the fact that other tests happened to leave it open). These
+  // guard the Escape/outside-click handlers directly so a later edit that
+  // drops them fails a test instead of silently regressing.
+  it('Escape closes the "⋯" overflow menu and returns focus to the "More" trigger', async () => {
+    mockList()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+
+    openMoreMenu()
+    expect(screen.getByText('Export to Excel')).toBeTruthy()
+
+    fireEvent.keyDown(screen.getByRole('menu', { name: 'More' }), { key: 'Escape' })
+
+    expect(screen.queryByText('Export to Excel')).toBeNull()
+    expect(document.activeElement).toBe(screen.getByTitle('More'))
+  })
+
+  it('an outside mousedown closes the "⋯" overflow menu', async () => {
+    mockList()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+
+    openMoreMenu()
+    expect(screen.getByText('Export to Excel')).toBeTruthy()
+
+    fireEvent.mouseDown(document.body)
+
+    expect(screen.queryByText('Export to Excel')).toBeNull()
+  })
+
+  // Code-review round 2: VersionsDropdown and the "⋯" menu each carry their
+  // own independent outside-click handler. Clicking a sibling control while
+  // Versions is open is "outside" VersionsDropdown but "inside" the overflow
+  // menu, so it closes just the Versions panel — the overflow menu itself
+  // stays open and coherent. See the comment above VersionsDropdown's render
+  // in ScheduleScreen.jsx.
+  it('clicking a sibling control (Weather Mode) while Versions is open closes the Versions panel, toggles weather, and leaves the overflow menu open', async () => {
+    mockList()
+    render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+
+    openMoreMenu()
+    fireEvent.click(screen.getByText('📋 Versions ▾'))
+    await waitFor(() => expect(screen.getByText('Version History')).toBeTruthy())
+
+    const weatherBtn = screen.getByText('⛅ Weather Mode OFF')
+    fireEvent.mouseDown(weatherBtn)
+    fireEvent.click(weatherBtn)
+
+    expect(screen.queryByText('Version History')).toBeNull()
+    expect(screen.getByText('⛅ Weather Mode ON')).toBeTruthy()
+    // The overflow menu itself is still open — its other controls are
+    // still reachable.
+    expect(screen.getByText('Export to Excel')).toBeTruthy()
+  })
 })
 
 // Round 2 Fix 1: bulk_replace rows carry `flags` JSON.stringify'd (the op-log

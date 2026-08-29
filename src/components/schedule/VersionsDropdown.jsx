@@ -102,7 +102,11 @@ export default function VersionsDropdown({ snapshots, isOpen, role, onToggle, on
                               onRenameAutoSave(snap.id, renameValue.trim())
                               setRenamingId(null)
                             }
-                            if (e.key === 'Escape') setRenamingId(null)
+                            // Nested inside the ScheduleScreen "⋯" overflow
+                            // menu, which has its own Escape handler to close
+                            // the whole menu — cancelling a rename must not
+                            // bubble out and take the overflow menu with it.
+                            if (e.key === 'Escape') { e.stopPropagation(); setRenamingId(null) }
                           }}
                           style={{ ...S.input, padding: '3px 6px', fontSize: 12, width: '100%' }}
                           placeholder="Version name…"
