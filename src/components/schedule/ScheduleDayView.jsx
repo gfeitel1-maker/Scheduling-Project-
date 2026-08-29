@@ -9,6 +9,7 @@ import { placeCell, placeRowHeader } from '../../screens/schedule/gridPlacement'
 import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
 import { blockNamesForSpan } from './cellLabel'
 import useGridKeyboardNav from './useGridKeyboardNav'
+import { S } from '../../styles/shared'
 import './scheduleGrid.css'
 
 const NO_COLLAPSE = new Set()
@@ -58,13 +59,7 @@ export default function ScheduleDayView({
       {/* Day pills */}
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
         {days.map(d => (
-          <button key={d.id} onClick={() => onSelectDay(d.id)} className="press-98" style={{
-            padding: '5px 16px', borderRadius: 20,
-            border: `1.5px solid ${selectedDay === d.id ? 'var(--primary)' : 'var(--border)'}`,
-            background: selectedDay === d.id ? 'var(--primary)' : 'var(--surface)',
-            color: selectedDay === d.id ? '#fff' : 'var(--text)',
-            fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-          }}>{d.label}</button>
+          <button key={d.id} onClick={() => onSelectDay(d.id)} className="press-98" style={S.chip('var(--primary)', selectedDay === d.id, { padding: '5px 16px', fontSize: 12, fontFamily: 'var(--font-sans)' })}>{d.label}</button>
         ))}
         {/* T108 Phase 2 (Designer spec §1.1) — one control, next to the
             existing week/day selector controls, since every column here

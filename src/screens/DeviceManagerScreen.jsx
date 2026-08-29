@@ -264,21 +264,11 @@ const styles = {
   },
   badgeAuthorized: {
     display: 'inline-block',
-    padding: '2px 8px',
-    borderRadius: 99,
-    background: 'var(--primary)',
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: 600,
+    ...S.chip('var(--primary)', true, { padding: '2px 8px', borderRadius: 99, fontSize: 11, border: 'none', cursor: 'default' }),
   },
   badgePending: {
     display: 'inline-block',
-    padding: '2px 8px',
-    borderRadius: 99,
-    background: 'var(--warning)',
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: 600,
+    ...S.chip('var(--warning)', true, { padding: '2px 8px', borderRadius: 99, fontSize: 11, border: 'none', cursor: 'default' }),
   },
   badgeRevoked: {
     display: 'inline-block',

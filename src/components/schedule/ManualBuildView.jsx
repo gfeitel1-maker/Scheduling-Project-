@@ -8,6 +8,7 @@ import { rowFlagKind, ROW_FLAG_TITLE } from '../../screens/schedule/rowFlags'
 import { blockNamesForSpan } from './cellLabel'
 import { computeSpanCellProps } from '../../screens/schedule/gridGeometry'
 import useGridKeyboardNav from './useGridKeyboardNav'
+import { S } from '../../styles/shared'
 import './scheduleGrid.css'
 
 const NO_COLLAPSE = new Set()
@@ -101,13 +102,7 @@ export default function ManualBuildView({
       {/* Group pills */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
         {groups.map(g => (
-          <button key={g.id} onClick={() => onSelectGroup(g.id)} style={{
-            padding: '5px 12px', borderRadius: 20,
-            border: `1.5px solid ${selectedGroup === g.id ? 'var(--primary)' : 'var(--border)'}`,
-            background: selectedGroup === g.id ? 'var(--primary)' : 'var(--surface)',
-            color: selectedGroup === g.id ? '#fff' : 'var(--text)',
-            fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--font-sans)',
-          }}>{g.name}</button>
+          <button key={g.id} onClick={() => onSelectGroup(g.id)} style={S.chip('var(--primary)', selectedGroup === g.id, { fontSize: 12, fontFamily: 'var(--font-sans)' })}>{g.name}</button>
         ))}
       </div>
 

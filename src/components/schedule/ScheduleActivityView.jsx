@@ -60,7 +60,7 @@ export default function ScheduleActivityView({
                 {place && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 6 }}>{place}</div>}
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                   {act.priority === 'high' && (
-                    <span style={{ fontSize: 10, background: color, color: '#fff', borderRadius: 3, padding: '1px 6px', fontWeight: 600 }}>HIGH</span>
+                    <span style={S.chip(color, true, { fontSize: 10, borderRadius: 3, padding: '1px 6px', border: 'none', cursor: 'default' })}>HIGH</span>
                   )}
                   {act.is_outdoor && (
                     <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 600 }}>OUTDOOR</span>
@@ -91,7 +91,7 @@ export default function ScheduleActivityView({
                 <span style={{ width: 12, height: 12, borderRadius: '50%', background: color, display: 'inline-block' }} />
                 <span style={{ fontFamily: 'var(--font-condensed)', fontWeight: 600, fontSize: 18, color: 'var(--text)' }}>{act?.name}</span>
                 {place && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{place}</span>}
-                {act?.priority === 'high' && <span style={{ fontSize: 11, background: color, color: '#fff', borderRadius: 3, padding: '2px 8px', fontWeight: 600 }}>HIGH PRIORITY</span>}
+                {act?.priority === 'high' && <span style={S.chip(color, true, { fontSize: 11, borderRadius: 3, padding: '2px 8px', border: 'none', cursor: 'default' })}>HIGH PRIORITY</span>}
                 {act?.is_outdoor && <span style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>OUTDOOR</span>}
               </div>
 
