@@ -452,7 +452,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
       )}
 
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Group</div>
+        <div style={S.sectionLabel}>Add Group</div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <input placeholder="Group name" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGroup()} style={{ ...S.input, flex: '1 1 160px', minWidth: 120 }} />
           <select value={newTierId} onChange={e => setNewTierId(e.target.value)} onKeyDown={e => e.key === 'Enter' && addGroup()} style={{ ...S.input, flex: '0 0 140px' }}>
@@ -563,7 +563,7 @@ function WeekToggle({ on, label, onToggle }) {
         width: KNOB,
         height: KNOB,
         borderRadius: '50%',
-        background: '#fff',
+        background: 'var(--surface-elevated)',
         transition: reduced ? 'none' : 'left 120ms ease',
       }} />
     </button>

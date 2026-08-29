@@ -201,7 +201,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
       )}
 
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Day</div>
+        <div style={S.sectionLabel}>Add Day</div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <input placeholder="Label (e.g. Monday)" value={newLabel} onChange={e => setNewLabel(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDay()} style={{ ...S.input, flex: '1 1 150px' }} />
           <select value={newDow} onChange={e => setNewDow(e.target.value)} onKeyDown={e => e.key === 'Enter' && addDay()} style={{ ...S.input, flex: '0 0 140px' }}>

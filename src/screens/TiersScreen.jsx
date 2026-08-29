@@ -421,7 +421,7 @@ export default function TiersScreen({ campId, role, onNavigate }) {
 
       {/* Add row */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        <div style={S.sectionLabel}>
           Add Age Division
         </div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>

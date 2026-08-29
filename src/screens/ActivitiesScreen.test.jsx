@@ -1110,4 +1110,24 @@ describe('ActivitiesScreen — row-click to edit', () => {
     expect(banner.style.background).toMatch(/var\(--danger\)/)
     expect(banner.style.background).not.toMatch(/#fff5f5/i)
   })
+
+  it('selected priority button routes its fill/text through S.chip, not a hardcoded #fff', async () => {
+    localClient.list.mockImplementation(entity => {
+      if (entity === 'activities') return Promise.resolve([activity({ priority: 'low' })])
+      return Promise.resolve([])
+    })
+    render(<ActivitiesScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} weekId={null} weeks={[]} />)
+    await waitFor(() => expect(screen.queryByText('Archery')).not.toBeNull())
+
+    const row = screen.getByRole('button', { name: 'Edit Archery' })
+    fireEvent.keyDown(row, { key: 'Enter' })
+    await waitFor(() => expect(screen.queryByText('Edit: Archery')).not.toBeNull())
+
+    const selected = screen.getByRole('button', { name: 'Low' })
+    const unselected = screen.getByRole('button', { name: 'High' })
+    expect(selected.style.background).toBe('var(--primary)')
+    expect(selected.style.color).toBe('rgb(255, 255, 255)')
+    expect(unselected.style.background).toBe('var(--surface)')
+    expect(unselected.style.color).toBe('var(--text)')
+  })
 })

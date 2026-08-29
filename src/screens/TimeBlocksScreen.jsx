@@ -425,7 +425,7 @@ export default function TimeBlocksScreen({ campId, role, onNavigate }) {
       )}
 
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Time Block</div>
+        <div style={S.sectionLabel}>Add Time Block</div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           <input placeholder="Name (e.g. Block 1)" value={newName} onChange={e => setNewName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addBlock()} style={{ ...S.input, flex: '1 1 120px' }} />
           <input type="time" value={newStart} onChange={e => setNewStart(e.target.value)} onKeyDown={e => e.key === 'Enter' && addBlock()} style={{ ...S.input, flex: '0 0 120px' }} />

@@ -163,7 +163,7 @@ export default function ElectivesScreen({ campId, role, onNavigate }) {
       )}
 
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px' }}>
-        <div style={{ fontFamily: 'var(--font-condensed)', fontWeight: 700, fontSize: 13, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add Elective Set</div>
+        <div style={S.sectionLabel}>Add Elective Set</div>
         <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
           <div style={{ flex: '1 1 220px' }}>
             <label style={fieldLabel}>Name</label>
