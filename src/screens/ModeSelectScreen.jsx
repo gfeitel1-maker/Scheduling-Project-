@@ -1,11 +1,12 @@
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import rootPattern from '../assets/brand/root-pattern-bg.jpg'
 
 export default function ModeSelectScreen({ onChooseHost, onChooseJoin }) {
+  const enterStyle = useEnterTransition('liftFade')
   return (
     <div style={{ ...S.authPage, position: 'relative', overflow: 'hidden' }}>
       <div style={modeSelectStyles.watermark} aria-hidden="true" />
-      <div style={{ ...S.authCard, position: 'relative', zIndex: 1 }}>
+      <div style={{ ...S.authCard, position: 'relative', zIndex: 1, ...enterStyle }}>
         <div style={S.authLogoBlock}>
           <div style={S.authLogo}>Shoresh</div>
           <div style={S.authLogoSub}>Camp activity scheduling</div>

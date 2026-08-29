@@ -3,7 +3,7 @@ import { describeWriteFailure, deleteRefusalMessage } from '../utils/writeErrorM
 import * as XLSX from 'xlsx'
 import { aoaToSanitizedSheet, unescapeRow } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
-import { S, prefersReducedMotion } from '../styles/shared'
+import { S, prefersReducedMotion, useEnterTransition } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import ImportModal from '../components/setup/ImportModal'
@@ -362,8 +362,11 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
 
   const currentWeek = weeks.find(w => w.id === weekId)
 
+  const enterStyle = useEnterTransition('liftFade')
+
   return (
     <>
+    <div style={enterStyle}>
     {weeks.length > 0 && (
       <WeekContextBar
         weekId={weekId}
@@ -465,6 +468,7 @@ export default function GroupsScreen({ campId, role, onNavigate, weekId, weeks =
         </div>
       </div>
       </SetupScreenShell>
+      </div>
 
       <ImportModal
         step={importStep}

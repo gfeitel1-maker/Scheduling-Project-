@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import { usePendingConflicts } from '../hooks/usePendingConflicts'
 import { noticeForStatus } from './conflictsNotice'
 
@@ -231,9 +231,10 @@ export default function ConflictsScreen({ pendingConflicts }) {
   // eslint-disable-next-line react-hooks/rules-of-hooks
   const fallback = pendingConflicts ? null : usePendingConflicts()
   const { conflicts, loading, resolveConflict, resolveAuthorLabel, resolvedMeta } = pendingConflicts ?? fallback
+  const enterStyle = useEnterTransition('liftFade')
 
   return (
-    <div style={{ maxWidth: 760 }}>
+    <div style={{ maxWidth: 760, ...enterStyle }}>
       {loading ? (
         <div style={S.stateLoading}>Loading…</div>
       ) : conflicts.length === 0 ? (

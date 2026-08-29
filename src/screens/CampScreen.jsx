@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { describeWriteFailure } from '../utils/writeErrorMessage'
 import { localClient } from '../localClient'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 
 // What is left of the old Camp Setup screen: the camp's name.
 //
@@ -55,8 +55,10 @@ export default function CampScreen({ campId }) {
     }
   }
 
+  const enterStyle = useEnterTransition('liftFade')
+
   return (
-    <div style={{ maxWidth: 560 }}>
+    <div style={{ maxWidth: 560, ...enterStyle }}>
       {error && <div style={{ ...S.errorBanner, marginBottom: 16 }}>{error}</div>}
 
       <p style={{ margin: '0 0 18px', fontSize: 13, lineHeight: 1.6, color: 'var(--text-secondary)' }}>
