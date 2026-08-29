@@ -46,3 +46,6 @@ electron/build-info.json
 
 # Real camp schedule files staged for import — testing only, never committed
 .ingest-incoming/
+
+# graphify knowledge-graph artifact (regenerated locally; never committed)
+graphify-out/
