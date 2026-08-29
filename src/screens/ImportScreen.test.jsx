@@ -578,3 +578,15 @@ describe('ImportScreen — host-only gate on Client-mode devices (T93)', () => {
     expect(document.querySelector('input[type="file"]')).toBeTruthy()
   })
 })
+
+// Whole-app coherence Wave 2 — every screen should mount with the same enter
+// transition (useEnterTransition in src/styles/shared.js) so navigating
+// between screens feels consistent. ImportScreen previously rendered its
+// root with no transition at all.
+describe('ImportScreen — mount transition (coherence Wave 2)', () => {
+  it('renders its root container with the enter-transition style', () => {
+    const { container } = render(<ImportScreen campId="camp-1" onNavigate={() => {}} />)
+    const root = container.firstChild
+    expect(root.style.transition).toMatch(/opacity/)
+  })
+})

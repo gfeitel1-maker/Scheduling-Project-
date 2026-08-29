@@ -3,7 +3,7 @@ import { DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors } from
 import { localClient } from '../localClient'
 import { createScheduleRepository } from '../data/scheduleRepository'
 import { getSetupGaps, describeSetupGaps } from '../engine/readiness'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import StatBadge from '../components/schedule/StatBadge'
 import ScheduleSkeleton from '../components/schedule/ScheduleSkeleton'
 import IndeterminateBar from '../components/schedule/IndeterminateBar'
@@ -75,6 +75,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
   // neutral-entry chooser further down.
   const [localRoute, setRoute] = useState(null)
   const route = initialRoute || localRoute || 'generated'
+  const enterStyle = useEnterTransition('liftFade')
   // Which week is on screen — a camp may hold several (docs/adr/2026-08-02-
   // schedule-weeks-first-class.md). Screen-level state, symmetric to `route`:
   // switching weeks is pure navigation, no confirm, nothing saved or destroyed.
@@ -927,7 +928,7 @@ export default function ScheduleScreen({ campId, role, onNavigate, initialRoute 
 
 
   return (
-    <div style={{ maxWidth: '100%' }}>
+    <div style={{ maxWidth: '100%', ...enterStyle }}>
       {weekDeletedBanner && (
         <ErrorBanner
           onDismiss={() => setWeekDeletedBanner(null)}

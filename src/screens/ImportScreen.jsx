@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react'
 import { localClient } from '../localClient'
 import { useCohorts } from '../hooks/useCohorts'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import * as XLSX from 'xlsx'
 import { parseTextGrid } from '../ingest/textGrid'
 import { workbookToPages, groupNameFromFilename, sharedFilenamePrefix } from '../ingest/sheetGrid'
@@ -127,6 +127,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // Units and time blocks are scoped to a Program; an import files them under
   // the active one so the setup screens will show them (T33).
   const { activeCohort } = useCohorts(campId)
+  const enterStyle = useEnterTransition('liftFade')
   const [fileNames, setFileNames] = useState([])
   // ADR 2026-08-17-onescreen-reconciliation-merge.md §2 — replaces the old
   // `preview` (buildPreview's create/skip/lowConfidence shape, now deleted).
@@ -911,7 +912,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   // it is, the real security boundary.
   if (deviceMode === 'client') {
     return (
-      <div style={{ maxWidth: 760 }}>
+      <div style={{ maxWidth: 760, ...enterStyle }}>
         <div style={{
           background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 10, padding: '16px', fontSize: 13, lineHeight: 1.6, color: 'var(--text)',
@@ -924,7 +925,7 @@ export default function ImportScreen({ campId, onNavigate, deviceMode }) {
   }
 
   return (
-    <div style={{ maxWidth: 760 }}>
+    <div style={{ maxWidth: 760, ...enterStyle }}>
       <p style={{ margin: '0 0 18px', fontSize: 13, lineHeight: 1.6, color: 'var(--text-secondary)', maxWidth: '62ch' }}>
         Already have last year's schedule? Open it here and Shoresh will read the groups, days,
         periods and activities out of it. Nothing is added until you have looked at the list and

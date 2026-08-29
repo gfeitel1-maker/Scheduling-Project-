@@ -1554,3 +1554,18 @@ describe('stats bar target badges hide when no activity has the target configure
     expect(screen.getByText('Unfillable')).toBeTruthy()
   })
 })
+
+// Whole-app coherence Wave 2 — every screen should mount with the same enter
+// transition (useEnterTransition in src/styles/shared.js) so navigating
+// between screens feels consistent. ScheduleScreen previously rendered its
+// root with no transition at all.
+describe('ScheduleScreen — mount transition (coherence Wave 2)', () => {
+  it('renders its root container with the enter-transition style', async () => {
+    mockList()
+    const { container } = render(<ScheduleScreen campId={CAMP_ID} role="admin" onNavigate={() => {}} />)
+    await waitFor(() => expect(screen.getByText('Daily View')).toBeTruthy())
+
+    const root = container.firstChild
+    expect(root.style.transition).toMatch(/opacity/)
+  })
+})

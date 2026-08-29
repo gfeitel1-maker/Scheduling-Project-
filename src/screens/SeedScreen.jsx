@@ -1,4 +1,4 @@
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import sproutArt from '../assets/brand/icons/decorative-sprout.png'
 
 // The first-run landing for a camp with no setup data yet (docs/adr/2026-08-28-
@@ -10,9 +10,10 @@ import sproutArt from '../assets/brand/icons/decorative-sprout.png'
 // navSections.js's ADMIN_MENU_ITEMS). No explainer copy: the two actions and
 // the mark speak for themselves.
 export default function SeedScreen({ onNavigate }) {
+  const enterStyle = useEnterTransition('liftFade')
   return (
     <div style={S.authPage}>
-      <div style={styles.card}>
+      <div style={{ ...styles.card, ...enterStyle }}>
         <img src={sproutArt} alt="" style={styles.mark} />
         <div style={styles.heading}>Seed your camp.</div>
         <div style={styles.actions}>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { localClient } from '../localClient'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 
 // T18 / CONSTITUTION Art. V. `pairing_status` is a database enum and was
 // rendered raw — a director saw "authorized", "pending", "revoked", or the
@@ -95,8 +95,10 @@ export default function DeviceManagerScreen({ campId, role, deviceMode }) {
     }
   }
 
+  const enterStyle = useEnterTransition('liftFade')
+
   return (
-    <div style={styles.page}>
+    <div style={{ ...styles.page, ...enterStyle }}>
       <div style={styles.header}>
         <h1 style={styles.title}>Device Manager</h1>
       </div>

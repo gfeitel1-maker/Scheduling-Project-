@@ -5,7 +5,7 @@ import { aoaToSanitizedSheet } from '../utils/exportSanitize.js'
 import { localClient } from '../localClient'
 import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
-import { S } from '../styles/shared'
+import { S, useEnterTransition } from '../styles/shared'
 import DeleteRecordDialog from '../components/DeleteRecordDialog'
 import ConfirmDangerDialog from '../components/ConfirmDangerDialog'
 import SetupScreenShell from '../components/setup/SetupScreenShell'
@@ -161,8 +161,11 @@ export default function DaysScreen({ campId, role, onNavigate }) {
     XLSX.writeFile(wb, 'days_template.xlsx')
   }
 
+  const enterStyle = useEnterTransition('liftFade')
+
   return (
     <>
+    <div style={enterStyle}>
     <SetupScreenShell
       countLabel={`${days.length} day${days.length !== 1 ? 's' : ''}`}
       role={role}
@@ -208,6 +211,7 @@ export default function DaysScreen({ campId, role, onNavigate }) {
         </div>
       </div>
       </SetupScreenShell>
+      </div>
       {pendingDelete && (
         <DeleteRecordDialog
           preview={pendingDelete}
