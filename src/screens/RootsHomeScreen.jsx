@@ -265,10 +265,13 @@ function countStyle(count, hasChips) {
 
 const styles = {
   title: {
+    // WS4b refinement #5 — steps to 28px/700 as a slightly firmer anchor now
+    // that the content below it (chips, richer cards) reads heavier than
+    // 26px/600. 700 reserved for true emphasis per DESIGN_STANDARD §2.
     fontFamily: 'var(--font-condensed)',
-    fontSize: 26,
-    fontWeight: 600,
-    letterSpacing: '-0.01em',
+    fontSize: 28,
+    fontWeight: 700,
+    letterSpacing: '-0.015em',
     color: 'var(--text)',
     margin: '0 0 var(--space-4)',
   },
