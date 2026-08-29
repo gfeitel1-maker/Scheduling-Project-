@@ -102,4 +102,37 @@ describe('VersionsDropdown', () => {
     const btn = screen.getByRole('button', { name: 'Empty' })
     expect(btn.disabled).toBe(true)
   })
+
+  // WS5 S2a code review finding #2: VersionsDropdown can now be nested inside
+  // the ScheduleScreen "⋯" overflow menu, which has its own Escape handler to
+  // close the whole menu. Pressing Escape to cancel a rename must not bubble
+  // out and take the overflow menu down with it.
+  it('rename Escape cancels the rename without the keydown bubbling past the input', () => {
+    const parentKeyDown = vi.fn()
+    render(
+      <div onKeyDown={parentKeyDown}>
+        <VersionsDropdown
+          snapshots={[AUTO_SAVE]}
+          isOpen
+          role="admin"
+          onToggle={() => {}}
+          onRestore={() => {}}
+          onSaveNamed={() => {}}
+          onRenameAutoSave={() => {}}
+          onDelete={() => {}}
+        />
+      </div>
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'rename' }))
+    const input = screen.getByPlaceholderText('Version name…')
+
+    fireEvent.keyDown(input, { key: 'Escape' })
+
+    // Rename is cancelled — back to the plain display.
+    expect(screen.queryByPlaceholderText('Version name…')).toBeNull()
+    expect(screen.getByText('Auto-save')).toBeTruthy()
+    // But the keydown never reached the parent — a nesting Escape handler
+    // (like the "⋯" overflow menu's) cannot have fired from this keystroke.
+    expect(parentKeyDown).not.toHaveBeenCalled()
+  })
 })
