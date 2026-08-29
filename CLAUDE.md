@@ -88,3 +88,24 @@ The pre-rebuild Supabase backend has moved to `legacy/supabase/` and is fully re
 - `src/hooks/useSession.js` no longer exists (removed in an earlier phase).
 
 See [legacy/supabase/README.md](legacy/supabase/README.md) for more, and [PLATFORM_STATE.md](docs/current/PLATFORM_STATE.md) for what's actually active. Treat this section as historical context only.
+
+## graphify (codebase knowledge graph)
+
+A graphify knowledge graph of this repo lives in `graphify-out/` **in the main checkout only** (git-ignored, never committed). It maps the code — functions, files, calls, and cross-references — plus the ADRs and governance docs, into something queryable. Use it to *locate* and to check *blast radius*; it is a map, not an authority.
+
+**When to reach for it**
+- Before changing a shared or load-bearing symbol, get the downstream impact: `graphify affected "<symbolName>"`. This is more reliable than eyeballing imports and is the expected pre-change check for structural edits.
+- To answer "how does X work / what connects to Y", query it first: `graphify query "<question>"` — it cites `file:line`, which you then open.
+- `graphify god-nodes` surfaces the most-connected symbols — useful for scoping a review.
+
+**Honesty rules (these are the point, not decoration)**
+- The graph is a **map, not an oracle.** It narrows where to look; the code settles what is true. Never assert a graph claim you have not confirmed in the file.
+- Edges are labelled `EXTRACTED` (pulled straight from code — trustworthy) or `INFERRED` (an LLM guess — may be wrong). Treat `INFERRED` as a lead to verify, never as fact.
+- Carry the `source_location` (`file:line`) through any answer that cites the graph, so the next reader — human or agent — can click and check.
+
+**Freshness — know whether you're looking at current code**
+- Code stays fresh automatically: a post-commit hook (main checkout) re-extracts changed code files after every commit. Free, no LLM.
+- The graph is built from committed `main`. It does **not** reflect uncommitted or worktree-branch work — if you are reasoning about unmerged changes, say so and read the files directly.
+- The **doc/ADR layer does not auto-update** (that pass costs tokens). The hook only *reminds* when docs change. Refresh it deliberately by re-running `/graphify` in the main checkout; until then, treat the graph's doc/ADR nodes as possibly behind the latest commits.
+
+See [docs/adr/2026-07-28-first-pairing-domain-sync-and-template-identity.md](docs/adr/2026-07-28-first-pairing-domain-sync-and-template-identity.md) for an example of the kind of load-bearing seam the graph is good at surfacing (`deriveScheduleTemplateId`, the highest-betweenness node).
