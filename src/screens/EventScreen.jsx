@@ -22,7 +22,6 @@ import { createSetupCrudRepository } from '../data/setupCrudRepository'
 import { useCrudScreen } from '../hooks/useCrudScreen'
 import { S, useEnterTransition } from '../styles/shared'
 import { LocationPicker } from '../components/LocationPicker'
-import uiCalendar from '../assets/brand/icons/ui-calendar.png'
 
 const repository = createSetupCrudRepository({ localClient })
 const scopeFilter = (row, campId) => row.camp_id === campId
@@ -292,12 +291,7 @@ export default function EventScreen({ campId, role, initialEventId = null, onNav
         <div style={S.stateLoading}>Loading…</div>
       ) : events.length === 0 ? (
         <div style={{ ...emptyStyles.wrap, ...enter }}>
-          <img src={uiCalendar} alt="" style={S.emptyStateIcon} />
           <div style={emptyStyles.title}>No events yet</div>
-          <div style={emptyStyles.body}>
-            An event is a named block that sits on the campwide schedule — like "Color War". Add one below, then
-            place it by dragging it onto the schedule grid.
-          </div>
           <button className="press-97" onClick={() => nameRef.current?.focus()} style={{ ...S.btnPrimary, marginTop: 14 }}>
             Add your first event
           </button>
@@ -369,10 +363,5 @@ const emptyStyles = {
     fontSize: 15,
     color: 'var(--text)',
     marginTop: 8,
-  },
-  body: {
-    fontSize: 13,
-    color: 'var(--text-secondary)',
-    maxWidth: '56ch',
   },
 }
